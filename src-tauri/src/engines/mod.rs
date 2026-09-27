@@ -1,3 +1,9 @@
+mod acp;
+mod claude;
+
+#[allow(unused_imports)]
+pub use claude::{ClaudeSession, Event, PermissionDecision, SpawnOptions, claude_argv};
+
 use crate::error::{Error, Result};
 
 /// Adapters that spawn engine CLIs and translate ACP / stream-JSON into one event model.

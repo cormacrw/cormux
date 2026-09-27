@@ -15,7 +15,7 @@ export {
   type StateChanged,
 } from './bindings'
 
-export { subscribeAgentChunks, subscribeDiffs, subscribePty } from './channels'
+export { subscribeAgentChunks, subscribeDiffs, subscribePty, startStreamingSpike } from './channels'
 export { hasVersionGap }
 
 function unwrapSnapshot(

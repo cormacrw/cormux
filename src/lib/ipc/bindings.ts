@@ -46,6 +46,17 @@ async subscribeDiffs(workspaceId: string, channel: TAURI_CHANNEL<DiffUpdate>) : 
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.
+ */
+async startStreamingSpike(agent: TAURI_CHANNEL<AgentChunk>, pty: TAURI_CHANNEL<PtyChunk>) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_streaming_spike", { agent, pty }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 

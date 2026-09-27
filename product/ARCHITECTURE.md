@@ -156,7 +156,7 @@ The core of the product. Each thread is one long-lived engine process with the w
 | Cursor CLI | `agent acp` | ACP over stdio | `session/request_permission` |
 | Gemini CLI | `gemini --acp` | ACP over stdio | `session/request_permission` |
 | Codex CLI | `codex-acp` (wraps `codex app-server`) | ACP over stdio | `session/request_permission` |
-| Claude Code | `claude --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio` | Claude stream-JSON, translated to ACP events in Rust | `control_request` with subtype `can_use_tool` |
+| Claude Code | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --await-initialize` | Claude stream-JSON, translated to ACP events in Rust | `control_request` with subtype `can_use_tool` |
 
 Claude Code gets a native Rust translator because its ACP adapter is a Node package, which would mean bundling or requiring Node. Its control protocol is the one Anthropic's Agent SDK uses, but it's thinly documented and has had permission bugs, so it's the first thing to spike (see [Spikes](#spikes-before-building-features)).
 
@@ -350,8 +350,8 @@ The composer's Pause ([12](features/12-composer.md)) can't freeze an agent mid-t
 
 Short experiments that de-risk the plan, in order:
 
-1. **Claude Code control protocol:** spawn `claude` with stream-JSON in and out and `--permission-prompt-tool stdio`, send two messages, receive and answer a `can_use_tool` request, interrupt a turn, resume a session.
-2. **Cursor over ACP:** `agent acp` with the Rust `agent-client-protocol` client; a permission request round trip and a session load.
-3. **Login-shell environment:** from a signed `.app` launched from Finder, resolve `PATH` and run `pnpm install` and `claude --version` in a worktree.
-4. **PTY app lifecycle:** run `pnpm dev`, detect the port, Stop kills the whole tree, a crash is reported with its exit code.
-5. **Streaming load:** one agent streaming, one app logging at 100 lines a second, and a 5,000-line diff open, while the UI stays responsive.
+1. **Claude Code control protocol:** spawn `claude -p` with stream-JSON in and out, `--permission-prompt-tool stdio`, and `--await-initialize`. Send a host `initialize` control request before the first user message, then two messages, receive and answer a `can_use_tool` request, interrupt a turn, resume a session. `-p` is required: the CLI only accepts `--input-format stream-json` in print mode. Without the initialize handshake, permission asks are auto-denied (`system`/`permission_denied`) instead of `can_use_tool`. Interrupt is a host `control_request` with `subtype: interrupt`. Resume is a new process with `--resume <session_id>` from `system`/`init`.
+2. **Cursor over ACP:** `agent acp` with the Rust `agent-client-protocol` client. Initialize, `session/new`, answer `session/request_permission`, then `session/load`. Mocked in tests; live binary is `--ignored`.
+3. **Login-shell environment:** resolve env via `$SHELL -l -i -c 'env -0'` (the same capture a signed Finder-launched `.app` needs), then run `claude --version` / `pnpm` in that env. Finder codesign is the same function with a GUI-empty `PATH`.
+4. **PTY app lifecycle:** `portable-pty`, port parsed from `localhost:<port>` / `127.0.0.1:<port>`, Stop uses `killpg`, non-zero exit is the crash code.
+5. **Streaming load:** Homebase → "Streaming load spike" streams agent text and 100 Hz logs over IPC while a 5000-line diff is open; fps is shown in the workspace header.

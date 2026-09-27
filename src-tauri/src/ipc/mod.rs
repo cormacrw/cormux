@@ -11,7 +11,8 @@ pub fn builder() -> Builder {
             commands::get_snapshot,
             commands::subscribe_agent_chunks,
             commands::subscribe_pty,
-            commands::subscribe_diffs
+            commands::subscribe_diffs,
+            commands::start_streaming_spike
         ])
         .events(tauri_specta::collect_events![events::StateChanged])
 }
