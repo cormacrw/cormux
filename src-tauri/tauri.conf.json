@@ -13,11 +13,19 @@
     "windows": [
       {
         "label": "main",
-        "title": "Harness",
+        "title": "Harness · Homebase",
         "width": 1280,
         "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 16
+        }
       }
     ],
     "security": {

@@ -1,4 +1,5 @@
 import type { AppView, Snapshot } from '$lib/ipc'
+import { workspaces } from './workspaces.svelte'
 
 export type ViewId = 'homebase' | 'workspace' | 'settings'
 
@@ -10,7 +11,9 @@ export class AppStore {
   readonly windowTitle = $derived.by(() => {
     if (this.view === 'settings') return 'Harness · Settings'
     if (this.view === 'workspace' && this.workspaceId) {
-      return `Harness · ${this.workspaceId}`
+      const name =
+        workspaces.getById(this.workspaceId)?.name ?? this.workspaceId
+      return `Harness · ${name}`
     }
     return 'Harness · Homebase'
   })

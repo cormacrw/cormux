@@ -7,7 +7,12 @@
 
 <div class="flex h-screen bg-background text-foreground">
   <aside class="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-    <div class="flex h-11 items-center px-3 text-sm font-medium">Harness</div>
+    <div
+      class="flex h-11 items-center pl-[76px] pr-3 text-sm font-medium"
+      data-tauri-drag-region
+    >
+      Harness
+    </div>
     <nav class="flex flex-1 flex-col gap-1 p-2">
       <button
         class="rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent"

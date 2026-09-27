@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
   import { fetchSnapshot, listenForStateChanges } from '$lib/ipc'
   import { app, hydrateFromSnapshot, patchFromEvent, settings } from '$lib/state'
@@ -31,6 +32,15 @@
 
   $effect(() => {
     document.documentElement.classList.toggle('reduce-motion', settings.reduceMotion)
+  })
+
+  $effect(() => {
+    const title = app.windowTitle
+    void getCurrentWindow()
+      .setTitle(title)
+      .catch(() => {
+        document.title = title
+      })
   })
 </script>
 
