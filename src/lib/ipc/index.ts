@@ -1,4 +1,5 @@
 import { commands, events, type Snapshot, type StateChanged } from './bindings'
+import { hasVersionGap } from './version'
 
 export {
   commands,
@@ -15,11 +16,7 @@ export {
 } from './bindings'
 
 export { subscribeAgentChunks, subscribeDiffs, subscribePty } from './channels'
-
-/** True when the UI missed at least one state event and must replace local state. */
-export function hasVersionGap(lastSeen: number, incoming: number): boolean {
-  return incoming > lastSeen + 1
-}
+export { hasVersionGap }
 
 function unwrapSnapshot(
   result: Awaited<ReturnType<typeof commands.getSnapshot>>,

@@ -4,7 +4,12 @@
   import AppShell from '$lib/components/shell/AppShell.svelte'
   import { bindNativeMenu } from '$lib/components/shell/menu'
   import { fetchSnapshot, listenForStateChanges } from '$lib/ipc'
-  import { app, hydrateFromSnapshot, patchFromEvent, settings } from '$lib/state'
+  import {
+    app,
+    hydrateFromSnapshot,
+    patchFromEvent,
+    settings,
+  } from '$lib/state'
   import Homebase from './routes/Homebase.svelte'
   import Settings from './routes/Settings.svelte'
   import Workspace from './routes/Workspace.svelte'
@@ -38,7 +43,10 @@
   })
 
   $effect(() => {
-    document.documentElement.classList.toggle('reduce-motion', settings.reduceMotion)
+    document.documentElement.classList.toggle(
+      'reduce-motion',
+      settings.reduceMotion,
+    )
   })
 
   $effect(() => {

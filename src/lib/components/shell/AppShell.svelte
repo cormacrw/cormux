@@ -6,7 +6,9 @@
 </script>
 
 <div class="flex h-screen bg-background text-foreground">
-  <aside class="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+  <aside
+    class="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
+  >
     <div
       class="flex h-11 items-center pl-[76px] pr-3 text-sm font-medium"
       data-tauri-drag-region

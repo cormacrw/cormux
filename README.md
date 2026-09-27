@@ -14,4 +14,9 @@ Requirements: macOS, Node 22+, pnpm 8+, and rustup (the toolchain in `rust-toolc
 pnpm install
 pnpm tauri dev     # run the app with hot reload
 pnpm tauri build   # build Harness.app and a .dmg
+pnpm lint          # ESLint + Prettier
+pnpm check         # svelte-check + tsc
+pnpm test          # Vitest
+cargo test --manifest-path src-tauri/Cargo.toml
+
 ```

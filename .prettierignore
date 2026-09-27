@@ -1,0 +1,6 @@
+dist
+src-tauri/target
+src-tauri/gen
+pnpm-lock.yaml
+src/lib/ipc/bindings.ts
+product
