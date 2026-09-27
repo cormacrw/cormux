@@ -36,3 +36,26 @@ pub fn subscribe_diffs(workspace_id: String, channel: Channel<DiffUpdate>) -> Re
     let _ = (workspace_id, channel);
     Ok(())
 }
+
+/// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.
+#[tauri::command]
+#[specta::specta]
+pub fn start_streaming_spike(agent: Channel<AgentChunk>, pty: Channel<PtyChunk>) -> Result<()> {
+    tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
+        let mut n = 0u32;
+        while started.elapsed() < std::time::Duration::from_secs(6) {
+            n += 1;
+            let _ = agent.send(AgentChunk {
+                thread_id: "spike".into(),
+                text: format!("token-{n} "),
+            });
+            let _ = pty.send(PtyChunk {
+                workspace_id: "spike".into(),
+                line: format!("[{n}] app log line at 100hz"),
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    });
+    Ok(())
+}
