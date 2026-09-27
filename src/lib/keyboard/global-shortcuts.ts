@@ -11,6 +11,10 @@ export function registerPopoverCloser(closer: PopoverCloser | null) {
   closeOpenPopover = closer
 }
 
+export function dismissOpenPopover() {
+  closeOpenPopover?.()
+}
+
 function dialogBlocksShortcuts() {
   return shellDialogs.blocksCommandPalette()
 }

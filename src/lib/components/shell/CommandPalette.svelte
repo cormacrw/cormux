@@ -9,8 +9,9 @@
   import { buildPaletteCommands } from '$lib/command-palette/registry'
   import { schedulePaletteCommand } from '$lib/command-palette/run-command'
   import type { PaletteCommand } from '$lib/command-palette/types'
-  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
+  import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
   import { app } from '$lib/state/app.svelte'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 
   let open = $state(false)
   let query = $state('')
@@ -30,6 +31,7 @@
 
   function openPalette() {
     if (!canOpen()) return
+    dismissOpenPopover()
     query = ''
     open = true
   }
