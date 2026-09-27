@@ -1,14 +1,45 @@
 <script lang="ts">
-  import Plus from '@lucide/svelte/icons/plus'
-  import { Button } from '$lib/components/ui/button'
+  import { onMount } from 'svelte'
+  import AppShell from '$lib/components/shell/AppShell.svelte'
+  import { fetchSnapshot, listenForStateChanges } from '$lib/ipc'
+  import { app, hydrateFromSnapshot, patchFromEvent, settings } from '$lib/state'
+  import Homebase from './routes/Homebase.svelte'
+  import Settings from './routes/Settings.svelte'
+  import Workspace from './routes/Workspace.svelte'
+
+  onMount(() => {
+    let unlisten: (() => void) | undefined
+
+    void (async () => {
+      try {
+        hydrateFromSnapshot(await fetchSnapshot())
+      } catch (error) {
+        console.warn('snapshot unavailable, using empty stores', error)
+      }
+
+      unlisten = await listenForStateChanges({
+        lastVersion: () => app.version,
+        onEvent: patchFromEvent,
+        onSnapshot: hydrateFromSnapshot,
+      })
+    })()
+
+    return () => {
+      unlisten?.()
+    }
+  })
+
+  $effect(() => {
+    document.documentElement.classList.toggle('reduce-motion', settings.reduceMotion)
+  })
 </script>
 
-<main class="grid min-h-screen place-items-center">
-  <div class="flex flex-col items-center gap-4">
-    <h1 class="text-2xl font-semibold tracking-tight">Harness</h1>
-    <Button>
-      <Plus />
-      New workspace
-    </Button>
-  </div>
-</main>
+<AppShell>
+  {#if app.view === 'settings'}
+    <Settings />
+  {:else if app.view === 'workspace'}
+    <Workspace />
+  {:else}
+    <Homebase />
+  {/if}
+</AppShell>
