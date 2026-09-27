@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter};
 pub const COMMAND_PALETTE: &str = "command-palette";
 pub const NEW_WORKSPACE: &str = "new-workspace";
 pub const OPEN_SETTINGS: &str = "open-settings";
+pub const RELOAD_ENVIRONMENT: &str = "reload-environment";
 
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about = PredefinedMenuItem::about(
@@ -15,6 +16,13 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         }),
     )?;
     let settings = MenuItem::with_id(app, OPEN_SETTINGS, "Settings...", true, Some("CmdOrCtrl+,"))?;
+    let reload_env = MenuItem::with_id(
+        app,
+        RELOAD_ENVIRONMENT,
+        "Reload environment",
+        true,
+        None::<&str>,
+    )?;
     let hide = PredefinedMenuItem::hide(app, None)?;
     let hide_others = PredefinedMenuItem::hide_others(app, None)?;
     let show_all = PredefinedMenuItem::show_all(app, None)?;
@@ -28,6 +36,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &about,
             &PredefinedMenuItem::separator(app)?,
             &settings,
+            &reload_env,
             &PredefinedMenuItem::separator(app)?,
             &hide,
             &hide_others,
@@ -78,6 +87,7 @@ pub fn handle(app: &AppHandle, id: &str) {
         COMMAND_PALETTE => "menu://command-palette",
         NEW_WORKSPACE => "menu://new-workspace",
         OPEN_SETTINGS => "menu://open-settings",
+        RELOAD_ENVIRONMENT => "menu://reload-environment",
         _ => return,
     };
     if let Err(error) = app.emit(event, ()) {

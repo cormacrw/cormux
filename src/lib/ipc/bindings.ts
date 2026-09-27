@@ -14,6 +14,30 @@ async getSnapshot() : Promise<Result<Snapshot, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+async reloadEnvironment() : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reload_environment") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async fetchOnFocus() : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("fetch_on_focus") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getMetrics() : Promise<Result<MemorySample, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_metrics") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * High-volume ordered stream of agent message chunks for one thread.
  */
@@ -64,9 +88,11 @@ async startStreamingSpike(agent: TAURI_CHANNEL<AgentChunk>, pty: TAURI_CHANNEL<P
 
 
 export const events = __makeEvents__<{
-stateChanged: StateChanged
+stateChanged: StateChanged,
+workspaceStatusChanged: WorkspaceStatusChanged
 }>({
-stateChanged: "state-changed"
+stateChanged: "state-changed",
+workspaceStatusChanged: "workspace-status-changed"
 })
 
 /** user-defined constants **/
@@ -77,20 +103,41 @@ stateChanged: "state-changed"
 
 export type AgentChunk = { threadId: string; text: string }
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
-export type DiffUpdate = { workspaceId: string; path: string }
+export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
+export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
+export type DiffHunk = { header: string; body: string }
+export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff | null }
 /**
  * Shared error type for the Rust core. Serialised as a tagged union so the
  * generated TypeScript bindings stay in lockstep with Rust.
  */
 export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string } | { kind: "NotImplemented"; message: string }
+export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string }
+export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
+export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
+export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PtyChunk = { workspaceId: string; line: string }
-export type Snapshot = { version: number; view: AppView }
-export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast"
+export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
+export type SettingRow = { key: string; value: string }
+export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; memory: MemorySample | null }
+export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "metrics" | "environment"
 /**
  * Low-volume core → UI notification. `version` is monotonic; a gap means the
  * webview should call `get_snapshot` and replace local state.
  */
 export type StateChanged = { version: number; kind: StateChangeKind }
+export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string }
+export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string }
+/**
+ * Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
+ * describe activity after provisioning.
+ */
+export type WorkspaceLifecycle = "creating" | "provisioning" | "ready" | "running" | "idle" | "waiting" | "tearingDown" | "gone" | "provisioningFailed"
+export type WorkspaceMemory = { workspaceId: string; bytes: number }
+export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number }
+export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string }
+export type WorkspaceStatusChanged = { version: number; workspaceId: string; status: WorkspaceLifecycle }
+export type WorktreeDiff = { workspaceId: string; files: DiffFile[] }
 
 /** tauri-specta globals **/
 

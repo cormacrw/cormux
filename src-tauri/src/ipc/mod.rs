@@ -9,12 +9,18 @@ pub fn builder() -> Builder {
     Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
             commands::get_snapshot,
+            commands::reload_environment,
+            commands::fetch_on_focus,
+            commands::get_metrics,
             commands::subscribe_agent_chunks,
             commands::subscribe_pty,
             commands::subscribe_diffs,
             commands::start_streaming_spike
         ])
-        .events(tauri_specta::collect_events![events::StateChanged])
+        .events(tauri_specta::collect_events![
+            events::StateChanged,
+            events::WorkspaceStatusChanged
+        ])
 }
 
 pub fn export_bindings(builder: &Builder) {

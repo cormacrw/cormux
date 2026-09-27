@@ -1,4 +1,5 @@
 import { listen } from '@tauri-apps/api/event'
+import { commands } from '$lib/ipc'
 import { app } from '$lib/state'
 
 export async function bindNativeMenu() {
@@ -11,6 +12,9 @@ export async function bindNativeMenu() {
     }),
     listen('menu://new-workspace', () => {
       window.dispatchEvent(new CustomEvent('cormux:new-workspace'))
+    }),
+    listen('menu://reload-environment', () => {
+      void commands.reloadEnvironment()
     }),
   ])
 

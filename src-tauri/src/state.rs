@@ -1,5 +1,9 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use tokio::sync::RwLock;
+
+use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::GithubClient,
     llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
@@ -9,7 +13,7 @@ use crate::{
 /// Process-wide core state. The webview never holds this; IPC commands borrow it.
 pub struct AppState {
     pub event_version: AtomicU64,
-    pub shell_env: ShellEnv,
+    pub shell_env: Arc<RwLock<ShellEnv>>,
     pub git: Git,
     pub workspace: WorkspaceManager,
     pub engines: EngineRegistry,
@@ -20,23 +24,33 @@ pub struct AppState {
     pub llm: LlmClient,
     pub store: Store,
     pub metrics: Metrics,
+    pub diffs: LiveDiffEngine,
+    pub fetch: FetchScheduler,
 }
 
 impl AppState {
     pub fn new() -> Self {
+        let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
+        let git = Git::new(shell_env.clone());
+        let diffs = LiveDiffEngine::new(git.clone());
+        let fetch = FetchScheduler::new(git.clone());
+        let process = ProcessSupervisor::new(shell_env.clone());
+        let workspace = WorkspaceManager::new(git.clone(), diffs.clone(), fetch.clone());
         Self {
             event_version: AtomicU64::new(0),
-            shell_env: ShellEnv::new(),
-            git: Git::new(),
-            workspace: WorkspaceManager::new(),
+            shell_env: shell_env.clone(),
+            git,
+            workspace,
             engines: EngineRegistry::new(),
             approvals: ApprovalBroker::new(),
             mcp: CormuxMcp::new(),
-            process: ProcessSupervisor::new(),
+            process,
             github: GithubClient::new(),
-            llm: LlmClient::new(),
+            llm: LlmClient::new(shell_env),
             store: Store::new(),
             metrics: Metrics::new(),
+            diffs,
+            fetch,
         }
     }
 
@@ -52,5 +66,13 @@ impl AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn constructs_without_async_runtime() {
+        let _state = super::AppState::new();
     }
 }

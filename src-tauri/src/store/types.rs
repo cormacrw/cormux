@@ -1,0 +1,97 @@
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingRow {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRecord {
+    pub id: String,
+    pub path: String,
+    pub name: String,
+    pub default_branch: Option<String>,
+    pub setup_commands: String,
+    pub run_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRow {
+    pub id: String,
+    pub repo_id: String,
+    pub name: String,
+    pub branch: String,
+    pub worktree_path: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadRow {
+    pub id: String,
+    pub workspace_id: String,
+    pub title: String,
+    pub engine: String,
+    pub session_id: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadEventRow {
+    pub id: i64,
+    pub thread_id: String,
+    pub seq: i64,
+    pub kind: String,
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalRow {
+    pub id: String,
+    pub thread_id: String,
+    pub status: String,
+    pub tool: String,
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FindingRow {
+    pub id: String,
+    pub workspace_id: String,
+    pub severity: String,
+    pub title: String,
+    pub file: Option<String>,
+    pub line: Option<i64>,
+    pub explanation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PrRow {
+    pub id: String,
+    pub repo_id: Option<String>,
+    pub number: i64,
+    pub title: String,
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedSnapshot {
+    pub settings: Vec<SettingRow>,
+    pub repos: Vec<RepoRecord>,
+    pub workspaces: Vec<WorkspaceRow>,
+    pub threads: Vec<ThreadRow>,
+    pub timeline: Vec<ThreadEventRow>,
+    pub approvals: Vec<ApprovalRow>,
+    pub findings: Vec<FindingRow>,
+    pub pull_requests: Vec<PrRow>,
+}

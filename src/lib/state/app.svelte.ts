@@ -50,7 +50,18 @@ export class AppStore {
   }
 
   applyView(view: AppView) {
-    this.hydrate({ version: this.version, view })
+    if (view === 'homebase') {
+      this.view = 'homebase'
+      this.workspaceId = null
+      return
+    }
+    if (view === 'settings') {
+      this.view = 'settings'
+      this.workspaceId = null
+      return
+    }
+    this.view = 'workspace'
+    this.workspaceId = view.workspace.id
   }
 }
 

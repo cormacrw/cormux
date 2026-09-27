@@ -1,16 +1,60 @@
-use tauri::{State, ipc::Channel};
+use std::time::Duration;
 
-use crate::{error::Result, state::AppState};
+use tauri::{AppHandle, State, ipc::Channel};
+use tauri_specta::Event;
+
+use crate::error::Result;
+use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
+use crate::ipc::types::StateChangeKind;
+use crate::state::AppState;
 
 use super::types::{AgentChunk, DiffUpdate, PtyChunk, Snapshot};
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
+pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
+    let trees = process_trees(&state);
+    let memory = state.metrics.sample(&trees).ok();
     Ok(Snapshot {
         version: state.snapshot_version(),
         view: super::types::AppView::Homebase,
+        persisted: state.store.snapshot()?,
+        workspaces: state.workspace.list().await,
+        memory,
     })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn reload_environment(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    state.shell_env.write().await.reload().await?;
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::Environment,
+    }
+    .emit(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_on_focus(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    let updates = state.fetch.tick().await?;
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::BehindCounts,
+    }
+    .emit(&app);
+    let _ = updates;
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_metrics(state: State<'_, AppState>) -> Result<crate::metrics::MemorySample> {
+    state.metrics.sample(&process_trees(&state))
 }
 
 /// High-volume ordered stream of agent message chunks for one thread.
@@ -24,16 +68,52 @@ pub fn subscribe_agent_chunks(thread_id: String, channel: Channel<AgentChunk>) -
 /// High-volume ordered stream of PTY output for a workspace's run/setup log.
 #[tauri::command]
 #[specta::specta]
-pub fn subscribe_pty(workspace_id: String, channel: Channel<PtyChunk>) -> Result<()> {
-    let _ = (workspace_id, channel);
+pub fn subscribe_pty(
+    workspace_id: String,
+    channel: Channel<PtyChunk>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let process = state.process.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let lines = process.drain_pending(&workspace_id);
+            for line in lines {
+                let _ = channel.send(PtyChunk {
+                    workspace_id: workspace_id.clone(),
+                    line,
+                });
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    });
     Ok(())
 }
 
 /// High-volume ordered stream of live diff updates for a worktree.
 #[tauri::command]
 #[specta::specta]
-pub fn subscribe_diffs(workspace_id: String, channel: Channel<DiffUpdate>) -> Result<()> {
-    let _ = (workspace_id, channel);
+pub fn subscribe_diffs(
+    workspace_id: String,
+    channel: Channel<DiffUpdate>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let diffs = state.diffs.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut last = None;
+        loop {
+            if let Some(diff) = diffs.latest(&workspace_id) {
+                if last.as_ref() != Some(&diff) {
+                    let _ = channel.send(DiffUpdate {
+                        workspace_id: workspace_id.clone(),
+                        path: String::new(),
+                        diff: Some(diff.clone()),
+                    });
+                    last = Some(diff);
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    });
     Ok(())
 }
 
@@ -58,4 +138,32 @@ pub fn start_streaming_spike(agent: Channel<AgentChunk>, pty: Channel<PtyChunk>)
         }
     });
     Ok(())
+}
+
+pub fn emit_workspace_status(
+    app: &AppHandle,
+    state: &AppState,
+    workspace_id: &str,
+    status: crate::workspace::WorkspaceLifecycle,
+) {
+    let version = state.bump_event_version();
+    let _ = WorkspaceStatusChanged {
+        version,
+        workspace_id: workspace_id.to_string(),
+        status,
+    }
+    .emit(app);
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(app);
+}
+
+fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {
+    let mut trees: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
+    for (id, pid) in state.process.pids() {
+        trees.entry(id).or_default().push(pid);
+    }
+    trees.into_iter().collect()
 }

@@ -16,8 +16,13 @@ mod state;
 mod store;
 mod workspace;
 
+use std::time::Duration;
+
+use ipc::events::StateChanged;
+use ipc::types::StateChangeKind;
 use state::AppState;
-use tauri::Manager;
+use tauri::{Manager, RunEvent, WindowEvent};
+use tauri_specta::Event;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,6 +38,25 @@ pub fn run() {
         .invoke_handler(ipc.invoke_handler())
         .on_menu_event(|app, event| {
             menu::handle(app, event.id().as_ref());
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::Focused(true) = event {
+                let app = window.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = app.state::<AppState>();
+                    match state.fetch.tick().await {
+                        Ok(_) => {
+                            let version = state.bump_event_version();
+                            let _ = StateChanged {
+                                version,
+                                kind: StateChangeKind::BehindCounts,
+                            }
+                            .emit(&app);
+                        }
+                        Err(error) => log::warn!("focus fetch failed: {error}"),
+                    }
+                });
+            }
         })
         .setup(move |app| {
             let log_level = if cfg!(debug_assertions) {
@@ -51,13 +75,55 @@ pub fn run() {
             app.set_menu(menu::build(app.handle())?)?;
 
             let state = AppState::new();
+            state.diffs.start();
+            state.fetch.spawn_loop();
+
+            let env = state.shell_env.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = env.write().await.load_or_inherit().await {
+                    log::warn!("shell env load failed: {error}");
+                }
+            });
+
             let db_path = app.path().app_data_dir()?.join("cormux.db");
             state.store.open(&db_path)?;
             app.manage(state);
 
+            let metrics_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(4));
+                loop {
+                    interval.tick().await;
+                    let state = metrics_handle.state::<AppState>();
+                    let trees: Vec<(String, Vec<u32>)> = {
+                        let mut grouped = std::collections::HashMap::<String, Vec<u32>>::new();
+                        for (id, pid) in state.process.pids() {
+                            grouped.entry(id).or_default().push(pid);
+                        }
+                        grouped.into_iter().collect()
+                    };
+                    if state.metrics.sample(&trees).is_ok() {
+                        let version = state.bump_event_version();
+                        let _ = StateChanged {
+                            version,
+                            kind: StateChangeKind::Metrics,
+                        }
+                        .emit(&metrics_handle);
+                    }
+                }
+            });
+
             log::info!("Cormux core started");
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Cormux");
+        .build(tauri::generate_context!())
+        .expect("error while building Cormux")
+        .run(|app, event| {
+            if let RunEvent::ExitRequested { .. } = event {
+                let state = app.state::<AppState>();
+                if let Err(error) = state.process.stop_all() {
+                    log::warn!("stop_all on quit: {error}");
+                }
+            }
+        });
 }

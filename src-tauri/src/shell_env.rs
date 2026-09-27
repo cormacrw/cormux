@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 
+use portable_pty::CommandBuilder;
 use tokio::process::Command;
 
 use crate::error::{Error, Result};
@@ -27,10 +28,29 @@ impl ShellEnv {
     }
 
     pub fn apply(&self, command: &mut Command) {
+        if self.vars.is_empty() {
+            return;
+        }
         command.env_clear();
         for (key, value) in &self.vars {
             command.env(key, value);
         }
+    }
+
+    pub fn apply_pty(&self, command: &mut CommandBuilder) {
+        if self.vars.is_empty() {
+            return;
+        }
+        command.env_clear();
+        for (key, value) in &self.vars {
+            command.env(key, value);
+        }
+    }
+
+    pub fn command(&self, program: &str) -> Command {
+        let mut command = Command::new(program);
+        self.apply(&mut command);
+        command
     }
 
     pub async fn load(&mut self) -> Result<()> {
@@ -54,21 +74,68 @@ impl ShellEnv {
         Ok(())
     }
 
+    /// Prefer the login shell; if it fails, inherit this process's environment
+    /// so the app can still start.
+    pub async fn load_or_inherit(&mut self) -> Result<()> {
+        match self.load().await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                log::warn!("login shell env failed ({error}); inheriting process env");
+                self.vars = std::env::vars().collect();
+                if self.vars.is_empty() {
+                    Err(error)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
     pub async fn reload(&mut self) -> Result<()> {
         self.load().await
     }
 
     pub async fn run(&self, program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
-        let mut command = Command::new(program);
-        command.args(args).stdin(Stdio::null());
-        self.apply(&mut command);
+        self.run_with_stdin(program, args, cwd, None).await
+    }
+
+    pub async fn run_with_stdin(
+        &self,
+        program: &str,
+        args: &[&str],
+        cwd: Option<&Path>,
+        stdin: Option<&str>,
+    ) -> Result<String> {
+        let mut command = self.command(program);
+        command.args(args);
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
         }
-        let output = command
-            .output()
-            .await
-            .map_err(|error| Error::ShellEnv(error.to_string()))?;
+        let output = if let Some(input) = stdin {
+            command.stdin(Stdio::piped());
+            command.stdout(Stdio::piped());
+            command.stderr(Stdio::piped());
+            let mut child = command
+                .spawn()
+                .map_err(|error| Error::ShellEnv(error.to_string()))?;
+            if let Some(mut handle) = child.stdin.take() {
+                use tokio::io::AsyncWriteExt;
+                handle
+                    .write_all(input.as_bytes())
+                    .await
+                    .map_err(|error| Error::ShellEnv(error.to_string()))?;
+            }
+            child
+                .wait_with_output()
+                .await
+                .map_err(|error| Error::ShellEnv(error.to_string()))?
+        } else {
+            command.stdin(Stdio::null());
+            command
+                .output()
+                .await
+                .map_err(|error| Error::ShellEnv(error.to_string()))?
+        };
         if !output.status.success() {
             return Err(Error::ShellEnv(format!(
                 "{program} failed: {}",
@@ -134,5 +201,14 @@ mod tests {
                 .await;
             let _ = PathBuf::from(&dir);
         }
+    }
+
+    #[tokio::test]
+    async fn reload_replaces_cached_vars() {
+        let mut env = ShellEnv::new();
+        env.load().await.unwrap();
+        let first = env.get("PATH").unwrap().to_string();
+        env.reload().await.unwrap();
+        assert_eq!(env.get("PATH").unwrap(), first);
     }
 }

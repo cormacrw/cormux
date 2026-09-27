@@ -1,15 +1,462 @@
-use crate::error::{Error, Result};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-/// Workspace lifecycle state machine (creating → provisioning → ready → tearing_down).
-#[derive(Debug, Default)]
-pub struct WorkspaceManager;
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use tokio::sync::RwLock;
+use uuid::Uuid;
+
+use crate::error::{Error, Result};
+use crate::git::{FetchScheduler, Git, LiveDiffEngine, RepoFetchTarget, WorkspaceFetchTarget};
+
+/// Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
+/// describe activity after provisioning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkspaceLifecycle {
+    Creating,
+    Provisioning,
+    Ready,
+    Running,
+    Idle,
+    Waiting,
+    TearingDown,
+    Gone,
+    ProvisioningFailed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ThreadActivity {
+    Provisioning,
+    Running,
+    Idle,
+    Waiting,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRecord {
+    pub id: String,
+    pub repo_id: String,
+    pub repo_path: String,
+    pub name: String,
+    pub branch: String,
+    pub base: String,
+    pub worktree_path: String,
+    pub status: WorkspaceLifecycle,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone)]
+struct ThreadSlot {
+    workspace_id: String,
+    activity: ThreadActivity,
+}
+
+struct Inner {
+    workspaces: HashMap<String, WorkspaceRecord>,
+    threads: HashMap<String, ThreadSlot>,
+}
+
+/// Lifecycle state machine plus branch-switch lock.
+#[derive(Clone)]
+pub struct WorkspaceManager {
+    git: Git,
+    diffs: LiveDiffEngine,
+    fetch: FetchScheduler,
+    inner: Arc<RwLock<Inner>>,
+}
 
 impl WorkspaceManager {
-    pub fn new() -> Self {
-        Self
+    pub fn new(git: Git, diffs: LiveDiffEngine, fetch: FetchScheduler) -> Self {
+        Self {
+            git,
+            diffs,
+            fetch,
+            inner: Arc::new(RwLock::new(Inner {
+                workspaces: HashMap::new(),
+                threads: HashMap::new(),
+            })),
+        }
     }
 
-    pub async fn create(&self) -> Result<()> {
-        Err(Error::NotImplemented("workspace.create".into()))
+    pub fn worktree_path(home: &Path, repo: &str, branch: &str) -> PathBuf {
+        home.join(".harness")
+            .join("worktrees")
+            .join(repo)
+            .join(branch_slug(branch))
+    }
+
+    pub fn harness_env(workspace: &WorkspaceRecord) -> Vec<(String, String)> {
+        vec![
+            ("HARNESS_REPO_PATH".into(), workspace.repo_path.clone()),
+            (
+                "HARNESS_WORKTREE_PATH".into(),
+                workspace.worktree_path.clone(),
+            ),
+            ("HARNESS_WORKSPACE".into(), workspace.name.clone()),
+            ("HARNESS_BRANCH".into(), workspace.branch.clone()),
+            ("HARNESS_BASE".into(), workspace.base.clone()),
+        ]
+    }
+
+    pub async fn list(&self) -> Vec<WorkspaceRecord> {
+        self.inner
+            .read()
+            .await
+            .workspaces
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    pub async fn get(&self, id: &str) -> Option<WorkspaceRecord> {
+        self.inner.read().await.workspaces.get(id).cloned()
+    }
+
+    pub async fn create(
+        &self,
+        repo_id: &str,
+        repo_path: &Path,
+        name: &str,
+        branch: &str,
+        base: &str,
+        home: &Path,
+    ) -> Result<WorkspaceRecord> {
+        let repo_name = repo_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("repo");
+        let worktree = Self::worktree_path(home, repo_name, branch);
+        if let Some(parent) = worktree.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let id = Uuid::new_v4().to_string();
+        let record = WorkspaceRecord {
+            id: id.clone(),
+            repo_id: repo_id.to_string(),
+            repo_path: repo_path.to_string_lossy().to_string(),
+            name: name.to_string(),
+            branch: branch.to_string(),
+            base: base.to_string(),
+            worktree_path: worktree.to_string_lossy().to_string(),
+            status: WorkspaceLifecycle::Creating,
+            version: 1,
+        };
+        self.inner
+            .write()
+            .await
+            .workspaces
+            .insert(id.clone(), record);
+
+        self.set_status(&id, WorkspaceLifecycle::Provisioning)
+            .await?;
+
+        match self
+            .git
+            .worktree_add(repo_path, &worktree, branch, base)
+            .await
+        {
+            Ok(()) => {
+                let record = self.set_status(&id, WorkspaceLifecycle::Ready).await?;
+                self.diffs.watch(&id, &worktree)?;
+                self.sync_fetch_targets().await;
+                Ok(record)
+            }
+            Err(error) => {
+                let _ = self
+                    .set_status(&id, WorkspaceLifecycle::ProvisioningFailed)
+                    .await;
+                Err(error)
+            }
+        }
+    }
+
+    pub async fn set_status(
+        &self,
+        id: &str,
+        status: WorkspaceLifecycle,
+    ) -> Result<WorkspaceRecord> {
+        let mut inner = self.inner.write().await;
+        let workspace = inner
+            .workspaces
+            .get_mut(id)
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {id}")))?;
+        assert_transition(workspace.status, status)?;
+        workspace.status = status;
+        workspace.version += 1;
+        Ok(workspace.clone())
+    }
+
+    pub async fn set_thread(&self, thread_id: &str, workspace_id: &str, activity: ThreadActivity) {
+        let mut inner = self.inner.write().await;
+        inner.threads.insert(
+            thread_id.to_string(),
+            ThreadSlot {
+                workspace_id: workspace_id.to_string(),
+                activity,
+            },
+        );
+        let activities: Vec<ThreadActivity> = inner
+            .threads
+            .values()
+            .filter(|thread| thread.workspace_id == workspace_id)
+            .map(|thread| thread.activity)
+            .collect();
+        if let Some(workspace) = inner.workspaces.get_mut(workspace_id) {
+            workspace.status = status_from_threads(workspace.status, activities.into_iter());
+            workspace.version += 1;
+        }
+    }
+
+    pub async fn can_switch_branch(&self, workspace_id: &str) -> Result<()> {
+        let inner = self.inner.read().await;
+        let workspace = inner
+            .workspaces
+            .get(workspace_id)
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        if matches!(
+            workspace.status,
+            WorkspaceLifecycle::Creating | WorkspaceLifecycle::Provisioning
+        ) {
+            return Err(Error::Workspace(
+                "branch switch refused while provisioning".into(),
+            ));
+        }
+        let blocked = inner.threads.values().any(|thread| {
+            thread.workspace_id == workspace_id
+                && matches!(
+                    thread.activity,
+                    ThreadActivity::Running | ThreadActivity::Provisioning
+                )
+        });
+        if blocked {
+            return Err(Error::Workspace(
+                "branch switch refused while a thread is running".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn switch_branch(&self, workspace_id: &str, branch: &str) -> Result<()> {
+        self.can_switch_branch(workspace_id).await?;
+        let workspace = self
+            .get(workspace_id)
+            .await
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        self.can_switch_branch(workspace_id).await?;
+        self.git
+            .switch(Path::new(&workspace.worktree_path), branch)
+            .await?;
+        let mut inner = self.inner.write().await;
+        if let Some(workspace) = inner.workspaces.get_mut(workspace_id) {
+            workspace.branch = branch.to_string();
+            workspace.version += 1;
+        }
+        Ok(())
+    }
+
+    pub async fn teardown(&self, workspace_id: &str, delete_branch: bool) -> Result<()> {
+        let workspace = self
+            .set_status(workspace_id, WorkspaceLifecycle::TearingDown)
+            .await?;
+        self.diffs.unwatch(workspace_id);
+        let repo = PathBuf::from(&workspace.repo_path);
+        let worktree = PathBuf::from(&workspace.worktree_path);
+        self.git.worktree_remove(&repo, &worktree, true).await?;
+        if delete_branch {
+            self.git.branch_delete(&repo, &workspace.branch).await?;
+        }
+        self.fetch.remove_workspace(workspace_id).await;
+        self.set_status(workspace_id, WorkspaceLifecycle::Gone)
+            .await?;
+        self.inner.write().await.workspaces.remove(workspace_id);
+        Ok(())
+    }
+
+    async fn sync_fetch_targets(&self) {
+        let inner = self.inner.read().await;
+        let mut by_repo: HashMap<String, RepoFetchTarget> = HashMap::new();
+        for workspace in inner.workspaces.values() {
+            if workspace.status == WorkspaceLifecycle::Gone {
+                continue;
+            }
+            let entry = by_repo
+                .entry(workspace.repo_path.clone())
+                .or_insert_with(|| RepoFetchTarget {
+                    repo_path: PathBuf::from(&workspace.repo_path),
+                    workspaces: Vec::new(),
+                });
+            entry.workspaces.push(WorkspaceFetchTarget {
+                workspace_id: workspace.id.clone(),
+                worktree_path: PathBuf::from(&workspace.worktree_path),
+                base: workspace.base.clone(),
+            });
+        }
+        drop(inner);
+        self.fetch.set_repos(by_repo.into_values().collect()).await;
+    }
+}
+
+fn branch_slug(branch: &str) -> String {
+    branch.replace('/', "-")
+}
+
+fn status_from_threads(
+    current: WorkspaceLifecycle,
+    threads: impl Iterator<Item = ThreadActivity>,
+) -> WorkspaceLifecycle {
+    if matches!(
+        current,
+        WorkspaceLifecycle::Creating
+            | WorkspaceLifecycle::Provisioning
+            | WorkspaceLifecycle::TearingDown
+            | WorkspaceLifecycle::Gone
+            | WorkspaceLifecycle::ProvisioningFailed
+    ) {
+        return current;
+    }
+    let threads: Vec<_> = threads.collect();
+    if threads.iter().any(|activity| {
+        matches!(
+            activity,
+            ThreadActivity::Running | ThreadActivity::Provisioning
+        )
+    }) {
+        WorkspaceLifecycle::Running
+    } else if threads
+        .iter()
+        .any(|activity| *activity == ThreadActivity::Waiting)
+    {
+        WorkspaceLifecycle::Waiting
+    } else if threads.is_empty() {
+        WorkspaceLifecycle::Ready
+    } else {
+        WorkspaceLifecycle::Idle
+    }
+}
+
+fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result<()> {
+    if from == to {
+        return Ok(());
+    }
+    let ok = matches!(
+        (from, to),
+        (
+            WorkspaceLifecycle::Creating,
+            WorkspaceLifecycle::Provisioning
+        ) | (
+            WorkspaceLifecycle::Provisioning,
+            WorkspaceLifecycle::Ready | WorkspaceLifecycle::ProvisioningFailed
+        ) | (
+            WorkspaceLifecycle::Ready,
+            WorkspaceLifecycle::Running
+                | WorkspaceLifecycle::Idle
+                | WorkspaceLifecycle::Waiting
+                | WorkspaceLifecycle::TearingDown
+        ) | (
+            WorkspaceLifecycle::Running | WorkspaceLifecycle::Idle | WorkspaceLifecycle::Waiting,
+            WorkspaceLifecycle::Ready
+                | WorkspaceLifecycle::Running
+                | WorkspaceLifecycle::Idle
+                | WorkspaceLifecycle::Waiting
+                | WorkspaceLifecycle::TearingDown
+        ) | (
+            WorkspaceLifecycle::ProvisioningFailed,
+            WorkspaceLifecycle::Provisioning | WorkspaceLifecycle::TearingDown
+        ) | (WorkspaceLifecycle::TearingDown, WorkspaceLifecycle::Gone)
+    );
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::Workspace(format!(
+            "illegal transition {from:?} → {to:?}"
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::Git;
+    use crate::shell_env::ShellEnv;
+
+    async fn manager() -> WorkspaceManager {
+        let mut env = ShellEnv::new();
+        env.load_or_inherit().await.unwrap();
+        let git = Git::new(Arc::new(tokio::sync::RwLock::new(env)));
+        let diffs = LiveDiffEngine::new(git.clone());
+        let fetch = FetchScheduler::new(git.clone());
+        WorkspaceManager::new(git, diffs, fetch)
+    }
+
+    fn init_repo() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let run = |args: &[&str]| {
+            assert!(
+                std::process::Command::new(args[0])
+                    .args(&args[1..])
+                    .current_dir(&path)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        };
+        run(&["git", "init", "-b", "main"]);
+        run(&["git", "config", "user.email", "cormux@test"]);
+        run(&["git", "config", "user.name", "Cormux"]);
+        std::fs::write(path.join("README.md"), "hello\n").unwrap();
+        run(&["git", "add", "README.md"]);
+        run(&["git", "commit", "-m", "init"]);
+        (dir, path)
+    }
+
+    #[test]
+    fn worktree_path_includes_repo_and_branch_slug() {
+        let path = WorkspaceManager::worktree_path(Path::new("/Users/dev"), "my-app", "feat/login");
+        assert_eq!(
+            path,
+            PathBuf::from("/Users/dev/.harness/worktrees/my-app/feat-login")
+        );
+    }
+
+    #[tokio::test]
+    async fn lock_blocks_switch_while_running_and_allows_when_idle() {
+        let mgr = manager().await;
+        let (_dir, repo) = init_repo();
+        let home = tempfile::tempdir().unwrap();
+        let workspace = mgr
+            .create("repo-1", &repo, "Login", "feat-login", "main", home.path())
+            .await
+            .unwrap();
+        assert_eq!(workspace.status, WorkspaceLifecycle::Ready);
+        assert!(workspace.version >= 2);
+
+        mgr.set_thread("t1", &workspace.id, ThreadActivity::Running)
+            .await;
+        assert!(mgr.can_switch_branch(&workspace.id).await.is_err());
+
+        mgr.set_thread("t1", &workspace.id, ThreadActivity::Idle)
+            .await;
+        mgr.can_switch_branch(&workspace.id).await.unwrap();
+
+        let env = WorkspaceManager::harness_env(&workspace);
+        assert!(env.iter().any(|(key, _)| key == "HARNESS_WORKTREE_PATH"));
+    }
+
+    #[test]
+    fn rejects_illegal_transitions() {
+        assert!(assert_transition(WorkspaceLifecycle::Gone, WorkspaceLifecycle::Ready).is_err());
+        assert!(
+            assert_transition(
+                WorkspaceLifecycle::Creating,
+                WorkspaceLifecycle::Provisioning
+            )
+            .is_ok()
+        );
     }
 }
