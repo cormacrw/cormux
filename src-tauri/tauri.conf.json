@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Harness",
+  "productName": "Cormux",
   "version": "0.1.0",
-  "identifier": "com.cormacrw.harness",
+  "identifier": "com.cormacrw.cormux",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Harness · Homebase",
+        "title": "Cormux · Homebase",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -23,8 +23,8 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": {
-          "x": 14,
-          "y": 16
+          "x": 16,
+          "y": 22
         }
       }
     ],

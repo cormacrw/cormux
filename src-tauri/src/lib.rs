@@ -51,13 +51,13 @@ pub fn run() {
             app.set_menu(menu::build(app.handle())?)?;
 
             let state = AppState::new();
-            let db_path = app.path().app_data_dir()?.join("harness.db");
+            let db_path = app.path().app_data_dir()?.join("cormux.db");
             state.store.open(&db_path)?;
             app.manage(state);
 
-            log::info!("Harness core started");
+            log::info!("Cormux core started");
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Harness");
+        .expect("error while running Cormux");
 }

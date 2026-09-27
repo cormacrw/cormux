@@ -7,10 +7,10 @@ export async function bindNativeMenu() {
       app.openSettings()
     }),
     listen('menu://command-palette', () => {
-      window.dispatchEvent(new CustomEvent('harness:command-palette'))
+      window.dispatchEvent(new CustomEvent('cormux:command-palette'))
     }),
     listen('menu://new-workspace', () => {
-      window.dispatchEvent(new CustomEvent('harness:new-workspace'))
+      window.dispatchEvent(new CustomEvent('cormux:new-workspace'))
     }),
   ])
 

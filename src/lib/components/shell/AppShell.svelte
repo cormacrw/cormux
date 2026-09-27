@@ -1,8 +1,14 @@
 <script lang="ts">
+  import { getCurrentWindow } from '@tauri-apps/api/window'
   import { app } from '$lib/state'
   import type { Snippet } from 'svelte'
 
   let { children }: { children: Snippet } = $props()
+
+  function startWindowDrag(event: MouseEvent) {
+    if (event.button !== 0) return
+    void getCurrentWindow().startDragging()
+  }
 </script>
 
 <div class="flex h-screen bg-background text-foreground">
@@ -10,11 +16,11 @@
     class="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
   >
     <div
-      class="flex h-11 items-center pl-[76px] pr-3 text-sm font-medium"
+      class="h-14 w-full shrink-0"
       data-tauri-drag-region
-    >
-      Harness
-    </div>
+      aria-hidden="true"
+      onmousedown={startWindowDrag}
+    ></div>
     <nav class="flex flex-1 flex-col gap-1 p-2">
       <button
         class="rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent"

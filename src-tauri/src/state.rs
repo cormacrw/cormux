@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::GithubClient,
-    llm::LlmClient, mcp::HarnessMcp, metrics::Metrics, process::ProcessSupervisor,
+    llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
     shell_env::ShellEnv, store::Store, workspace::WorkspaceManager,
 };
 
@@ -14,7 +14,7 @@ pub struct AppState {
     pub workspace: WorkspaceManager,
     pub engines: EngineRegistry,
     pub approvals: ApprovalBroker,
-    pub mcp: HarnessMcp,
+    pub mcp: CormuxMcp,
     pub process: ProcessSupervisor,
     pub github: GithubClient,
     pub llm: LlmClient,
@@ -31,7 +31,7 @@ impl AppState {
             workspace: WorkspaceManager::new(),
             engines: EngineRegistry::new(),
             approvals: ApprovalBroker::new(),
-            mcp: HarnessMcp::new(),
+            mcp: CormuxMcp::new(),
             process: ProcessSupervisor::new(),
             github: GithubClient::new(),
             llm: LlmClient::new(),

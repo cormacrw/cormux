@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 
-/// Sampled resident memory for Harness, the webview, and child process trees.
+/// Sampled resident memory for Cormux, the webview, and child process trees.
 #[derive(Debug, Default)]
 pub struct Metrics;
 

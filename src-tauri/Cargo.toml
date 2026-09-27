@@ -1,5 +1,5 @@
 [package]
-name = "harness"
+name = "cormux"
 version = "0.1.0"
 description = "Run many coding agents in parallel, each in its own git worktree"
 authors = ["Cormac Williamson"]
@@ -10,7 +10,7 @@ rust-version = "1.90"
 publish = false
 
 [lib]
-name = "harness_lib"
+name = "cormux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

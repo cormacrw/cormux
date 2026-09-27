@@ -9,13 +9,13 @@ export class AppStore {
   workspaceId = $state<string | null>(null)
 
   readonly windowTitle = $derived.by(() => {
-    if (this.view === 'settings') return 'Harness · Settings'
+    if (this.view === 'settings') return 'Cormux · Settings'
     if (this.view === 'workspace' && this.workspaceId) {
       const name =
         workspaces.getById(this.workspaceId)?.name ?? this.workspaceId
-      return `Harness · ${name}`
+      return `Cormux · ${name}`
     }
-    return 'Harness · Homebase'
+    return 'Cormux · Homebase'
   })
 
   hydrate(snapshot: Snapshot) {

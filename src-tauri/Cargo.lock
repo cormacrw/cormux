@@ -577,6 +577,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "cormux"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-typescript",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-specta",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1459,27 +1480,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "harness"
-version = "0.1.0"
-dependencies = [
- "log",
- "rusqlite",
- "serde",
- "serde_json",
- "specta",
- "specta-typescript",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-specta",
- "thiserror 2.0.21",
- "tokio",
 ]
 
 [[package]]

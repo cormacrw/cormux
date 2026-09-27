@@ -8,9 +8,9 @@ pub const OPEN_SETTINGS: &str = "open-settings";
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about = PredefinedMenuItem::about(
         app,
-        Some("About Harness"),
+        Some("About Cormux"),
         Some(AboutMetadata {
-            name: Some("Harness".into()),
+            name: Some("Cormux".into()),
             ..Default::default()
         }),
     )?;
@@ -22,7 +22,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
     let app_menu = Submenu::with_items(
         app,
-        "Harness",
+        "Cormux",
         true,
         &[
             &about,

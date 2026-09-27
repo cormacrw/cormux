@@ -2,9 +2,9 @@ use crate::error::{Error, Result};
 
 /// In-process MCP server given to every engine (`report_finding`, `finish_review`, …).
 #[derive(Debug, Default)]
-pub struct HarnessMcp;
+pub struct CormuxMcp;
 
-impl HarnessMcp {
+impl CormuxMcp {
     pub fn new() -> Self {
         Self
     }

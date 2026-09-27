@@ -1,6 +1,6 @@
 [[permission]]
 identifier = "allow-ipc"
-description = "Allow the webview to call Harness core commands"
+description = "Allow the webview to call Cormux core commands"
 commands.allow = [
   "get_snapshot",
   "subscribe_agent_chunks",

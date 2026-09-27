@@ -7,7 +7,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Harness is dark only. Tokens live on :root, and index.html sets the
+ * Cormux is dark only. Tokens live on :root, and index.html sets the
  * `dark` class so shadcn-svelte `dark:` variants apply as well.
  */
 :root {
@@ -119,6 +119,18 @@
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+
+  [data-tauri-drag-region] {
+    app-region: drag;
+    -webkit-app-region: drag;
+  }
+
+  [data-tauri-drag-region] button,
+  [data-tauri-drag-region] a,
+  [data-tauri-drag-region] input {
+    app-region: no-drag;
+    -webkit-app-region: no-drag;
   }
 
   input,
