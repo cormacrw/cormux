@@ -49,6 +49,22 @@ async subscribeAgentChunks(threadId: string, channel: TAURI_CHANNEL<AgentChunk>)
     else return { status: "error", error: e  as any };
 }
 },
+async detectEngines() : Promise<Result<EngineStatus[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("detect_engines") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resolveApproval(id: string, approved: boolean) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * High-volume ordered stream of PTY output for a workspace's run/setup log.
  */
@@ -107,6 +123,11 @@ export type ApprovalRow = { id: string; threadId: string; status: string; tool: 
 export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
 export type DiffHunk = { header: string; body: string }
 export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff | null }
+/**
+ * Engines Harness can spawn. Launch is Claude and Cursor; Codex and Gemini share ACP.
+ */
+export type EngineKind = "claude" | "cursor" | "codex" | "gemini"
+export type EngineStatus = { kind: EngineKind; installed: boolean; binary: string | null; version: string | null; signedIn: boolean | null }
 /**
  * Shared error type for the Rust core. Serialised as a tagged union so the
  * generated TypeScript bindings stay in lockstep with Rust.

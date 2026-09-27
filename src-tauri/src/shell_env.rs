@@ -19,6 +19,12 @@ impl ShellEnv {
         Self::default()
     }
 
+    pub fn from_vars(vars: impl IntoIterator<Item = (String, String)>) -> Self {
+        Self {
+            vars: vars.into_iter().collect(),
+        }
+    }
+
     pub fn get(&self, key: &str) -> Option<&str> {
         self.vars.get(key).map(String::as_str)
     }

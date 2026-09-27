@@ -12,10 +12,11 @@
 //! - Interrupt is a host `control_request` with `subtype: interrupt`.
 //! - Resume is a new process with `--resume <session_id>` from `system`/`init`.
 
+pub mod map;
 mod protocol;
 mod session;
 
-pub use protocol::{Event, PermissionDecision};
+pub use protocol::{CanUseTool, Event, PermissionDecision};
 pub use session::{ClaudeSession, SpawnOptions};
 
 /// Argument vector for a streaming Claude Code session (binary not included).

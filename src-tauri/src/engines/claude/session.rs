@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -24,6 +25,7 @@ pub struct SpawnOptions {
     pub extra_args: Vec<String>,
     /// When false, only `extra_args` are passed (used by the mock CLI fixture).
     pub use_default_args: bool,
+    pub env: Option<HashMap<String, String>>,
 }
 
 impl Default for SpawnOptions {
@@ -34,6 +36,7 @@ impl Default for SpawnOptions {
             resume: None,
             extra_args: Vec::new(),
             use_default_args: true,
+            env: None,
         }
     }
 }
@@ -63,6 +66,16 @@ impl ClaudeSession {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        #[cfg(unix)]
+        {
+            command.process_group(0);
+        }
+        if let Some(vars) = &options.env {
+            command.env_clear();
+            for (key, value) in vars {
+                command.env(key, value);
+            }
+        }
         if options.use_default_args {
             command.env("CLAUDE_CODE_ENTRYPOINT", "sdk-ts");
         }
@@ -202,7 +215,13 @@ impl ClaudeSession {
 
     pub async fn shutdown(&mut self) -> Result<()> {
         let _ = self.stdin.shutdown().await;
+        if let Some(pid) = self.child.id() {
+            let _ = unsafe { libc::killpg(pid as i32, libc::SIGTERM) };
+        }
         let _ = timeout(Duration::from_secs(5), self.child.wait()).await;
+        if let Some(pid) = self.child.id() {
+            let _ = unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+        }
         let _ = self.child.kill().await;
         Ok(())
     }

@@ -1,7 +1,7 @@
-//! Spike 2 (COR-43): Cursor CLI over ACP via `agent-client-protocol`.
-//!
-//! `agent acp` speaks JSON-RPC on stdio. This client initializes, creates a
-//! session, answers `session/request_permission`, then calls `session/load`.
+//! Spike 2 (COR-43) plus the long-lived Cursor/Gemini/Codex ACP session (COR-59).
+
+mod map;
+mod session;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,6 +14,8 @@ use agent_client_protocol::schema::v1::{
     SelectedPermissionOutcome, TextContent,
 };
 use agent_client_protocol::{AcpAgent, Agent, ConnectionTo};
+
+pub use session::{AcpSpawn, start};
 
 use crate::error::{Error, Result};
 

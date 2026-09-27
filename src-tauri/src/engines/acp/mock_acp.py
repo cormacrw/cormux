@@ -40,6 +40,19 @@ for raw in sys.stdin:
         send(
             {
                 "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": session_id,
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "working"},
+                    },
+                },
+            }
+        )
+        send(
+            {
+                "jsonrpc": "2.0",
                 "id": perm_req_id,
                 "method": "session/request_permission",
                 "params": {
@@ -53,11 +66,26 @@ for raw in sys.stdin:
                             "optionId": "allow-once",
                             "name": "Allow once",
                             "kind": "allow_once",
-                        }
+                        },
+                        {
+                            "optionId": "reject-once",
+                            "name": "Reject once",
+                            "kind": "reject_once",
+                        },
                     ],
                 },
             }
         )
+    elif method == "session/cancel":
+        if pending_prompt_id is not None:
+            send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": pending_prompt_id,
+                    "result": {"stopReason": "cancelled"},
+                }
+            )
+            pending_prompt_id = None
     elif method == "session/load":
         send({"jsonrpc": "2.0", "id": req_id, "result": {}})
     elif pending_prompt_id is not None and "result" in msg and msg.get("id") == perm_req_id:

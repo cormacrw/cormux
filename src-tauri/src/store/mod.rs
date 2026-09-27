@@ -120,6 +120,16 @@ impl Store {
         })
     }
 
+    pub fn set_thread_session(&self, thread_id: &str, session_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET session_id = ?1 WHERE id = ?2",
+                rusqlite::params![session_id, thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn upsert_thread(&self, thread: &ThreadRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(

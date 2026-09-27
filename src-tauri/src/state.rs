@@ -17,7 +17,7 @@ pub struct AppState {
     pub git: Git,
     pub workspace: WorkspaceManager,
     pub engines: EngineRegistry,
-    pub approvals: ApprovalBroker,
+    pub approvals: Arc<ApprovalBroker>,
     pub mcp: CormuxMcp,
     pub process: ProcessSupervisor,
     pub github: GithubClient,
@@ -36,18 +36,21 @@ impl AppState {
         let fetch = FetchScheduler::new(git.clone());
         let process = ProcessSupervisor::new(shell_env.clone());
         let workspace = WorkspaceManager::new(git.clone(), diffs.clone(), fetch.clone());
+        let store = Store::new();
+        let approvals = Arc::new(ApprovalBroker::new());
+        let engines = EngineRegistry::new(shell_env.clone(), approvals.clone(), store.clone());
         Self {
             event_version: AtomicU64::new(0),
             shell_env: shell_env.clone(),
             git,
             workspace,
-            engines: EngineRegistry::new(),
-            approvals: ApprovalBroker::new(),
+            engines,
+            approvals,
             mcp: CormuxMcp::new(),
             process,
             github: GithubClient::new(),
             llm: LlmClient::new(shell_env),
-            store: Store::new(),
+            store,
             metrics: Metrics::new(),
             diffs,
             fetch,

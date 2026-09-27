@@ -60,9 +60,48 @@ pub fn get_metrics(state: State<'_, AppState>) -> Result<crate::metrics::MemoryS
 /// High-volume ordered stream of agent message chunks for one thread.
 #[tauri::command]
 #[specta::specta]
-pub fn subscribe_agent_chunks(thread_id: String, channel: Channel<AgentChunk>) -> Result<()> {
-    let _ = (thread_id, channel);
+pub fn subscribe_agent_chunks(
+    thread_id: String,
+    channel: Channel<AgentChunk>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let engines = state.engines.clone();
+    tauri::async_runtime::spawn(async move {
+        let rx = loop {
+            match engines.subscribe(&thread_id) {
+                Ok(rx) => break rx,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        };
+        let mut rx = rx;
+        while let Ok(event) = rx.recv().await {
+            if let crate::engines::AgentEvent::MessageChunk { text, .. } = event {
+                let _ = channel.send(AgentChunk {
+                    thread_id: thread_id.clone(),
+                    text,
+                });
+            }
+        }
+    });
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn detect_engines(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::engines::EngineStatus>> {
+    state.engines.detect().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_approval(
+    id: String,
+    approved: bool,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    state.approvals.resolve(&id, approved).await
 }
 
 /// High-volume ordered stream of PTY output for a workspace's run/setup log.
