@@ -1,7 +1,5 @@
 use super::protocol::{CanUseTool, Event};
-use crate::engines::events::{
-    AgentEvent, MessageRole, PlanStep, ToolCallStatus, ToolKind,
-};
+use crate::engines::events::{AgentEvent, MessageRole, PlanStep, ToolCallStatus, ToolKind};
 
 pub fn map_claude_event(event: &Event) -> Option<AgentEvent> {
     match event {
@@ -33,8 +31,17 @@ pub fn map_claude_event(event: &Event) -> Option<AgentEvent> {
 
 fn map_permission(req: &CanUseTool) -> AgentEvent {
     let kind = ToolKind::from_claude_tool(&req.tool_name);
-    let detail = req.input.get("command").and_then(|v| v.as_str()).map(str::to_string)
-        .or_else(|| req.input.get("file_path").and_then(|v| v.as_str()).map(str::to_string));
+    let detail = req
+        .input
+        .get("command")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            req.input
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        });
     AgentEvent::Permission {
         id: req.request_id.clone(),
         tool_call_id: req.tool_use_id.clone(),
@@ -60,6 +67,24 @@ pub fn tool_event_from_permission(req: &CanUseTool, status: ToolCallStatus) -> A
         locations: Vec::new(),
         detail: req.decision_reason.clone(),
     }
+}
+
+pub fn usage_from_result(event: &Event) -> Option<AgentEvent> {
+    let Event::Result {
+        used_tokens,
+        context_size,
+        cost_usd,
+        ..
+    } = event
+    else {
+        return None;
+    };
+    let used = (*used_tokens)?;
+    Some(AgentEvent::Usage {
+        used_tokens: used,
+        context_size: context_size.unwrap_or(used),
+        cost_usd: cost_usd.as_ref().and_then(|value| value.parse().ok()),
+    })
 }
 
 #[allow(dead_code)]
@@ -112,6 +137,32 @@ mod tests {
                 assert_eq!(kind, ToolKind::Execute);
                 assert_eq!(detail.as_deref(), Some("echo hi"));
                 assert!(!auto_approved);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn maps_usage_from_result() {
+        let usage = usage_from_result(&Event::Result {
+            session_id: None,
+            is_error: false,
+            subtype: Some("success".into()),
+            result: None,
+            used_tokens: Some(120),
+            context_size: Some(200_000),
+            cost_usd: Some("0.02".into()),
+        })
+        .unwrap();
+        match usage {
+            AgentEvent::Usage {
+                used_tokens,
+                context_size,
+                cost_usd,
+            } => {
+                assert_eq!(used_tokens, 120);
+                assert_eq!(context_size, 200_000);
+                assert_eq!(cost_usd, Some(0.02));
             }
             other => panic!("{other:?}"),
         }

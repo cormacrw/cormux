@@ -39,6 +39,7 @@ impl AppState {
         let store = Store::new();
         let approvals = Arc::new(ApprovalBroker::new());
         let engines = EngineRegistry::new(shell_env.clone(), approvals.clone(), store.clone());
+        let mcp = CormuxMcp::new(store.clone(), process.clone(), approvals.clone());
         Self {
             event_version: AtomicU64::new(0),
             shell_env: shell_env.clone(),
@@ -46,7 +47,7 @@ impl AppState {
             workspace,
             engines,
             approvals,
-            mcp: CormuxMcp::new(),
+            mcp,
             process,
             github: GithubClient::new(),
             llm: LlmClient::new(shell_env),

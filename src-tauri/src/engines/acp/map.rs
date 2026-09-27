@@ -3,9 +3,7 @@ use agent_client_protocol::schema::v1::{
     ToolCall, ToolCallStatus as AcpStatus, ToolKind as AcpKind,
 };
 
-use crate::engines::events::{
-    AgentEvent, MessageRole, PlanStep, ToolCallStatus, ToolKind,
-};
+use crate::engines::events::{AgentEvent, MessageRole, PlanStep, ToolCallStatus, ToolKind};
 
 pub fn map_session_update(update: &SessionUpdate) -> Option<AgentEvent> {
     match update {
@@ -15,11 +13,7 @@ pub fn map_session_update(update: &SessionUpdate) -> Option<AgentEvent> {
         SessionUpdate::ToolCall(call) => Some(map_tool_call(call)),
         SessionUpdate::ToolCallUpdate(update) => {
             let id = update.tool_call_id.to_string();
-            let title = update
-                .fields
-                .title
-                .clone()
-                .unwrap_or_else(|| "tool".into());
+            let title = update.fields.title.clone().unwrap_or_else(|| "tool".into());
             Some(AgentEvent::CurrentTool {
                 id: Some(id.clone()),
                 title: title.clone(),

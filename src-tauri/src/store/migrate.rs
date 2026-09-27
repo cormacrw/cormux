@@ -8,11 +8,18 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "001_initial",
-    sql: include_str!("../../migrations/001_initial.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "001_initial",
+        sql: include_str!("../../migrations/001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "002_sessions_findings_usage",
+        sql: include_str!("../../migrations/002_sessions_findings_usage.sql"),
+    },
+];
 
 pub fn run(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -73,6 +80,13 @@ mod tests {
             .unwrap()
             .map(|name| name.unwrap())
             .collect();
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 2);
 
         for expected in [
             "approvals",

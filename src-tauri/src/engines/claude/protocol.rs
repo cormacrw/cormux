@@ -85,6 +85,9 @@ pub enum Event {
         is_error: bool,
         subtype: Option<String>,
         result: Option<String>,
+        used_tokens: Option<u64>,
+        context_size: Option<u64>,
+        cost_usd: Option<String>,
     },
     ControlResponse {
         request_id: String,
@@ -185,6 +188,25 @@ pub fn decode_event(line: &str) -> Result<Event> {
                 .get("result")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            used_tokens: usage_tokens(&value),
+            context_size: value
+                .pointer("/usage/input_tokens")
+                .and_then(Value::as_u64)
+                .or_else(|| {
+                    value
+                        .pointer("/usage/context_window")
+                        .and_then(Value::as_u64)
+                }),
+            cost_usd: value
+                .pointer("/usage/cost_usd")
+                .and_then(Value::as_f64)
+                .map(|n| n.to_string())
+                .or_else(|| {
+                    value
+                        .pointer("/total_cost_usd")
+                        .and_then(Value::as_f64)
+                        .map(|n| n.to_string())
+                }),
         }),
         "control_request" => decode_control_request(&value),
         "control_response" => {
@@ -199,6 +221,20 @@ pub fn decode_event(line: &str) -> Result<Event> {
         }
         _ => Ok(Event::Other { type_name }),
     }
+}
+
+fn usage_tokens(value: &Value) -> Option<u64> {
+    let usage = value.get("usage")?;
+    let input = usage
+        .get("input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let output = usage
+        .get("output_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let total = usage.get("total_tokens").and_then(Value::as_u64);
+    Some(total.unwrap_or(input + output))
 }
 
 fn decode_control_request(value: &Value) -> Result<Event> {

@@ -39,6 +39,10 @@ pub struct ThreadRow {
     pub engine: String,
     pub session_id: Option<String>,
     pub status: String,
+    pub used_tokens: Option<i64>,
+    pub context_size: Option<i64>,
+    pub cost_usd: Option<f64>,
+    pub transcript_readonly: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -71,6 +75,8 @@ pub struct FindingRow {
     pub file: Option<String>,
     pub line: Option<i64>,
     pub explanation: String,
+    pub status: String,
+    pub commit_sha: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

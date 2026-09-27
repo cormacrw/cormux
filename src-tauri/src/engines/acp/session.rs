@@ -10,7 +10,9 @@ use agent_client_protocol::schema::v1::{
 use agent_client_protocol::{AcpAgent, AcpAgentConfig, Agent, ConnectionTo};
 use tokio::sync::{broadcast, mpsc};
 
-use super::map::{map_permission_request, map_session_update, map_stop_reason, pick_permission_option};
+use super::map::{
+    map_permission_request, map_session_update, map_stop_reason, pick_permission_option,
+};
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::engines::command::EngineCommand;
 use crate::engines::events::AgentEvent;
@@ -29,6 +31,7 @@ pub struct AcpSpawn {
     pub session_id: Arc<std::sync::Mutex<Option<String>>>,
     pub store: Store,
     pub thread_id: String,
+    pub pending_seed: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 pub fn start(spawn: AcpSpawn) -> mpsc::UnboundedSender<EngineCommand> {
@@ -59,6 +62,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
     let resume = spawn.resume.clone();
     let store = spawn.store.clone();
     let thread_id = spawn.thread_id.clone();
+    let pending_seed = spawn.pending_seed.clone();
 
     agent_client_protocol::Client
         .builder()
@@ -66,8 +70,24 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
         .on_receive_notification(
             {
                 let events = events.clone();
+                let store_notify = store.clone();
+                let thread_notify = thread_id.clone();
                 async move |notification: SessionNotification, _cx| {
                     if let Some(event) = map_session_update(&notification.update) {
+                        persist_event(&store_notify, &thread_notify, &event);
+                        if let AgentEvent::Usage {
+                            used_tokens,
+                            context_size,
+                            cost_usd,
+                        } = &event
+                        {
+                            let _ = store_notify.set_thread_usage(
+                                &thread_notify,
+                                *used_tokens,
+                                *context_size,
+                                *cost_usd,
+                            );
+                        }
                         let _ = events.send(event);
                     }
                     Ok(())
@@ -98,12 +118,13 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                         _ => request.tool_call.tool_call_id.to_string(),
                     };
                     let _ = events.send(event);
-                    let decision = approvals
-                        .wait(approval_id)
-                        .await
-                        .unwrap_or(ApprovalDecision::Denied {
-                            message: "approval dropped".into(),
-                        });
+                    let decision =
+                        approvals
+                            .wait(approval_id)
+                            .await
+                            .unwrap_or(ApprovalDecision::Denied {
+                                message: "approval dropped".into(),
+                            });
                     respond_permission(
                         &request,
                         responder,
@@ -122,12 +143,28 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                     .block_task()
                     .await?;
                 let session_id = if let Some(existing) = resume {
-                    let id = SessionId::new(existing);
-                    connection
+                    let id = SessionId::new(existing.clone());
+                    match connection
                         .send_request(LoadSessionRequest::new(id.clone(), cwd.as_path()))
                         .block_task()
-                        .await?;
-                    id
+                        .await
+                    {
+                        Ok(_) => id,
+                        Err(error) => {
+                            log::warn!("session/load failed, starting a new session: {error}");
+                            let summary =
+                                store.transcript_summary(&thread_id, 40).unwrap_or_default();
+                            if !summary.is_empty() {
+                                *pending_seed.lock().unwrap() = Some(summary);
+                            }
+                            let _ = store.set_thread_readonly(&thread_id, true);
+                            connection
+                                .send_request(NewSessionRequest::new(cwd.clone()))
+                                .block_task()
+                                .await?
+                                .session_id
+                        }
+                    }
                 } else {
                     let created = connection
                         .send_request(NewSessionRequest::new(cwd.clone()))
@@ -139,9 +176,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                     let id_str = session_id.to_string();
                     *stored_id.lock().unwrap() = Some(id_str.clone());
                     let _ = store.set_thread_session(&thread_id, &id_str);
-                    let _ = events.send(AgentEvent::SessionStarted {
-                        session_id: id_str,
-                    });
+                    let _ = events.send(AgentEvent::SessionStarted { session_id: id_str });
                 }
 
                 while let Some(command) = commands.recv().await {
@@ -202,6 +237,23 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
 
     let _ = events.send(AgentEvent::EngineExited { code: None });
     Ok(())
+}
+
+fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
+    let kind = match event {
+        AgentEvent::SessionStarted { .. } => "session",
+        AgentEvent::MessageChunk { .. } => "message",
+        AgentEvent::ToolCall { .. } => "tool",
+        AgentEvent::Plan { .. } => "plan",
+        AgentEvent::Permission { .. } => "permission",
+        AgentEvent::CurrentTool { .. } => "current_tool",
+        AgentEvent::Usage { .. } => "usage",
+        AgentEvent::TurnEnd { .. } => "turn_end",
+        AgentEvent::EngineExited { .. } => "exit",
+    };
+    if let Ok(payload) = serde_json::to_string(event) {
+        let _ = store.append_event(thread_id, kind, &payload);
+    }
 }
 
 fn respond_permission(

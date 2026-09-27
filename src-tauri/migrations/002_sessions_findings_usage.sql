@@ -1,0 +1,7 @@
+ALTER TABLE findings ADD COLUMN status TEXT NOT NULL DEFAULT 'open';
+ALTER TABLE findings ADD COLUMN commit_sha TEXT;
+
+ALTER TABLE threads ADD COLUMN used_tokens INTEGER;
+ALTER TABLE threads ADD COLUMN context_size INTEGER;
+ALTER TABLE threads ADD COLUMN cost_usd REAL;
+ALTER TABLE threads ADD COLUMN transcript_readonly INTEGER NOT NULL DEFAULT 0;

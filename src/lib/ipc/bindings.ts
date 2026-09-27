@@ -133,7 +133,7 @@ export type EngineStatus = { kind: EngineKind; installed: boolean; binary: strin
  * generated TypeScript bindings stay in lockstep with Rust.
  */
 export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string } | { kind: "NotImplemented"; message: string }
-export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string }
+export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
 export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
@@ -148,7 +148,7 @@ export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | 
  */
 export type StateChanged = { version: number; kind: StateChangeKind }
 export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string }
-export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string }
+export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
 /**
  * Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
  * describe activity after provisioning.

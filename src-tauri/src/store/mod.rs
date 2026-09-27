@@ -123,9 +123,78 @@ impl Store {
     pub fn set_thread_session(&self, thread_id: &str, session_id: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "UPDATE threads SET session_id = ?1 WHERE id = ?2",
+                "UPDATE threads SET session_id = ?1, transcript_readonly = 0 WHERE id = ?2",
                 rusqlite::params![session_id, thread_id],
             )?;
+            Ok(())
+        })
+    }
+
+    pub fn thread_session(&self, thread_id: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare("SELECT session_id FROM threads WHERE id = ?1")?;
+            let mut rows = stmt.query([thread_id])?;
+            if let Some(row) = rows.next()? {
+                Ok(row.get(0)?)
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    pub fn set_thread_readonly(&self, thread_id: &str, readonly: bool) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET transcript_readonly = ?1 WHERE id = ?2",
+                rusqlite::params![readonly as i64, thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_thread_usage(
+        &self,
+        thread_id: &str,
+        used_tokens: u64,
+        context_size: u64,
+        cost_usd: Option<f64>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET used_tokens = ?1, context_size = ?2, cost_usd = ?3 WHERE id = ?4",
+                rusqlite::params![used_tokens as i64, context_size as i64, cost_usd, thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn transcript_summary(&self, thread_id: &str, limit: usize) -> Result<String> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT kind, payload FROM thread_events WHERE thread_id = ?1 ORDER BY seq DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(rusqlite::params![thread_id, limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            let mut lines = Vec::new();
+            for row in rows {
+                let (kind, payload) = row?;
+                lines.push(format!("{kind}: {payload}"));
+            }
+            lines.reverse();
+            Ok(lines.join("\n"))
+        })
+    }
+
+    pub fn mark_finding_fixed(&self, finding_id: &str, commit_sha: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            let changed = conn.execute(
+                "UPDATE findings SET status = 'fixed', commit_sha = ?1 WHERE id = ?2",
+                rusqlite::params![commit_sha, finding_id],
+            )?;
+            if changed == 0 {
+                return Err(Error::Store(format!("unknown finding {finding_id}")));
+            }
             Ok(())
         })
     }
@@ -133,17 +202,24 @@ impl Store {
     pub fn upsert_thread(&self, thread: &ThreadRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "INSERT INTO threads (id, workspace_id, title, engine, session_id, status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "INSERT INTO threads (id, workspace_id, title, engine, session_id, status,
+                    used_tokens, context_size, cost_usd, transcript_readonly)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                  ON CONFLICT(id) DO UPDATE SET title = excluded.title, engine = excluded.engine,
-                    session_id = excluded.session_id, status = excluded.status",
+                    session_id = excluded.session_id, status = excluded.status,
+                    used_tokens = excluded.used_tokens, context_size = excluded.context_size,
+                    cost_usd = excluded.cost_usd, transcript_readonly = excluded.transcript_readonly",
                 rusqlite::params![
                     thread.id,
                     thread.workspace_id,
                     thread.title,
                     thread.engine,
                     thread.session_id,
-                    thread.status
+                    thread.status,
+                    thread.used_tokens,
+                    thread.context_size,
+                    thread.cost_usd,
+                    thread.transcript_readonly as i64,
                 ],
             )?;
             Ok(())
@@ -186,10 +262,11 @@ impl Store {
     pub fn upsert_finding(&self, finding: &FindingRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation, status, commit_sha)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(id) DO UPDATE SET severity = excluded.severity, title = excluded.title,
-                    explanation = excluded.explanation",
+                    explanation = excluded.explanation, file = excluded.file, line = excluded.line,
+                    status = excluded.status, commit_sha = excluded.commit_sha",
                 rusqlite::params![
                     finding.id,
                     finding.workspace_id,
@@ -197,7 +274,9 @@ impl Store {
                     finding.title,
                     finding.file,
                     finding.line,
-                    finding.explanation
+                    finding.explanation,
+                    finding.status,
+                    finding.commit_sha
                 ],
             )?;
             Ok(())
@@ -262,7 +341,8 @@ impl Store {
                 )?,
                 threads: query_all(
                     conn,
-                    "SELECT id, workspace_id, title, engine, session_id, status FROM threads",
+                    "SELECT id, workspace_id, title, engine, session_id, status,
+                            used_tokens, context_size, cost_usd, transcript_readonly FROM threads",
                     |row| {
                         Ok(ThreadRow {
                             id: row.get(0)?,
@@ -271,6 +351,10 @@ impl Store {
                             engine: row.get(3)?,
                             session_id: row.get(4)?,
                             status: row.get(5)?,
+                            used_tokens: row.get(6)?,
+                            context_size: row.get(7)?,
+                            cost_usd: row.get(8)?,
+                            transcript_readonly: row.get::<_, i64>(9)? != 0,
                         })
                     },
                 )?,
@@ -302,7 +386,7 @@ impl Store {
                 )?,
                 findings: query_all(
                     conn,
-                    "SELECT id, workspace_id, severity, title, file, line, explanation FROM findings",
+                    "SELECT id, workspace_id, severity, title, file, line, explanation, status, commit_sha FROM findings",
                     |row| {
                         Ok(FindingRow {
                             id: row.get(0)?,
@@ -312,6 +396,8 @@ impl Store {
                             file: row.get(4)?,
                             line: row.get(5)?,
                             explanation: row.get(6)?,
+                            status: row.get(7)?,
+                            commit_sha: row.get(8)?,
                         })
                     },
                 )?,
@@ -390,6 +476,10 @@ mod tests {
                 engine: "claude".into(),
                 session_id: None,
                 status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
             })
             .unwrap();
         store
@@ -413,6 +503,8 @@ mod tests {
                 file: Some("a.ts".into()),
                 line: Some(10),
                 explanation: "secret".into(),
+                status: "open".into(),
+                commit_sha: None,
             })
             .unwrap();
         store

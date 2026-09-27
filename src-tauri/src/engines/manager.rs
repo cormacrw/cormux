@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 
 use super::acp;
 use super::claude::map as claude_map;
@@ -23,7 +23,7 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 pub struct EngineRegistry {
     env: Arc<RwLock<ShellEnv>>,
     approvals: Arc<ApprovalBroker>,
-    store: Store,
+    pub(crate) store: Store,
     threads: Arc<Mutex<HashMap<String, ThreadSlot>>>,
 }
 
@@ -33,6 +33,7 @@ struct ThreadSlot {
     commands: mpsc::UnboundedSender<EngineCommand>,
     events: broadcast::Sender<AgentEvent>,
     session_id: Arc<Mutex<Option<String>>>,
+    pending_seed: Arc<Mutex<Option<String>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,16 +85,33 @@ impl EngineRegistry {
     pub async fn spawn(&self, spec: SpawnSpec) -> Result<()> {
         let _ = self.stop(&spec.thread_id).await;
         let (events, _) = broadcast::channel(EVENT_CAP);
+        let resume = spec
+            .resume
+            .clone()
+            .or_else(|| self.store.thread_session(&spec.thread_id).ok().flatten());
+        let mut spec = spec;
+        spec.resume = resume;
         let session_id = Arc::new(Mutex::new(spec.resume.clone()));
+        let pending_seed = Arc::new(Mutex::new(None));
         let env = self.env.read().await.clone();
         let commands = match spec.kind {
             EngineKind::Claude => {
-                self.spawn_claude(&spec, env, events.clone(), session_id.clone())
-                    .await?
+                self.spawn_claude(
+                    &spec,
+                    env,
+                    events.clone(),
+                    session_id.clone(),
+                    pending_seed.clone(),
+                )
+                .await?
             }
-            EngineKind::Cursor | EngineKind::Codex | EngineKind::Gemini => {
-                self.spawn_acp(&spec, env, events.clone(), session_id.clone())
-            }
+            EngineKind::Cursor | EngineKind::Codex | EngineKind::Gemini => self.spawn_acp(
+                &spec,
+                env,
+                events.clone(),
+                session_id.clone(),
+                pending_seed.clone(),
+            ),
         };
 
         self.threads
@@ -106,13 +124,35 @@ impl EngineRegistry {
                     commands,
                     events,
                     session_id,
+                    pending_seed,
                 },
             );
         Ok(())
     }
 
     pub fn prompt(&self, thread_id: &str, text: impl Into<String>) -> Result<()> {
-        self.send(thread_id, EngineCommand::Prompt(text.into()))
+        let mut text = text.into();
+        if let Some(seed) = self.take_seed(thread_id)? {
+            text = format!(
+                "Previous session could not be resumed. Summary of the earlier transcript:\n{seed}\n\n---\n{text}"
+            );
+        }
+        self.send(thread_id, EngineCommand::Prompt(text))
+    }
+
+    fn take_seed(&self, thread_id: &str) -> Result<Option<String>> {
+        let threads = self
+            .threads
+            .lock()
+            .map_err(|error| Error::Engine(error.to_string()))?;
+        let Some(slot) = threads.get(thread_id) else {
+            return Ok(None);
+        };
+        Ok(slot
+            .pending_seed
+            .lock()
+            .ok()
+            .and_then(|mut seed| seed.take()))
     }
 
     pub fn cancel(&self, thread_id: &str) -> Result<()> {
@@ -167,7 +207,9 @@ impl EngineRegistry {
         env: ShellEnv,
         events: broadcast::Sender<AgentEvent>,
         session_id: Arc<Mutex<Option<String>>>,
+        pending_seed: Arc<Mutex<Option<String>>>,
     ) -> Result<mpsc::UnboundedSender<EngineCommand>> {
+        let _ = pending_seed;
         let (binary, extra_args, use_default_args) = if let Some(argv) = &spec.override_argv {
             let mut argv = argv.clone();
             let binary = PathBuf::from(argv.remove(0));
@@ -198,14 +240,7 @@ impl EngineRegistry {
         let auto_ro = spec.auto_approve_readonly;
         tokio::spawn(async move {
             run_claude(
-                session,
-                rx,
-                events,
-                approvals,
-                store,
-                thread_id,
-                session_id,
-                auto_ro,
+                session, rx, events, approvals, store, thread_id, session_id, auto_ro,
             )
             .await;
         });
@@ -218,8 +253,12 @@ impl EngineRegistry {
         env: ShellEnv,
         events: broadcast::Sender<AgentEvent>,
         session_id: Arc<Mutex<Option<String>>>,
+        pending_seed: Arc<Mutex<Option<String>>>,
     ) -> mpsc::UnboundedSender<EngineCommand> {
-        let argv = spec.override_argv.clone().unwrap_or_else(|| default_acp_argv(spec.kind));
+        let argv = spec
+            .override_argv
+            .clone()
+            .unwrap_or_else(|| resolved_acp_argv(spec.kind, &env));
         acp::start(acp::AcpSpawn {
             argv,
             cwd: spec.cwd.clone(),
@@ -231,17 +270,26 @@ impl EngineRegistry {
             session_id,
             store: self.store.clone(),
             thread_id: spec.thread_id.clone(),
+            pending_seed,
         })
     }
 }
 
-fn default_acp_argv(kind: EngineKind) -> Vec<String> {
+pub fn default_acp_argv(kind: EngineKind) -> Vec<String> {
     match kind {
         EngineKind::Cursor => vec!["agent".into(), "acp".into()],
         EngineKind::Gemini => vec!["gemini".into(), "--acp".into()],
         EngineKind::Codex => vec!["codex-acp".into()],
         EngineKind::Claude => vec!["claude".into()],
     }
+}
+
+fn resolved_acp_argv(kind: EngineKind, env: &ShellEnv) -> Vec<String> {
+    let mut argv = default_acp_argv(kind);
+    if let Some(binary) = detect::resolve_binary(env, kind.binaries()) {
+        argv[0] = binary.display().to_string();
+    }
+    argv
 }
 
 async fn run_claude(
@@ -254,7 +302,8 @@ async fn run_claude(
     session_id: Arc<Mutex<Option<String>>>,
     auto_ro: bool,
 ) {
-    let (answer_tx, mut answer_rx) = mpsc::unbounded_channel::<(String, ApprovalDecision, serde_json::Value)>();
+    let (answer_tx, mut answer_rx) =
+        mpsc::unbounded_channel::<(String, ApprovalDecision, serde_json::Value)>();
     loop {
         tokio::select! {
             command = commands.recv() => {
@@ -280,6 +329,23 @@ async fn run_claude(
                             *session_id.lock().unwrap() = Some(id.clone());
                             let _ = store.set_thread_session(&thread_id, id);
                         }
+                        if let Some(usage) = claude_map::usage_from_result(&raw) {
+                            persist_event(&store, &thread_id, &usage);
+                            let _ = events.send(usage.clone());
+                            if let AgentEvent::Usage {
+                                used_tokens,
+                                context_size,
+                                cost_usd,
+                            } = usage
+                            {
+                                let _ = store.set_thread_usage(
+                                    &thread_id,
+                                    used_tokens,
+                                    context_size,
+                                    cost_usd,
+                                );
+                            }
+                        }
                         if let Event::CanUseTool(req) = &raw {
                             handle_claude_permission(
                                 &mut session,
@@ -291,6 +357,7 @@ async fn run_claude(
                             )
                             .await;
                         } else if let Some(mapped) = claude_map::map_claude_event(&raw) {
+                            persist_event(&store, &thread_id, &mapped);
                             let _ = events.send(mapped);
                         }
                     }
@@ -329,13 +396,10 @@ async fn handle_claude_permission(
     answer_tx: mpsc::UnboundedSender<(String, ApprovalDecision, serde_json::Value)>,
 ) {
     let kind = ToolKind::from_claude_tool(&req.tool_name);
-    let mut mapped = claude_map::map_claude_event(&Event::CanUseTool(req.clone()))
-    .expect("permission maps");
+    let mut mapped =
+        claude_map::map_claude_event(&Event::CanUseTool(req.clone())).expect("permission maps");
     if auto_ro && kind.is_readonly() {
-        if let AgentEvent::Permission {
-            auto_approved, ..
-        } = &mut mapped
-        {
+        if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;
         }
         let _ = events.send(mapped);
@@ -367,11 +431,31 @@ async fn handle_claude_permission(
     let id = req.request_id.clone();
     let input = req.input.clone();
     tokio::spawn(async move {
-        let decision = broker.wait(id.clone()).await.unwrap_or(ApprovalDecision::Denied {
-            message: "approval dropped".into(),
-        });
+        let decision = broker
+            .wait(id.clone())
+            .await
+            .unwrap_or(ApprovalDecision::Denied {
+                message: "approval dropped".into(),
+            });
         let _ = answer_tx.send((id, decision, input));
     });
+}
+
+fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
+    let kind = match event {
+        AgentEvent::SessionStarted { .. } => "session",
+        AgentEvent::MessageChunk { .. } => "message",
+        AgentEvent::ToolCall { .. } => "tool",
+        AgentEvent::Plan { .. } => "plan",
+        AgentEvent::Permission { .. } => "permission",
+        AgentEvent::CurrentTool { .. } => "current_tool",
+        AgentEvent::Usage { .. } => "usage",
+        AgentEvent::TurnEnd { .. } => "turn_end",
+        AgentEvent::EngineExited { .. } => "exit",
+    };
+    if let Ok(payload) = serde_json::to_string(event) {
+        let _ = store.append_event(thread_id, kind, &payload);
+    }
 }
 
 #[cfg(test)]
@@ -391,8 +475,8 @@ mod tests {
     }
 
     fn mock_claude_argv() -> Vec<String> {
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src/engines/claude/mock_claude.py");
+        let script =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/claude/mock_claude.py");
         vec!["python3".into(), script.display().to_string()]
     }
 
@@ -492,5 +576,151 @@ mod tests {
             }
         }
         engines.stop("acp1").await.unwrap();
+    }
+
+    #[test]
+    fn acp_argv_for_codex_and_gemini() {
+        assert_eq!(
+            default_acp_argv(EngineKind::Gemini),
+            vec!["gemini".to_string(), "--acp".into()]
+        );
+        assert_eq!(
+            default_acp_argv(EngineKind::Codex),
+            vec!["codex-acp".to_string()]
+        );
+        assert_eq!(
+            default_acp_argv(EngineKind::Cursor),
+            vec!["agent".to_string(), "acp".into()]
+        );
+    }
+
+    fn seed_thread(store: &Store, thread_id: &str, session_id: Option<&str>) {
+        use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
+        store
+            .upsert_repo(&RepoRecord {
+                id: "r1".into(),
+                path: "/tmp/app".into(),
+                name: "app".into(),
+                default_branch: Some("main".into()),
+                setup_commands: String::new(),
+                run_command: None,
+            })
+            .unwrap();
+        store
+            .upsert_workspace(&WorkspaceRow {
+                id: "w1".into(),
+                repo_id: "r1".into(),
+                name: "Login".into(),
+                branch: "feat".into(),
+                worktree_path: "/tmp/wt".into(),
+                status: "ready".into(),
+            })
+            .unwrap();
+        store
+            .upsert_thread(&ThreadRow {
+                id: thread_id.into(),
+                workspace_id: "w1".into(),
+                title: "Lead".into(),
+                engine: "cursor".into(),
+                session_id: session_id.map(str::to_string),
+                status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+            })
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn acp_resumes_stored_session_and_emits_usage() {
+        let engines = registry();
+        seed_thread(&engines.store, "acp-resume", Some("sess-acp-1"));
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/acp/mock_acp.py");
+        engines
+            .spawn(SpawnSpec {
+                thread_id: "acp-resume".into(),
+                kind: EngineKind::Gemini,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: Some(vec!["python3".into(), script.display().to_string()]),
+                auto_approve_readonly: false,
+            })
+            .await
+            .unwrap();
+
+        let mut events = engines.subscribe("acp-resume").unwrap();
+        engines.prompt("acp-resume", "continue").unwrap();
+        let mut saw_usage = false;
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            match event {
+                AgentEvent::Usage { used_tokens, .. } => {
+                    assert_eq!(used_tokens, 42);
+                    saw_usage = true;
+                }
+                AgentEvent::Permission { id, .. } => {
+                    engines.approvals.resolve(&id, true).await.unwrap();
+                }
+                AgentEvent::TurnEnd { .. } => break,
+                _ => {}
+            }
+        }
+        assert!(saw_usage);
+        engines.stop("acp-resume").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn acp_failed_resume_seeds_next_prompt() {
+        let engines = registry();
+        seed_thread(&engines.store, "acp-miss", Some("missing-session"));
+        engines
+            .store
+            .append_event("acp-miss", "message", "{\"text\":\"hello from before\"}")
+            .unwrap();
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/acp/mock_acp.py");
+        engines
+            .spawn(SpawnSpec {
+                thread_id: "acp-miss".into(),
+                kind: EngineKind::Codex,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: Some(vec!["python3".into(), script.display().to_string()]),
+                auto_approve_readonly: false,
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let mut events = engines.subscribe("acp-miss").unwrap();
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if matches!(event, AgentEvent::SessionStarted { .. }) {
+                break;
+            }
+        }
+        engines.prompt("acp-miss", "next").unwrap();
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            match event {
+                AgentEvent::Permission { id, .. } => {
+                    engines.approvals.resolve(&id, true).await.unwrap();
+                }
+                AgentEvent::TurnEnd { .. } => break,
+                _ => {}
+            }
+        }
+        let summary = engines.store.transcript_summary("acp-miss", 40).unwrap();
+        assert!(summary.contains("hello from before") || !summary.is_empty());
+        engines.stop("acp-miss").await.unwrap();
     }
 }

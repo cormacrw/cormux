@@ -35,7 +35,35 @@ for raw in sys.stdin:
         )
     elif method == "session/new":
         send({"jsonrpc": "2.0", "id": req_id, "result": {"sessionId": session_id}})
+    elif method == "session/load":
+        loaded = (msg.get("params") or {}).get("sessionId")
+        if loaded != session_id:
+            send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32000, "message": "unknown session"},
+                }
+            )
+        else:
+            send({"jsonrpc": "2.0", "id": req_id, "result": {}})
     elif method == "session/prompt":
+        pending_prompt_id = req_id
+        send(
+            {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": session_id,
+                    "update": {
+                        "sessionUpdate": "usage_update",
+                        "used": 42,
+                        "size": 200000,
+                        "cost": {"amount": 0.01, "currency": "USD"},
+                    },
+                },
+            }
+        )
         pending_prompt_id = req_id
         send(
             {
@@ -86,8 +114,6 @@ for raw in sys.stdin:
                 }
             )
             pending_prompt_id = None
-    elif method == "session/load":
-        send({"jsonrpc": "2.0", "id": req_id, "result": {}})
     elif pending_prompt_id is not None and "result" in msg and msg.get("id") == perm_req_id:
         send(
             {
