@@ -53,3 +53,9 @@ impl From<std::io::Error> for Error {
         Self::Io(error.to_string())
     }
 }
+
+impl From<rusqlite::Error> for Error {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Store(error.to_string())
+    }
+}

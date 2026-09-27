@@ -41,7 +41,12 @@ pub fn run() {
             )?;
 
             ipc.mount_events(app);
-            app.manage(AppState::new());
+
+            let state = AppState::new();
+            let db_path = app.path().app_data_dir()?.join("harness.db");
+            state.store.open(&db_path)?;
+            app.manage(state);
+
             log::info!("Harness core started");
             Ok(())
         })
