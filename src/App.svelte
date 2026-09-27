@@ -2,7 +2,9 @@
   import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
+  import CommandPalette from '$lib/components/shell/CommandPalette.svelte'
   import { bindNativeMenu } from '$lib/components/shell/menu'
+  import { handleGlobalKeydown } from '$lib/keyboard/global-shortcuts'
   import { fetchSnapshot, listenForStateChanges } from '$lib/ipc'
   import {
     app,
@@ -13,19 +15,6 @@
   import Homebase from './routes/Homebase.svelte'
   import Settings from './routes/Settings.svelte'
   import Workspace from './routes/Workspace.svelte'
-
-  function onGlobalKeydown(event: KeyboardEvent) {
-    if (!event.metaKey) return
-    const key = event.key.toLowerCase()
-    if (key === 'k') {
-      event.preventDefault()
-      app.requestCommandPalette()
-    }
-    if (key === 'n') {
-      event.preventDefault()
-      app.requestNewWorkspace()
-    }
-  }
 
   onMount(() => {
     let unlisten: (() => void) | undefined
@@ -58,8 +47,8 @@
   })
 
   onMount(() => {
-    window.addEventListener('keydown', onGlobalKeydown)
-    return () => window.removeEventListener('keydown', onGlobalKeydown)
+    window.addEventListener('keydown', handleGlobalKeydown)
+    return () => window.removeEventListener('keydown', handleGlobalKeydown)
   })
 
   $effect(() => {
@@ -79,6 +68,7 @@
   })
 </script>
 
+<CommandPalette />
 <AppShell>
   {#if app.view === 'settings'}
     <Settings />

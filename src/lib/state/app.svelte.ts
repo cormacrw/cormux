@@ -18,7 +18,7 @@ export class AppStore {
   focusGeneration = $state(0)
   focusTarget = $state<FocusTarget | null>(null)
 
-  /** COR-10 replaces this with the command palette. */
+  /** Set while the palette is opening (sidebar / menu hooks). */
   commandPaletteRequested = $state(false)
 
   /** COR-14 replaces this with the New workspace dialog. */

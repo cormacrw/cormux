@@ -3,10 +3,26 @@
 
   let settingsTitle: HTMLHeadingElement | undefined = $state()
 
+  let reposSection: HTMLElement | undefined = $state()
+  let enginesSection: HTMLElement | undefined = $state()
+
   $effect(() => {
     if (app.focusTarget !== 'settings') return
     void app.focusGeneration
     settingsTitle?.focus()
+  })
+
+  $effect(() => {
+    const section = settings.focusSection
+    if (!section) return
+    const target =
+      section === 'repos'
+        ? reposSection
+        : section === 'engines'
+          ? enginesSection
+          : null
+    target?.scrollIntoView({ block: 'nearest' })
+    settings.focusSection = null
   })
 </script>
 
@@ -24,4 +40,14 @@
     <input type="checkbox" bind:checked={settings.reduceMotion} />
     Reduce motion
   </label>
+  <section bind:this={reposSection} id="settings-repos" class="scroll-mt-4">
+    <h2 class="text-sm font-medium">Repositories</h2>
+    <p class="text-sm text-muted-foreground">Repo setup and run commands.</p>
+  </section>
+  <section bind:this={enginesSection} id="settings-engines" class="scroll-mt-4">
+    <h2 class="text-sm font-medium">Engines</h2>
+    <p class="text-sm text-muted-foreground">
+      Default agent and installed CLIs.
+    </p>
+  </section>
 </section>

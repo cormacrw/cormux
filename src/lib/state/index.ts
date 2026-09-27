@@ -1,11 +1,13 @@
 import type { Snapshot, StateChanged } from '$lib/ipc'
 import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
-import { commands } from '$lib/ipc'
+import { commands, fetchSnapshot } from '$lib/ipc'
 import { app } from './app.svelte'
 import { memory } from './memory.svelte'
 import { prs } from './prs.svelte'
+import { repos } from './repos.svelte'
 import { settings } from './settings.svelte'
 import { threads } from './threads.svelte'
+import { workspaceRecords } from './workspace-records.svelte'
 import {
   workspaces,
   type Workspace,
@@ -15,8 +17,12 @@ import {
 export { app } from './app.svelte'
 export { memory } from './memory.svelte'
 export { prs } from './prs.svelte'
+export { repos } from './repos.svelte'
 export { settings } from './settings.svelte'
+export { shellDialogs } from './shell-dialogs.svelte'
 export { threads } from './threads.svelte'
+export { workspaceRecords } from './workspace-records.svelte'
+export { workspaceUi } from './workspace-ui.svelte'
 export { workspaces } from './workspaces.svelte'
 
 function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {
@@ -151,6 +157,8 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   })
   workspaces.hydrate(buildWorkspaceModels(snapshot))
   threads.hydrate(threadModels)
+  repos.hydrate(snapshot.persisted.repos)
+  workspaceRecords.hydrate(snapshot.workspaces)
   app.hydrate(snapshot)
   memory.hydrate(snapshot.memory)
   prs.hydrate(
@@ -170,5 +178,15 @@ export async function patchFromEvent(event: StateChanged) {
     if (result.status === 'ok') {
       memory.hydrate(result.data)
     }
+    return
+  }
+  if (
+    event.kind === 'behindCounts' ||
+    event.kind === 'workspaceStatus' ||
+    event.kind === 'approvalCounts' ||
+    event.kind === 'prSync' ||
+    event.kind === 'environment'
+  ) {
+    hydrateFromSnapshot(await fetchSnapshot())
   }
 }
