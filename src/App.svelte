@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
+  import { bindNativeMenu } from '$lib/components/shell/menu'
   import { fetchSnapshot, listenForStateChanges } from '$lib/ipc'
   import { app, hydrateFromSnapshot, patchFromEvent, settings } from '$lib/state'
   import Homebase from './routes/Homebase.svelte'
@@ -18,11 +19,17 @@
         console.warn('snapshot unavailable, using empty stores', error)
       }
 
-      unlisten = await listenForStateChanges({
+      const unlistenMenu = await bindNativeMenu()
+      const unlistenState = await listenForStateChanges({
         lastVersion: () => app.version,
         onEvent: patchFromEvent,
         onSnapshot: hydrateFromSnapshot,
       })
+
+      unlisten = () => {
+        unlistenMenu()
+        unlistenState()
+      }
     })()
 
     return () => {

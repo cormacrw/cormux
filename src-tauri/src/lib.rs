@@ -8,6 +8,7 @@ mod github;
 mod ipc;
 mod llm;
 mod mcp;
+mod menu;
 mod metrics;
 mod process;
 mod shell_env;
@@ -27,6 +28,9 @@ pub fn run() {
 
     tauri::Builder::default()
         .invoke_handler(ipc.invoke_handler())
+        .on_menu_event(|app, event| {
+            menu::handle(app, event.id().as_ref());
+        })
         .setup(move |app| {
             let log_level = if cfg!(debug_assertions) {
                 log::LevelFilter::Info
@@ -41,6 +45,7 @@ pub fn run() {
             )?;
 
             ipc.mount_events(app);
+            app.set_menu(menu::build(app.handle())?)?;
 
             let state = AppState::new();
             let db_path = app.path().app_data_dir()?.join("harness.db");
