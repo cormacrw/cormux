@@ -8,10 +8,10 @@ export async function bindNativeMenu() {
       app.openSettings()
     }),
     listen('menu://command-palette', () => {
-      window.dispatchEvent(new CustomEvent('cormux:command-palette'))
+      app.requestCommandPalette()
     }),
     listen('menu://new-workspace', () => {
-      window.dispatchEvent(new CustomEvent('cormux:new-workspace'))
+      app.requestNewWorkspace()
     }),
     listen('menu://reload-environment', () => {
       void commands.reloadEnvironment()

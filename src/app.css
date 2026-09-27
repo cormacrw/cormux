@@ -160,3 +160,51 @@
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
+
+/* App shell layout — mirrors product/CORMUX_PROTO.html breakpoints */
+.app-shell {
+  --sidebar-w: 248px;
+  --win-pad: 16px;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  padding: var(--win-pad);
+  min-height: 100dvh;
+  box-sizing: border-box;
+}
+
+.app-shell > aside {
+  width: var(--sidebar-w);
+}
+
+@media (max-width: 1100px) {
+  .app-shell {
+    --sidebar-w: 216px;
+    --win-pad: 12px;
+  }
+}
+
+@media (max-width: 760px) {
+  html,
+  body {
+    overflow: auto;
+  }
+
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .app-shell > aside {
+    width: 100%;
+  }
+
+  .sidebar-scroll {
+    max-height: 280px;
+  }
+
+  .app-shell .main-area {
+    margin: 0 8px 8px;
+    min-height: 80vh;
+  }
+}

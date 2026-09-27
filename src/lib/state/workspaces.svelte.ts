@@ -1,22 +1,33 @@
-export type WorkspaceStatus = 'idle' | 'working' | 'needsAttention'
+import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
+
+/** Homebase card vocabulary — sidebar uses finer-grained status via lifecycle. */
+export type WorkspaceCardStatus = 'idle' | 'working' | 'needsAttention'
 
 export type Workspace = {
   id: string
   name: string
-  status: WorkspaceStatus
+  lifecycle: WorkspaceLifecycle
+  paused: boolean
+  activityText: string
+  pendingApprovals: number
+  /** Card rollup for Homebase (unchanged from earlier stub). */
+  cardStatus: WorkspaceCardStatus
 }
 
 export class WorkspacesStore {
   items = $state<Workspace[]>([])
 
   readonly workingCount = $derived(
-    this.items.filter((workspace) => workspace.status === 'working').length,
+    this.items.filter((workspace) => workspace.cardStatus === 'working').length,
   )
 
   readonly needsAttentionCount = $derived(
-    this.items.filter((workspace) => workspace.status === 'needsAttention')
+    this.items.filter((workspace) => workspace.cardStatus === 'needsAttention')
       .length,
   )
+
+  /** Newest workspaces first (sidebar spec). */
+  readonly sidebarItems = $derived([...this.items].reverse())
 
   hydrate(items: Workspace[]) {
     this.items = items

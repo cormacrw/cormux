@@ -14,6 +14,19 @@
   import Settings from './routes/Settings.svelte'
   import Workspace from './routes/Workspace.svelte'
 
+  function onGlobalKeydown(event: KeyboardEvent) {
+    if (!event.metaKey) return
+    const key = event.key.toLowerCase()
+    if (key === 'k') {
+      event.preventDefault()
+      app.requestCommandPalette()
+    }
+    if (key === 'n') {
+      event.preventDefault()
+      app.requestNewWorkspace()
+    }
+  }
+
   onMount(() => {
     let unlisten: (() => void) | undefined
 
@@ -27,7 +40,9 @@
       const unlistenMenu = await bindNativeMenu()
       const unlistenState = await listenForStateChanges({
         lastVersion: () => app.version,
-        onEvent: patchFromEvent,
+        onEvent: (event) => {
+          void patchFromEvent(event)
+        },
         onSnapshot: hydrateFromSnapshot,
       })
 
@@ -40,6 +55,11 @@
     return () => {
       unlisten?.()
     }
+  })
+
+  onMount(() => {
+    window.addEventListener('keydown', onGlobalKeydown)
+    return () => window.removeEventListener('keydown', onGlobalKeydown)
   })
 
   $effect(() => {

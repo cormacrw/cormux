@@ -10,6 +10,14 @@
     app.workspaceId ? threads.forWorkspace(app.workspaceId) : [],
   )
 
+  let workspaceTitle: HTMLHeadingElement | undefined = $state()
+
+  $effect(() => {
+    if (app.focusTarget !== 'workspace') return
+    void app.focusGeneration
+    workspaceTitle?.focus()
+  })
+
   const isLoadSpike = $derived(app.workspaceId === 'spike-load')
   const diffLines = Array.from(
     { length: 5000 },
@@ -53,7 +61,11 @@
 
 <section class="flex flex-1 flex-col gap-4 p-6">
   <header>
-    <h1 class="text-xl font-semibold tracking-tight">
+    <h1
+      bind:this={workspaceTitle}
+      tabindex="-1"
+      class="text-xl font-semibold tracking-tight outline-none"
+    >
       {workspace?.name ?? app.workspaceId ?? 'Workspace'}
     </h1>
     <p class="text-sm text-muted-foreground">
@@ -68,14 +80,15 @@
   {#if isLoadSpike}
     <div class="grid min-h-0 flex-1 grid-cols-3 gap-3 text-xs">
       <pre
-        class="overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono"
-      >{agentText}</pre>
+        class="overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono">{agentText}</pre>
       <pre
-        class="overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono"
-      >{ptyLines.join('\n')}</pre>
+        class="overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono">{ptyLines.join(
+          '\n',
+        )}</pre>
       <pre
-        class="overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono"
-      >{diffLines.join('\n')}</pre>
+        class="overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono">{diffLines.join(
+          '\n',
+        )}</pre>
     </div>
   {/if}
 </section>

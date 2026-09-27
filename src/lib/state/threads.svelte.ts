@@ -1,10 +1,12 @@
-export type ThreadStatus = 'idle' | 'running' | 'waiting' | 'paused'
-
 export type Thread = {
   id: string
   workspaceId: string
-  title: string
-  status: ThreadStatus
+  role: string
+  engine: string
+  status: string
+  paused: boolean
+  activity: string
+  pendingApprovals: number
 }
 
 export class ThreadsStore {
@@ -21,6 +23,15 @@ export class ThreadsStore {
   forWorkspace(workspaceId: string) {
     return this.items.filter((thread) => thread.workspaceId === workspaceId)
   }
+
+  getById(id: string) {
+    return this.items.find((thread) => thread.id === id)
+  }
+
+  /** All threads in workspace list order, then thread list order. */
+  readonly sidebarAgents = $derived.by(() => {
+    return this.items
+  })
 }
 
 export const threads = new ThreadsStore()
