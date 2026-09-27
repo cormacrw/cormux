@@ -10,6 +10,6 @@ impl Metrics {
     }
 
     pub async fn sample(&self) -> Result<u64> {
-        Err(Error::NotImplemented("metrics.sample"))
+        Err(Error::NotImplemented("metrics.sample".into()))
     }
 }

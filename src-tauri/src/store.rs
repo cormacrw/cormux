@@ -10,6 +10,6 @@ impl Store {
     }
 
     pub async fn open(&self) -> Result<()> {
-        Err(Error::NotImplemented("store.open"))
+        Err(Error::NotImplemented("store.open".into()))
     }
 }

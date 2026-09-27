@@ -10,6 +10,6 @@ impl ProcessSupervisor {
     }
 
     pub async fn stop_all(&self) -> Result<()> {
-        Err(Error::NotImplemented("process.stop_all"))
+        Err(Error::NotImplemented("process.stop_all".into()))
     }
 }

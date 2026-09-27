@@ -10,6 +10,6 @@ impl HarnessMcp {
     }
 
     pub async fn start(&self) -> Result<()> {
-        Err(Error::NotImplemented("mcp.start"))
+        Err(Error::NotImplemented("mcp.start".into()))
     }
 }

@@ -10,6 +10,6 @@ impl WorkspaceManager {
     }
 
     pub async fn create(&self) -> Result<()> {
-        Err(Error::NotImplemented("workspace.create"))
+        Err(Error::NotImplemented("workspace.create".into()))
     }
 }

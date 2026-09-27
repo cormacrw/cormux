@@ -14,10 +14,10 @@ impl ShellEnv {
 
     pub async fn load(&mut self) -> Result<()> {
         let _ = self.loaded;
-        Err(Error::NotImplemented("shell_env.load"))
+        Err(Error::NotImplemented("shell_env.load".into()))
     }
 
     pub async fn reload(&mut self) -> Result<()> {
-        Err(Error::NotImplemented("shell_env.reload"))
+        Err(Error::NotImplemented("shell_env.reload".into()))
     }
 }

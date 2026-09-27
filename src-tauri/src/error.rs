@@ -1,13 +1,15 @@
 use serde::Serialize;
+use specta::Type;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Shared error type for the Rust core. Command handlers map this to a string
-/// for the webview; domain modules add variants as they grow past stubs.
-#[derive(Debug, thiserror::Error)]
+/// Shared error type for the Rust core. Serialised as a tagged union so the
+/// generated TypeScript bindings stay in lockstep with Rust.
+#[derive(Debug, thiserror::Error, Serialize, Type)]
+#[serde(tag = "kind", content = "message")]
 pub enum Error {
     #[error("io: {0}")]
-    Io(#[from] std::io::Error),
+    Io(String),
 
     #[error("shell environment: {0}")]
     ShellEnv(String),
@@ -43,14 +45,11 @@ pub enum Error {
     Metrics(String),
 
     #[error("{0} is not implemented yet")]
-    NotImplemented(&'static str),
+    NotImplemented(String),
 }
 
-impl Serialize for Error {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error.to_string())
     }
 }

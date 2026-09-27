@@ -11,6 +11,6 @@ impl ApprovalBroker {
 
     pub async fn resolve(&self, id: &str, approved: bool) -> Result<()> {
         let _ = (id, approved);
-        Err(Error::NotImplemented("approvals.resolve"))
+        Err(Error::NotImplemented("approvals.resolve".into()))
     }
 }

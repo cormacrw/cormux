@@ -11,6 +11,6 @@ impl Git {
 
     pub async fn validate_repo(&self, path: &str) -> Result<String> {
         let _ = path;
-        Err(Error::NotImplemented("git.validate_repo"))
+        Err(Error::NotImplemented("git.validate_repo".into()))
     }
 }

@@ -10,6 +10,6 @@ impl GithubClient {
     }
 
     pub async fn sync_open_prs(&self) -> Result<()> {
-        Err(Error::NotImplemented("github.sync_open_prs"))
+        Err(Error::NotImplemented("github.sync_open_prs".into()))
     }
 }

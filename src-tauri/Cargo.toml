@@ -22,6 +22,9 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+specta = { version = "=2.0.0-rc.22", features = ["derive", "serde", "serde_json"] }
+specta-typescript = "0.0.9"
+tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 tauri = { version = "2.12.0", features = [] }
 tauri-plugin-log = "2"
 

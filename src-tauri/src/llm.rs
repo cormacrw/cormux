@@ -11,6 +11,6 @@ impl LlmClient {
 
     pub async fn summarise(&self, prompt: &str) -> Result<String> {
         let _ = prompt;
-        Err(Error::NotImplemented("llm.summarise"))
+        Err(Error::NotImplemented("llm.summarise".into()))
     }
 }

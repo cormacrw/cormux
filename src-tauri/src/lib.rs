@@ -1,10 +1,11 @@
-#![allow(dead_code)] // stub APIs; wired to IPC in COR-35
+#![allow(dead_code)] // domain APIs fill in as features land
 
 mod approvals;
 mod engines;
 mod error;
 mod git;
 mod github;
+mod ipc;
 mod llm;
 mod mcp;
 mod metrics;
@@ -19,8 +20,14 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let ipc = ipc::builder();
+
+    #[cfg(debug_assertions)]
+    ipc::export_bindings(&ipc);
+
     tauri::Builder::default()
-        .setup(|app| {
+        .invoke_handler(ipc.invoke_handler())
+        .setup(move |app| {
             let log_level = if cfg!(debug_assertions) {
                 log::LevelFilter::Info
             } else {
@@ -33,6 +40,7 @@ pub fn run() {
                     .build(),
             )?;
 
+            ipc.mount_events(app);
             app.manage(AppState::new());
             log::info!("Harness core started");
             Ok(())

@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::GithubClient,
     llm::LlmClient, mcp::HarnessMcp, metrics::Metrics, process::ProcessSupervisor,
@@ -6,6 +8,7 @@ use crate::{
 
 /// Process-wide core state. The webview never holds this; IPC commands borrow it.
 pub struct AppState {
+    pub event_version: AtomicU64,
     pub shell_env: ShellEnv,
     pub git: Git,
     pub workspace: WorkspaceManager,
@@ -22,6 +25,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
+            event_version: AtomicU64::new(0),
             shell_env: ShellEnv::new(),
             git: Git::new(),
             workspace: WorkspaceManager::new(),
@@ -34,6 +38,14 @@ impl AppState {
             store: Store::new(),
             metrics: Metrics::new(),
         }
+    }
+
+    pub fn snapshot_version(&self) -> u64 {
+        self.event_version.load(Ordering::SeqCst)
+    }
+
+    pub fn bump_event_version(&self) -> u64 {
+        self.event_version.fetch_add(1, Ordering::SeqCst) + 1
     }
 }
 

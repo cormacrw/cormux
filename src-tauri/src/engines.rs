@@ -10,6 +10,6 @@ impl EngineRegistry {
     }
 
     pub async fn detect(&self) -> Result<()> {
-        Err(Error::NotImplemented("engines.detect"))
+        Err(Error::NotImplemented("engines.detect".into()))
     }
 }
