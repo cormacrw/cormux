@@ -14,6 +14,15 @@ dependencies:
   '@tauri-apps/api':
     specifier: ^2
     version: 2.12.0
+  '@tauri-apps/plugin-dialog':
+    specifier: ^2.8.0
+    version: 2.8.0
+  '@tauri-apps/plugin-notification':
+    specifier: ^2.5.0
+    version: 2.5.0
+  '@tauri-apps/plugin-opener':
+    specifier: ^2.6.0
+    version: 2.6.0
 
 devDependencies:
   '@lucide/svelte':
@@ -36,7 +45,7 @@ devDependencies:
     version: 24.19.0
   cn:
     specifier: ^0.3.0
-    version: 0.4.0
+    version: 0.3.3
   shadcn-svelte:
     specifier: ^1.7.0
     version: 1.7.0(svelte@5.57.1)
@@ -557,6 +566,24 @@ packages:
       '@tauri-apps/cli-win32-x64-msvc': 2.12.0
     dev: true
 
+  /@tauri-apps/plugin-dialog@2.8.0:
+    resolution: {integrity: sha512-HSSD5C8UFE9ijD1wue84F7jjaIReFmj8AAPtS+xyjYRltJafIc4BiWHY7SJ6vbbew6u+YljEJHfyNfy5VwywXg==}
+    dependencies:
+      '@tauri-apps/api': 2.12.0
+    dev: false
+
+  /@tauri-apps/plugin-notification@2.5.0:
+    resolution: {integrity: sha512-S19zXtRLX1YryUh532YcGnjI3fzrBGj4oUcW87ojytmOAOCVMZ2bTTHOhI0enYZPH5uDmdQw+dEGCn5wfCm3zw==}
+    dependencies:
+      '@tauri-apps/api': 2.12.0
+    dev: false
+
+  /@tauri-apps/plugin-opener@2.6.0:
+    resolution: {integrity: sha512-KIl9qkBGyAUrbzfCtdk+NRPTXUOwpMyUKsKN57H6/qA0q8auVywXpfUyWClqX6I/iH8PHmqAUa/KK9YZPWVQew==}
+    dependencies:
+      '@tauri-apps/api': 2.12.0
+    dev: false
+
   /@tsconfig/svelte@5.0.8:
     resolution: {integrity: sha512-UkNnw1/oFEfecR8ypyHIQuWYdkPvHiwcQ78sh+ymIiYoF+uc5H1UBetbjyqT+vgGJ3qQN6nhucJviX6HesWtKQ==}
     dev: true
@@ -601,12 +628,6 @@ packages:
 
   /cn@0.3.3:
     resolution: {integrity: sha512-OEiyJkSpYm2kOuNOKQ+c2wmzZRG8orrb9fnObtHTbCGNx/E9KLnGcmcocItOzREKk5KzQN5I2e3BUCj563KEpw==}
-    engines: {node: '>=20'}
-    hasBin: true
-    dev: true
-
-  /cn@0.4.0:
-    resolution: {integrity: sha512-qOAeUhPwPzBxx6jaeQdo646XIKliKHc2j1ZF7Ngb1o0pJZKH5gq8FkA0aVdUdPFUDXNXyUCXpCtoJISo6dhizg==}
     engines: {node: '>=20'}
     hasBin: true
     dev: true

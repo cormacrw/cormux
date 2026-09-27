@@ -14,13 +14,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             ..Default::default()
         }),
     )?;
-    let settings = MenuItem::with_id(
-        app,
-        OPEN_SETTINGS,
-        "Settings...",
-        true,
-        Some("CmdOrCtrl+,"),
-    )?;
+    let settings = MenuItem::with_id(app, OPEN_SETTINGS, "Settings...", true, Some("CmdOrCtrl+,"))?;
     let hide = PredefinedMenuItem::hide(app, None)?;
     let hide_others = PredefinedMenuItem::hide_others(app, None)?;
     let show_all = PredefinedMenuItem::show_all(app, None)?;

@@ -27,6 +27,9 @@ pub fn run() {
     ipc::export_bindings(&ipc);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(ipc.invoke_handler())
         .on_menu_event(|app, event| {
             menu::handle(app, event.id().as_ref());
