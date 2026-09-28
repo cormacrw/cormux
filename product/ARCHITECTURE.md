@@ -53,7 +53,7 @@ Each feature spec checked against the stack. "Supported" means the stack handles
 | 21 | Settings | Supported | Persisted in SQLite; engine detection by resolving each CLI on the login-shell `PATH`. |
 | 22 | Repos | Supported | Native folder picker (`tauri-plugin-dialog`); `git rev-parse` validation; default branch from `origin/HEAD`. |
 
-Nothing in the specs needs a different stack. Everything marked "needs a decision" is listed in [Open technical decisions](#open-technical-decisions).
+Nothing in the specs needs a different stack. Former open decisions are recorded in [Decisions (MVP)](#decisions-mvp).
 
 ## System overview
 
@@ -328,19 +328,24 @@ The stack's 15 to 30 MB claim holds for the core, but the number users see in Ac
 
 macOS first. Tauri, `portable-pty` (ConPTY on Windows) and the git approach all work on Windows and Linux, but three things need work there: login-shell environment resolution, process-group termination (job objects on Windows), and WebKitGTK's weaker CSS support on Linux.
 
-## Open technical decisions
+## Decisions (MVP)
 
-These are product decisions the architecture can support either way.
+Closed under epic COR-31. Product-facing summary in [`PRODUCT.md` → Decisions (MVP)](PRODUCT.md#decisions-mvp).
 
-| Decision | Options | Recommendation |
-| --- | --- | --- |
-| Engines at launch | Claude Code and Cursor CLI only (as in the stack brief), or all four | Launch with Claude Code and Cursor CLI. Codex and Gemini are mostly configuration once ACP works. |
-| Pause semantics | See below | Interrupt and hold. |
-| Small model access | Through Claude Code, or a direct API key | Through Claude Code by default; API key optional. |
-| GitHub auth | `gh auth token` if the GitHub CLI is installed; OAuth device flow; GitHub App | Use `gh` when present, device flow otherwise. |
-| Apps and agents on quit | Stop everything, or keep running in the background | Stop everything; resume agent sessions on relaunch. |
-| Transcripts after teardown | Delete, or archive | Archive in SQLite; worktree and branch still removed. |
-| Approve / Reject in Changes | Label only, stage and revert, or feedback to the agent | Reject sends the file back to the agent with a reason; Approve is a review mark. |
+| ID | Shipped behaviour |
+| --- | --- |
+| COR-207 | **Engines:** Adapters for Claude (stream-JSON), Cursor/Codex/Gemini (ACP). Settings `detectEngines` shows all four; default engine is Claude. MVP launch story is Claude + Cursor; Codex/Gemini when installed. |
+| COR-208 | **GitHub auth:** Keychain service `cormux` / user `github-token`; `resolve_token` falls back to `gh auth token`. **Reviews:** `ReviewLineComment` on submit when findings include path and line. |
+| COR-209 | **Small model:** `LlmClient::complete` uses Keychain Anthropic key if present, else `claude -p --model haiku --output-format json`. Debounced per workspace (~60s). |
+| COR-210 | **Quit:** `RunEvent::ExitRequested` → `process.stop_all()` (PTY apps). **Teardown:** `engines.stop_threads` sends `EngineCommand::Shutdown` then waits `STOP_GRACE` (5s) per thread. |
+| COR-211 | **Archive:** Teardown sets `workspaces.archived_at` and clears `worktree_path`; timeline events stay in SQLite. Active queries filter `archived_at IS NULL`. |
+| COR-212 | **Changes review:** `review_worktree_file`: `approve` → `git stage`; `reject` → `discard_worktree_file`. UI `undo` only resets `changesReview` state. |
+| COR-213 | **Approvals:** Broker auto-answers read/search when `autoApproveReadOnly` is on; edit/delete/execute always surface. Allowlist hooks reserved (`approvals/hooks.ts`) for COR-143. |
+| COR-214 | **Skills:** `SkillsSettings` empty state only; no persistence or session injection. |
+| COR-215 | **No in-app editor/tree.** Conflicts: `abort_workspace_git_conflict`. Workspace header opens worktree in OS editor/Finder via opener plugin. |
+| COR-216 | **UI stack:** `components.json` style `nova`; `@fontsource-variable/geist` fonts; Tailwind v4 + shadcn-svelte. |
+| COR-217 | **Join thread:** `join_thread_provisioning` attaches to existing worktree; no nested worktrees per thread. |
+| COR-218 | **License:** `Cargo.toml` `license = "UNLICENSED"`; no payment or entitlement checks in app. |
 
 ### Pause semantics
 
