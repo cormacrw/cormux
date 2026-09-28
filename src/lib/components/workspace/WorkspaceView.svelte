@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Badge } from '$lib/components/ui/badge'
-  import { Button } from '$lib/components/ui/button'
   import { app, threads, workspaceUi, workspaces } from '$lib/state'
   import { bindWorkspaceDiffSubscription } from '$lib/state/workspace-diff.svelte'
   import RenameWorkspaceDialog from './RenameWorkspaceDialog.svelte'
@@ -10,6 +9,9 @@
   import ProvisioningFailureBanner from './ProvisioningFailureBanner.svelte'
   import WorkspaceHeader from './WorkspaceHeader.svelte'
   import WorkspaceOutputPanel from './WorkspaceOutputPanel.svelte'
+  import ThreadTabBar from './ThreadTabBar.svelte'
+  import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
+  import { bindVisibleThreadStream } from '$lib/workspace/visible-thread-stream'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
 
   const workspace = $derived(
@@ -25,6 +27,9 @@
 
   let workspaceTitle: HTMLHeadingElement | undefined = $state()
   let renameWorkspaceId = $state<string | null>(null)
+  let threadPanelEl: HTMLElement | undefined = $state()
+  let findingsHeading: HTMLHeadingElement | undefined = $state()
+  let liveAgentPreview = $state('')
 
   $effect(() => {
     if (app.focusTarget !== 'workspace') return
@@ -48,10 +53,40 @@
     workspace ? isWorkspaceProvisioning(workspace.lifecycle) : false,
   )
   const outputTabActive = $derived(workspaceUi.activeTab === 'output')
+  const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
+  const threadTabActive = $derived(workspaceUi.activeTab === 'thread')
+
+  const threadPanelLabelId = $derived(
+    activeThread ? `thread-tab-${activeThread.id}` : undefined,
+  )
 
   $effect(() => {
     if (!workspace?.id || isLoadSpike) return
     return bindWorkspaceDiffSubscription(workspace.id)
+  })
+
+  $effect(() => {
+    if (!threadTabActive || !activeThread?.id || isLoadSpike) {
+      liveAgentPreview = ''
+      return
+    }
+    const threadId = activeThread.id
+    return bindVisibleThreadStream(threadId, (chunk) => {
+      liveAgentPreview += chunk.text
+    })
+  })
+
+  $effect(() => {
+    void workspaceUi.activeTab
+    void app.threadId
+    queueMicrotask(() => {
+      if (threadTabActive && threadPanelEl) {
+        threadPanelEl.scrollTop = threadPanelEl.scrollHeight
+      }
+      if (findingsTabActive && findingsHeading) {
+        findingsHeading.focus({ preventScroll: true })
+      }
+    })
   })
 
   onMount(() => {
@@ -123,37 +158,17 @@
       <ProvisioningFailureBanner {workspace} />
     {/if}
 
-    <div
-      class="flex flex-wrap items-center gap-2 border-b border-border/60 pb-2"
-      role="tablist"
-      aria-label="Workspace panels"
-    >
-      <Button
-        role="tab"
-        variant={workspaceUi.activeTab === 'thread' ? 'secondary' : 'ghost'}
-        size="sm"
-        aria-selected={workspaceUi.activeTab === 'thread'}
-        onclick={() => workspaceUi.openTab('thread')}
-      >
-        Thread
-      </Button>
-      <Button
-        role="tab"
-        variant={outputTabActive ? 'secondary' : 'ghost'}
-        size="sm"
-        aria-selected={outputTabActive}
-        onclick={() => workspaceUi.openTab('output')}
-        class="gap-2"
-      >
-        Output
-        {#if provisioning}
-          <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />
-        {/if}
-      </Button>
-    </div>
+    <ThreadTabBar {workspace} />
 
-    {#if workspaceUi.activeTab === 'thread'}
-      <div class="grid min-h-0 flex-1 gap-3">
+    {#if threadTabActive}
+      <div
+        id="thread-panel"
+        bind:this={threadPanelEl}
+        role="tabpanel"
+        aria-labelledby={threadPanelLabelId}
+        data-od-id="thread-panel"
+        class="grid min-h-0 flex-1 gap-3 overflow-y-auto"
+      >
         {#if activeThread}
           <div
             class="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-sm"
@@ -173,14 +188,25 @@
             {/if}
           </div>
         {/if}
+        {#if liveAgentPreview}
+          <pre
+            class="max-h-48 overflow-auto rounded-md border border-border/60 bg-muted/20 p-3 font-mono text-xs whitespace-pre-wrap"
+            >{liveAgentPreview}</pre
+          >
+        {/if}
         <p class="text-sm text-muted-foreground">
           {workspaceThreads.length} thread{workspaceThreads.length === 1
             ? ''
-            : 's'} · conversation UI lands in COR-11
+            : 's'} · conversation UI lands in COR-19
         </p>
       </div>
+    {:else if findingsTabActive}
+      <WorkspaceFindingsPanel
+        workspaceId={workspace.id}
+        bind:headingRef={findingsHeading}
+      />
     {:else if outputTabActive}
-      <div id="output-panel">
+      <div id="output-panel" role="tabpanel" aria-labelledby="thread-tab-output">
         <WorkspaceOutputPanel workspaceId={workspace.id} {provisioning} />
       </div>
     {/if}

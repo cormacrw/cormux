@@ -14,6 +14,7 @@ import { memory } from './memory.svelte'
 import { prs } from './prs.svelte'
 import { repos } from './repos.svelte'
 import { settings } from './settings.svelte'
+import { findings } from './findings.svelte'
 import { threads } from './threads.svelte'
 import { workspaceRecords } from './workspace-records.svelte'
 import {
@@ -38,6 +39,7 @@ export { homebaseUi } from './homebase-ui.svelte'
 export { workspaceUi } from './workspace-ui.svelte'
 export { workspaceDiff } from './workspace-diff.svelte'
 export { workspaces } from './workspaces.svelte'
+export { findings } from './findings.svelte'
 
 function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {
   if (
@@ -257,6 +259,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   }
   workspaces.hydrate(nextWorkspaces)
   threads.hydrate(threadModels)
+  findings.hydrate(snapshot.persisted.findings)
   repos.hydrate(snapshot.persisted.repos)
   workspaceRecords.hydrate(recordList)
   app.hydrate(snapshot)

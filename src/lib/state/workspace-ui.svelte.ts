@@ -7,6 +7,13 @@ export class WorkspaceUiStore {
   changesOpen = $state(false)
 
   openTab(tab: WorkspacePanelTab) {
+    if (tab === 'output') {
+      if (this.activeTab !== 'output') {
+        this.tabBeforeOutput = this.activeTab
+      }
+      this.activeTab = 'output'
+      return
+    }
     this.activeTab = tab
   }
 
@@ -17,6 +24,11 @@ export class WorkspaceUiStore {
     }
     this.tabBeforeOutput = this.activeTab
     this.activeTab = 'output'
+  }
+
+  resetForWorkspace() {
+    this.activeTab = 'thread'
+    this.tabBeforeOutput = 'thread'
   }
 }
 
