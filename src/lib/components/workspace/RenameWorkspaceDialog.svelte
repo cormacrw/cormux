@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Dialog from '$lib/components/ui/dialog'
   import { Input } from '$lib/components/ui/input'
@@ -17,9 +18,11 @@
 
   const open = $derived(workspaceId != null)
 
+  // Seed once per opened workspace; untracked so snapshot refreshes don't wipe typing.
   $effect(() => {
-    if (!workspaceId) return
-    name = workspaces.getById(workspaceId)?.name ?? ''
+    const id = workspaceId
+    if (!id) return
+    name = untrack(() => workspaces.getById(id)?.name ?? '')
   })
 
   function close() {

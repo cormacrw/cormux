@@ -59,18 +59,19 @@
   let diffBodyEl: HTMLDivElement | undefined = $state()
 
   $effect(() => {
-    const paths = new Set(files.map((file) => file.path))
-    changesReview.pruneMissing(workspace.id, paths)
+    // Skip until the diff subscription has delivered files, or an empty
+    // first render wipes every review decision.
+    const loaded = workspaceDiff.filesByWorkspace[workspace.id]
+    if (!loaded) return
+    changesReview.pruneMissing(
+      workspace.id,
+      new Set(loaded.map((file) => file.path)),
+    )
   })
 
   $effect(() => {
     void workspace.branch
     void commands.refreshWorkspaceDiff(workspace.id).catch(() => {})
-  })
-
-  $effect(() => {
-    void workspace.id
-    workspaceUi.selectedDiffPath = null
   })
 
   $effect(() => {

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import { Badge } from '$lib/components/ui/badge'
   import {
@@ -76,9 +75,10 @@
     return () => media.removeEventListener('change', sync)
   })
 
-  onMount(() => {
-    return subscribePty(workspaceId, (chunk) => {
-      if (chunk.workspaceId !== workspaceId) return
+  $effect(() => {
+    const id = workspaceId
+    return subscribePty(id, (chunk) => {
+      if (chunk.workspaceId !== id) return
       lines = [...lines.slice(-499), chunk.line]
       if (stickToBottom) {
         queueMicrotask(() => {

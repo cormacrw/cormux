@@ -225,9 +225,26 @@ impl WorkspaceManager {
             .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
         let repo_path = PathBuf::from(&workspace.repo_path);
         let worktree = PathBuf::from(&workspace.worktree_path);
-        self.git
-            .worktree_add(&repo_path, &worktree, &workspace.branch, &workspace.base)
-            .await?;
+        // Continuing a PR reuses its branch: check it out (git tracks origin's copy
+        // when there is no local one) rather than failing on `-b`.
+        let branch_exists = self
+            .git
+            .list_local_branches(&repo_path)
+            .await?
+            .contains(&workspace.branch)
+            || self
+                .git
+                .remote_branch_exists(&repo_path, &workspace.branch)
+                .await?;
+        if branch_exists {
+            self.git
+                .worktree_add_detached(&repo_path, &worktree, &workspace.branch)
+                .await?;
+        } else {
+            self.git
+                .worktree_add(&repo_path, &worktree, &workspace.branch, &workspace.base)
+                .await?;
+        }
         self.diffs.watch(workspace_id, &worktree)?;
         self.sync_fetch_targets().await;
         self.get(workspace_id)

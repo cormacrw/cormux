@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod events;
+pub mod subscriptions;
 pub mod types;
 
 use specta_typescript::{BigIntExportBehavior, Typescript};
@@ -23,6 +24,7 @@ pub fn builder() -> Builder {
             commands::resolve_all_approvals,
             commands::subscribe_pty,
             commands::subscribe_diffs,
+            commands::unsubscribe,
             commands::refresh_workspace_diff,
             commands::review_worktree_file,
             commands::start_streaming_spike,

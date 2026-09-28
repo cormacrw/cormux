@@ -9,6 +9,7 @@
   import { commands } from '$lib/ipc'
   import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
+  import { coreErrorText } from '$lib/feedback/core-error'
   import {
     draftBranchName,
     draftWorkspaceName,
@@ -174,6 +175,16 @@
     }
   }
 
+  function branchCode(value: string) {
+    const code = validateBranchName(value, branchValidationContext())
+    const pr = app.newWorkspacePullRequest
+    // Continuing a PR checks out its existing branch instead of creating one.
+    if (code === 'exists' && pr?.mode === 'continue' && value.trim() === pr.branch) {
+      return null
+    }
+    return code
+  }
+
   function takenBranches() {
     return [
       ...repoBranches,
@@ -200,12 +211,9 @@
 
   function validateAll(): boolean {
     const branchValue = resolvedBranch()
-    const branchCode = validateBranchName(
-      branchValue,
-      branchValidationContext(),
-    )
-    if (branchCode) {
-      branchError = branchErrorMessage(branchValue, branchCode)
+    const code = branchCode(branchValue)
+    if (code) {
+      branchError = branchErrorMessage(branchValue, code)
       return false
     }
     const baseMsg = validateBaseBranch(baseBranch, branchList)
@@ -240,7 +248,7 @@
 
     if (result.status === 'error') {
       submitting = false
-      submitError = result.error.message ?? 'Could not create workspace'
+      submitError = coreErrorText(result.error, 'Could not create workspace')
       return
     }
 
@@ -343,10 +351,7 @@
               onblur={() => {
                 const value = branchName.trim()
                 if (!value) return
-                const code = validateBranchName(
-                  value,
-                  branchValidationContext(),
-                )
+                const code = branchCode(value)
                 branchError = code ? branchErrorMessage(value, code) : null
               }}
               aria-invalid={branchError ? 'true' : undefined}

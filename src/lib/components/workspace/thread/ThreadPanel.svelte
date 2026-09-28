@@ -152,6 +152,11 @@
     return () => clearInterval(timer)
   })
 
+  // Measure real row heights (and re-measure on resize) instead of the 96px estimate.
+  function measureRow(node: HTMLElement) {
+    $virtualizer.measureElement(node)
+  }
+
   function openFindingsTab() {
     workspaceUi.findingsFocusPending = true
     workspaceUi.openTab('findings')
@@ -181,6 +186,9 @@
             {#each $virtualizer.getVirtualItems() as virtualRow (virtualRow.key)}
               {@const row = rows[virtualRow.index]}
               <div
+                data-index={virtualRow.index}
+                use:measureRow
+                class="pb-2"
                 style={`position: absolute; top: 0; left: 0; width: 100%; transform: translateY(${virtualRow.start}px);`}
               >
                 {#if row}

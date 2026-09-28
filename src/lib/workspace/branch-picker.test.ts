@@ -14,7 +14,7 @@ describe('buildBranchPickerList', () => {
       'main',
       'feat/billing',
     ])
-    expect(items[0].meta).toBe('current')
+    expect(items[0]?.meta).toBe('current')
     expect(items.find((item) => item.name === 'feat/billing')?.meta).toBe(
       'inOtherWorkspace',
     )

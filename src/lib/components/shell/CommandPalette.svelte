@@ -67,13 +67,13 @@
 
 <Command.Dialog
   bind:open
-  bind:value={query}
   shouldFilter={false}
   title="Command palette"
   description="Type a command or workspace name"
   class="max-w-[600px] sm:max-w-[600px]"
 >
   <Command.Input
+    bind:value={query}
     placeholder="Type a command or workspace…"
     aria-controls="pal-list"
     aria-expanded={open}

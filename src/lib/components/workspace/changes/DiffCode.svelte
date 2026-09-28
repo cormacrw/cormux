@@ -19,10 +19,16 @@
 
   $effect(() => {
     const lang = languageForPath(path)
+    const range = wordRange
+    let stale = false
     void (async () => {
       const highlighted = await highlightCode(text, lang)
-      html = applyWordRangeToHtml(highlighted, wordRange)
+      // A newer line may have resolved first; don't overwrite it.
+      if (!stale) html = applyWordRangeToHtml(highlighted, range)
     })()
+    return () => {
+      stale = true
+    }
   })
 </script>
 

@@ -34,19 +34,14 @@ export class WorkspaceDiffStore {
 export const workspaceDiff = new WorkspaceDiffStore()
 
 export function bindWorkspaceDiffSubscription(workspaceId: string) {
-  let files: DiffFile[] = []
-  let stopped = false
-
-  void subscribeDiffs(workspaceId, (update) => {
-    if (stopped) return
+  const stop = subscribeDiffs(workspaceId, (update) => {
     if (update.diff?.files) {
-      files = update.diff.files
-      workspaceDiff.setFiles(workspaceId, files)
+      workspaceDiff.setFiles(workspaceId, update.diff.files)
     }
-  }).catch(() => {})
+  })
 
   return () => {
-    stopped = true
+    stop()
     workspaceDiff.clearWorkspace(workspaceId)
   }
 }

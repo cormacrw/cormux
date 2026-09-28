@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{RwLock, broadcast};
 
 use crate::app::WorkspaceAppService;
+use crate::ipc::subscriptions::Subscriptions;
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::GithubClient,
@@ -30,6 +31,7 @@ pub struct AppState {
     pub fetch: FetchScheduler,
     pub pr_sync: PrSyncScheduler,
     pub approval_notify: broadcast::Sender<()>,
+    pub subscriptions: Subscriptions,
 }
 
 impl AppState {
@@ -75,6 +77,7 @@ impl AppState {
             fetch,
             pr_sync,
             approval_notify,
+            subscriptions: Subscriptions::new(),
         }
     }
 

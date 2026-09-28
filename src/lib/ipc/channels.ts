@@ -4,47 +4,64 @@ import {
   type AgentChunk,
   type AgentEvent,
   type DiffUpdate,
+  type Error as CoreError,
   type PtyChunk,
+  type Result,
 } from './bindings'
 
 /**
  * Subscribe helpers for high-volume ordered streams. The core owns the bytes;
- * the webview only listens while a surface is visible.
+ * the webview only listens while a surface is visible. Each returns a stop
+ * function that ends the core task behind the channel.
  */
-export async function subscribeAgentChunks(
+function subscribe<T>(
+  start: (channel: Channel<T>) => Promise<Result<number, CoreError>>,
+  onMessage: (message: T) => void,
+): () => void {
+  const channel = new Channel<T>()
+  let stopped = false
+  channel.onmessage = (message) => {
+    if (!stopped) onMessage(message)
+  }
+  const id = start(channel).then(
+    (result) => (result.status === 'ok' ? result.data : null),
+    () => null,
+  )
+  return () => {
+    if (stopped) return
+    stopped = true
+    void id.then((value) => {
+      if (value !== null) void commands.unsubscribe(value)
+    })
+  }
+}
+
+export function subscribeAgentChunks(
   threadId: string,
   onChunk: (chunk: AgentChunk) => void,
 ) {
-  const channel = new Channel<AgentChunk>()
-  channel.onmessage = onChunk
-  return commands.subscribeAgentChunks(threadId, channel)
+  return subscribe((channel) => commands.subscribeAgentChunks(threadId, channel), onChunk)
 }
 
-export async function subscribeAgentEvents(
+export function subscribeAgentEvents(
   threadId: string,
   onEvent: (event: AgentEvent) => void,
 ) {
-  const channel = new Channel<AgentEvent>()
-  channel.onmessage = onEvent
-  return commands.subscribeAgentEvents(threadId, channel)
+  return subscribe((channel) => commands.subscribeAgentEvents(threadId, channel), onEvent)
 }
 
-export async function subscribePty(
+export function subscribePty(
   workspaceId: string,
   onChunk: (chunk: PtyChunk) => void,
 ) {
-  const channel = new Channel<PtyChunk>()
-  channel.onmessage = onChunk
-  return commands.subscribePty(workspaceId, channel)
+  return subscribe((channel) => commands.subscribePty(workspaceId, channel), onChunk)
 }
 
-export async function subscribeDiffs(
+export function subscribeDiffs(
   workspaceId: string,
   onUpdate: (update: DiffUpdate) => void,
 ) {
-  const channel = new Channel<DiffUpdate>()
-  channel.onmessage = onUpdate
-  return commands.subscribeDiffs(workspaceId, channel)
+  return subscribe((channel) => commands.subscribeDiffs(workspaceId, channel), onUpdate)
 }
 
 export async function startStreamingSpike(

@@ -33,6 +33,7 @@ export class WorkspaceUiStore {
   resetForWorkspace() {
     this.activeTab = 'thread'
     this.tabBeforeOutput = 'thread'
+    this.selectedDiffPath = null
   }
 }
 

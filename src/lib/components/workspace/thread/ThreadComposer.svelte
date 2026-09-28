@@ -63,9 +63,9 @@
     fitHeight()
   }
 
-  function sendFailed(text: string, message: string) {
-    composerDrafts.setFor(thread.id, text)
-    threads.setStatus(thread.id, 'idle')
+  function sendFailed(threadId: string, text: string, message: string) {
+    composerDrafts.setFor(threadId, text)
+    threads.setStatus(threadId, 'idle')
     showToast({
       tone: 'bad',
       parts: [{ type: 'text', value: message }],
@@ -75,15 +75,18 @@
   async function sendMessage() {
     const text = draft.trim()
     if (!text) return
-    composerDrafts.setFor(thread.id, '')
+    // The composer is reused across thread tabs, so pin the id before awaiting.
+    const threadId = thread.id
+    composerDrafts.setFor(threadId, '')
     queueMicrotask(() => fitHeight())
-    threadTimeline.appendStreamChunk(thread.id, text, 'user')
-    threads.setStatus(thread.id, 'running')
+    threadTimeline.appendStreamChunk(threadId, text, 'user')
+    threads.setStatus(threadId, 'running')
     onSent?.()
     try {
-      const result = await commands.sendThreadPrompt(thread.id, text)
+      const result = await commands.sendThreadPrompt(threadId, text)
       if (result.status === 'error') {
         sendFailed(
+          threadId,
           text,
           typeof result.error.message === 'string'
             ? result.error.message
@@ -91,7 +94,7 @@
         )
       }
     } catch (error) {
-      sendFailed(text, error instanceof Error ? error.message : 'Could not reach the agent')
+      sendFailed(threadId, text, error instanceof Error ? error.message : 'Could not reach the agent')
     }
   }
 
@@ -128,7 +131,10 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.shiftKey && !composing) {
+    // WebKit fires compositionend before the IME's confirming Enter keydown,
+    // so `composing` alone misses it; isComposing / keyCode 229 catch it.
+    const imeConfirm = composing || event.isComposing || event.keyCode === 229
+    if (event.key === 'Enter' && !event.shiftKey && !imeConfirm) {
       event.preventDefault()
       void sendMessage()
     }

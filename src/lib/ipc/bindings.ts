@@ -41,7 +41,7 @@ async getMetrics() : Promise<Result<MemorySample, Error>> {
 /**
  * High-volume ordered stream of agent message chunks for one thread.
  */
-async subscribeAgentChunks(threadId: string, channel: TAURI_CHANNEL<AgentChunk>) : Promise<Result<null, Error>> {
+async subscribeAgentChunks(threadId: string, channel: TAURI_CHANNEL<AgentChunk>) : Promise<Result<number, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("subscribe_agent_chunks", { threadId, channel }) };
 } catch (e) {
@@ -52,7 +52,7 @@ async subscribeAgentChunks(threadId: string, channel: TAURI_CHANNEL<AgentChunk>)
 /**
  * High-volume ordered stream of normalised agent events for one thread.
  */
-async subscribeAgentEvents(threadId: string, channel: TAURI_CHANNEL<AgentEvent>) : Promise<Result<null, Error>> {
+async subscribeAgentEvents(threadId: string, channel: TAURI_CHANNEL<AgentEvent>) : Promise<Result<number, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("subscribe_agent_events", { threadId, channel }) };
 } catch (e) {
@@ -119,7 +119,7 @@ async resolveAllApprovals(threadId: string, approved: boolean, denyReason: strin
 /**
  * High-volume ordered stream of PTY output for a workspace's run/setup log.
  */
-async subscribePty(workspaceId: string, channel: TAURI_CHANNEL<PtyChunk>) : Promise<Result<null, Error>> {
+async subscribePty(workspaceId: string, channel: TAURI_CHANNEL<PtyChunk>) : Promise<Result<number, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("subscribe_pty", { workspaceId, channel }) };
 } catch (e) {
@@ -130,9 +130,20 @@ async subscribePty(workspaceId: string, channel: TAURI_CHANNEL<PtyChunk>) : Prom
 /**
  * High-volume ordered stream of live diff updates for a worktree.
  */
-async subscribeDiffs(workspaceId: string, channel: TAURI_CHANNEL<DiffUpdate>) : Promise<Result<null, Error>> {
+async subscribeDiffs(workspaceId: string, channel: TAURI_CHANNEL<DiffUpdate>) : Promise<Result<number, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("subscribe_diffs", { workspaceId, channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Stop the background task behind a `subscribe_*` channel.
+ */
+async unsubscribe(id: number) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("unsubscribe", { id }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

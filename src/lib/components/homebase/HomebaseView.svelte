@@ -5,6 +5,7 @@
   import {
     homebaseFilterCounts,
     matchesHomebaseFilter,
+    type HomebaseFilter,
   } from '$lib/homebase/filter'
   import { app, homebaseUi, workspaces } from '$lib/state'
   import Plus from '@lucide/svelte/icons/plus'
@@ -82,7 +83,13 @@
         </h2>
         <ToggleGroup.Root
           type="single"
-          bind:value={homebaseUi.filter}
+          bind:value={
+            () => homebaseUi.filter,
+            (next) => {
+              // Clicking the pressed item deselects it; keep a filter selected.
+              if (next) homebaseUi.filter = next as HomebaseFilter
+            }
+          }
           variant="outline"
           size="sm"
           role="group"

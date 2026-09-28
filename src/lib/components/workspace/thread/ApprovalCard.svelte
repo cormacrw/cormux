@@ -5,6 +5,8 @@
   import * as Card from '$lib/components/ui/card'
   import { Textarea } from '$lib/components/ui/textarea'
   import { commands } from '$lib/ipc'
+  import { coreErrorText } from '$lib/feedback/core-error'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { cn } from '$lib/utils'
   import type { TimelineItem } from '$lib/thread/timeline-types'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
@@ -59,9 +61,13 @@
         approved,
         reason?.trim() ? reason.trim() : null,
       )
-      if (result.status === 'ok' && result.data.focusComposer) {
+      if (result.status === 'error') {
+        toastCoreError(coreErrorText(result.error, 'Could not resolve approval'))
+      } else if (result.data.focusComposer) {
         onFocusComposer?.()
       }
+    } catch (error) {
+      toastCoreError(error)
     } finally {
       resolving = false
       denying = false

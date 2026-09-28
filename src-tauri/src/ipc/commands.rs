@@ -11,6 +11,7 @@ use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
 use crate::workspace::ThreadActivity;
 use crate::github::{auth, clear_token, save_token};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
+use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
@@ -432,17 +433,20 @@ pub fn subscribe_agent_chunks(
     thread_id: String,
     channel: Channel<AgentChunk>,
     state: State<'_, AppState>,
-) -> Result<()> {
+) -> Result<u32> {
     let engines = state.engines.clone();
+    let mut sub = state.subscriptions.register();
+    let id = sub.id;
     tauri::async_runtime::spawn(async move {
-        let rx = loop {
-            match engines.subscribe(&thread_id) {
-                Ok(rx) => break rx,
-                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
-            }
+        let Some(mut rx) = subscribe_thread(&engines, &thread_id, &mut sub).await else {
+            return;
         };
-        let mut rx = rx;
-        while let Ok(event) = rx.recv().await {
+        loop {
+            let event = tokio::select! {
+                _ = sub.stopped() => break,
+                event = rx.recv() => event,
+            };
+            let Ok(event) = event else { break };
             if let crate::engines::AgentEvent::MessageChunk { text, .. } = event {
                 let _ = channel.send(AgentChunk {
                     thread_id: thread_id.clone(),
@@ -451,7 +455,7 @@ pub fn subscribe_agent_chunks(
             }
         }
     });
-    Ok(())
+    Ok(id)
 }
 
 /// High-volume ordered stream of normalised agent events for one thread.
@@ -461,20 +465,48 @@ pub fn subscribe_agent_events(
     thread_id: String,
     channel: Channel<AgentEvent>,
     state: State<'_, AppState>,
-) -> Result<()> {
+) -> Result<u32> {
     let engines = state.engines.clone();
+    let mut sub = state.subscriptions.register();
+    let id = sub.id;
     tauri::async_runtime::spawn(async move {
-        let rx = loop {
-            match engines.subscribe(&thread_id) {
-                Ok(rx) => break rx,
-                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
-            }
+        let Some(mut rx) = subscribe_thread(&engines, &thread_id, &mut sub).await else {
+            return;
         };
-        let mut rx = rx;
-        while let Ok(event) = rx.recv().await {
+        loop {
+            let event = tokio::select! {
+                _ = sub.stopped() => break,
+                event = rx.recv() => event,
+            };
+            let Ok(event) = event else { break };
             let _ = channel.send(event);
         }
     });
+    Ok(id)
+}
+
+/// Wait for the thread's engine session to exist, giving up if the subscription is cancelled first.
+async fn subscribe_thread(
+    engines: &crate::engines::EngineRegistry,
+    thread_id: &str,
+    sub: &mut SubscriptionHandle,
+) -> Option<tokio::sync::broadcast::Receiver<crate::engines::AgentEvent>> {
+    loop {
+        if let Ok(rx) = engines.subscribe(thread_id) {
+            return Some(rx);
+        }
+        tokio::select! {
+            _ = sub.stopped() => return None,
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+        }
+    }
+}
+
+/// Stop the background task behind a `subscribe_*` channel.
+#[tauri::command]
+#[specta::specta]
+pub fn unsubscribe(id: u32, state: State<'_, AppState>) -> Result<()> {
+    state.subscriptions.cancel(id);
     Ok(())
 }
 
@@ -561,10 +593,12 @@ pub fn subscribe_pty(
     workspace_id: String,
     channel: Channel<PtyChunk>,
     state: State<'_, AppState>,
-) -> Result<()> {
+) -> Result<u32> {
     let process = state.process.clone();
+    let sub = state.subscriptions.register();
+    let id = sub.id;
     tauri::async_runtime::spawn(async move {
-        loop {
+        while !sub.is_stopped() {
             let session_id = format!("{workspace_id}-app");
             let mut lines = process.drain_pending(&workspace_id);
             lines.extend(process.drain_pending(&session_id));
@@ -577,7 +611,7 @@ pub fn subscribe_pty(
             tokio::time::sleep(Duration::from_millis(30)).await;
         }
     });
-    Ok(())
+    Ok(id)
 }
 
 /// High-volume ordered stream of live diff updates for a worktree.
@@ -587,11 +621,13 @@ pub fn subscribe_diffs(
     workspace_id: String,
     channel: Channel<DiffUpdate>,
     state: State<'_, AppState>,
-) -> Result<()> {
+) -> Result<u32> {
     let diffs = state.diffs.clone();
+    let sub = state.subscriptions.register();
+    let id = sub.id;
     tauri::async_runtime::spawn(async move {
         let mut last = None;
-        loop {
+        while !sub.is_stopped() {
             if let Some(diff) = diffs.latest(&workspace_id) {
                 if last.as_ref() != Some(&diff) {
                     let _ = channel.send(DiffUpdate {
@@ -605,7 +641,7 @@ pub fn subscribe_diffs(
             tokio::time::sleep(Duration::from_millis(300)).await;
         }
     });
-    Ok(())
+    Ok(id)
 }
 
 /// Force-refresh the live diff snapshot for one workspace (branch switch, pull, etc.).

@@ -11,11 +11,12 @@ export function bindVisibleThreadEvents(
   onEvent: (event: AgentEvent) => void,
 ): () => void {
   const generation = ++listenGeneration
-  void subscribeAgentEvents(threadId, (event) => {
+  const stop = subscribeAgentEvents(threadId, (event) => {
     if (generation !== listenGeneration) return
     onEvent(event)
   })
   return () => {
+    stop()
     if (generation === listenGeneration) listenGeneration += 1
   }
 }

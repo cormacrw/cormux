@@ -7,8 +7,10 @@
   const html = $derived(renderSanitizedMarkdown(text))
 
   function handleClick(event: MouseEvent) {
-    const target = event.target
-    if (!(target instanceof HTMLAnchorElement)) return
+    // Links can wrap <code>/<strong>, so find the anchor from whatever was clicked.
+    const target =
+      event.target instanceof Element ? event.target.closest('a') : null
+    if (!target) return
     const href = target.getAttribute('href')
     if (!href || href.startsWith('#')) return
     event.preventDefault()

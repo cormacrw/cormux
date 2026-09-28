@@ -1,17 +1,7 @@
-import { commands, fetchSnapshot, type Error as CoreError } from '$lib/ipc'
+import { commands, fetchSnapshot, type CoreError } from '$lib/ipc'
 import { hydrateFromSnapshot } from '$lib/state'
+import { coreErrorText } from '$lib/feedback/core-error'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
-
-function coreErrorMessage(error: CoreError): string {
-  if (error.kind === 'Git' || error.kind === 'Workspace') {
-    return error.message
-  }
-  if (error.kind === 'GitConflict') {
-    const paths = error.message.paths?.length ?? 0
-    return `Git stopped with ${paths} conflicting file${paths === 1 ? '' : 's'}`
-  }
-  return 'Something went wrong'
-}
 
 async function runGit(action: () => Promise<{ status: string; error?: CoreError }>) {
   const result = await action()
@@ -20,7 +10,7 @@ async function runGit(action: () => Promise<{ status: string; error?: CoreError 
     return
   }
   if (result.error) {
-    toastCoreError(coreErrorMessage(result.error))
+    toastCoreError(coreErrorText(result.error))
     hydrateFromSnapshot(await fetchSnapshot())
   }
 }

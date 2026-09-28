@@ -12,12 +12,13 @@ export function bindVisibleThreadStream(
   onChunk: (chunk: AgentChunk) => void,
 ): () => void {
   const generation = ++listenGeneration
-  void subscribeAgentChunks(threadId, (chunk) => {
+  const stop = subscribeAgentChunks(threadId, (chunk) => {
     if (generation !== listenGeneration) return
     if (chunk.threadId !== threadId) return
     onChunk(chunk)
   })
   return () => {
+    stop()
     if (generation === listenGeneration) listenGeneration += 1
   }
 }

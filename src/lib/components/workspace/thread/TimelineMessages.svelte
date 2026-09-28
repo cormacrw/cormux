@@ -29,6 +29,7 @@
     engine,
     workspaceId,
     findings,
+    nowMs,
     liveTitle,
     liveSubtitle,
     paused,
@@ -40,6 +41,7 @@
     engine: string
     workspaceId: string
     findings: FindingRow[]
+    nowMs: number
     liveTitle: string
     liveSubtitle: string
     paused: boolean
