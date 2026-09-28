@@ -189,6 +189,32 @@ impl WorkspaceManager {
         Ok(record)
     }
 
+    pub async fn add_review_worktree(
+        &self,
+        workspace_id: &str,
+        pr_number: u64,
+    ) -> Result<WorkspaceRecord> {
+        let workspace = self
+            .get(workspace_id)
+            .await
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        let repo_path = PathBuf::from(&workspace.repo_path);
+        let worktree = PathBuf::from(&workspace.worktree_path);
+        self.git
+            .fetch_pull_ref(&repo_path, pr_number, &workspace.branch)
+            .await?;
+        if !worktree.exists() {
+            self.git
+                .worktree_add_detached(&repo_path, &worktree, &workspace.branch)
+                .await?;
+        }
+        self.diffs.watch(workspace_id, &worktree)?;
+        self.sync_fetch_targets().await;
+        self.get(workspace_id)
+            .await
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))
+    }
+
     pub async fn add_worktree(&self, workspace_id: &str) -> Result<WorkspaceRecord> {
         let workspace = self
             .get(workspace_id)

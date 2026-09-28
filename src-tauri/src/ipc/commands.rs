@@ -371,11 +371,39 @@ pub async fn refresh_workspace_diff(
         .get(&workspace_id)
         .await
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    if let Ok(snapshot) = state.store.snapshot() {
+        if let Some(row) = snapshot.workspaces.iter().find(|row| row.id == workspace_id) {
+            if row.kind.as_deref() == Some("review") {
+                state
+                    .diffs
+                    .set_pr_diff_base(&workspace_id, workspace.base.clone());
+            }
+        }
+    }
     state
         .diffs
         .compute(&workspace_id, Path::new(&workspace.worktree_path))
         .await?;
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_review_workspace(
+    input: crate::review::CreateReviewWorkspaceInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::review::CreateReviewWorkspaceResult> {
+    crate::review::create_review_workspace(&app, &state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn submit_workspace_review(
+    input: crate::review::SubmitWorkspaceReviewInput,
+    app: AppHandle,
+) -> Result<()> {
+    crate::review::submit_workspace_review(&app, input).await
 }
 
 /// Approve stages the file; reject discards worktree edits for that path.
@@ -980,13 +1008,13 @@ pub fn emit_workspace_status(
     .emit(app);
 }
 
-fn harness_home() -> PathBuf {
+pub fn harness_home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn expand_tilde(path: &str) -> PathBuf {
+pub fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
         if let Some(home) = std::env::var_os("HOME") {
             return PathBuf::from(home).join(rest);

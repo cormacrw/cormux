@@ -59,7 +59,10 @@ pub async fn retry_provisioning(app: AppHandle, workspace_id: String) {
     let thread = match snapshot
         .threads
         .iter()
-        .find(|row| row.workspace_id == workspace_id && row.title == "Lead")
+        .find(|row| {
+            row.workspace_id == workspace_id
+                && (row.title == "Lead" || row.title == "Reviewer")
+        })
     {
         Some(row) => row.clone(),
         None => return,
@@ -110,7 +113,10 @@ pub async fn skip_provisioning_setup(app: AppHandle, workspace_id: String) {
     let thread = match snapshot
         .threads
         .iter()
-        .find(|row| row.workspace_id == workspace_id && row.title == "Lead")
+        .find(|row| {
+            row.workspace_id == workspace_id
+                && (row.title == "Lead" || row.title == "Reviewer")
+        })
     {
         Some(row) => row.clone(),
         None => return,
@@ -428,12 +434,17 @@ async fn finish_after_setup(
     set_activity(state, &job.workspace_id, "Starting agent…", 2, None, None).await;
     emit_snapshot(app, state);
 
+    let prompt = if job.review {
+        crate::review::reviewer_engine_prompt(&job.goal)
+    } else {
+        job.goal.clone()
+    };
     spawn_engine(
         state,
         &job.thread_id,
         &job.engine,
         &job.workspace_id,
-        Some(&job.goal),
+        Some(&prompt),
     )
     .await?;
 
@@ -458,10 +469,15 @@ async fn finish_after_setup(
 
     seed_summary_if_needed(state, job).await?;
 
+    let thread_title = if job.review {
+        "Reviewer"
+    } else {
+        "Lead"
+    };
     let _ = state.store.upsert_thread(&ThreadRow {
         id: job.thread_id.clone(),
         workspace_id: job.workspace_id.clone(),
-        title: "Lead".into(),
+        title: thread_title.into(),
         engine: job.engine.clone(),
         session_id: state.engines.session_id(&job.thread_id).ok().flatten(),
         status: "running".into(),
@@ -570,9 +586,19 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", job.workspace_id)))?;
     let engine_label = engine_display(&job.engine);
     let summary = if job.review {
+        let author = state
+            .store
+            .get_setting(&crate::review::review_author_key(&job.workspace_id))
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "the author".into());
+        let pr_label = workspace
+            .pr_number
+            .map(|num| format!("#{num}"))
+            .unwrap_or_else(|| "the PR".into());
         format!(
-            "Reviewing changes on {}. {engine_label} is reading the diff and will draft comments for your approval; nothing has been posted to GitHub yet.",
-            record.branch
+            "Reviewing {pr_label} from {author} against {}. {engine_label} is reading the diff and will draft comments for your approval; nothing has been posted to GitHub yet.",
+            record.base
         )
     } else if job.engine.eq_ignore_ascii_case("claude") {
         format!(

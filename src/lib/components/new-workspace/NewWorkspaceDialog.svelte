@@ -262,6 +262,7 @@
   $effect(() => {
     const pr = app.newWorkspacePullRequest
     if (!open || !pr) return
+    if (pr.mode === 'review') return
     repoId = pr.repoId ?? defaultRepoId()
     branchName = pr.branch
     branchEdited = true

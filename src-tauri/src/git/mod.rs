@@ -256,6 +256,20 @@ impl Git {
         Ok(files)
     }
 
+    pub async fn numstat_against_base(
+        &self,
+        worktree: &Path,
+        base: &str,
+    ) -> Result<Vec<(String, u32, u32)>> {
+        let merge_base = self.merge_base(worktree, base).await?;
+        let range = format!("{merge_base}..HEAD");
+        let output = self
+            .run(worktree, &["diff", "--numstat", &range])
+            .await?;
+        Self::diff_ok(&output, "diff --numstat")?;
+        Ok(parse_numstat(&Self::stdout(&output)))
+    }
+
     async fn untracked_numstat(&self, worktree: &Path) -> Result<Vec<(String, u32, u32)>> {
         let output = self
             .run(
@@ -332,6 +346,21 @@ impl Git {
             return Ok(Self::stdout(&file_diff));
         }
         Ok(text)
+    }
+
+    pub async fn diff_file_against_base(
+        &self,
+        worktree: &Path,
+        base: &str,
+        path: &str,
+    ) -> Result<String> {
+        let merge_base = self.merge_base(worktree, base).await?;
+        let range = format!("{merge_base}..HEAD");
+        let output = self
+            .run(worktree, &["diff", &range, "--", path])
+            .await?;
+        Self::diff_ok(&output, "diff file against base")?;
+        Ok(Self::stdout(&output))
     }
 
     pub async fn status_porcelain(&self, worktree: &Path) -> Result<String> {

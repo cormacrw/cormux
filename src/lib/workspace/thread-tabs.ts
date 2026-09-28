@@ -107,7 +107,7 @@ export function moveTabFocusIndex(
 
 export function showFindingsTab(input: {
   workspaceKind: 'review' | null
-  findingCount: number
+  reviewReady: boolean
 }): boolean {
-  return input.workspaceKind === 'review' && input.findingCount > 0
+  return input.workspaceKind === 'review' && input.reviewReady
 }

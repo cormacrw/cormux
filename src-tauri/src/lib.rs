@@ -4,6 +4,7 @@ mod app;
 mod approvals;
 mod composer;
 mod create_pr;
+mod review;
 mod pr_draft;
 mod engines;
 mod feedback;

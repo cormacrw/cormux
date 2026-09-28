@@ -6,7 +6,8 @@
     pullRequestForWorkspace,
     resolvePrHtmlUrl,
   } from '$lib/create-pr/pr-header'
-  import { prs, workspaceRecords } from '$lib/state'
+  import { reviewSubmitted as isReviewSubmitted } from '$lib/review/workspace-settings'
+  import { prs, settings, shellDialogs, workspaceRecords } from '$lib/state'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
 
@@ -18,7 +19,8 @@
 
   const reviewSubmitted = $derived(
     workspace.kind === 'review' &&
-      workspace.activityText.toLowerCase().includes('review submitted'),
+      (workspace.activityText.toLowerCase().includes('review submitted') ||
+        isReviewSubmitted(settings.rows, workspace.id)),
   )
 
   const record = $derived(workspaceRecords.getRecord(workspace.id))
@@ -38,11 +40,7 @@
 
   function onPrimaryClick() {
     if (workspace.kind === 'review') {
-      window.dispatchEvent(
-        new CustomEvent('cormux:submit-review', {
-          detail: { workspaceId: workspace.id },
-        }),
-      )
+      shellDialogs.openSubmitReview(workspace.id)
       return
     }
     if (workspace.prNumber != null && prUrl) {

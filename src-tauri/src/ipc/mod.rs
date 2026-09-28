@@ -32,6 +32,8 @@ pub fn builder() -> Builder {
             commands::sync_pull_requests,
             commands::list_repo_branches,
             commands::create_workspace,
+            commands::create_review_workspace,
+            commands::submit_workspace_review,
             commands::retry_workspace_provisioning,
             commands::skip_workspace_provisioning_setup,
             commands::join_workspace_thread,

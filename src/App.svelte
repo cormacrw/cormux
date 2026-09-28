@@ -16,6 +16,7 @@
   import NewWorkspaceDialog from '$lib/components/new-workspace/NewWorkspaceDialog.svelte'
   import TeardownDialog from '$lib/components/workspace/TeardownDialog.svelte'
   import CreatePrDialog from '$lib/components/workspace/CreatePrDialog.svelte'
+  import SubmitReviewDialog from '$lib/components/workspace/SubmitReviewDialog.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
   import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
@@ -92,6 +93,7 @@
 <NewWorkspaceDialog />
 <TeardownDialog />
 <CreatePrDialog />
+<SubmitReviewDialog />
 <CommandPalette />
 <AppShell>
   {#if app.view === 'settings'}

@@ -5,7 +5,7 @@ const pending = new Set<string>()
 
 export function localSummaryFallback(workspace: Workspace): string {
   if (workspace.kind === 'review' && workspace.prNumber != null) {
-    return `Reviewing #${workspace.prNumber} on branch ${workspace.branch}. An agent is reading the diff and will draft comments for your approval; nothing has been posted yet.`
+    return `Reviewing #${workspace.prNumber} on branch ${workspace.branch}. An agent is reading the diff and will draft comments for your approval; nothing has been posted to GitHub yet.`
   }
   return `Just started on “${workspace.name}”, branched as ${workspace.branch}. Work is getting underway; no summary from the model yet.`
 }

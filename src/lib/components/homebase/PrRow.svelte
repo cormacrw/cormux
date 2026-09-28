@@ -2,6 +2,7 @@
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
   import { formatRelativeAge } from '$lib/homebase/relative-time'
+  import { startReviewWorkspace } from '$lib/review/start-review'
   import { app, workspaceRecords, workspaces } from '$lib/state'
   import type { PullRequest } from '$lib/state/prs.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
@@ -123,14 +124,7 @@
       })
       return
     }
-    app.requestNewWorkspaceForPullRequest({
-      repoId: pr.repoId,
-      repoFullName: pr.repoFullName,
-      branch: pr.head,
-      prNumber: pr.num,
-      title: pr.title,
-      mode: 'review',
-    })
+    void startReviewWorkspace(pr)
   }
 </script>
 

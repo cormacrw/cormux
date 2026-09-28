@@ -1,6 +1,7 @@
 pub mod auth;
 mod client;
 pub mod create;
+pub mod review;
 mod r#match;
 mod sync;
 pub mod types;

@@ -23,6 +23,8 @@ commands.allow = [
   "sync_pull_requests",
   "list_repo_branches",
   "create_workspace",
+  "create_review_workspace",
+  "submit_workspace_review",
   "retry_workspace_provisioning",
   "skip_workspace_provisioning_setup",
   "join_workspace_thread",

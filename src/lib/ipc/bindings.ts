@@ -222,6 +222,22 @@ async createWorkspace(input: CreateWorkspaceInput) : Promise<Result<CreateWorksp
     else return { status: "error", error: e  as any };
 }
 },
+async createReviewWorkspace(input: CreateReviewWorkspaceInput) : Promise<Result<CreateReviewWorkspaceResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_review_workspace", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async submitWorkspaceReview(input: SubmitWorkspaceReviewInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("submit_workspace_review", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async retryWorkspaceProvisioning(workspaceId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("retry_workspace_provisioning", { workspaceId }) };
@@ -379,6 +395,8 @@ export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
 export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
+export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number; title: string; head: string; base: string; author: string; authorIsYou: boolean; filesChanged: number; prHtmlUrl: string | null }
+export type CreateReviewWorkspaceResult = { workspaceId: string; created: boolean }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
 export type CreateWorkspacePullRequestInput = { workspaceId: string; why: string; title: string | null; draft: boolean; includeWhatChanged: boolean; includeHowTested: boolean }
@@ -434,6 +452,8 @@ export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | 
  * webview should call `get_snapshot` and replace local state.
  */
 export type StateChanged = { version: number; kind: StateChangeKind }
+export type SubmitReviewVerdict = "approve" | "requestChanges" | "comment"
+export type SubmitWorkspaceReviewInput = { workspaceId: string; verdict: SubmitReviewVerdict }
 export type SwitchWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type TeardownDataLoss = { uncommittedFiles: number; unpushedCommits: number; hasDataLoss: boolean; warning: string | null }
 export type TeardownInput = { workspaceId: string; deleteBranch: boolean }

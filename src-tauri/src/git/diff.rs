@@ -49,6 +49,7 @@ pub struct LiveDiffEngine {
     git: Git,
     watched: Arc<Mutex<HashMap<String, Watched>>>,
     latest: Arc<Mutex<HashMap<String, WorktreeDiff>>>,
+    pr_diff_base: Arc<Mutex<HashMap<String, String>>>,
     tx: mpsc::UnboundedSender<String>,
     rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
@@ -60,9 +61,25 @@ impl LiveDiffEngine {
             git,
             watched: Arc::new(Mutex::new(HashMap::new())),
             latest: Arc::new(Mutex::new(HashMap::new())),
+            pr_diff_base: Arc::new(Mutex::new(HashMap::new())),
             tx,
             rx: Arc::new(Mutex::new(Some(rx))),
         }
+    }
+
+    pub fn set_pr_diff_base(&self, workspace_id: &str, base: String) {
+        self.pr_diff_base
+            .lock()
+            .unwrap()
+            .insert(workspace_id.to_string(), base);
+    }
+
+    pub fn pr_diff_base(&self, workspace_id: &str) -> Option<String> {
+        self.pr_diff_base
+            .lock()
+            .unwrap()
+            .get(workspace_id)
+            .cloned()
     }
 
     /// Start the debounce loop. Must run after a Tokio/Tauri runtime exists.
@@ -77,6 +94,7 @@ impl LiveDiffEngine {
         let git = self.git.clone();
         let watched = self.watched.clone();
         let latest = self.latest.clone();
+        let pr_diff_base = self.pr_diff_base.clone();
         tauri::async_runtime::spawn(async move {
             let mut pending: HashMap<String, tokio::time::Instant> = HashMap::new();
             let mut ticker = tokio::time::interval(Duration::from_millis(50));
@@ -98,7 +116,8 @@ impl LiveDiffEngine {
                                 guard.get(&id).map(|item| item.path.clone())
                             };
                             if let Some(path) = path {
-                                match compute_diff(&git, &id, &path).await {
+                                let base = pr_diff_base.lock().unwrap().get(&id).cloned();
+                                match compute_diff(&git, &id, &path, base.as_deref()).await {
                                     Ok(diff) => {
                                         latest.lock().unwrap().insert(id, diff);
                                     }
@@ -148,6 +167,7 @@ impl LiveDiffEngine {
     pub fn unwatch(&self, workspace_id: &str) {
         self.watched.lock().unwrap().remove(workspace_id);
         self.latest.lock().unwrap().remove(workspace_id);
+        self.pr_diff_base.lock().unwrap().remove(workspace_id);
     }
 
     pub fn latest(&self, workspace_id: &str) -> Option<WorktreeDiff> {
@@ -159,7 +179,8 @@ impl LiveDiffEngine {
     }
 
     pub async fn compute(&self, workspace_id: &str, path: &Path) -> Result<WorktreeDiff> {
-        let diff = compute_diff(&self.git, workspace_id, path).await?;
+        let base = self.pr_diff_base(workspace_id);
+        let diff = compute_diff(&self.git, workspace_id, path, base.as_deref()).await?;
         self.latest
             .lock()
             .unwrap()
@@ -186,11 +207,26 @@ fn should_refresh(root: &Path, path: &Path, gitignore: &Gitignore) -> bool {
     !gitignore.matched(relative, is_dir).is_ignore()
 }
 
-async fn compute_diff(git: &Git, workspace_id: &str, path: &Path) -> Result<WorktreeDiff> {
-    let stats = git.numstat(path).await?;
+async fn compute_diff(
+    git: &Git,
+    workspace_id: &str,
+    path: &Path,
+    pr_base: Option<&str>,
+) -> Result<WorktreeDiff> {
+    let stats = if let Some(base) = pr_base {
+        git.numstat_against_base(path, base).await?
+    } else {
+        git.numstat(path).await?
+    };
     let mut files = Vec::new();
     for (file_path, added, deleted) in stats {
-        let text = git.diff_file(path, &file_path).await.unwrap_or_default();
+        let text = if let Some(base) = pr_base {
+            git.diff_file_against_base(path, base, &file_path)
+                .await
+                .unwrap_or_default()
+        } else {
+            git.diff_file(path, &file_path).await.unwrap_or_default()
+        };
         files.push(DiffFile {
             path: file_path,
             added,

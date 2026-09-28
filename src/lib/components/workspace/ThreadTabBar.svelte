@@ -4,9 +4,11 @@
   import { Button } from '$lib/components/ui/button'
   import * as Tooltip from '$lib/components/ui/tooltip'
   import { requestNewThread } from '$lib/command-palette/actions'
+  import { reviewReady } from '$lib/review/workspace-settings'
   import {
     app,
     findings,
+    settings,
     threads,
     workspaceRecords,
     workspaceUi,
@@ -42,7 +44,7 @@
   const showFindings = $derived(
     showFindingsTab({
       workspaceKind: workspace.kind,
-      findingCount,
+      reviewReady: reviewReady(settings.rows, workspace.id),
     }),
   )
   const openFindings = $derived(findings.openCount(workspace.id))
