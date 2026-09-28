@@ -186,6 +186,16 @@ impl Store {
         })
     }
 
+    pub fn set_thread_status(&self, thread_id: &str, status: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET status = ?1 WHERE id = ?2",
+                rusqlite::params![status, thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn set_thread_session(&self, thread_id: &str, session_id: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(

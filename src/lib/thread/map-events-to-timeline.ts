@@ -27,6 +27,8 @@ export function resetTimelineIdCounter() {
 
 function iconForTool(kind: ToolKind, title: string): ToolStepIcon {
   const lower = title.toLowerCase()
+  if (lower.includes('you paused')) return 'pause'
+  if (lower.includes('you resumed')) return 'play'
   if (kind === 'read') return 'file'
   if (kind === 'search') return 'search'
   if (kind === 'execute') return lower.includes('test') ? 'check' : 'terminal'

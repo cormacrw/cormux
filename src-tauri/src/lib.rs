@@ -1,6 +1,7 @@
 #![allow(dead_code)] // domain APIs fill in as features land
 
 mod approvals;
+mod composer;
 mod engines;
 mod feedback;
 mod error;

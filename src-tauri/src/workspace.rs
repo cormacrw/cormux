@@ -31,6 +31,7 @@ pub enum WorkspaceLifecycle {
 pub enum ThreadActivity {
     Provisioning,
     Running,
+    Paused,
     Idle,
     Waiting,
 }

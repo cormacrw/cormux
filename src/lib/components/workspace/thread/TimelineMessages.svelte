@@ -24,6 +24,7 @@
   import List from '@lucide/svelte/icons/list'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Pause from '@lucide/svelte/icons/pause'
+  import Play from '@lucide/svelte/icons/play'
   import Pencil from '@lucide/svelte/icons/pencil'
   import Search from '@lucide/svelte/icons/search'
   import Terminal from '@lucide/svelte/icons/terminal'
@@ -88,6 +89,8 @@
       search: Search,
       pencil: Pencil,
       trash: Trash2,
+      pause: Pause,
+      play: Play,
     } as const
     return map[step.icon] ?? Terminal
   }

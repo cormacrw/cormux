@@ -20,6 +20,8 @@ export type ToolStepIcon =
   | 'search'
   | 'pencil'
   | 'trash'
+  | 'pause'
+  | 'play'
 
 export type ToolRunStep =
   | {

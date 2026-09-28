@@ -19,12 +19,19 @@ use crate::store::Store;
 const EVENT_CAP: usize = 256;
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
+#[derive(Default)]
+struct HoldState {
+    paused: bool,
+    queued: Vec<String>,
+}
+
 #[derive(Clone)]
 pub struct EngineRegistry {
     env: Arc<RwLock<ShellEnv>>,
     approvals: Arc<ApprovalBroker>,
     pub(crate) store: Store,
     threads: Arc<Mutex<HashMap<String, ThreadSlot>>>,
+    holds: Arc<Mutex<HashMap<String, HoldState>>>,
 }
 
 struct ThreadSlot {
@@ -53,6 +60,7 @@ impl EngineRegistry {
             approvals,
             store,
             threads: Arc::new(Mutex::new(HashMap::new())),
+            holds: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -157,6 +165,61 @@ impl EngineRegistry {
 
     pub fn cancel(&self, thread_id: &str) -> Result<()> {
         self.send(thread_id, EngineCommand::Cancel)
+    }
+
+    pub fn thread_is_held(&self, thread_id: &str) -> bool {
+        self.holds
+            .lock()
+            .ok()
+            .and_then(|holds| holds.get(thread_id).map(|row| row.paused))
+            .unwrap_or(false)
+    }
+
+    pub fn hold_thread(&self, thread_id: &str) -> Result<()> {
+        let _ = self.cancel(thread_id);
+        let mut holds = self
+            .holds
+            .lock()
+            .map_err(|error| Error::Engine(error.to_string()))?;
+        holds
+            .entry(thread_id.to_string())
+            .or_default()
+            .paused = true;
+        Ok(())
+    }
+
+    pub fn release_thread(&self, thread_id: &str) -> Result<Option<String>> {
+        let mut holds = self
+            .holds
+            .lock()
+            .map_err(|error| Error::Engine(error.to_string()))?;
+        let slot = holds.entry(thread_id.to_string()).or_default();
+        slot.paused = false;
+        let queued = std::mem::take(&mut slot.queued);
+        if queued.is_empty() {
+            return Ok(Some("continue".into()));
+        }
+        Ok(Some(queued.join("\n\n")))
+    }
+
+    pub fn enqueue_while_held(&self, thread_id: &str, text: String) -> Result<()> {
+        let mut holds = self
+            .holds
+            .lock()
+            .map_err(|error| Error::Engine(error.to_string()))?;
+        holds
+            .entry(thread_id.to_string())
+            .or_default()
+            .queued
+            .push(text);
+        Ok(())
+    }
+
+    pub fn submit_prompt(&self, thread_id: &str, text: String, held: bool) -> Result<()> {
+        if held || self.thread_is_held(thread_id) {
+            return self.enqueue_while_held(thread_id, text);
+        }
+        self.prompt(thread_id, text)
     }
 
     pub async fn stop(&self, thread_id: &str) -> Result<()> {

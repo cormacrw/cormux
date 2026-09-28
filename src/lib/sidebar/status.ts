@@ -33,9 +33,8 @@ export function statusDotVariantForThread(
   thread: ThreadSidebarInput,
 ): StatusDotVariant {
   if (thread.status === 'provisioning') return 'provisioning'
-  if (thread.status === 'running') {
-    return thread.paused ? 'paused' : 'running'
-  }
+  if (thread.status === 'paused' || thread.paused) return 'paused'
+  if (thread.status === 'running') return 'running'
   return 'idle'
 }
 
@@ -53,7 +52,7 @@ export function workspaceStatusWord(workspace: WorkspaceSidebarInput): string {
 }
 
 export function threadActivityLine(thread: ThreadSidebarInput): string {
-  if (thread.status === 'running' && thread.paused) return 'Paused'
+  if (thread.status === 'paused' || thread.paused) return 'Paused'
   return thread.activity
 }
 

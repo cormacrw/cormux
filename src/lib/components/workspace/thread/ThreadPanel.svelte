@@ -15,7 +15,7 @@
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
   import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
   import { createVirtualizer } from '@tanstack/svelte-virtual'
-  import ThreadComposerStub from './ThreadComposerStub.svelte'
+  import ThreadComposer from './ThreadComposer.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
   import TimelineMessages from './TimelineMessages.svelte'
 
@@ -220,5 +220,10 @@
     {announceText}
   </div>
 
-  <ThreadComposerStub {thread} />
+  <ThreadComposer
+    {thread}
+    onSent={() => {
+      scrollToEndNext = true
+    }}
+  />
 </section>

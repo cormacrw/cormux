@@ -5,8 +5,10 @@ use tauri::{AppHandle, State, ipc::Channel};
 use tauri_specta::Event;
 use uuid::Uuid;
 
+use crate::composer::{persist_control_step, persist_user_message};
 use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
+use crate::workspace::ThreadActivity;
 use crate::github::{auth, clear_token, save_token};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::types::StateChangeKind;
@@ -600,6 +602,81 @@ pub async fn join_workspace_thread(
     })
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn send_thread_prompt(
+    app: AppHandle,
+    thread_id: String,
+    text: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Ok(());
+    }
+    let thread = snapshot_thread(&state, &thread_id)?;
+    let held = thread.status == "paused";
+    persist_user_message(&state.store, &thread_id, &text)?;
+    let _ = state
+        .engines
+        .submit_prompt(&thread_id, text, held);
+    emit_composer_snapshot(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_thread_turn(thread_id: String, state: State<'_, AppState>) -> Result<()> {
+    let _ = state.engines.cancel(&thread_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn pause_thread(
+    app: AppHandle,
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let thread = snapshot_thread(&state, &thread_id)?;
+    if thread.status != "running" {
+        return Ok(());
+    }
+    state.engines.hold_thread(&thread_id)?;
+    persist_control_step(&state.store, &thread_id, "You paused the agent")?;
+    state.store.set_thread_status(&thread_id, "paused")?;
+    state
+        .workspace
+        .set_thread(&thread_id, &thread.workspace_id, ThreadActivity::Paused)
+        .await;
+    emit_composer_snapshot(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn resume_thread(
+    app: AppHandle,
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let thread = snapshot_thread(&state, &thread_id)?;
+    if thread.status != "paused" {
+        return Ok(());
+    }
+    persist_control_step(&state.store, &thread_id, "You resumed the agent")?;
+    state.store.set_thread_status(&thread_id, "running")?;
+    state
+        .workspace
+        .set_thread(&thread_id, &thread.workspace_id, ThreadActivity::Running)
+        .await;
+    if let Some(text) = state.engines.release_thread(&thread_id)? {
+        let _ = state.engines.prompt(&thread_id, text);
+    }
+    emit_composer_snapshot(&app, &state);
+    Ok(())
+}
+
 /// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.
 #[tauri::command]
 #[specta::specta]
@@ -664,6 +741,25 @@ fn new_workspace_id() -> String {
         .map(|duration| duration.as_millis())
         .unwrap_or(0);
     format!("ws{ms:x}")
+}
+
+fn snapshot_thread(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
+    state
+        .store
+        .snapshot()?
+        .threads
+        .into_iter()
+        .find(|row| row.id == thread_id)
+        .ok_or_else(|| Error::Store(format!("unknown thread {thread_id}")))
+}
+
+fn emit_composer_snapshot(app: &AppHandle, state: &AppState) {
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(app);
 }
 
 fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {

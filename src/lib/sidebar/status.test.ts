@@ -72,7 +72,7 @@ describe('thread sidebar helpers', () => {
   it('shows Paused on the activity line', () => {
     expect(
       threadActivityLine({
-        status: 'running',
+        status: 'paused',
         paused: true,
         activity: 'Editing files',
       }),

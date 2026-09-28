@@ -48,10 +48,11 @@ The textarea grows with its content up to **200px**, then scrolls internally. It
 
 Messages go to the *selected thread only*, never to the whole workspace.
 
-### Pause and Resume
-- **Pause** sets the thread to paused. A step `You paused the agent` (pause icon) is added. The live row changes to `Paused by you` with subtitle `Resume to let the agent continue.` The tab and sidebar dots turn amber. The workspace card stops counting it as working (and may show `Idle`).
-- **Resume** reverses it and adds `You resumed the agent` (play icon).
-- Pausing unlocks the branch picker if no other thread is running.
+### Pause and Resume (interrupt and hold)
+- **Pause** is not a true freeze mid-request. It **cancels the current turn** (ACP `session/cancel` or Claude interrupt), then holds the thread: status `paused`, step `You paused the agent` (pause icon), live row `Paused by you` / `Resume to let the agent continue.`, amber tab and sidebar dots, and the workspace stops counting the thread as working.
+- Messages typed while paused are **queued** (not sent to the engine until resume).
+- **Resume** sets the thread back to `running`, adds `You resumed the agent` (play icon), and sends the queued messages as the next turn (or `continue` if the queue is empty).
+- Pausing unlocks the branch picker when no other thread is still running.
 - A paused Reviewer delays finishing its review until resumed.
 
 ## Keyboard and accessibility
@@ -77,6 +78,6 @@ Messages go to the *selected thread only*, never to the whole workspace.
 - No slash commands (for example `/plan`, `/test`, `/review`).
 - No way to interrupt and replace the agent's current step (as opposed to pausing).
 - No message history (`↑` to recall).
-- Drafts aren't kept per thread: switching tabs keeps whatever is in the box and sends it to the newly selected thread. That could send a message to the wrong agent. The composer should hold a separate draft per thread.
+- ~~Drafts aren't kept per thread~~ **Fixed:** each thread has its own composer draft when switching tabs.
 - No "Stop" (end the task) distinct from Pause.
 - Should the composer be available in idle threads that have finished? It is today, and that's probably right, but the reply copy assumes active work.
