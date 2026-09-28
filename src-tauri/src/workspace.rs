@@ -47,6 +47,10 @@ pub struct WorkspaceRecord {
     pub worktree_path: String,
     pub status: WorkspaceLifecycle,
     pub version: u64,
+    pub activity: String,
+    pub prov_step: u8,
+    pub setup_failed_command: Option<String>,
+    pub setup_failed_exit_code: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -141,6 +145,10 @@ impl WorkspaceManager {
             worktree_path: worktree.to_string_lossy().to_string(),
             status: WorkspaceLifecycle::Provisioning,
             version: 1,
+            activity: "Running worktree setup…".into(),
+            prov_step: 1,
+            setup_failed_command: None,
+            setup_failed_exit_code: None,
         };
         self.inner
             .write()
@@ -150,33 +158,42 @@ impl WorkspaceManager {
         Ok(record)
     }
 
-    pub async fn run_worktree_setup(&self, workspace_id: &str) -> Result<WorkspaceRecord> {
+    pub async fn add_worktree(&self, workspace_id: &str) -> Result<WorkspaceRecord> {
         let workspace = self
             .get(workspace_id)
             .await
             .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
         let repo_path = PathBuf::from(&workspace.repo_path);
         let worktree = PathBuf::from(&workspace.worktree_path);
-        match self
-            .git
+        self.git
             .worktree_add(&repo_path, &worktree, &workspace.branch, &workspace.base)
+            .await?;
+        self.diffs.watch(workspace_id, &worktree)?;
+        self.sync_fetch_targets().await;
+        self.get(workspace_id)
             .await
-        {
-            Ok(()) => {
-                let record = self
-                    .set_status(workspace_id, WorkspaceLifecycle::Ready)
-                    .await?;
-                self.diffs.watch(workspace_id, &worktree)?;
-                self.sync_fetch_targets().await;
-                Ok(record)
-            }
-            Err(error) => {
-                let _ = self
-                    .set_status(workspace_id, WorkspaceLifecycle::ProvisioningFailed)
-                    .await;
-                Err(error)
-            }
-        }
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))
+    }
+
+    pub async fn set_provisioning_detail(
+        &self,
+        workspace_id: &str,
+        activity: &str,
+        prov_step: u8,
+        failed_command: Option<String>,
+        exit_code: Option<i32>,
+    ) -> Result<WorkspaceRecord> {
+        let mut inner = self.inner.write().await;
+        let workspace = inner
+            .workspaces
+            .get_mut(workspace_id)
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        workspace.activity = activity.to_string();
+        workspace.prov_step = prov_step;
+        workspace.setup_failed_command = failed_command;
+        workspace.setup_failed_exit_code = exit_code;
+        workspace.version += 1;
+        Ok(workspace.clone())
     }
 
     pub async fn create(
@@ -194,7 +211,8 @@ impl WorkspaceManager {
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         self.register_provisioning(&id, repo_id, repo_path, name, branch, base, home)
             .await?;
-        self.run_worktree_setup(&id).await
+        self.add_worktree(&id).await?;
+        self.set_status(&id, WorkspaceLifecycle::Ready).await
     }
 
     pub async fn set_status(
@@ -299,7 +317,7 @@ impl WorkspaceManager {
         Ok(())
     }
 
-    async fn sync_fetch_targets(&self) {
+    pub async fn sync_fetch_targets(&self) {
         let inner = self.inner.read().await;
         let mut by_repo: HashMap<String, RepoFetchTarget> = HashMap::new();
         for workspace in inner.workspaces.values() {
@@ -377,9 +395,11 @@ fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result
         (
             WorkspaceLifecycle::Creating,
             WorkspaceLifecycle::Provisioning
-        ) | (
+        ) |         (
             WorkspaceLifecycle::Provisioning,
-            WorkspaceLifecycle::Ready | WorkspaceLifecycle::ProvisioningFailed
+            WorkspaceLifecycle::Ready
+                | WorkspaceLifecycle::Running
+                | WorkspaceLifecycle::ProvisioningFailed
         ) | (
             WorkspaceLifecycle::Ready,
             WorkspaceLifecycle::Running

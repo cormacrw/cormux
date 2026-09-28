@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager, State, ipc::Channel};
+use tauri::{AppHandle, State, ipc::Channel};
 use tauri_specta::Event;
 use uuid::Uuid;
 
@@ -388,95 +388,144 @@ pub async fn create_workspace(
 
     let app_handle = app.clone();
     let name = input.name.clone();
-    let branch = input.branch.clone();
-    let base = input.base.clone();
-    let repo_id = input.repo_id.clone();
-    let worktree_path_str = worktree_path.to_string_lossy().to_string();
+    let repo_id_bg = input.repo_id.clone();
     let workspace_id_bg = workspace_id.clone();
+    let thread_id_bg = thread_id.clone();
+    let engine = input.engine.clone();
+    let goal = input.goal.clone();
+    let repo_name = repo.name.clone();
+    let setup_commands = repo.setup_commands.clone();
+
+    emit_toast(
+        &app,
+        crate::ipc::types::ToastRaisedPayload {
+            tone: crate::ipc::types::ToastTone::Ok,
+            parts: vec![
+                crate::ipc::types::ToastPart::Text {
+                    value: format!("Created {name} on "),
+                },
+                crate::ipc::types::ToastPart::Code {
+                    value: input.branch.clone(),
+                },
+                crate::ipc::types::ToastPart::Text {
+                    value: " from ".into(),
+                },
+                crate::ipc::types::ToastPart::Code {
+                    value: input.base.clone(),
+                },
+            ],
+            workspace_id: Some(workspace_id.clone()),
+        },
+    );
+
     tauri::async_runtime::spawn(async move {
-        let state = app_handle.state::<AppState>();
-        match state.workspace.run_worktree_setup(&workspace_id_bg).await {
-            Ok(record) => {
-                let _ = state.store.upsert_workspace(&WorkspaceRow {
-                    id: workspace_id_bg.clone(),
-                    repo_id: repo_id.clone(),
-                    name: name.clone(),
-                    branch: branch.clone(),
-                    worktree_path: record.worktree_path.clone(),
-                    status: "provisioning".into(),
-                    created_at: String::new(),
-                    summary: None,
-                    summary_at: None,
-                    summary_source: "Haiku 4.5".into(),
-                    kind: None,
-                    pr_number: None,
-                    modified_files: 0,
-                });
-                emit_workspace_status(
-                    &app_handle,
-                    &state,
-                    &workspace_id_bg,
-                    record.status,
-                );
-                emit_toast(
-                    &app_handle,
-                    crate::ipc::types::ToastRaisedPayload {
-                        tone: crate::ipc::types::ToastTone::Ok,
-                        parts: vec![
-                            crate::ipc::types::ToastPart::Text {
-                                value: format!("Created {name} on "),
-                            },
-                            crate::ipc::types::ToastPart::Code {
-                                value: branch.clone(),
-                            },
-                            crate::ipc::types::ToastPart::Text {
-                                value: " from ".into(),
-                            },
-                            crate::ipc::types::ToastPart::Code {
-                                value: base.clone(),
-                            },
-                        ],
-                        workspace_id: Some(workspace_id_bg),
-                    },
-                );
-            }
-            Err(error) => {
-                let _ = state.store.upsert_workspace(&WorkspaceRow {
-                    id: workspace_id_bg.clone(),
-                    repo_id,
-                    name,
-                    branch,
-                    worktree_path: worktree_path_str,
-                    status: "provisioningFailed".into(),
-                    created_at: String::new(),
-                    summary: None,
-                    summary_at: None,
-                    summary_source: "Haiku 4.5".into(),
-                    kind: None,
-                    pr_number: None,
-                    modified_files: 0,
-                });
-                emit_workspace_status(
-                    &app_handle,
-                    &state,
-                    &workspace_id_bg,
-                    crate::workspace::WorkspaceLifecycle::ProvisioningFailed,
-                );
-                emit_toast(
-                    &app_handle,
-                    crate::ipc::types::ToastRaisedPayload {
-                        tone: crate::ipc::types::ToastTone::Bad,
-                        parts: vec![crate::ipc::types::ToastPart::Text {
-                            value: error.to_string(),
-                        }],
-                        workspace_id: None,
-                    },
-                );
-            }
-        }
+        crate::provisioning::run_workspace_provisioning(
+            app_handle,
+            crate::provisioning::LeadProvisionJob {
+                workspace_id: workspace_id_bg,
+                thread_id: thread_id_bg,
+                repo_id: repo_id_bg,
+                repo_name,
+                setup_commands_raw: setup_commands,
+                engine,
+                goal,
+                review: false,
+            },
+        )
+        .await;
     });
 
     Ok(CreateWorkspaceResult { workspace_id })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn retry_workspace_provisioning(
+    workspace_id: String,
+    app: AppHandle,
+) -> Result<()> {
+    tauri::async_runtime::spawn(async move {
+        crate::provisioning::retry_provisioning(app, workspace_id).await;
+    });
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn skip_workspace_provisioning_setup(
+    workspace_id: String,
+    app: AppHandle,
+) -> Result<()> {
+    tauri::async_runtime::spawn(async move {
+        crate::provisioning::skip_provisioning_setup(app, workspace_id).await;
+    });
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn join_workspace_thread(
+    input: super::types::JoinWorkspaceThreadInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<super::types::JoinWorkspaceThreadResult> {
+    let thread_id = Uuid::new_v4().to_string();
+    let snapshot = state.store.snapshot()?;
+    let workspace_row = snapshot
+        .workspaces
+        .iter()
+        .find(|row| row.id == input.workspace_id)
+        .cloned()
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", input.workspace_id)))?;
+    let agent_count = snapshot
+        .threads
+        .iter()
+        .filter(|row| row.workspace_id == input.workspace_id)
+        .count()
+        + 1;
+
+    state.store.upsert_thread(&ThreadRow {
+        id: thread_id.clone(),
+        workspace_id: input.workspace_id.clone(),
+        title: input.title.clone(),
+        engine: input.engine.clone(),
+        session_id: None,
+        status: "provisioning".into(),
+        used_tokens: None,
+        context_size: None,
+        cost_usd: None,
+        transcript_readonly: false,
+    })?;
+
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(&app);
+
+    let thread_id_return = thread_id.clone();
+    let app_handle = app.clone();
+    let workspace_id = input.workspace_id.clone();
+    let engine = input.engine.clone();
+    let branch = workspace_row.branch.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::provisioning::join_thread_provisioning(
+            app_handle,
+            crate::provisioning::JoinProvisionJob {
+                workspace_id,
+                thread_id,
+                engine,
+                branch,
+                agent_count,
+            },
+        )
+        .await;
+    });
+
+    Ok(super::types::JoinWorkspaceThreadResult {
+        thread_id: thread_id_return,
+    })
 }
 
 /// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.

@@ -148,6 +148,30 @@ async createWorkspace(input: CreateWorkspaceInput) : Promise<Result<CreateWorksp
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async retryWorkspaceProvisioning(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("retry_workspace_provisioning", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async skipWorkspaceProvisioningSetup(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("skip_workspace_provisioning_setup", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async joinWorkspaceThread(input: JoinWorkspaceThreadInput) : Promise<Result<JoinWorkspaceThreadResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("join_workspace_thread", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -189,6 +213,8 @@ export type EngineStatus = { kind: EngineKind; installed: boolean; binary: strin
  */
 export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string } | { kind: "NotImplemented"; message: string }
 export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null }
+export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; engine: string }
+export type JoinWorkspaceThreadResult = { threadId: string }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
 export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
@@ -227,7 +253,7 @@ export type ToastTone = "ok" | "bad" | "default"
  */
 export type WorkspaceLifecycle = "creating" | "provisioning" | "ready" | "running" | "idle" | "waiting" | "tearingDown" | "gone" | "provisioningFailed"
 export type WorkspaceMemory = { workspaceId: string; bytes: number }
-export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number }
+export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
 export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; modifiedFiles: number }
 export type WorkspaceStatusChanged = { version: number; workspaceId: string; status: WorkspaceLifecycle }
 export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }

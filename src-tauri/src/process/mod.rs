@@ -20,6 +20,7 @@ const RING_CAP: usize = 500;
 pub struct ProcessSupervisor {
     env: Arc<RwLock<ShellEnv>>,
     sessions: Arc<Mutex<HashMap<String, RunningApp>>>,
+    logs: Arc<Mutex<HashMap<String, Arc<SessionShared>>>>,
 }
 
 struct SessionShared {
@@ -43,7 +44,40 @@ impl ProcessSupervisor {
         Self {
             env,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            logs: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn append_log_line(&self, id: &str, line: impl Into<String>) {
+        let line = line.into();
+        let shared = {
+            let mut logs = self.logs.lock().unwrap();
+            logs.entry(id.to_string())
+                .or_insert_with(|| {
+                    Arc::new(SessionShared {
+                        lines: Mutex::new(VecDeque::new()),
+                        pending: Mutex::new(Vec::new()),
+                        fragment: Mutex::new(String::new()),
+                        log: Mutex::new(
+                            OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(std::env::temp_dir().join(format!("cormux-pty-{id}.log")))
+                                .unwrap_or_else(|_| {
+                                    OpenOptions::new()
+                                        .create(true)
+                                        .append(true)
+                                        .open(std::env::temp_dir().join("cormux-pty-fallback.log"))
+                                        .expect("fallback pty log")
+                                }),
+                        ),
+                        exited: Mutex::new(None),
+                        killed: AtomicBool::new(false),
+                    })
+                })
+                .clone()
+        };
+        shared.push_line(line);
     }
 
     pub fn spawn(&self, program: &str, args: &[&str]) -> Result<u32> {
@@ -183,12 +217,23 @@ impl ProcessSupervisor {
     }
 
     pub fn drain_pending(&self, id: &str) -> Vec<String> {
-        self.sessions
+        let from_session = self
+            .sessions
             .lock()
             .unwrap()
             .get(id)
             .map(|app| std::mem::take(&mut *app.shared.pending.lock().unwrap()))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let from_log = self
+            .logs
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|shared| std::mem::take(&mut *shared.pending.lock().unwrap()))
+            .unwrap_or_default();
+        let mut merged = from_session;
+        merged.extend(from_log);
+        merged
     }
 
     pub fn write_input(&self, id: &str, data: &[u8]) -> Result<()> {

@@ -25,6 +25,9 @@ describe('buildPaletteCommandsFromState', () => {
             kind: null,
             prNumber: null,
             modifiedFiles: 0,
+            provStep: 0,
+            setupFailedCommand: null,
+            setupFailedExitCode: null,
           },
         ],
         threads: [
@@ -60,6 +63,10 @@ describe('buildPaletteCommandsFromState', () => {
             worktreePath: '/tmp/wt',
             status: 'idle',
             version: 1,
+            activity: 'Idle',
+            provStep: 0,
+            setupFailedCommand: null,
+            setupFailedExitCode: null,
           },
         ],
         runtimeFor: () => ({
@@ -90,6 +97,10 @@ describe('buildPaletteCommandsFromState', () => {
                 worktreePath: '/tmp/wt',
                 status: 'idle',
                 version: 1,
+                activity: 'Idle',
+                provStep: 0,
+                setupFailedCommand: null,
+                setupFailedExitCode: null,
               }
             : undefined,
       },

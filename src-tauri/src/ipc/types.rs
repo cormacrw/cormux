@@ -134,3 +134,17 @@ pub struct CreateWorkspaceResult {
 pub struct RepoBranchesResult {
     pub branches: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinWorkspaceThreadInput {
+    pub workspace_id: String,
+    pub title: String,
+    pub engine: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinWorkspaceThreadResult {
+    pub thread_id: String,
+}

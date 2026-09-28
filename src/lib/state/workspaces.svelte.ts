@@ -20,6 +20,9 @@ export type Workspace = {
   kind: 'review' | null
   prNumber: number | null
   modifiedFiles: number
+  provStep: number
+  setupFailedCommand: string | null
+  setupFailedExitCode: number | null
 }
 
 export class WorkspacesStore {

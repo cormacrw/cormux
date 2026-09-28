@@ -21,6 +21,10 @@ import {
   type Workspace,
   type WorkspaceCardStatus,
 } from './workspaces.svelte'
+import {
+  threadActivityForProvisioning,
+  workspaceActivityFromRecord,
+} from '$lib/workspace/provisioning'
 
 export { app } from './app.svelte'
 export { memory } from './memory.svelte'
@@ -44,37 +48,6 @@ function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {
   }
   if (lifecycle === 'waiting') return 'needsAttention'
   return 'idle'
-}
-
-function workspaceActivityText(lifecycle: WorkspaceLifecycle): string {
-  switch (lifecycle) {
-    case 'ready':
-      return 'Ready'
-    case 'waiting':
-      return 'Waiting for approval'
-    case 'creating':
-    case 'provisioning':
-      return 'Running worktree setup…'
-    case 'provisioningFailed':
-      return 'Setup failed'
-    case 'tearingDown':
-      return 'Tearing down'
-    default:
-      return 'Idle'
-  }
-}
-
-function defaultThreadActivity(status: string): string {
-  switch (status) {
-    case 'running':
-      return 'Working'
-    case 'waiting':
-      return 'Waiting for approval'
-    case 'paused':
-      return 'Paused'
-    default:
-      return 'Idle'
-  }
 }
 
 function pendingByThread(approvals: Snapshot['persisted']['approvals']) {
@@ -117,6 +90,10 @@ function workspaceRecordsFromSnapshot(snapshot: Snapshot): WorkspaceRecord[] {
     worktreePath: row.worktreePath,
     status: parseLifecycle(row.status),
     version: 0,
+    activity: '',
+    provStep: 0,
+    setupFailedCommand: null,
+    setupFailedExitCode: null,
   }))
 }
 
@@ -163,13 +140,19 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
 
     const kind = persisted?.kind === 'review' ? ('review' as const) : null
 
+    const activityText = workspaceActivityFromRecord(
+      workspace.status,
+      workspace,
+      kind,
+    )
+
     return {
       id: workspace.id,
       name: workspace.name,
       branch: workspace.branch,
       lifecycle: workspace.status,
       paused,
-      activityText: workspaceActivityText(workspace.status),
+      activityText,
       pendingApprovals: pendingByWs.get(workspace.id) ?? 0,
       cardStatus: mapCardStatus(workspace.status),
       createdAtMs: parseTimestampMs(persisted?.createdAt),
@@ -179,8 +162,24 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
       kind,
       prNumber: persisted?.prNumber ?? null,
       modifiedFiles: persisted?.modifiedFiles ?? 0,
+      provStep: workspace.provStep ?? 0,
+      setupFailedCommand: workspace.setupFailedCommand ?? null,
+      setupFailedExitCode: workspace.setupFailedExitCode ?? null,
     }
   })
+}
+
+function threadActivityLine(status: string): string {
+  switch (status) {
+    case 'running':
+      return 'Working'
+    case 'waiting':
+      return 'Waiting for approval'
+    case 'paused':
+      return 'Paused'
+    default:
+      return 'Idle'
+  }
 }
 
 function buildThreadModels(snapshot: Snapshot) {
@@ -188,16 +187,31 @@ function buildThreadModels(snapshot: Snapshot) {
   const workspaceOrder = workspaceRecordsFromSnapshot(snapshot).map((w) => w.id)
   const orderIndex = new Map(workspaceOrder.map((id, i) => [id, i]))
 
-  const rows = snapshot.persisted.threads.map((thread) => ({
-    id: thread.id,
-    workspaceId: thread.workspaceId,
-    role: thread.title,
-    engine: thread.engine,
-    status: thread.status,
-    paused: thread.status === 'paused',
-    activity: defaultThreadActivity(thread.status),
-    pendingApprovals: pendingThreads.get(thread.id) ?? 0,
-  }))
+  const records = workspaceRecordsFromSnapshot(snapshot)
+  const recordById = new Map(records.map((record) => [record.id, record]))
+  const workspaceModels = buildWorkspaceModels(snapshot)
+  const activityByWs = new Map(
+    workspaceModels.map((row) => [row.id, row.activityText]),
+  )
+
+  const rows = snapshot.persisted.threads.map((thread) => {
+    const record = recordById.get(thread.workspaceId)
+    const provStep = record?.provStep ?? 0
+    const wsActivity = activityByWs.get(thread.workspaceId) ?? 'Idle'
+    return {
+      id: thread.id,
+      workspaceId: thread.workspaceId,
+      role: thread.title,
+      engine: thread.engine,
+      status: thread.status,
+      paused: thread.status === 'paused',
+      activity:
+        thread.status === 'provisioning'
+          ? threadActivityForProvisioning(thread.status, wsActivity, provStep)
+          : threadActivityLine(thread.status),
+      pendingApprovals: pendingThreads.get(thread.id) ?? 0,
+    }
+  })
 
   rows.sort((a, b) => {
     const wa = orderIndex.get(a.workspaceId) ?? 0

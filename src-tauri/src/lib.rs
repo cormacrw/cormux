@@ -12,6 +12,7 @@ mod mcp;
 mod menu;
 mod metrics;
 mod process;
+mod provisioning;
 mod shell_env;
 mod state;
 mod store;

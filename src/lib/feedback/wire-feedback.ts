@@ -67,6 +67,9 @@ export async function bindFeedbackEvents() {
     showToast(
       newThreadToast(workspaceName(detail.workspaceId), detail.workspaceId),
     )
+    void import('$lib/workspace/join-thread').then(({ joinWorkspaceThread }) =>
+      joinWorkspaceThread(detail.workspaceId),
+    )
   }
 
   window.addEventListener('cormux:workspace-app', onWorkspaceApp)
