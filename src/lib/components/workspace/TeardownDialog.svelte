@@ -76,7 +76,7 @@
   })
 </script>
 
-<AlertDialog.Root {open} onOpenChange={onOpenChange}>
+<AlertDialog.Root {open} {onOpenChange}>
   <AlertDialog.Content class="max-w-md sm:max-w-md">
     <AlertDialog.Header>
       <AlertDialog.Title>Teardown & delete worktree?</AlertDialog.Title>
@@ -98,7 +98,9 @@
           disabled={tearingDown}
         />
         <span>
-          Also delete branch <code class="font-mono text-xs">{preview.branch}</code>
+          Also delete branch <code class="font-mono text-xs"
+            >{preview.branch}</code
+          >
         </span>
       </label>
 

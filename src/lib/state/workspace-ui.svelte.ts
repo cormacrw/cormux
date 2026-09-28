@@ -5,6 +5,7 @@ export class WorkspaceUiStore {
   /** Tab before switching to Output (for Ctrl+` toggle). */
   tabBeforeOutput = $state<WorkspacePanelTab>('thread')
   changesOpen = $state(false)
+  selectedDiffPath = $state<string | null>(null)
 
   openTab(tab: WorkspacePanelTab) {
     if (tab === 'output') {

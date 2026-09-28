@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Badge } from '$lib/components/ui/badge'
   import { app, threads, workspaceUi, workspaces } from '$lib/state'
   import { bindWorkspaceDiffSubscription } from '$lib/state/workspace-diff.svelte'
   import RenameWorkspaceDialog from './RenameWorkspaceDialog.svelte'
@@ -11,8 +10,7 @@
   import WorkspaceOutputPanel from './WorkspaceOutputPanel.svelte'
   import ThreadTabBar from './ThreadTabBar.svelte'
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
-  import { bindVisibleThreadStream } from '$lib/workspace/visible-thread-stream'
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
+  import ThreadPanel from './thread/ThreadPanel.svelte'
 
   const workspace = $derived(
     app.workspaceId ? workspaces.getById(app.workspaceId) : undefined,
@@ -27,9 +25,7 @@
 
   let workspaceTitle: HTMLHeadingElement | undefined = $state()
   let renameWorkspaceId = $state<string | null>(null)
-  let threadPanelEl: HTMLElement | undefined = $state()
   let findingsHeading: HTMLHeadingElement | undefined = $state()
-  let liveAgentPreview = $state('')
 
   $effect(() => {
     if (app.focusTarget !== 'workspace') return
@@ -66,23 +62,9 @@
   })
 
   $effect(() => {
-    if (!threadTabActive || !activeThread?.id || isLoadSpike) {
-      liveAgentPreview = ''
-      return
-    }
-    const threadId = activeThread.id
-    return bindVisibleThreadStream(threadId, (chunk) => {
-      liveAgentPreview += chunk.text
-    })
-  })
-
-  $effect(() => {
     void workspaceUi.activeTab
     void app.threadId
     queueMicrotask(() => {
-      if (threadTabActive && threadPanelEl) {
-        threadPanelEl.scrollTop = threadPanelEl.scrollHeight
-      }
       if (findingsTabActive && findingsHeading) {
         findingsHeading.focus({ preventScroll: true })
       }
@@ -160,53 +142,23 @@
 
     <ThreadTabBar {workspace} />
 
-    {#if threadTabActive}
-      <div
-        id="thread-panel"
-        bind:this={threadPanelEl}
-        role="tabpanel"
-        aria-labelledby={threadPanelLabelId}
-        data-od-id="thread-panel"
-        class="grid min-h-0 flex-1 gap-3 overflow-y-auto"
-      >
-        {#if activeThread}
-          <div
-            class="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-sm"
-            aria-live="polite"
-          >
-            <div class="min-w-0">
-              <p class="font-medium">{activeThread.activity}</p>
-              <p class="truncate text-xs text-muted-foreground">
-                {workspace.activityText}
-              </p>
-            </div>
-            {#if activeThread.status === 'provisioning'}
-              <Badge variant="outline" class="shrink-0 gap-1">
-                <LoaderCircle class="size-3 animate-spin" aria-hidden="true" />
-                Live
-              </Badge>
-            {/if}
-          </div>
-        {/if}
-        {#if liveAgentPreview}
-          <pre
-            class="max-h-48 overflow-auto rounded-md border border-border/60 bg-muted/20 p-3 font-mono text-xs whitespace-pre-wrap"
-            >{liveAgentPreview}</pre
-          >
-        {/if}
-        <p class="text-sm text-muted-foreground">
-          {workspaceThreads.length} thread{workspaceThreads.length === 1
-            ? ''
-            : 's'} · conversation UI lands in COR-19
-        </p>
-      </div>
+    {#if threadTabActive && activeThread}
+      <ThreadPanel
+        {workspace}
+        thread={activeThread}
+        panelLabelId={threadPanelLabelId}
+      />
     {:else if findingsTabActive}
       <WorkspaceFindingsPanel
         workspaceId={workspace.id}
         bind:headingRef={findingsHeading}
       />
     {:else if outputTabActive}
-      <div id="output-panel" role="tabpanel" aria-labelledby="thread-tab-output">
+      <div
+        id="output-panel"
+        role="tabpanel"
+        aria-labelledby="thread-tab-output"
+      >
         <WorkspaceOutputPanel workspaceId={workspace.id} {provisioning} />
       </div>
     {/if}

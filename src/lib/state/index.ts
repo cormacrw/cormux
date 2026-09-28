@@ -15,6 +15,7 @@ import { prs } from './prs.svelte'
 import { repos } from './repos.svelte'
 import { settings } from './settings.svelte'
 import { findings } from './findings.svelte'
+import { threadTimeline } from './thread-timeline.svelte'
 import { threads } from './threads.svelte'
 import { workspaceRecords } from './workspace-records.svelte'
 import {
@@ -40,6 +41,7 @@ export { workspaceUi } from './workspace-ui.svelte'
 export { workspaceDiff } from './workspace-diff.svelte'
 export { workspaces } from './workspaces.svelte'
 export { findings } from './findings.svelte'
+export { threadTimeline } from './thread-timeline.svelte'
 
 function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {
   if (
@@ -259,6 +261,36 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   }
   workspaces.hydrate(nextWorkspaces)
   threads.hydrate(threadModels)
+  const findingCountByWorkspace: Record<string, number> = {}
+  for (const row of snapshot.persisted.findings) {
+    findingCountByWorkspace[row.workspaceId] =
+      (findingCountByWorkspace[row.workspaceId] ?? 0) + 1
+  }
+  const threadMeta: Record<
+    string,
+    {
+      status: string
+      paused: boolean
+      role: string
+      workspaceId: string
+    }
+  > = {}
+  for (const thread of threadModels) {
+    threadMeta[thread.id] = {
+      status: thread.status,
+      paused: thread.paused,
+      role: thread.role,
+      workspaceId: thread.workspaceId,
+    }
+  }
+  threadTimeline.hydrate({
+    timeline: snapshot.persisted.timeline,
+    threadIds: threadModels.map((thread) => thread.id),
+    approvals: snapshot.persisted.approvals,
+    settings: snapshot.persisted.settings,
+    threadMeta,
+    findingCountByWorkspace,
+  })
   findings.hydrate(snapshot.persisted.findings)
   repos.hydrate(snapshot.persisted.repos)
   workspaceRecords.hydrate(recordList)

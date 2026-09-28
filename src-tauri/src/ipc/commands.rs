@@ -14,7 +14,7 @@ use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 
 use super::types::{
-    AgentChunk, CreateWorkspaceInput, CreateWorkspaceResult, DiffUpdate, PtyChunk,
+    AgentChunk, AgentEvent, CreateWorkspaceInput, CreateWorkspaceResult, DiffUpdate, PtyChunk,
     RenameWorkspaceInput, RepoBranchesResult, Snapshot, TeardownInput, TeardownPreview,
     WorkspaceSummaryResult,
 };
@@ -119,6 +119,30 @@ pub fn subscribe_agent_chunks(
                     text,
                 });
             }
+        }
+    });
+    Ok(())
+}
+
+/// High-volume ordered stream of normalised agent events for one thread.
+#[tauri::command]
+#[specta::specta]
+pub fn subscribe_agent_events(
+    thread_id: String,
+    channel: Channel<AgentEvent>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let engines = state.engines.clone();
+    tauri::async_runtime::spawn(async move {
+        let rx = loop {
+            match engines.subscribe(&thread_id) {
+                Ok(rx) => break rx,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        };
+        let mut rx = rx;
+        while let Ok(event) = rx.recv().await {
+            let _ = channel.send(event);
         }
     });
     Ok(())

@@ -23,40 +23,50 @@ const sampleThread = {
 describe('thread tab labels', () => {
   it('formats thread aria labels with approvals', () => {
     expect(threadTabAriaLabel(sampleThread)).toBe('Lead, Editing files')
-    expect(
-      threadTabAriaLabel({ ...sampleThread, pendingApprovals: 2 }),
-    ).toBe('Lead, Editing files, 2 approvals waiting')
+    expect(threadTabAriaLabel({ ...sampleThread, pendingApprovals: 2 })).toBe(
+      'Lead, Editing files, 2 approvals waiting',
+    )
   })
 
   it('formats findings and output labels', () => {
     expect(findingsTabAriaLabel(3)).toBe('Review findings, 3 open findings')
-    expect(outputTabAriaLabel({
-      provisioning: false,
-      appStatus: 'running',
-      port: 5173,
-    })).toBe('App output, running on localhost:5173')
-    expect(outputTabState({
-      provisioning: true,
-      appStatus: 'stopped',
-      port: null,
-    })).toBe('setting up')
+    expect(
+      outputTabAriaLabel({
+        provisioning: false,
+        appStatus: 'running',
+        port: 5173,
+      }),
+    ).toBe('App output, running on localhost:5173')
+    expect(
+      outputTabState({
+        provisioning: true,
+        appStatus: 'stopped',
+        port: null,
+      }),
+    ).toBe('setting up')
   })
 })
 
 describe('thread bar order', () => {
   it('includes findings before output when enabled', () => {
     const tabs = buildThreadBarTabOrder([sampleThread], true)
-    expect(tabs.map((tab) => tab.kind)).toEqual(['thread', 'findings', 'output'])
+    expect(tabs.map((tab) => tab.kind)).toEqual([
+      'thread',
+      'findings',
+      'output',
+    ])
   })
 
   it('hides findings tab unless review has findings', () => {
-    expect(
-      showFindingsTab({ workspaceKind: 'review', findingCount: 2 }),
-    ).toBe(true)
-    expect(
-      showFindingsTab({ workspaceKind: 'review', findingCount: 0 }),
-    ).toBe(false)
-    expect(showFindingsTab({ workspaceKind: null, findingCount: 5 })).toBe(false)
+    expect(showFindingsTab({ workspaceKind: 'review', findingCount: 2 })).toBe(
+      true,
+    )
+    expect(showFindingsTab({ workspaceKind: 'review', findingCount: 0 })).toBe(
+      false,
+    )
+    expect(showFindingsTab({ workspaceKind: null, findingCount: 5 })).toBe(
+      false,
+    )
   })
 })
 

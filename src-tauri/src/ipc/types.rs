@@ -156,4 +156,5 @@ pub struct RenameWorkspaceInput {
     pub name: String,
 }
 
+pub use crate::engines::{AgentEvent, MessageRole, PlanStep, ToolCallStatus, ToolKind};
 pub use crate::teardown::{TeardownInput, TeardownPreview};

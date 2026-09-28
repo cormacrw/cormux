@@ -7,7 +7,7 @@ mod manager;
 
 pub use detect::EngineStatus;
 #[allow(unused_imports)]
-pub use events::{AgentEvent, EngineKind, MessageRole, ToolCallStatus, ToolKind};
+pub use events::{AgentEvent, EngineKind, MessageRole, PlanStep, ToolCallStatus, ToolKind};
 #[allow(unused_imports)]
 pub use manager::{EngineRegistry, SpawnSpec, default_acp_argv};
 

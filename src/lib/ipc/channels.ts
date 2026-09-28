@@ -2,6 +2,7 @@ import { Channel } from '@tauri-apps/api/core'
 import {
   commands,
   type AgentChunk,
+  type AgentEvent,
   type DiffUpdate,
   type PtyChunk,
 } from './bindings'
@@ -17,6 +18,15 @@ export async function subscribeAgentChunks(
   const channel = new Channel<AgentChunk>()
   channel.onmessage = onChunk
   return commands.subscribeAgentChunks(threadId, channel)
+}
+
+export async function subscribeAgentEvents(
+  threadId: string,
+  onEvent: (event: AgentEvent) => void,
+) {
+  const channel = new Channel<AgentEvent>()
+  channel.onmessage = onEvent
+  return commands.subscribeAgentEvents(threadId, channel)
 }
 
 export async function subscribePty(

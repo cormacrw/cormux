@@ -13,6 +13,7 @@ pub fn builder() -> Builder {
             commands::fetch_on_focus,
             commands::get_metrics,
             commands::subscribe_agent_chunks,
+            commands::subscribe_agent_events,
             commands::detect_engines,
             commands::resolve_approval,
             commands::subscribe_pty,

@@ -4,12 +4,15 @@
   import { Button } from '$lib/components/ui/button'
   import * as Tooltip from '$lib/components/ui/tooltip'
   import { requestNewThread } from '$lib/command-palette/actions'
-  import { app, findings, threads, workspaceRecords, workspaceUi } from '$lib/state'
-  import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
-    plural,
-    statusDotVariantForThread,
-  } from '$lib/sidebar/status'
+    app,
+    findings,
+    threads,
+    workspaceRecords,
+    workspaceUi,
+  } from '$lib/state'
+  import type { Workspace } from '$lib/state/workspaces.svelte'
+  import { plural, statusDotVariantForThread } from '$lib/sidebar/status'
   import { cn } from '$lib/utils'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
   import {
@@ -181,7 +184,11 @@
         aria-controls="findings-panel"
         tabindex={tabIndex({ kind: 'findings' })}
         aria-label={findingsTabAriaLabel(openFindings)}
-        title="Review findings · {plural(openFindings, 'open finding', 'open findings')}"
+        title="Review findings · {plural(
+          openFindings,
+          'open finding',
+          'open findings',
+        )}"
         data-od-id="thread-tab-findings"
         onclick={() => selectTab({ kind: 'findings' })}
       >
@@ -222,7 +229,12 @@
 
   <span class="min-w-2 flex-1" aria-hidden="true"></span>
 
-  <div id="out-tabs" role="tablist" aria-label="App" class="flex shrink-0 items-end">
+  <div
+    id="out-tabs"
+    role="tablist"
+    aria-label="App"
+    class="flex shrink-0 items-end"
+  >
     <Button
       id="thread-tab-output"
       role="tab"

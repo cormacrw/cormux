@@ -1,0 +1,25 @@
+<script lang="ts">
+  import { renderSanitizedMarkdown } from '$lib/thread/sanitize-markdown'
+  import { openUrl } from '@tauri-apps/plugin-opener'
+
+  let { text }: { text: string } = $props()
+
+  const html = $derived(renderSanitizedMarkdown(text))
+
+  function handleClick(event: MouseEvent) {
+    const target = event.target
+    if (!(target instanceof HTMLAnchorElement)) return
+    const href = target.getAttribute('href')
+    if (!href || href.startsWith('#')) return
+    event.preventDefault()
+    void openUrl(href)
+  }
+</script>
+
+<div
+  class="prose prose-sm dark:prose-invert max-w-none [&_a]:text-primary [&_code]:rounded [&_code]:bg-muted [&_code]:px-1"
+  onclick={handleClick}
+  role="presentation"
+>
+  {@html html}
+</div>

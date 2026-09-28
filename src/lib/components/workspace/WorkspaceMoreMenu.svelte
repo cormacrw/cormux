@@ -167,7 +167,9 @@
             <RotateCw class="size-4" aria-hidden="true" />
             Restart app
           </DropdownMenu.Item>
-          <DropdownMenu.Item onclick={() => runWorkspaceApp(workspaceId, 'stop')}>
+          <DropdownMenu.Item
+            onclick={() => runWorkspaceApp(workspaceId, 'stop')}
+          >
             <Square class="size-4" aria-hidden="true" />
             Stop app
           </DropdownMenu.Item>
@@ -206,7 +208,9 @@
       <GitBranch class="size-4" aria-hidden="true" />
     </DropdownItemTooltip>
 
-    <DropdownMenu.Item onclick={() => closeAndRun(() => requestNewThread(workspaceId))}>
+    <DropdownMenu.Item
+      onclick={() => closeAndRun(() => requestNewThread(workspaceId))}
+    >
       <Plus class="size-4" aria-hidden="true" />
       New thread
     </DropdownMenu.Item>
@@ -215,8 +219,7 @@
 
     <DropdownMenu.Item
       disabled={!worktreePath}
-      onclick={() =>
-        closeAndRun(() => void openWorktreeInEditor(worktreePath))}
+      onclick={() => closeAndRun(() => void openWorktreeInEditor(worktreePath))}
     >
       <ExternalLink class="size-4" aria-hidden="true" />
       Open in editor

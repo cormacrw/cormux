@@ -46,7 +46,7 @@
 </script>
 
 <Dialog.Root
-  open={open}
+  {open}
   onOpenChange={(next) => {
     if (!next) close()
   }}

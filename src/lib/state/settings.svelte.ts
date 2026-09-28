@@ -9,6 +9,7 @@ export class SettingsStore {
   autoApproveReadOnly = $state(true)
   defaultEngine = $state<EngineKind>('claude')
   defaultBase = $state('main')
+  rows = $state<SettingRow[]>([])
   /** When set, Settings view scrolls/focuses this section (palette deep links). */
   focusSection = $state<string | null>(null)
 
@@ -22,6 +23,7 @@ export class SettingsStore {
     if (settings.autoApproveReadOnly !== undefined) {
       this.autoApproveReadOnly = settings.autoApproveReadOnly
     }
+    this.rows = rows
     if (rows.length > 0) {
       this.defaultEngine = readDefaultEngine(rows)
       this.defaultBase = readDefaultBase(rows)

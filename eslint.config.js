@@ -30,6 +30,12 @@ export default ts.config(
     },
   },
   {
+    files: ['src/lib/components/workspace/thread/ThoughtMarkdown.svelte'],
+    rules: {
+      'svelte/no-at-html-tags': 'off',
+    },
+  },
+  {
     ignores: [
       'dist/**',
       'src-tauri/**',

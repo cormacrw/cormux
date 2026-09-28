@@ -58,89 +58,89 @@
 </script>
 
 <InputGroup.Root
-    role="group"
-    aria-label="App"
-    data-od-id="ws-run-controls"
-    class="w-auto shrink-0"
-  >
+  role="group"
+  aria-label="App"
+  data-od-id="ws-run-controls"
+  class="w-auto shrink-0"
+>
+  <Tooltip.Root>
+    <Tooltip.Trigger>
+      {#snippet child({ props })}
+        <InputGroup.Button
+          {...props}
+          variant={outputPressed ? 'secondary' : 'ghost'}
+          aria-pressed={outputPressed}
+          aria-controls="output-panel"
+          aria-label="Output, {outputAria}"
+          data-ws-focus="output-toggle"
+          data-od-id="ws-output-toggle"
+          class="gap-1.5 px-2.5 font-normal"
+          onclick={toggleOutput}
+        >
+          {#if appStatus === 'running'}
+            <span
+              class="size-2 shrink-0 rounded-full bg-emerald-500"
+              aria-hidden="true"
+            ></span>
+            <span class="font-mono text-xs">{outputLabel}</span>
+          {:else if appStatus === 'starting'}
+            <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />
+            <span class="text-xs">{outputLabel}</span>
+          {:else}
+            <Terminal class="size-3.5" aria-hidden="true" />
+            <span class="text-xs">{outputLabel}</span>
+          {/if}
+        </InputGroup.Button>
+      {/snippet}
+    </Tooltip.Trigger>
+    <Tooltip.Content>
+      {outputPressed ? 'Back to thread' : 'Show output'} (⌃`)
+    </Tooltip.Content>
+  </Tooltip.Root>
+
+  {#if appStatus === 'stopped'}
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
           <InputGroup.Button
             {...props}
-            variant={outputPressed ? 'secondary' : 'ghost'}
-            aria-pressed={outputPressed}
-            aria-controls="output-panel"
-            aria-label="Output, {outputAria}"
-            data-ws-focus="output-toggle"
-            data-od-id="ws-output-toggle"
-            class="gap-1.5 px-2.5 font-normal"
-            onclick={toggleOutput}
+            disabled={runDisabled}
+            aria-label="Run app"
+            data-ws-focus="run"
+            data-od-id="ws-run"
+            class="gap-1 px-2.5"
+            onclick={() => run('run')}
           >
-            {#if appStatus === 'running'}
-              <span
-                class="size-2 shrink-0 rounded-full bg-emerald-500"
-                aria-hidden="true"
-              ></span>
-              <span class="font-mono text-xs">{outputLabel}</span>
-            {:else if appStatus === 'starting'}
-              <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />
-              <span class="text-xs">{outputLabel}</span>
-            {:else}
-              <Terminal class="size-3.5" aria-hidden="true" />
-              <span class="text-xs">{outputLabel}</span>
-            {/if}
+            <Play class="size-3.5" aria-hidden="true" />
+            <span class="text-xs">Run</span>
           </InputGroup.Button>
         {/snippet}
       </Tooltip.Trigger>
-      <Tooltip.Content>
-        {outputPressed ? 'Back to thread' : 'Show output'} (⌃`)
-      </Tooltip.Content>
+      {#if runDisabled}
+        <Tooltip.Content>{runTitle}</Tooltip.Content>
+      {:else}
+        <Tooltip.Content>{runTitle}</Tooltip.Content>
+      {/if}
     </Tooltip.Root>
-
-    {#if appStatus === 'stopped'}
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <InputGroup.Button
-              {...props}
-              disabled={runDisabled}
-              aria-label="Run app"
-              data-ws-focus="run"
-              data-od-id="ws-run"
-              class="gap-1 px-2.5"
-              onclick={() => run('run')}
-            >
-              <Play class="size-3.5" aria-hidden="true" />
-              <span class="text-xs">Run</span>
-            </InputGroup.Button>
-          {/snippet}
-        </Tooltip.Trigger>
-        {#if runDisabled}
-          <Tooltip.Content>{runTitle}</Tooltip.Content>
-        {:else}
-          <Tooltip.Content>{runTitle}</Tooltip.Content>
-        {/if}
-      </Tooltip.Root>
-    {:else}
-      <InputGroup.Button
-        variant="ghost"
-        aria-label="Restart app"
-        disabled={appStatus === 'starting'}
-        data-ws-focus="restart"
-        data-od-id="ws-restart"
-        onclick={() => run('restart')}
-      >
-        <RotateCw class="size-3.5" aria-hidden="true" />
-      </InputGroup.Button>
-      <InputGroup.Button
-        variant="ghost"
-        aria-label="Stop app"
-        data-ws-focus="stop"
-        data-od-id="ws-stop"
-        onclick={() => run('stop')}
-      >
-        <Square class="size-3.5" aria-hidden="true" />
-      </InputGroup.Button>
-    {/if}
-  </InputGroup.Root>
+  {:else}
+    <InputGroup.Button
+      variant="ghost"
+      aria-label="Restart app"
+      disabled={appStatus === 'starting'}
+      data-ws-focus="restart"
+      data-od-id="ws-restart"
+      onclick={() => run('restart')}
+    >
+      <RotateCw class="size-3.5" aria-hidden="true" />
+    </InputGroup.Button>
+    <InputGroup.Button
+      variant="ghost"
+      aria-label="Stop app"
+      data-ws-focus="stop"
+      data-od-id="ws-stop"
+      onclick={() => run('stop')}
+    >
+      <Square class="size-3.5" aria-hidden="true" />
+    </InputGroup.Button>
+  {/if}
+</InputGroup.Root>

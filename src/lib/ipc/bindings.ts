@@ -49,6 +49,17 @@ async subscribeAgentChunks(threadId: string, channel: TAURI_CHANNEL<AgentChunk>)
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * High-volume ordered stream of normalised agent events for one thread.
+ */
+async subscribeAgentEvents(threadId: string, channel: TAURI_CHANNEL<AgentEvent>) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("subscribe_agent_events", { threadId, channel }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async detectEngines() : Promise<Result<EngineStatus[], Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("detect_engines") };
@@ -219,6 +230,10 @@ workspaceStatusChanged: "workspace-status-changed"
 /** user-defined types **/
 
 export type AgentChunk = { threadId: string; text: string }
+/**
+ * One internal event every adapter translates into (COR-56).
+ */
+export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
 export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
@@ -240,7 +255,9 @@ export type FindingRow = { id: string; workspaceId: string; severity: string; ti
 export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; engine: string }
 export type JoinWorkspaceThreadResult = { threadId: string }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
+export type MessageRole = "user" | "agent" | "thought"
 export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
+export type PlanStep = { content: string; status: string }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PtyChunk = { workspaceId: string; line: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
@@ -275,6 +292,11 @@ export type ToastPart = { type: "text"; value: string } | { type: "code"; value:
 export type ToastRaised = { payload: ToastRaisedPayload }
 export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null }
 export type ToastTone = "ok" | "bad" | "default"
+export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
+/**
+ * ACP `ToolKind`, owned so adapters and IPC do not depend on the protocol crate.
+ */
+export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other"
 /**
  * Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
  * describe activity after provisioning.

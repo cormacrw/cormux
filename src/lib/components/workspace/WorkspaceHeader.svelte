@@ -36,9 +36,7 @@
   let narrow = $state(false)
 
   const record = $derived(workspaceRecords.getRecord(workspace.id))
-  const repo = $derived(
-    record ? repos.getById(record.repoId) : undefined,
-  )
+  const repo = $derived(record ? repos.getById(record.repoId) : undefined)
   const runtime = $derived(workspaceRecords.runtime(workspace.id))
   const wsThreads = $derived(threads.forWorkspace(workspace.id))
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))

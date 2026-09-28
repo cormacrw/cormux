@@ -10,9 +10,7 @@
   } = $props()
 
   const rows = $derived(findings.forWorkspace(workspaceId))
-  const openCount = $derived(
-    rows.filter((row) => row.status === 'open').length,
-  )
+  const openCount = $derived(rows.filter((row) => row.status === 'open').length)
 </script>
 
 <div
@@ -45,7 +43,9 @@
           data-od-id="finding-{row.id}"
         >
           <p class="font-medium">{row.title}</p>
-          <p class="text-xs text-muted-foreground">{row.severity} · {row.status}</p>
+          <p class="text-xs text-muted-foreground">
+            {row.severity} · {row.status}
+          </p>
         </li>
       {/each}
     </ul>

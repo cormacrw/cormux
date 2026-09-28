@@ -24,9 +24,7 @@
     provisioning: boolean
   } = $props()
 
-  const locked = $derived(
-    provisioning || branchPickerLocked(threads),
-  )
+  const locked = $derived(provisioning || branchPickerLocked(threads))
   const branchInfo = $derived(
     `Branched from ${base}${behind > 0 ? `, ${behind} commit${behind === 1 ? '' : 's'} behind` : ''}.`,
   )
@@ -36,7 +34,6 @@
       ? `${branchInfo} ${lockHint}`
       : `${branchInfo} Click to switch branch.`,
   )
-
 </script>
 
 <Tooltip.Root>
@@ -60,7 +57,10 @@
         <span class="sr-only">Branch</span>
         <span class="truncate">{branch}</span>
         {#if !locked}
-          <ChevronDown class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
+          <ChevronDown
+            class="size-3.5 shrink-0 opacity-70"
+            aria-hidden="true"
+          />
         {:else if runningAgentCount(threads) > 0}
           <span class="sr-only">, locked while agents are running</span>
         {/if}

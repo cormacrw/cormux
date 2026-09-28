@@ -1,6 +1,9 @@
 import type { DiffFile } from '$lib/ipc/bindings'
 import { subscribeDiffs } from '$lib/ipc'
-import { totalsFromDiffFiles, type DiffLineTotals } from '$lib/workspace/diff-totals'
+import {
+  totalsFromDiffFiles,
+  type DiffLineTotals,
+} from '$lib/workspace/diff-totals'
 
 const emptyTotals = (): DiffLineTotals => ({ added: 0, deleted: 0 })
 

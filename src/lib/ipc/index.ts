@@ -5,6 +5,11 @@ export {
   commands,
   events,
   type AgentChunk,
+  type AgentEvent,
+  type MessageRole,
+  type PlanStep,
+  type ToolCallStatus,
+  type ToolKind,
   type AppView,
   type DiffUpdate,
   type Error as CoreError,
@@ -19,6 +24,7 @@ export {
 
 export {
   subscribeAgentChunks,
+  subscribeAgentEvents,
   subscribeDiffs,
   subscribePty,
   startStreamingSpike,
