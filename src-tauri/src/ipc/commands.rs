@@ -9,7 +9,7 @@ use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
 
-use super::types::{AgentChunk, DiffUpdate, PtyChunk, Snapshot};
+use super::types::{AgentChunk, DiffUpdate, PtyChunk, Snapshot, WorkspaceSummaryResult};
 
 #[tauri::command]
 #[specta::specta]
@@ -170,6 +170,72 @@ pub fn subscribe_diffs(
         }
     });
     Ok(())
+}
+
+/// Generate or return a cached workspace card summary (debounced LLM + local fallback).
+#[tauri::command]
+#[specta::specta]
+pub async fn summarise_workspace(
+    workspace_id: String,
+    state: State<'_, AppState>,
+) -> Result<WorkspaceSummaryResult> {
+    use crate::error::Error;
+    use crate::summaries::{self, SUMMARY_MODEL_LABEL};
+
+    let snapshot = state.store.snapshot()?;
+    let workspace = snapshot
+        .workspaces
+        .iter()
+        .find(|row| row.id == workspace_id)
+        .cloned()
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+
+    if let (Some(summary), Some(at)) = (&workspace.summary, &workspace.summary_at) {
+        if !summary.is_empty() {
+            return Ok(WorkspaceSummaryResult {
+                workspace_id,
+                summary: summary.clone(),
+                summary_at: at.clone(),
+                summary_source: workspace.summary_source.clone(),
+                from_llm: true,
+            });
+        }
+    }
+
+    let threads: Vec<_> = snapshot
+        .threads
+        .iter()
+        .filter(|thread| thread.workspace_id == workspace_id)
+        .cloned()
+        .collect();
+
+    let prompt = summaries::build_summary_prompt(&workspace, &threads);
+    let (summary, from_llm) = match state.llm.summarise(&workspace_id, &prompt).await {
+        Ok(Some(result)) if !result.text.is_empty() => (result.text, true),
+        _ => (
+            summaries::fallback_summary(&workspace, &threads),
+            false,
+        ),
+    };
+
+    state
+        .store
+        .set_workspace_summary(&workspace_id, &summary, SUMMARY_MODEL_LABEL)?;
+
+    let updated = state
+        .store
+        .workspace_by_id(&workspace_id)?
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+
+    Ok(WorkspaceSummaryResult {
+        workspace_id,
+        summary,
+        summary_at: updated
+            .summary_at
+            .unwrap_or_else(|| "now".into()),
+        summary_source: updated.summary_source,
+        from_llm,
+    })
 }
 
 /// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.

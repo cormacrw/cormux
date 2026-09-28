@@ -1,8 +1,14 @@
 import type { Snapshot, StateChanged } from '$lib/ipc'
 import { onSnapshotSupervision } from '$lib/feedback/supervision'
-import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
+import { parseTimestampMs } from '$lib/homebase/relative-time'
+import type {
+  WorkspaceLifecycle,
+  WorkspaceRecord,
+  WorkspaceRow,
+} from '$lib/ipc/bindings'
 import { commands, fetchSnapshot } from '$lib/ipc'
 import { app } from './app.svelte'
+import { homebaseUi } from './homebase-ui.svelte'
 import { memory } from './memory.svelte'
 import { prs } from './prs.svelte'
 import { repos } from './repos.svelte'
@@ -23,6 +29,7 @@ export { settings } from './settings.svelte'
 export { shellDialogs } from './shell-dialogs.svelte'
 export { threads } from './threads.svelte'
 export { workspaceRecords } from './workspace-records.svelte'
+export { homebaseUi } from './homebase-ui.svelte'
 export { workspaceUi } from './workspace-ui.svelte'
 export { workspaces } from './workspaces.svelte'
 
@@ -75,6 +82,44 @@ function pendingByThread(approvals: Snapshot['persisted']['approvals']) {
   return map
 }
 
+const LIFECYCLE_VALUES: WorkspaceLifecycle[] = [
+  'creating',
+  'provisioning',
+  'ready',
+  'running',
+  'idle',
+  'waiting',
+  'tearingDown',
+  'gone',
+  'provisioningFailed',
+]
+
+function parseLifecycle(raw: string): WorkspaceLifecycle {
+  if (LIFECYCLE_VALUES.includes(raw as WorkspaceLifecycle)) {
+    return raw as WorkspaceLifecycle
+  }
+  return 'ready'
+}
+
+function workspaceRecordsFromSnapshot(snapshot: Snapshot): WorkspaceRecord[] {
+  if (snapshot.workspaces.length > 0) return snapshot.workspaces
+  return snapshot.persisted.workspaces.map((row) => ({
+    id: row.id,
+    repoId: row.repoId,
+    repoPath: '',
+    name: row.name,
+    branch: row.branch,
+    base: 'main',
+    worktreePath: row.worktreePath,
+    status: parseLifecycle(row.status),
+    version: 0,
+  }))
+}
+
+function persistedById(snapshot: Snapshot): Map<string, WorkspaceRow> {
+  return new Map(snapshot.persisted.workspaces.map((row) => [row.id, row]))
+}
+
 function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
   const pendingByWs = new Map<string, number>()
   const pendingThreads = pendingByThread(snapshot.persisted.approvals)
@@ -95,7 +140,11 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
     threadsByWs.set(thread.workspaceId, list)
   }
 
-  return snapshot.workspaces.map((workspace) => {
+  const rows = persistedById(snapshot)
+  const records = workspaceRecordsFromSnapshot(snapshot)
+
+  return records.map((workspace) => {
+    const persisted = rows.get(workspace.id)
     const wsThreads = threadsByWs.get(workspace.id) ?? []
     const runningLike = wsThreads.filter(
       (t) =>
@@ -108,21 +157,31 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
       runningLike.length > 0 &&
       runningLike.every((t) => t.status === 'paused')
 
+    const kind = persisted?.kind === 'review' ? ('review' as const) : null
+
     return {
       id: workspace.id,
       name: workspace.name,
+      branch: workspace.branch,
       lifecycle: workspace.status,
       paused,
       activityText: workspaceActivityText(workspace.status),
       pendingApprovals: pendingByWs.get(workspace.id) ?? 0,
       cardStatus: mapCardStatus(workspace.status),
+      createdAtMs: parseTimestampMs(persisted?.createdAt),
+      summary: persisted?.summary ?? null,
+      summaryAtMs: parseTimestampMs(persisted?.summaryAt ?? null),
+      summarySource: persisted?.summarySource ?? 'Haiku 4.5',
+      kind,
+      prNumber: persisted?.prNumber ?? null,
+      modifiedFiles: persisted?.modifiedFiles ?? 0,
     }
   })
 }
 
 function buildThreadModels(snapshot: Snapshot) {
   const pendingThreads = pendingByThread(snapshot.persisted.approvals)
-  const workspaceOrder = snapshot.workspaces.map((w) => w.id)
+  const workspaceOrder = workspaceRecordsFromSnapshot(snapshot).map((w) => w.id)
   const orderIndex = new Map(workspaceOrder.map((id, i) => [id, i]))
 
   const rows = snapshot.persisted.threads.map((thread) => ({
@@ -157,10 +216,21 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
       (row) => row.key !== 'autoApproveReadOnly' || row.value === 'true',
     ),
   })
-  workspaces.hydrate(buildWorkspaceModels(snapshot))
+  const prevIds = new Set(workspaces.items.map((item) => item.id))
+  const recordList = workspaceRecordsFromSnapshot(snapshot)
+  const nextWorkspaces = buildWorkspaceModels(snapshot)
+  if (nextWorkspaces.some((item) => !prevIds.has(item.id))) {
+    homebaseUi.resetFilter()
+  }
+  for (const item of workspaces.items) {
+    if (!nextWorkspaces.some((row) => row.id === item.id)) {
+      homebaseUi.beginCardExit(item)
+    }
+  }
+  workspaces.hydrate(nextWorkspaces)
   threads.hydrate(threadModels)
   repos.hydrate(snapshot.persisted.repos)
-  workspaceRecords.hydrate(snapshot.workspaces)
+  workspaceRecords.hydrate(recordList)
   app.hydrate(snapshot)
   memory.hydrate(snapshot.memory)
   prs.hydrate(

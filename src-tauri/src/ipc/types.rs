@@ -97,3 +97,13 @@ pub struct BehindCountsPayload {
     pub version: u64,
     pub updates: Vec<BehindUpdate>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSummaryResult {
+    pub workspace_id: String,
+    pub summary: String,
+    pub summary_at: String,
+    pub summary_source: String,
+    pub from_llm: bool,
+}

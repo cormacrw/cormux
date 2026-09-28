@@ -97,6 +97,17 @@ async startStreamingSpike(agent: TAURI_CHANNEL<AgentChunk>, pty: TAURI_CHANNEL<P
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Generate or return a cached workspace card summary (debounced LLM + local fallback).
+ */
+async summariseWorkspace(workspaceId: string) : Promise<Result<WorkspaceSummaryResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("summarise_workspace", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -166,8 +177,9 @@ export type ToastTone = "ok" | "bad" | "default"
 export type WorkspaceLifecycle = "creating" | "provisioning" | "ready" | "running" | "idle" | "waiting" | "tearingDown" | "gone" | "provisioningFailed"
 export type WorkspaceMemory = { workspaceId: string; bytes: number }
 export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number }
-export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string }
+export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; modifiedFiles: number }
 export type WorkspaceStatusChanged = { version: number; workspaceId: string; status: WorkspaceLifecycle }
+export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
 export type WorktreeDiff = { workspaceId: string; files: DiffFile[] }
 
 /** tauri-specta globals **/

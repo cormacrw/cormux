@@ -1,7 +1,18 @@
 <script lang="ts">
-  import { workspaces, app } from '$lib/state'
+  import { Button } from '$lib/components/ui/button'
+  import * as Empty from '$lib/components/ui/empty'
+  import * as ToggleGroup from '$lib/components/ui/toggle-group'
+  import {
+    homebaseFilterCounts,
+    matchesHomebaseFilter,
+  } from '$lib/homebase/filter'
+  import { app, homebaseUi, workspaces } from '$lib/state'
+  import Plus from '@lucide/svelte/icons/plus'
+  import OpenPrsSection from './OpenPrsSection.svelte'
+  import WorkspaceCard from './WorkspaceCard.svelte'
 
   let homeTitle: HTMLHeadingElement | undefined = $state()
+  let nowMs = $state(Date.now())
 
   $effect(() => {
     if (app.focusTarget !== 'homebase') return
@@ -9,31 +20,163 @@
     homeTitle?.focus()
   })
 
-  function openLoadSpike() {
-    app.openWorkspace('spike-load')
-  }
+  $effect(() => {
+    if (app.view !== 'homebase') return
+    void homebaseUi.ageTick
+    nowMs = Date.now()
+    const id = window.setInterval(() => {
+      homebaseUi.bumpAgeTick()
+      nowMs = Date.now()
+    }, 60_000)
+    return () => window.clearInterval(id)
+  })
+
+  const filterCounts = $derived(
+    homebaseFilterCounts(workspaces.items.map((item) => item.lifecycle)),
+  )
+
+  const visibleWorkspaces = $derived(
+    workspaces.items.filter((item) =>
+      matchesHomebaseFilter(item.lifecycle, homebaseUi.filter),
+    ),
+  )
+
+  const exitingCards = $derived(homebaseUi.exitingCards)
 </script>
 
-<section class="flex flex-1 flex-col gap-4 p-6">
-  <header>
-    <h1
-      bind:this={homeTitle}
-      tabindex="-1"
-      class="text-xl font-semibold tracking-tight outline-none"
+<div class="view-home flex min-h-0 flex-1 flex-col overflow-y-auto">
+  <div class="mx-auto flex w-full max-w-[1200px] flex-col gap-10 p-6">
+    <header
+      class="flex flex-wrap items-center justify-between gap-4"
+      aria-labelledby="home-title"
     >
-      Homebase
-    </h1>
-    <p class="text-sm text-muted-foreground">
-      {workspaces.workingCount} working · {workspaces.needsAttentionCount} need attention
-    </p>
-  </header>
-  {#if workspaces.items.length === 0}
-    <p class="text-sm text-muted-foreground">No workspaces yet.</p>
-  {/if}
-  <button
-    class="w-fit rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
-    onclick={openLoadSpike}
-  >
-    Streaming load spike
-  </button>
-</section>
+      <h1
+        bind:this={homeTitle}
+        id="home-title"
+        tabindex="-1"
+        data-od-id="home-title"
+        class="text-2xl font-semibold tracking-tight outline-none"
+      >
+        Homebase
+      </h1>
+      <Button
+        variant="default"
+        size="lg"
+        class="gap-2"
+        onclick={() => app.requestNewWorkspace()}
+      >
+        <Plus class="size-4" aria-hidden="true" />
+        New Workspace
+        <kbd class="font-mono text-[10px] opacity-80" aria-hidden="true">⌘N</kbd
+        >
+      </Button>
+    </header>
+
+    <section class="grid gap-4" aria-labelledby="ws-section-title">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="ws-section-title" class="text-sm font-medium tracking-tight">
+          Workspaces
+          <span class="font-mono text-muted-foreground"
+            >{workspaces.items.length}</span
+          >
+        </h2>
+        <ToggleGroup.Root
+          type="single"
+          bind:value={homebaseUi.filter}
+          variant="outline"
+          size="sm"
+          role="group"
+          aria-label="Filter workspaces"
+          class="data-[spacing=0]:rounded-lg"
+        >
+          <ToggleGroup.Item
+            value="all"
+            aria-pressed={homebaseUi.filter === 'all'}
+          >
+            All {filterCounts.all}
+          </ToggleGroup.Item>
+          <ToggleGroup.Item
+            value="running"
+            aria-pressed={homebaseUi.filter === 'running'}
+          >
+            Running {filterCounts.running}
+          </ToggleGroup.Item>
+          <ToggleGroup.Item
+            value="idle"
+            aria-pressed={homebaseUi.filter === 'idle'}
+          >
+            Idle {filterCounts.idle}
+          </ToggleGroup.Item>
+        </ToggleGroup.Root>
+      </div>
+
+      {#if workspaces.items.length === 0}
+        <Empty.Root class="border border-dashed border-border/80">
+          <Empty.Header>
+            <Empty.Title>No workspaces running</Empty.Title>
+            <Empty.Description>
+              Create one to hand a task to an agent in its own worktree.
+              Homebase stays untouched until you merge.
+            </Empty.Description>
+          </Empty.Header>
+          <Empty.Content>
+            <Button
+              variant="secondary"
+              onclick={() => app.requestNewWorkspace()}
+            >
+              Create a workspace
+            </Button>
+          </Empty.Content>
+        </Empty.Root>
+      {:else if visibleWorkspaces.length === 0 && exitingCards.length === 0}
+        <Empty.Root class="border border-dashed border-border/80">
+          <Empty.Header>
+            <Empty.Title>Nothing in this filter</Empty.Title>
+            <Empty.Description>
+              Switch the filter to see your other workspaces.
+            </Empty.Description>
+          </Empty.Header>
+          <Empty.Content>
+            <Button
+              variant="secondary"
+              onclick={() => homebaseUi.resetFilter()}
+            >
+              Show all
+            </Button>
+          </Empty.Content>
+        </Empty.Root>
+      {:else}
+        <div
+          class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr))]"
+        >
+          {#each visibleWorkspaces as workspace (workspace.id)}
+            <WorkspaceCard
+              {workspace}
+              {nowMs}
+              entering={!homebaseUi.seenCardIds.includes(workspace.id)}
+              exiting={false}
+              onExitComplete={() => {}}
+            />
+          {/each}
+          {#each exitingCards as workspace (workspace.id)}
+            <WorkspaceCard
+              {workspace}
+              {nowMs}
+              entering={false}
+              exiting={true}
+              onExitComplete={() => homebaseUi.finishCardExit(workspace.id)}
+            />
+          {/each}
+        </div>
+      {/if}
+    </section>
+
+    <OpenPrsSection />
+  </div>
+</div>
+
+<style>
+  :global(.zoom-out-98) {
+    transform: scale(0.98);
+  }
+</style>

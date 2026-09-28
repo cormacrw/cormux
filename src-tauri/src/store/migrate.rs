@@ -19,6 +19,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "002_sessions_findings_usage",
         sql: include_str!("../../migrations/002_sessions_findings_usage.sql"),
     },
+    Migration {
+        version: 3,
+        name: "003_workspace_card_fields",
+        sql: include_str!("../../migrations/003_workspace_card_fields.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -86,7 +91,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
 
         for expected in [
             "approvals",

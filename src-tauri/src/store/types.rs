@@ -28,6 +28,13 @@ pub struct WorkspaceRow {
     pub branch: String,
     pub worktree_path: String,
     pub status: String,
+    pub created_at: String,
+    pub summary: Option<String>,
+    pub summary_at: Option<String>,
+    pub summary_source: String,
+    pub kind: Option<String>,
+    pub pr_number: Option<i64>,
+    pub modified_files: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

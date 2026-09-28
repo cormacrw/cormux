@@ -1,14 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { workspaceCardMetaText } from './card-status'
+import { workspaceCardBadgeKind, workspaceCardMetaText } from './card-status'
 
 const baseWorkspace = {
   id: 'ws',
   name: 'Auth',
+  branch: 'feat/auth',
   lifecycle: 'idle' as const,
   paused: false,
   activityText: 'Idle',
   pendingApprovals: 0,
   cardStatus: 'idle' as const,
+  createdAtMs: null,
+  summary: null,
+  summaryAtMs: null,
+  summarySource: 'Haiku 4.5',
+  kind: null,
+  prNumber: null,
+  modifiedFiles: 0,
 }
 
 describe('workspaceCardMetaText', () => {
@@ -56,5 +64,22 @@ describe('workspaceCardMetaText', () => {
 
   it('returns Idle when nothing active', () => {
     expect(workspaceCardMetaText(baseWorkspace, [])).toBe('Idle')
+  })
+
+  it('prioritizes needs attention over working', () => {
+    expect(
+      workspaceCardBadgeKind(baseWorkspace, [
+        {
+          id: 't',
+          workspaceId: 'ws',
+          role: 'Lead',
+          engine: 'claude',
+          status: 'running',
+          paused: false,
+          activity: 'Working',
+          pendingApprovals: 1,
+        },
+      ]),
+    ).toBe('needsAttention')
   })
 })

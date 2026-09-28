@@ -1,4 +1,5 @@
 import type { AppView, Snapshot } from '$lib/ipc'
+import { homebaseUi } from './homebase-ui.svelte'
 import { workspaces } from './workspaces.svelte'
 import { threads } from './threads.svelte'
 import { resolveWindowTitle, type ViewId } from './window-title'
@@ -73,6 +74,10 @@ export class AppStore {
   }
 
   openWorkspace(workspaceId: string, threadId?: string) {
+    const workspace = workspaces.getById(workspaceId)
+    if (workspace?.kind === 'review') {
+      homebaseUi.resetFilter()
+    }
     this.view = 'workspace'
     this.workspaceId = workspaceId
     const list = threads.forWorkspace(workspaceId)

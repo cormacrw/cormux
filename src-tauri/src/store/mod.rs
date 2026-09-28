@@ -103,8 +103,11 @@ impl Store {
     pub fn upsert_workspace(&self, workspace: &WorkspaceRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "INSERT INTO workspaces (
+                    id, repo_id, name, branch, worktree_path, status,
+                    summary, summary_at, summary_source, kind, pr_number, modified_files
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(id) DO UPDATE SET name = excluded.name, branch = excluded.branch,
                     worktree_path = excluded.worktree_path, status = excluded.status",
                 rusqlite::params![
@@ -113,10 +116,50 @@ impl Store {
                     workspace.name,
                     workspace.branch,
                     workspace.worktree_path,
-                    workspace.status
+                    workspace.status,
+                    workspace.summary,
+                    workspace.summary_at,
+                    workspace.summary_source,
+                    workspace.kind,
+                    workspace.pr_number,
+                    workspace.modified_files,
                 ],
             )?;
             Ok(())
+        })
+    }
+
+    pub fn set_workspace_summary(
+        &self,
+        workspace_id: &str,
+        summary: &str,
+        source: &str,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET summary = ?1, summary_at = datetime('now'), summary_source = ?2
+                 WHERE id = ?3",
+                rusqlite::params![summary, source, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn workspace_by_id(&self, workspace_id: &str) -> Result<Option<WorkspaceRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
+                        summary, summary_at, summary_source, kind, pr_number, modified_files
+                 FROM workspaces WHERE id = ?1",
+            )?;
+            let mut rows = stmt.query([workspace_id])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(row_to_workspace(&row).map_err(|error| {
+                    Error::Store(error.to_string())
+                })?))
+            } else {
+                Ok(None)
+            }
         })
     }
 
@@ -327,17 +370,10 @@ impl Store {
                 )?,
                 workspaces: query_all(
                     conn,
-                    "SELECT id, repo_id, name, branch, worktree_path, status FROM workspaces",
-                    |row| {
-                        Ok(WorkspaceRow {
-                            id: row.get(0)?,
-                            repo_id: row.get(1)?,
-                            name: row.get(2)?,
-                            branch: row.get(3)?,
-                            worktree_path: row.get(4)?,
-                            status: row.get(5)?,
-                        })
-                    },
+                    "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
+                            summary, summary_at, summary_source, kind, pr_number, modified_files
+                     FROM workspaces",
+                    |row| Ok(row_to_workspace(row)?),
                 )?,
                 threads: query_all(
                     conn,
@@ -419,6 +455,24 @@ impl Store {
     }
 }
 
+fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
+    Ok(WorkspaceRow {
+        id: row.get(0)?,
+        repo_id: row.get(1)?,
+        name: row.get(2)?,
+        branch: row.get(3)?,
+        worktree_path: row.get(4)?,
+        status: row.get(5)?,
+        created_at: row.get(6)?,
+        summary: row.get(7)?,
+        summary_at: row.get(8)?,
+        summary_source: row.get(9)?,
+        kind: row.get(10)?,
+        pr_number: row.get(11)?,
+        modified_files: row.get(12)?,
+    })
+}
+
 fn query_all<T>(
     conn: &Connection,
     sql: &str,
@@ -466,6 +520,13 @@ mod tests {
                 branch: "feat".into(),
                 worktree_path: "/tmp/wt".into(),
                 status: "ready".into(),
+                created_at: String::new(),
+                summary: None,
+                summary_at: None,
+                summary_source: "Haiku 4.5".into(),
+                kind: None,
+                pr_number: None,
+                modified_files: 0,
             })
             .unwrap();
         store
@@ -526,5 +587,12 @@ mod tests {
         assert_eq!(snap.approvals[0].tool, "edit");
         assert_eq!(snap.findings[0].title, "Leak");
         assert_eq!(snap.pull_requests[0].number, 12);
+
+        store
+            .set_workspace_summary("w1", "Working on login.", "Haiku 4.5")
+            .unwrap();
+        let row = store.workspace_by_id("w1").unwrap().unwrap();
+        assert_eq!(row.summary.as_deref(), Some("Working on login."));
+        assert!(row.summary_at.is_some());
     }
 }

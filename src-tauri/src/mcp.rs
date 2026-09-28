@@ -190,6 +190,13 @@ mod tests {
                 branch: "feat".into(),
                 worktree_path: "/tmp/wt".into(),
                 status: "ready".into(),
+                created_at: String::new(),
+                summary: None,
+                summary_at: None,
+                summary_source: "Haiku 4.5".into(),
+                kind: None,
+                pr_number: None,
+                modified_files: 0,
             })
             .unwrap();
         let env = Arc::new(RwLock::new(ShellEnv::new()));
