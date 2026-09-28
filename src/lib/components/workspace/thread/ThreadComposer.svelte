@@ -18,9 +18,11 @@
   let {
     thread,
     onSent,
+    focusComposer = $bindable<(() => void) | null>(null),
   }: {
     thread: Thread
     onSent?: () => void
+    focusComposer?: (() => void) | null
   } = $props()
 
   let inputEl: HTMLTextAreaElement | undefined = $state()
@@ -39,6 +41,12 @@
   $effect(() => {
     void thread.id
     queueMicrotask(() => fitHeight())
+  })
+
+  $effect(() => {
+    focusComposer = () => {
+      inputEl?.focus()
+    }
   })
 
   function fitHeight() {

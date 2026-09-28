@@ -317,6 +317,46 @@ impl Store {
         })
     }
 
+    pub fn get_approval(&self, id: &str) -> Result<Option<ApprovalRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, thread_id, status, tool, payload FROM approvals WHERE id = ?1",
+            )?;
+            let mut rows = stmt.query([id])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(ApprovalRow {
+                    id: row.get(0)?,
+                    thread_id: row.get(1)?,
+                    status: row.get(2)?,
+                    tool: row.get(3)?,
+                    payload: row.get(4)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    pub fn pending_approvals_for_thread(&self, thread_id: &str) -> Result<Vec<ApprovalRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, thread_id, status, tool, payload FROM approvals
+                 WHERE thread_id = ?1 AND status = 'pending' ORDER BY rowid",
+            )?;
+            let rows = stmt.query_map([thread_id], |row| {
+                Ok(ApprovalRow {
+                    id: row.get(0)?,
+                    thread_id: row.get(1)?,
+                    status: row.get(2)?,
+                    tool: row.get(3)?,
+                    payload: row.get(4)?,
+                })
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|error| Error::Store(error.to_string()))
+        })
+    }
+
     pub fn upsert_approval(&self, approval: &ApprovalRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(

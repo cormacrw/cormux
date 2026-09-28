@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, broadcast};
 
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::{
@@ -27,6 +27,7 @@ pub struct AppState {
     pub diffs: LiveDiffEngine,
     pub fetch: FetchScheduler,
     pub pr_sync: PrSyncScheduler,
+    pub approval_notify: broadcast::Sender<()>,
 }
 
 impl AppState {
@@ -40,7 +41,13 @@ impl AppState {
         let workspace = WorkspaceManager::new(git.clone(), diffs.clone(), fetch.clone());
         let store = Store::new();
         let approvals = Arc::new(ApprovalBroker::new());
-        let engines = EngineRegistry::new(shell_env.clone(), approvals.clone(), store.clone());
+        let (approval_notify, _) = broadcast::channel(32);
+        let engines = EngineRegistry::new(
+            shell_env.clone(),
+            approvals.clone(),
+            store.clone(),
+            approval_notify.clone(),
+        );
         let mcp = CormuxMcp::new(store.clone(), process.clone(), approvals.clone());
         Self {
             event_version: AtomicU64::new(0),
@@ -58,6 +65,7 @@ impl AppState {
             diffs,
             fetch,
             pr_sync,
+            approval_notify,
         }
     }
 

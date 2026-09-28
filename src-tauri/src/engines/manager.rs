@@ -30,6 +30,7 @@ pub struct EngineRegistry {
     env: Arc<RwLock<ShellEnv>>,
     approvals: Arc<ApprovalBroker>,
     pub(crate) store: Store,
+    approval_notify: tokio::sync::broadcast::Sender<()>,
     threads: Arc<Mutex<HashMap<String, ThreadSlot>>>,
     holds: Arc<Mutex<HashMap<String, HoldState>>>,
 }
@@ -54,11 +55,17 @@ pub struct SpawnSpec {
 }
 
 impl EngineRegistry {
-    pub fn new(env: Arc<RwLock<ShellEnv>>, approvals: Arc<ApprovalBroker>, store: Store) -> Self {
+    pub fn new(
+        env: Arc<RwLock<ShellEnv>>,
+        approvals: Arc<ApprovalBroker>,
+        store: Store,
+        approval_notify: tokio::sync::broadcast::Sender<()>,
+    ) -> Self {
         Self {
             env,
             approvals,
             store,
+            approval_notify,
             threads: Arc::new(Mutex::new(HashMap::new())),
             holds: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -308,9 +315,18 @@ impl EngineRegistry {
         let store = self.store.clone();
         let thread_id = spec.thread_id.clone();
         let auto_ro = spec.auto_approve_readonly;
+        let approval_notify = self.approval_notify.clone();
         tokio::spawn(async move {
             run_claude(
-                session, rx, events, approvals, store, thread_id, session_id, auto_ro,
+                session,
+                rx,
+                events,
+                approvals,
+                store,
+                thread_id,
+                session_id,
+                auto_ro,
+                approval_notify,
             )
             .await;
         });
@@ -341,6 +357,7 @@ impl EngineRegistry {
             store: self.store.clone(),
             thread_id: spec.thread_id.clone(),
             pending_seed,
+            approval_notify: self.approval_notify.clone(),
         })
     }
 }
@@ -371,6 +388,7 @@ async fn run_claude(
     thread_id: String,
     session_id: Arc<Mutex<Option<String>>>,
     auto_ro: bool,
+    approval_notify: tokio::sync::broadcast::Sender<()>,
 ) {
     let (answer_tx, mut answer_rx) =
         mpsc::unbounded_channel::<(String, ApprovalDecision, serde_json::Value)>();
@@ -422,6 +440,9 @@ async fn run_claude(
                                 req,
                                 &events,
                                 &approvals,
+                                &store,
+                                &thread_id,
+                                &approval_notify,
                                 auto_ro,
                                 answer_tx.clone(),
                             )
@@ -462,6 +483,9 @@ async fn handle_claude_permission(
     req: &CanUseTool,
     events: &broadcast::Sender<AgentEvent>,
     approvals: &Arc<ApprovalBroker>,
+    store: &Store,
+    thread_id: &str,
+    approval_notify: &tokio::sync::broadcast::Sender<()>,
     auto_ro: bool,
     answer_tx: mpsc::UnboundedSender<(String, ApprovalDecision, serde_json::Value)>,
 ) {
@@ -488,25 +512,29 @@ async fn handle_claude_permission(
         return;
     }
 
-    let _ = events.send(mapped);
+    let _ = events.send(mapped.clone());
     let _ = events.send(claude_map::tool_event_from_permission(
         req,
         ToolCallStatus::Pending,
     ));
+    if let Err(error) =
+        crate::approvals::record_pending_permission(store, thread_id, &mapped, None)
+    {
+        log::warn!("record approval: {error}");
+    } else {
+        let _ = approval_notify.send(());
+    }
     let _ = events.send(AgentEvent::CurrentTool {
         id: req.tool_use_id.clone(),
         title: req.tool_name.clone(),
     });
-    let broker = approvals.clone();
     let id = req.request_id.clone();
     let input = req.input.clone();
+    let rx = approvals.register(id.clone());
     tokio::spawn(async move {
-        let decision = broker
-            .wait(id.clone())
-            .await
-            .unwrap_or(ApprovalDecision::Denied {
-                message: "approval dropped".into(),
-            });
+        let decision = rx.await.unwrap_or(ApprovalDecision::Denied {
+            message: "approval dropped".into(),
+        });
         let _ = answer_tx.send((id, decision, input));
     });
 }
@@ -541,7 +569,8 @@ mod tests {
         let approvals = Arc::new(ApprovalBroker::new());
         let store = Store::new();
         store.open_in_memory().unwrap();
-        EngineRegistry::new(env, approvals, store)
+        let (approval_notify, _) = tokio::sync::broadcast::channel(4);
+        EngineRegistry::new(env, approvals, store, approval_notify)
     }
 
     fn mock_claude_argv() -> Vec<String> {
@@ -576,7 +605,10 @@ mod tests {
                 break id;
             }
         };
-        approvals.resolve(&permission_id, true).await.unwrap();
+        approvals
+            .resolve(&permission_id, true, None)
+            .await
+            .unwrap();
 
         loop {
             match events.recv().await.unwrap() {
@@ -633,7 +665,10 @@ mod tests {
                 break id;
             }
         };
-        approvals.resolve(&permission_id, true).await.unwrap();
+        approvals
+            .resolve(&permission_id, true, None)
+            .await
+            .unwrap();
 
         loop {
             let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
@@ -741,7 +776,11 @@ mod tests {
                     saw_usage = true;
                 }
                 AgentEvent::Permission { id, .. } => {
-                    engines.approvals.resolve(&id, true).await.unwrap();
+                    engines
+                        .approvals
+                        .resolve(&id, true, None)
+                        .await
+                        .unwrap();
                 }
                 AgentEvent::TurnEnd { .. } => break,
                 _ => {}
@@ -772,17 +811,19 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
         let mut events = engines.subscribe("acp-miss").unwrap();
+        let mut saw_session = false;
         loop {
             let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
                 .await
                 .unwrap()
                 .unwrap();
             if matches!(event, AgentEvent::SessionStarted { .. }) {
+                saw_session = true;
                 break;
             }
         }
+        assert!(saw_session);
         engines.prompt("acp-miss", "next").unwrap();
         loop {
             let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
@@ -791,7 +832,11 @@ mod tests {
                 .unwrap();
             match event {
                 AgentEvent::Permission { id, .. } => {
-                    engines.approvals.resolve(&id, true).await.unwrap();
+                    engines
+                        .approvals
+                        .resolve(&id, true, None)
+                        .await
+                        .unwrap();
                 }
                 AgentEvent::TurnEnd { .. } => break,
                 _ => {}

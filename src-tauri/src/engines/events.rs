@@ -52,6 +52,20 @@ pub enum ToolKind {
 }
 
 impl ToolKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Edit => "edit",
+            Self::Delete => "delete",
+            Self::Move => "move",
+            Self::Search => "search",
+            Self::Execute => "execute",
+            Self::Think => "think",
+            Self::Fetch => "fetch",
+            Self::Other => "other",
+        }
+    }
+
     pub fn is_readonly(self) -> bool {
         matches!(self, Self::Read | Self::Search | Self::Think)
     }

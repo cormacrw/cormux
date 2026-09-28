@@ -16,6 +16,7 @@ commands.allow = [
   "pause_thread",
   "resume_thread",
   "resolve_approval",
+  "resolve_all_approvals",
   "summarise_workspace",
   "set_github_token",
   "clear_github_token",

@@ -36,6 +36,7 @@
   let prevItemCount = $state(0)
   let prevThreadId = $state<string | null>(null)
   let scrollToEndNext = $state(true)
+  let focusComposer = $state<(() => void) | null>(null)
 
   const wsThreads = $derived(threads.forWorkspace(workspace.id))
   const otherThreadCount = $derived(
@@ -192,6 +193,7 @@
                     paused={thread.paused}
                     {isNewIds}
                     onOpenFindings={openFindingsTab}
+                    onFocusComposer={() => focusComposer?.()}
                   />
                 {/if}
               </div>
@@ -210,6 +212,7 @@
             paused={thread.paused}
             {isNewIds}
             onOpenFindings={openFindingsTab}
+            onFocusComposer={() => focusComposer?.()}
           />
         {/if}
       </ol>
@@ -222,6 +225,7 @@
 
   <ThreadComposer
     {thread}
+    bind:focusComposer
     onSent={() => {
       scrollToEndNext = true
     }}

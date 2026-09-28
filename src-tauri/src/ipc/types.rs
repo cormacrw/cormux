@@ -32,6 +32,12 @@ pub enum AppView {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct ResolveApprovalResult {
+    pub focus_composer: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentChunk {
     pub thread_id: String,
     pub text: String,

@@ -17,8 +17,8 @@ use crate::store::types::{ThreadRow, WorkspaceRow};
 
 use super::types::{
     AgentChunk, AgentEvent, CreateWorkspaceInput, CreateWorkspaceResult, DiffUpdate, PtyChunk,
-    RenameWorkspaceInput, RepoBranchesResult, Snapshot, TeardownInput, TeardownPreview,
-    WorkspaceSummaryResult,
+    RenameWorkspaceInput, RepoBranchesResult, ResolveApprovalResult, Snapshot, TeardownInput,
+    TeardownPreview, WorkspaceSummaryResult,
 };
 
 #[tauri::command]
@@ -164,22 +164,66 @@ pub async fn resolve_approval(
     app: AppHandle,
     id: String,
     approved: bool,
+    deny_reason: Option<String>,
     state: State<'_, AppState>,
-) -> Result<()> {
-    let tool = state
-        .store
-        .snapshot()?
+) -> Result<ResolveApprovalResult> {
+    let (row, payload) =
+        crate::approvals::mark_resolved(&state.store, &id, approved, deny_reason.clone())?;
+    let deny_message = if approved {
+        None
+    } else {
+        deny_reason.or(payload.deny_reason.clone())
+    };
+    state
         .approvals
-        .iter()
-        .find(|row| row.id == id)
-        .map(|row| row.tool.clone())
-        .unwrap_or_default();
-    state.approvals.resolve(&id, approved).await?;
+        .resolve(&id, approved, deny_message.clone())
+        .await?;
+    let hints = crate::approvals::apply_harness_effects(&state, &row, &payload, approved)?;
+    if !approved {
+        if let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
+            let _ = state
+                .engines
+                .prompt(&row.thread_id, format!("Approval denied: {reason}"));
+        }
+    }
     emit_approval_counts(&app, &state);
-    if let Some(payload) = toast_for_approval(&tool, approved) {
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(&app);
+    if let Some(payload) = toast_for_approval(&row.tool, approved) {
         emit_toast(&app, payload);
     }
-    Ok(())
+    Ok(ResolveApprovalResult {
+        focus_composer: hints.focus_composer,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_all_approvals(
+    app: AppHandle,
+    thread_id: String,
+    approved: bool,
+    deny_reason: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ResolveApprovalResult> {
+    let pending = state.store.pending_approvals_for_thread(&thread_id)?;
+    let mut focus_composer = false;
+    for row in pending {
+        let result = resolve_approval(
+            app.clone(),
+            row.id,
+            approved,
+            deny_reason.clone(),
+            state.clone(),
+        )
+        .await?;
+        focus_composer |= result.focus_composer;
+    }
+    Ok(ResolveApprovalResult { focus_composer })
 }
 
 /// High-volume ordered stream of PTY output for a workspace's run/setup log.

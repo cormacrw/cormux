@@ -32,6 +32,7 @@ pub struct AcpSpawn {
     pub store: Store,
     pub thread_id: String,
     pub pending_seed: Arc<std::sync::Mutex<Option<String>>>,
+    pub approval_notify: tokio::sync::broadcast::Sender<()>,
 }
 
 pub fn start(spawn: AcpSpawn) -> mpsc::UnboundedSender<EngineCommand> {
@@ -63,6 +64,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
     let store = spawn.store.clone();
     let thread_id = spawn.thread_id.clone();
     let pending_seed = spawn.pending_seed.clone();
+    let approval_notify = spawn.approval_notify.clone();
 
     agent_client_protocol::Client
         .builder()
@@ -99,7 +101,11 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
             {
                 let events = events.clone();
                 let approvals = approvals.clone();
+                let store_perm = store.clone();
+                let thread_perm = thread_id.clone();
+                let approval_notify_perm = approval_notify.clone();
                 async move |request: RequestPermissionRequest, responder, _cx| {
+                    let labels = super::map::permission_option_labels(&request);
                     let mut event = map_permission_request(&request);
                     let readonly = matches!(
                         &event,
@@ -117,14 +123,21 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                         AgentEvent::Permission { id, .. } => id.clone(),
                         _ => request.tool_call.tool_call_id.to_string(),
                     };
-                    let _ = events.send(event);
-                    let decision =
-                        approvals
-                            .wait(approval_id)
-                            .await
-                            .unwrap_or(ApprovalDecision::Denied {
-                                message: "approval dropped".into(),
-                            });
+                    let _ = events.send(event.clone());
+                    if let Err(error) = crate::approvals::record_pending_permission(
+                        &store_perm,
+                        &thread_perm,
+                        &event,
+                        Some(labels),
+                    ) {
+                        log::warn!("record approval: {error}");
+                    } else {
+                        let _ = approval_notify_perm.send(());
+                    }
+                    let rx = approvals.register(approval_id.clone());
+                    let decision = rx.await.unwrap_or(ApprovalDecision::Denied {
+                        message: "approval dropped".into(),
+                    });
                     respond_permission(
                         &request,
                         responder,

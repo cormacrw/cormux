@@ -106,7 +106,20 @@ pub fn run() {
 
             let db_path = app.path().app_data_dir()?.join("cormux.db");
             state.store.open(&db_path)?;
+            let approval_notify = state.approval_notify.clone();
             app.manage(state);
+
+            let approval_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut rx = approval_notify.subscribe();
+                loop {
+                    if rx.recv().await.is_err() {
+                        break;
+                    }
+                    let state = approval_app.state::<AppState>();
+                    crate::feedback::emit_approval_counts(&approval_app, &state);
+                }
+            });
 
             let metrics_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

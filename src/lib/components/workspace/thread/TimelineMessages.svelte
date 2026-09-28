@@ -14,8 +14,7 @@
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
   import { cn } from '$lib/utils'
   import { openDiffForPath } from './open-changes'
-  import { commands } from '$lib/ipc'
-  import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
+  import ApprovalCard from './ApprovalCard.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import Check from '@lucide/svelte/icons/check'
   import Copy from '@lucide/svelte/icons/copy'
@@ -41,6 +40,7 @@
     paused,
     isNewIds = {},
     onOpenFindings,
+    onFocusComposer,
   }: {
     rows: TimelineRow[]
     engine: string
@@ -53,6 +53,7 @@
     paused: boolean
     isNewIds: Record<string, true>
     onOpenFindings: () => void
+    onFocusComposer?: () => void
   } = $props()
 
   const mark = $derived(engineMark(engine))
@@ -101,10 +102,6 @@
     } catch {
       /* ignore */
     }
-  }
-
-  async function resolveApproval(id: string, approved: boolean) {
-    await commands.resolveApproval(id, approved)
   }
 
   function findingSummary(items: FindingRow[]) {
@@ -273,53 +270,13 @@
           </Card.Content>
         </Card.Root>
       {:else if item.kind === 'approval'}
-        <div
-          class="rounded-lg border border-warning/30 bg-warning/5 p-3"
-          data-od-id="approval-{item.id}"
-        >
-          <div class="flex items-start gap-2">
-            <AlertTriangle
-              class="mt-0.5 size-4 text-warning"
-              aria-hidden="true"
-            />
-            <div class="min-w-0 flex-1 space-y-2">
-              <div class="flex flex-wrap items-center gap-2">
-                <p class="font-medium">{item.title}</p>
-                {#if item.state === 'pending'}
-                  <Badge
-                    variant="outline"
-                    class="border-warning/40 text-warning">Needs approval</Badge
-                  >
-                {/if}
-                <span
-                  class="ml-auto text-xs text-muted-foreground"
-                  title={timeTitle(item.seq)}>{timeLabel(item.seq)}</span
-                >
-              </div>
-              <p class="text-sm">{item.what}</p>
-              <p class="text-xs text-muted-foreground">{item.why}</p>
-              {#if item.state === 'pending'}
-                <div class="flex flex-wrap gap-2 pt-1">
-                  <Button
-                    size="sm"
-                    onclick={() => resolveApproval(item.id, true)}
-                    >{item.okLabel}</Button
-                  >
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onclick={() => resolveApproval(item.id, false)}
-                    >{item.noLabel}</Button
-                  >
-                </div>
-              {:else}
-                <Badge variant="outline">
-                  {item.state === 'approved' ? 'Approved' : 'Denied'}
-                </Badge>
-              {/if}
-            </div>
-          </div>
-        </div>
+        <ApprovalCard
+          {item}
+          {nowMs}
+          timeLabel={timeLabel(item.seq)}
+          timeTitle={timeTitle(item.seq)}
+          {onFocusComposer}
+        />
       {:else if item.kind === 'findings'}
         <Card.Root data-od-id="findings-card">
           <Card.Header class="flex-row items-center gap-2 space-y-0 pb-2">

@@ -1,4 +1,5 @@
 import type { AgentEvent, ApprovalRow, ToolKind } from '$lib/ipc/bindings'
+import { parseApprovalPayload } from '$lib/approvals/payload'
 import type {
   TimelineChip,
   TimelineItem,
@@ -60,6 +61,28 @@ function approvalState(
   if (row.status === 'approved') return 'approved'
   if (row.status === 'denied') return 'denied'
   return 'pending'
+}
+
+function approvalFromPermission(
+  event: Extract<AgentEvent, { type: 'permission' }>,
+  seq: number,
+  approvals: ApprovalRow[],
+) {
+  const row = approvals.find((entry) => entry.id === event.id)
+  const payload = row ? parseApprovalPayload(row.payload) : null
+  const state = approvalState(event.id, approvals)
+  return {
+    kind: 'approval' as const,
+    id: event.id,
+    title: payload?.title ?? event.title,
+    what: payload?.what ?? event.detail ?? event.tool_name,
+    why: payload?.why ?? event.tool_name,
+    okLabel: payload?.okLabel ?? 'Approve',
+    noLabel: payload?.noLabel ?? 'Deny',
+    state,
+    doneAtMs: payload?.resolvedAtMs ?? null,
+    seq,
+  }
 }
 
 function toolStepFromCall(
@@ -177,19 +200,10 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
           }
           break
         }
-        const state = approvalState(event.id, input.approvals)
-        pushBeforeLive(items, {
-          kind: 'approval',
-          id: event.id,
-          title: event.title,
-          what: event.detail ?? event.tool_name,
-          why: event.tool_name,
-          okLabel: 'Approve',
-          noLabel: 'Deny',
-          state,
-          doneAtMs: null,
-          seq,
-        })
+        pushBeforeLive(
+          items,
+          approvalFromPermission(event, seq, input.approvals),
+        )
         break
       }
       case 'currentTool':

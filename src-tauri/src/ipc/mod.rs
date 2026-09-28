@@ -20,6 +20,7 @@ pub fn builder() -> Builder {
             commands::pause_thread,
             commands::resume_thread,
             commands::resolve_approval,
+            commands::resolve_all_approvals,
             commands::subscribe_pty,
             commands::subscribe_diffs,
             commands::start_streaming_spike,

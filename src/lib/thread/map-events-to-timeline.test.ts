@@ -111,6 +111,49 @@ describe('mapEventsToTimeline', () => {
     }
   })
 
+  it('maps permission rows using stored approval payload', () => {
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          event: {
+            type: 'permission',
+            id: 'perm-1',
+            tool_call_id: null,
+            title: 'Use Bash',
+            tool_name: 'Bash',
+            kind: 'execute',
+            detail: 'pnpm test',
+            auto_approved: false,
+          },
+        },
+      ],
+      approvals: [
+        {
+          id: 'perm-1',
+          threadId: 't1',
+          status: 'pending',
+          tool: 'execute',
+          payload: JSON.stringify({
+            title: 'Run command',
+            what: 'pnpm test',
+            why: 'Bash',
+            okLabel: 'Approve',
+            noLabel: 'Deny',
+          }),
+        },
+      ],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    expect(items[0]).toMatchObject({
+      kind: 'approval',
+      title: 'Run command',
+      okLabel: 'Approve',
+    })
+  })
+
   it('inserts items before live row', () => {
     const items = mapEventsToTimeline({
       events: [

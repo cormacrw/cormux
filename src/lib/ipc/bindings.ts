@@ -100,9 +100,17 @@ async resumeThread(threadId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async resolveApproval(id: string, approved: boolean) : Promise<Result<null, Error>> {
+async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved }) };
+    return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved, denyReason }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resolveAllApprovals(threadId: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resolve_all_approvals", { threadId, approved, denyReason }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -295,6 +303,7 @@ export type PtyChunk = { workspaceId: string; line: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
+export type ResolveApprovalResult = { focusComposer: boolean }
 export type SettingRow = { key: string; value: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; memory: MemorySample | null; 
 /**

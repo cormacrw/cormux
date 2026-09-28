@@ -61,13 +61,20 @@ pub fn map_permission_request(request: &RequestPermissionRequest) -> AgentEvent 
         .kind
         .map(map_tool_kind)
         .unwrap_or(ToolKind::Other);
+    let detail = tool
+        .fields
+        .locations
+        .as_ref()
+        .and_then(|locs| locs.first())
+        .map(|loc| loc.path.display().to_string())
+        .or_else(|| tool.fields.name.clone());
     AgentEvent::Permission {
         id: format!("{}:{}", request.session_id, tool.tool_call_id),
         tool_call_id: Some(tool.tool_call_id.to_string()),
         title,
         tool_name: tool.fields.name.clone().unwrap_or_default(),
         kind,
-        detail: None,
+        detail,
         auto_approved: false,
     }
 }
@@ -85,6 +92,22 @@ pub fn map_stop_reason(reason: &StopReason) -> AgentEvent {
         stop_reason: stop_reason.into(),
         error: None,
     }
+}
+
+pub fn permission_option_labels(
+    request: &RequestPermissionRequest,
+) -> (Option<String>, Option<String>) {
+    let allow = request
+        .options
+        .iter()
+        .find(|opt| opt.kind == PermissionOptionKind::AllowOnce)
+        .map(|opt| opt.name.clone());
+    let deny = request
+        .options
+        .iter()
+        .find(|opt| opt.kind == PermissionOptionKind::RejectOnce)
+        .map(|opt| opt.name.clone());
+    (allow, deny)
 }
 
 pub fn pick_permission_option(

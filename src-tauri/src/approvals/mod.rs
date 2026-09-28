@@ -1,7 +1,15 @@
+mod effects;
+mod payload;
+mod record;
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use tokio::sync::oneshot;
+
+pub use effects::apply_harness_effects;
+pub use payload::ApprovalPayload;
+pub use record::{mark_resolved, record_pending_permission};
 
 use crate::error::{Error, Result};
 
@@ -31,17 +39,25 @@ impl ApprovalBroker {
     }
 
     pub async fn wait(&self, id: impl Into<String>) -> Result<ApprovalDecision> {
+        let id = id.into();
         let rx = self.register(id);
         rx.await
             .map_err(|_| Error::Approval("approval dropped".into()))
     }
 
-    pub async fn resolve(&self, id: &str, approved: bool) -> Result<()> {
+    pub async fn resolve(
+        &self,
+        id: &str,
+        approved: bool,
+        deny_message: Option<String>,
+    ) -> Result<()> {
         let decision = if approved {
             ApprovalDecision::Approved
         } else {
             ApprovalDecision::Denied {
-                message: "Denied by user".into(),
+                message: deny_message
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| "Denied by user".into()),
             }
         };
         self.complete(id, decision)
@@ -65,6 +81,14 @@ impl ApprovalBroker {
     }
 }
 
+pub fn auto_approve_readonly_from_store(store: &crate::store::Store) -> bool {
+    store
+        .get_setting("autoApproveReadOnly")
+        .ok()
+        .flatten()
+        .is_none_or(|value| value != "false")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,8 +97,18 @@ mod tests {
     async fn resolve_unblocks_waiter() {
         let broker = ApprovalBroker::new();
         let rx = broker.register("a1");
-        broker.resolve("a1", true).await.unwrap();
+        broker.resolve("a1", true, None).await.unwrap();
         assert_eq!(rx.await.unwrap(), ApprovalDecision::Approved);
         assert_eq!(broker.pending_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn re_register_replaces_waiter_for_engine_reissue() {
+        let broker = ApprovalBroker::new();
+        let first = broker.register("a1");
+        let second = broker.register("a1");
+        broker.resolve("a1", true, None).await.unwrap();
+        assert!(first.await.is_err());
+        assert_eq!(second.await.unwrap(), ApprovalDecision::Approved);
     }
 }
