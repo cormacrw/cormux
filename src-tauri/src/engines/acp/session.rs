@@ -28,6 +28,7 @@ pub struct AcpSpawn {
     pub events: broadcast::Sender<AgentEvent>,
     pub approvals: Arc<ApprovalBroker>,
     pub auto_approve_readonly: bool,
+    pub auto_approve_all: bool,
     pub session_id: Arc<std::sync::Mutex<Option<String>>>,
     pub store: Store,
     pub thread_id: String,
@@ -58,6 +59,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
     let events = spawn.events.clone();
     let approvals = spawn.approvals.clone();
     let auto_ro = spawn.auto_approve_readonly;
+    let auto_all = spawn.auto_approve_all;
     let stored_id = spawn.session_id.clone();
     let cwd = spawn.cwd.clone();
     let resume = spawn.resume.clone();
@@ -111,7 +113,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                         &event,
                         AgentEvent::Permission { kind, .. } if kind.is_readonly()
                     );
-                    if auto_ro && readonly {
+                    if auto_all || (auto_ro && readonly) {
                         if let AgentEvent::Permission { auto_approved, .. } = &mut event {
                             *auto_approved = true;
                         }

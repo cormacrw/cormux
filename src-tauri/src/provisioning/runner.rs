@@ -568,8 +568,7 @@ async fn spawn_engine(
         .await
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
     let kind = parse_engine_kind(engine);
-    let auto_approve_readonly =
-        crate::approvals::auto_approve_readonly_from_store(&state.store);
+    let run_everything = crate::approvals::run_everything_from_store(&state.store);
     state
         .engines
         .spawn(SpawnSpec {
@@ -578,7 +577,8 @@ async fn spawn_engine(
             cwd: PathBuf::from(&workspace.worktree_path),
             resume: None,
             override_argv: None,
-            auto_approve_readonly,
+            auto_approve_readonly: false,
+            auto_approve_all: run_everything,
         })
         .await?;
     if let Some(text) = goal.filter(|value| !value.is_empty()) {

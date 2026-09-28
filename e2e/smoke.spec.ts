@@ -13,6 +13,23 @@ test.describe('browser harness UI', () => {
     await expect(page.getByRole('heading', { name: 'Homebase' })).toBeVisible()
     await expect(page.locator('.traffic, .tl-close')).toHaveCount(0)
 
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible()
+    await expect(page.getByText('Claude Code')).toBeVisible()
+    await expect(page.getByText('Cursor CLI')).toBeVisible()
+    await expect(page.getByText('Codex CLI')).toHaveCount(0)
+    await expect(page.getByText('Gemini CLI')).toHaveCount(0)
+    await expect(page.getByText('Edits files directly')).toHaveCount(0)
+    await expect(
+      page.getByRole('switch', { name: 'Run everything' }),
+    ).toBeVisible()
+    mkdirSync('e2e/output', { recursive: true })
+    await page.screenshot({
+      path: 'e2e/output/agents-settings.png',
+      fullPage: true,
+    })
+    await page.getByRole('button', { name: 'Homebase' }).click()
+
     await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
     await expect(
       page.getByRole('heading', { name: 'OAuth login' }),

@@ -13,6 +13,9 @@ describe('settings-defaults', () => {
     expect(
       readDefaultEngine([{ key: 'defaultEngine', value: 'cursor' }]),
     ).toBe('cursor')
+    expect(
+      readDefaultEngine([{ key: 'defaultEngine', value: 'codex' }]),
+    ).toBe('claude')
     expect(readDefaultBase([{ key: 'defaultBase', value: 'develop' }])).toBe(
       'develop',
     )

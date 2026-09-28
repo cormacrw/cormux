@@ -81,6 +81,15 @@ impl ApprovalBroker {
     }
 }
 
+pub fn run_everything_from_store(store: &crate::store::Store) -> bool {
+    store
+        .get_setting("runEverything")
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("true")
+}
+
 pub fn auto_approve_readonly_from_store(store: &crate::store::Store) -> bool {
     store
         .get_setting("autoApproveReadOnly")

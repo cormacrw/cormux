@@ -1,6 +1,6 @@
 import type { EngineKind, SettingRow } from '$lib/ipc/bindings'
 
-const ENGINE_VALUES: EngineKind[] = ['claude', 'cursor', 'codex', 'gemini']
+const ENGINE_VALUES: EngineKind[] = ['claude', 'cursor']
 
 export const DEFAULT_WORKTREE_ROOT = '~/.harness/worktrees'
 

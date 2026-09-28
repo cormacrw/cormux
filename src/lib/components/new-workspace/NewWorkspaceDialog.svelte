@@ -77,7 +77,7 @@
     new Map(engineStatuses.map((row) => [row.kind, row])),
   )
 
-  const engineHintText = $derived(engineHint(engine))
+  const engineHintText = $derived(engineHint())
 
   async function loadBranches(forRepoId: string) {
     if (!forRepoId) {

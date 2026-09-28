@@ -85,9 +85,6 @@
               <span class="text-[10px] text-destructive">{install}</span>
             {/if}
           </span>
-          <span class="mt-0.5 block text-xs text-muted-foreground"
-            >{option.hint}</span
-          >
           <span class="mt-1 block font-mono text-[10px] text-muted-foreground"
             >{engineStatusLine(status)}</span
           >
@@ -107,14 +104,14 @@
 <div class="mt-3" data-od-id="settings-agent-permissions">
   <SettingsPanel>
     <SettingsRow
-      title="Auto-approve read-only tools"
-      description="File reads and AST parsing run without asking. Edits and commands still need approval."
+      title="Run everything"
+      description="On, both engines use tools without asking. Off, they ask before every tool."
     >
       {#snippet control()}
         <Switch
-          checked={settings.autoApproveReadOnly}
-          onCheckedChange={(next) => void settings.setAutoApproveReadOnly(next)}
-          aria-label="Auto-approve read-only tools"
+          checked={settings.runEverything}
+          onCheckedChange={(next) => void settings.setRunEverything(next)}
+          aria-label="Run everything"
         />
       {/snippet}
     </SettingsRow>

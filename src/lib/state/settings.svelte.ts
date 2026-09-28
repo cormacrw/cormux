@@ -18,6 +18,7 @@ function upsertRow(rows: SettingRow[], key: string, value: string) {
 export class SettingsStore {
   reduceMotion = $state(false)
   autoApproveReadOnly = $state(true)
+  runEverything = $state(false)
   defaultEngine = $state<EngineKind>('claude')
   defaultBase = $state('main')
   teardownAfterMerge = $state(true)
@@ -64,6 +65,7 @@ export class SettingsStore {
         'notifyReviewFinished',
         true,
       )
+      this.runEverything = readBooleanSetting(rows, 'runEverything', false)
     }
   }
 
@@ -102,6 +104,11 @@ export class SettingsStore {
   async setAutoApproveReadOnly(next: boolean) {
     this.autoApproveReadOnly = next
     await this.persist('autoApproveReadOnly', next ? 'true' : 'false')
+  }
+
+  async setRunEverything(next: boolean) {
+    this.runEverything = next
+    await this.persist('runEverything', next ? 'true' : 'false')
   }
 
   async setTeardownAfterMerge(next: boolean) {

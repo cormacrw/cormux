@@ -116,7 +116,7 @@
           <SettingsSectionHead
             id="settings-agents-h"
             title="Agents"
-            description="How new agents start and what they can do without asking."
+            description="Which engine new workspaces use, and whether they ask first."
           />
           <div class="mt-4">
             <AgentsSettings />

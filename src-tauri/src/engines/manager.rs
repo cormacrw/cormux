@@ -52,6 +52,7 @@ pub struct SpawnSpec {
     pub resume: Option<String>,
     pub override_argv: Option<Vec<String>>,
     pub auto_approve_readonly: bool,
+    pub auto_approve_all: bool,
 }
 
 impl EngineRegistry {
@@ -322,6 +323,7 @@ impl EngineRegistry {
         let store = self.store.clone();
         let thread_id = spec.thread_id.clone();
         let auto_ro = spec.auto_approve_readonly;
+        let auto_all = spec.auto_approve_all;
         let approval_notify = self.approval_notify.clone();
         tokio::spawn(async move {
             run_claude(
@@ -333,6 +335,7 @@ impl EngineRegistry {
                 thread_id,
                 session_id,
                 auto_ro,
+                auto_all,
                 approval_notify,
             )
             .await;
@@ -360,6 +363,7 @@ impl EngineRegistry {
             events,
             approvals: self.approvals.clone(),
             auto_approve_readonly: spec.auto_approve_readonly,
+            auto_approve_all: spec.auto_approve_all,
             session_id,
             store: self.store.clone(),
             thread_id: spec.thread_id.clone(),
@@ -395,6 +399,7 @@ async fn run_claude(
     thread_id: String,
     session_id: Arc<Mutex<Option<String>>>,
     auto_ro: bool,
+    auto_all: bool,
     approval_notify: tokio::sync::broadcast::Sender<()>,
 ) {
     let (answer_tx, mut answer_rx) =
@@ -451,6 +456,7 @@ async fn run_claude(
                                 &thread_id,
                                 &approval_notify,
                                 auto_ro,
+                                auto_all,
                                 answer_tx.clone(),
                             )
                             .await;
@@ -494,12 +500,13 @@ async fn handle_claude_permission(
     thread_id: &str,
     approval_notify: &tokio::sync::broadcast::Sender<()>,
     auto_ro: bool,
+    auto_all: bool,
     answer_tx: mpsc::UnboundedSender<(String, ApprovalDecision, serde_json::Value)>,
 ) {
     let kind = ToolKind::from_claude_tool(&req.tool_name);
     let mut mapped =
         claude_map::map_claude_event(&Event::CanUseTool(req.clone())).expect("permission maps");
-    if auto_ro && kind.is_readonly() {
+    if auto_all || (auto_ro && kind.is_readonly()) {
         if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;
         }
@@ -598,6 +605,7 @@ mod tests {
                 resume: None,
                 override_argv: Some(mock_claude_argv()),
                 auto_approve_readonly: true,
+                auto_approve_all: false,
             })
             .await
             .unwrap();
@@ -656,6 +664,7 @@ mod tests {
                 resume: None,
                 override_argv: Some(vec!["python3".into(), script.display().to_string()]),
                 auto_approve_readonly: false,
+                auto_approve_all: false,
             })
             .await
             .unwrap();
@@ -766,6 +775,7 @@ mod tests {
                 resume: None,
                 override_argv: Some(vec!["python3".into(), script.display().to_string()]),
                 auto_approve_readonly: false,
+                auto_approve_all: false,
             })
             .await
             .unwrap();
@@ -815,6 +825,7 @@ mod tests {
                 resume: None,
                 override_argv: Some(vec!["python3".into(), script.display().to_string()]),
                 auto_approve_readonly: false,
+                auto_approve_all: false,
             })
             .await
             .unwrap();
