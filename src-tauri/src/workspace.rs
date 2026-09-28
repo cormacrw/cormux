@@ -116,6 +116,69 @@ impl WorkspaceManager {
         self.inner.read().await.workspaces.get(id).cloned()
     }
 
+    pub async fn register_provisioning(
+        &self,
+        workspace_id: &str,
+        repo_id: &str,
+        repo_path: &Path,
+        name: &str,
+        branch: &str,
+        base: &str,
+        home: &Path,
+    ) -> Result<WorkspaceRecord> {
+        let repo_name = repo_dir_name(repo_path);
+        let worktree = Self::worktree_path(home, repo_name, branch);
+        if let Some(parent) = worktree.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let record = WorkspaceRecord {
+            id: workspace_id.to_string(),
+            repo_id: repo_id.to_string(),
+            repo_path: repo_path.to_string_lossy().to_string(),
+            name: name.to_string(),
+            branch: branch.to_string(),
+            base: base.to_string(),
+            worktree_path: worktree.to_string_lossy().to_string(),
+            status: WorkspaceLifecycle::Provisioning,
+            version: 1,
+        };
+        self.inner
+            .write()
+            .await
+            .workspaces
+            .insert(workspace_id.to_string(), record.clone());
+        Ok(record)
+    }
+
+    pub async fn run_worktree_setup(&self, workspace_id: &str) -> Result<WorkspaceRecord> {
+        let workspace = self
+            .get(workspace_id)
+            .await
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        let repo_path = PathBuf::from(&workspace.repo_path);
+        let worktree = PathBuf::from(&workspace.worktree_path);
+        match self
+            .git
+            .worktree_add(&repo_path, &worktree, &workspace.branch, &workspace.base)
+            .await
+        {
+            Ok(()) => {
+                let record = self
+                    .set_status(workspace_id, WorkspaceLifecycle::Ready)
+                    .await?;
+                self.diffs.watch(workspace_id, &worktree)?;
+                self.sync_fetch_targets().await;
+                Ok(record)
+            }
+            Err(error) => {
+                let _ = self
+                    .set_status(workspace_id, WorkspaceLifecycle::ProvisioningFailed)
+                    .await;
+                Err(error)
+            }
+        }
+    }
+
     pub async fn create(
         &self,
         repo_id: &str,
@@ -124,55 +187,14 @@ impl WorkspaceManager {
         branch: &str,
         base: &str,
         home: &Path,
+        workspace_id: Option<&str>,
     ) -> Result<WorkspaceRecord> {
-        let repo_name = repo_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("repo");
-        let worktree = Self::worktree_path(home, repo_name, branch);
-        if let Some(parent) = worktree.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let id = Uuid::new_v4().to_string();
-        let record = WorkspaceRecord {
-            id: id.clone(),
-            repo_id: repo_id.to_string(),
-            repo_path: repo_path.to_string_lossy().to_string(),
-            name: name.to_string(),
-            branch: branch.to_string(),
-            base: base.to_string(),
-            worktree_path: worktree.to_string_lossy().to_string(),
-            status: WorkspaceLifecycle::Creating,
-            version: 1,
-        };
-        self.inner
-            .write()
-            .await
-            .workspaces
-            .insert(id.clone(), record);
-
-        self.set_status(&id, WorkspaceLifecycle::Provisioning)
+        let id = workspace_id
+            .map(str::to_string)
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        self.register_provisioning(&id, repo_id, repo_path, name, branch, base, home)
             .await?;
-
-        match self
-            .git
-            .worktree_add(repo_path, &worktree, branch, base)
-            .await
-        {
-            Ok(()) => {
-                let record = self.set_status(&id, WorkspaceLifecycle::Ready).await?;
-                self.diffs.watch(&id, &worktree)?;
-                self.sync_fetch_targets().await;
-                Ok(record)
-            }
-            Err(error) => {
-                let _ = self
-                    .set_status(&id, WorkspaceLifecycle::ProvisioningFailed)
-                    .await;
-                Err(error)
-            }
-        }
+        self.run_worktree_setup(&id).await
     }
 
     pub async fn set_status(
@@ -305,6 +327,13 @@ fn branch_slug(branch: &str) -> String {
     branch.replace('/', "-")
 }
 
+fn repo_dir_name(repo_path: &Path) -> &str {
+    repo_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("repo")
+}
+
 fn status_from_threads(
     current: WorkspaceLifecycle,
     threads: impl Iterator<Item = ThreadActivity>,
@@ -430,7 +459,15 @@ mod tests {
         let (_dir, repo) = init_repo();
         let home = tempfile::tempdir().unwrap();
         let workspace = mgr
-            .create("repo-1", &repo, "Login", "feat-login", "main", home.path())
+            .create(
+                "repo-1",
+                &repo,
+                "Login",
+                "feat-login",
+                "main",
+                home.path(),
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(workspace.status, WorkspaceLifecycle::Ready);

@@ -21,7 +21,9 @@ pub fn builder() -> Builder {
             commands::summarise_workspace,
             commands::set_github_token,
             commands::clear_github_token,
-            commands::sync_pull_requests
+            commands::sync_pull_requests,
+            commands::list_repo_branches,
+            commands::create_workspace
         ])
         .events(tauri_specta::collect_events![
             events::StateChanged,

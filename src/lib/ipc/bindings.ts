@@ -132,6 +132,22 @@ async syncPullRequests() : Promise<Result<null, Error>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async listRepoBranches(repoId: string) : Promise<Result<RepoBranchesResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_repo_branches", { repoId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createWorkspace(input: CreateWorkspaceInput) : Promise<Result<CreateWorkspaceResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_workspace", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -157,6 +173,8 @@ workspaceStatusChanged: "workspace-status-changed"
 export type AgentChunk = { threadId: string; text: string }
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
+export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
+export type CreateWorkspaceResult = { workspaceId: string }
 export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
 export type DiffHunk = { header: string; body: string }
 export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff | null }
@@ -175,6 +193,7 @@ export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[]
 export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PtyChunk = { workspaceId: string; line: string }
+export type RepoBranchesResult = { branches: string[] }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
 export type SettingRow = { key: string; value: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; memory: MemorySample | null; 

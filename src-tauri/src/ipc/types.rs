@@ -111,3 +111,26 @@ pub struct WorkspaceSummaryResult {
     pub summary_source: String,
     pub from_llm: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceInput {
+    pub repo_id: String,
+    pub name: String,
+    pub branch: String,
+    pub base: String,
+    pub engine: String,
+    pub goal: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceResult {
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoBranchesResult {
+    pub branches: Vec<String>,
+}

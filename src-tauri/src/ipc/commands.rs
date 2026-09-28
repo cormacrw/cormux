@@ -1,16 +1,22 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
-use tauri::{AppHandle, State, ipc::Channel};
+use tauri::{AppHandle, Manager, State, ipc::Channel};
 use tauri_specta::Event;
+use uuid::Uuid;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
 use crate::github::{auth, clear_token, save_token};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
+use crate::store::types::{ThreadRow, WorkspaceRow};
 
-use super::types::{AgentChunk, DiffUpdate, PtyChunk, Snapshot, WorkspaceSummaryResult};
+use super::types::{
+    AgentChunk, CreateWorkspaceInput, CreateWorkspaceResult, DiffUpdate, PtyChunk,
+    RepoBranchesResult, Snapshot, WorkspaceSummaryResult,
+};
 
 #[tauri::command]
 #[specta::specta]
@@ -267,6 +273,212 @@ pub async fn summarise_workspace(
     })
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn list_repo_branches(
+    repo_id: String,
+    state: State<'_, AppState>,
+) -> Result<RepoBranchesResult> {
+    let snapshot = state.store.snapshot()?;
+    let repo = snapshot
+        .repos
+        .into_iter()
+        .find(|row| row.id == repo_id)
+        .ok_or_else(|| Error::Git(format!("unknown repo {repo_id}")))?;
+    let repo_path = expand_tilde(&repo.path);
+    let refs = state.git.list_branches(&repo_path).await?;
+    let mut names: Vec<String> = refs.into_iter().map(|branch| branch.name).collect();
+    names.sort();
+    names.dedup();
+    Ok(RepoBranchesResult { branches: names })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_workspace(
+    input: CreateWorkspaceInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<CreateWorkspaceResult> {
+    let snapshot = state.store.snapshot()?;
+    let repo = snapshot
+        .repos
+        .into_iter()
+        .find(|row| row.id == input.repo_id)
+        .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
+    let repo_path = expand_tilde(&repo.path);
+    if !repo_path.is_dir() {
+        return Err(Error::Git(format!(
+            "repo path does not exist: {}",
+            repo_path.display()
+        )));
+    }
+
+    let workspace_id = new_workspace_id();
+    let thread_id = Uuid::new_v4().to_string();
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("repo");
+    let worktree_path = crate::workspace::WorkspaceManager::worktree_path(
+        &harness_home(),
+        repo_name,
+        &input.branch,
+    );
+
+    state
+        .workspace
+        .register_provisioning(
+            &workspace_id,
+            &input.repo_id,
+            &repo_path,
+            &input.name,
+            &input.branch,
+            &input.base,
+            &harness_home(),
+        )
+        .await?;
+
+    state.store.upsert_workspace(&WorkspaceRow {
+        id: workspace_id.clone(),
+        repo_id: input.repo_id.clone(),
+        name: input.name.clone(),
+        branch: input.branch.clone(),
+        worktree_path: worktree_path.to_string_lossy().to_string(),
+        status: "provisioning".into(),
+        created_at: String::new(),
+        summary: None,
+        summary_at: None,
+        summary_source: "Haiku 4.5".into(),
+        kind: None,
+        pr_number: None,
+        modified_files: 0,
+    })?;
+    state.store.upsert_thread(&ThreadRow {
+        id: thread_id.clone(),
+        workspace_id: workspace_id.clone(),
+        title: "Lead".into(),
+        engine: input.engine.clone(),
+        session_id: None,
+        status: "provisioning".into(),
+        used_tokens: None,
+        context_size: None,
+        cost_usd: None,
+        transcript_readonly: false,
+    })?;
+    let message = serde_json::json!({ "role": "user", "text": input.goal });
+    state
+        .store
+        .append_event(&thread_id, "message", &message.to_string())?;
+    let worktree_step = serde_json::json!({
+        "icon": "branch",
+        "title": "Created worktree",
+        "detail": format!("{} ← {}", input.branch, input.base),
+    });
+    state
+        .store
+        .append_event(&thread_id, "tool", &worktree_step.to_string())?;
+
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(&app);
+
+    let app_handle = app.clone();
+    let name = input.name.clone();
+    let branch = input.branch.clone();
+    let base = input.base.clone();
+    let repo_id = input.repo_id.clone();
+    let worktree_path_str = worktree_path.to_string_lossy().to_string();
+    let workspace_id_bg = workspace_id.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app_handle.state::<AppState>();
+        match state.workspace.run_worktree_setup(&workspace_id_bg).await {
+            Ok(record) => {
+                let _ = state.store.upsert_workspace(&WorkspaceRow {
+                    id: workspace_id_bg.clone(),
+                    repo_id: repo_id.clone(),
+                    name: name.clone(),
+                    branch: branch.clone(),
+                    worktree_path: record.worktree_path.clone(),
+                    status: "provisioning".into(),
+                    created_at: String::new(),
+                    summary: None,
+                    summary_at: None,
+                    summary_source: "Haiku 4.5".into(),
+                    kind: None,
+                    pr_number: None,
+                    modified_files: 0,
+                });
+                emit_workspace_status(
+                    &app_handle,
+                    &state,
+                    &workspace_id_bg,
+                    record.status,
+                );
+                emit_toast(
+                    &app_handle,
+                    crate::ipc::types::ToastRaisedPayload {
+                        tone: crate::ipc::types::ToastTone::Ok,
+                        parts: vec![
+                            crate::ipc::types::ToastPart::Text {
+                                value: format!("Created {name} on "),
+                            },
+                            crate::ipc::types::ToastPart::Code {
+                                value: branch.clone(),
+                            },
+                            crate::ipc::types::ToastPart::Text {
+                                value: " from ".into(),
+                            },
+                            crate::ipc::types::ToastPart::Code {
+                                value: base.clone(),
+                            },
+                        ],
+                        workspace_id: Some(workspace_id_bg),
+                    },
+                );
+            }
+            Err(error) => {
+                let _ = state.store.upsert_workspace(&WorkspaceRow {
+                    id: workspace_id_bg.clone(),
+                    repo_id,
+                    name,
+                    branch,
+                    worktree_path: worktree_path_str,
+                    status: "provisioningFailed".into(),
+                    created_at: String::new(),
+                    summary: None,
+                    summary_at: None,
+                    summary_source: "Haiku 4.5".into(),
+                    kind: None,
+                    pr_number: None,
+                    modified_files: 0,
+                });
+                emit_workspace_status(
+                    &app_handle,
+                    &state,
+                    &workspace_id_bg,
+                    crate::workspace::WorkspaceLifecycle::ProvisioningFailed,
+                );
+                emit_toast(
+                    &app_handle,
+                    crate::ipc::types::ToastRaisedPayload {
+                        tone: crate::ipc::types::ToastTone::Bad,
+                        parts: vec![crate::ipc::types::ToastPart::Text {
+                            value: error.to_string(),
+                        }],
+                        workspace_id: None,
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(CreateWorkspaceResult { workspace_id })
+}
+
 /// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.
 #[tauri::command]
 #[specta::specta]
@@ -308,6 +520,29 @@ pub fn emit_workspace_status(
         kind: StateChangeKind::WorkspaceStatus,
     }
     .emit(app);
+}
+
+fn harness_home() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    PathBuf::from(path)
+}
+
+fn new_workspace_id() -> String {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    format!("ws{ms:x}")
 }
 
 fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {

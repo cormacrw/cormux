@@ -55,8 +55,13 @@
 
   onMount(() => {
     const onRequest = () => togglePalette()
+    const onClose = () => close()
     window.addEventListener('cormux:command-palette', onRequest)
-    return () => window.removeEventListener('cormux:command-palette', onRequest)
+    window.addEventListener('cormux:close-palette', onClose)
+    return () => {
+      window.removeEventListener('cormux:command-palette', onRequest)
+      window.removeEventListener('cormux:close-palette', onClose)
+    }
   })
 </script>
 

@@ -52,6 +52,9 @@ function workspaceActivityText(lifecycle: WorkspaceLifecycle): string {
       return 'Ready'
     case 'waiting':
       return 'Waiting for approval'
+    case 'creating':
+    case 'provisioning':
+      return 'Running worktree setup…'
     case 'provisioningFailed':
       return 'Setup failed'
     case 'tearingDown':
@@ -209,14 +212,17 @@ function buildThreadModels(snapshot: Snapshot) {
 export function hydrateFromSnapshot(snapshot: Snapshot) {
   void onSnapshotSupervision(snapshot)
   const threadModels = buildThreadModels(snapshot)
-  settings.hydrate({
-    reduceMotion: snapshot.persisted.settings.some(
-      (row) => row.key === 'reduceMotion' && row.value === 'true',
-    ),
-    autoApproveReadOnly: snapshot.persisted.settings.every(
-      (row) => row.key !== 'autoApproveReadOnly' || row.value === 'true',
-    ),
-  })
+  settings.hydrate(
+    {
+      reduceMotion: snapshot.persisted.settings.some(
+        (row) => row.key === 'reduceMotion' && row.value === 'true',
+      ),
+      autoApproveReadOnly: snapshot.persisted.settings.every(
+        (row) => row.key !== 'autoApproveReadOnly' || row.value === 'true',
+      ),
+    },
+    snapshot.persisted.settings,
+  )
   const prevIds = new Set(workspaces.items.map((item) => item.id))
   const recordList = workspaceRecordsFromSnapshot(snapshot)
   const nextWorkspaces = buildWorkspaceModels(snapshot)
