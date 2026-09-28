@@ -14,11 +14,6 @@ export type ThreadBarTabKey =
   | { kind: 'findings' }
   | { kind: 'output' }
 
-export function threadTabTooltip(thread: Thread): string {
-  const activity = threadActivityLine(thread)
-  return `${thread.role}: ${activity}`
-}
-
 export function threadTabAriaLabel(thread: Thread): string {
   const activity = threadActivityLine(thread)
   const base = `${thread.role}, ${activity}`

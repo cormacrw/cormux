@@ -2,7 +2,6 @@
   import StatusDot from '$lib/components/shell/StatusDot.svelte'
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
-  import * as Tooltip from '$lib/components/ui/tooltip'
   import { requestNewThread } from '$lib/command-palette/actions'
   import { reviewReady } from '$lib/review/workspace-settings'
   import {
@@ -14,7 +13,7 @@
     workspaceUi,
   } from '$lib/state'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { plural, statusDotVariantForThread } from '$lib/sidebar/status'
+  import { statusDotVariantForThread } from '$lib/sidebar/status'
   import { cn } from '$lib/utils'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
   import {
@@ -23,11 +22,9 @@
     findingsTabAriaLabel,
     moveTabFocusIndex,
     outputTabAriaLabel,
-    outputTabState,
     showFindingsTab,
     tabKeyId,
     threadTabAriaLabel,
-    threadTabTooltip,
     type ThreadBarTabKey,
   } from '$lib/workspace/thread-tabs'
   import List from '@lucide/svelte/icons/list'
@@ -51,13 +48,6 @@
   const tabOrder = $derived(buildThreadBarTabOrder(wsThreads, showFindings))
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runtime = $derived(workspaceRecords.runtime(workspace.id))
-  const outputState = $derived(
-    outputTabState({
-      provisioning,
-      appStatus: runtime.appStatus,
-      port: runtime.port,
-    }),
-  )
 
   function isSelected(tab: ThreadBarTabKey): boolean {
     const active = activeThreadBarTabKey({
@@ -138,40 +128,31 @@
         paused: thread.paused,
         activity: thread.activity,
       }}
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <Button
-              {...props}
-              id="thread-tab-{thread.id}"
-              role="tab"
-              variant="ghost"
-              size="sm"
-              class={threadTabClass(selected)}
-              aria-selected={selected}
-              aria-controls="thread-panel"
-              tabindex={tabIndex({ kind: 'thread', threadId: thread.id })}
-              aria-label={threadTabAriaLabel(thread)}
-              title={threadTabTooltip(thread)}
-              data-od-id="thread-tab-{thread.id}"
-              onclick={() => selectTab({ kind: 'thread', threadId: thread.id })}
-            >
-              <StatusDot variant={statusDotVariantForThread(statusInput)} />
-              <span class="truncate" aria-hidden="true">{thread.role}</span>
-              {#if thread.pendingApprovals > 0}
-                <Badge
-                  variant="outline"
-                  class="min-w-[18px] justify-center border-warning/40 bg-warning/15 px-1 font-mono text-[10px] text-warning"
-                  aria-hidden="true"
-                >
-                  {thread.pendingApprovals}
-                </Badge>
-              {/if}
-            </Button>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>{threadTabTooltip(thread)}</Tooltip.Content>
-      </Tooltip.Root>
+      <Button
+        id="thread-tab-{thread.id}"
+        role="tab"
+        variant="ghost"
+        size="sm"
+        class={threadTabClass(selected)}
+        aria-selected={selected}
+        aria-controls="thread-panel"
+        tabindex={tabIndex({ kind: 'thread', threadId: thread.id })}
+        aria-label={threadTabAriaLabel(thread)}
+        data-od-id="thread-tab-{thread.id}"
+        onclick={() => selectTab({ kind: 'thread', threadId: thread.id })}
+      >
+        <StatusDot variant={statusDotVariantForThread(statusInput)} />
+        <span class="truncate" aria-hidden="true">{thread.role}</span>
+        {#if thread.pendingApprovals > 0}
+          <Badge
+            variant="outline"
+            class="min-w-[18px] justify-center border-warning/40 bg-warning/15 px-1 font-mono text-[10px] text-warning"
+            aria-hidden="true"
+          >
+            {thread.pendingApprovals}
+          </Badge>
+        {/if}
+      </Button>
     {/each}
 
     {#if showFindings}
@@ -186,11 +167,6 @@
         aria-controls="findings-panel"
         tabindex={tabIndex({ kind: 'findings' })}
         aria-label={findingsTabAriaLabel(openFindings)}
-        title="Review findings · {plural(
-          openFindings,
-          'open finding',
-          'open findings',
-        )}"
         data-od-id="thread-tab-findings"
         onclick={() => selectTab({ kind: 'findings' })}
       >
@@ -208,25 +184,17 @@
       </Button>
     {/if}
 
-    <Tooltip.Root>
-      <Tooltip.Trigger>
-        {#snippet child({ props })}
-          <Button
-            {...props}
-            id="thread-add"
-            variant="ghost"
-            size="icon-sm"
-            class="mb-px size-7 shrink-0 text-muted-foreground"
-            aria-label="New thread"
-            data-od-id="thread-add"
-            onclick={() => requestNewThread(workspace.id)}
-          >
-            <Plus class="size-4" aria-hidden="true" />
-          </Button>
-        {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content>New thread</Tooltip.Content>
-    </Tooltip.Root>
+    <Button
+      id="thread-add"
+      variant="ghost"
+      size="icon-sm"
+      class="mb-px size-7 shrink-0 text-muted-foreground"
+      aria-label="New thread"
+      data-od-id="thread-add"
+      onclick={() => requestNewThread(workspace.id)}
+    >
+      <Plus class="size-4" aria-hidden="true" />
+    </Button>
   </div>
 
   <span class="min-w-2 flex-1" aria-hidden="true"></span>
@@ -251,7 +219,6 @@
         appStatus: runtime.appStatus,
         port: runtime.port,
       })}
-      title="App output, {outputState}"
       data-od-id="thread-tab-output"
       onclick={() => selectTab({ kind: 'output' })}
     >

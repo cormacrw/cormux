@@ -2,7 +2,6 @@
   import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
-  import * as Tooltip from '$lib/components/ui/tooltip'
   import {
     repos,
     threads,
@@ -109,47 +108,28 @@
 >
   <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
   <div class="flex min-w-0 flex-1 items-center gap-2">
-    <Tooltip.Root>
-      <Tooltip.Trigger>
-        {#snippet child({ props })}
-          <h1
-            {...props}
-            bind:this={titleRef}
-            tabindex="-1"
-            data-ws-focus="title"
-            class="min-w-0 truncate text-[15px] font-medium tracking-tight outline-none"
-            onfocus={onTitleFocus}
-          >
-            {workspace.name}
-          </h1>
-        {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content>{workspace.name}</Tooltip.Content>
-    </Tooltip.Root>
-    <Tooltip.Root>
-      <Tooltip.Trigger>
-        {#snippet child({ props })}
-          <Button
-            {...props}
-            variant="ghost"
-            size="icon-sm"
-            class="size-6 shrink-0 text-muted-foreground"
-            aria-label="Rename workspace"
-            onclick={onRename}
-          >
-            <Pencil class="size-3.5" aria-hidden="true" />
-          </Button>
-        {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content>Rename workspace</Tooltip.Content>
-    </Tooltip.Root>
+    <h1
+      bind:this={titleRef}
+      tabindex="-1"
+      data-ws-focus="title"
+      class="min-w-0 truncate text-[15px] font-medium tracking-tight outline-none"
+      onfocus={onTitleFocus}
+    >
+      {workspace.name}
+    </h1>
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class="size-6 shrink-0 text-muted-foreground"
+      aria-label="Rename workspace"
+      onclick={onRename}
+    >
+      <Pencil class="size-3.5" aria-hidden="true" />
+    </Button>
     <WorkspaceBranchTag
       workspaceId={workspace.id}
       repoId={record?.repoId ?? ''}
       branch={workspace.branch}
-      base={record?.base ?? 'main'}
-      behind={runtime.behind}
-      ahead={runtime.ahead}
       threads={wsThreads}
       {provisioning}
     />
@@ -191,7 +171,6 @@
 
     <WorkspaceMoreMenu
       workspaceId={workspace.id}
-      branch={workspace.branch}
       base={record?.base ?? 'main'}
       behind={runtime.behind}
       ahead={runtime.ahead}

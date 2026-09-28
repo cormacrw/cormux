@@ -8,7 +8,6 @@
     requestNewThread,
     runWorkspaceApp,
   } from '$lib/command-palette/actions'
-  import DropdownItemTooltip from './DropdownItemTooltip.svelte'
   import {
     claimWorkspacePopover,
     releaseWorkspacePopover,
@@ -38,7 +37,6 @@
 
   let {
     workspaceId,
-    branch,
     base,
     behind,
     ahead,
@@ -49,7 +47,6 @@
     onRename,
   }: {
     workspaceId: string
-    branch: string
     base: string
     behind: number
     ahead: number
@@ -70,12 +67,6 @@
       ? `Pull ${plural(behind, 'commit')} from ${base}`
       : `Up to date with ${base}`,
   )
-  const rebaseTooltip = $derived(
-    behind > 0
-      ? `Rebase ${branch} onto ${base}`
-      : `Already on the latest ${base}`,
-  )
-
   const popoverHandle = {
     close: () => {
       open = false
@@ -194,34 +185,31 @@
       <DropdownMenu.Separator />
     {/if}
 
-    <DropdownItemTooltip
-      label={pullLabel}
+    <DropdownMenu.Item
       disabled={behind <= 0}
       onclick={() => closeAndRun(() => pullWorkspace(workspaceId))}
     >
       <Download class="size-4" aria-hidden="true" />
-    </DropdownItemTooltip>
+      {pullLabel}
+    </DropdownMenu.Item>
 
-    <DropdownItemTooltip
-      label="Rebase branch"
-      tooltip={rebaseTooltip}
+    <DropdownMenu.Item
       disabled={behind <= 0}
       onclick={requestRebase}
-      odId="ws-rebase"
+      data-od-id="ws-rebase"
     >
       <GitBranch class="size-4" aria-hidden="true" />
-    </DropdownItemTooltip>
+      Rebase branch
+    </DropdownMenu.Item>
 
-    <DropdownItemTooltip
-      label={ahead > 0
-        ? `Push ${plural(ahead, 'commit')} to origin`
-        : 'Nothing to push'}
+    <DropdownMenu.Item
       disabled={ahead <= 0}
       onclick={() => closeAndRun(() => pushWorkspace(workspaceId))}
-      odId="ws-push"
+      data-od-id="ws-push"
     >
       <Upload class="size-4" aria-hidden="true" />
-    </DropdownItemTooltip>
+      {ahead > 0 ? `Push ${plural(ahead, 'commit')} to origin` : 'Nothing to push'}
+    </DropdownMenu.Item>
 
     <DropdownMenu.Item
       onclick={() => closeAndRun(() => requestNewThread(workspaceId))}

@@ -3,13 +3,11 @@
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
   import * as Command from '$lib/components/ui/command'
-  import * as Tooltip from '$lib/components/ui/tooltip'
   import Check from '@lucide/svelte/icons/check'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import Plus from '@lucide/svelte/icons/plus'
   import {
-    branchLockTooltip,
     branchPickerLocked,
     runningAgentCount,
   } from '$lib/workspace/running-agents'
@@ -27,18 +25,12 @@
     workspaceId,
     repoId,
     branch,
-    base,
-    behind,
-    ahead,
     threads,
     provisioning,
   }: {
     workspaceId: string
     repoId: string
     branch: string
-    base: string
-    behind: number
-    ahead: number
     threads: Thread[]
     provisioning: boolean
   } = $props()
@@ -51,22 +43,6 @@
   let newBranchName = $state('')
 
   const locked = $derived(provisioning || branchPickerLocked(threads))
-  const branchInfo = $derived.by(() => {
-    let text = `Branched from ${base}`
-    if (behind > 0) {
-      text += `, ${behind} commit${behind === 1 ? '' : 's'} behind`
-    }
-    if (ahead > 0) {
-      text += `, ${ahead} commit${ahead === 1 ? '' : 's'} ahead`
-    }
-    return `${text}.`
-  })
-  const lockHint = $derived(branchLockTooltip(runningAgentCount(threads)))
-  const tooltip = $derived(
-    locked && !provisioning
-      ? `${branchInfo} ${lockHint}`
-      : `${branchInfo} Click to switch branch.`,
-  )
 
   const otherWorkspaceBranches = $derived(
     workspaceRecords.records
@@ -134,15 +110,34 @@
 </script>
 
 {#if locked}
-  <Tooltip.Root>
-    <Tooltip.Trigger>
+  <Button
+    variant="outline"
+    size="sm"
+    disabled
+    aria-disabled="true"
+    data-ws-focus="branch"
+    data-od-id="ws-branch"
+    class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
+  >
+    <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
+    <span class="sr-only">Branch</span>
+    <span class="truncate">{branch}</span>
+    {#if runningAgentCount(threads) > 0}
+      <span class="sr-only">, locked while agents are running</span>
+    {/if}
+  </Button>
+{:else}
+  <DropdownMenu.Root bind:open>
+    <DropdownMenu.Trigger>
       {#snippet child({ props })}
         <Button
           {...props}
+          bind:ref={triggerEl}
           variant="outline"
           size="sm"
-          disabled
-          aria-disabled="true"
+          aria-haspopup="true"
+          aria-expanded={open}
+          aria-controls="ws-branch-menu"
           data-ws-focus="branch"
           data-od-id="ws-branch"
           class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
@@ -150,48 +145,13 @@
           <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
           <span class="sr-only">Branch</span>
           <span class="truncate">{branch}</span>
-          {#if runningAgentCount(threads) > 0}
-            <span class="sr-only">, locked while agents are running</span>
-          {/if}
+          <ChevronDown
+            class="size-3.5 shrink-0 opacity-70"
+            aria-hidden="true"
+          />
         </Button>
       {/snippet}
-    </Tooltip.Trigger>
-    <Tooltip.Content>{tooltip}</Tooltip.Content>
-  </Tooltip.Root>
-{:else}
-  <DropdownMenu.Root bind:open>
-    <Tooltip.Root>
-      <Tooltip.Trigger>
-        {#snippet child({ props })}
-          <DropdownMenu.Trigger>
-            {#snippet child({ props: menuProps })}
-              <Button
-                {...props}
-                {...menuProps}
-                bind:ref={triggerEl}
-                variant="outline"
-                size="sm"
-                aria-haspopup="true"
-                aria-expanded={open}
-                aria-controls="ws-branch-menu"
-                data-ws-focus="branch"
-                data-od-id="ws-branch"
-                class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
-              >
-                <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
-                <span class="sr-only">Branch</span>
-                <span class="truncate">{branch}</span>
-                <ChevronDown
-                  class="size-3.5 shrink-0 opacity-70"
-                  aria-hidden="true"
-                />
-              </Button>
-            {/snippet}
-          </DropdownMenu.Trigger>
-        {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content>{tooltip}</Tooltip.Content>
-    </Tooltip.Root>
+    </DropdownMenu.Trigger>
     <DropdownMenu.Content
       id="ws-branch-menu"
       align="start"
@@ -223,9 +183,6 @@
                   role="menuitemradio"
                   aria-checked={item.checked}
                   aria-disabled={item.disabled}
-                  title={item.meta === 'inOtherWorkspace'
-                    ? "Checked out in another workspace's worktree"
-                    : undefined}
                   onSelect={() => {
                     if (!item.disabled) void pickBranch(item.name)
                   }}

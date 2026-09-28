@@ -12,11 +12,3 @@ export function runningAgentCount(threads: Thread[]): number {
 export function branchPickerLocked(threads: Thread[]): boolean {
   return runningAgentCount(threads) > 0
 }
-
-export function branchLockTooltip(running: number): string {
-  if (running <= 0) return ''
-  if (running === 1) {
-    return 'Pause or stop the running agent to switch branches.'
-  }
-  return `Pause or stop the ${running} running agents to switch branches.`
-}

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { Badge } from '$lib/components/ui/badge'
-  import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import {
     buildCardDetailParts,
@@ -15,7 +14,6 @@
   import { ensureWorkspaceSummary } from '$lib/homebase/request-summary'
   import { app, homebaseUi, settings, threads, workspaces } from '$lib/state'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import MessageSquare from '@lucide/svelte/icons/message-square'
   import { onMount } from 'svelte'
 
@@ -71,9 +69,11 @@
   }
 </script>
 
-<article
+<button
+  type="button"
   aria-labelledby="ws-title-{workspace.id}"
-  class="group/ws min-w-0 cursor-pointer {entering && !settings.reduceMotion
+  class="group/ws block min-w-0 w-full cursor-pointer border-0 bg-transparent p-0 text-left font-[inherit] text-inherit {entering &&
+  !settings.reduceMotion
     ? 'animate-in fade-in duration-300'
     : ''} {exiting && !settings.reduceMotion
     ? 'animate-out fade-out zoom-out-98 duration-150'
@@ -173,15 +173,5 @@
         {/if}
       </div>
     </Card.Content>
-    <Card.Footer class="border-t border-border/60 pt-3">
-      <Button
-        variant="secondary"
-        class="w-full justify-between"
-        onclick={openWorkspace}
-      >
-        Go to Workspace
-        <ArrowRight class="size-4 opacity-70" aria-hidden="true" />
-      </Button>
-    </Card.Footer>
   </Card.Root>
-</article>
+</button>

@@ -56,7 +56,12 @@ test.describe('browser harness UI', () => {
     })
     await page.getByRole('button', { name: 'Homebase' }).click()
     await expect(page.getByRole('heading', { name: 'Homebase' })).toBeVisible()
-    await page.getByRole('button', { name: 'Go to Workspace' }).click()
+    await expect(page.getByRole('button', { name: 'Go to Workspace' })).toHaveCount(0)
+    await page.screenshot({
+      path: 'e2e/output/homebase.png',
+      fullPage: true,
+    })
+    await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
     await expect(
       page.getByRole('heading', { name: 'OAuth login' }),
     ).toBeVisible()
