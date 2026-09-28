@@ -83,8 +83,8 @@ export function buildPaletteCommandsFromState(
     {
       id: 'action-settings-engines',
       group: 'Actions',
-      label: 'Open Settings › Engines',
-      run: () => actions.openSettingsSection('engines'),
+      label: 'Open Settings › Agents',
+      run: () => actions.openSettingsSection('agents'),
     },
   ]
 

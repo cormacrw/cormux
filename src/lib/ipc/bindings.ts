@@ -366,6 +366,14 @@ async setRepoRunCommand(input: SetRepoRunCommandInput) : Promise<Result<null, Er
     else return { status: "error", error: e  as any };
 }
 },
+async setSetting(input: SetSettingInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_setting", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async sendWorkspaceFindings(input: SendWorkspaceFindingsInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("send_workspace_findings", { input }) };
@@ -441,6 +449,7 @@ export type RepoRecord = { id: string; path: string; name: string; defaultBranch
 export type ResolveApprovalResult = { focusComposer: boolean }
 export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
+export type SetSettingInput = { key: string; value: string }
 export type SettingRow = { key: string; value: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
 /**

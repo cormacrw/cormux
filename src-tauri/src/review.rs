@@ -13,7 +13,7 @@ use crate::github::auth;
 use crate::github::review::{
     RestGithubClient, ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput,
 };
-use crate::ipc::commands::{expand_tilde, harness_home};
+use crate::ipc::commands::{expand_tilde, worktrees_base};
 use crate::ipc::events::StateChanged;
 use crate::ipc::types::StateChangeKind;
 use crate::llm::LlmClient;
@@ -168,8 +168,9 @@ pub async fn create_review_workspace(
         .and_then(|name| name.to_str())
         .unwrap_or("repo")
         .to_string();
+    let worktrees_root = worktrees_base(&state.store)?;
     let worktree_path = crate::workspace::WorkspaceManager::worktree_path(
-        &harness_home(),
+        &worktrees_root,
         &repo_name,
         &input.head,
     );
@@ -183,7 +184,7 @@ pub async fn create_review_workspace(
             &input.title,
             &input.head,
             &input.base,
-            &harness_home(),
+            &worktrees_root,
         )
         .await?;
 

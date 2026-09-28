@@ -42,5 +42,6 @@ commands.allow = [
   "start_streaming_spike",
   "control_workspace_app",
   "set_repo_run_command",
+  "set_setting",
   "send_workspace_findings"
 ]

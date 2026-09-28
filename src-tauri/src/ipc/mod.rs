@@ -50,6 +50,7 @@ pub fn builder() -> Builder {
             commands::teardown_workspace,
             commands::control_workspace_app,
             commands::set_repo_run_command,
+            commands::set_setting,
             commands::send_workspace_findings
         ])
         .events(tauri_specta::collect_events![

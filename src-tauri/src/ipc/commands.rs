@@ -20,7 +20,8 @@ use super::types::{
     CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
     CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RenameWorkspaceInput,
     RepoBranchesResult, ResolveApprovalResult, SendWorkspaceFindingsInput,
-    SetRepoRunCommandInput, Snapshot, SwitchWorkspaceBranchInput, TeardownInput,
+    SetRepoRunCommandInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
+    TeardownInput,
     TeardownPreview, WorkspaceAppControlAction,
     WorkspaceSummaryResult,
 };
@@ -112,6 +113,27 @@ pub async fn set_repo_run_command(
         setup_commands: repo.setup_commands,
         run_command: repo.run_command,
     })?;
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_setting(
+    app: AppHandle,
+    input: SetSettingInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let key = input.key.trim();
+    if key.is_empty() {
+        return Err(Error::Store("setting key required".into()));
+    }
+    state.store.set_setting(key, &input.value)?;
     let version = state.bump_event_version();
     let _ = StateChanged {
         version,
@@ -549,8 +571,9 @@ pub async fn create_workspace(
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("repo");
+    let worktrees_base = worktrees_base(&state.store)?;
     let worktree_path = crate::workspace::WorkspaceManager::worktree_path(
-        &harness_home(),
+        &worktrees_base,
         repo_name,
         &input.branch,
     );
@@ -564,7 +587,7 @@ pub async fn create_workspace(
             &input.name,
             &input.branch,
             &input.base,
-            &harness_home(),
+            &worktrees_base,
         )
         .await?;
 
@@ -1031,6 +1054,17 @@ pub fn harness_home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+pub fn worktrees_base(store: &crate::store::Store) -> Result<PathBuf> {
+    Ok(store
+        .get_setting("worktreeRoot")?
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(|value| expand_tilde(&value))
+        .unwrap_or_else(|| {
+            crate::workspace::WorkspaceManager::default_worktrees_base(&harness_home())
+        }))
 }
 
 pub fn expand_tilde(path: &str) -> PathBuf {

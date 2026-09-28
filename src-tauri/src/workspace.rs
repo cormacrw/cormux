@@ -98,9 +98,12 @@ impl WorkspaceManager {
         }
     }
 
-    pub fn worktree_path(home: &Path, repo: &str, branch: &str) -> PathBuf {
-        home.join(".harness")
-            .join("worktrees")
+    pub fn default_worktrees_base(home: &Path) -> PathBuf {
+        home.join(".harness").join("worktrees")
+    }
+
+    pub fn worktree_path(worktrees_base: &Path, repo: &str, branch: &str) -> PathBuf {
+        worktrees_base
             .join(repo)
             .join(branch_slug(branch))
     }
@@ -159,10 +162,10 @@ impl WorkspaceManager {
         name: &str,
         branch: &str,
         base: &str,
-        home: &Path,
+        worktrees_base: &Path,
     ) -> Result<WorkspaceRecord> {
         let repo_name = repo_dir_name(repo_path);
-        let worktree = Self::worktree_path(home, repo_name, branch);
+        let worktree = Self::worktree_path(worktrees_base, repo_name, branch);
         if let Some(parent) = worktree.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -260,13 +263,21 @@ impl WorkspaceManager {
         name: &str,
         branch: &str,
         base: &str,
-        home: &Path,
+        worktrees_base: &Path,
         workspace_id: Option<&str>,
     ) -> Result<WorkspaceRecord> {
         let id = workspace_id
             .map(str::to_string)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
-        self.register_provisioning(&id, repo_id, repo_path, name, branch, base, home)
+        self.register_provisioning(
+            &id,
+            repo_id,
+            repo_path,
+            name,
+            branch,
+            base,
+            worktrees_base,
+        )
             .await?;
         self.add_worktree(&id).await?;
         self.set_status(&id, WorkspaceLifecycle::Ready).await
@@ -548,7 +559,8 @@ mod tests {
 
     #[test]
     fn worktree_path_includes_repo_and_branch_slug() {
-        let path = WorkspaceManager::worktree_path(Path::new("/Users/dev"), "my-app", "feat/login");
+        let base = Path::new("/Users/dev/.harness/worktrees");
+        let path = WorkspaceManager::worktree_path(base, "my-app", "feat/login");
         assert_eq!(
             path,
             PathBuf::from("/Users/dev/.harness/worktrees/my-app/feat-login")

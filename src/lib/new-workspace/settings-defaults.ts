@@ -2,6 +2,8 @@ import type { EngineKind, SettingRow } from '$lib/ipc/bindings'
 
 const ENGINE_VALUES: EngineKind[] = ['claude', 'cursor', 'codex', 'gemini']
 
+export const DEFAULT_WORKTREE_ROOT = '~/.harness/worktrees'
+
 export function readDefaultEngine(rows: SettingRow[]): EngineKind {
   const value = rows.find((row) => row.key === 'defaultEngine')?.value
   if (value && ENGINE_VALUES.includes(value as EngineKind)) {
@@ -12,4 +14,23 @@ export function readDefaultEngine(rows: SettingRow[]): EngineKind {
 
 export function readDefaultBase(rows: SettingRow[]): string {
   return rows.find((row) => row.key === 'defaultBase')?.value?.trim() || 'main'
+}
+
+export function readBooleanSetting(
+  rows: SettingRow[],
+  key: string,
+  defaultValue: boolean,
+): boolean {
+  const row = rows.find((entry) => entry.key === key)
+  if (!row) return defaultValue
+  return row.value === 'true'
+}
+
+export function readStringSetting(
+  rows: SettingRow[],
+  key: string,
+  defaultValue: string,
+): string {
+  const value = rows.find((entry) => entry.key === key)?.value?.trim()
+  return value || defaultValue
 }

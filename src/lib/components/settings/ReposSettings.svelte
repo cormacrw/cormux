@@ -34,7 +34,7 @@
   }
 </script>
 
-<div class="mt-3 flex flex-col gap-2">
+<div class="mt-4 flex flex-col gap-2">
   {#each repos.items as repo (repo.id)}
     <details class="rounded-lg border border-border px-3 py-2" open={false}>
       <summary class="cursor-pointer text-sm font-medium">{repo.name}</summary>

@@ -1,4 +1,5 @@
 import type { Snapshot } from '$lib/ipc'
+import { readBooleanSetting } from '$lib/new-workspace/settings-defaults'
 import { syncDockBadge } from './dock-badge'
 import { notifyHarness } from './os-notifications'
 import {
@@ -43,7 +44,12 @@ export async function onSnapshotSupervision(snapshot: Snapshot) {
   )
   await syncDockBadge(pending)
 
-  if (pending > lastPending && !windowFocused) {
+  const notifyApprovals = readBooleanSetting(
+    snapshot.persisted.settings,
+    'notifyApprovals',
+    true,
+  )
+  if (pending > lastPending && !windowFocused && notifyApprovals) {
     await notifyHarness('Cormux', approvalNeededNotificationBody(pending))
   }
   lastPending = pending
@@ -59,7 +65,12 @@ export async function onSnapshotSupervision(snapshot: Snapshot) {
           workspaceId,
         ),
       )
-      if (!windowFocused) {
+      const notifyReviewFinished = readBooleanSetting(
+        snapshot.persisted.settings,
+        'notifyReviewFinished',
+        true,
+      )
+      if (!windowFocused && notifyReviewFinished) {
         const label =
           prNumberForWorkspace(snapshot, workspaceId) != null
             ? `Review of #${prNumberForWorkspace(snapshot, workspaceId)} finished · ${count} findings`

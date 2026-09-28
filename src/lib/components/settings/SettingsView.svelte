@@ -1,11 +1,37 @@
 <script lang="ts">
+  import { tick } from 'svelte'
+  import AgentsSettings from '$lib/components/settings/AgentsSettings.svelte'
+  import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte'
+  import GithubSettings from '$lib/components/settings/GithubSettings.svelte'
+  import NotificationsSettings from '$lib/components/settings/NotificationsSettings.svelte'
   import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
+  import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
+  import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
+  import SkillsSettings from '$lib/components/settings/SkillsSettings.svelte'
+  import {
+    normalizeSettingsSection,
+    SETTINGS_SECTIONS,
+    type SettingsSectionId,
+    settingsSectionDomId,
+  } from '$lib/settings/sections'
   import { app, settings } from '$lib/state'
 
-  let settingsTitle: HTMLHeadingElement | undefined = $state()
+  const SCROLL_SPY_OFFSET = 120
 
-  let reposSection: HTMLElement | undefined = $state()
-  let enginesSection: HTMLElement | undefined = $state()
+  let settingsTitle: HTMLHeadingElement | undefined = $state()
+  let scrollRoot: HTMLElement | undefined = $state()
+  let activeSection = $state<SettingsSectionId>('agents')
+
+  const sectionRefs: Partial<Record<SettingsSectionId, HTMLElement>> = {}
+
+  function bindSection(node: HTMLElement, id: SettingsSectionId) {
+    sectionRefs[id] = node
+    return {
+      destroy() {
+        delete sectionRefs[id]
+      },
+    }
+  }
 
   $effect(() => {
     if (app.focusTarget !== 'settings') return
@@ -14,42 +40,177 @@
   })
 
   $effect(() => {
-    const section = settings.focusSection
-    if (!section) return
-    const target =
-      section === 'repos'
-        ? reposSection
-        : section === 'engines'
-          ? enginesSection
-          : null
-    target?.scrollIntoView({ block: 'nearest' })
+    const raw = settings.focusSection
+    if (!raw) return
+    const section = normalizeSettingsSection(raw)
+    void tick().then(() => jumpTo(section))
     settings.focusSection = null
   })
+
+  function jumpTo(section: SettingsSectionId) {
+    const target = sectionRefs[section]
+    if (!target) return
+    target.scrollIntoView({
+      behavior: settings.reduceMotion ? 'auto' : 'smooth',
+      block: 'start',
+    })
+    target.focus({ preventScroll: true })
+    activeSection = section
+  }
+
+  function updateActiveSection() {
+    const root = scrollRoot
+    if (!root) return
+    const atBottom =
+      root.scrollHeight - root.scrollTop - root.clientHeight < 8
+    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'skills'
+    if (atBottom) {
+      activeSection = last
+      return
+    }
+    const rootTop = root.getBoundingClientRect().top
+    let current: SettingsSectionId = SETTINGS_SECTIONS[0].id
+    for (const section of SETTINGS_SECTIONS) {
+      const el = sectionRefs[section.id]
+      if (!el) continue
+      const top = el.getBoundingClientRect().top - rootTop
+      if (top <= SCROLL_SPY_OFFSET) current = section.id
+    }
+    activeSection = current
+  }
 </script>
 
-<section class="flex flex-1 flex-col gap-4 p-6">
-  <header>
-    <h1
-      bind:this={settingsTitle}
-      tabindex="-1"
-      class="text-xl font-semibold tracking-tight outline-none"
-    >
-      Settings
-    </h1>
-  </header>
-  <label class="flex items-center gap-2 text-sm">
-    <input type="checkbox" bind:checked={settings.reduceMotion} />
-    Reduce motion
-  </label>
-  <section bind:this={reposSection} id="settings-repos" class="scroll-mt-4">
-    <h2 class="text-sm font-medium">Repositories</h2>
-    <p class="text-sm text-muted-foreground">Repo setup and run commands.</p>
-    <ReposSettings />
-  </section>
-  <section bind:this={enginesSection} id="settings-engines" class="scroll-mt-4">
-    <h2 class="text-sm font-medium">Engines</h2>
-    <p class="text-sm text-muted-foreground">
-      Default agent and installed CLIs.
-    </p>
-  </section>
+<section
+  class="view flex min-h-0 flex-1 flex-col"
+  id="view-settings"
+  data-od-id="settings-view"
+>
+  <div
+    bind:this={scrollRoot}
+    class="min-h-0 flex-1 overflow-y-auto"
+    onscroll={updateActiveSection}
+  >
+    <div class="set-inner mx-auto flex w-full max-w-3xl flex-col gap-6 p-6 min-[761px]:max-w-4xl min-[761px]:flex-row min-[761px]:items-start min-[761px]:gap-10">
+      <SettingsSectionNav active={activeSection} onJump={jumpTo} />
+
+      <div class="set-sections min-w-0 flex-1 space-y-10 pb-10">
+        <header>
+          <h1
+            bind:this={settingsTitle}
+            tabindex="-1"
+            class="text-xl font-semibold tracking-tight outline-none"
+            data-od-id="settings-title"
+          >
+            Settings
+          </h1>
+        </header>
+
+        <section
+          use:bindSection={'agents'}
+          id={settingsSectionDomId('agents')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-agents-h"
+          data-od-id="settings-agents"
+        >
+          <SettingsSectionHead
+            id="settings-agents-h"
+            title="Agents"
+            description="How new agents start and what they can do without asking."
+          />
+          <div class="mt-4">
+            <AgentsSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'repos'}
+          id={settingsSectionDomId('repos')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-repos-h"
+          data-od-id="settings-repos"
+        >
+          <SettingsSectionHead
+            id="settings-repos-h"
+            title="Repos"
+            description="Local folders that new workspaces can check out from."
+          />
+          <ReposSettings />
+        </section>
+
+        <section
+          use:bindSection={'general'}
+          id={settingsSectionDomId('general')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-general-h"
+          data-od-id="settings-general"
+        >
+          <SettingsSectionHead
+            id="settings-general-h"
+            title="General"
+            description="Defaults for new workspaces and how the app behaves."
+          />
+          <div class="mt-4">
+            <GeneralSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'github'}
+          id={settingsSectionDomId('github')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-github-h"
+          data-od-id="settings-github-section"
+        >
+          <SettingsSectionHead
+            id="settings-github-h"
+            title="GitHub"
+            description="Sign in and sync pull requests from your account."
+          />
+          <div class="mt-4">
+            <GithubSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'notifications'}
+          id={settingsSectionDomId('notifications')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-notifications-h"
+          data-od-id="settings-notifications-section"
+        >
+          <SettingsSectionHead
+            id="settings-notifications-h"
+            title="Notifications"
+            description="Desktop alerts while Cormux is in the background."
+          />
+          <div class="mt-4">
+            <NotificationsSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'skills'}
+          id={settingsSectionDomId('skills')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-skills-h"
+          data-od-id="settings-skills"
+        >
+          <SettingsSectionHead
+            id="settings-skills-h"
+            title="Skills"
+            description="Reusable instructions any agent can load into its thread."
+          />
+          <div class="mt-4">
+            <SkillsSettings />
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
 </section>

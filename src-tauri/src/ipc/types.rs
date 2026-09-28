@@ -236,6 +236,13 @@ pub struct SetRepoRunCommandInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct SetSettingInput {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct DraftPrWhyResult {
     pub workspace_id: String,
     pub text: String,
