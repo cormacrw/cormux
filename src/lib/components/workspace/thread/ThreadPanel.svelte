@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import {
     app,
     findings,
@@ -91,9 +91,13 @@
   })
 
   $effect(() => {
-    $virtualizer.setOptions({
-      count: rows.length,
-      getScrollElement: () => scrollEl ?? null,
+    const count = rows.length
+    const element = scrollEl
+    untrack(() => {
+      $virtualizer.setOptions({
+        count,
+        getScrollElement: () => element ?? null,
+      })
     })
   })
 
@@ -168,7 +172,7 @@
     bind:this={scrollEl}
     class="min-h-0 flex-1 overflow-y-auto"
   >
-    <div class="mx-auto w-full max-w-[760px] px-1 pb-4 pt-1">
+    <div class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-3">
       <ThreadIntro {thread} {workspace} {otherThreadCount} {nowMs} />
 
       <ol class="mt-4 space-y-2" aria-label="Conversation" id="timeline">

@@ -1,0 +1,20 @@
+---
+description: Verify UI changes with Playwright against the browser harness
+alwaysApply: true
+---
+
+# Verify UI in the browser harness
+
+Cormux is a Tauri app. This agent session has no desktop/computer-use tools and no in-IDE browser MCP. Do not claim a UI change works after reading code.
+
+After changing layout, styling, dialogs, routing, or click handlers:
+
+1. Run `pnpm test:e2e` (starts Vite with the Tauri IPC stub in `src/lib/dev/browser-harness.ts`).
+2. Read `e2e/output/new-workspace.png` (and any new screenshots you add) with the Read tool. Confirm the actual pixels, not just that the test passed.
+3. If the flow is not covered, extend `e2e/` so it clicks the control and asserts visible outcome (dialog open, footer inside the card, no console pageerror).
+
+`pnpm test` (Vitest) only covers pure TS helpers. It does not open the New workspace dialog.
+
+Native macOS chrome (overlay traffic lights, dragging, Keychain) cannot be verified in Chromium. Say that explicitly. The user still has to run `pnpm tauri dev` for those.
+
+If Cursor Browser MCP is enabled, also drive `http://127.0.0.1:1420` after `pnpm dev` — the same harness runs there (`html[data-cormux-harness=browser]`).

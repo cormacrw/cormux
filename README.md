@@ -16,6 +16,9 @@ pnpm tauri dev     # run the app with hot reload
 pnpm tauri build   # build Cormux.app and a .dmg
 pnpm lint          # ESLint + Prettier
 pnpm check         # svelte-check + tsc
-pnpm test          # Vitest
+pnpm test          # Vitest (pure TS helpers)
+pnpm test:e2e      # Playwright against Vite + mocked IPC (Chromium)
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+`pnpm test:e2e` is how UI changes get verified without the native window. It stubs Tauri invoke (see `src/lib/dev/browser-harness.ts`), clicks through the Svelte shell, and writes `e2e/output/*.png`. Overlay traffic lights and Keychain still need `pnpm tauri dev`.

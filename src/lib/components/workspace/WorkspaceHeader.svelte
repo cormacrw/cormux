@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
   import * as Tooltip from '$lib/components/ui/tooltip'
   import {
@@ -89,54 +90,59 @@
   function toggleChanges() {
     workspaceUi.changesOpen = !workspaceUi.changesOpen
   }
+
+  function startHeaderDrag(event: MouseEvent) {
+    if (event.button !== 0) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (target.closest('button, a, input, textarea, [role="tab"]')) return
+    void getCurrentWindow().startDragging()
+  }
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <header
-  class="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 pb-4"
+  class="flex flex-col"
+  data-tauri-drag-region
   data-od-id="ws-header"
+  onmousedown={startHeaderDrag}
 >
-  <div class="min-w-0 flex flex-1 flex-col gap-1.5">
-    <div class="flex min-w-0 items-start gap-2">
-      <Tooltip.Root>
-        <Tooltip.Trigger class="min-w-0 flex-1">
-          {#snippet child({ props })}
-            <h1
-              {...props}
-              bind:this={titleRef}
-              tabindex="-1"
-              data-ws-focus="title"
-              class="truncate text-xl font-semibold tracking-tight outline-none"
-              onfocus={onTitleFocus}
-            >
-              {workspace.name}
-            </h1>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>{workspace.name}</Tooltip.Content>
-      </Tooltip.Root>
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <Button
-              {...props}
-              variant="ghost"
-              size="icon-sm"
-              class="shrink-0 text-muted-foreground"
-              aria-label="Rename workspace"
-              onclick={onRename}
-            >
-              <Pencil class="size-4" aria-hidden="true" />
-            </Button>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>Rename workspace</Tooltip.Content>
-      </Tooltip.Root>
-    </div>
-
-    {#if repo?.name}
-      <p class="truncate text-xs text-muted-foreground">{repo.name}</p>
-    {/if}
-
+  <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
+  <div class="flex min-w-0 flex-1 items-center gap-2">
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <h1
+            {...props}
+            bind:this={titleRef}
+            tabindex="-1"
+            data-ws-focus="title"
+            class="min-w-0 truncate text-[15px] font-medium tracking-tight outline-none"
+            onfocus={onTitleFocus}
+          >
+            {workspace.name}
+          </h1>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>{workspace.name}</Tooltip.Content>
+    </Tooltip.Root>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant="ghost"
+            size="icon-sm"
+            class="size-6 shrink-0 text-muted-foreground"
+            aria-label="Rename workspace"
+            onclick={onRename}
+          >
+            <Pencil class="size-3.5" aria-hidden="true" />
+          </Button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>Rename workspace</Tooltip.Content>
+    </Tooltip.Root>
     <WorkspaceBranchTag
       workspaceId={workspace.id}
       repoId={record?.repoId ?? ''}
@@ -147,14 +153,8 @@
       threads={wsThreads}
       {provisioning}
     />
-
-    {#if runtime.conflict}
-      <GitConflictBanner
-        workspaceId={workspace.id}
-        branch={workspace.branch}
-        base={record?.base ?? 'main'}
-        conflict={runtime.conflict}
-      />
+    {#if repo?.name}
+      <p class="truncate text-xs text-muted-foreground">{repo.name}</p>
     {/if}
   </div>
 
@@ -204,4 +204,13 @@
 
     <WorkspacePrimaryAction {workspace} />
   </div>
+  </div>
+  {#if runtime.conflict}
+    <GitConflictBanner
+      workspaceId={workspace.id}
+      branch={workspace.branch}
+      base={record?.base ?? 'main'}
+      conflict={runtime.conflict}
+    />
+  {/if}
 </header>

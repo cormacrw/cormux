@@ -41,6 +41,9 @@ export default ts.config(
       'src-tauri/**',
       'src/lib/ipc/bindings.ts',
       'node_modules/**',
+      'e2e/output/**',
+      'playwright-report/**',
+      'test-results/**',
     ],
   },
 )

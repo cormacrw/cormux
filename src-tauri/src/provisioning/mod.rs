@@ -1,8 +1,8 @@
 mod runner;
 
 pub use runner::{
-    join_thread_provisioning, retry_provisioning, run_workspace_provisioning,
-    skip_provisioning_setup, JoinProvisionJob, LeadProvisionJob,
+    ensure_thread_engine, join_thread_provisioning, retry_provisioning,
+    run_workspace_provisioning, skip_provisioning_setup, JoinProvisionJob, LeadProvisionJob,
 };
 
 use std::time::Duration;

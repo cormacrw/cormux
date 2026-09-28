@@ -57,7 +57,3 @@ export function validateBaseBranch(
   }
   return null
 }
-
-export function validatePrompt(value: string): boolean {
-  return value.trim().length > 0
-}

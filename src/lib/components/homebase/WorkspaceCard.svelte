@@ -73,11 +73,12 @@
 
 <article
   aria-labelledby="ws-title-{workspace.id}"
-  class="group/ws min-w-0 {entering && !settings.reduceMotion
+  class="group/ws min-w-0 cursor-pointer {entering && !settings.reduceMotion
     ? 'animate-in fade-in duration-300'
     : ''} {exiting && !settings.reduceMotion
     ? 'animate-out fade-out zoom-out-98 duration-150'
     : ''}"
+  onclick={openWorkspace}
   onanimationend={(event) => {
     if (exiting && event.animationName.includes('fade-out')) {
       onExitComplete()

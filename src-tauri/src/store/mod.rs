@@ -245,6 +245,16 @@ impl Store {
         })
     }
 
+    pub fn set_workspace_status(&self, workspace_id: &str, status: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET status = ?1 WHERE id = ?2",
+                rusqlite::params![status, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn set_thread_status(&self, thread_id: &str, status: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(

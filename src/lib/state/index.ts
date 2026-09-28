@@ -84,9 +84,8 @@ function parseLifecycle(raw: string): WorkspaceLifecycle {
   return 'ready'
 }
 
-function workspaceRecordsFromSnapshot(snapshot: Snapshot): WorkspaceRecord[] {
-  if (snapshot.workspaces.length > 0) return snapshot.workspaces
-  return snapshot.persisted.workspaces.map((row) => ({
+function persistedWorkspaceRecord(row: Snapshot['persisted']['workspaces'][number]): WorkspaceRecord {
+  return {
     id: row.id,
     repoId: row.repoId,
     repoPath: '',
@@ -100,7 +99,16 @@ function workspaceRecordsFromSnapshot(snapshot: Snapshot): WorkspaceRecord[] {
     provStep: 0,
     setupFailedCommand: null,
     setupFailedExitCode: null,
-  }))
+  }
+}
+
+/** Runtime rows win. Saved workspaces missing from memory still show up so they can be opened. */
+function workspaceRecordsFromSnapshot(snapshot: Snapshot): WorkspaceRecord[] {
+  const runtimeIds = new Set(snapshot.workspaces.map((row) => row.id))
+  const saved = snapshot.persisted.workspaces
+    .filter((row) => !row.archivedAt && !runtimeIds.has(row.id))
+    .map(persistedWorkspaceRecord)
+  return [...snapshot.workspaces, ...saved]
 }
 
 function persistedById(snapshot: Snapshot): Map<string, WorkspaceRow> {
@@ -255,10 +263,8 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
       homebaseUi.beginCardExit(item)
     }
   }
-  if (
-    app.workspaceId &&
-    !nextWorkspaces.some((row) => row.id === app.workspaceId)
-  ) {
+  const aliveIds = new Set(nextWorkspaces.map((row) => row.id))
+  if (app.workspaceId && !aliveIds.has(app.workspaceId)) {
     app.openHomebase()
   }
   workspaces.hydrate(nextWorkspaces)

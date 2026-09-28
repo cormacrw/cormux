@@ -87,6 +87,13 @@ impl EngineRegistry {
         Ok(slot.events.subscribe())
     }
 
+    pub fn has_thread(&self, thread_id: &str) -> bool {
+        self.threads
+            .lock()
+            .ok()
+            .is_some_and(|threads| threads.contains_key(thread_id))
+    }
+
     pub fn session_id(&self, thread_id: &str) -> Result<Option<String>> {
         let threads = self
             .threads

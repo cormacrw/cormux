@@ -3,7 +3,6 @@ import {
   branchErrorMessage,
   validateBaseBranch,
   validateBranchName,
-  validatePrompt,
 } from './validation'
 
 describe('validateBranchName', () => {
@@ -41,12 +40,5 @@ describe('validateBaseBranch', () => {
 
   it('rejects unknown branches', () => {
     expect(validateBaseBranch('nope', ['main'])).toMatch(/No branch called/)
-  })
-})
-
-describe('validatePrompt', () => {
-  it('requires non-empty prompt', () => {
-    expect(validatePrompt('')).toBe(false)
-    expect(validatePrompt('  fix login  ')).toBe(true)
   })
 })

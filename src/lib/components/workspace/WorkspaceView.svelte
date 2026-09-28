@@ -126,7 +126,7 @@
   })
 </script>
 
-<section class="flex min-h-0 flex-1 flex-col gap-4 p-6">
+<section class="flex min-h-0 flex-1 flex-col">
   {#if isLoadSpike}
     <header>
       <h1

@@ -850,10 +850,13 @@ pub async fn create_workspace(
         cost_usd: None,
         transcript_readonly: false,
     })?;
-    let message = serde_json::json!({ "role": "user", "text": input.goal });
-    state
-        .store
-        .append_event(&thread_id, "message", &message.to_string())?;
+    let goal = input.goal.trim().to_string();
+    if !goal.is_empty() {
+        let message = serde_json::json!({ "role": "user", "text": &goal });
+        state
+            .store
+            .append_event(&thread_id, "message", &message.to_string())?;
+    }
     let worktree_step = serde_json::json!({
         "icon": "branch",
         "title": "Created worktree",
@@ -876,7 +879,6 @@ pub async fn create_workspace(
     let workspace_id_bg = workspace_id.clone();
     let thread_id_bg = thread_id.clone();
     let engine = input.engine.clone();
-    let goal = input.goal.clone();
     let repo_name = repo.name.clone();
     let setup_commands = crate::harness_config::effective_setup(
         &repo.setup_commands,
@@ -1161,10 +1163,29 @@ pub async fn send_thread_prompt(
     }
     let thread = snapshot_thread(&state, &thread_id)?;
     let held = thread.status == "paused";
+    if !held && !state.engines.has_thread(&thread_id) {
+        crate::provisioning::ensure_thread_engine(
+            &state,
+            &thread_id,
+            &thread.engine,
+            &thread.workspace_id,
+        )
+        .await?;
+    }
     persist_user_message(&state.store, &thread_id, &text)?;
     let _ = state
         .engines
         .submit_prompt(&thread_id, text, held);
+    if !held {
+        state.store.set_thread_status(&thread_id, "running")?;
+        state
+            .workspace
+            .set_thread(&thread_id, &thread.workspace_id, ThreadActivity::Running)
+            .await;
+        state
+            .store
+            .set_workspace_status(&thread.workspace_id, "running")?;
+    }
     emit_composer_snapshot(&app, &state);
     Ok(())
 }

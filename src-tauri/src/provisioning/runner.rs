@@ -435,22 +435,25 @@ async fn finish_after_setup(
         return Ok(());
     }
 
-    set_activity(state, &job.workspace_id, "Starting agent…", 2, None, None).await;
-    emit_snapshot(app, state);
+    let start_agent = job.review || !job.goal.trim().is_empty();
+    if start_agent {
+        set_activity(state, &job.workspace_id, "Starting agent…", 2, None, None).await;
+        emit_snapshot(app, state);
 
-    let prompt = if job.review {
-        crate::review::reviewer_engine_prompt(&job.goal)
-    } else {
-        job.goal.clone()
-    };
-    spawn_engine(
-        state,
-        &job.thread_id,
-        &job.engine,
-        &job.workspace_id,
-        Some(&prompt),
-    )
-    .await?;
+        let prompt = if job.review {
+            crate::review::reviewer_engine_prompt(&job.goal)
+        } else {
+            job.goal.trim().to_string()
+        };
+        spawn_engine(
+            state,
+            &job.thread_id,
+            &job.engine,
+            &job.workspace_id,
+            Some(&prompt),
+        )
+        .await?;
+    }
 
     let setup_step = if setup_count > 0 {
         serde_json::json!({
@@ -471,48 +474,81 @@ async fn finish_after_setup(
         .store
         .append_event(&job.thread_id, "tool", &setup_step.to_string());
 
-    seed_summary_if_needed(state, job).await?;
+    if start_agent {
+        seed_summary_if_needed(state, job).await?;
+    }
 
     let thread_title = if job.review {
         "Reviewer"
     } else {
         "Lead"
     };
+    let thread_status = if start_agent { "running" } else { "idle" };
     let _ = state.store.upsert_thread(&ThreadRow {
         id: job.thread_id.clone(),
         workspace_id: job.workspace_id.clone(),
         title: thread_title.into(),
         engine: job.engine.clone(),
         session_id: state.engines.session_id(&job.thread_id).ok().flatten(),
-        status: "running".into(),
+        status: thread_status.into(),
         used_tokens: None,
         context_size: None,
         cost_usd: None,
         transcript_readonly: false,
     });
 
-    state
-        .workspace
-        .set_thread(&job.thread_id, &job.workspace_id, ThreadActivity::Running)
+    if start_agent {
+        state
+            .workspace
+            .set_thread(&job.thread_id, &job.workspace_id, ThreadActivity::Running)
+            .await;
+        let record = state
+            .workspace
+            .set_status(&job.workspace_id, WorkspaceLifecycle::Running)
+            .await?;
+        set_activity(
+            state,
+            &job.workspace_id,
+            initial_running_activity(&job.engine, job.review),
+            0,
+            None,
+            None,
+        )
         .await;
-    let record = state
-        .workspace
-        .set_status(&job.workspace_id, WorkspaceLifecycle::Running)
-        .await?;
-    set_activity(
-        state,
-        &job.workspace_id,
-        initial_running_activity(&job.engine, job.review),
-        0,
-        None,
-        None,
-    )
-    .await;
-
-    persist_workspace_row(state, &job.workspace_id, "running", &record)?;
-    emit_workspace_status(app, state, &job.workspace_id, WorkspaceLifecycle::Running);
+        persist_workspace_row(state, &job.workspace_id, "running", &record)?;
+        emit_workspace_status(app, state, &job.workspace_id, WorkspaceLifecycle::Running);
+    } else {
+        let record = state
+            .workspace
+            .set_status(&job.workspace_id, WorkspaceLifecycle::Ready)
+            .await?;
+        state
+            .workspace
+            .set_thread(&job.thread_id, &job.workspace_id, ThreadActivity::Idle)
+            .await;
+        let record = state
+            .workspace
+            .get(&job.workspace_id)
+            .await
+            .unwrap_or(record);
+        set_activity(state, &job.workspace_id, "", 0, None, None).await;
+        persist_workspace_row(state, &job.workspace_id, "idle", &record)?;
+        emit_workspace_status(app, state, &job.workspace_id, WorkspaceLifecycle::Idle);
+    }
     emit_snapshot(app, state);
     Ok(())
+}
+
+pub async fn ensure_thread_engine(
+    state: &AppState,
+    thread_id: &str,
+    engine: &str,
+    workspace_id: &str,
+) -> Result<()> {
+    if state.engines.has_thread(thread_id) {
+        return Ok(());
+    }
+    spawn_engine(state, thread_id, engine, workspace_id, None).await
 }
 
 fn worktree_exists(record: &WorkspaceRecord) -> bool {

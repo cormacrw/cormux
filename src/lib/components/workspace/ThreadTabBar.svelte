@@ -110,8 +110,8 @@
     return cn(
       'h-8 max-w-[11rem] shrink-0 gap-1.5 rounded-t-md rounded-b-none border border-transparent px-2.5 font-normal shadow-none',
       selected
-        ? 'border-border/70 border-b-transparent bg-background text-foreground'
-        : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+        ? '-mb-px border-border/70 border-b-background bg-background text-foreground'
+        : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
     )
   }
 </script>
@@ -120,7 +120,7 @@
   bind:this={barEl}
   role="group"
   aria-label="Thread tabs"
-  class="thread-bar flex min-h-9 items-end gap-1 overflow-x-auto pb-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+  class="thread-bar flex h-9 shrink-0 items-end gap-1 overflow-x-auto border-b border-border/60 px-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
   data-od-id="thread-tabs"
   onkeydown={onBarKeydown}
 >
@@ -216,7 +216,7 @@
             id="thread-add"
             variant="ghost"
             size="icon-sm"
-            class="mb-0.5 shrink-0 text-muted-foreground"
+            class="mb-px size-7 shrink-0 text-muted-foreground"
             aria-label="New thread"
             data-od-id="thread-add"
             onclick={() => requestNewThread(workspace.id)}

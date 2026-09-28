@@ -145,7 +145,7 @@
           aria-disabled="true"
           data-ws-focus="branch"
           data-od-id="ws-branch"
-          class="max-w-[min(100%,14rem)] gap-1.5 font-mono text-xs"
+          class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
         >
           <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
           <span class="sr-only">Branch</span>
@@ -176,7 +176,7 @@
                 aria-controls="ws-branch-menu"
                 data-ws-focus="branch"
                 data-od-id="ws-branch"
-                class="max-w-[min(100%,14rem)] gap-1.5 font-mono text-xs"
+                class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
               >
                 <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
                 <span class="sr-only">Branch</span>

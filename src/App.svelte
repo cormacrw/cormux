@@ -21,6 +21,7 @@
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
   import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
   import { setHarnessWindowFocused } from '$lib/feedback/supervision'
+  import * as Tooltip from '$lib/components/ui/tooltip'
   import Homebase from './routes/Homebase.svelte'
   import Settings from './routes/Settings.svelte'
   import Workspace from './routes/Workspace.svelte'
@@ -89,18 +90,20 @@
   })
 </script>
 
-<ToastsRegion />
-<NewWorkspaceDialog />
-<TeardownDialog />
-<CreatePrDialog />
-<SubmitReviewDialog />
-<CommandPalette />
-<AppShell>
-  {#if app.view === 'settings'}
-    <Settings />
-  {:else if app.view === 'workspace'}
-    <Workspace />
-  {:else}
-    <Homebase />
-  {/if}
-</AppShell>
+<Tooltip.Provider>
+  <ToastsRegion />
+  <NewWorkspaceDialog />
+  <TeardownDialog />
+  <CreatePrDialog />
+  <SubmitReviewDialog />
+  <CommandPalette />
+  <AppShell>
+    {#if app.view === 'settings'}
+      <Settings />
+    {:else if app.view === 'workspace'}
+      <Workspace />
+    {:else}
+      <Homebase />
+    {/if}
+  </AppShell>
+</Tooltip.Provider>

@@ -49,23 +49,10 @@ export class AppStore {
   }
 
   hydrate(snapshot: Snapshot) {
+    // ponytail: core always sends view=homebase. Applying it on every snapshot
+    // (including the focus refresh a file dialog triggers) leaves Settings.
+    // Apply snapshot.view once the core actually stores the open view.
     this.version = snapshot.version
-    if (snapshot.view === 'homebase') {
-      this.view = 'homebase'
-      this.workspaceId = null
-      this.threadId = null
-      return
-    }
-    if (snapshot.view === 'settings') {
-      this.view = 'settings'
-      this.workspaceId = null
-      this.threadId = null
-      return
-    }
-    this.view = 'workspace'
-    this.workspaceId = snapshot.view.workspace.id
-    const first = threads.forWorkspace(snapshot.view.workspace.id)[0]
-    this.threadId = first?.id ?? null
   }
 
   openHomebase() {

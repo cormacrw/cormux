@@ -9,7 +9,12 @@
   import { commands } from '$lib/ipc'
   import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
-  import { draftBranchName, draftWorkspaceName } from '$lib/new-workspace/draft'
+  import {
+    draftBranchName,
+    draftWorkspaceName,
+    fallbackBranchName,
+    fallbackWorkspaceName,
+  } from '$lib/new-workspace/draft'
   import {
     ENGINE_OPTIONS,
     engineHint,
@@ -19,7 +24,6 @@
     branchErrorMessage,
     validateBaseBranch,
     validateBranchName,
-    validatePrompt,
   } from '$lib/new-workspace/validation'
   import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
   import {
@@ -47,7 +51,6 @@
 
   let nameEdited = $state(false)
   let branchEdited = $state(false)
-  let promptError = $state(false)
   let branchError = $state<string | null>(null)
   let baseError = $state<string | null>(null)
 
@@ -106,7 +109,6 @@
     baseBranch = settings.defaultBase
     nameEdited = false
     branchEdited = false
-    promptError = false
     branchError = null
     baseError = null
     submitError = null
@@ -143,7 +145,6 @@
       if (!nameEdited) workspaceName = ''
       if (!branchEdited) branchName = ''
     }
-    if (trimmed) promptError = false
   }
 
   function onNameInput() {
@@ -173,12 +174,32 @@
     }
   }
 
+  function takenBranches() {
+    return [
+      ...repoBranches,
+      ...workspaceRecords.records.map((row) => row.branch),
+    ]
+  }
+
+  function resolvedName() {
+    const repoName = repos.getById(repoId)?.name ?? ''
+    return (
+      workspaceName.trim() ||
+      draftWorkspaceName(prompt) ||
+      fallbackWorkspaceName(repoName)
+    ).slice(0, 48)
+  }
+
+  function resolvedBranch() {
+    return (
+      branchName.trim() ||
+      draftBranchName(prompt) ||
+      fallbackBranchName(takenBranches())
+    )
+  }
+
   function validateAll(): boolean {
-    if (!validatePrompt(prompt)) {
-      promptError = true
-      return false
-    }
-    const branchValue = branchName.trim() || draftBranchName(prompt)
+    const branchValue = resolvedBranch()
     const branchCode = validateBranchName(
       branchValue,
       branchValidationContext(),
@@ -199,14 +220,13 @@
     if (submitting) return
     submitError = null
     if (!validateAll()) {
-      if (promptError) document.getElementById('nw-prompt')?.focus()
-      else if (branchError) document.getElementById('nw-branch')?.focus()
+      if (branchError) document.getElementById('nw-branch')?.focus()
       else if (baseError) document.getElementById('nw-base')?.focus()
       return
     }
 
-    const name = workspaceName.trim() || draftWorkspaceName(prompt)
-    const branch = branchName.trim() || draftBranchName(prompt)
+    const name = resolvedName()
+    const branch = resolvedBranch()
     submitting = true
 
     const result = await commands.createWorkspace({
@@ -225,9 +245,9 @@
     }
 
     homebaseUi.resetFilter()
-    app.openHomebase()
     closeDialog()
     hydrateFromSnapshot(await fetchSnapshot())
+    app.openWorkspace(result.data.workspaceId)
   }
 
   function onDialogKeydown(event: KeyboardEvent) {
@@ -431,19 +451,12 @@
             placeholder="e.g., Implement OAuth login with Supabase"
             bind:value={prompt}
             oninput={onPromptInput}
-            onblur={() => {
-              if (!validatePrompt(prompt)) promptError = true
-            }}
-            aria-invalid={promptError ? 'true' : undefined}
-            aria-describedby="nw-prompt-hint nw-prompt-error"
+            aria-describedby="nw-prompt-hint"
           />
-          {#if promptError}
-            <p id="nw-prompt-error" class="text-xs text-destructive">
-              Describe the task so the agent knows where to start.
-            </p>
-          {:else}
-            <span id="nw-prompt-error" class="sr-only"></span>
-          {/if}
+          <p id="nw-prompt-hint" class="text-xs text-muted-foreground">
+            Optional. Leave blank and the thread waits until you send a
+            message.
+          </p>
         </div>
 
         {#if submitError}

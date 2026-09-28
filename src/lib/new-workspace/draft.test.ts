@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { draftBranchName, draftWorkspaceName } from './draft'
+import {
+  draftBranchName,
+  draftWorkspaceName,
+  fallbackBranchName,
+  fallbackWorkspaceName,
+} from './draft'
 
 describe('draftWorkspaceName', () => {
   it('capitalises and takes whole words up to 40 characters', () => {
@@ -29,6 +34,20 @@ describe('draftBranchName', () => {
   it('uses refactor prefix for refactors', () => {
     expect(draftBranchName('Refactor auth module')).toBe(
       'refactor/refactor-auth-module',
+    )
+  })
+})
+
+describe('blank prompt fallbacks', () => {
+  it('uses the repo name, or Workspace', () => {
+    expect(fallbackWorkspaceName('my-app')).toBe('my-app')
+    expect(fallbackWorkspaceName('  ')).toBe('Workspace')
+  })
+
+  it('picks the next free feat/workspace branch', () => {
+    expect(fallbackBranchName([])).toBe('feat/workspace')
+    expect(fallbackBranchName(['feat/workspace', 'feat/workspace-2'])).toBe(
+      'feat/workspace-3',
     )
   })
 })
