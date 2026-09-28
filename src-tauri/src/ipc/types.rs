@@ -14,6 +14,7 @@ pub struct Snapshot {
     pub view: AppView,
     pub persisted: PersistedSnapshot,
     pub workspaces: Vec<WorkspaceRecord>,
+    pub workspace_git: Vec<WorkspaceGitRuntime>,
     pub memory: Option<MemorySample>,
     /// In-memory broker queue (may exceed persisted pending rows).
     pub pending_live_approvals: usize,
@@ -142,6 +143,43 @@ pub struct CreateWorkspaceResult {
 #[serde(rename_all = "camelCase")]
 pub struct RepoBranchesResult {
     pub branches: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGitRuntime {
+    pub workspace_id: String,
+    pub behind: u32,
+    pub ahead: u32,
+    pub conflict: Option<GitConflictState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GitConflictState {
+    pub operation: GitConflictOperation,
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum GitConflictOperation {
+    Merge,
+    Rebase,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchWorkspaceBranchInput {
+    pub workspace_id: String,
+    pub branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceBranchInput {
+    pub workspace_id: String,
+    pub branch: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

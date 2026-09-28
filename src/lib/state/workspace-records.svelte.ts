@@ -1,4 +1,9 @@
-import type { WorkspaceAppRuntime, WorkspaceRecord } from '$lib/ipc/bindings'
+import type {
+  GitConflictState,
+  WorkspaceAppRuntime,
+  WorkspaceGitRuntime,
+  WorkspaceRecord,
+} from '$lib/ipc/bindings'
 
 export type AppRunStatus = 'stopped' | 'starting' | 'running' | 'crashed'
 
@@ -6,6 +11,8 @@ export type WorkspaceRuntime = {
   appStatus: AppRunStatus
   port: number | null
   behind: number
+  ahead: number
+  conflict: GitConflictState | null
   exitCode: number | null
   logVersion: number
 }
@@ -23,6 +30,8 @@ export class WorkspaceRecordsStore {
           appStatus: 'stopped',
           port: null,
           behind: 0,
+          ahead: 0,
+          conflict: null,
           exitCode: null,
           logVersion: 0,
         }
@@ -46,6 +55,8 @@ export class WorkspaceRecordsStore {
         appStatus: 'stopped',
         port: null,
         behind: 0,
+        ahead: 0,
+        conflict: null,
         exitCode: null,
         logVersion: 0,
       }
@@ -58,6 +69,21 @@ export class WorkspaceRecordsStore {
       ...this.runtimeById,
       [id]: { ...current, behind },
     }
+  }
+
+  applyGitStats(rows: WorkspaceGitRuntime[]) {
+    if (rows.length === 0) return
+    const next = { ...this.runtimeById }
+    for (const row of rows) {
+      const current = next[row.workspaceId] ?? this.runtime(row.workspaceId)
+      next[row.workspaceId] = {
+        ...current,
+        behind: row.behind,
+        ahead: row.ahead,
+        conflict: row.conflict,
+      }
+    }
+    this.runtimeById = next
   }
 
   setAppStatus(

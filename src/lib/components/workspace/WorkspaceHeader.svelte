@@ -16,6 +16,7 @@
   } from '$lib/workspace/header-focus'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
   import type { Workspace } from '$lib/state/workspaces.svelte'
+  import GitConflictBanner from './GitConflictBanner.svelte'
   import WorkspaceBranchTag from './WorkspaceBranchTag.svelte'
   import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte'
   import WorkspacePrimaryAction from './WorkspacePrimaryAction.svelte'
@@ -58,6 +59,8 @@
       runtime.appStatus,
       runtime.port,
       runtime.behind,
+      runtime.ahead,
+      runtime.conflict,
       workspaceUi.changesOpen,
       workspaceUi.activeTab,
       changeCountLabel,
@@ -135,12 +138,24 @@
     {/if}
 
     <WorkspaceBranchTag
+      workspaceId={workspace.id}
+      repoId={record?.repoId ?? ''}
       branch={workspace.branch}
       base={record?.base ?? 'main'}
       behind={runtime.behind}
+      ahead={runtime.ahead}
       threads={wsThreads}
       {provisioning}
     />
+
+    {#if runtime.conflict}
+      <GitConflictBanner
+        workspaceId={workspace.id}
+        branch={workspace.branch}
+        base={record?.base ?? 'main'}
+        conflict={runtime.conflict}
+      />
+    {/if}
   </div>
 
   <div
@@ -179,6 +194,7 @@
       branch={workspace.branch}
       base={record?.base ?? 'main'}
       behind={runtime.behind}
+      ahead={runtime.ahead}
       worktreePath={record?.worktreePath ?? ''}
       {narrow}
       {runDisabled}

@@ -295,6 +295,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   findings.hydrate(snapshot.persisted.findings)
   repos.hydrate(snapshot.persisted.repos)
   workspaceRecords.hydrate(recordList)
+  workspaceRecords.applyGitStats(snapshot.workspaceGit ?? [])
   workspaceRecords.applyApps(snapshot.workspaceApps ?? [])
   app.hydrate(snapshot)
   memory.hydrate(snapshot.memory)

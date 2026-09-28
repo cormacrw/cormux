@@ -341,20 +341,54 @@ impl Git {
     }
 
     pub async fn switch(&self, worktree: &Path, branch: &str) -> Result<()> {
+        self.require_clean_worktree(worktree, "switch").await?;
+        let output = self.run(worktree, &["switch", branch]).await?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let track = format!("origin/{branch}");
+        let output = self.run(worktree, &["switch", "--track", &track]).await?;
+        Self::require_success(&output, "switch --track")
+    }
+
+    pub async fn switch_new_branch(
+        &self,
+        worktree: &Path,
+        branch: &str,
+        start_point: &str,
+    ) -> Result<()> {
+        self.require_clean_worktree(worktree, "switch").await?;
+        let output = self
+            .run(worktree, &["switch", "-c", branch, start_point])
+            .await?;
+        Self::require_success(&output, "switch -c")
+    }
+
+    async fn require_clean_worktree(&self, worktree: &Path, action: &str) -> Result<()> {
         let status = self.status_porcelain(worktree).await?;
         if !status.trim().is_empty() {
-            return Err(Error::Git(
-                "switch refused: working tree is not clean".into(),
-            ));
+            return Err(Error::Git(format!(
+                "{action} refused: commit or stash uncommitted changes first"
+            )));
         }
-        let output = self.run(worktree, &["switch", branch]).await?;
-        Self::require_success(&output, "switch")
+        Ok(())
     }
 
     pub async fn merge(&self, worktree: &Path, base: &str) -> Result<()> {
+        self.require_clean_worktree(worktree, "merge").await?;
         let rev = format!("origin/{base}");
         let output = self.run(worktree, &["merge", &rev]).await?;
-        Self::require_success(&output, "merge")
+        if output.status.success() {
+            return Ok(());
+        }
+        let paths = self.unmerged_paths(worktree).await?;
+        if !paths.is_empty() {
+            return Err(Error::GitConflict {
+                operation: "merge".into(),
+                paths,
+            });
+        }
+        Err(Self::fail(&output, "merge"))
     }
 
     /// Stage a worktree path (`git add`). Used when the user approves a file in Changes.
@@ -392,9 +426,69 @@ impl Git {
     }
 
     pub async fn rebase(&self, worktree: &Path, base: &str) -> Result<()> {
+        self.require_clean_worktree(worktree, "rebase").await?;
         let rev = format!("origin/{base}");
         let output = self.run(worktree, &["rebase", &rev]).await?;
-        Self::require_success(&output, "rebase")
+        if output.status.success() {
+            return Ok(());
+        }
+        let paths = self.unmerged_paths(worktree).await?;
+        if !paths.is_empty() {
+            return Err(Error::GitConflict {
+                operation: "rebase".into(),
+                paths,
+            });
+        }
+        Err(Self::fail(&output, "rebase"))
+    }
+
+    pub async fn abort_merge(&self, worktree: &Path) -> Result<()> {
+        let output = self.run(worktree, &["merge", "--abort"]).await?;
+        Self::require_success(&output, "merge --abort")
+    }
+
+    pub async fn abort_rebase(&self, worktree: &Path) -> Result<()> {
+        let output = self.run(worktree, &["rebase", "--abort"]).await?;
+        Self::require_success(&output, "rebase --abort")
+    }
+
+    pub async fn branches_in_worktrees(&self, repo: &Path) -> Result<Vec<String>> {
+        let output = self.run(repo, &["worktree", "list", "--porcelain"]).await?;
+        Self::require_success(&output, "worktree list")?;
+        let mut branches = Vec::new();
+        for line in Self::stdout(&output).lines() {
+            let Some(rest) = line.strip_prefix("branch ") else {
+                continue;
+            };
+            let name = rest
+                .strip_prefix("refs/heads/")
+                .unwrap_or(rest)
+                .to_string();
+            if !name.is_empty() {
+                branches.push(name);
+            }
+        }
+        Ok(branches)
+    }
+
+    pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
+        let output = self
+            .run(
+                repo,
+                &["for-each-ref", "--format=%(refname)", "refs/heads"],
+            )
+            .await?;
+        Self::require_success(&output, "for-each-ref heads")?;
+        Ok(Self::stdout(&output)
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(|refname| {
+                refname
+                    .strip_prefix("refs/heads/")
+                    .unwrap_or(refname)
+                    .to_string()
+            })
+            .collect())
     }
 
     pub async fn unmerged_paths(&self, worktree: &Path) -> Result<Vec<String>> {

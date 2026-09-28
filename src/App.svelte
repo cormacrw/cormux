@@ -17,6 +17,7 @@
   import TeardownDialog from '$lib/components/workspace/TeardownDialog.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
+  import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
   import { setHarnessWindowFocused } from '$lib/feedback/supervision'
   import Homebase from './routes/Homebase.svelte'
   import Settings from './routes/Settings.svelte'
@@ -35,6 +36,7 @@
       const unlistenMenu = await bindNativeMenu()
       const unlistenFeedback = await bindFeedbackEvents()
       const unlistenWorkspaceApp = bindWorkspaceAppControls()
+      const unlistenGitWorkspace = bindGitWorkspaceControls()
       const win = getCurrentWindow()
       const unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
         setHarnessWindowFocused(focused)
@@ -52,6 +54,7 @@
         unlistenMenu()
         unlistenFeedback()
         unlistenWorkspaceApp()
+        unlistenGitWorkspace()
         unlistenFocus()
         unlistenState()
       }

@@ -16,9 +16,10 @@ use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 
 use super::types::{
-    AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceInput, CreateWorkspaceResult,
-    DiffUpdate, PtyChunk, RenameWorkspaceInput, RepoBranchesResult, ResolveApprovalResult,
-    SetRepoRunCommandInput, Snapshot, TeardownInput, TeardownPreview, WorkspaceAppControlAction,
+    AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
+    CreateWorkspaceInput, CreateWorkspaceResult, DiffUpdate, PtyChunk, RenameWorkspaceInput,
+    RepoBranchesResult, ResolveApprovalResult, SetRepoRunCommandInput, Snapshot,
+    SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, WorkspaceAppControlAction,
     WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
@@ -34,11 +35,31 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         .is_some();
     let pr_synced_at = state.store.get_setting("githubPrSyncedAt")?.filter(|value| !value.is_empty());
 
+    let persisted = state.store.snapshot()?;
+    let workspace_ids: Vec<String> = if state.workspace.list().await.is_empty() {
+        persisted
+            .workspaces
+            .iter()
+            .filter(|row| row.archived_at.is_none())
+            .map(|row| row.id.clone())
+            .collect()
+    } else {
+        state
+            .workspace
+            .list()
+            .await
+            .into_iter()
+            .map(|row| row.id)
+            .collect()
+    };
+    let workspace_git = crate::git_workspace::git_runtime_snapshot(&state, &workspace_ids);
+
     Ok(Snapshot {
         version: state.snapshot_version(),
         view: super::types::AppView::Homebase,
-        persisted: state.store.snapshot()?,
+        persisted,
         workspaces: state.workspace.list().await,
+        workspace_git,
         memory,
         pending_live_approvals: state.approvals.pending_count(),
         github_auth_configured,
@@ -115,13 +136,13 @@ pub async fn reload_environment(app: AppHandle, state: State<'_, AppState>) -> R
 #[specta::specta]
 pub async fn fetch_on_focus(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     let updates = state.fetch.tick().await?;
+    crate::git_workspace::apply_behind_updates(&state, &updates).await;
     let version = state.bump_event_version();
     let _ = StateChanged {
         version,
         kind: StateChangeKind::BehindCounts,
     }
     .emit(&app);
-    let _ = updates;
     if let Err(error) = state.pr_sync.sync_app(&app).await {
         log::warn!("focus PR sync failed: {error}");
     }
@@ -465,8 +486,7 @@ pub async fn list_repo_branches(
         .find(|row| row.id == repo_id)
         .ok_or_else(|| Error::Git(format!("unknown repo {repo_id}")))?;
     let repo_path = expand_tilde(&repo.path);
-    let refs = state.git.list_branches(&repo_path).await?;
-    let mut names: Vec<String> = refs.into_iter().map(|branch| branch.name).collect();
+    let mut names = state.git.list_local_branches(&repo_path).await?;
     names.sort();
     names.dedup();
     Ok(RepoBranchesResult { branches: names })
@@ -667,6 +687,73 @@ pub async fn rename_workspace(
     }
     .emit(&app);
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn switch_workspace_branch(
+    input: SwitchWorkspaceBranchInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::git_workspace::switch_workspace_branch(&app, &state, &input.workspace_id, &input.branch)
+        .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn pull_workspace(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::git_workspace::pull_workspace(&app, &state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn rebase_workspace(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::git_workspace::rebase_workspace(&app, &state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn push_workspace_branch(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::git_workspace::push_workspace_branch(&app, &state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn abort_workspace_git(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::git_workspace::abort_workspace_git_conflict(&app, &state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_workspace_branch(
+    input: CreateWorkspaceBranchInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::git_workspace::create_workspace_branch(
+        &app,
+        &state,
+        &input.workspace_id,
+        &input.branch,
+    )
+    .await
 }
 
 #[tauri::command]

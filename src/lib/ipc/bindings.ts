@@ -254,6 +254,54 @@ async renameWorkspace(input: RenameWorkspaceInput) : Promise<Result<null, Error>
     else return { status: "error", error: e  as any };
 }
 },
+async switchWorkspaceBranch(input: SwitchWorkspaceBranchInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("switch_workspace_branch", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async pullWorkspace(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("pull_workspace", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rebaseWorkspace(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rebase_workspace", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async pushWorkspaceBranch(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("push_workspace_branch", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async abortWorkspaceGit(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("abort_workspace_git", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createWorkspaceBranch(input: CreateWorkspaceBranchInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_workspace_branch", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getTeardownPreview(workspaceId: string) : Promise<Result<TeardownPreview, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_teardown_preview", { workspaceId }) };
@@ -315,6 +363,7 @@ export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
 export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
+export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
 export type CreateWorkspaceResult = { workspaceId: string }
 export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
@@ -329,8 +378,10 @@ export type EngineStatus = { kind: EngineKind; installed: boolean; binary: strin
  * Shared error type for the Rust core. Serialised as a tagged union so the
  * generated TypeScript bindings stay in lockstep with Rust.
  */
-export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string } | { kind: "NotImplemented"; message: string }
+export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: string; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string } | { kind: "NotImplemented"; message: string }
 export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null }
+export type GitConflictOperation = "merge" | "rebase"
+export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
 export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; engine: string }
 export type JoinWorkspaceThreadResult = { threadId: string }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
@@ -345,7 +396,7 @@ export type RepoRecord = { id: string; path: string; name: string; defaultBranch
 export type ResolveApprovalResult = { focusComposer: boolean }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SettingRow = { key: string; value: string }
-export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; memory: MemorySample | null; 
+export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
 /**
  * In-memory broker queue (may exceed persisted pending rows).
  */
@@ -364,6 +415,7 @@ export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | 
  * webview should call `get_snapshot` and replace local state.
  */
 export type StateChanged = { version: number; kind: StateChangeKind }
+export type SwitchWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type TeardownDataLoss = { uncommittedFiles: number; unpushedCommits: number; hasDataLoss: boolean; warning: string | null }
 export type TeardownInput = { workspaceId: string; deleteBranch: boolean }
 export type TeardownPreview = { workspaceId: string; workspaceName: string; engineLabel: string; branch: string; worktreePath: string; appRunning: boolean; deleteBranchDefault: boolean; dataLoss: TeardownDataLoss }
@@ -381,6 +433,7 @@ export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute
 export type WorkspaceAppControlAction = "run" | "restart" | "stop" | "clear"
 export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; exitCode: number | null }
 export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
+export type WorkspaceGitRuntime = { workspaceId: string; behind: number; ahead: number; conflict: GitConflictState | null }
 /**
  * Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
  * describe activity after provisioning.

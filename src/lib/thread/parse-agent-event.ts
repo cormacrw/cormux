@@ -1,9 +1,27 @@
 import type { AgentEvent } from '$lib/ipc/bindings'
 import type { ThreadEventRow } from '$lib/ipc/bindings'
 
+function normalizeLegacyTool(raw: Record<string, unknown>): AgentEvent | null {
+  if (typeof raw.title !== 'string') return null
+  return {
+    type: 'toolCall',
+    id: `legacy-${raw.title}`,
+    title: raw.title,
+    name: null,
+    kind: 'other',
+    status: 'completed',
+    locations: [],
+    detail: typeof raw.detail === 'string' ? raw.detail : null,
+  }
+}
+
 export function parseAgentEventPayload(payload: string): AgentEvent | null {
   try {
-    return JSON.parse(payload) as AgentEvent
+    const raw = JSON.parse(payload) as Record<string, unknown>
+    if (typeof raw.type === 'string') {
+      return raw as AgentEvent
+    }
+    return normalizeLegacyTool(raw)
   } catch {
     return null
   }

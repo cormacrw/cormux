@@ -7,6 +7,7 @@ mod engines;
 mod feedback;
 mod error;
 mod git;
+mod git_workspace;
 mod github;
 mod ipc;
 mod llm;
@@ -51,7 +52,8 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let state = app.state::<AppState>();
                     match state.fetch.tick().await {
-                        Ok(_) => {
+                        Ok(updates) => {
+                            crate::git_workspace::apply_behind_updates(&state, &updates).await;
                             let version = state.bump_event_version();
                             let _ = StateChanged {
                                 version,

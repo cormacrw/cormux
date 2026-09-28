@@ -1,21 +1,15 @@
 import { events } from '$lib/ipc'
 import type { ToastRaised } from '$lib/ipc/bindings'
-import { workspaceRecords } from '$lib/state/workspace-records.svelte'
 import { workspaces } from '$lib/state/workspaces.svelte'
 import {
   coreErrorToast,
   environmentReloadToast,
   newThreadToast,
-  pullToast,
 } from './toast-payload'
 import { showToast } from './show-toast'
 
 function workspaceName(workspaceId: string) {
   return workspaces.getById(workspaceId)?.name ?? workspaceId
-}
-
-function recordBase(workspaceId: string) {
-  return workspaceRecords.getRecord(workspaceId)?.base ?? 'main'
 }
 
 export async function bindFeedbackEvents() {
@@ -27,19 +21,6 @@ export async function bindFeedbackEvents() {
     }),
   )
 
-  const onPull = (event: Event) => {
-    const detail = (event as CustomEvent).detail as { workspaceId: string }
-    const behind = workspaceRecords.runtime(detail.workspaceId).behind || 1
-    showToast(
-      pullToast(
-        workspaceName(detail.workspaceId),
-        behind,
-        recordBase(detail.workspaceId),
-        detail.workspaceId,
-      ),
-    )
-  }
-
   const onNewThread = (event: Event) => {
     const detail = (event as CustomEvent).detail as { workspaceId: string }
     showToast(
@@ -50,11 +31,9 @@ export async function bindFeedbackEvents() {
     )
   }
 
-  window.addEventListener('cormux:workspace-pull', onPull)
   window.addEventListener('cormux:new-thread', onNewThread)
 
   cleanups.push(() => {
-    window.removeEventListener('cormux:workspace-pull', onPull)
     window.removeEventListener('cormux:new-thread', onNewThread)
   })
 

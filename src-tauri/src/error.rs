@@ -17,6 +17,12 @@ pub enum Error {
     #[error("git: {0}")]
     Git(String),
 
+    #[error("git conflict during {operation}")]
+    GitConflict {
+        operation: String,
+        paths: Vec<String>,
+    },
+
     #[error("workspace: {0}")]
     Workspace(String),
 

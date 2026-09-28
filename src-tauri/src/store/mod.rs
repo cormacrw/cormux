@@ -139,6 +139,30 @@ impl Store {
         })
     }
 
+    pub fn set_workspace_branch(&self, workspace_id: &str, branch: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
+                rusqlite::params![branch, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_workspace_pr_number(
+        &self,
+        workspace_id: &str,
+        pr_number: Option<i64>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET pr_number = ?1 WHERE id = ?2",
+                rusqlite::params![pr_number, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn set_workspace_summary(
         &self,
         workspace_id: &str,

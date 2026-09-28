@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::error::{Error, Result};
 use crate::git::{FetchScheduler, Git, LiveDiffEngine, RepoFetchTarget, WorkspaceFetchTarget};
+use crate::ipc::types::GitConflictState;
 
 /// Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
 /// describe activity after provisioning.
@@ -60,9 +61,18 @@ struct ThreadSlot {
     activity: ThreadActivity,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGitStats {
+    pub behind: u32,
+    pub ahead: u32,
+    pub conflict: Option<GitConflictState>,
+}
+
 struct Inner {
     workspaces: HashMap<String, WorkspaceRecord>,
     threads: HashMap<String, ThreadSlot>,
+    git_stats: HashMap<String, WorkspaceGitStats>,
 }
 
 /// Lifecycle state machine plus branch-switch lock.
@@ -83,6 +93,7 @@ impl WorkspaceManager {
             inner: Arc::new(RwLock::new(Inner {
                 workspaces: HashMap::new(),
                 threads: HashMap::new(),
+                git_stats: HashMap::new(),
             })),
         }
     }
@@ -301,30 +312,57 @@ impl WorkspaceManager {
         Ok(())
     }
 
-    pub async fn switch_branch(&self, workspace_id: &str, branch: &str) -> Result<()> {
-        self.can_switch_branch(workspace_id).await?;
-        let workspace = self
-            .get(workspace_id)
-            .await
-            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-        self.can_switch_branch(workspace_id).await?;
-        self.git
-            .switch(Path::new(&workspace.worktree_path), branch)
-            .await?;
-        let worktree = PathBuf::from(&workspace.worktree_path);
+    pub async fn switch_branch_record(&self, workspace_id: &str, branch: &str) -> Result<()> {
         let mut inner = self.inner.write().await;
-        if let Some(workspace) = inner.workspaces.get_mut(workspace_id) {
-            workspace.branch = branch.to_string();
-            workspace.version += 1;
-        }
-        drop(inner);
-        self.diffs.request_refresh(workspace_id);
-        let _ = self
-            .diffs
-            .compute(workspace_id, &worktree)
-            .await
-            .map_err(|error| log::warn!("diff refresh after branch switch: {error}"));
+        let workspace = inner
+            .workspaces
+            .get_mut(workspace_id)
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        workspace.branch = branch.to_string();
+        workspace.version += 1;
+        let stats = inner.git_stats.entry(workspace_id.to_string()).or_default();
+        stats.behind = 0;
         Ok(())
+    }
+
+    pub fn git_stats_snapshot(&self) -> HashMap<String, WorkspaceGitStats> {
+        match self.inner.try_read() {
+            Ok(inner) => inner.git_stats.clone(),
+            Err(_) => HashMap::new(),
+        }
+    }
+
+    pub async fn git_stats(&self, workspace_id: &str) -> WorkspaceGitStats {
+        self.inner
+            .read()
+            .await
+            .git_stats
+            .get(workspace_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub async fn patch_git_stats(
+        &self,
+        workspace_id: &str,
+        patch: impl FnOnce(&mut WorkspaceGitStats),
+    ) {
+        let mut inner = self.inner.write().await;
+        let stats = inner.git_stats.entry(workspace_id.to_string()).or_default();
+        patch(stats);
+    }
+
+    pub async fn set_git_conflict(&self, workspace_id: &str, conflict: GitConflictState) {
+        let mut inner = self.inner.write().await;
+        let stats = inner.git_stats.entry(workspace_id.to_string()).or_default();
+        stats.conflict = Some(conflict);
+    }
+
+    pub async fn clear_git_conflict(&self, workspace_id: &str) {
+        let mut inner = self.inner.write().await;
+        if let Some(stats) = inner.git_stats.get_mut(workspace_id) {
+            stats.conflict = None;
+        }
     }
 
     pub async fn remove(&self, workspace_id: &str) {

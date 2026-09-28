@@ -3,6 +3,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
   import {
     pullWorkspace,
+    pushWorkspace,
     rebaseWorkspace,
     requestNewThread,
     runWorkspaceApp,
@@ -20,6 +21,7 @@
     revealWorktreeInFinder,
   } from '$lib/workspace/worktree-actions'
   import Download from '@lucide/svelte/icons/download'
+  import Upload from '@lucide/svelte/icons/upload'
   import Ellipsis from '@lucide/svelte/icons/ellipsis'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import File from '@lucide/svelte/icons/file'
@@ -39,6 +41,7 @@
     branch,
     base,
     behind,
+    ahead,
     worktreePath,
     narrow = false,
     runDisabled = false,
@@ -49,6 +52,7 @@
     branch: string
     base: string
     behind: number
+    ahead: number
     worktreePath: string
     narrow?: boolean
     runDisabled?: boolean
@@ -206,6 +210,17 @@
       odId="ws-rebase"
     >
       <GitBranch class="size-4" aria-hidden="true" />
+    </DropdownItemTooltip>
+
+    <DropdownItemTooltip
+      label={ahead > 0
+        ? `Push ${plural(ahead, 'commit')} to origin`
+        : 'Nothing to push'}
+      disabled={ahead <= 0}
+      onclick={() => closeAndRun(() => pushWorkspace(workspaceId))}
+      odId="ws-push"
+    >
+      <Upload class="size-4" aria-hidden="true" />
     </DropdownItemTooltip>
 
     <DropdownMenu.Item
