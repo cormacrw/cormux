@@ -562,6 +562,14 @@ async fn spawn_engine(
     workspace_id: &str,
     goal: Option<&str>,
 ) -> Result<()> {
+    if state.workspace.get(workspace_id).await.is_none() {
+        let row = state
+            .store
+            .workspace_by_id(workspace_id)?
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        let record = crate::git_workspace::resolve_record(state, workspace_id, &row).await?;
+        state.workspace.remember(record).await;
+    }
     let workspace = state
         .workspace
         .get(workspace_id)

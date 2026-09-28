@@ -1190,8 +1190,22 @@ pub async fn send_thread_prompt(
 
 #[tauri::command]
 #[specta::specta]
-pub fn cancel_thread_turn(thread_id: String, state: State<'_, AppState>) -> Result<()> {
+pub async fn cancel_thread_turn(
+    app: AppHandle,
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let thread = snapshot_thread(&state, &thread_id).ok();
     let _ = state.engines.cancel(&thread_id);
+    let _ = persist_control_step(&state.store, &thread_id, "You stopped the agent");
+    let _ = state.store.mark_thread_idle(&thread_id);
+    if let Some(thread) = thread {
+        state
+            .workspace
+            .set_thread(&thread_id, &thread.workspace_id, ThreadActivity::Idle)
+            .await;
+    }
+    emit_composer_snapshot(&app, &state);
     Ok(())
 }
 

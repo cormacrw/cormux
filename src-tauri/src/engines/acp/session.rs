@@ -206,13 +206,14 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                             tokio::pin!(wait);
                             let result = loop {
                                 tokio::select! {
-                                    result = &mut wait => break result,
+                                    result = &mut wait => break Some(result),
                                     command = commands.recv() => {
                                         match command {
                                             Some(EngineCommand::Cancel) => {
                                                 let _ = connection.send_notification(
                                                     CancelNotification::new(session_id.clone()),
                                                 );
+                                                break None;
                                             }
                                             Some(EngineCommand::Shutdown) | None => {
                                                 let _ = connection.send_notification(
@@ -225,17 +226,24 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                                     }
                                 }
                             };
-                            match result {
-                                Ok(response) => {
-                                    let _ = events.send(map_stop_reason(&response.stop_reason));
-                                }
-                                Err(error) => {
-                                    let _ = events.send(AgentEvent::TurnEnd {
-                                        stop_reason: "error".into(),
-                                        error: Some(error.to_string()),
-                                    });
-                                }
-                            }
+                            let Some(result) = result else {
+                                let done = AgentEvent::TurnEnd {
+                                    stop_reason: "cancelled".into(),
+                                    error: None,
+                                };
+                                persist_event(&store, &thread_id, &done);
+                                let _ = events.send(done);
+                                continue;
+                            };
+                            let done = match result {
+                                Ok(response) => map_stop_reason(&response.stop_reason),
+                                Err(error) => AgentEvent::TurnEnd {
+                                    stop_reason: "error".into(),
+                                    error: Some(error.to_string()),
+                                },
+                            };
+                            persist_event(&store, &thread_id, &done);
+                            let _ = events.send(done);
                         }
                         EngineCommand::Cancel => {
                             let _ = connection
@@ -266,6 +274,9 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
         AgentEvent::TurnEnd { .. } => "turn_end",
         AgentEvent::EngineExited { .. } => "exit",
     };
+    if matches!(event, AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }) {
+        let _ = store.mark_thread_idle(thread_id);
+    }
     if let Ok(payload) = serde_json::to_string(event) {
         let _ = store.append_event(thread_id, kind, &payload);
     }

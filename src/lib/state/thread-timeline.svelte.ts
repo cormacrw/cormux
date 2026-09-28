@@ -10,6 +10,7 @@ import {
   shouldShowLiveRow,
 } from '$lib/thread/map-events-to-timeline'
 import type { TimelineItem } from '$lib/thread/timeline-types'
+import { threads } from './threads.svelte'
 import { reviewFindingsReady } from '$lib/thread/review-findings'
 
 type ThreadMeta = {
@@ -20,9 +21,9 @@ type ThreadMeta = {
 }
 
 export class ThreadTimelineStore {
-  eventsByThread = $state<Record<string, { seq: number; event: AgentEvent }[]>>(
-    {},
-  )
+  eventsByThread = $state<
+    Record<string, { seq: number; atMs: number; event: AgentEvent }[]>
+  >({})
   currentToolByThread = $state<Record<string, string>>({})
   private nextSeqByThread = $state<Record<string, number>>({})
   private approvals = $state<ApprovalRow[]>([])
@@ -36,7 +37,10 @@ export class ThreadTimelineStore {
     threadMeta: Record<string, ThreadMeta>
     findingCountByWorkspace: Record<string, number>
   }) {
-    const nextEvents: Record<string, { seq: number; event: AgentEvent }[]> = {}
+    const nextEvents: Record<
+      string,
+      { seq: number; atMs: number; event: AgentEvent }[]
+    > = {}
     const nextSeq: Record<string, number> = {}
 
     for (const threadId of input.threadIds) {
@@ -82,7 +86,7 @@ export class ThreadTimelineStore {
     const prev = this.eventsByThread[threadId] ?? []
     this.eventsByThread = {
       ...this.eventsByThread,
-      [threadId]: [...prev, { seq, event }],
+      [threadId]: [...prev, { seq, atMs: Date.now(), event }],
     }
     if (event.type === 'currentTool') {
       this.currentToolByThread = {
@@ -94,6 +98,7 @@ export class ThreadTimelineStore {
       const next = { ...this.currentToolByThread }
       delete next[threadId]
       this.currentToolByThread = next
+      threads.setStatus(threadId, 'idle')
     }
   }
 

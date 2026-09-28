@@ -62,6 +62,8 @@ pub struct ThreadEventRow {
     pub seq: i64,
     pub kind: String,
     pub payload: String,
+    /// SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

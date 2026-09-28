@@ -306,7 +306,7 @@ impl WorkspaceAppService {
         app: AppHandle,
         workspace_id: String,
         workspace_name: String,
-        kind: AppKind,
+        _kind: AppKind,
         requested_port: u16,
     ) {
         let state = app.state::<AppState>();

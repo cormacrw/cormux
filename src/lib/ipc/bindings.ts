@@ -513,7 +513,11 @@ export type TeardownInput = { workspaceId: string; deleteBranch: boolean }
 export type TeardownPreview = { workspaceId: string; workspaceName: string; engineLabel: string; branch: string; worktreePath: string; appRunning: boolean; deleteBranchDefault: boolean; dataLoss: TeardownDataLoss }
 export type TestRepoSetupInput = { repoId: string }
 export type TestRepoSetupResult = { ok: boolean; message: string }
-export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string }
+export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string; 
+/**
+ * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+ */
+createdAt: string }
 export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }

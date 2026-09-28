@@ -1,5 +1,5 @@
-import type { AgentEvent } from '$lib/ipc/bindings'
-import type { ThreadEventRow } from '$lib/ipc/bindings'
+import type { AgentEvent, ThreadEventRow } from '$lib/ipc/bindings'
+import { eventCreatedAtMs } from '$lib/thread/thread-time'
 
 function normalizeLegacyTool(raw: Record<string, unknown>): AgentEvent | null {
   if (typeof raw.title !== 'string') return null
@@ -30,14 +30,17 @@ export function parseAgentEventPayload(payload: string): AgentEvent | null {
 export function agentEventsForThread(
   rows: ThreadEventRow[],
   threadId: string,
-): { seq: number; event: AgentEvent }[] {
+): { seq: number; atMs: number; event: AgentEvent }[] {
   return rows
     .filter((row) => row.threadId === threadId)
     .sort((a, b) => a.seq - b.seq)
     .map((row) => {
       const event = parseAgentEventPayload(row.payload)
       if (!event) return null
-      return { seq: row.seq, event }
+      return { seq: row.seq, atMs: eventCreatedAtMs(row.createdAt), event }
     })
-    .filter((row): row is { seq: number; event: AgentEvent } => row != null)
+    .filter(
+      (row): row is { seq: number; atMs: number; event: AgentEvent } =>
+        row != null,
+    )
 }

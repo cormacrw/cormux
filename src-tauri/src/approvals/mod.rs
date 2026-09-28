@@ -8,7 +8,6 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 
 pub use effects::apply_harness_effects;
-pub use payload::ApprovalPayload;
 pub use record::{mark_resolved, record_pending_permission};
 
 use crate::error::{Error, Result};

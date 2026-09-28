@@ -14,17 +14,19 @@ export function buildTimelineRows(
       continue
     }
     const speaker = item.kind === 'user' ? 'user' : 'agent'
-    if (speaker !== prevSpeaker) {
+    if (speaker !== 'user' && speaker !== prevSpeaker) {
       rows.push({
         kind: 'speaker',
         id: `speaker-${item.id}`,
         speaker,
-        role: speaker === 'user' ? 'You' : role,
+        role,
         engine,
         seq: item.seq,
+        atMs: 'atMs' in item ? item.atMs : 0,
       })
       prevSpeaker = speaker
     }
+    if (speaker === 'user') prevSpeaker = speaker
     rows.push({ kind: 'item', item })
   }
 

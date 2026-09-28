@@ -255,6 +255,21 @@ impl Store {
         })
     }
 
+    pub fn mark_thread_idle(&self, thread_id: &str) -> Result<()> {
+        self.set_thread_status(thread_id, "idle")?;
+        let snapshot = self.snapshot()?;
+        let Some(thread) = snapshot.threads.iter().find(|row| row.id == thread_id) else {
+            return Ok(());
+        };
+        let busy = snapshot.threads.iter().any(|row| {
+            row.workspace_id == thread.workspace_id && row.status == "running"
+        });
+        if !busy {
+            self.set_workspace_status(&thread.workspace_id, "idle")?;
+        }
+        Ok(())
+    }
+
     pub fn set_thread_status(&self, thread_id: &str, status: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -606,7 +621,7 @@ impl Store {
                 )?,
                 timeline: query_all(
                     conn,
-                    "SELECT id, thread_id, seq, kind, payload FROM thread_events ORDER BY thread_id, seq",
+                    "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events ORDER BY thread_id, seq",
                     |row| {
                         Ok(ThreadEventRow {
                             id: row.get(0)?,
@@ -614,6 +629,7 @@ impl Store {
                             seq: row.get(2)?,
                             kind: row.get(3)?,
                             payload: row.get(4)?,
+                            created_at: row.get(5)?,
                         })
                     },
                 )?,

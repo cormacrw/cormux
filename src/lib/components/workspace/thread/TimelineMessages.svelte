@@ -5,11 +5,7 @@
   import type { FindingRow } from '$lib/ipc/bindings'
   import { engineMark } from '$lib/sidebar/engine'
   import ThoughtMarkdown from './ThoughtMarkdown.svelte'
-  import {
-    formatThreadTime,
-    formatThreadTimeTitle,
-    seqToApproxMs,
-  } from '$lib/thread/thread-time'
+  import { formatThreadTime, formatThreadTimeTitle } from '$lib/thread/thread-time'
   import type { TimelineRow, ToolRunStep } from '$lib/thread/timeline-types'
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
   import { cn } from '$lib/utils'
@@ -33,8 +29,6 @@
     engine,
     workspaceId,
     findings,
-    nowMs,
-    timeBaseMs,
     liveTitle,
     liveSubtitle,
     paused,
@@ -46,8 +40,6 @@
     engine: string
     workspaceId: string
     findings: FindingRow[]
-    nowMs: number
-    timeBaseMs: number
     liveTitle: string
     liveSubtitle: string
     paused: boolean
@@ -59,13 +51,13 @@
   const mark = $derived(engineMark(engine))
   const diffFiles = $derived(workspaceDiff.filesByWorkspace[workspaceId] ?? [])
 
-  function timeLabel(seq: number) {
-    const ms = seqToApproxMs(timeBaseMs, seq)
-    return formatThreadTime(ms, nowMs)
+  function timeLabel(atMs: number) {
+    return formatThreadTime(atMs) ?? ''
   }
 
-  function timeTitle(seq: number) {
-    return formatThreadTimeTitle(seqToApproxMs(timeBaseMs, seq))
+  function timeTitle(atMs: number) {
+    if (!atMs) return ''
+    return formatThreadTimeTitle(atMs)
   }
 
   function diffCounts(path: string) {
@@ -121,19 +113,17 @@
       class="flex items-center gap-2 py-1 text-xs text-muted-foreground"
       aria-hidden="true"
     >
-      {#if row.speaker === 'agent'}
-        <span
-          class="flex size-5 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold"
-          >{mark}</span
-        >
-        <span class="font-medium text-foreground">{row.role}</span>
-        <span>{engine}</span>
-      {:else}
-        <span class="font-medium text-foreground">You</span>
-      {/if}
-      <span class="text-muted-foreground/80" title={timeTitle(row.seq)}
-        >· {timeLabel(row.seq)}</span
+      <span
+        class="flex size-5 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold"
+        >{mark}</span
       >
+      <span class="font-medium text-foreground">{row.role}</span>
+      <span>{engine}</span>
+      {#if timeLabel(row.atMs)}
+        <span class="text-muted-foreground/80" title={timeTitle(row.atMs)}
+          >· {timeLabel(row.atMs)}</span
+        >
+      {/if}
     </li>
   {:else}
     {@const item = row.item}
@@ -146,32 +136,47 @@
       )}
     >
       {#if item.kind === 'user'}
-        <div
-          class="group max-w-[92%] rounded-2xl rounded-br-md bg-primary px-3 py-2 text-sm text-primary-foreground"
-        >
-          <p class="whitespace-pre-wrap">{item.text}</p>
+        <div class="group relative max-w-[min(100%,34rem)]">
+          <div
+            class="rounded-2xl bg-foreground/10 px-3 py-1.5 text-sm leading-5 text-foreground"
+          >
+            <p class="whitespace-pre-wrap">{item.text}</p>
+          </div>
           <button
             type="button"
-            class="mt-1 inline-flex items-center gap-1 text-[10px] opacity-0 transition group-hover:opacity-70"
+            class="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded text-foreground/60 opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+            aria-label="Copy message"
             onclick={() => copyText(item.text)}
           >
             <Copy class="size-3" aria-hidden="true" />
-            Copy
           </button>
         </div>
-        <span class="text-xs text-muted-foreground" title={timeTitle(item.seq)}
-          >You · {timeLabel(item.seq)}</span
+        {@const clock = timeLabel(item.atMs)}
+        <p
+          class="text-[11px] text-muted-foreground"
+          title={timeTitle(item.atMs)}
         >
+          You{clock ? ` · ${clock}` : ''}
+        </p>
       {:else if item.kind === 'thought'}
-        <div class="group space-y-1 text-sm leading-relaxed text-foreground/90">
-          <ThoughtMarkdown text={item.text} />
+        <div class="group relative max-w-[42rem]">
+          <div
+            class={cn(
+              'text-sm leading-5 [&_p]:my-0 [&_p+p]:mt-2',
+              item.role === 'thought'
+                ? 'text-muted-foreground'
+                : 'text-foreground',
+            )}
+          >
+            <ThoughtMarkdown text={item.text} />
+          </div>
           <button
             type="button"
-            class="inline-flex items-center gap-1 text-[10px] text-muted-foreground opacity-0 transition group-hover:opacity-100"
+            class="absolute top-0 right-0 inline-flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+            aria-label="Copy message"
             onclick={() => copyText(item.text)}
           >
             <Copy class="size-3" aria-hidden="true" />
-            Copy
           </button>
         </div>
       {:else if item.kind === 'toolRun'}
@@ -242,10 +247,12 @@
                       {/if}
                     {/if}
                   </div>
-                  <span
-                    class="shrink-0 text-xs text-muted-foreground"
-                    title={timeTitle(step.seq)}>{timeLabel(step.seq)}</span
-                  >
+                  {#if timeLabel(step.atMs)}
+                    <span
+                      class="shrink-0 text-xs text-muted-foreground"
+                      title={timeTitle(step.atMs)}>{timeLabel(step.atMs)}</span
+                    >
+                  {/if}
                 </li>
               {/each}
             </ul>
@@ -256,10 +263,12 @@
           <Card.Header class="flex-row items-center gap-2 space-y-0 pb-2">
             <List class="size-4 text-muted-foreground" aria-hidden="true" />
             <Card.Title class="text-sm font-medium">Proposed plan</Card.Title>
-            <span
-              class="ml-auto text-xs text-muted-foreground"
-              title={timeTitle(item.seq)}>{timeLabel(item.seq)}</span
-            >
+            {#if timeLabel(item.atMs)}
+              <span
+                class="ml-auto text-xs text-muted-foreground"
+                title={timeTitle(item.atMs)}>{timeLabel(item.atMs)}</span
+              >
+            {/if}
           </Card.Header>
           <Card.Content>
             <ol class="list-decimal space-y-1 pl-4 text-sm">
@@ -273,8 +282,8 @@
         <ApprovalCard
           {item}
           {nowMs}
-          timeLabel={timeLabel(item.seq)}
-          timeTitle={timeTitle(item.seq)}
+          timeLabel={timeLabel(item.atMs)}
+          timeTitle={timeTitle(item.atMs)}
           {onFocusComposer}
         />
       {:else if item.kind === 'findings'}

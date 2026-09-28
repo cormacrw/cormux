@@ -33,6 +33,7 @@ export type ToolRunStep =
       chips?: TimelineChip[]
       tone?: 'success'
       seq: number
+      atMs: number
       rawDetail?: string
     }
   | {
@@ -41,19 +42,22 @@ export type ToolRunStep =
       path: string
       verb: 'Edited' | 'Created' | 'Deleted'
       seq: number
+      atMs: number
     }
 
 export type TimelineItem =
-  | { kind: 'user'; id: string; text: string; seq: number }
+  | { kind: 'user'; id: string; text: string; seq: number; atMs: number }
   | {
       kind: 'thought'
       id: string
       text: string
       seq: number
+      atMs: number
+      role: 'agent' | 'thought'
       streaming?: boolean
     }
   | { kind: 'toolRun'; id: string; steps: ToolRunStep[]; seq: number }
-  | { kind: 'plan'; id: string; steps: string[]; seq: number }
+  | { kind: 'plan'; id: string; steps: string[]; seq: number; atMs: number }
   | {
       kind: 'approval'
       id: string
@@ -65,6 +69,7 @@ export type TimelineItem =
       state: 'pending' | 'approved' | 'denied'
       doneAtMs: number | null
       seq: number
+      atMs: number
     }
   | { kind: 'findings'; id: string; seq: number }
   | { kind: 'live'; id: string }
@@ -79,6 +84,7 @@ export type TimelineRow =
       role: string
       engine: string
       seq: number
+      atMs: number
     }
   | { kind: 'item'; item: TimelineItem }
 

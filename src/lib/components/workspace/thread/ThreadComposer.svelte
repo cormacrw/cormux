@@ -6,7 +6,9 @@
     composerShowsPauseControl,
   } from '$lib/composer/can-pause'
   import { commands } from '$lib/ipc'
+  import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
+  import { threads } from '$lib/state/threads.svelte'
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import { engineDisplayName, engineMark } from '$lib/sidebar/engine'
@@ -61,16 +63,59 @@
     fitHeight()
   }
 
+  function sendFailed(text: string, message: string) {
+    composerDrafts.setFor(thread.id, text)
+    threads.setStatus(thread.id, 'idle')
+    showToast({
+      tone: 'bad',
+      parts: [{ type: 'text', value: message }],
+    })
+  }
+
   async function sendMessage() {
     const text = draft.trim()
     if (!text) return
     composerDrafts.setFor(thread.id, '')
     queueMicrotask(() => fitHeight())
     threadTimeline.appendStreamChunk(thread.id, text, 'user')
+    threads.setStatus(thread.id, 'running')
     onSent?.()
-    const result = await commands.sendThreadPrompt(thread.id, text)
+    try {
+      const result = await commands.sendThreadPrompt(thread.id, text)
+      if (result.status === 'error') {
+        sendFailed(
+          text,
+          typeof result.error.message === 'string'
+            ? result.error.message
+            : 'Could not reach the agent',
+        )
+      }
+    } catch (error) {
+      sendFailed(text, error instanceof Error ? error.message : 'Could not reach the agent')
+    }
+  }
+
+  async function stopTurn() {
+    threads.setStatus(thread.id, 'idle')
+    threadTimeline.applyEvent(thread.id, {
+      type: 'turnEnd',
+      stop_reason: 'cancelled',
+      error: null,
+    })
+    const result = await commands.cancelThreadTurn(thread.id)
     if (result.status === 'error') {
-      composerDrafts.setFor(thread.id, text)
+      showToast({
+        tone: 'bad',
+        parts: [
+          {
+            type: 'text',
+            value:
+              typeof result.error.message === 'string'
+                ? result.error.message
+                : 'Could not stop the agent',
+          },
+        ],
+      })
     }
   }
 
@@ -160,22 +205,19 @@
         {/if}
       </div>
 
-      <div
-        class="composer-gaps hidden items-center gap-1 sm:flex"
-        aria-label="Composer extras (coming soon)"
-        data-od-id="composer-gaps"
-      >
+      {#if thread.status === 'running'}
         <Button
           type="button"
           variant="ghost"
           size="icon-xs"
-          disabled
-          title="Stop task (COR-136)"
-          aria-label="Stop task (coming soon)"
+          data-od-id="composer-stop"
+          title="Stop"
+          aria-label="Stop"
+          onclick={() => void stopTurn()}
         >
           <Square class="size-3" />
         </Button>
-      </div>
+      {/if}
 
       <span class="composer-hint text-[10px] text-muted-foreground/80" aria-hidden="true">
         <kbd class="rounded border border-border/60 px-1">↵</kbd> send

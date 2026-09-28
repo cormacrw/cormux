@@ -35,6 +35,20 @@ test.describe('browser harness UI', () => {
     await expect(
       page.getByRole('heading', { name: 'OAuth login' }),
     ).toBeVisible()
+    const composer = page.getByRole('textbox', { name: 'Message the agent' })
+    await composer.fill('hello from the harness')
+    await page.getByRole('button', { name: 'Send to agent' }).click()
+    await expect(composer).toHaveValue('')
+    const bubble = page.getByText('hello from the harness')
+    await expect(bubble).toBeVisible()
+    const you = page.locator('#timeline').getByText(/^You · \d{1,2}:\d{2}/)
+    await expect(you).toBeVisible()
+    const bubbleBox = await bubble.boundingBox()
+    const youBox = await you.boundingBox()
+    expect(youBox!.y).toBeGreaterThan(bubbleBox!.y)
+    await expect(page.locator('#timeline').getByText('Working').first()).toBeVisible()
+    await page.getByRole('button', { name: 'Stop', exact: true }).click()
+    await expect(page.locator('#timeline').getByText('Working')).toHaveCount(0)
     mkdirSync('e2e/output', { recursive: true })
     await page.screenshot({
       path: 'e2e/output/workspace.png',

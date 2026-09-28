@@ -568,6 +568,9 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
     if let Ok(payload) = serde_json::to_string(event) {
         let _ = store.append_event(thread_id, kind, &payload);
     }
+    if matches!(event, AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }) {
+        let _ = store.mark_thread_idle(thread_id);
+    }
 }
 
 #[cfg(test)]

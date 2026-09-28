@@ -9,7 +9,7 @@ import type {
 import { toolKindIsEdit, toolKindIsRunStep } from './timeline-types'
 
 export type MapTimelineInput = {
-  events: { seq: number; event: AgentEvent }[]
+  events: { seq: number; atMs?: number; event: AgentEvent }[]
   approvals: ApprovalRow[]
   findingsReady: boolean
   showLive: boolean
@@ -68,6 +68,7 @@ function approvalState(
 function approvalFromPermission(
   event: Extract<AgentEvent, { type: 'permission' }>,
   seq: number,
+  atMs: number,
   approvals: ApprovalRow[],
 ) {
   const row = approvals.find((entry) => entry.id === event.id)
@@ -84,12 +85,14 @@ function approvalFromPermission(
     state,
     doneAtMs: payload?.resolvedAtMs ?? null,
     seq,
+    atMs,
   }
 }
 
 function toolStepFromCall(
   event: Extract<AgentEvent, { type: 'toolCall' }>,
   seq: number,
+  atMs: number,
   chips: TimelineChip[] | undefined,
 ): ToolRunStep {
   if (toolKindIsEdit(event.kind)) {
@@ -100,6 +103,7 @@ function toolStepFromCall(
       path,
       verb: editVerb(event.kind, event.title),
       seq,
+      atMs,
     }
   }
   const fixedChips = /^Fixed \d+ findings/i.test(event.title)
@@ -129,6 +133,7 @@ function toolStepFromCall(
         ? 'success'
         : undefined),
     seq,
+    atMs,
     rawDetail: event.detail ?? undefined,
   }
 }
@@ -155,14 +160,15 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
   const run: ToolRunStep[] = []
   let runSeq = 0
   let pendingAutoChip: TimelineChip | undefined
+  let sealMessage = false
 
-  for (const { seq, event } of input.events) {
+  for (const { seq, atMs = 0, event } of input.events) {
     switch (event.type) {
       case 'messageChunk': {
         flushRun(run, items, runSeq)
         if (event.role === 'user') {
           const last = items[items.length - 1]
-          if (last?.kind === 'user') {
+          if (!sealMessage && last?.kind === 'user') {
             last.text += event.text
             last.seq = seq
           } else {
@@ -171,21 +177,31 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
               id: nextId('user'),
               text: event.text,
               seq,
+              atMs,
             })
           }
+          sealMessage = false
         } else {
+          const role = event.role === 'agent' ? 'agent' : 'thought'
           const last = items[items.length - 1]
-          if (last?.kind === 'thought') {
+          if (
+            !sealMessage &&
+            last?.kind === 'thought' &&
+            last.role === role
+          ) {
             last.text += event.text
             last.seq = seq
           } else {
             pushBeforeLive(items, {
               kind: 'thought',
               id: nextId('thought'),
+              role,
               text: event.text,
               seq,
+              atMs,
             })
           }
+          sealMessage = false
         }
         break
       }
@@ -194,7 +210,7 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
         if (!run.length) runSeq = seq
         const chips = pendingAutoChip ? [pendingAutoChip] : undefined
         pendingAutoChip = undefined
-        run.push(toolStepFromCall(event, seq, chips))
+        run.push(toolStepFromCall(event, seq, atMs, chips))
         break
       }
       case 'plan': {
@@ -204,6 +220,7 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
           id: nextId('plan'),
           steps: event.entries.map((entry) => entry.content),
           seq,
+          atMs,
         })
         break
       }
@@ -218,7 +235,7 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
         }
         pushBeforeLive(
           items,
-          approvalFromPermission(event, seq, input.approvals),
+          approvalFromPermission(event, seq, atMs, input.approvals),
         )
         break
       }
@@ -227,11 +244,26 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
       case 'usage':
       case 'turnEnd':
       case 'engineExited':
+        flushRun(run, items, runSeq)
+        sealMessage = true
         break
     }
   }
 
   flushRun(run, items, runSeq)
+
+  // Cursor streams the answer inside the thought, then again as the reply.
+  const visible = items.filter((item, index) => {
+    const next = items[index + 1]
+    return !(
+      item.kind === 'thought' &&
+      item.role === 'thought' &&
+      next?.kind === 'thought' &&
+      next.role === 'agent'
+    )
+  })
+  items.length = 0
+  items.push(...visible)
 
   if (input.findingsReady) {
     pushBeforeLive(items, {
@@ -279,7 +311,11 @@ function flattenItemsToEvents(
     } else if (item.kind === 'thought') {
       events.push({
         seq: item.seq,
-        event: { type: 'messageChunk', role: 'thought', text: item.text },
+        event: {
+          type: 'messageChunk',
+          role: item.role,
+          text: item.text,
+        },
       })
     } else if (item.kind === 'toolRun') {
       for (const step of item.steps) {

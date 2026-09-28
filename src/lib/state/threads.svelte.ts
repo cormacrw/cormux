@@ -28,6 +28,15 @@ export class ThreadsStore {
     return this.items.find((thread) => thread.id === id)
   }
 
+  setStatus(id: string, status: string) {
+    this.items = this.items.map((thread) => {
+      if (thread.id !== id) return thread
+      const activity =
+        status === 'running' ? 'Working' : status === 'idle' ? 'Idle' : thread.activity
+      return { ...thread, status, paused: status === 'paused', activity }
+    })
+  }
+
   /** All threads in workspace list order, then thread list order. */
   readonly sidebarAgents = $derived.by(() => {
     return this.items

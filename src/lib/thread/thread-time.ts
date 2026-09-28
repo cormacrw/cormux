@@ -1,16 +1,19 @@
-import { formatRelativeAge } from '$lib/homebase/relative-time'
+/** `YYYY-MM-DD HH:MM:SS` from SQLite is UTC. */
+export function eventCreatedAtMs(createdAt: string): number {
+  if (!createdAt) return 0
+  const ms = Date.parse(createdAt.replace(' ', 'T') + 'Z')
+  return Number.isNaN(ms) ? 0 : ms
+}
 
-/** Short label for inline conversation timestamps (`8m`, `2h`). */
-export function formatThreadTime(fromMs: number, nowMs: number): string {
-  const label = formatRelativeAge(fromMs, nowMs)
-  if (label === 'just now') return 'now'
-  return label.replace(' ago', '')
+/** Clock time to the minute (`11:04 PM`). Empty when the event has no timestamp. */
+export function formatThreadTime(fromMs: number): string | null {
+  if (!fromMs) return null
+  return new Date(fromMs).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 export function formatThreadTimeTitle(fromMs: number): string {
   return new Date(fromMs).toLocaleString()
-}
-
-export function seqToApproxMs(baseMs: number, seq: number): number {
-  return baseMs + seq * 1000
 }

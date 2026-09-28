@@ -33,7 +33,44 @@ describe('mapEventsToTimeline', () => {
     })
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({ kind: 'user', text: 'Hello world' })
-    expect(items[1]).toMatchObject({ kind: 'thought', text: 'Thinking…' })
+    expect(items[1]).toMatchObject({
+      kind: 'thought',
+      role: 'thought',
+      text: 'Thinking…',
+    })
+  })
+
+  it('hides a thought when the reply repeats it', () => {
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          event: {
+            type: 'messageChunk',
+            role: 'thought',
+            text: 'The user wants to know what day it is.\n\nIt is Sunday, September 27, 2026.',
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: 'messageChunk',
+            role: 'agent',
+            text: 'Sunday, September 27, 2026.',
+          },
+        },
+        { seq: 3, event: { type: 'turnEnd', stop_reason: 'end_turn', error: null } },
+        { seq: 4, event: { type: 'messageChunk', role: 'agent', text: 'next' } },
+      ],
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    expect(items.map((item) => (item.kind === 'thought' ? item.text : item.kind))).toEqual([
+      'Sunday, September 27, 2026.',
+      'next',
+    ])
   })
 
   it('groups consecutive tool calls into one run', () => {

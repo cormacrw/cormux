@@ -63,8 +63,6 @@
 
   const useVirtual = $derived(rows.length > 150)
 
-  const timeBaseMs = $derived(workspace.createdAtMs ?? Date.now() - 60_000)
-
   const liveRowTitle = $derived(
     liveTitle({
       status: thread.status,
@@ -192,7 +190,6 @@
                     workspaceId={workspace.id}
                     findings={workspaceFindings}
                     {nowMs}
-                    {timeBaseMs}
                     liveTitle={liveRowTitle}
                     liveSubtitle={liveRowSubtitle}
                     paused={thread.paused}
@@ -211,7 +208,6 @@
             workspaceId={workspace.id}
             findings={workspaceFindings}
             {nowMs}
-            {timeBaseMs}
             liveTitle={liveRowTitle}
             liveSubtitle={liveRowSubtitle}
             paused={thread.paused}
