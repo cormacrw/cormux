@@ -286,6 +286,22 @@ async pushWorkspaceBranch(workspaceId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+async draftPrWhy(workspaceId: string) : Promise<Result<DraftPrWhyResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("draft_pr_why", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createWorkspacePullRequest(input: CreateWorkspacePullRequestInput) : Promise<Result<CreateWorkspacePullRequestResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_workspace_pull_request", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async abortWorkspaceGit(workspaceId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("abort_workspace_git", { workspaceId }) };
@@ -365,10 +381,13 @@ export type ApprovalRow = { id: string; threadId: string; status: string; tool: 
 export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
+export type CreateWorkspacePullRequestInput = { workspaceId: string; why: string; title: string | null; draft: boolean; includeWhatChanged: boolean; includeHowTested: boolean }
+export type CreateWorkspacePullRequestResult = { workspaceId: string; number: number; htmlUrl: string; title: string }
 export type CreateWorkspaceResult = { workspaceId: string }
 export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
 export type DiffHunk = { header: string; body: string }
 export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff | null }
+export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean }
 /**
  * Engines Harness can spawn. Launch is Claude and Cursor; Codex and Gemini share ACP.
  */
@@ -441,7 +460,7 @@ export type WorkspaceGitRuntime = { workspaceId: string; behind: number; ahead: 
 export type WorkspaceLifecycle = "creating" | "provisioning" | "ready" | "running" | "idle" | "waiting" | "tearingDown" | "gone" | "provisioningFailed"
 export type WorkspaceMemory = { workspaceId: string; bytes: number }
 export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
-export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; modifiedFiles: number; archivedAt: string | null }
+export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; prHtmlUrl: string | null; modifiedFiles: number; archivedAt: string | null }
 export type WorkspaceStatusChanged = { version: number; workspaceId: string; status: WorkspaceLifecycle }
 export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
 export type WorktreeDiff = { workspaceId: string; files: DiffFile[] }

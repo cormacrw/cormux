@@ -34,6 +34,7 @@ pub struct WorkspaceRow {
     pub summary_source: String,
     pub kind: Option<String>,
     pub pr_number: Option<i64>,
+    pub pr_html_url: Option<String>,
     pub modified_files: i64,
     pub archived_at: Option<String>,
 }

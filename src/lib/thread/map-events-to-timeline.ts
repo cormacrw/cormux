@@ -104,14 +104,18 @@ function toolStepFromCall(
     event.status === 'completed' && event.kind !== 'execute'
       ? ('success' as const)
       : undefined
+  const openedPrChips =
+    /^Opened PR #\d+/.test(event.title) && !chips?.length
+      ? [{ label: 'Checks running' as const }]
+      : undefined
   return {
     kind: 'tool',
     id: event.id,
     icon: iconForTool(event.kind, event.title),
     title: event.title,
     detail: (event.detail ?? event.locations.join(', ')) || undefined,
-    chips,
-    tone,
+    chips: chips ?? openedPrChips,
+    tone: tone ?? (/^Opened PR #\d+/.test(event.title) ? 'success' : undefined),
     seq,
     rawDetail: event.detail ?? undefined,
   }

@@ -24,6 +24,7 @@ describe('buildPaletteCommandsFromState', () => {
             summarySource: 'Haiku 4.5',
             kind: null,
             prNumber: null,
+            prHtmlUrl: null,
             modifiedFiles: 0,
             provStep: 0,
             setupFailedCommand: null,

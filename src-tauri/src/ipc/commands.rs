@@ -17,7 +17,8 @@ use crate::store::types::{ThreadRow, WorkspaceRow};
 
 use super::types::{
     AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
-    CreateWorkspaceInput, CreateWorkspaceResult, DiffUpdate, PtyChunk, RenameWorkspaceInput,
+    CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
+    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RenameWorkspaceInput,
     RepoBranchesResult, ResolveApprovalResult, SetRepoRunCommandInput, Snapshot,
     SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, WorkspaceAppControlAction,
     WorkspaceSummaryResult,
@@ -551,6 +552,7 @@ pub async fn create_workspace(
         summary_source: "Haiku 4.5".into(),
         kind: None,
         pr_number: None,
+        pr_html_url: None,
         modified_files: 0,
         archived_at: None,
     })?;
@@ -728,6 +730,25 @@ pub async fn push_workspace_branch(
     state: State<'_, AppState>,
 ) -> Result<()> {
     crate::git_workspace::push_workspace_branch(&app, &state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn draft_pr_why(
+    workspace_id: String,
+    state: State<'_, AppState>,
+) -> Result<DraftPrWhyResult> {
+    crate::create_pr::draft_pr_why(&state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_workspace_pull_request(
+    input: CreateWorkspacePullRequestInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<CreateWorkspacePullRequestResult> {
+    crate::create_pr::create_workspace_pull_request(&app, &state, input).await
 }
 
 #[tauri::command]

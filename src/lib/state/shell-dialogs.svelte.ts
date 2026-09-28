@@ -3,6 +3,7 @@ export class ShellDialogsStore {
   newWorkspaceOpen = $state(false)
   confirmOpen = $state(false)
   teardownWorkspaceId = $state<string | null>(null)
+  createPrWorkspaceId = $state<string | null>(null)
 
   openTeardown(workspaceId: string) {
     this.teardownWorkspaceId = workspaceId
@@ -12,11 +13,20 @@ export class ShellDialogsStore {
     this.teardownWorkspaceId = null
   }
 
+  openCreatePr(workspaceId: string) {
+    this.createPrWorkspaceId = workspaceId
+  }
+
+  closeCreatePr() {
+    this.createPrWorkspaceId = null
+  }
+
   blocksCommandPalette() {
     return (
       this.newWorkspaceOpen ||
       this.confirmOpen ||
-      this.teardownWorkspaceId != null
+      this.teardownWorkspaceId != null ||
+      this.createPrWorkspaceId != null
     )
   }
 }

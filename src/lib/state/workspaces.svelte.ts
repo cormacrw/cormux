@@ -19,6 +19,7 @@ export type Workspace = {
   summarySource: string
   kind: 'review' | null
   prNumber: number | null
+  prHtmlUrl: string | null
   modifiedFiles: number
   provStep: number
   setupFailedCommand: string | null

@@ -442,7 +442,7 @@ fn emit_workspace_refresh(app: &AppHandle, state: &AppState) {
     .emit(app);
 }
 
-fn lead_thread_id(state: &AppState, workspace_id: &str) -> Result<String> {
+pub fn lead_thread_id(state: &AppState, workspace_id: &str) -> Result<String> {
     state
         .store
         .snapshot()?

@@ -599,6 +599,7 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
         summary_source: workspace.summary_source,
         kind: workspace.kind,
         pr_number: workspace.pr_number,
+        pr_html_url: workspace.pr_html_url.clone(),
         modified_files: workspace.modified_files,
         archived_at: workspace.archived_at,
     });
@@ -758,6 +759,7 @@ fn persist_workspace_row(
         summary_source: row.summary_source.clone(),
         kind: row.kind.clone(),
         pr_number: row.pr_number,
+        pr_html_url: row.pr_html_url.clone(),
         modified_files: row.modified_files,
         archived_at: row.archived_at.clone(),
     })

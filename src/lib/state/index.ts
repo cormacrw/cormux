@@ -167,6 +167,7 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
       summarySource: persisted?.summarySource ?? 'Haiku 4.5',
       kind,
       prNumber: persisted?.prNumber ?? null,
+      prHtmlUrl: persisted?.prHtmlUrl ?? null,
       modifiedFiles: persisted?.modifiedFiles ?? 0,
       provStep: workspace.provStep ?? 0,
       setupFailedCommand: workspace.setupFailedCommand ?? null,

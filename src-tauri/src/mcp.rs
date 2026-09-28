@@ -210,6 +210,7 @@ mod tests {
                 summary_source: "Haiku 4.5".into(),
                 kind: None,
                 pr_number: None,
+                pr_html_url: None,
                 modified_files: 0,
                 archived_at: None,
             })

@@ -154,10 +154,19 @@ impl Store {
         workspace_id: &str,
         pr_number: Option<i64>,
     ) -> Result<()> {
+        self.set_workspace_pr(workspace_id, pr_number, None)
+    }
+
+    pub fn set_workspace_pr(
+        &self,
+        workspace_id: &str,
+        pr_number: Option<i64>,
+        pr_html_url: Option<&str>,
+    ) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "UPDATE workspaces SET pr_number = ?1 WHERE id = ?2",
-                rusqlite::params![pr_number, workspace_id],
+                "UPDATE workspaces SET pr_number = ?1, pr_html_url = ?2 WHERE id = ?3",
+                rusqlite::params![pr_number, pr_html_url, workspace_id],
             )?;
             Ok(())
         })
@@ -195,8 +204,8 @@ impl Store {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
-                        summary, summary_at, summary_source, kind, pr_number, modified_files,
-                        archived_at
+                        summary, summary_at, summary_source, kind, pr_number, pr_html_url,
+                        modified_files, archived_at
                  FROM workspaces WHERE id = ?1",
             )?;
             let mut rows = stmt.query([workspace_id])?;
@@ -482,8 +491,8 @@ impl Store {
                 workspaces: query_all(
                     conn,
                     "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
-                            summary, summary_at, summary_source, kind, pr_number, modified_files,
-                            archived_at
+                            summary, summary_at, summary_source, kind, pr_number, pr_html_url,
+                            modified_files, archived_at
                      FROM workspaces WHERE archived_at IS NULL",
                     |row| Ok(row_to_workspace(row)?),
                 )?,
@@ -589,8 +598,9 @@ fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
         summary_source: row.get(9)?,
         kind: row.get(10)?,
         pr_number: row.get(11)?,
-        modified_files: row.get(12)?,
-        archived_at: row.get(13)?,
+        pr_html_url: row.get(12)?,
+        modified_files: row.get(13)?,
+        archived_at: row.get(14)?,
     })
 }
 
@@ -647,6 +657,7 @@ mod tests {
                 summary_source: "Haiku 4.5".into(),
                 kind: None,
                 pr_number: None,
+                pr_html_url: None,
                 modified_files: 0,
                 archived_at: None,
             })

@@ -226,5 +226,33 @@ pub struct SetRepoRunCommandInput {
     pub run_command: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftPrWhyResult {
+    pub workspace_id: String,
+    pub text: String,
+    pub from_llm: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspacePullRequestInput {
+    pub workspace_id: String,
+    pub why: String,
+    pub title: Option<String>,
+    pub draft: bool,
+    pub include_what_changed: bool,
+    pub include_how_tested: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspacePullRequestResult {
+    pub workspace_id: String,
+    pub number: i64,
+    pub html_url: String,
+    pub title: String,
+}
+
 pub use crate::engines::{AgentEvent, MessageRole, PlanStep, ToolCallStatus, ToolKind};
 pub use crate::teardown::{TeardownInput, TeardownPreview};

@@ -85,6 +85,7 @@ mod tests {
             summary_source: SUMMARY_MODEL_LABEL.into(),
             kind: None,
             pr_number: None,
+            pr_html_url: None,
             modified_files: 3,
             archived_at: None,
         }

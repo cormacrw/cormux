@@ -31,6 +31,8 @@ commands.allow = [
   "pull_workspace",
   "rebase_workspace",
   "push_workspace_branch",
+  "draft_pr_why",
+  "create_workspace_pull_request",
   "abort_workspace_git",
   "create_workspace_branch",
   "get_teardown_preview",
