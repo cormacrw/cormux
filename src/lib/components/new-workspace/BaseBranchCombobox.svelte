@@ -30,7 +30,7 @@
   let open = $state(false)
   let query = $state('')
   let activeIndex = $state(0)
-  let inputEl: HTMLInputElement | undefined = $state()
+  let inputEl = $state<HTMLInputElement | null>(null)
   const listId = $derived(`${id}-list`)
 
   const filtered = $derived.by(() => {

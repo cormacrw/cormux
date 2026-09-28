@@ -25,7 +25,7 @@
     focusComposer?: (() => void) | null
   } = $props()
 
-  let inputEl: HTMLTextAreaElement | undefined = $state()
+  let inputEl = $state<HTMLTextAreaElement | null>(null)
   let composing = $state(false)
 
   const mark = $derived(engineMark(thread.engine))

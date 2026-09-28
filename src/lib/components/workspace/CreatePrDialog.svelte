@@ -40,7 +40,7 @@
   let hint = $state('')
   let draftGeneration = $state(0)
 
-  let whyField: HTMLTextAreaElement | undefined = $state()
+  let whyField = $state<HTMLTextAreaElement | null>(null)
 
   const diffFiles = $derived(
     workspaceId ? (workspaceDiff.filesByWorkspace[workspaceId] ?? []) : [],

@@ -30,27 +30,15 @@
 </script>
 
 <nav
-  class="sidebar-nav grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-2 pb-2"
+  class="sidebar-nav grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-2 pb-2"
   aria-label="Harness"
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="titlebar flex h-10 items-center px-2"
+    class="titlebar h-10"
     data-tauri-drag-region
     onmousedown={startWindowDrag}
-  >
-    <div class="traffic flex gap-2" aria-hidden="true">
-      <span
-        class="tl-close size-3 rounded-full shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.35)]"
-      ></span>
-      <span
-        class="tl-min size-3 rounded-full shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.35)]"
-      ></span>
-      <span
-        class="tl-max size-3 rounded-full shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.35)]"
-      ></span>
-    </div>
-  </div>
+  ></div>
 
   <div class="grid gap-0.5 pb-2">
     <Button
@@ -171,15 +159,3 @@
     </Button>
   </div>
 </nav>
-
-<style>
-  .tl-close {
-    background: #ff5f57;
-  }
-  .tl-min {
-    background: #febc2e;
-  }
-  .tl-max {
-    background: #28c840;
-  }
-</style>

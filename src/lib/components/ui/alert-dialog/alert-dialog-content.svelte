@@ -26,7 +26,6 @@
 <AlertDialogPortal {...portalProps}>
   <AlertDialogOverlay />
   <AlertDialogPrimitive.Content
-    bind:ref
     data-slot="alert-dialog-content"
     data-size={size}
     class={cn(
@@ -34,5 +33,6 @@
       className,
     )}
     {...restProps}
+    bind:ref
   />
 </AlertDialogPortal>

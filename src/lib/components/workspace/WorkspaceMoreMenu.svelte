@@ -61,7 +61,7 @@
   } = $props()
 
   let open = $state(false)
-  let triggerEl: HTMLButtonElement | undefined = $state()
+  let triggerEl = $state<HTMLButtonElement | null>(null)
 
   const runtime = $derived(workspaceRecords.runtime(workspaceId))
   const appStatus = $derived(runtime.appStatus)

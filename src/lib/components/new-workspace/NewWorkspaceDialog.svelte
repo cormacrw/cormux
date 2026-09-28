@@ -54,7 +54,7 @@
   let repoBranches = $state<string[]>([])
   let engineStatuses = $state<EngineStatus[]>([])
 
-  let nameInput: HTMLInputElement | undefined = $state()
+  let nameInput = $state<HTMLInputElement | null>(null)
   let baseCombo: BaseBranchCombobox | undefined = $state()
 
   const workspaceBranchesOnRepo = $derived(
@@ -348,20 +348,32 @@
         <div class="grid gap-4 min-[760px]:grid-cols-2">
           <div class="grid gap-1.5">
             <label class="text-sm font-medium" for="nw-repo">Repository</label>
-            <select
-              id="nw-repo"
-              class="border-input bg-transparent h-8 w-full rounded-lg border px-2.5 text-sm"
-              value={repoId}
-              onchange={onRepoChange}
-              aria-describedby="nw-repo-hint"
-            >
-              {#each repos.items as repo (repo.id)}
-                <option value={repo.id}>{repo.name}</option>
-              {/each}
-            </select>
-            <p id="nw-repo-hint" class="text-xs text-muted-foreground">
-              The worktree is created from this repo
-            </p>
+            {#if repos.items.length === 0}
+              <div
+                id="nw-repo"
+                class="border-input bg-input/30 text-muted-foreground flex h-8 items-center rounded-lg border px-2.5 text-sm"
+              >
+                No repositories yet
+              </div>
+              <p id="nw-repo-hint" class="text-xs text-muted-foreground">
+                Add a repo in Settings before creating a workspace.
+              </p>
+            {:else}
+              <select
+                id="nw-repo"
+                class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
+                value={repoId}
+                onchange={onRepoChange}
+                aria-describedby="nw-repo-hint"
+              >
+                {#each repos.items as repo (repo.id)}
+                  <option value={repo.id}>{repo.name}</option>
+                {/each}
+              </select>
+              <p id="nw-repo-hint" class="text-xs text-muted-foreground">
+                The worktree is created from this repo
+              </p>
+            {/if}
           </div>
           <div class="grid gap-1.5">
             <label class="text-sm font-medium" for="nw-base">Base branch</label>
@@ -391,7 +403,7 @@
           <label class="text-sm font-medium" for="nw-engine">AI engine</label>
           <select
             id="nw-engine"
-            class="border-input bg-transparent h-8 w-full rounded-lg border px-2.5 text-sm"
+            class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
             bind:value={engine}
             aria-describedby="nw-engine-hint"
           >
@@ -439,9 +451,9 @@
         {/if}
       </div>
 
-      <Dialog.Footer class="border-t px-4 py-3 sm:justify-between">
+      <Dialog.Footer class="px-4 py-3 sm:justify-between">
         <p class="text-xs text-muted-foreground">Esc to cancel</p>
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" disabled={submitting || !repoId}>
           {#if submitting}
             <LoaderCircleIcon class="size-4 animate-spin" aria-hidden="true" />
             Creating worktree…

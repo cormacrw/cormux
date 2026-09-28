@@ -17,7 +17,7 @@
   let loadingPreview = $state(false)
   let tearingDown = $state(false)
   let deleteBranch = $state(true)
-  let confirmRef: HTMLButtonElement | undefined = $state()
+  let confirmRef = $state<HTMLButtonElement | null>(null)
 
   $effect(() => {
     if (!workspaceId) {

@@ -47,7 +47,7 @@
   let query = $state('')
   let repoBranches = $state<string[]>([])
   let loadingBranches = $state(false)
-  let triggerEl: HTMLButtonElement | undefined = $state()
+  let triggerEl = $state<HTMLButtonElement | null>(null)
   let newBranchName = $state('')
 
   const locked = $derived(provisioning || branchPickerLocked(threads))
