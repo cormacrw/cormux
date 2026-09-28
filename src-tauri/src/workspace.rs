@@ -128,6 +128,17 @@ impl WorkspaceManager {
             .insert(record.id.clone(), record);
     }
 
+    pub async fn rename(&self, workspace_id: &str, name: &str) -> Result<WorkspaceRecord> {
+        let mut inner = self.inner.write().await;
+        let workspace = inner
+            .workspaces
+            .get_mut(workspace_id)
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        workspace.name = name.to_string();
+        workspace.version += 1;
+        Ok(workspace.clone())
+    }
+
     pub async fn register_provisioning(
         &self,
         workspace_id: &str,

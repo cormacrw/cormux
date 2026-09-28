@@ -36,6 +36,7 @@ export { threads } from './threads.svelte'
 export { workspaceRecords } from './workspace-records.svelte'
 export { homebaseUi } from './homebase-ui.svelte'
 export { workspaceUi } from './workspace-ui.svelte'
+export { workspaceDiff } from './workspace-diff.svelte'
 export { workspaces } from './workspaces.svelte'
 
 function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {

@@ -72,6 +72,12 @@ export class WorkspacesStore {
       item.id === id ? { ...item, ...patch } : item,
     )
   }
+
+  patchName(id: string, name: string) {
+    this.items = this.items.map((item) =>
+      item.id === id ? { ...item, name } : item,
+    )
+  }
 }
 
 export const workspaces = new WorkspacesStore()

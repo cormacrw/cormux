@@ -173,6 +173,14 @@ async joinWorkspaceThread(input: JoinWorkspaceThreadInput) : Promise<Result<Join
     else return { status: "error", error: e  as any };
 }
 },
+async renameWorkspace(input: RenameWorkspaceInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rename_workspace", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getTeardownPreview(workspaceId: string) : Promise<Result<TeardownPreview, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_teardown_preview", { workspaceId }) };
@@ -235,6 +243,7 @@ export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[]
 export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PtyChunk = { workspaceId: string; line: string }
+export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
 export type SettingRow = { key: string; value: string }

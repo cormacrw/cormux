@@ -27,6 +27,7 @@ pub fn builder() -> Builder {
             commands::retry_workspace_provisioning,
             commands::skip_workspace_provisioning_setup,
             commands::join_workspace_thread,
+            commands::rename_workspace,
             commands::get_teardown_preview,
             commands::teardown_workspace
         ])

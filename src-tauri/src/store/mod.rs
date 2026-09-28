@@ -129,6 +129,16 @@ impl Store {
         })
     }
 
+    pub fn set_workspace_name(&self, workspace_id: &str, name: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET name = ?1 WHERE id = ?2",
+                rusqlite::params![name, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn set_workspace_summary(
         &self,
         workspace_id: &str,

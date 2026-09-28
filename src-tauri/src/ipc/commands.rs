@@ -15,7 +15,8 @@ use crate::store::types::{ThreadRow, WorkspaceRow};
 
 use super::types::{
     AgentChunk, CreateWorkspaceInput, CreateWorkspaceResult, DiffUpdate, PtyChunk,
-    RepoBranchesResult, Snapshot, TeardownInput, TeardownPreview, WorkspaceSummaryResult,
+    RenameWorkspaceInput, RepoBranchesResult, Snapshot, TeardownInput, TeardownPreview,
+    WorkspaceSummaryResult,
 };
 
 #[tauri::command]
@@ -460,6 +461,33 @@ pub async fn skip_workspace_provisioning_setup(
     tauri::async_runtime::spawn(async move {
         crate::provisioning::skip_provisioning_setup(app, workspace_id).await;
     });
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn rename_workspace(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: RenameWorkspaceInput,
+) -> Result<()> {
+    let name = input.name.trim();
+    if name.is_empty() {
+        return Err(Error::Workspace("Workspace name is required".into()));
+    }
+    state
+        .store
+        .set_workspace_name(&input.workspace_id, name)?;
+    state
+        .workspace
+        .rename(&input.workspace_id, name)
+        .await?;
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(&app);
     Ok(())
 }
 

@@ -1,3 +1,4 @@
+import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
 import { app } from '$lib/state/app.svelte'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
@@ -47,6 +48,10 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   }
 
   if (event.key === 'Escape') {
+    if (closeActiveWorkspacePopover()) {
+      event.preventDefault()
+      return
+    }
     if (closeOpenPopover?.()) {
       event.preventDefault()
       return

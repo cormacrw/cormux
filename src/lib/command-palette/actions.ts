@@ -27,6 +27,12 @@ export function pullWorkspace(workspaceId: string) {
   )
 }
 
+export function rebaseWorkspace(workspaceId: string) {
+  window.dispatchEvent(
+    new CustomEvent('cormux:workspace-rebase', { detail: { workspaceId } }),
+  )
+}
+
 export function requestNewThread(workspaceId: string) {
   window.dispatchEvent(
     new CustomEvent('cormux:new-thread', { detail: { workspaceId } }),

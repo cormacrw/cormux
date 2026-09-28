@@ -3,6 +3,8 @@
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
   import { app, threads, workspaceUi, workspaces } from '$lib/state'
+  import { bindWorkspaceDiffSubscription } from '$lib/state/workspace-diff.svelte'
+  import RenameWorkspaceDialog from './RenameWorkspaceDialog.svelte'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
   import { startStreamingSpike } from '$lib/ipc'
   import ProvisioningFailureBanner from './ProvisioningFailureBanner.svelte'
@@ -22,6 +24,7 @@
   )
 
   let workspaceTitle: HTMLHeadingElement | undefined = $state()
+  let renameWorkspaceId = $state<string | null>(null)
 
   $effect(() => {
     if (app.focusTarget !== 'workspace') return
@@ -45,6 +48,11 @@
     workspace ? isWorkspaceProvisioning(workspace.lifecycle) : false,
   )
   const outputTabActive = $derived(workspaceUi.activeTab === 'output')
+
+  $effect(() => {
+    if (!workspace?.id || isLoadSpike) return
+    return bindWorkspaceDiffSubscription(workspace.id)
+  })
 
   onMount(() => {
     if (!isLoadSpike) return
@@ -102,7 +110,14 @@
         )}</pre>
     </div>
   {:else if workspace}
-    <WorkspaceHeader bind:titleRef={workspaceTitle} {workspace} />
+    <RenameWorkspaceDialog bind:workspaceId={renameWorkspaceId} />
+    <WorkspaceHeader
+      bind:titleRef={workspaceTitle}
+      {workspace}
+      onRename={() => {
+        renameWorkspaceId = workspace.id
+      }}
+    />
 
     {#if workspace.lifecycle === 'provisioningFailed'}
       <ProvisioningFailureBanner {workspace} />
@@ -165,7 +180,9 @@
         </p>
       </div>
     {:else if outputTabActive}
-      <WorkspaceOutputPanel workspaceId={workspace.id} {provisioning} />
+      <div id="output-panel">
+        <WorkspaceOutputPanel workspaceId={workspace.id} {provisioning} />
+      </div>
     {/if}
   {:else}
     <p class="text-sm text-muted-foreground">Workspace not found.</p>

@@ -149,4 +149,11 @@ pub struct JoinWorkspaceThreadResult {
     pub thread_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameWorkspaceInput {
+    pub workspace_id: String,
+    pub name: String,
+}
+
 pub use crate::teardown::{TeardownInput, TeardownPreview};
