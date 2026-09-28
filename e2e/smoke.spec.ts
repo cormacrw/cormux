@@ -23,6 +23,7 @@ test.describe('browser harness UI', () => {
     await expect(
       page.getByRole('switch', { name: 'Run everything' }),
     ).toBeVisible()
+    await expect(page.getByText('Run gh auth login')).toBeVisible()
     mkdirSync('e2e/output', { recursive: true })
     await page.screenshot({
       path: 'e2e/output/agents-settings.png',

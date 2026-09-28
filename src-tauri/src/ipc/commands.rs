@@ -32,9 +32,7 @@ use crate::store::types::RepoRecord;
 pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let trees = process_trees(&state);
     let memory = state.metrics.sample(&trees).ok();
-    let github_auth_configured = auth::resolve_token(&state.shell_env)
-        .await
-        .is_some();
+    let github_auth_configured = auth::gh_authenticated(&state.shell_env).await;
     let pr_synced_at = state.store.get_setting("githubPrSyncedAt")?.filter(|value| !value.is_empty());
 
     let persisted = state.store.snapshot()?;

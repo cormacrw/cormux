@@ -1,15 +1,15 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Deserialize;
+use tokio::sync::RwLock;
 
 use crate::error::{Error, Result};
+use crate::shell_env::ShellEnv;
 
 use super::types::{
     PrChecksState, PrRelationship, PrReviewState, PullRequestPayload,
 };
-
-const GRAPHQL_URL: &str = "https://api.github.com/graphql";
 
 const SEARCH_QUERY: &str = r#"
 query($q: String!) {
@@ -43,74 +43,26 @@ query($q: String!) {
 }
 "#;
 
-#[derive(Debug, Clone)]
-pub struct RateLimitSnapshot {
-    pub remaining: Option<u32>,
-}
+const SEARCH: &str = "is:pr is:open (author:@me OR review-requested:@me OR assignee:@me OR mentions:@me)";
 
-#[derive(Clone)]
-pub struct OpenPrsClient {
-    http: reqwest::Client,
-}
+pub async fn fetch_open_prs(
+    env: &Arc<RwLock<ShellEnv>>,
+    repo_origins: &HashMap<String, String>,
+) -> Result<Vec<PullRequestPayload>> {
+    let query_arg = format!("query={SEARCH_QUERY}");
+    let search_arg = format!("q={SEARCH}");
+    let shell = env.read().await;
+    let output = shell
+        .run(
+            "gh",
+            &["api", "graphql", "-f", &query_arg, "-f", &search_arg],
+            None,
+        )
+        .await
+        .map_err(|error| Error::Github(error.to_string()))?;
 
-impl Default for OpenPrsClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl OpenPrsClient {
-    pub fn new() -> Self {
-        Self {
-            http: reqwest::Client::new(),
-        }
-    }
-
-    pub async fn fetch_open_prs(
-        &self,
-        token: &str,
-        repo_origins: &HashMap<String, String>,
-    ) -> Result<(Vec<PullRequestPayload>, RateLimitSnapshot)> {
-        let search = "is:pr is:open (author:@me OR review-requested:@me OR assignee:@me OR mentions:@me)";
-        let body = serde_json::json!({
-            "query": SEARCH_QUERY,
-            "variables": { "q": search }
-        });
-
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "Authorization",
-            HeaderValue::from_str(&format!("Bearer {token}"))
-                .map_err(|error| Error::Github(error.to_string()))?,
-        );
-        headers.insert(
-            "User-Agent",
-            HeaderValue::from_static("cormux"),
-        );
-
-        let response = self
-            .http
-            .post(GRAPHQL_URL)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| Error::Github(error.to_string()))?;
-
-        let remaining = response
-            .headers()
-            .get("x-ratelimit-remaining")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse().ok());
-
-        if response.status() == reqwest::StatusCode::FORBIDDEN && remaining == Some(0) {
-            return Err(Error::Github("GitHub rate limit exceeded".into()));
-        }
-
-        let payload: GraphQlResponse = response
-            .json()
-            .await
-            .map_err(|error| Error::Github(error.to_string()))?;
+    let payload: GraphQlResponse = serde_json::from_str(&output)
+        .map_err(|error| Error::Github(format!("gh api graphql: {error}")))?;
 
         if let Some(errors) = payload.errors {
             let message = errors
@@ -146,9 +98,8 @@ impl OpenPrsClient {
             }
         }
 
-        items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        Ok((items, RateLimitSnapshot { remaining }))
-    }
+    items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(items)
 }
 
 fn rel_priority(rel: PrRelationship) -> u8 {
@@ -165,12 +116,12 @@ fn infer_relationship(pr: &PullRequestNode, viewer: &str) -> PrRelationship {
     if author.eq_ignore_ascii_case(viewer) {
         return PrRelationship::Author;
     }
-    if pr.requested_reviewers.nodes.iter().any(|user| {
+    if pr.requested_reviewers.nodes.iter().flatten().any(|user| {
         user.login.eq_ignore_ascii_case(viewer)
     }) {
         return PrRelationship::Review;
     }
-    if pr.assignees.nodes.iter().any(|user| {
+    if pr.assignees.nodes.iter().flatten().any(|user| {
         user.login.eq_ignore_ascii_case(viewer)
     }) {
         return PrRelationship::Assigned;
@@ -192,7 +143,12 @@ fn map_pr(
         pr.author.login
     };
 
-    let (checks, failing) = map_checks(&pr.status_check_rollup.state);
+    let (checks, failing) = map_checks(
+        pr.status_check_rollup
+            .as_ref()
+            .and_then(|rollup| rollup.state.as_deref())
+            .unwrap_or(""),
+    );
     let review = map_review(pr.is_draft, pr.review_decision.as_deref());
 
     PullRequestPayload {
@@ -279,7 +235,7 @@ struct PullRequestNode {
     head_ref_name: String,
     base_ref_name: String,
     repository: RepositoryNode,
-    status_check_rollup: StatusCheckRollup,
+    status_check_rollup: Option<StatusCheckRollup>,
     requested_reviewers: UserConnection,
     assignees: UserConnection,
 }
@@ -296,10 +252,10 @@ struct RepositoryNode {
 
 #[derive(Debug, Deserialize)]
 struct StatusCheckRollup {
-    state: String,
+    state: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct UserConnection {
-    nodes: Vec<LoginNode>,
+    nodes: Vec<Option<LoginNode>>,
 }

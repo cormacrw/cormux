@@ -168,7 +168,7 @@
           <SettingsSectionHead
             id="settings-github-h"
             title="GitHub"
-            description="Sign in and sync pull requests from your account."
+            description="Pull requests sync through the gh CLI."
           />
           <div class="mt-4">
             <GithubSettings />

@@ -14,7 +14,7 @@ use crate::store::types::PrRow;
 use tauri_specta::Event;
 
 use super::auth;
-use super::client::OpenPrsClient;
+use super::client;
 use super::r#match::load_repo_origins;
 
 const SYNC_INTERVAL: Duration = Duration::from_secs(120);
@@ -23,28 +23,20 @@ const SYNCED_AT_KEY: &str = "githubPrSyncedAt";
 #[derive(Clone)]
 pub struct PrSyncScheduler {
     git: Git,
-    client: OpenPrsClient,
     shell_env: Arc<RwLock<ShellEnv>>,
 }
 
 impl PrSyncScheduler {
     pub fn new(git: Git, shell_env: Arc<RwLock<ShellEnv>>) -> Self {
-        Self {
-            git,
-            client: OpenPrsClient::new(),
-            shell_env,
-        }
+        Self { git, shell_env }
     }
 
     pub async fn tick(&self, state: &AppState) -> Result<bool> {
-        let token = match auth::resolve_token(&self.shell_env).await {
-            Some(token) => token,
-            None => {
-                state.store.replace_pull_requests(&[])?;
-                state.store.set_setting(SYNCED_AT_KEY, "")?;
-                return Ok(true);
-            }
-        };
+        if !auth::gh_authenticated(&self.shell_env).await {
+            state.store.replace_pull_requests(&[])?;
+            state.store.set_setting(SYNCED_AT_KEY, "")?;
+            return Ok(true);
+        }
 
         let repos: Vec<(String, String)> = state
             .store
@@ -54,11 +46,7 @@ impl PrSyncScheduler {
             .map(|repo| (repo.id.clone(), repo.path.clone()))
             .collect();
         let origins = load_repo_origins(&self.git, &repos).await?;
-        let (items, rate) = self.client.fetch_open_prs(&token, &origins).await?;
-
-        if rate.remaining == Some(0) {
-            log::warn!("GitHub rate limit exhausted after sync");
-        }
+        let items = client::fetch_open_prs(&self.shell_env, &origins).await?;
 
         let mut rows = Vec::with_capacity(items.len());
         for pr in &items {
