@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
+use tauri::AppHandle;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -10,8 +11,6 @@ use crate::app::WorkspaceAppService;
 use crate::process::ProcessSupervisor;
 use crate::store::Store;
 use crate::store::types::FindingRow;
-
-const SEVERITIES: &[&str] = &["blocking", "suggestion", "nit"];
 
 /// In-process MCP server given to every engine (`report_finding`, `finish_review`, …).
 ///
@@ -24,6 +23,7 @@ pub struct CormuxMcp {
     process: ProcessSupervisor,
     approvals: Arc<ApprovalBroker>,
     apps: WorkspaceAppService,
+    app: Arc<Mutex<Option<AppHandle>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +52,13 @@ impl CormuxMcp {
             process,
             approvals,
             apps,
+            app: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn attach_app(&self, app: AppHandle) {
+        if let Ok(mut slot) = self.app.lock() {
+            *slot = Some(app);
         }
     }
 
@@ -82,15 +89,17 @@ impl CormuxMcp {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_lowercase();
-        if !SEVERITIES.contains(&severity.as_str()) {
-            return Err(Error::Mcp(
-                "severity must be blocking, suggestion, or nit".into(),
-            ));
-        }
+        crate::findings::validate_severity(&severity)?;
         let title = required_string(args, "title")?;
         let explanation = required_string(args, "explanation")?;
         let file = args.get("file").and_then(Value::as_str).map(str::to_string);
         let line = args.get("line").and_then(Value::as_i64);
+        let worktree = crate::findings::worktree_for_workspace(&self.store, &ctx.workspace_id)?;
+        crate::findings::validate_finding_location(
+            &worktree,
+            file.as_deref(),
+            line,
+        )?;
         let id = args
             .get("id")
             .and_then(Value::as_str)
@@ -107,6 +116,7 @@ impl CormuxMcp {
             explanation,
             status: "open".into(),
             commit_sha: None,
+            sent_to_thread_id: None,
         })?;
 
         Ok(McpToolResult {
@@ -128,6 +138,15 @@ impl CormuxMcp {
         let id = required_string(args, "id")?;
         let commit = required_string(args, "commit")?;
         self.store.mark_finding_fixed(&id, &commit)?;
+        if let Ok(guard) = self.app.lock() {
+            if let Some(app) = guard.clone() {
+                let finding_id = id.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ =
+                        crate::findings::on_finding_marked_fixed(&app, &finding_id).await;
+                });
+            }
+        }
         Ok(McpToolResult {
             ok: true,
             payload: json!({ "id": id, "status": "fixed", "commit": commit }),
@@ -186,6 +205,10 @@ mod tests {
     fn mcp() -> (CormuxMcp, Store) {
         let store = Store::new();
         store.open_in_memory().unwrap();
+        let worktree = std::env::temp_dir().join(format!("cormux-mcp-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&worktree).unwrap();
+        let api = worktree.join("api.ts");
+        std::fs::write(&api, "line1\nline2\n").unwrap();
         store
             .upsert_repo(&RepoRecord {
                 id: "r1".into(),
@@ -202,7 +225,7 @@ mod tests {
                 repo_id: "r1".into(),
                 name: "Login".into(),
                 branch: "feat".into(),
-                worktree_path: "/tmp/wt".into(),
+                worktree_path: worktree.to_string_lossy().into(),
                 status: "ready".into(),
                 created_at: String::new(),
                 summary: None,
@@ -252,7 +275,7 @@ mod tests {
                     "severity": "blocking",
                     "title": "SQL injection",
                     "file": "api.ts",
-                    "line": 12,
+                    "line": 2,
                     "explanation": "User input is concatenated."
                 }),
                 &ctx(),

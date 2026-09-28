@@ -25,10 +25,11 @@ pub fn persist_control_step(store: &Store, thread_id: &str, title: &str) -> Resu
     persist_agent_event(store, thread_id, &event)
 }
 
-fn persist_agent_event(store: &Store, thread_id: &str, event: &AgentEvent) -> Result<()> {
+pub fn persist_agent_event(store: &Store, thread_id: &str, event: &AgentEvent) -> Result<()> {
     let kind = match event {
         AgentEvent::MessageChunk { .. } => "message",
         AgentEvent::ToolCall { .. } => "tool",
+        AgentEvent::CurrentTool { .. } => "current_tool",
         _ => "message",
     };
     let payload = serde_json::to_string(event).map_err(|error| Error::Store(error.to_string()))?;

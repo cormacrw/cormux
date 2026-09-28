@@ -480,6 +480,7 @@ async fn seed_findings_from_diff(
             explanation: item.explanation,
             status: "open".into(),
             commit_sha: None,
+            sent_to_thread_id: None,
         })?;
     }
     Ok(())
@@ -541,6 +542,7 @@ fn fallback_findings_from_diff(
         explanation: "Walk through this file for edge cases and missing tests.".into(),
         status: "open".into(),
         commit_sha: None,
+        sent_to_thread_id: None,
     })?;
     Ok(())
 }

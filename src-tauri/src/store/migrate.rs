@@ -34,6 +34,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "005_workspace_pr_url",
         sql: include_str!("../../migrations/005_workspace_pr_url.sql"),
     },
+    Migration {
+        version: 6,
+        name: "006_findings_sent_thread",
+        sql: include_str!("../../migrations/006_findings_sent_thread.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -101,7 +106,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
 
         for expected in [
             "approvals",

@@ -7,6 +7,8 @@ export class WorkspaceUiStore {
   changesOpen = $state(false)
   selectedDiffPath = $state<string | null>(null)
   diffMode = $state<'unified' | 'split'>('unified')
+  /** When true, opening Findings focuses the panel heading (card entry). */
+  findingsFocusPending = $state(false)
 
   openTab(tab: WorkspacePanelTab) {
     if (tab === 'output') {

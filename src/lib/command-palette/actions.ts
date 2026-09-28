@@ -57,6 +57,7 @@ export function openSettingsSection(section: string) {
 
 export function openWorkspaceFindings(workspaceId: string) {
   app.openWorkspace(workspaceId)
+  workspaceUi.findingsFocusPending = true
   workspaceUi.openTab('findings')
 }
 

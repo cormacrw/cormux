@@ -86,6 +86,7 @@ pub struct FindingRow {
     pub explanation: String,
     pub status: String,
     pub commit_sha: Option<String>,
+    pub sent_to_thread_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

@@ -1,6 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { app, threads, workspaceRecords, workspaceUi, workspaces } from '$lib/state'
+  import {
+    app,
+    findings,
+    threads,
+    workspaceRecords,
+    workspaceUi,
+    workspaces,
+  } from '$lib/state'
   import { bindWorkspaceDiffSubscription } from '$lib/state/workspace-diff.svelte'
   import RenameWorkspaceDialog from './RenameWorkspaceDialog.svelte'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
@@ -67,12 +74,27 @@
 
   $effect(() => {
     void workspaceUi.activeTab
-    void app.threadId
+    void workspaceUi.findingsFocusPending
     queueMicrotask(() => {
-      if (findingsTabActive && findingsHeading) {
+      if (
+        findingsTabActive &&
+        findingsHeading &&
+        workspaceUi.findingsFocusPending
+      ) {
         findingsHeading.focus({ preventScroll: true })
+        workspaceUi.findingsFocusPending = false
       }
     })
+  })
+
+  $effect(() => {
+    if (!workspace?.id || !findingsTabActive) return
+    if (
+      workspaceUi.activeTab === 'findings' &&
+      !findings.hasReviewFindings(workspace.id)
+    ) {
+      workspaceUi.openTab('thread')
+    }
   })
 
   onMount(() => {

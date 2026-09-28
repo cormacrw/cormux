@@ -28,6 +28,8 @@ export function resetTimelineIdCounter() {
 
 function iconForTool(kind: ToolKind, title: string): ToolStepIcon {
   const lower = title.toLowerCase()
+  if (/received \d+ findings from the review/i.test(title)) return 'list'
+  if (/^fixed \d+ findings/i.test(title)) return 'check'
   if (lower.includes('you paused')) return 'pause'
   if (lower.includes('you resumed')) return 'play'
   if (kind === 'read') return 'file'
@@ -100,6 +102,12 @@ function toolStepFromCall(
       seq,
     }
   }
+  const fixedChips = /^Fixed \d+ findings/i.test(event.title)
+    ? ([
+        { label: 'Tests pass', tone: 'success' as const },
+        { label: 'Committed locally, not pushed', tone: 'muted' as const },
+      ] as TimelineChip[])
+    : undefined
   const tone =
     event.status === 'completed' && event.kind !== 'execute'
       ? ('success' as const)
@@ -114,8 +122,12 @@ function toolStepFromCall(
     icon: iconForTool(event.kind, event.title),
     title: event.title,
     detail: (event.detail ?? event.locations.join(', ')) || undefined,
-    chips: chips ?? openedPrChips,
-    tone: tone ?? (/^Opened PR #\d+/.test(event.title) ? 'success' : undefined),
+    chips: chips ?? fixedChips ?? openedPrChips,
+    tone:
+      tone ??
+      (/^Opened PR #\d+/.test(event.title) || /^Fixed \d+ findings/i.test(event.title)
+        ? 'success'
+        : undefined),
     seq,
     rawDetail: event.detail ?? undefined,
   }

@@ -151,6 +151,7 @@
   })
 
   function openFindingsTab() {
+    workspaceUi.findingsFocusPending = true
     workspaceUi.openTab('findings')
   }
 </script>

@@ -365,6 +365,14 @@ async setRepoRunCommand(input: SetRepoRunCommandInput) : Promise<Result<null, Er
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async sendWorkspaceFindings(input: SendWorkspaceFindingsInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("send_workspace_findings", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -416,7 +424,7 @@ export type EngineStatus = { kind: EngineKind; installed: boolean; binary: strin
  * generated TypeScript bindings stay in lockstep with Rust.
  */
 export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: string; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string } | { kind: "NotImplemented"; message: string }
-export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null }
+export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null; sentToThreadId: string | null }
 export type GitConflictOperation = "merge" | "rebase"
 export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
 export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; engine: string }
@@ -431,6 +439,7 @@ export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
 export type ResolveApprovalResult = { focusComposer: boolean }
+export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SettingRow = { key: string; value: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 

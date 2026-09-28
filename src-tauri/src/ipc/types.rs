@@ -192,6 +192,14 @@ pub struct JoinWorkspaceThreadInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct SendWorkspaceFindingsInput {
+    pub workspace_id: String,
+    pub thread_id: String,
+    pub finding_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct JoinWorkspaceThreadResult {
     pub thread_id: String,
 }

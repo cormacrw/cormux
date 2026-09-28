@@ -41,5 +41,6 @@ commands.allow = [
   "teardown_workspace",
   "start_streaming_spike",
   "control_workspace_app",
-  "set_repo_run_command"
+  "set_repo_run_command",
+  "send_workspace_findings"
 ]

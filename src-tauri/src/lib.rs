@@ -4,6 +4,7 @@ mod app;
 mod approvals;
 mod composer;
 mod create_pr;
+mod findings;
 mod review;
 mod pr_draft;
 mod engines;
@@ -114,6 +115,9 @@ pub fn run() {
             state.store.open(&db_path)?;
             let approval_notify = state.approval_notify.clone();
             app.manage(state);
+            app.state::<AppState>()
+                .mcp
+                .attach_app(app.handle().clone());
 
             let approval_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {

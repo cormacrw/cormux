@@ -19,8 +19,9 @@ use super::types::{
     AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
     CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
     CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RenameWorkspaceInput,
-    RepoBranchesResult, ResolveApprovalResult, SetRepoRunCommandInput, Snapshot,
-    SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, WorkspaceAppControlAction,
+    RepoBranchesResult, ResolveApprovalResult, SendWorkspaceFindingsInput,
+    SetRepoRunCommandInput, Snapshot, SwitchWorkspaceBranchInput, TeardownInput,
+    TeardownPreview, WorkspaceAppControlAction,
     WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
@@ -961,6 +962,24 @@ pub async fn resume_thread(
     if let Some(text) = state.engines.release_thread(&thread_id)? {
         let _ = state.engines.prompt(&thread_id, text);
     }
+    emit_composer_snapshot(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn send_workspace_findings(
+    app: AppHandle,
+    input: SendWorkspaceFindingsInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::findings::send_workspace_findings(
+        &app,
+        &input.workspace_id,
+        &input.thread_id,
+        input.finding_ids,
+    )
+    .await?;
     emit_composer_snapshot(&app, &state);
     Ok(())
 }

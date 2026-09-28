@@ -308,6 +308,53 @@ impl Store {
         })
     }
 
+    pub fn mark_findings_sent(
+        &self,
+        finding_ids: &[String],
+        thread_id: &str,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            for id in finding_ids {
+                let changed = conn.execute(
+                    "UPDATE findings SET status = 'sent', sent_to_thread_id = ?1 WHERE id = ?2 AND status = 'open'",
+                    rusqlite::params![thread_id, id],
+                )?;
+                if changed == 0 {
+                    return Err(Error::Store(format!(
+                        "finding {id} is not open or does not exist"
+                    )));
+                }
+            }
+            Ok(())
+        })
+    }
+
+    pub fn finding_by_id(&self, finding_id: &str) -> Result<Option<FindingRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id
+                 FROM findings WHERE id = ?1",
+            )?;
+            let mut rows = stmt.query([finding_id])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(FindingRow {
+                    id: row.get(0)?,
+                    workspace_id: row.get(1)?,
+                    severity: row.get(2)?,
+                    title: row.get(3)?,
+                    file: row.get(4)?,
+                    line: row.get(5)?,
+                    explanation: row.get(6)?,
+                    status: row.get(7)?,
+                    commit_sha: row.get(8)?,
+                    sent_to_thread_id: row.get(9)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
     pub fn upsert_thread(&self, thread: &ThreadRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -411,11 +458,12 @@ impl Store {
     pub fn upsert_finding(&self, finding: &FindingRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation, status, commit_sha)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                  ON CONFLICT(id) DO UPDATE SET severity = excluded.severity, title = excluded.title,
                     explanation = excluded.explanation, file = excluded.file, line = excluded.line,
-                    status = excluded.status, commit_sha = excluded.commit_sha",
+                    status = excluded.status, commit_sha = excluded.commit_sha,
+                    sent_to_thread_id = excluded.sent_to_thread_id",
                 rusqlite::params![
                     finding.id,
                     finding.workspace_id,
@@ -425,7 +473,8 @@ impl Store {
                     finding.line,
                     finding.explanation,
                     finding.status,
-                    finding.commit_sha
+                    finding.commit_sha,
+                    finding.sent_to_thread_id
                 ],
             )?;
             Ok(())
@@ -547,7 +596,7 @@ impl Store {
                 )?,
                 findings: query_all(
                     conn,
-                    "SELECT id, workspace_id, severity, title, file, line, explanation, status, commit_sha
+                    "SELECT id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id
                      FROM findings
                      WHERE workspace_id IN (
                         SELECT id FROM workspaces WHERE archived_at IS NULL
@@ -563,6 +612,7 @@ impl Store {
                             explanation: row.get(6)?,
                             status: row.get(7)?,
                             commit_sha: row.get(8)?,
+                            sent_to_thread_id: row.get(9)?,
                         })
                     },
                 )?,
@@ -699,6 +749,7 @@ mod tests {
                 explanation: "secret".into(),
                 status: "open".into(),
                 commit_sha: None,
+                sent_to_thread_id: None,
             })
             .unwrap();
         store
