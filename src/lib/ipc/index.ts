@@ -13,6 +13,8 @@ export {
   type Snapshot,
   type StateChangeKind,
   type StateChanged,
+  type ToastRaised,
+  type ToastRaisedPayload,
 } from './bindings'
 
 export {

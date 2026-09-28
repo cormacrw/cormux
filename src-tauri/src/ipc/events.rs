@@ -4,7 +4,7 @@ use tauri_specta::Event;
 
 use crate::workspace::WorkspaceLifecycle;
 
-use super::types::StateChangeKind;
+use super::types::{StateChangeKind, ToastRaisedPayload};
 
 /// Low-volume core → UI notification. `version` is monotonic; a gap means the
 /// webview should call `get_snapshot` and replace local state.
@@ -21,4 +21,10 @@ pub struct WorkspaceStatusChanged {
     pub version: u64,
     pub workspace_id: String,
     pub status: WorkspaceLifecycle,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct ToastRaised {
+    pub payload: ToastRaisedPayload,
 }

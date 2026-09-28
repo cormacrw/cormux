@@ -105,9 +105,11 @@ async startStreamingSpike(agent: TAURI_CHANNEL<AgentChunk>, pty: TAURI_CHANNEL<P
 
 export const events = __makeEvents__<{
 stateChanged: StateChanged,
+toastRaised: ToastRaised,
 workspaceStatusChanged: WorkspaceStatusChanged
 }>({
 stateChanged: "state-changed",
+toastRaised: "toast-raised",
 workspaceStatusChanged: "workspace-status-changed"
 })
 
@@ -140,7 +142,11 @@ export type PrRow = { id: string; repoId: string | null; number: number; title: 
 export type PtyChunk = { workspaceId: string; line: string }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
 export type SettingRow = { key: string; value: string }
-export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; memory: MemorySample | null }
+export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; memory: MemorySample | null; 
+/**
+ * In-memory broker queue (may exceed persisted pending rows).
+ */
+pendingLiveApprovals: number }
 export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "metrics" | "environment"
 /**
  * Low-volume core → UI notification. `version` is monotonic; a gap means the
@@ -149,6 +155,10 @@ export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | 
 export type StateChanged = { version: number; kind: StateChangeKind }
 export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string }
 export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
+export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
+export type ToastRaised = { payload: ToastRaisedPayload }
+export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null }
+export type ToastTone = "ok" | "bad" | "default"
 /**
  * Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
  * describe activity after provisioning.

@@ -4,6 +4,7 @@ use tauri::{AppHandle, State, ipc::Channel};
 use tauri_specta::Event;
 
 use crate::error::Result;
+use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
@@ -21,6 +22,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         persisted: state.store.snapshot()?,
         workspaces: state.workspace.list().await,
         memory,
+        pending_live_approvals: state.approvals.pending_count(),
     })
 }
 
@@ -97,11 +99,25 @@ pub async fn detect_engines(
 #[tauri::command]
 #[specta::specta]
 pub async fn resolve_approval(
+    app: AppHandle,
     id: String,
     approved: bool,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    state.approvals.resolve(&id, approved).await
+    let tool = state
+        .store
+        .snapshot()?
+        .approvals
+        .iter()
+        .find(|row| row.id == id)
+        .map(|row| row.tool.clone())
+        .unwrap_or_default();
+    state.approvals.resolve(&id, approved).await?;
+    emit_approval_counts(&app, &state);
+    if let Some(payload) = toast_for_approval(&tool, approved) {
+        emit_toast(&app, payload);
+    }
+    Ok(())
 }
 
 /// High-volume ordered stream of PTY output for a workspace's run/setup log.

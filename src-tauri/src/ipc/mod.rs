@@ -21,7 +21,8 @@ pub fn builder() -> Builder {
         ])
         .events(tauri_specta::collect_events![
             events::StateChanged,
-            events::WorkspaceStatusChanged
+            events::WorkspaceStatusChanged,
+            events::ToastRaised
         ])
 }
 

@@ -1,5 +1,9 @@
 import { listen } from '@tauri-apps/api/event'
 import { commands } from '$lib/ipc'
+import {
+  toastCoreError,
+  toastEnvironmentReloaded,
+} from '$lib/feedback/wire-feedback'
 import { app } from '$lib/state'
 
 export async function bindNativeMenu() {
@@ -14,7 +18,14 @@ export async function bindNativeMenu() {
       app.requestNewWorkspace()
     }),
     listen('menu://reload-environment', () => {
-      void commands.reloadEnvironment()
+      void (async () => {
+        const result = await commands.reloadEnvironment()
+        if (result.status === 'ok') {
+          toastEnvironmentReloaded()
+          return
+        }
+        toastCoreError(JSON.stringify(result.error))
+      })()
     }),
   ])
 

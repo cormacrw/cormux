@@ -1,4 +1,5 @@
 import type { Snapshot, StateChanged } from '$lib/ipc'
+import { onSnapshotSupervision } from '$lib/feedback/supervision'
 import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 import { commands, fetchSnapshot } from '$lib/ipc'
 import { app } from './app.svelte'
@@ -146,6 +147,7 @@ function buildThreadModels(snapshot: Snapshot) {
 }
 
 export function hydrateFromSnapshot(snapshot: Snapshot) {
+  void onSnapshotSupervision(snapshot)
   const threadModels = buildThreadModels(snapshot)
   settings.hydrate({
     reduceMotion: snapshot.persisted.settings.some(
@@ -178,6 +180,9 @@ export async function patchFromEvent(event: StateChanged) {
     if (result.status === 'ok') {
       memory.hydrate(result.data)
     }
+    return
+  }
+  if (event.kind === 'toast') {
     return
   }
   if (

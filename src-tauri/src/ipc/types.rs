@@ -14,6 +14,8 @@ pub struct Snapshot {
     pub persisted: PersistedSnapshot,
     pub workspaces: Vec<WorkspaceRecord>,
     pub memory: Option<MemorySample>,
+    /// In-memory broker queue (may exceed persisted pending rows).
+    pub pending_live_approvals: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -56,6 +58,29 @@ pub enum StateChangeKind {
     BehindCounts,
     Metrics,
     Environment,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ToastTone {
+    Ok,
+    Bad,
+    Default,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum ToastPart {
+    Text { value: String },
+    Code { value: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ToastRaisedPayload {
+    pub tone: ToastTone,
+    pub parts: Vec<ToastPart>,
+    pub workspace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

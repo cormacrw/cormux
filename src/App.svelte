@@ -12,6 +12,9 @@
     patchFromEvent,
     settings,
   } from '$lib/state'
+  import ToastsRegion from '$lib/components/feedback/ToastsRegion.svelte'
+  import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
+  import { setHarnessWindowFocused } from '$lib/feedback/supervision'
   import Homebase from './routes/Homebase.svelte'
   import Settings from './routes/Settings.svelte'
   import Workspace from './routes/Workspace.svelte'
@@ -27,6 +30,12 @@
       }
 
       const unlistenMenu = await bindNativeMenu()
+      const unlistenFeedback = await bindFeedbackEvents()
+      const win = getCurrentWindow()
+      const unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
+        setHarnessWindowFocused(focused)
+      })
+      setHarnessWindowFocused(await win.isFocused())
       const unlistenState = await listenForStateChanges({
         lastVersion: () => app.version,
         onEvent: (event) => {
@@ -37,6 +46,8 @@
 
       unlisten = () => {
         unlistenMenu()
+        unlistenFeedback()
+        unlistenFocus()
         unlistenState()
       }
     })()
@@ -68,6 +79,7 @@
   })
 </script>
 
+<ToastsRegion />
 <CommandPalette />
 <AppShell>
   {#if app.view === 'settings'}

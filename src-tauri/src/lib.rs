@@ -2,6 +2,7 @@
 
 mod approvals;
 mod engines;
+mod feedback;
 mod error;
 mod git;
 mod github;
