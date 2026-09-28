@@ -15,7 +15,7 @@ use crate::store::types::{ThreadRow, WorkspaceRow};
 
 use super::types::{
     AgentChunk, CreateWorkspaceInput, CreateWorkspaceResult, DiffUpdate, PtyChunk,
-    RepoBranchesResult, Snapshot, WorkspaceSummaryResult,
+    RepoBranchesResult, Snapshot, TeardownInput, TeardownPreview, WorkspaceSummaryResult,
 };
 
 #[tauri::command]
@@ -353,6 +353,7 @@ pub async fn create_workspace(
         kind: None,
         pr_number: None,
         modified_files: 0,
+        archived_at: None,
     })?;
     state.store.upsert_thread(&ThreadRow {
         id: thread_id.clone(),
@@ -460,6 +461,25 @@ pub async fn skip_workspace_provisioning_setup(
         crate::provisioning::skip_provisioning_setup(app, workspace_id).await;
     });
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_teardown_preview(
+    workspace_id: String,
+    state: State<'_, AppState>,
+) -> Result<TeardownPreview> {
+    crate::teardown::preview(&state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn teardown_workspace(
+    input: TeardownInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::teardown::execute(&app, &state, &input).await
 }
 
 #[tauri::command]

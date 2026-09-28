@@ -14,6 +14,7 @@
   } from '$lib/state'
   import ToastsRegion from '$lib/components/feedback/ToastsRegion.svelte'
   import NewWorkspaceDialog from '$lib/components/new-workspace/NewWorkspaceDialog.svelte'
+  import TeardownDialog from '$lib/components/workspace/TeardownDialog.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { setHarnessWindowFocused } from '$lib/feedback/supervision'
   import Homebase from './routes/Homebase.svelte'
@@ -82,6 +83,7 @@
 
 <ToastsRegion />
 <NewWorkspaceDialog />
+<TeardownDialog />
 <CommandPalette />
 <AppShell>
   {#if app.view === 'settings'}

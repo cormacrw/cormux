@@ -86,6 +86,7 @@ mod tests {
             kind: None,
             pr_number: None,
             modified_files: 3,
+            archived_at: None,
         }
     }
 

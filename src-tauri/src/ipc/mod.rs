@@ -26,7 +26,9 @@ pub fn builder() -> Builder {
             commands::create_workspace,
             commands::retry_workspace_provisioning,
             commands::skip_workspace_provisioning_setup,
-            commands::join_workspace_thread
+            commands::join_workspace_thread,
+            commands::get_teardown_preview,
+            commands::teardown_workspace
         ])
         .events(tauri_specta::collect_events![
             events::StateChanged,

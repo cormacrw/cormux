@@ -386,6 +386,28 @@ impl Git {
         let output = self.run(repo, &["branch", "-D", branch]).await?;
         Self::require_success(&output, "branch -D")
     }
+
+    pub async fn rev_list_count(&self, worktree: &Path, range: &str) -> Result<u32> {
+        let output = self.run(worktree, &["rev-list", "--count", range]).await?;
+        if !output.status.success() {
+            return Ok(0);
+        }
+        Self::stdout(&output)
+            .trim()
+            .parse()
+            .map_err(|error| Error::Git(format!("rev-list count: {error}")))
+    }
+
+    pub async fn remote_branch_exists(&self, repo: &Path, branch: &str) -> Result<bool> {
+        let reference = format!("refs/remotes/origin/{branch}");
+        let output = self.run(repo, &["show-ref", "--verify", &reference]).await?;
+        Ok(output.status.success())
+    }
+
+    pub async fn unpushed_commit_count(&self, worktree: &Path, branch: &str) -> Result<u32> {
+        let range = format!("origin/{branch}..HEAD");
+        self.rev_list_count(worktree, &range).await
+    }
 }
 
 fn short_ref(refname: &str) -> String {

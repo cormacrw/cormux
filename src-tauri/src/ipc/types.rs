@@ -148,3 +148,5 @@ pub struct JoinWorkspaceThreadInput {
 pub struct JoinWorkspaceThreadResult {
     pub thread_id: String,
 }
+
+pub use crate::teardown::{TeardownInput, TeardownPreview};

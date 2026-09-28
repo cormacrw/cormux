@@ -15,6 +15,22 @@ pub fn emit_approval_counts(app: &AppHandle, state: &AppState) {
     sync_dock_badge(app, state);
 }
 
+pub fn emit_toast_parts(
+    app: &AppHandle,
+    tone: ToastTone,
+    parts: Vec<ToastPart>,
+    workspace_id: Option<String>,
+) {
+    emit_toast(
+        app,
+        ToastRaisedPayload {
+            tone,
+            parts,
+            workspace_id,
+        },
+    );
+}
+
 pub fn emit_toast(app: &AppHandle, payload: ToastRaisedPayload) {
     let _ = ToastRaised { payload }.emit(app);
     let version = state_bump(app);

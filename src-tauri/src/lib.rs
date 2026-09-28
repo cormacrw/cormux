@@ -17,6 +17,7 @@ mod shell_env;
 mod state;
 mod store;
 mod summaries;
+mod teardown;
 mod workspace;
 
 use std::time::Duration;

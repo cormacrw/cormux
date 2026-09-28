@@ -145,11 +145,24 @@ impl Store {
         })
     }
 
+    pub fn archive_workspace(&self, workspace_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces
+                 SET archived_at = datetime('now'), status = 'archived', worktree_path = ''
+                 WHERE id = ?1",
+                rusqlite::params![workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn workspace_by_id(&self, workspace_id: &str) -> Result<Option<WorkspaceRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
-                        summary, summary_at, summary_source, kind, pr_number, modified_files
+                        summary, summary_at, summary_source, kind, pr_number, modified_files,
+                        archived_at
                  FROM workspaces WHERE id = ?1",
             )?;
             let mut rows = stmt.query([workspace_id])?;
@@ -385,14 +398,19 @@ impl Store {
                 workspaces: query_all(
                     conn,
                     "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
-                            summary, summary_at, summary_source, kind, pr_number, modified_files
-                     FROM workspaces",
+                            summary, summary_at, summary_source, kind, pr_number, modified_files,
+                            archived_at
+                     FROM workspaces WHERE archived_at IS NULL",
                     |row| Ok(row_to_workspace(row)?),
                 )?,
                 threads: query_all(
                     conn,
                     "SELECT id, workspace_id, title, engine, session_id, status,
-                            used_tokens, context_size, cost_usd, transcript_readonly FROM threads",
+                            used_tokens, context_size, cost_usd, transcript_readonly
+                     FROM threads
+                     WHERE workspace_id IN (
+                        SELECT id FROM workspaces WHERE archived_at IS NULL
+                     )",
                     |row| {
                         Ok(ThreadRow {
                             id: row.get(0)?,
@@ -436,7 +454,11 @@ impl Store {
                 )?,
                 findings: query_all(
                     conn,
-                    "SELECT id, workspace_id, severity, title, file, line, explanation, status, commit_sha FROM findings",
+                    "SELECT id, workspace_id, severity, title, file, line, explanation, status, commit_sha
+                     FROM findings
+                     WHERE workspace_id IN (
+                        SELECT id FROM workspaces WHERE archived_at IS NULL
+                     )",
                     |row| {
                         Ok(FindingRow {
                             id: row.get(0)?,
@@ -484,6 +506,7 @@ fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
         kind: row.get(10)?,
         pr_number: row.get(11)?,
         modified_files: row.get(12)?,
+        archived_at: row.get(13)?,
     })
 }
 
@@ -541,6 +564,7 @@ mod tests {
                 kind: None,
                 pr_number: None,
                 modified_files: 0,
+                archived_at: None,
             })
             .unwrap();
         store

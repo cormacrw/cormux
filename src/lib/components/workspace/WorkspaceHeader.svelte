@@ -3,6 +3,7 @@
   import * as Tooltip from '$lib/components/ui/tooltip'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
   import type { Workspace } from '$lib/state/workspaces.svelte'
+  import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Play from '@lucide/svelte/icons/play'
 
@@ -34,26 +35,29 @@
     <p class="text-sm text-muted-foreground">{workspace.activityText}</p>
   </div>
 
-  <Tooltip.Provider>
-    <Tooltip.Root>
-      <Tooltip.Trigger>
-        {#snippet child({ props })}
-          <Button {...props} size="sm" disabled={runDisabled} class="gap-2">
-            {#if provisioning}
-              <LoaderCircle
-                class="size-4 {runDisabled ? 'animate-spin' : ''}"
-                aria-hidden="true"
-              />
-            {:else}
-              <Play class="size-4" aria-hidden="true" />
-            {/if}
-            Run
-          </Button>
-        {/snippet}
-      </Tooltip.Trigger>
-      {#if runDisabled}
-        <Tooltip.Content>Available once the worktree is set up</Tooltip.Content>
-      {/if}
-    </Tooltip.Root>
-  </Tooltip.Provider>
+  <div class="flex flex-wrap items-center gap-2">
+    <Tooltip.Provider>
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <Button {...props} size="sm" disabled={runDisabled} class="gap-2">
+              {#if provisioning}
+                <LoaderCircle
+                  class="size-4 {runDisabled ? 'animate-spin' : ''}"
+                  aria-hidden="true"
+                />
+              {:else}
+                <Play class="size-4" aria-hidden="true" />
+              {/if}
+              Run
+            </Button>
+          {/snippet}
+        </Tooltip.Trigger>
+        {#if runDisabled}
+          <Tooltip.Content>Available once the worktree is set up</Tooltip.Content>
+        {/if}
+      </Tooltip.Root>
+    </Tooltip.Provider>
+    <WorkspaceMoreMenu workspaceId={workspace.id} />
+  </div>
 </header>

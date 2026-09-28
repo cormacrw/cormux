@@ -35,6 +35,7 @@ pub struct WorkspaceRow {
     pub kind: Option<String>,
     pub pr_number: Option<i64>,
     pub modified_files: i64,
+    pub archived_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

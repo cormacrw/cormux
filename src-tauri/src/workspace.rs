@@ -120,6 +120,14 @@ impl WorkspaceManager {
         self.inner.read().await.workspaces.get(id).cloned()
     }
 
+    pub async fn remember(&self, record: WorkspaceRecord) {
+        self.inner
+            .write()
+            .await
+            .workspaces
+            .insert(record.id.clone(), record);
+    }
+
     pub async fn register_provisioning(
         &self,
         workspace_id: &str,
@@ -299,22 +307,12 @@ impl WorkspaceManager {
         Ok(())
     }
 
-    pub async fn teardown(&self, workspace_id: &str, delete_branch: bool) -> Result<()> {
-        let workspace = self
-            .set_status(workspace_id, WorkspaceLifecycle::TearingDown)
-            .await?;
-        self.diffs.unwatch(workspace_id);
-        let repo = PathBuf::from(&workspace.repo_path);
-        let worktree = PathBuf::from(&workspace.worktree_path);
-        self.git.worktree_remove(&repo, &worktree, true).await?;
-        if delete_branch {
-            self.git.branch_delete(&repo, &workspace.branch).await?;
-        }
-        self.fetch.remove_workspace(workspace_id).await;
-        self.set_status(workspace_id, WorkspaceLifecycle::Gone)
-            .await?;
-        self.inner.write().await.workspaces.remove(workspace_id);
-        Ok(())
+    pub async fn remove(&self, workspace_id: &str) {
+        let mut inner = self.inner.write().await;
+        inner.workspaces.remove(workspace_id);
+        inner
+            .threads
+            .retain(|_, slot| slot.workspace_id != workspace_id);
     }
 
     pub async fn sync_fetch_targets(&self) {

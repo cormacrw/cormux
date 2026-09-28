@@ -197,6 +197,7 @@ mod tests {
                 kind: None,
                 pr_number: None,
                 modified_files: 0,
+                archived_at: None,
             })
             .unwrap();
         let env = Arc::new(RwLock::new(ShellEnv::new()));

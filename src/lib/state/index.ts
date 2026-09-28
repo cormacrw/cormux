@@ -248,6 +248,12 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
       homebaseUi.beginCardExit(item)
     }
   }
+  if (
+    app.workspaceId &&
+    !nextWorkspaces.some((row) => row.id === app.workspaceId)
+  ) {
+    app.openHomebase()
+  }
   workspaces.hydrate(nextWorkspaces)
   threads.hydrate(threadModels)
   repos.hydrate(snapshot.persisted.repos)

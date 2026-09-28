@@ -318,11 +318,34 @@ impl ProcessSupervisor {
 
     pub fn stop_all(&self) -> Result<()> {
         let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
-        for id in ids {
-            let _ = self.stop_session(&id);
+        self.stop_sessions(ids)
+    }
+
+    pub fn workspace_has_session(&self, workspace_id: &str) -> bool {
+        self.sessions.lock().unwrap().keys().any(|id| {
+            id.as_str() == workspace_id || id.starts_with(&format!("{workspace_id}-"))
+        })
+    }
+
+    pub fn stop_workspace_sessions(&self, workspace_id: &str) -> Result<()> {
+        let ids: Vec<String> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|id| {
+                id.as_str() == workspace_id || id.starts_with(&format!("{workspace_id}-"))
+            })
+            .cloned()
+            .collect();
+        self.stop_sessions(ids)
+    }
+
+    fn stop_sessions(&self, ids: Vec<String>) -> Result<()> {
+        for id in &ids {
+            let _ = self.stop_session(id);
         }
         thread::sleep(Duration::from_millis(200));
-        let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
         for id in ids {
             if self.exit_code(&id).is_none() {
                 let _ = self.kill_session(&id);

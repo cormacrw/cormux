@@ -188,6 +188,13 @@ impl EngineRegistry {
         Ok(())
     }
 
+    pub async fn stop_threads(&self, thread_ids: &[String]) -> Result<()> {
+        for id in thread_ids {
+            let _ = self.stop(id).await;
+        }
+        Ok(())
+    }
+
     fn send(&self, thread_id: &str, command: EngineCommand) -> Result<()> {
         let threads = self
             .threads
@@ -621,6 +628,7 @@ mod tests {
                 kind: None,
                 pr_number: None,
                 modified_files: 0,
+                archived_at: None,
             })
             .unwrap();
         store

@@ -598,6 +598,7 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
         kind: workspace.kind,
         pr_number: workspace.pr_number,
         modified_files: workspace.modified_files,
+        archived_at: workspace.archived_at,
     });
     Ok(())
 }
@@ -756,6 +757,7 @@ fn persist_workspace_row(
         kind: row.kind.clone(),
         pr_number: row.pr_number,
         modified_files: row.modified_files,
+        archived_at: row.archived_at.clone(),
     })
 }
 

@@ -24,6 +24,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "003_workspace_card_fields",
         sql: include_str!("../../migrations/003_workspace_card_fields.sql"),
     },
+    Migration {
+        version: 4,
+        name: "004_workspace_archive",
+        sql: include_str!("../../migrations/004_workspace_archive.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -91,7 +96,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
 
         for expected in [
             "approvals",

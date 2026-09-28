@@ -172,6 +172,22 @@ async joinWorkspaceThread(input: JoinWorkspaceThreadInput) : Promise<Result<Join
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async getTeardownPreview(workspaceId: string) : Promise<Result<TeardownPreview, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_teardown_preview", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async teardownWorkspace(input: TeardownInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("teardown_workspace", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -241,6 +257,9 @@ export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | 
  * webview should call `get_snapshot` and replace local state.
  */
 export type StateChanged = { version: number; kind: StateChangeKind }
+export type TeardownDataLoss = { uncommittedFiles: number; unpushedCommits: number; hasDataLoss: boolean; warning: string | null }
+export type TeardownInput = { workspaceId: string; deleteBranch: boolean }
+export type TeardownPreview = { workspaceId: string; workspaceName: string; engineLabel: string; branch: string; worktreePath: string; appRunning: boolean; deleteBranchDefault: boolean; dataLoss: TeardownDataLoss }
 export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string }
 export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
@@ -254,7 +273,7 @@ export type ToastTone = "ok" | "bad" | "default"
 export type WorkspaceLifecycle = "creating" | "provisioning" | "ready" | "running" | "idle" | "waiting" | "tearingDown" | "gone" | "provisioningFailed"
 export type WorkspaceMemory = { workspaceId: string; bytes: number }
 export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
-export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; modifiedFiles: number }
+export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; modifiedFiles: number; archivedAt: string | null }
 export type WorkspaceStatusChanged = { version: number; workspaceId: string; status: WorkspaceLifecycle }
 export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
 export type WorktreeDiff = { workspaceId: string; files: DiffFile[] }
