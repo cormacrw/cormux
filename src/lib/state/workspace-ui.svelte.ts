@@ -6,6 +6,7 @@ export class WorkspaceUiStore {
   tabBeforeOutput = $state<WorkspacePanelTab>('thread')
   changesOpen = $state(false)
   selectedDiffPath = $state<string | null>(null)
+  diffMode = $state<'unified' | 'split'>('unified')
 
   openTab(tab: WorkspacePanelTab) {
     if (tab === 'output') {

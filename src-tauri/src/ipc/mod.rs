@@ -23,6 +23,8 @@ pub fn builder() -> Builder {
             commands::resolve_all_approvals,
             commands::subscribe_pty,
             commands::subscribe_diffs,
+            commands::refresh_workspace_diff,
+            commands::review_worktree_file,
             commands::start_streaming_spike,
             commands::summarise_workspace,
             commands::set_github_token,

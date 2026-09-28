@@ -11,6 +11,7 @@
   import ThreadTabBar from './ThreadTabBar.svelte'
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
+  import WorkspaceChangesLayout from './WorkspaceChangesLayout.svelte'
 
   const workspace = $derived(
     app.workspaceId ? workspaces.getById(app.workspaceId) : undefined,
@@ -100,7 +101,7 @@
   })
 </script>
 
-<section class="flex flex-1 flex-col gap-4 p-6">
+<section class="flex min-h-0 flex-1 flex-col gap-4 p-6">
   {#if isLoadSpike}
     <header>
       <h1
@@ -142,25 +143,30 @@
 
     <ThreadTabBar {workspace} />
 
-    {#if threadTabActive && activeThread}
-      <ThreadPanel
-        {workspace}
-        thread={activeThread}
-        panelLabelId={threadPanelLabelId}
-      />
-    {:else if findingsTabActive}
-      <WorkspaceFindingsPanel
-        workspaceId={workspace.id}
-        bind:headingRef={findingsHeading}
-      />
-    {:else if outputTabActive}
-      <div
-        id="output-panel"
-        role="tabpanel"
-        aria-labelledby="thread-tab-output"
-      >
-        <WorkspaceOutputPanel workspaceId={workspace.id} {provisioning} />
-      </div>
+    {#if activeThread}
+      <WorkspaceChangesLayout {workspace} thread={activeThread}>
+        {#if threadTabActive}
+          <ThreadPanel
+            {workspace}
+            thread={activeThread}
+            panelLabelId={threadPanelLabelId}
+          />
+        {:else if findingsTabActive}
+          <WorkspaceFindingsPanel
+            workspaceId={workspace.id}
+            bind:headingRef={findingsHeading}
+          />
+        {:else if outputTabActive}
+          <div
+            id="output-panel"
+            role="tabpanel"
+            aria-labelledby="thread-tab-output"
+            class="min-h-0 flex-1"
+          >
+            <WorkspaceOutputPanel workspaceId={workspace.id} {provisioning} />
+          </div>
+        {/if}
+      </WorkspaceChangesLayout>
     {/if}
   {:else}
     <p class="text-sm text-muted-foreground">Workspace not found.</p>

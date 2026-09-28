@@ -278,6 +278,57 @@ pub fn subscribe_diffs(
     Ok(())
 }
 
+/// Force-refresh the live diff snapshot for one workspace (branch switch, pull, etc.).
+#[tauri::command]
+#[specta::specta]
+pub async fn refresh_workspace_diff(
+    workspace_id: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    use std::path::Path;
+
+    let workspace = state
+        .workspace
+        .get(&workspace_id)
+        .await
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    state
+        .diffs
+        .compute(&workspace_id, Path::new(&workspace.worktree_path))
+        .await?;
+    Ok(())
+}
+
+/// Approve stages the file; reject discards worktree edits for that path.
+#[tauri::command]
+#[specta::specta]
+pub async fn review_worktree_file(
+    workspace_id: String,
+    path: String,
+    decision: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    use std::path::Path;
+
+    let workspace = state
+        .workspace
+        .get(&workspace_id)
+        .await
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    let worktree = Path::new(&workspace.worktree_path);
+    match decision.as_str() {
+        "approve" => state.git.stage_worktree_file(worktree, &path).await?,
+        "reject" => state.git.discard_worktree_file(worktree, &path).await?,
+        other => {
+            return Err(Error::Workspace(format!(
+                "unknown review decision {other}"
+            )))
+        }
+    }
+    state.diffs.compute(&workspace_id, worktree).await?;
+    Ok(())
+}
+
 /// Generate or return a cached workspace card summary (debounced LLM + local fallback).
 #[tauri::command]
 #[specta::specta]

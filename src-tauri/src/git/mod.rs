@@ -357,6 +357,40 @@ impl Git {
         Self::require_success(&output, "merge")
     }
 
+    /// Stage a worktree path (`git add`). Used when the user approves a file in Changes.
+    pub async fn stage_worktree_file(&self, worktree: &Path, path: &str) -> Result<()> {
+        let output = self.run(worktree, &["add", "--", path]).await?;
+        Self::require_success(&output, "add")
+    }
+
+    /// Discard agent edits for one path: restore tracked files, delete untracked adds.
+    pub async fn discard_worktree_file(&self, worktree: &Path, path: &str) -> Result<()> {
+        let tracked = self
+            .run(worktree, &["ls-files", "--error-unmatch", "--", path])
+            .await?;
+        if tracked.status.success() {
+            let output = self
+                .run(
+                    worktree,
+                    &["restore", "--source=HEAD", "--worktree", "--staged", "--", path],
+                )
+                .await?;
+            Self::require_success(&output, "restore")?;
+        }
+        let file = worktree.join(path);
+        if file.exists() {
+            let still = self
+                .run(worktree, &["ls-files", "--others", "--exclude-standard", "--", path])
+                .await?;
+            Self::require_success(&still, "ls-files")?;
+            if !Self::stdout(&still).trim().is_empty() {
+                std::fs::remove_file(&file)
+                    .map_err(|error| Error::Git(format!("remove untracked file: {error}")))?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn rebase(&self, worktree: &Path, base: &str) -> Result<()> {
         let rev = format!("origin/{base}");
         let output = self.run(worktree, &["rebase", &rev]).await?;

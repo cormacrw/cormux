@@ -311,11 +311,19 @@ impl WorkspaceManager {
         self.git
             .switch(Path::new(&workspace.worktree_path), branch)
             .await?;
+        let worktree = PathBuf::from(&workspace.worktree_path);
         let mut inner = self.inner.write().await;
         if let Some(workspace) = inner.workspaces.get_mut(workspace_id) {
             workspace.branch = branch.to_string();
             workspace.version += 1;
         }
+        drop(inner);
+        self.diffs.request_refresh(workspace_id);
+        let _ = self
+            .diffs
+            .compute(workspace_id, &worktree)
+            .await
+            .map_err(|error| log::warn!("diff refresh after branch switch: {error}"));
         Ok(())
     }
 

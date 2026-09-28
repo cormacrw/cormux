@@ -139,6 +139,28 @@ async subscribeDiffs(workspaceId: string, channel: TAURI_CHANNEL<DiffUpdate>) : 
 }
 },
 /**
+ * Force-refresh the live diff snapshot for one workspace (branch switch, pull, etc.).
+ */
+async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("refresh_workspace_diff", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Approve stages the file; reject discards worktree edits for that path.
+ */
+async reviewWorktreeFile(workspaceId: string, path: string, decision: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("review_worktree_file", { workspaceId, path, decision }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.
  */
 async startStreamingSpike(agent: TAURI_CHANNEL<AgentChunk>, pty: TAURI_CHANNEL<PtyChunk>) : Promise<Result<null, Error>> {
