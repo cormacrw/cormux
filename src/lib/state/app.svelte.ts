@@ -25,6 +25,15 @@ export class AppStore {
   /** COR-14 replaces this with the New workspace dialog. */
   newWorkspaceRequested = $state(false)
 
+  newWorkspacePullRequest = $state<{
+    repoId: string | null
+    repoFullName: string
+    branch: string
+    prNumber: number
+    title: string
+    mode: 'review' | 'continue'
+  } | null>(null)
+
   readonly windowTitle = $derived.by(() =>
     resolveWindowTitle(
       this.view,
@@ -91,6 +100,20 @@ export class AppStore {
   }
 
   requestNewWorkspace() {
+    this.newWorkspaceRequested = true
+    this.newWorkspacePullRequest = null
+    window.dispatchEvent(new CustomEvent('cormux:new-workspace'))
+  }
+
+  requestNewWorkspaceForPullRequest(context: {
+    repoId: string | null
+    repoFullName: string
+    branch: string
+    prNumber: number
+    title: string
+    mode: 'review' | 'continue'
+  }) {
+    this.newWorkspacePullRequest = context
     this.newWorkspaceRequested = true
     window.dispatchEvent(new CustomEvent('cormux:new-workspace'))
   }

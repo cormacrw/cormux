@@ -6,8 +6,8 @@ use tokio::sync::RwLock;
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::GithubClient,
-    llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
-    shell_env::ShellEnv, store::Store, workspace::WorkspaceManager,
+    github::PrSyncScheduler, llm::LlmClient, mcp::CormuxMcp, metrics::Metrics,
+    process::ProcessSupervisor, shell_env::ShellEnv, store::Store, workspace::WorkspaceManager,
 };
 
 /// Process-wide core state. The webview never holds this; IPC commands borrow it.
@@ -26,6 +26,7 @@ pub struct AppState {
     pub metrics: Metrics,
     pub diffs: LiveDiffEngine,
     pub fetch: FetchScheduler,
+    pub pr_sync: PrSyncScheduler,
 }
 
 impl AppState {
@@ -34,6 +35,7 @@ impl AppState {
         let git = Git::new(shell_env.clone());
         let diffs = LiveDiffEngine::new(git.clone());
         let fetch = FetchScheduler::new(git.clone());
+        let pr_sync = PrSyncScheduler::new(git.clone(), shell_env.clone());
         let process = ProcessSupervisor::new(shell_env.clone());
         let workspace = WorkspaceManager::new(git.clone(), diffs.clone(), fetch.clone());
         let store = Store::new();
@@ -55,6 +57,7 @@ impl AppState {
             metrics: Metrics::new(),
             diffs,
             fetch,
+            pr_sync,
         }
     }
 

@@ -127,6 +127,19 @@ impl Git {
             .map(|path| path.to_string_lossy().to_string())
     }
 
+    pub async fn remote_origin_url(&self, repo: &Path) -> Result<Option<String>> {
+        let output = self.run(repo, &["remote", "get-url", "origin"]).await?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let url = Self::stdout(&output).trim().to_string();
+        if url.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(url))
+        }
+    }
+
     pub async fn default_branch(&self, repo: &Path) -> Result<String> {
         let output = self
             .run(repo, &["symbolic-ref", "refs/remotes/origin/HEAD"])

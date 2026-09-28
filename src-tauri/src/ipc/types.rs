@@ -16,6 +16,10 @@ pub struct Snapshot {
     pub memory: Option<MemorySample>,
     /// In-memory broker queue (may exceed persisted pending rows).
     pub pending_live_approvals: usize,
+    /// True when a PAT is stored or `gh auth token` succeeds.
+    pub github_auth_configured: bool,
+    /// Unix seconds string from the last successful PR sync, if any.
+    pub pr_synced_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

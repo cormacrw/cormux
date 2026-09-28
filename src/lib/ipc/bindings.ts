@@ -108,6 +108,30 @@ async summariseWorkspace(workspaceId: string) : Promise<Result<WorkspaceSummaryR
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async setGithubToken(token: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_github_token", { token }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearGithubToken() : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_github_token") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async syncPullRequests() : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_pull_requests") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -157,7 +181,15 @@ export type Snapshot = { version: number; view: AppView; persisted: PersistedSna
 /**
  * In-memory broker queue (may exceed persisted pending rows).
  */
-pendingLiveApprovals: number }
+pendingLiveApprovals: number; 
+/**
+ * True when a PAT is stored or `gh auth token` succeeds.
+ */
+githubAuthConfigured: boolean; 
+/**
+ * Unix seconds string from the last successful PR sync, if any.
+ */
+prSyncedAt: string | null }
 export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "metrics" | "environment"
 /**
  * Low-volume core → UI notification. `version` is monotonic; a gap means the

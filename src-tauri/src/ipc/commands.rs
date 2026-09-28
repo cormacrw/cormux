@@ -5,6 +5,7 @@ use tauri_specta::Event;
 
 use crate::error::Result;
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
+use crate::github::{auth, clear_token, save_token};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
@@ -16,6 +17,11 @@ use super::types::{AgentChunk, DiffUpdate, PtyChunk, Snapshot, WorkspaceSummaryR
 pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let trees = process_trees(&state);
     let memory = state.metrics.sample(&trees).ok();
+    let github_auth_configured = auth::resolve_token(&state.shell_env)
+        .await
+        .is_some();
+    let pr_synced_at = state.store.get_setting("githubPrSyncedAt")?.filter(|value| !value.is_empty());
+
     Ok(Snapshot {
         version: state.snapshot_version(),
         view: super::types::AppView::Homebase,
@@ -23,6 +29,8 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         workspaces: state.workspace.list().await,
         memory,
         pending_live_approvals: state.approvals.pending_count(),
+        github_auth_configured,
+        pr_synced_at,
     })
 }
 
@@ -50,6 +58,9 @@ pub async fn fetch_on_focus(app: AppHandle, state: State<'_, AppState>) -> Resul
     }
     .emit(&app);
     let _ = updates;
+    if let Err(error) = state.pr_sync.sync_app(&app).await {
+        log::warn!("focus PR sync failed: {error}");
+    }
     Ok(())
 }
 
@@ -57,6 +68,24 @@ pub async fn fetch_on_focus(app: AppHandle, state: State<'_, AppState>) -> Resul
 #[specta::specta]
 pub fn get_metrics(state: State<'_, AppState>) -> Result<crate::metrics::MemorySample> {
     state.metrics.sample(&process_trees(&state))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_github_token(token: String) -> Result<()> {
+    save_token(&token)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn clear_github_token() -> Result<()> {
+    clear_token()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_pull_requests(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    state.pr_sync.sync_app(&app).await
 }
 
 /// High-volume ordered stream of agent message chunks for one thread.

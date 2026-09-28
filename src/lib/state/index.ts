@@ -1,5 +1,6 @@
 import type { Snapshot, StateChanged } from '$lib/ipc'
 import { onSnapshotSupervision } from '$lib/feedback/supervision'
+import { pullRequestFromRow } from '$lib/homebase/pr-from-payload'
 import { parseTimestampMs } from '$lib/homebase/relative-time'
 import type {
   WorkspaceLifecycle,
@@ -233,14 +234,16 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   workspaceRecords.hydrate(recordList)
   app.hydrate(snapshot)
   memory.hydrate(snapshot.memory)
-  prs.hydrate(
-    snapshot.persisted.pullRequests.map((pr) => ({
-      id: pr.id,
-      title: pr.title,
-      repo: pr.repoId ?? '',
-      number: pr.number,
-    })),
-  )
+  const prSyncedAtMs = snapshot.prSyncedAt
+    ? Number(snapshot.prSyncedAt) * 1000
+    : null
+  prs.hydrate({
+    items: snapshot.persisted.pullRequests
+      .map(pullRequestFromRow)
+      .filter((row): row is NonNullable<typeof row> => row != null),
+    syncedAtMs: Number.isFinite(prSyncedAtMs) ? prSyncedAtMs : null,
+    authConfigured: snapshot.githubAuthConfigured,
+  })
 }
 
 export async function patchFromEvent(event: StateChanged) {

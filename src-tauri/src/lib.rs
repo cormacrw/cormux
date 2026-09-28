@@ -57,6 +57,10 @@ pub fn run() {
                         }
                         Err(error) => log::warn!("focus fetch failed: {error}"),
                     }
+                    let state = app.state::<AppState>();
+                    if let Err(error) = state.pr_sync.sync_app(&app).await {
+                        log::warn!("focus PR sync failed: {error}");
+                    }
                 });
             }
         })
@@ -79,6 +83,16 @@ pub fn run() {
             let state = AppState::new();
             state.diffs.start();
             state.fetch.spawn_loop();
+
+            let pr_sync = state.pr_sync.clone();
+            let pr_app = app.handle().clone();
+            let initial_sync = pr_sync.clone();
+            pr_sync.spawn_loop(pr_app.clone());
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = initial_sync.sync_app(&pr_app).await {
+                    log::warn!("initial PR sync failed: {error}");
+                }
+            });
 
             let env = state.shell_env.clone();
             tauri::async_runtime::spawn(async move {

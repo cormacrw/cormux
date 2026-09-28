@@ -18,7 +18,10 @@ pub fn builder() -> Builder {
             commands::subscribe_pty,
             commands::subscribe_diffs,
             commands::start_streaming_spike,
-            commands::summarise_workspace
+            commands::summarise_workspace,
+            commands::set_github_token,
+            commands::clear_github_token,
+            commands::sync_pull_requests
         ])
         .events(tauri_specta::collect_events![
             events::StateChanged,
