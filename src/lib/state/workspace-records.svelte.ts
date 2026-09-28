@@ -1,11 +1,13 @@
-import type { WorkspaceRecord } from '$lib/ipc/bindings'
+import type { WorkspaceAppRuntime, WorkspaceRecord } from '$lib/ipc/bindings'
 
-export type AppRunStatus = 'stopped' | 'starting' | 'running'
+export type AppRunStatus = 'stopped' | 'starting' | 'running' | 'crashed'
 
 export type WorkspaceRuntime = {
   appStatus: AppRunStatus
   port: number | null
   behind: number
+  exitCode: number | null
+  logVersion: number
 }
 
 export class WorkspaceRecordsStore {
@@ -17,7 +19,13 @@ export class WorkspaceRecordsStore {
     const next: Record<string, WorkspaceRuntime> = { ...this.runtimeById }
     for (const record of records) {
       if (!next[record.id]) {
-        next[record.id] = { appStatus: 'stopped', port: null, behind: 0 }
+        next[record.id] = {
+          appStatus: 'stopped',
+          port: null,
+          behind: 0,
+          exitCode: null,
+          logVersion: 0,
+        }
       }
     }
     for (const id of Object.keys(next)) {
@@ -34,7 +42,13 @@ export class WorkspaceRecordsStore {
 
   runtime(id: string): WorkspaceRuntime {
     return (
-      this.runtimeById[id] ?? { appStatus: 'stopped', port: null, behind: 0 }
+      this.runtimeById[id] ?? {
+        appStatus: 'stopped',
+        port: null,
+        behind: 0,
+        exitCode: null,
+        logVersion: 0,
+      }
     )
   }
 
@@ -50,11 +64,45 @@ export class WorkspaceRecordsStore {
     id: string,
     appStatus: AppRunStatus,
     port: number | null = null,
+    exitCode: number | null = null,
   ) {
+    const current = this.runtime(id)
+    const nextPort =
+      appStatus === 'stopped' || appStatus === 'crashed'
+        ? null
+        : (port ?? current.port)
+    this.runtimeById = {
+      ...this.runtimeById,
+      [id]: {
+        ...current,
+        appStatus,
+        port: nextPort,
+        exitCode:
+          appStatus === 'crashed' ? (exitCode ?? current.exitCode) : null,
+      },
+    }
+  }
+
+  applyApps(apps: WorkspaceAppRuntime[]) {
+    if (apps.length === 0) return
+    const next = { ...this.runtimeById }
+    for (const app of apps) {
+      const current = next[app.workspaceId] ?? this.runtime(app.workspaceId)
+      next[app.workspaceId] = {
+        ...current,
+        appStatus: app.status as AppRunStatus,
+        port: app.port,
+        exitCode: app.exitCode,
+      }
+    }
+    this.runtimeById = next
+  }
+
+  clearLog(id: string) {
     const current = this.runtime(id)
     this.runtimeById = {
       ...this.runtimeById,
-      [id]: { ...current, appStatus, port: port ?? current.port },
+      [id]: { ...current, logVersion: current.logVersion + 1 },
     }
   }
 }

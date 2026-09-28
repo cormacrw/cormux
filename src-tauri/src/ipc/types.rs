@@ -4,6 +4,7 @@ use specta::Type;
 use crate::git::{BehindUpdate, WorktreeDiff};
 use crate::metrics::MemorySample;
 use crate::store::types::PersistedSnapshot;
+use crate::app::WorkspaceAppRuntime;
 use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -20,6 +21,7 @@ pub struct Snapshot {
     pub github_auth_configured: bool,
     /// Unix seconds string from the last successful PR sync, if any.
     pub pr_synced_at: Option<String>,
+    pub workspace_apps: Vec<WorkspaceAppRuntime>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -68,6 +70,7 @@ pub enum StateChangeKind {
     BehindCounts,
     Metrics,
     Environment,
+    WorkspaceApp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -160,6 +163,29 @@ pub struct JoinWorkspaceThreadResult {
 pub struct RenameWorkspaceInput {
     pub workspace_id: String,
     pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ControlWorkspaceAppInput {
+    pub workspace_id: String,
+    pub action: WorkspaceAppControlAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkspaceAppControlAction {
+    Run,
+    Restart,
+    Stop,
+    Clear,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRepoRunCommandInput {
+    pub repo_id: String,
+    pub run_command: Option<String>,
 }
 
 pub use crate::engines::{AgentEvent, MessageRole, PlanStep, ToolCallStatus, ToolKind};

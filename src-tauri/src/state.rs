@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::sync::{RwLock, broadcast};
 
+use crate::app::WorkspaceAppService;
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::GithubClient,
@@ -20,6 +21,7 @@ pub struct AppState {
     pub approvals: Arc<ApprovalBroker>,
     pub mcp: CormuxMcp,
     pub process: ProcessSupervisor,
+    pub apps: WorkspaceAppService,
     pub github: GithubClient,
     pub llm: LlmClient,
     pub store: Store,
@@ -38,6 +40,7 @@ impl AppState {
         let fetch = FetchScheduler::new(git.clone());
         let pr_sync = PrSyncScheduler::new(git.clone(), shell_env.clone());
         let process = ProcessSupervisor::new(shell_env.clone());
+        let apps = WorkspaceAppService::new();
         let workspace = WorkspaceManager::new(git.clone(), diffs.clone(), fetch.clone());
         let store = Store::new();
         let approvals = Arc::new(ApprovalBroker::new());
@@ -48,7 +51,12 @@ impl AppState {
             store.clone(),
             approval_notify.clone(),
         );
-        let mcp = CormuxMcp::new(store.clone(), process.clone(), approvals.clone());
+        let mcp = CormuxMcp::new(
+            store.clone(),
+            process.clone(),
+            approvals.clone(),
+            apps.clone(),
+        );
         Self {
             event_version: AtomicU64::new(0),
             shell_env: shell_env.clone(),
@@ -58,6 +66,7 @@ impl AppState {
             approvals,
             mcp,
             process,
+            apps,
             github: GithubClient::new(),
             llm: LlmClient::new(shell_env),
             store,

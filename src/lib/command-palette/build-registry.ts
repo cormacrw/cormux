@@ -149,6 +149,20 @@ export function buildPaletteCommandsFromState(
       continue
     }
 
+    if (appStatus === 'crashed') {
+      cmds.push({
+        id: `app-restart-${workspace.id}`,
+        group: 'App',
+        label: `Restart app in ${workspace.name}`,
+        meta: repo?.runCommand ?? 'No run command',
+        run: () => {
+          actions.openWorkspace(workspace.id)
+          actions.runWorkspaceApp(workspace.id, 'restart')
+        },
+      })
+      continue
+    }
+
     if (appStatus === 'running') {
       cmds.push({
         id: `app-restart-${workspace.id}`,
@@ -161,12 +175,14 @@ export function buildPaletteCommandsFromState(
         },
       })
     }
-    cmds.push({
-      id: `app-stop-${workspace.id}`,
-      group: 'App',
-      label: `Stop app in ${workspace.name}`,
-      run: () => actions.runWorkspaceApp(workspace.id, 'stop'),
-    })
+    if (appStatus === 'starting' || appStatus === 'running') {
+      cmds.push({
+        id: `app-stop-${workspace.id}`,
+        group: 'App',
+        label: `Stop app in ${workspace.name}`,
+        run: () => actions.runWorkspaceApp(workspace.id, 'stop'),
+      })
+    }
   }
 
   for (const workspace of state.workspaces) {

@@ -2,7 +2,7 @@
   import * as InputGroup from '$lib/components/ui/input-group'
   import * as Tooltip from '$lib/components/ui/tooltip'
   import { runWorkspaceApp } from '$lib/command-palette/actions'
-  import { repos, workspaceRecords, workspaceUi } from '$lib/state'
+  import { repos, settings, workspaceRecords, workspaceUi } from '$lib/state'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Play from '@lucide/svelte/icons/play'
   import RotateCw from '@lucide/svelte/icons/rotate-cw'
@@ -40,13 +40,17 @@
         : 'app stopped',
   )
 
+  const hasRunCommand = $derived(!!repo?.runCommand?.trim())
+
   const runTitle = $derived(
     runDisabled
       ? 'Available once the worktree is set up'
-      : repo?.runCommand
-        ? `Run ${repo.runCommand}`
+      : hasRunCommand
+        ? `Run ${repo?.runCommand}`
         : `No run command set for ${repo?.name ?? repoId}`,
   )
+
+  const runBlocked = $derived(runDisabled || !hasRunCommand)
 
   function toggleOutput() {
     workspaceUi.toggleOutputTab()
@@ -79,7 +83,9 @@
         >
           {#if appStatus === 'running'}
             <span
-              class="size-2 shrink-0 rounded-full bg-emerald-500"
+              class="size-2 shrink-0 rounded-full bg-emerald-500 {settings.reduceMotion
+                ? ''
+                : 'animate-pulse'}"
               aria-hidden="true"
             ></span>
             <span class="font-mono text-xs">{outputLabel}</span>
@@ -98,29 +104,30 @@
     </Tooltip.Content>
   </Tooltip.Root>
 
-  {#if appStatus === 'stopped'}
+  {#if appStatus === 'stopped' || appStatus === 'crashed'}
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
           <InputGroup.Button
             {...props}
-            disabled={runDisabled}
-            aria-label="Run app"
-            data-ws-focus="run"
-            data-od-id="ws-run"
+            disabled={appStatus === 'stopped' && runBlocked}
+            aria-label={appStatus === 'crashed' ? 'Restart app' : 'Run app'}
+            data-ws-focus={appStatus === 'crashed' ? 'restart' : 'run'}
+            data-od-id={appStatus === 'crashed' ? 'ws-restart' : 'ws-run'}
             class="gap-1 px-2.5"
-            onclick={() => run('run')}
+            onclick={() => run(appStatus === 'crashed' ? 'restart' : 'run')}
           >
-            <Play class="size-3.5" aria-hidden="true" />
-            <span class="text-xs">Run</span>
+            {#if appStatus === 'crashed'}
+              <RotateCw class="size-3.5" aria-hidden="true" />
+              <span class="text-xs">Restart</span>
+            {:else}
+              <Play class="size-3.5" aria-hidden="true" />
+              <span class="text-xs">Run</span>
+            {/if}
           </InputGroup.Button>
         {/snippet}
       </Tooltip.Trigger>
-      {#if runDisabled}
-        <Tooltip.Content>{runTitle}</Tooltip.Content>
-      {:else}
-        <Tooltip.Content>{runTitle}</Tooltip.Content>
-      {/if}
+      <Tooltip.Content>{runTitle}</Tooltip.Content>
     </Tooltip.Root>
   {:else}
     <InputGroup.Button
@@ -136,6 +143,7 @@
     <InputGroup.Button
       variant="ghost"
       aria-label="Stop app"
+      class="hover:text-destructive"
       data-ws-focus="stop"
       data-od-id="ws-stop"
       onclick={() => run('stop')}

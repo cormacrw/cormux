@@ -16,6 +16,7 @@
   import NewWorkspaceDialog from '$lib/components/new-workspace/NewWorkspaceDialog.svelte'
   import TeardownDialog from '$lib/components/workspace/TeardownDialog.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
+  import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
   import { setHarnessWindowFocused } from '$lib/feedback/supervision'
   import Homebase from './routes/Homebase.svelte'
   import Settings from './routes/Settings.svelte'
@@ -33,6 +34,7 @@
 
       const unlistenMenu = await bindNativeMenu()
       const unlistenFeedback = await bindFeedbackEvents()
+      const unlistenWorkspaceApp = bindWorkspaceAppControls()
       const win = getCurrentWindow()
       const unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
         setHarnessWindowFocused(focused)
@@ -49,6 +51,7 @@
       unlisten = () => {
         unlistenMenu()
         unlistenFeedback()
+        unlistenWorkspaceApp()
         unlistenFocus()
         unlistenState()
       }

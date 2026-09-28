@@ -295,6 +295,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   findings.hydrate(snapshot.persisted.findings)
   repos.hydrate(snapshot.persisted.repos)
   workspaceRecords.hydrate(recordList)
+  workspaceRecords.applyApps(snapshot.workspaceApps ?? [])
   app.hydrate(snapshot)
   memory.hydrate(snapshot.memory)
   const prSyncedAtMs = snapshot.prSyncedAt
@@ -319,6 +320,12 @@ export async function patchFromEvent(event: StateChanged) {
     return
   }
   if (event.kind === 'toast') {
+    return
+  }
+  if (event.kind === 'workspaceApp') {
+    const snapshot = await fetchSnapshot()
+    workspaceRecords.applyApps(snapshot.workspaceApps ?? [])
+    app.version = snapshot.version
     return
   }
   if (

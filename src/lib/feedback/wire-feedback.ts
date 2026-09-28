@@ -7,7 +7,6 @@ import {
   environmentReloadToast,
   newThreadToast,
   pullToast,
-  workspaceAppToast,
 } from './toast-payload'
 import { showToast } from './show-toast'
 
@@ -27,27 +26,6 @@ export async function bindFeedbackEvents() {
       showCoreToast(event.payload)
     }),
   )
-
-  const onWorkspaceApp = (event: Event) => {
-    const detail = (event as CustomEvent).detail as {
-      workspaceId: string
-      action: 'run' | 'restart' | 'stop'
-    }
-    const runtime = workspaceRecords.runtime(detail.workspaceId)
-    showToast(
-      workspaceAppToast(
-        workspaceName(detail.workspaceId),
-        detail.action,
-        runtime.port,
-        detail.workspaceId,
-      ),
-    )
-    if (detail.action === 'run') {
-      queueMicrotask(() => {
-        workspaceRecords.setAppStatus(detail.workspaceId, 'running', 5173)
-      })
-    }
-  }
 
   const onPull = (event: Event) => {
     const detail = (event as CustomEvent).detail as { workspaceId: string }
@@ -72,12 +50,10 @@ export async function bindFeedbackEvents() {
     )
   }
 
-  window.addEventListener('cormux:workspace-app', onWorkspaceApp)
   window.addEventListener('cormux:workspace-pull', onPull)
   window.addEventListener('cormux:new-thread', onNewThread)
 
   cleanups.push(() => {
-    window.removeEventListener('cormux:workspace-app', onWorkspaceApp)
     window.removeEventListener('cormux:workspace-pull', onPull)
     window.removeEventListener('cormux:new-thread', onNewThread)
   })

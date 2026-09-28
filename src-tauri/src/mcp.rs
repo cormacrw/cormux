@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::approvals::ApprovalBroker;
 use crate::error::{Error, Result};
+use crate::app::WorkspaceAppService;
 use crate::process::ProcessSupervisor;
 use crate::store::Store;
 use crate::store::types::FindingRow;
@@ -22,6 +23,7 @@ pub struct CormuxMcp {
     store: Store,
     process: ProcessSupervisor,
     approvals: Arc<ApprovalBroker>,
+    apps: WorkspaceAppService,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,11 +41,17 @@ pub struct McpToolResult {
 }
 
 impl CormuxMcp {
-    pub fn new(store: Store, process: ProcessSupervisor, approvals: Arc<ApprovalBroker>) -> Self {
+    pub fn new(
+        store: Store,
+        process: ProcessSupervisor,
+        approvals: Arc<ApprovalBroker>,
+        apps: WorkspaceAppService,
+    ) -> Self {
         Self {
             store,
             process,
             approvals,
+            apps,
         }
     }
 
@@ -127,10 +135,15 @@ impl CormuxMcp {
     }
 
     fn read_app_output(&self, ctx: &McpContext) -> Result<McpToolResult> {
-        let output = self.process.output_session(&ctx.workspace_id);
+        let session_id = format!("{}-app", ctx.workspace_id);
+        let output = format!(
+            "{}\n{}",
+            self.process.output_session(&session_id),
+            self.process.output_session(&ctx.workspace_id)
+        );
         Ok(McpToolResult {
             ok: true,
-            payload: json!({ "output": output }),
+            payload: json!({ "output": output.trim() }),
         })
     }
 
@@ -145,10 +158,11 @@ impl CormuxMcp {
                 "restart_app requires an approval before it can run".into(),
             ));
         }
-        self.process.stop_session(&ctx.workspace_id)?;
+        self.apps
+            .restart_approved(&self.process, &self.store, &ctx.workspace_id)?;
         Ok(McpToolResult {
             ok: true,
-            payload: json!({ "stopped": true }),
+            payload: json!({ "restarted": true }),
         })
     }
 }
@@ -203,7 +217,8 @@ mod tests {
         let env = Arc::new(RwLock::new(ShellEnv::new()));
         let process = ProcessSupervisor::new(env);
         let approvals = Arc::new(ApprovalBroker::new());
-        (CormuxMcp::new(store.clone(), process, approvals), store)
+        let apps = WorkspaceAppService::new();
+        (CormuxMcp::new(store.clone(), process, approvals, apps), store)
     }
 
     fn ctx() -> McpContext {

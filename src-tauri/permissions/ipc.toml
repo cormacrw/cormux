@@ -29,5 +29,7 @@ commands.allow = [
   "rename_workspace",
   "get_teardown_preview",
   "teardown_workspace",
-  "start_streaming_spike"
+  "start_streaming_spike",
+  "control_workspace_app",
+  "set_repo_run_command"
 ]

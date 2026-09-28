@@ -269,6 +269,22 @@ async teardownWorkspace(input: TeardownInput) : Promise<Result<null, Error>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async controlWorkspaceApp(input: ControlWorkspaceAppInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("control_workspace_app", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setRepoRunCommand(input: SetRepoRunCommandInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_repo_run_command", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -298,6 +314,7 @@ export type AgentChunk = { threadId: string; text: string }
 export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
+export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
 export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
 export type CreateWorkspaceResult = { workspaceId: string }
 export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
@@ -326,6 +343,7 @@ export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
 export type ResolveApprovalResult = { focusComposer: boolean }
+export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SettingRow = { key: string; value: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; memory: MemorySample | null; 
 /**
@@ -339,8 +357,8 @@ githubAuthConfigured: boolean;
 /**
  * Unix seconds string from the last successful PR sync, if any.
  */
-prSyncedAt: string | null }
-export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "metrics" | "environment"
+prSyncedAt: string | null; workspaceApps: WorkspaceAppRuntime[] }
+export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "metrics" | "environment" | "workspaceApp"
 /**
  * Low-volume core → UI notification. `version` is monotonic; a gap means the
  * webview should call `get_snapshot` and replace local state.
@@ -360,6 +378,9 @@ export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
  * ACP `ToolKind`, owned so adapters and IPC do not depend on the protocol crate.
  */
 export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other"
+export type WorkspaceAppControlAction = "run" | "restart" | "stop" | "clear"
+export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; exitCode: number | null }
+export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
 /**
  * Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
  * describe activity after provisioning.

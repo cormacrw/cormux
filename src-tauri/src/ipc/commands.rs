@@ -16,10 +16,13 @@ use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 
 use super::types::{
-    AgentChunk, AgentEvent, CreateWorkspaceInput, CreateWorkspaceResult, DiffUpdate, PtyChunk,
-    RenameWorkspaceInput, RepoBranchesResult, ResolveApprovalResult, Snapshot, TeardownInput,
-    TeardownPreview, WorkspaceSummaryResult,
+    AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceInput, CreateWorkspaceResult,
+    DiffUpdate, PtyChunk, RenameWorkspaceInput, RepoBranchesResult, ResolveApprovalResult,
+    SetRepoRunCommandInput, Snapshot, TeardownInput, TeardownPreview, WorkspaceAppControlAction,
+    WorkspaceSummaryResult,
 };
+use crate::app::WorkspaceAppAction;
+use crate::store::types::RepoRecord;
 
 #[tauri::command]
 #[specta::specta]
@@ -40,7 +43,59 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         pending_live_approvals: state.approvals.pending_count(),
         github_auth_configured,
         pr_synced_at,
+        workspace_apps: state.apps.snapshot(),
     })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn control_workspace_app(
+    app: AppHandle,
+    input: ControlWorkspaceAppInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let action = match input.action {
+        WorkspaceAppControlAction::Run => WorkspaceAppAction::Run,
+        WorkspaceAppControlAction::Restart => WorkspaceAppAction::Restart,
+        WorkspaceAppControlAction::Stop => WorkspaceAppAction::Stop,
+        WorkspaceAppControlAction::Clear => WorkspaceAppAction::Clear,
+    };
+    state
+        .apps
+        .control(&app, &state, &input.workspace_id, action)
+        .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_repo_run_command(
+    app: AppHandle,
+    input: SetRepoRunCommandInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let repos = state.store.snapshot()?.repos;
+    let Some(mut repo) = repos.into_iter().find(|row| row.id == input.repo_id) else {
+        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
+    };
+    repo.run_command = input
+        .run_command
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    state.store.upsert_repo(&RepoRecord {
+        id: repo.id,
+        path: repo.path,
+        name: repo.name,
+        default_branch: repo.default_branch,
+        setup_commands: repo.setup_commands,
+        run_command: repo.run_command,
+    })?;
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -237,7 +292,9 @@ pub fn subscribe_pty(
     let process = state.process.clone();
     tauri::async_runtime::spawn(async move {
         loop {
-            let lines = process.drain_pending(&workspace_id);
+            let session_id = format!("{workspace_id}-app");
+            let mut lines = process.drain_pending(&workspace_id);
+            lines.extend(process.drain_pending(&session_id));
             for line in lines {
                 let _ = channel.send(PtyChunk {
                     workspace_id: workspace_id.clone(),

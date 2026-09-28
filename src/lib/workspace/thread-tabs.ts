@@ -30,7 +30,7 @@ export function findingsTabAriaLabel(openCount: number): string {
   return `Review findings, ${plural(openCount, 'open finding', 'open findings')}`
 }
 
-export type OutputTabAppStatus = 'stopped' | 'starting' | 'running'
+export type OutputTabAppStatus = 'stopped' | 'starting' | 'running' | 'crashed'
 
 export function outputTabState(input: {
   provisioning: boolean
@@ -42,6 +42,7 @@ export function outputTabState(input: {
   if (input.appStatus === 'running' && input.port != null) {
     return `running on localhost:${input.port}`
   }
+  if (input.appStatus === 'crashed') return 'crashed'
   return 'stopped'
 }
 

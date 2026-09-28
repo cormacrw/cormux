@@ -269,6 +269,29 @@ impl ProcessSupervisor {
             .and_then(|app| *app.shared.exited.lock().unwrap())
     }
 
+    pub fn was_killed(&self, id: &str) -> bool {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|app| app.shared.killed.load(Ordering::SeqCst))
+            .unwrap_or(false)
+    }
+
+    pub fn clear_log(&self, id: &str) {
+        let clear = |shared: &SessionShared| {
+            shared.lines.lock().unwrap().clear();
+            shared.pending.lock().unwrap().clear();
+            shared.fragment.lock().unwrap().clear();
+        };
+        if let Some(shared) = self.logs.lock().unwrap().get(id) {
+            clear(shared);
+        }
+        if let Some(app) = self.sessions.lock().unwrap().get(id) {
+            clear(&app.shared);
+        }
+    }
+
     pub fn pids(&self) -> Vec<(String, u32)> {
         self.sessions
             .lock()

@@ -1,24 +1,23 @@
 import { app } from '$lib/state/app.svelte'
 import { settings } from '$lib/state/settings.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
-import { workspaceRecords } from '$lib/state/workspace-records.svelte'
 
 /** Hooks for COR-15 / COR-17 — palette closes before these run. */
 export function runWorkspaceApp(
   workspaceId: string,
-  action: 'run' | 'restart' | 'stop',
+  action: 'run' | 'restart' | 'stop' | 'clear',
 ) {
   window.dispatchEvent(
     new CustomEvent('cormux:workspace-app', {
       detail: { workspaceId, action },
     }),
   )
-  if (action === 'run') {
-    workspaceRecords.setAppStatus(workspaceId, 'starting')
-  }
-  if (action === 'stop') {
-    workspaceRecords.setAppStatus(workspaceId, 'stopped', null)
-  }
+}
+
+export function openRepoRunCommand(repoId: string) {
+  settings.focusSection = 'repos'
+  settings.focusRepoRunCommand = repoId
+  app.openSettings()
 }
 
 export function pullWorkspace(workspaceId: string) {

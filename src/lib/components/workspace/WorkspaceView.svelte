@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { app, threads, workspaceUi, workspaces } from '$lib/state'
+  import { app, threads, workspaceRecords, workspaceUi, workspaces } from '$lib/state'
   import { bindWorkspaceDiffSubscription } from '$lib/state/workspace-diff.svelte'
   import RenameWorkspaceDialog from './RenameWorkspaceDialog.svelte'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
@@ -48,6 +48,9 @@
 
   const provisioning = $derived(
     workspace ? isWorkspaceProvisioning(workspace.lifecycle) : false,
+  )
+  const workspaceRepoId = $derived(
+    workspace ? (workspaceRecords.getRecord(workspace.id)?.repoId ?? '') : '',
   )
   const outputTabActive = $derived(workspaceUi.activeTab === 'output')
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
@@ -163,7 +166,11 @@
             aria-labelledby="thread-tab-output"
             class="min-h-0 flex-1"
           >
-            <WorkspaceOutputPanel workspaceId={workspace.id} {provisioning} />
+            <WorkspaceOutputPanel
+              workspaceId={workspace.id}
+              repoId={workspaceRepoId}
+              {provisioning}
+            />
           </div>
         {/if}
       </WorkspaceChangesLayout>

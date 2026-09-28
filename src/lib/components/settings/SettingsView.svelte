@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
   import { app, settings } from '$lib/state'
 
   let settingsTitle: HTMLHeadingElement | undefined = $state()
@@ -43,6 +44,7 @@
   <section bind:this={reposSection} id="settings-repos" class="scroll-mt-4">
     <h2 class="text-sm font-medium">Repositories</h2>
     <p class="text-sm text-muted-foreground">Repo setup and run commands.</p>
+    <ReposSettings />
   </section>
   <section bind:this={enginesSection} id="settings-engines" class="scroll-mt-4">
     <h2 class="text-sm font-medium">Engines</h2>

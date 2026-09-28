@@ -12,6 +12,8 @@ export class SettingsStore {
   rows = $state<SettingRow[]>([])
   /** When set, Settings view scrolls/focuses this section (palette deep links). */
   focusSection = $state<string | null>(null)
+  /** Expand this repo and focus its run command field (Output empty state). */
+  focusRepoRunCommand = $state<string | null>(null)
 
   hydrate(
     settings: { reduceMotion?: boolean; autoApproveReadOnly?: boolean },
