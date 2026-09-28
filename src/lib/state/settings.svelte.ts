@@ -29,6 +29,10 @@ export class SettingsStore {
   focusSection = $state<string | null>(null)
   /** Expand this repo and focus its run command field (Output empty state). */
   focusRepoRunCommand = $state<string | null>(null)
+  /** Expand this repo's config panel (add repo, deep links). */
+  expandRepoId = $state<string | null>(null)
+  /** Focus Worktree setup after expanding (add repo). */
+  focusRepoSetup = $state<string | null>(null)
 
   hydrate(
     settings: { reduceMotion?: boolean; autoApproveReadOnly?: boolean },

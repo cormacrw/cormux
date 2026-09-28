@@ -85,12 +85,16 @@ pub async fn retry_provisioning(app: AppHandle, workspace_id: String) {
         .await;
     clear_failure(&state, &workspace_id).await;
 
+    let repo_path = crate::ipc::commands::expand_tilde(&repo.path);
     let job = LeadProvisionJob {
         workspace_id,
         thread_id: thread.id,
         repo_id: workspace.repo_id,
         repo_name: repo.name,
-        setup_commands_raw: repo.setup_commands,
+        setup_commands_raw: crate::harness_config::effective_setup(
+            &repo.setup_commands,
+            &repo_path,
+        ),
         engine: thread.engine,
         goal,
         review: workspace.kind.as_deref() == Some("review"),

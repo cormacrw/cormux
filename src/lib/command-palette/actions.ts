@@ -16,6 +16,7 @@ export function runWorkspaceApp(
 
 export function openRepoRunCommand(repoId: string) {
   settings.focusSection = 'repos'
+  settings.expandRepoId = repoId
   settings.focusRepoRunCommand = repoId
   app.openSettings()
 }

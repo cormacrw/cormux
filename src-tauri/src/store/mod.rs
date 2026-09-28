@@ -100,6 +100,32 @@ impl Store {
         })
     }
 
+    pub fn delete_repo(&self, repo_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM repos WHERE id = ?1", rusqlite::params![repo_id])?;
+            Ok(())
+        })
+    }
+
+    pub fn count_active_workspaces_for_repo(&self, repo_id: &str) -> Result<usize> {
+        self.with_conn(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM workspaces WHERE repo_id = ?1 AND archived_at IS NULL",
+                rusqlite::params![repo_id],
+                |row| row.get(0),
+            )?;
+            Ok(count as usize)
+        })
+    }
+
+    pub fn repo_count(&self) -> Result<usize> {
+        self.with_conn(|conn| {
+            let count: i64 =
+                conn.query_row("SELECT COUNT(*) FROM repos", [], |row| row.get(0))?;
+            Ok(count as usize)
+        })
+    }
+
     pub fn upsert_workspace(&self, workspace: &WorkspaceRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(

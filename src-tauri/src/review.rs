@@ -281,7 +281,10 @@ pub async fn create_review_workspace(
     let pr_number = input.pr_number as u64;
     let base_branch = input.base.clone();
     let repo_id_bg = input.repo_id.clone();
-    let setup_commands = repo.setup_commands.clone();
+    let setup_commands = crate::harness_config::effective_setup(
+        &repo.setup_commands,
+        &repo_path,
+    );
     let worktree_path_bg = worktree_path.clone();
     let workspace_id_bg = workspace_id.clone();
 

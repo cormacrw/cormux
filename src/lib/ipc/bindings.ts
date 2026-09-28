@@ -366,6 +366,38 @@ async setRepoRunCommand(input: SetRepoRunCommandInput) : Promise<Result<null, Er
     else return { status: "error", error: e  as any };
 }
 },
+async setRepoSetupCommands(input: SetRepoSetupCommandsInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_repo_setup_commands", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async addRepo(input: AddRepoInput) : Promise<Result<RepoRecord, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("add_repo", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async removeRepo(input: RemoveRepoInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("remove_repo", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async testRepoSetup(input: TestRepoSetupInput) : Promise<Result<TestRepoSetupResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_repo_setup", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setSetting(input: SetSettingInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_setting", { input }) };
@@ -403,6 +435,7 @@ workspaceStatusChanged: "workspace-status-changed"
 
 /** user-defined types **/
 
+export type AddRepoInput = { path: string }
 export type AgentChunk = { threadId: string; text: string }
 /**
  * One internal event every adapter translates into (COR-56).
@@ -443,12 +476,14 @@ export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; w
 export type PlanStep = { content: string; status: string }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PtyChunk = { workspaceId: string; line: string }
+export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
 export type ResolveApprovalResult = { focusComposer: boolean }
 export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
+export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }
 export type SetSettingInput = { key: string; value: string }
 export type SettingRow = { key: string; value: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
@@ -476,6 +511,8 @@ export type SwitchWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type TeardownDataLoss = { uncommittedFiles: number; unpushedCommits: number; hasDataLoss: boolean; warning: string | null }
 export type TeardownInput = { workspaceId: string; deleteBranch: boolean }
 export type TeardownPreview = { workspaceId: string; workspaceName: string; engineLabel: string; branch: string; worktreePath: string; appRunning: boolean; deleteBranchDefault: boolean; dataLoss: TeardownDataLoss }
+export type TestRepoSetupInput = { repoId: string }
+export type TestRepoSetupResult = { ok: boolean; message: string }
 export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string }
 export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }

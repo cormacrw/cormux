@@ -13,6 +13,7 @@ mod error;
 mod git;
 mod git_workspace;
 mod github;
+mod harness_config;
 mod ipc;
 mod llm;
 mod mcp;

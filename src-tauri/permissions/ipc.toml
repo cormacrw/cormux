@@ -42,6 +42,10 @@ commands.allow = [
   "start_streaming_spike",
   "control_workspace_app",
   "set_repo_run_command",
+  "set_repo_setup_commands",
+  "add_repo",
+  "remove_repo",
+  "test_repo_setup",
   "set_setting",
   "send_workspace_findings"
 ]

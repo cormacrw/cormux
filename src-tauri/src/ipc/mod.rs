@@ -50,6 +50,10 @@ pub fn builder() -> Builder {
             commands::teardown_workspace,
             commands::control_workspace_app,
             commands::set_repo_run_command,
+            commands::set_repo_setup_commands,
+            commands::add_repo,
+            commands::remove_repo,
+            commands::test_repo_setup,
             commands::set_setting,
             commands::send_workspace_findings
         ])

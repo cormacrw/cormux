@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use tauri::{AppHandle, State, ipc::Channel};
@@ -16,14 +16,13 @@ use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 
 use super::types::{
-    AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
+    AddRepoInput, AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
     CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
-    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RenameWorkspaceInput,
-    RepoBranchesResult, ResolveApprovalResult, SendWorkspaceFindingsInput,
-    SetRepoRunCommandInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
-    TeardownInput,
-    TeardownPreview, WorkspaceAppControlAction,
-    WorkspaceSummaryResult,
+    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RemoveRepoInput,
+    RenameWorkspaceInput, RepoBranchesResult, ResolveApprovalResult, SendWorkspaceFindingsInput,
+    SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetSettingInput, Snapshot,
+    SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
+    TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
 use crate::store::types::RepoRecord;
@@ -90,6 +89,22 @@ pub async fn control_workspace_app(
         .await
 }
 
+fn repo_paths_match(left: &str, right: &Path) -> bool {
+    let left_path = expand_tilde(left);
+    left_path.canonicalize().ok() == right.canonicalize().ok()
+}
+
+fn upsert_repo_record(app: &AppHandle, state: &AppState, repo: RepoRecord) -> Result<()> {
+    state.store.upsert_repo(&repo)?;
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(app);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn set_repo_run_command(
@@ -105,21 +120,236 @@ pub async fn set_repo_run_command(
         .run_command
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    state.store.upsert_repo(&RepoRecord {
-        id: repo.id,
-        path: repo.path,
-        name: repo.name,
-        default_branch: repo.default_branch,
-        setup_commands: repo.setup_commands,
-        run_command: repo.run_command,
-    })?;
+    upsert_repo_record(
+        &app,
+        &state,
+        RepoRecord {
+            id: repo.id,
+            path: repo.path,
+            name: repo.name,
+            default_branch: repo.default_branch,
+            setup_commands: repo.setup_commands,
+            run_command: repo.run_command,
+        },
+    )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_repo_setup_commands(
+    app: AppHandle,
+    input: SetRepoSetupCommandsInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let repos = state.store.snapshot()?.repos;
+    let Some(mut repo) = repos.into_iter().find(|row| row.id == input.repo_id) else {
+        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
+    };
+    repo.setup_commands = input.setup_commands;
+    upsert_repo_record(
+        &app,
+        &state,
+        RepoRecord {
+            id: repo.id,
+            path: repo.path,
+            name: repo.name,
+            default_branch: repo.default_branch,
+            setup_commands: repo.setup_commands,
+            run_command: repo.run_command,
+        },
+    )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn add_repo(
+    app: AppHandle,
+    input: AddRepoInput,
+    state: State<'_, AppState>,
+) -> Result<RepoRecord> {
+    let (normalized, id) = crate::harness_config::validate_add_path(&input.path)?;
+    let expanded = expand_tilde(&normalized);
+    if !expanded.is_dir() {
+        return Err(Error::Git(format!(
+            "folder does not exist: {}",
+            expanded.display()
+        )));
+    }
+
+    let toplevel = state
+        .git
+        .show_toplevel(&expanded)
+        .await
+        .map_err(|_| Error::Git("That folder is not a git repository".into()))?;
+    let display_path = crate::harness_config::path_for_display(&toplevel);
+
+    let snapshot = state.store.snapshot()?;
+    if snapshot
+        .repos
+        .iter()
+        .any(|row| repo_paths_match(&row.path, &toplevel))
+    {
+        return Err(Error::Workspace("That folder is already added".into()));
+    }
+    if snapshot.repos.iter().any(|row| row.id == id) {
+        return Err(Error::Workspace(format!(
+            "A repo named {id} is already added"
+        )));
+    }
+
+    let default_branch = state.git.default_branch(&toplevel).await.ok();
+    let committed = crate::harness_config::read_committed_config(&toplevel);
+    let suggested = crate::harness_config::suggest_commands(&toplevel);
+    let (setup_commands, run_command) =
+        crate::harness_config::merge_initial_config(committed, suggested);
+
+    let name = id.clone();
+    let record = RepoRecord {
+        id,
+        path: display_path.clone(),
+        name,
+        default_branch,
+        setup_commands,
+        run_command,
+    };
+    upsert_repo_record(&app, &state, record.clone())?;
+
+    emit_toast(
+        &app,
+        crate::ipc::types::ToastRaisedPayload {
+            tone: crate::ipc::types::ToastTone::Ok,
+            parts: vec![
+                crate::ipc::types::ToastPart::Text {
+                    value: format!("Added {}. Add its setup and run commands below.", record.name),
+                },
+            ],
+            workspace_id: None,
+        },
+    );
+
+    Ok(record)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_repo(
+    app: AppHandle,
+    input: RemoveRepoInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let snapshot = state.store.snapshot()?;
+    let Some(repo) = snapshot
+        .repos
+        .into_iter()
+        .find(|row| row.id == input.repo_id)
+    else {
+        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
+    };
+
+    let used = state.store.count_active_workspaces_for_repo(&repo.id)?;
+    if used > 0 {
+        let tear = if used == 1 { "it" } else { "them" };
+        return Err(Error::Workspace(format!(
+            "{} has {used} workspace{}. Tear {tear} down first.",
+            repo.name,
+            if used == 1 { "" } else { "s" }
+        )));
+    }
+    if state.store.repo_count()? <= 1 {
+        return Err(Error::Workspace("Harness needs at least one repo".into()));
+    }
+
+    state.store.delete_repo(&repo.id)?;
     let version = state.bump_event_version();
     let _ = StateChanged {
         version,
         kind: StateChangeKind::WorkspaceStatus,
     }
     .emit(&app);
+
+    emit_toast(
+        &app,
+        crate::ipc::types::ToastRaisedPayload {
+            tone: crate::ipc::types::ToastTone::Ok,
+            parts: vec![crate::ipc::types::ToastPart::Text {
+                value: format!(
+                    "Removed {}. The folder on disk wasn't touched.",
+                    repo.name
+                ),
+            }],
+            workspace_id: None,
+        },
+    );
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn test_repo_setup(
+    input: TestRepoSetupInput,
+    state: State<'_, AppState>,
+) -> Result<TestRepoSetupResult> {
+    let snapshot = state.store.snapshot()?;
+    let repo = snapshot
+        .repos
+        .into_iter()
+        .find(|row| row.id == input.repo_id)
+        .ok_or_else(|| Error::Workspace(format!("unknown repo {}", input.repo_id)))?;
+    let repo_path = expand_tilde(&repo.path);
+    let setup_raw = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
+    let commands = crate::provisioning::parse_setup_commands(&setup_raw);
+    if commands.is_empty() {
+        return Ok(TestRepoSetupResult {
+            ok: true,
+            message: "No setup commands to run.".into(),
+        });
+    }
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let harness_env = vec![
+        ("HARNESS_REPO_PATH".into(), repo.path.clone()),
+        ("HARNESS_BRANCH".into(), repo.default_branch.clone().unwrap_or_else(|| "main".into())),
+    ];
+
+    for (index, command) in commands.iter().enumerate() {
+        let session_id = format!("test-setup-{}-{index}", repo.id);
+        state.process.spawn_session(
+            &session_id,
+            &shell,
+            &["-l", "-c", command],
+            Some(&repo_path),
+            &harness_env,
+        )?;
+        let deadline = std::time::Instant::now() + crate::provisioning::SETUP_COMMAND_TIMEOUT;
+        loop {
+            if let Some(code) = state.process.exit_code(&session_id) {
+                if code != 0 {
+                    return Ok(TestRepoSetupResult {
+                        ok: false,
+                        message: format!("Command failed ({code}): {command}"),
+                    });
+                }
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = state.process.stop_session(&session_id);
+                return Ok(TestRepoSetupResult {
+                    ok: false,
+                    message: format!("Command timed out: {command}"),
+                });
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    Ok(TestRepoSetupResult {
+        ok: true,
+        message: format!(
+            "Ran {} setup command{} in the repo checkout.",
+            commands.len(),
+            if commands.len() == 1 { "" } else { "s" }
+        ),
+    })
 }
 
 #[tauri::command]
@@ -648,7 +878,10 @@ pub async fn create_workspace(
     let engine = input.engine.clone();
     let goal = input.goal.clone();
     let repo_name = repo.name.clone();
-    let setup_commands = repo.setup_commands.clone();
+    let setup_commands = crate::harness_config::effective_setup(
+        &repo.setup_commands,
+        &repo_path,
+    );
 
     emit_toast(
         &app,
