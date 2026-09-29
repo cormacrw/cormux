@@ -1171,6 +1171,31 @@ pub async fn join_workspace_thread(
     })
 }
 
+/// Close a thread tab: stop its agent and hide it. The workspace's first thread stays open.
+#[tauri::command]
+#[specta::specta]
+pub async fn close_workspace_thread(
+    app: AppHandle,
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let thread = snapshot_thread(&state, &thread_id)?;
+    if state.store.scratch_for_thread(&thread_id)?.is_some() {
+        return Err(Error::Workspace("a scratch's thread can't be closed".into()));
+    }
+    if state.store.first_thread_id(&thread.workspace_id)?.as_deref() == Some(thread_id.as_str()) {
+        return Err(Error::Workspace(format!("{} can't be closed", thread.title)));
+    }
+    let _ = state.engines.stop(&thread_id).await;
+    state.store.close_thread(&thread_id)?;
+    state
+        .workspace
+        .remove_thread(&thread_id, &thread.workspace_id)
+        .await;
+    emit_composer_snapshot(&app, &state);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn send_thread_prompt(

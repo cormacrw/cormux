@@ -23,6 +23,7 @@ Left to right:
    - The thread's role name, for example `Lead`, `Test writer`, `Reviewer`, `Agent 4`.
    - An amber count badge if the thread has pending approvals.
    - Tooltip: `<role>: <activity>` (or `Paused`).
+   - A close (×) button on every tab but the first, shown on the selected tab and on hover.
 2. **Findings tab** (review workspaces, only after the review finishes): a list icon, `Findings`, and a count of findings not yet sent. See [20](20-review-findings.md).
 3. **+ (New thread)** icon button.
 4. Flexible space.
@@ -52,6 +53,12 @@ Also available as **New thread** in the ⋯ menu.
 
 If started from a workspace that isn't open (not currently possible from the UI, but supported by the action), the app opens that workspace on the new tab.
 
+### Closing a thread
+- The × on a tab, a middle-click on it, or `Delete` / `Backspace` while it's focused closes it.
+- Closing stops the thread's agent and hides the tab; its history stays in the database (`threads.closed_at`). There's no way to reopen it yet.
+- The workspace's own thread (the first tab) can't be closed; the backend refuses too.
+- Closing the selected tab selects the tab before it, or after it if it was first.
+
 ### Live updates
 Tabs re-render on every change: status dots, approval counts, the Findings count and the Output port all stay current.
 
@@ -78,7 +85,8 @@ Tabs re-render on every change: status dots, approval counts, the Findings count
 ## Known gaps and open questions
 
 - **New threads ignore the default engine** and always use Claude Code. There's no way to choose the engine or role when adding a thread.
-- Threads can't be renamed, reordered, closed or removed. A finished helper thread stays forever.
+- Threads can't be renamed or reordered, and a closed thread can't be reopened.
+- Closing a running agent stops it without asking.
 - No limit on the number of threads, and no overflow handling when tabs exceed the width.
 - Should threads be able to run on separate worktrees (sub-branches) rather than sharing one, to avoid file conflicts?
 - No keyboard shortcut to jump to thread N (for example `⌘1`–`⌘9`).

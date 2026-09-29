@@ -337,6 +337,22 @@ impl WorkspaceManager {
         }
     }
 
+    /// Forget a closed thread so it no longer counts toward the workspace's status.
+    pub async fn remove_thread(&self, thread_id: &str, workspace_id: &str) {
+        let mut inner = self.inner.write().await;
+        inner.threads.remove(thread_id);
+        let activities: Vec<ThreadActivity> = inner
+            .threads
+            .values()
+            .filter(|thread| thread.workspace_id == workspace_id)
+            .map(|thread| thread.activity)
+            .collect();
+        if let Some(workspace) = inner.workspaces.get_mut(workspace_id) {
+            workspace.status = status_from_threads(workspace.status, activities.into_iter());
+            workspace.version += 1;
+        }
+    }
+
     pub async fn can_switch_branch(&self, workspace_id: &str) -> Result<()> {
         let inner = self.inner.read().await;
         let workspace = inner

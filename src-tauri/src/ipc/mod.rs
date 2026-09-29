@@ -17,6 +17,7 @@ pub fn builder() -> Builder {
             commands::subscribe_agent_events,
             commands::detect_engines,
             commands::send_thread_prompt,
+            commands::close_workspace_thread,
             commands::cancel_thread_turn,
             commands::pause_thread,
             commands::resume_thread,

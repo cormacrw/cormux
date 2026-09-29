@@ -179,6 +179,20 @@ export function installBrowserHarness() {
       streamReply('th-lead', String(args.text))
       return null
     }
+    if (cmd === 'join_workspace_thread') {
+      const input = args.input as { workspaceId: string; title: string; engine: string }
+      const threadId = `th-${Date.now()}`
+      const lead = fixtureSnapshot.persisted.threads[0]!
+      fixtureSnapshot.persisted.threads.push({ ...lead, id: threadId, workspaceId: input.workspaceId, title: input.title, status: 'idle' })
+      emitStateChanged()
+      return { threadId }
+    }
+    if (cmd === 'close_workspace_thread') {
+      const persisted = fixtureSnapshot.persisted
+      persisted.threads = persisted.threads.filter((row) => row.id !== args.threadId)
+      emitStateChanged()
+      return null
+    }
     if (cmd === 'get_metrics') return fixtureSnapshot.memory
     if (cmd === 'set_setting') return null
     if (cmd === 'create_scratch')

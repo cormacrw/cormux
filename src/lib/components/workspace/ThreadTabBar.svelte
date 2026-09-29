@@ -35,6 +35,8 @@
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Plus from '@lucide/svelte/icons/plus'
   import Terminal from '@lucide/svelte/icons/terminal'
+  import X from '@lucide/svelte/icons/x'
+  import { canCloseThread, closeThreadTab } from '$lib/workspace/close-thread'
 
   let { workspace }: { workspace: Workspace } = $props()
 
@@ -78,6 +80,14 @@
   }
 
   function onBarKeydown(event: KeyboardEvent) {
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      const threadId = (document.activeElement as HTMLElement | null)?.dataset.threadId
+      if (threadId && canCloseThread(workspace.id, threadId)) {
+        event.preventDefault()
+        void closeThreadTab(workspace.id, threadId)
+      }
+      return
+    }
     const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'] as const
     if (!keys.includes(event.key as (typeof keys)[number])) return
     const tabs = barEl?.querySelectorAll<HTMLElement>('[role="tab"]')
@@ -129,31 +139,54 @@
         paused: thread.paused,
         activity: thread.activity,
       }}
-      <Button
-        id="thread-tab-{thread.id}"
-        role="tab"
-        variant="ghost"
-        size="sm"
-        class={threadTabClass(selected)}
-        aria-selected={selected}
-        aria-controls="thread-panel"
-        tabindex={tabIndex({ kind: 'thread', threadId: thread.id })}
-        aria-label={threadTabAriaLabel(thread)}
-        data-od-id="thread-tab-{thread.id}"
-        onclick={() => selectTab({ kind: 'thread', threadId: thread.id })}
-      >
-        <StatusDot variant={statusDotVariantForThread(statusInput)} />
-        <span class="truncate" aria-hidden="true">{thread.role}</span>
-        {#if thread.pendingApprovals > 0}
-          <Badge
-            variant="outline"
-            class="min-w-[18px] justify-center border-warning/40 bg-warning/15 px-1 font-mono text-[10px] text-warning"
-            aria-hidden="true"
+      {@const closable = canCloseThread(workspace.id, thread.id)}
+      <span role="presentation" class="group/tab relative flex shrink-0 items-end">
+        <Button
+          id="thread-tab-{thread.id}"
+          role="tab"
+          variant="ghost"
+          size="sm"
+          class={cn(threadTabClass(selected), closable && 'pr-6')}
+          aria-selected={selected}
+          aria-controls="thread-panel"
+          tabindex={tabIndex({ kind: 'thread', threadId: thread.id })}
+          aria-label={threadTabAriaLabel(thread)}
+          data-od-id="thread-tab-{thread.id}"
+          data-thread-id={thread.id}
+          onclick={() => selectTab({ kind: 'thread', threadId: thread.id })}
+          onauxclick={(event) => {
+            if (event.button === 1 && closable) void closeThreadTab(workspace.id, thread.id)
+          }}
+        >
+          <StatusDot variant={statusDotVariantForThread(statusInput)} />
+          <span class="truncate" aria-hidden="true">{thread.role}</span>
+          {#if thread.pendingApprovals > 0}
+            <Badge
+              variant="outline"
+              class="min-w-[18px] justify-center border-warning/40 bg-warning/15 px-1 font-mono text-[10px] text-warning"
+              aria-hidden="true"
+            >
+              {thread.pendingApprovals}
+            </Badge>
+          {/if}
+        </Button>
+        {#if closable}
+          <button
+            type="button"
+            tabindex="-1"
+            aria-label="Close {thread.role}"
+            title="Close {thread.role} (stops its agent)"
+            data-od-id="thread-close-{thread.id}"
+            class={cn(
+              'absolute top-1/2 right-1 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground',
+              selected ? 'opacity-100' : 'opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100',
+            )}
+            onclick={() => void closeThreadTab(workspace.id, thread.id)}
           >
-            {thread.pendingApprovals}
-          </Badge>
+            <X class="size-3" aria-hidden="true" />
+          </button>
         {/if}
-      </Button>
+      </span>
     {/each}
 
     {#if showFindings}

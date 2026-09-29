@@ -477,6 +477,30 @@ impl Store {
         })
     }
 
+    /// Close a thread tab. It drops out of the snapshot; its events stay in the database.
+    pub fn close_thread(&self, thread_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET closed_at = datetime('now'), status = 'idle' WHERE id = ?1",
+                [thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The workspace's own thread (Lead, Planner or Reviewer): its first, which can't be closed.
+    pub fn first_thread_id(&self, workspace_id: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT id FROM threads WHERE workspace_id = ?1 ORDER BY created_at, rowid LIMIT 1",
+                    [workspace_id],
+                    |row| row.get(0),
+                )
+                .ok())
+        })
+    }
+
     /// Removes the scratch and its thread; events and approvals cascade with the thread.
     pub fn delete_scratch(&self, scratch_id: &str) -> Result<()> {
         self.with_conn(|conn| {
@@ -662,9 +686,10 @@ impl Store {
                     conn,
                     &format!(
                         "{THREAD_COLUMNS}
-                         WHERE workspace_id IN (
+                         WHERE closed_at IS NULL AND workspace_id IN (
                             SELECT id FROM workspaces WHERE archived_at IS NULL
-                         )"
+                         )
+                         ORDER BY created_at, rowid"
                     ),
                     row_to_thread,
                 )?,
@@ -675,7 +700,9 @@ impl Store {
                 )?,
                 timeline: query_all(
                     conn,
-                    "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events ORDER BY thread_id, seq",
+                    "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events
+                     WHERE thread_id NOT IN (SELECT id FROM threads WHERE closed_at IS NOT NULL)
+                     ORDER BY thread_id, seq",
                     |row| {
                         Ok(ThreadEventRow {
                             id: row.get(0)?,
@@ -864,6 +891,68 @@ mod tests {
         assert!(snapshot.scratches.is_empty());
         assert!(snapshot.timeline.is_empty());
         assert!(store.thread_by_id("t1").unwrap().is_none());
+    }
+
+    #[test]
+    fn closed_thread_leaves_the_snapshot_but_keeps_its_events() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .upsert_repo(&RepoRecord {
+                id: "r1".into(),
+                path: "/tmp/app".into(),
+                name: "app".into(),
+                default_branch: Some("main".into()),
+                setup_commands: String::new(),
+                run_command: None,
+            })
+            .unwrap();
+        store
+            .upsert_workspace(&WorkspaceRow {
+                id: "w1".into(),
+                repo_id: "r1".into(),
+                name: "Login".into(),
+                branch: "feat".into(),
+                worktree_path: "/tmp/wt".into(),
+                status: "idle".into(),
+                created_at: String::new(),
+                summary: None,
+                summary_at: None,
+                summary_source: "Haiku 4.5".into(),
+                kind: None,
+                pr_number: None,
+                pr_html_url: None,
+                modified_files: 0,
+                archived_at: None,
+            })
+            .unwrap();
+        for (id, title) in [("lead", "Lead"), ("helper", "Agent 2")] {
+            store
+                .upsert_thread(&ThreadRow {
+                    id: id.into(),
+                    workspace_id: "w1".into(),
+                    title: title.into(),
+                    engine: "cursor".into(),
+                    session_id: None,
+                    status: "running".into(),
+                    used_tokens: None,
+                    context_size: None,
+                    cost_usd: None,
+                    transcript_readonly: false,
+                })
+                .unwrap();
+            store.append_event(id, "message", "{}").unwrap();
+        }
+        assert_eq!(store.first_thread_id("w1").unwrap().as_deref(), Some("lead"));
+
+        store.close_thread("helper").unwrap();
+        let snapshot = store.snapshot().unwrap();
+        let ids: Vec<_> = snapshot.threads.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, ["lead"]);
+        assert!(snapshot.timeline.iter().all(|row| row.thread_id == "lead"));
+        let closed = store.thread_by_id("helper").unwrap().unwrap();
+        assert_eq!(closed.status, "idle");
+        assert!(!store.transcript_summary("helper", 10).unwrap().is_empty());
     }
 
     #[test]

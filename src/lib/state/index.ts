@@ -232,8 +232,9 @@ function buildThreadModels(snapshot: Snapshot) {
   rows.sort((a, b) => {
     const wa = orderIndex.get(a.workspaceId) ?? 0
     const wb = orderIndex.get(b.workspaceId) ?? 0
-    if (wa !== wb) return wa - wb
-    return a.id.localeCompare(b.id)
+    // Within a workspace keep the snapshot's creation order: the first tab is the
+    // workspace's own thread (ids are random UUIDs, so sorting by id shuffled tabs).
+    return wa - wb
   })
 
   return rows

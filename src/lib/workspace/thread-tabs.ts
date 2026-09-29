@@ -3,7 +3,7 @@ import { plural, threadActivityLine } from '$lib/sidebar/status'
 
 /** Deferred per product/features/10-thread-tabs.md — COR-123 tracks these. */
 export const THREAD_TAB_KNOWN_GAPS = [
-  'No rename, reorder, close, or remove for threads',
+  'No rename or reorder for threads, and no reopening a closed one',
   'No ⌘1–⌘9 jump to thread N',
   'No unread indicator when a thread posts while you are elsewhere',
   'New threads always use the default engine; no role picker',
