@@ -32,6 +32,8 @@ export type ToolRunStep =
       detail?: string
       chips?: TimelineChip[]
       tone?: 'success'
+      /** Reads and searches render as a subtle line instead of a card row. */
+      quiet?: boolean
       seq: number
       atMs: number
       rawDetail?: string

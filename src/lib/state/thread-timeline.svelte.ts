@@ -91,10 +91,14 @@ export class ThreadTimelineStore {
       ...this.eventsByThread,
       [threadId]: [...prev, { seq, atMs: Date.now(), event }],
     }
-    if (event.type === 'currentTool') {
+    const liveTool =
+      event.type === 'currentTool' || event.type === 'toolCallUpdate'
+        ? event.title
+        : null
+    if (liveTool) {
       this.currentToolByThread = {
         ...this.currentToolByThread,
-        [threadId]: event.title,
+        [threadId]: liveTool,
       }
     }
     if (event.type === 'turnEnd' || event.type === 'engineExited') {

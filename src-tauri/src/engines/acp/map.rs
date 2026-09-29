@@ -11,14 +11,19 @@ pub fn map_session_update(update: &SessionUpdate) -> Option<AgentEvent> {
         SessionUpdate::AgentMessageChunk(chunk) => text_chunk(&chunk.content, MessageRole::Agent),
         SessionUpdate::AgentThoughtChunk(chunk) => text_chunk(&chunk.content, MessageRole::Thought),
         SessionUpdate::ToolCall(call) => Some(map_tool_call(call)),
-        SessionUpdate::ToolCallUpdate(update) => {
-            let id = update.tool_call_id.to_string();
-            let title = update.fields.title.clone().unwrap_or_else(|| "tool".into());
-            Some(AgentEvent::CurrentTool {
-                id: Some(id.clone()),
-                title: title.clone(),
-            })
-        }
+        SessionUpdate::ToolCallUpdate(update) => Some(AgentEvent::ToolCallUpdate {
+            id: update.tool_call_id.to_string(),
+            title: update.fields.title.clone(),
+            kind: update.fields.kind.map(map_tool_kind),
+            status: update.fields.status.map(map_status),
+            locations: update
+                .fields
+                .locations
+                .iter()
+                .flatten()
+                .map(|loc| loc.path.display().to_string())
+                .collect(),
+        }),
         SessionUpdate::Plan(plan) => Some(AgentEvent::Plan {
             entries: plan
                 .entries
@@ -174,5 +179,31 @@ fn text_chunk(block: &ContentBlock, role: MessageRole) -> Option<AgentEvent> {
             text: text.text.clone(),
         }),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_call_update_carries_late_locations() {
+        let update: SessionUpdate = serde_json::from_value(serde_json::json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "edit-1",
+            "status": "completed",
+            "locations": [{ "path": "/repo/src/app.ts" }]
+        }))
+        .unwrap();
+        assert_eq!(
+            map_session_update(&update),
+            Some(AgentEvent::ToolCallUpdate {
+                id: "edit-1".into(),
+                title: None,
+                kind: None,
+                status: Some(ToolCallStatus::Completed),
+                locations: vec!["/repo/src/app.ts".into()],
+            })
+        );
     }
 }

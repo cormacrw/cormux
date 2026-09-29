@@ -83,7 +83,99 @@ describe('mapEventsToTimeline', () => {
       detail: '~/code/my-app',
       chips: [{ label: 'Read-only, no worktree' }],
     })
-    expect(steps[1]).toMatchObject({ title: 'git log', chips: undefined })
+    expect(steps[1]).toMatchObject({
+      title: 'Ran',
+      detail: 'git log',
+      quiet: true,
+      chips: undefined,
+    })
+  })
+
+  it('shows a shell step as a short command preview', () => {
+    const command =
+      '/Users/me/.cursor/skills/impeccable comp-spec --comp mocks/01-pad-on-desk.png --grid'
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          event: {
+            type: 'toolCall',
+            id: 'cursor-shell',
+            title: `\`${command}\``,
+            name: null,
+            kind: 'execute',
+            status: 'completed',
+            locations: [],
+            detail: null,
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: 'toolCall',
+            id: 'claude-bash',
+            title: 'Bash',
+            name: 'Bash',
+            kind: 'execute',
+            status: 'completed',
+            locations: [],
+            detail: 'allowed by settings',
+          },
+        },
+      ],
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    const steps = items[0]?.kind === 'toolRun' ? items[0].steps : []
+    expect(steps[0]).toMatchObject({
+      title: 'Ran',
+      detail: `${command.slice(0, 50).trimEnd()}…`,
+      rawDetail: command,
+      quiet: true,
+    })
+    expect(steps[1]).toMatchObject({ title: 'Ran a command', quiet: true })
+  })
+
+  it('fills a Cursor edit from its later update', () => {
+    const editCall = (id: string) => ({
+      type: 'toolCall' as const,
+      id,
+      title: 'Edit File',
+      name: null,
+      kind: 'edit' as const,
+      status: 'pending' as const,
+      locations: [],
+      detail: null,
+    })
+    const items = mapEventsToTimeline({
+      events: [
+        { seq: 1, event: editCall('edit-1') },
+        { seq: 2, event: editCall('edit-2') },
+        {
+          seq: 3,
+          event: {
+            type: 'toolCallUpdate',
+            id: 'edit-1',
+            title: null,
+            kind: null,
+            status: 'completed',
+            locations: ['src/lib/auth.ts'],
+          },
+        },
+      ],
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    expect(items).toHaveLength(1)
+    const steps = items[0]?.kind === 'toolRun' ? items[0].steps : []
+    expect(steps).toMatchObject([
+      { kind: 'edit', id: 'edit-1', path: 'src/lib/auth.ts', verb: 'Edited' },
+      { kind: 'edit', id: 'edit-2', path: '', verb: 'Edited' },
+    ])
   })
 
   it('hides a thought when the reply repeats it', () => {
@@ -105,18 +197,23 @@ describe('mapEventsToTimeline', () => {
             text: 'Sunday, September 27, 2026.',
           },
         },
-        { seq: 3, event: { type: 'turnEnd', stop_reason: 'end_turn', error: null } },
-        { seq: 4, event: { type: 'messageChunk', role: 'agent', text: 'next' } },
+        {
+          seq: 3,
+          event: { type: 'turnEnd', stop_reason: 'end_turn', error: null },
+        },
+        {
+          seq: 4,
+          event: { type: 'messageChunk', role: 'agent', text: 'next' },
+        },
       ],
       approvals: [],
       findingsReady: false,
       showLive: false,
       liveToolTitle: null,
     })
-    expect(items.map((item) => (item.kind === 'thought' ? item.text : item.kind))).toEqual([
-      'Sunday, September 27, 2026.',
-      'next',
-    ])
+    expect(
+      items.map((item) => (item.kind === 'thought' ? item.text : item.kind)),
+    ).toEqual(['Sunday, September 27, 2026.', 'next'])
   })
 
   it('groups consecutive tool calls into one run', () => {

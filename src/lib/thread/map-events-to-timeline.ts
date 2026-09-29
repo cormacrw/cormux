@@ -18,7 +18,10 @@ export type MapTimelineInput = {
   scratch?: boolean
 }
 
-const SCRATCH_CHIP: TimelineChip = { label: 'Read-only, no worktree', tone: 'muted' }
+const SCRATCH_CHIP: TimelineChip = {
+  label: 'Read-only, no worktree',
+  tone: 'muted',
+}
 
 let syntheticId = 0
 function nextId(prefix: string): string {
@@ -100,7 +103,7 @@ function toolStepFromCall(
   chips: TimelineChip[] | undefined,
 ): ToolRunStep {
   if (toolKindIsEdit(event.kind)) {
-    const path = event.locations[0] ?? event.title
+    const path = event.locations[0] ?? ''
     return {
       kind: 'edit',
       id: event.id,
@@ -110,16 +113,14 @@ function toolStepFromCall(
       atMs,
     }
   }
+  if (event.kind === 'execute') return commandStep(event, seq, atMs, chips)
   const fixedChips = /^Fixed \d+ findings/i.test(event.title)
     ? ([
         { label: 'Tests pass', tone: 'success' as const },
         { label: 'Committed locally, not pushed', tone: 'muted' as const },
       ] as TimelineChip[])
     : undefined
-  const tone =
-    event.status === 'completed' && event.kind !== 'execute'
-      ? ('success' as const)
-      : undefined
+  const tone = event.status === 'completed' ? ('success' as const) : undefined
   const openedPrChips =
     /^Opened PR #\d+/.test(event.title) && !chips?.length
       ? [{ label: 'Checks running' as const }]
@@ -133,12 +134,48 @@ function toolStepFromCall(
     chips: chips ?? fixedChips ?? openedPrChips,
     tone:
       tone ??
-      (/^Opened PR #\d+/.test(event.title) || /^Fixed \d+ findings/i.test(event.title)
+      (/^Opened PR #\d+/.test(event.title) ||
+      /^Fixed \d+ findings/i.test(event.title)
         ? 'success'
         : undefined),
+    quiet: event.kind === 'read' || event.kind === 'search',
     seq,
     atMs,
     rawDetail: event.detail ?? undefined,
+  }
+}
+
+const COMMAND_PREVIEW_CHARS = 50
+
+// Cursor titles a shell step with the whole command in backticks; Claude titles it `Bash`.
+function commandText(event: Extract<AgentEvent, { type: 'toolCall' }>): string {
+  const title = event.title.trim()
+  if (event.name && title === event.name) return ''
+  return title.replace(/^`+|`+$/g, '').trim()
+}
+
+function commandStep(
+  event: Extract<AgentEvent, { type: 'toolCall' }>,
+  seq: number,
+  atMs: number,
+  chips: TimelineChip[] | undefined,
+): ToolRunStep {
+  const command = commandText(event)
+  const preview =
+    command.length > COMMAND_PREVIEW_CHARS
+      ? `${command.slice(0, COMMAND_PREVIEW_CHARS).trimEnd()}…`
+      : command
+  return {
+    kind: 'tool',
+    id: event.id,
+    icon: iconForTool(event.kind, command),
+    title: command ? 'Ran' : 'Ran a command',
+    detail: preview || undefined,
+    chips,
+    quiet: true,
+    seq,
+    atMs,
+    rawDetail: command || undefined,
   }
 }
 
@@ -159,6 +196,43 @@ function pushBeforeLive(items: TimelineItem[], item: TimelineItem) {
   else items.splice(liveIdx, 0, item)
 }
 
+type TimelineEvent = MapTimelineInput['events'][number]
+
+// Engines fill in a tool call after announcing it (Cursor sends the edit path later),
+// so fold each update into the call it belongs to.
+function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
+  const merged: TimelineEvent[] = []
+  const callIndex = new Map<string, number>()
+  for (const entry of events) {
+    const { event } = entry
+    if (event.type === 'toolCall') {
+      callIndex.set(event.id, merged.length)
+      merged.push(entry)
+      continue
+    }
+    if (event.type !== 'toolCallUpdate') {
+      merged.push(entry)
+      continue
+    }
+    const index = callIndex.get(event.id)
+    const call = index === undefined ? undefined : merged[index]
+    if (index === undefined || call?.event.type !== 'toolCall') continue
+    merged[index] = {
+      ...call,
+      event: {
+        ...call.event,
+        title: event.title ?? call.event.title,
+        kind: event.kind ?? call.event.kind,
+        status: event.status ?? call.event.status,
+        locations: event.locations.length
+          ? event.locations
+          : call.event.locations,
+      },
+    }
+  }
+  return merged
+}
+
 export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
   const items: TimelineItem[] = []
   const run: ToolRunStep[] = []
@@ -166,7 +240,7 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
   let pendingAutoChip: TimelineChip | undefined
   let sealMessage = false
 
-  for (const { seq, atMs = 0, event } of input.events) {
+  for (const { seq, atMs = 0, event } of mergeToolUpdates(input.events)) {
     switch (event.type) {
       case 'messageChunk': {
         flushRun(run, items, runSeq)
@@ -188,11 +262,7 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
         } else {
           const role = event.role === 'agent' ? 'agent' : 'thought'
           const last = items[items.length - 1]
-          if (
-            !sealMessage &&
-            last?.kind === 'thought' &&
-            last.role === role
-          ) {
+          if (!sealMessage && last?.kind === 'thought' && last.role === role) {
             last.text += event.text
             last.seq = seq
           } else {

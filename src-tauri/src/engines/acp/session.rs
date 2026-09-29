@@ -294,6 +294,7 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
         AgentEvent::ToolCall { .. } => "tool",
         AgentEvent::Plan { .. } => "plan",
         AgentEvent::Permission { .. } => "permission",
+        AgentEvent::ToolCallUpdate { .. } => "tool_update",
         AgentEvent::CurrentTool { .. } => "current_tool",
         AgentEvent::Usage { .. } => "usage",
         AgentEvent::TurnEnd { .. } => "turn_end",

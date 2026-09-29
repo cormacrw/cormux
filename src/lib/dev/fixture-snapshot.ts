@@ -109,9 +109,21 @@ export const fixtureSnapshot: Snapshot = {
         createdAt: '2026-09-28 12:00:00',
       },
       {
-        id: 2,
+        id: 4,
         threadId: 'th-scratch-webhook',
         seq: 2,
+        kind: 'message',
+        payload: JSON.stringify({
+          type: 'messageChunk',
+          role: 'thought',
+          text: 'Signature failures usually mean the body was parsed before verification. Check how the handler reads the request.',
+        }),
+        createdAt: '2026-09-28 12:00:02',
+      },
+      {
+        id: 2,
+        threadId: 'th-scratch-webhook',
+        seq: 3,
         kind: 'tool',
         payload: JSON.stringify({
           type: 'toolCall',
@@ -126,9 +138,44 @@ export const fixtureSnapshot: Snapshot = {
         createdAt: '2026-09-28 12:00:05',
       },
       {
+        id: 5,
+        threadId: 'th-scratch-webhook',
+        seq: 4,
+        kind: 'tool',
+        payload: JSON.stringify({
+          type: 'toolCall',
+          id: 'search-construct',
+          title: 'Searched for constructEvent',
+          name: 'Grep',
+          kind: 'search',
+          status: 'completed',
+          locations: [],
+          detail: null,
+        }),
+        createdAt: '2026-09-28 12:00:08',
+      },
+      {
+        id: 6,
+        threadId: 'th-scratch-webhook',
+        seq: 5,
+        kind: 'tool',
+        payload: JSON.stringify({
+          type: 'toolCall',
+          id: 'shell-log',
+          title:
+            '`git log --oneline -5 -- src/routes/api/stripe/webhook/+server.ts src/lib/stripe.ts`',
+          name: null,
+          kind: 'execute',
+          status: 'completed',
+          locations: [],
+          detail: null,
+        }),
+        createdAt: '2026-09-28 12:00:12',
+      },
+      {
         id: 3,
         threadId: 'th-scratch-webhook',
-        seq: 3,
+        seq: 6,
         kind: 'message',
         payload: JSON.stringify({
           type: 'messageChunk',

@@ -40,6 +40,12 @@ test.describe('scratches', () => {
     ).toBeFocused()
     await expect(view.getByText('/tmp/cormux-fixture/my-app')).toBeVisible()
     await expect(view.getByText('Read-only, no worktree')).toBeVisible()
+    await expect(view.getByText('Searched for constructEvent')).toBeVisible()
+    // Thinking stays folded until asked for.
+    const thinking = view.getByText(/Signature failures usually mean/)
+    await expect(thinking).toBeHidden()
+    await view.getByText('Thought', { exact: true }).click()
+    await expect(thinking).toBeVisible()
     await expect(
       view.getByRole('button', { name: 'End scratch' }),
     ).toBeVisible()

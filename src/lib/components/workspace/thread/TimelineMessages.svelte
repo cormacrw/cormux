@@ -5,7 +5,10 @@
   import type { FindingRow } from '$lib/ipc/bindings'
   import { engineMark } from '$lib/sidebar/engine'
   import ThoughtMarkdown from './ThoughtMarkdown.svelte'
-  import { formatThreadTime, formatThreadTimeTitle } from '$lib/thread/thread-time'
+  import {
+    formatThreadTime,
+    formatThreadTimeTitle,
+  } from '$lib/thread/thread-time'
   import type { TimelineRow, ToolRunStep } from '$lib/thread/timeline-types'
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
   import { cn } from '$lib/utils'
@@ -13,6 +16,7 @@
   import ApprovalCard from './ApprovalCard.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import Check from '@lucide/svelte/icons/check'
+  import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import Copy from '@lucide/svelte/icons/copy'
   import FileText from '@lucide/svelte/icons/file-text'
   import GitBranch from '@lucide/svelte/icons/git-branch'
@@ -53,6 +57,36 @@
   const mark = $derived(engineMark(engine))
   const diffFiles = $derived(workspaceDiff.filesByWorkspace[workspaceId] ?? [])
 
+  // The newest thought is still being written while the live row trails it.
+  const activeThoughtId = $derived.by(() => {
+    const items = rows.flatMap((row) => (row.kind === 'item' ? [row.item] : []))
+    if (items.at(-1)?.kind !== 'live') return null
+    const last = items.at(-2)
+    return last?.kind === 'thought' && last.role === 'thought' ? last.id : null
+  })
+
+  type StepSegment = { id: string; quiet: boolean; steps: ToolRunStep[] }
+
+  // Reads, searches, commands and edits are subtle lines; anything else stays in a card.
+  function segmentSteps(steps: ToolRunStep[]): StepSegment[] {
+    const segments: StepSegment[] = []
+    for (const step of steps) {
+      const quiet = step.kind === 'edit' || Boolean(step.quiet)
+      const last = segments.at(-1)
+      if (last?.quiet === quiet) last.steps.push(step)
+      else segments.push({ id: step.id, quiet, steps: [step] })
+    }
+    return segments
+  }
+
+  // A run of reads shares its chips, so only show the ones that change.
+  function newChips(step: ToolRunStep, prev: ToolRunStep | undefined) {
+    if (step.kind !== 'tool') return []
+    const prevLabels =
+      prev?.kind === 'tool' ? (prev.chips ?? []).map((chip) => chip.label) : []
+    return (step.chips ?? []).filter((chip) => !prevLabels.includes(chip.label))
+  }
+
   function timeLabel(atMs: number) {
     return formatThreadTime(atMs) ?? ''
   }
@@ -60,11 +94,6 @@
   function timeTitle(atMs: number) {
     if (!atMs) return ''
     return formatThreadTimeTitle(atMs)
-  }
-
-  function diffCounts(path: string) {
-    const file = diffFiles.find((row) => row.path === path)
-    return { added: file?.added ?? 0, deleted: file?.deleted ?? 0 }
   }
 
   function stepIcon(step: ToolRunStep) {
@@ -164,15 +193,31 @@
         >
           You{clock ? ` · ${clock}` : ''}
         </p>
+      {:else if item.kind === 'thought' && item.role === 'thought'}
+        <details class="group/thought max-w-[42rem]">
+          <summary
+            class="inline-flex cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden"
+          >
+            <ChevronRight
+              class="size-3 transition-transform group-open/thought:rotate-90"
+              aria-hidden="true"
+            />
+            {#if item.id === activeThoughtId}
+              <span class="animate-pulse">Thinking…</span>
+            {:else}
+              Thought
+            {/if}
+          </summary>
+          <div
+            class="mt-1 border-l-2 border-border pl-3 text-sm leading-5 text-muted-foreground [&_p]:my-0 [&_p+p]:mt-2"
+          >
+            <ThoughtMarkdown text={item.text} />
+          </div>
+        </details>
       {:else if item.kind === 'thought'}
         <div class="group relative max-w-[42rem]">
           <div
-            class={cn(
-              'text-sm leading-5 [&_p]:my-0 [&_p+p]:mt-2',
-              item.role === 'thought'
-                ? 'text-muted-foreground'
-                : 'text-foreground',
-            )}
+            class="text-sm leading-5 text-foreground [&_p]:my-0 [&_p+p]:mt-2"
           >
             <ThoughtMarkdown text={item.text} />
           </div>
@@ -186,84 +231,118 @@
           </button>
         </div>
       {:else if item.kind === 'toolRun'}
-        <Card.Root class="overflow-hidden py-0">
-          <Card.Content class="p-0">
-            <ul class="divide-y divide-border/60">
-              {#each item.steps as step (step.id)}
-                {@const Icon = stepIcon(step)}
-                <li class="flex items-start gap-3 px-3 py-2 text-sm">
-                  <span
-                    class={cn(
-                      'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-muted/60',
-                      step.kind === 'tool' &&
-                        step.tone === 'success' &&
-                        'text-emerald-600',
-                    )}
+        <div class="space-y-1.5">
+          {#each segmentSteps(item.steps) as segment (segment.id)}
+            {#if segment.quiet}
+              <ul class="space-y-0.5">
+                {#each segment.steps as step, index (step.id)}
+                  {@const Icon = stepIcon(step)}
+                  {@const chips = newChips(step, segment.steps[index - 1])}
+                  <li
+                    class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+                    title={timeTitle(step.atMs)}
                   >
-                    <Icon class="size-3.5" aria-hidden="true" />
-                  </span>
-                  <div class="min-w-0 flex-1 space-y-1">
-                    {#if step.kind === 'edit'}
-                      {@const counts = diffCounts(step.path)}
-                      {@const name = step.path.split('/').pop() ?? step.path}
-                      <p class="font-medium">
-                        {step.verb}
-                        <button
-                          type="button"
-                          class="font-mono text-primary underline-offset-2 hover:underline"
-                          aria-label="View diff for {step.path}"
-                          onclick={() => openDiffForPath(step.path)}
-                        >
-                          {name}
-                        </button>
+                    <Icon class="size-3 shrink-0" aria-hidden="true" />
+                    {#if step.kind === 'tool'}
+                      <span class="shrink-0">{step.title}</span>
+                      {#if step.detail && step.detail !== step.title}
                         <span
-                          class="ml-1 font-mono text-xs text-muted-foreground"
-                          >+{counts.added} −{counts.deleted}</span
+                          class="truncate font-mono text-muted-foreground/80"
+                          title={step.rawDetail}>{step.detail}</span
                         >
-                      </p>
-                      <p
-                        class="truncate font-mono text-xs text-muted-foreground"
+                      {/if}
+                      {#each chips as chip (chip.label)}
+                        <span class="shrink-0 text-muted-foreground/70"
+                          >· {chip.label}</span
+                        >
+                      {/each}
+                    {:else if step.path}
+                      {@const file = diffFiles.find(
+                        (row) => row.path === step.path,
+                      )}
+                      <span class="shrink-0">{step.verb}</span>
+                      <button
+                        type="button"
+                        class="truncate font-mono text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
+                        title={step.path}
+                        aria-label="View diff for {step.path}"
+                        onclick={() => openDiffForPath(step.path)}
                       >
-                        {step.path}
-                      </p>
+                        {step.path.split('/').pop()}
+                      </button>
+                      {#if file}
+                        <span class="shrink-0 font-mono"
+                          ><span class="text-emerald-600">+{file.added}</span>
+                          <span class="text-red-500">−{file.deleted}</span
+                          ></span
+                        >
+                      {/if}
                     {:else}
-                      <p class="font-medium">{step.title}</p>
-                      {#if step.detail}
-                        <p class="truncate text-xs text-muted-foreground">
-                          {step.detail}
-                        </p>
-                      {/if}
-                      {#if step.chips?.length}
-                        <div class="flex flex-wrap gap-1">
-                          {#each step.chips as chip (chip.label)}
-                            <Badge variant="outline" class="text-[10px]"
-                              >{chip.label}</Badge
-                            >
-                          {/each}
-                        </div>
-                      {/if}
-                      {#if step.rawDetail}
-                        <details class="text-xs text-muted-foreground">
-                          <summary class="cursor-pointer select-none"
-                            >Details</summary
-                          >
-                          <pre
-                            class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px]">{step.rawDetail}</pre>
-                        </details>
-                      {/if}
+                      <span>{step.verb} a file</span>
                     {/if}
-                  </div>
-                  {#if timeLabel(step.atMs)}
-                    <span
-                      class="shrink-0 text-xs text-muted-foreground"
-                      title={timeTitle(step.atMs)}>{timeLabel(step.atMs)}</span
-                    >
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          </Card.Content>
-        </Card.Root>
+                  </li>
+                {/each}
+              </ul>
+            {:else}
+              <Card.Root class="overflow-hidden py-0">
+                <Card.Content class="p-0">
+                  <ul class="divide-y divide-border/60">
+                    {#each segment.steps as step (step.id)}
+                      {@const Icon = stepIcon(step)}
+                      <li class="flex items-start gap-3 px-3 py-2 text-sm">
+                        <span
+                          class={cn(
+                            'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-muted/60',
+                            step.kind === 'tool' &&
+                              step.tone === 'success' &&
+                              'text-emerald-600',
+                          )}
+                        >
+                          <Icon class="size-3.5" aria-hidden="true" />
+                        </span>
+                        <div class="min-w-0 flex-1 space-y-1">
+                          {#if step.kind === 'tool'}
+                            <p class="font-medium">{step.title}</p>
+                            {#if step.detail}
+                              <p class="truncate text-xs text-muted-foreground">
+                                {step.detail}
+                              </p>
+                            {/if}
+                            {#if step.chips?.length}
+                              <div class="flex flex-wrap gap-1">
+                                {#each step.chips as chip (chip.label)}
+                                  <Badge variant="outline" class="text-[10px]"
+                                    >{chip.label}</Badge
+                                  >
+                                {/each}
+                              </div>
+                            {/if}
+                            {#if step.rawDetail}
+                              <details class="text-xs text-muted-foreground">
+                                <summary class="cursor-pointer select-none"
+                                  >Details</summary
+                                >
+                                <pre
+                                  class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px]">{step.rawDetail}</pre>
+                              </details>
+                            {/if}
+                          {/if}
+                        </div>
+                        {#if timeLabel(step.atMs)}
+                          <span
+                            class="shrink-0 text-xs text-muted-foreground"
+                            title={timeTitle(step.atMs)}
+                            >{timeLabel(step.atMs)}</span
+                          >
+                        {/if}
+                      </li>
+                    {/each}
+                  </ul>
+                </Card.Content>
+              </Card.Root>
+            {/if}
+          {/each}
+        </div>
       {:else if item.kind === 'plan'}
         <Card.Root>
           <Card.Header class="flex-row items-center gap-2 space-y-0 pb-2">
@@ -316,26 +395,27 @@
           </Card.Content>
         </Card.Root>
       {:else if item.kind === 'live'}
-        <div
-          class={cn(
-            'flex items-start gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2',
-            paused && 'opacity-90',
-          )}
-        >
-          <span class="mt-0.5 flex size-6 items-center justify-center">
-            {#if paused}
-              <Pause class="size-4 text-muted-foreground" aria-hidden="true" />
-            {:else}
-              <LoaderCircle
-                class="size-4 animate-spin text-muted-foreground"
-                aria-hidden="true"
-              />
-            {/if}
-          </span>
-          <div class="min-w-0 space-y-0.5">
-            <p class="text-sm font-medium">{liveTitle}</p>
-            <p class="text-xs text-muted-foreground">{liveSubtitle}</p>
-          </div>
+        <div class="flex min-w-0 items-center gap-2 py-0.5 text-xs">
+          {#if paused}
+            <Pause
+              class="size-3 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          {:else}
+            <LoaderCircle
+              class="size-3 shrink-0 animate-spin text-muted-foreground"
+              aria-hidden="true"
+            />
+          {/if}
+          <span
+            class={cn(
+              'shrink-0 font-medium text-foreground/80',
+              !paused && 'animate-pulse',
+            )}>{liveTitle}</span
+          >
+          {#if liveSubtitle && liveSubtitle !== liveTitle}
+            <span class="truncate text-muted-foreground">· {liveSubtitle}</span>
+          {/if}
         </div>
       {/if}
     </li>

@@ -135,6 +135,14 @@ pub enum AgentEvent {
         detail: Option<String>,
         auto_approved: bool,
     },
+    /// Fields an engine fills in after the first `ToolCall`, such as Cursor's edit path.
+    ToolCallUpdate {
+        id: String,
+        title: Option<String>,
+        kind: Option<ToolKind>,
+        status: Option<ToolCallStatus>,
+        locations: Vec<String>,
+    },
     CurrentTool {
         id: Option<String>,
         title: String,
