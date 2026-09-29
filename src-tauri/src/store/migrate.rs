@@ -49,6 +49,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "008_thread_closed",
         sql: include_str!("../../migrations/008_thread_closed.sql"),
     },
+    Migration {
+        version: 9,
+        name: "009_todos",
+        sql: include_str!("../../migrations/009_todos.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -133,7 +138,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
 
         for expected in [
             "approvals",
@@ -146,6 +151,7 @@ mod tests {
             "settings",
             "thread_events",
             "threads",
+            "todos",
             "workspaces",
         ] {
             assert!(

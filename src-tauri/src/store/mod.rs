@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use crate::error::{Error, Result};
 use types::{
     ApprovalRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow, SettingRow,
-    ThreadEventRow, ThreadRow, WorkspaceRow,
+    ThreadEventRow, ThreadRow, TodoRow, WorkspaceRow,
 };
 
 /// SQLite persistence in the app data directory.
@@ -531,6 +531,33 @@ impl Store {
         })
     }
 
+    pub fn insert_todo(&self, todo: &TodoRow) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO todos (id, title, pinned) VALUES (?1, ?2, ?3)",
+                rusqlite::params![todo.id, todo.title, todo.pinned],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn delete_todo(&self, todo_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM todos WHERE id = ?1", [todo_id])?;
+            Ok(())
+        })
+    }
+
+    pub fn set_todo_pinned(&self, todo_id: &str, pinned: bool) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE todos SET pinned = ?2 WHERE id = ?1",
+                rusqlite::params![todo_id, pinned],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn append_event(&self, thread_id: &str, kind: &str, payload: &str) -> Result<i64> {
         self.with_conn(|conn| {
             let seq: i64 = conn.query_row(
@@ -710,6 +737,11 @@ impl Store {
                     &format!("{SCRATCH_COLUMNS} ORDER BY s.created_at DESC, s.rowid DESC"),
                     row_to_scratch,
                 )?,
+                todos: query_all(
+                    conn,
+                    "SELECT id, title, pinned FROM todos ORDER BY created_at, rowid",
+                    row_to_todo,
+                )?,
                 timeline: query_all(
                     conn,
                     "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events
@@ -814,6 +846,14 @@ fn row_to_scratch(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScratchRow> {
     })
 }
 
+fn row_to_todo(row: &rusqlite::Row<'_>) -> rusqlite::Result<TodoRow> {
+    Ok(TodoRow {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        pinned: row.get::<_, i64>(2)? != 0,
+    })
+}
+
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
     Ok(WorkspaceRow {
         id: row.get(0)?,
@@ -857,6 +897,27 @@ impl Default for Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn todos_round_trip_in_creation_order() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        for (id, title) in [("a", "Ship it"), ("b", "Write docs")] {
+            store
+                .insert_todo(&TodoRow {
+                    id: id.into(),
+                    title: title.into(),
+                    pinned: false,
+                })
+                .unwrap();
+        }
+        store.set_todo_pinned("b", true).unwrap();
+        store.delete_todo("a").unwrap();
+
+        let todos = store.snapshot().unwrap().todos;
+        assert_eq!(todos.len(), 1);
+        assert_eq!((todos[0].id.as_str(), todos[0].pinned), ("b", true));
+    }
 
     #[test]
     fn scratch_keeps_its_thread_out_of_workspace_lists() {

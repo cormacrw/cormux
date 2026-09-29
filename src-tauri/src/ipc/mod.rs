@@ -61,7 +61,10 @@ pub fn builder() -> Builder {
             commands::set_setting,
             commands::send_workspace_findings,
             commands::create_scratch,
-            commands::end_scratch
+            commands::end_scratch,
+            commands::create_todo,
+            commands::delete_todo,
+            commands::set_todo_pinned
         ])
         .events(tauri_specta::collect_events![
             events::StateChanged,

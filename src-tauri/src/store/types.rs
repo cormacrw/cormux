@@ -68,6 +68,15 @@ pub struct ScratchRow {
     pub created_at: String,
 }
 
+/// A title-only task from the TODOs page.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoRow {
+    pub id: String,
+    pub title: String,
+    pub pinned: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadEventRow {
@@ -124,6 +133,8 @@ pub struct PersistedSnapshot {
     pub threads: Vec<ThreadRow>,
     /// Newest first.
     pub scratches: Vec<ScratchRow>,
+    /// Oldest first.
+    pub todos: Vec<TodoRow>,
     pub timeline: Vec<ThreadEventRow>,
     pub approvals: Vec<ApprovalRow>,
     pub findings: Vec<FindingRow>,

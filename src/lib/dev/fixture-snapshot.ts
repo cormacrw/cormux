@@ -84,6 +84,10 @@ export const fixtureSnapshot: Snapshot = {
         transcriptReadonly: false,
       },
     ],
+    todos: [
+      { id: 'todo-webhook', title: 'Rotate the Stripe webhook secret', pinned: true },
+      { id: 'todo-changelog', title: 'Draft the 0.4 changelog', pinned: false },
+    ],
     scratches: [
       {
         id: 'scratch-webhook',

@@ -18,6 +18,7 @@ import { findings } from './findings.svelte'
 import { threadTimeline } from './thread-timeline.svelte'
 import { threads, type Thread } from './threads.svelte'
 import { scratches, scratchFromRow } from './scratches.svelte'
+import { todos } from './todos.svelte'
 import { workspaceRecords } from './workspace-records.svelte'
 import {
   workspaces,
@@ -38,6 +39,7 @@ export { appearance } from './appearance.svelte'
 export { shellDialogs } from './shell-dialogs.svelte'
 export { threads } from './threads.svelte'
 export { scratches } from './scratches.svelte'
+export { todos } from './todos.svelte'
 export { workspaceRecords } from './workspace-records.svelte'
 export { homebaseUi } from './homebase-ui.svelte'
 export { workspaceUi } from './workspace-ui.svelte'
@@ -290,6 +292,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     app.openHomebase()
   }
   scratches.hydrate(snapshot.persisted.scratches.map(scratchFromRow))
+  todos.hydrate(snapshot.persisted.todos)
   if (app.scratchId && !scratches.getById(app.scratchId)) {
     app.openHomebase()
   }

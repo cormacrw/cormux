@@ -54,5 +54,8 @@ commands.allow = [
   "create_scratch",
   "end_scratch",
   "refresh_workspace_diff",
-  "unsubscribe"
+  "unsubscribe",
+  "create_todo",
+  "delete_todo",
+  "set_todo_pinned"
 ]

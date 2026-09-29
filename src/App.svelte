@@ -21,6 +21,7 @@
   import NewScratchDialog from '$lib/components/scratch/NewScratchDialog.svelte'
   import EndScratchDialog from '$lib/components/scratch/EndScratchDialog.svelte'
   import ScratchView from '$lib/components/scratch/ScratchView.svelte'
+  import TodosView from '$lib/components/todos/TodosView.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
   import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
@@ -112,6 +113,8 @@
       <Workspace />
     {:else if app.view === 'scratch'}
       <ScratchView />
+    {:else if app.view === 'todos'}
+      <TodosView />
     {:else}
       <Homebase />
     {/if}

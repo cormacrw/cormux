@@ -12,6 +12,7 @@
   import CommandIcon from '@lucide/svelte/icons/command'
   import Plus from '@lucide/svelte/icons/plus'
   import OpenPrsSection from './OpenPrsSection.svelte'
+  import PinnedTodosSection from './PinnedTodosSection.svelte'
   import ScratchesSection from './ScratchesSection.svelte'
   import WorkspaceCard from './WorkspaceCard.svelte'
 
@@ -91,6 +92,8 @@
         </Button>
       </div>
     </header>
+
+    <PinnedTodosSection />
 
     <ScratchesSection />
 

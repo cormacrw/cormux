@@ -3,10 +3,11 @@
   import { Button } from '$lib/components/ui/button'
   import * as ScrollArea from '$lib/components/ui/scroll-area'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import { app, memory, threads, workspaces } from '$lib/state'
+  import { app, memory, threads, todos, workspaces } from '$lib/state'
   import { isActiveThread } from '$lib/sidebar/status'
   import Cpu from '@lucide/svelte/icons/cpu'
   import Layers from '@lucide/svelte/icons/layers'
+  import ListTodo from '@lucide/svelte/icons/list-todo'
   import Plus from '@lucide/svelte/icons/plus'
   import Search from '@lucide/svelte/icons/search'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
@@ -64,6 +65,21 @@
     >
       <Layers class="size-4 shrink-0 opacity-80" aria-hidden="true" />
       <span class="flex-1 text-left">Homebase</span>
+    </Button>
+
+    <Button
+      variant="ghost"
+      class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
+      aria-current={app.view === 'todos' ? 'page' : undefined}
+      onclick={() => app.openTodos()}
+    >
+      <ListTodo class="size-4 shrink-0 opacity-80" aria-hidden="true" />
+      <span class="flex-1 text-left">TODOs</span>
+      {#if todos.items.length > 0}
+        <span class="font-mono text-[10px] text-muted-foreground/80"
+          >{todos.items.length}</span
+        >
+      {/if}
     </Button>
 
     <Button

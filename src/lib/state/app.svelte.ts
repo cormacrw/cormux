@@ -9,7 +9,12 @@ import { resolveWindowTitle, type ViewId } from './window-title'
 export type { ViewId } from './window-title'
 export { resolveWindowTitle } from './window-title'
 
-export type FocusTarget = 'homebase' | 'settings' | 'workspace' | 'scratch'
+export type FocusTarget =
+  | 'homebase'
+  | 'settings'
+  | 'workspace'
+  | 'scratch'
+  | 'todos'
 
 export class AppStore {
   version = $state(0)
@@ -73,6 +78,14 @@ export class AppStore {
     this.threadId = null
     this.scratchId = null
     this.requestFocus('homebase')
+  }
+
+  openTodos() {
+    this.view = 'todos'
+    this.workspaceId = null
+    this.threadId = null
+    this.scratchId = null
+    this.requestFocus('todos')
   }
 
   openSettings() {

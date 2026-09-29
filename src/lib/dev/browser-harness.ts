@@ -178,6 +178,21 @@ export function installBrowserHarness() {
 
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {
     if (cmd === 'get_snapshot') return fixtureSnapshot
+    if (cmd === 'create_todo') {
+      const todo = { id: `todo-harness-${nextEventId++}`, title: String(args.title).trim(), pinned: false }
+      fixtureSnapshot.persisted.todos.push(todo)
+      return todo
+    }
+    if (cmd === 'delete_todo') {
+      const persisted = fixtureSnapshot.persisted
+      persisted.todos = persisted.todos.filter((row) => row.id !== args.todoId)
+      return null
+    }
+    if (cmd === 'set_todo_pinned') {
+      const todo = fixtureSnapshot.persisted.todos.find((row) => row.id === args.todoId)
+      if (todo) todo.pinned = Boolean(args.pinned)
+      return null
+    }
     if (cmd === 'detect_engines') return fixtureEngines
     if (cmd === 'list_repo_branches') {
       return { branches: ['main', 'develop', 'feat/oauth-login'] }

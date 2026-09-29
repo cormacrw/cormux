@@ -14,7 +14,7 @@ use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
-use crate::store::types::{ThreadRow, WorkspaceRow};
+use crate::store::types::{ThreadRow, TodoRow, WorkspaceRow};
 
 use super::types::{
     AddRepoInput, AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
@@ -1361,6 +1361,39 @@ pub async fn end_scratch(
     state: State<'_, AppState>,
 ) -> Result<()> {
     crate::scratch::end(&app, &state, &scratch_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_todo(title: String, state: State<'_, AppState>) -> Result<TodoRow> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(Error::Store("a todo needs a title".into()));
+    }
+    let todo = TodoRow {
+        id: format!("todo-{}", Uuid::new_v4()),
+        title: title.to_string(),
+        pinned: false,
+    };
+    state.store.insert_todo(&todo)?;
+    Ok(todo)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_todo(todo_id: String, state: State<'_, AppState>) -> Result<()> {
+    state.store.delete_todo(&todo_id)
+}
+
+/// Pinned todos show as cards at the top of Homebase.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_todo_pinned(
+    todo_id: String,
+    pinned: bool,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    state.store.set_todo_pinned(&todo_id, pinned)
 }
 
 /// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.

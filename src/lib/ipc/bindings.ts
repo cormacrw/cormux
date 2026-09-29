@@ -465,6 +465,33 @@ async endScratch(scratchId: string) : Promise<Result<null, Error>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async createTodo(title: string) : Promise<Result<TodoRow, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_todo", { title }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteTodo(todoId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_todo", { todoId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Pinned todos show as cards at the top of Homebase.
+ */
+async setTodoPinned(todoId: string, pinned: boolean) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_todo_pinned", { todoId, pinned }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -538,7 +565,11 @@ export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; w
 /**
  * Newest first.
  */
-scratches: ScratchRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
+scratches: ScratchRow[]; 
+/**
+ * Oldest first.
+ */
+todos: TodoRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PlanStep = { content: string; status: string }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PtyChunk = { workspaceId: string; line: string }
@@ -597,6 +628,10 @@ export type ToastPart = { type: "text"; value: string } | { type: "code"; value:
 export type ToastRaised = { payload: ToastRaisedPayload }
 export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null }
 export type ToastTone = "ok" | "bad" | "default"
+/**
+ * A title-only task from the TODOs page.
+ */
+export type TodoRow = { id: string; title: string; pinned: boolean }
 export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
 /**
  * ACP `ToolKind`, owned so adapters and IPC do not depend on the protocol crate.
