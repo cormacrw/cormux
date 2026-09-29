@@ -280,6 +280,24 @@ impl EngineRegistry {
         Ok(())
     }
 
+    /// Shuts the engine down without waiting for it, and drops any paused turn and queued prompts.
+    /// The next prompt spawns a new engine.
+    pub fn discard(&self, thread_id: &str) -> Result<()> {
+        let slot = self
+            .threads
+            .lock()
+            .map_err(|error| Error::Engine(error.to_string()))?
+            .remove(thread_id);
+        if let Some(slot) = slot {
+            let _ = slot.commands.send(EngineCommand::Shutdown);
+        }
+        self.holds
+            .lock()
+            .map_err(|error| Error::Engine(error.to_string()))?
+            .remove(thread_id);
+        Ok(())
+    }
+
     pub async fn stop_all(&self) -> Result<()> {
         let ids: Vec<String> = self
             .threads

@@ -64,6 +64,7 @@ function iconForAppEvent(title: string): ToolStepIcon {
   if (lower.includes('you paused')) return 'pause'
   if (lower.includes('you resumed')) return 'play'
   if (lower.includes('you stopped')) return 'stop'
+  if (lower.includes('new session')) return 'session'
   if (/^pulled /i.test(title)) return 'download'
   if (/^(switched|rebased)|worktree/i.test(title)) return 'branch'
   if (/#\d+|suggestions/i.test(title)) return 'pr'

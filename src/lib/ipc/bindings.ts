@@ -111,6 +111,17 @@ async resumeThread(threadId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Like `/clear`: the agent forgets the conversation, but the thread keeps showing it.
+ */
+async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("new_thread_session", { threadId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved, denyReason }) };

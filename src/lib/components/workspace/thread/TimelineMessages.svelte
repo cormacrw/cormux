@@ -29,6 +29,7 @@
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
   import Pencil from '@lucide/svelte/icons/pencil'
+  import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus'
   import Search from '@lucide/svelte/icons/search'
   import Square from '@lucide/svelte/icons/square'
   import Terminal from '@lucide/svelte/icons/terminal'
@@ -125,6 +126,7 @@
       pause: Pause,
       play: Play,
       stop: Square,
+      session: MessageSquarePlus,
     } as const
     return map[icon] ?? Terminal
   }

@@ -17,6 +17,7 @@ commands.allow = [
   "cancel_thread_turn",
   "pause_thread",
   "resume_thread",
+  "new_thread_session",
   "resolve_approval",
   "resolve_all_approvals",
   "summarise_workspace",

@@ -23,6 +23,7 @@ export type ToolStepIcon =
   | 'pause'
   | 'play'
   | 'stop'
+  | 'session'
 
 export type ToolRunStep =
   | {

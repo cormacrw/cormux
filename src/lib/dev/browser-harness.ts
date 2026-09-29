@@ -179,6 +179,17 @@ export function installBrowserHarness() {
       streamReply('th-lead', String(args.text))
       return null
     }
+    if (cmd === 'new_thread_session') {
+      const threadId = String(args.threadId)
+      const timeline = fixtureSnapshot.persisted.timeline
+      const seq = Math.max(0, ...timeline.filter((row) => row.threadId === threadId).map((row) => row.seq)) + 1
+      const event = { type: 'toolCall', id: `control-${seq}`, title: 'Started a new session', name: null, kind: 'other', status: 'completed', locations: [], detail: null }
+      timeline.push({ id: 800_000 + seq, threadId, seq, kind: 'tool', payload: JSON.stringify(event), createdAt: '2026-09-28 12:00:00' })
+      const thread = fixtureSnapshot.persisted.threads.find((row) => row.id === threadId)
+      if (thread) thread.status = 'idle'
+      emitStateChanged()
+      return null
+    }
     if (cmd === 'join_workspace_thread') {
       const input = args.input as { workspaceId: string; title: string; engine: string }
       const threadId = `th-${Date.now()}`

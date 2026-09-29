@@ -258,6 +258,7 @@
 
   <ThreadComposer
     {thread}
+    newSession
     bind:focusComposer
     onSent={() => {
       pinnedToBottom = true

@@ -470,16 +470,21 @@ pub fn subscribe_agent_events(
     let mut sub = state.subscriptions.register();
     let id = sub.id;
     tauri::async_runtime::spawn(async move {
-        let Some(mut rx) = subscribe_thread(&engines, &thread_id, &mut sub).await else {
-            return;
-        };
-        loop {
-            let event = tokio::select! {
-                _ = sub.stopped() => break,
-                event = rx.recv() => event,
-            };
-            let Ok(event) = event else { break };
-            let _ = channel.send(event);
+        // A new session replaces the engine, so when one closes wait for the next.
+        while let Some(mut rx) = subscribe_thread(&engines, &thread_id, &mut sub).await {
+            loop {
+                let event = tokio::select! {
+                    _ = sub.stopped() => return,
+                    event = rx.recv() => event,
+                };
+                match event {
+                    Ok(event) => {
+                        let _ = channel.send(event);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
         }
     });
     Ok(id)
@@ -1294,6 +1299,27 @@ pub async fn resume_thread(
     if let Some(text) = state.engines.release_thread(&thread_id)? {
         let _ = state.engines.prompt(&thread_id, text);
     }
+    emit_composer_snapshot(&app, &state);
+    Ok(())
+}
+
+/// Like `/clear`: the agent forgets the conversation, but the thread keeps showing it.
+#[tauri::command]
+#[specta::specta]
+pub async fn new_thread_session(
+    app: AppHandle,
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let thread = snapshot_thread(&state, &thread_id)?;
+    if state.store.scratch_for_thread(&thread_id)?.is_some() {
+        return Err(Error::Workspace("a scratch can't start a new session".into()));
+    }
+    state.engines.discard(&thread_id)?;
+    state.store.clear_thread_session(&thread_id)?;
+    persist_control_step(&state.store, &thread_id, "Started a new session")?;
+    state.store.mark_thread_idle(&thread_id)?;
+    set_workspace_thread(&state, &thread, ThreadActivity::Idle).await;
     emit_composer_snapshot(&app, &state);
     Ok(())
 }

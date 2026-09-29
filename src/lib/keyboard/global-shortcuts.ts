@@ -1,5 +1,11 @@
 import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
 import { app } from '$lib/state/app.svelte'
+import { threadTimeline } from '$lib/state/thread-timeline.svelte'
+import {
+  hasSessionToClear,
+  isNewSessionShortcut,
+} from '$lib/thread/new-session'
+import { startNewSession } from '$lib/thread/start-new-session'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
 
@@ -51,6 +57,21 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   ) {
     event.preventDefault()
     workspaceUi.toggleOutputTab()
+    return
+  }
+
+  if (
+    isNewSessionShortcut(event) &&
+    app.view === 'workspace' &&
+    workspaceUi.activeTab === 'thread' &&
+    app.threadId &&
+    !dialogBlocksShortcuts()
+  ) {
+    event.preventDefault()
+    const threadId = app.threadId
+    if (hasSessionToClear(threadTimeline.eventsByThread[threadId] ?? [])) {
+      void startNewSession(threadId)
+    }
     return
   }
 

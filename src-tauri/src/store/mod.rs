@@ -290,6 +290,18 @@ impl Store {
         })
     }
 
+    /// Forgets the engine session so the next prompt starts a fresh one; the transcript stays.
+    pub fn clear_thread_session(&self, thread_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET session_id = NULL, used_tokens = NULL, context_size = NULL
+                 WHERE id = ?1",
+                [thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn thread_session(&self, thread_id: &str) -> Result<Option<String>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare("SELECT session_id FROM threads WHERE id = ?1")?;
@@ -953,6 +965,14 @@ mod tests {
         let closed = store.thread_by_id("helper").unwrap().unwrap();
         assert_eq!(closed.status, "idle");
         assert!(!store.transcript_summary("helper", 10).unwrap().is_empty());
+
+        store.set_thread_session("lead", "sess-1").unwrap();
+        store.set_thread_usage("lead", 900, 1000, Some(0.5)).unwrap();
+        store.clear_thread_session("lead").unwrap();
+        assert_eq!(store.thread_session("lead").unwrap(), None);
+        let lead = store.thread_by_id("lead").unwrap().unwrap();
+        assert_eq!((lead.used_tokens, lead.context_size), (None, None));
+        assert_eq!(store.snapshot().unwrap().timeline.len(), 1);
     }
 
     #[test]

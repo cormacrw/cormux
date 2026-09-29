@@ -9,6 +9,11 @@
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { sendThreadMessage } from '$lib/thread/send-message'
+  import {
+    hasSessionToClear,
+    NEW_SESSION_SHORTCUT,
+  } from '$lib/thread/new-session'
+  import { startNewSession } from '$lib/thread/start-new-session'
   import { threads } from '$lib/state/threads.svelte'
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
@@ -25,6 +30,7 @@
     inputLabel = 'Message the agent',
     placeholder,
     sendLabel = 'Send to agent',
+    newSession = false,
   }: {
     thread: Thread
     onSent?: () => void
@@ -32,6 +38,8 @@
     inputLabel?: string
     placeholder?: string
     sendLabel?: string
+    /** Show the New session button (threads only; scratches end instead). */
+    newSession?: boolean
   } = $props()
 
   let inputEl = $state<HTMLTextAreaElement | null>(null)
@@ -46,6 +54,9 @@
     composerPauseLabel(thread.status, thread.paused),
   )
   const isPaused = $derived(thread.status === 'paused' || thread.paused)
+  const canStartNewSession = $derived(
+    hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
+  )
 
   $effect(() => {
     void thread.id
@@ -194,6 +205,23 @@
               <Pause class="size-3.5" aria-hidden="true" />
             {/if}
             {pauseLabel}
+          </Button>
+        {/if}
+        {#if newSession}
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            data-od-id="composer-new-session"
+            title="Start a new session; the agent forgets this conversation"
+            disabled={!canStartNewSession}
+            onclick={() => void startNewSession(thread.id)}
+          >
+            New session
+            <kbd
+              class="rounded border border-border/60 px-1 text-[10px] text-muted-foreground/80"
+              aria-hidden="true">{NEW_SESSION_SHORTCUT}</kbd
+            >
           </Button>
         {/if}
       </div>
