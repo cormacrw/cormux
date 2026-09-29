@@ -169,6 +169,13 @@ export function installBrowserHarness() {
     }, 80 + words.length * wordMs)
   }
 
+  let diffChannel: { id: number; index: number } | null = null
+  const sendDiff = (base: string | null) => {
+    if (!diffChannel) return
+    const diff = { ...fixtureDiff, base }
+    callbacks.get(diffChannel.id)?.({ index: diffChannel.index++, message: { workspaceId: fixtureDiff.workspaceId, path: '', diff } })
+  }
+
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {
     if (cmd === 'get_snapshot') return fixtureSnapshot
     if (cmd === 'detect_engines') return fixtureEngines
@@ -177,8 +184,19 @@ export function installBrowserHarness() {
     }
     if (cmd === 'subscribe_diffs' && args.workspaceId === fixtureDiff.workspaceId) {
       const channel = args.channel as { id: number }
-      queueMicrotask(() => callbacks.get(channel.id)?.({ index: 0, message: { workspaceId: fixtureDiff.workspaceId, path: '', diff: fixtureDiff } }))
+      diffChannel = { id: channel.id, index: 0 }
+      queueMicrotask(() => sendDiff(null))
       return nextEventId++
+    }
+    // `?slowDiff=1` holds diff fetches long enough to see the Changes splash.
+    if (cmd === 'refresh_workspace_diff' || cmd === 'set_workspace_diff_base') {
+      if (new URLSearchParams(window.location.search).has('slowDiff')) {
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+      }
+      if (cmd === 'set_workspace_diff_base' && args.workspaceId === fixtureDiff.workspaceId) {
+        setTimeout(() => sendDiff((args.base as string | null) ?? null), 100)
+      }
+      return null
     }
     if (cmd === 'subscribe_agent_events') {
       const channel = args.channel as { id: number }

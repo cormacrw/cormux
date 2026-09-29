@@ -35,9 +35,7 @@ Rendered by [`@git-diff-view/svelte`](https://github.com/MrWangJustToDo/git-diff
 
 ### Empty state (no changes)
 - Diff header: `No changes`.
-- Body, depending on the workspace:
-  - Has an unapproved plan and is idle: list icon, `Plan ready, nothing edited yet`, `Review the plan in the thread. Once you approve it, proposed edits stream in here for file-by-file review.`
-  - Otherwise: clock icon, `Waiting for the first edit`, `The agent is still reading the repository. Diffs appear here as soon as it proposes a change.`
+- Body: mop-sparkles icon, `Clean diff!`, `Go make some changes`
 
 ## Behaviour
 

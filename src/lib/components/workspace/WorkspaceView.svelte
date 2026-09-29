@@ -68,9 +68,12 @@
     activeThread ? `thread-tab-${activeThread.id}` : undefined,
   )
 
+  // Snapshots rebuild the workspace object; resubscribing on each one would clear the diff.
+  const workspaceId = $derived(workspace?.id)
+
   $effect(() => {
-    if (!workspace?.id || isLoadSpike) return
-    return bindWorkspaceDiffSubscription(workspace.id)
+    if (!workspaceId || isLoadSpike) return
+    return bindWorkspaceDiffSubscription(workspaceId)
   })
 
   $effect(() => {

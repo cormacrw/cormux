@@ -26,6 +26,9 @@
 
   const repoId = $derived(workspaceRecords.getRecord(workspaceId)?.repoId ?? '')
   const base = $derived(workspaceDiff.base(workspaceId))
+  // While a retarget loads, the label shows where it is headed.
+  const pending = $derived(workspaceDiff.pending(workspaceId))
+  const shownBase = $derived(pending?.retarget ? pending.base : base)
 
   const filteredBranches = $derived.by(() => {
     const q = query.trim().toLowerCase()
@@ -52,8 +55,15 @@
     open = false
     query = ''
     if (next === base) return
-    const result = await commands.setWorkspaceDiffBase(workspaceId, next)
-    if (result.status === 'error') toastCoreError(result.error)
+    await workspaceDiff.fetch(
+      workspaceId,
+      async () => {
+        const result = await commands.setWorkspaceDiffBase(workspaceId, next)
+        if (result.status === 'error') toastCoreError(result.error)
+        return result.status === 'ok'
+      },
+      { base: next },
+    )
   }
 </script>
 
@@ -67,12 +77,12 @@
         aria-haspopup="true"
         aria-expanded={open}
         data-od-id="changes-target"
-        title={base ? `Committed changes on ${branch} since it left ${base}` : 'Uncommitted changes vs HEAD'}
+        title={shownBase ? `Committed changes on ${branch} since it left ${shownBase}` : 'Uncommitted changes vs HEAD'}
         class="h-6 max-w-[14rem] min-w-0 gap-1 px-1.5 font-mono text-xs"
       >
         <GitCompare class="size-3.5 shrink-0" aria-hidden="true" />
         <span class="sr-only">Compare against</span>
-        <span class="truncate">{base ? `vs ${base}` : UNCOMMITTED}</span>
+        <span class="truncate">{shownBase ? `vs ${shownBase}` : UNCOMMITTED}</span>
         <ChevronDown class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
       </Button>
     {/snippet}

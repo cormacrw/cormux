@@ -1,22 +1,21 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { commands } from '$lib/ipc'
   import { diffComments } from '$lib/changes/diff-comments.svelte'
   import { formatCommentsForAgent } from '$lib/changes/diff-comment-format'
   import { sendThreadMessage } from '$lib/thread/send-message'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { app, threadTimeline, workspaceDiff, workspaceUi } from '$lib/state'
+  import { app, workspaceDiff, workspaceUi } from '$lib/state'
   import { formatChangeCounts } from '$lib/workspace/diff-totals'
   import { Button } from '$lib/components/ui/button'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
   import ChangesFileList from './ChangesFileList.svelte'
   import ChangesTargetPicker from './ChangesTargetPicker.svelte'
-  import Clock from '@lucide/svelte/icons/clock'
+  import AgentSpinner from '../thread/AgentSpinner.svelte'
   import ChevronsDownUp from '@lucide/svelte/icons/chevrons-down-up'
   import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down'
-  import File from '@lucide/svelte/icons/file'
-  import List from '@lucide/svelte/icons/list'
+  import MopSparkles from '@lucide/svelte/icons/mop-sparkles'
   import Send from '@lucide/svelte/icons/send'
 
   let {
@@ -30,30 +29,29 @@
   const files = $derived(workspaceDiff.filesByWorkspace[workspace.id] ?? [])
   const totals = $derived(workspaceDiff.totals(workspace.id))
   const countLabel = $derived(formatChangeCounts(totals))
-  const diffBase = $derived(workspaceDiff.base(workspace.id))
+  // Stale files give way to the splash on a retarget; a refresh keeps what is on screen.
+  const pending = $derived(workspaceDiff.pending(workspace.id))
+  const loading = $derived(!!pending && (pending.retarget || files.length === 0))
 
   const allCollapsed = $derived(
     files.length > 0 && files.every((file) => workspaceUi.collapsedDiffPaths[file.path]),
   )
 
-  const timelineItems = $derived(threadTimeline.itemsForThread(thread.id, {
-    status: thread.status,
-    paused: thread.paused,
-    role: thread.role,
-    workspaceId: thread.workspaceId,
-  }, 0))
-
-  const planIdle = $derived(
-    files.length === 0 &&
-      timelineItems.some((item) => item.kind === 'plan') &&
-      thread.status === 'idle',
-  )
-
   let scrollEl: HTMLDivElement | undefined = $state()
 
+  // Snapshots rebuild the workspace object, so key the refresh on its id and branch alone.
+  const workspaceId = $derived(workspace.id)
+  const branch = $derived(workspace.branch)
+
   $effect(() => {
-    void workspace.branch
-    void commands.refreshWorkspaceDiff(workspace.id).catch(() => {})
+    void branch
+    const id = workspaceId
+    untrack(() => {
+      void workspaceDiff.fetch(id, async () => {
+        const result = await commands.refreshWorkspaceDiff(id)
+        return result.status === 'ok'
+      })
+    })
   })
 
   // A file link in the conversation expands that file and scrolls to it.
@@ -165,7 +163,7 @@
     {/if}
   </div>
 
-  <div class="flex min-h-0 flex-1 flex-col">
+  <div class="relative flex min-h-0 flex-1 flex-col">
     {#if files.length}
       <div
         bind:this={scrollEl}
@@ -176,30 +174,43 @@
       >
         <ChangesFileList workspaceId={workspace.id} {files} />
       </div>
-    {:else}
+    {:else if !loading}
       <div class="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        {#if diffBase}
-          <File class="size-8 text-muted-foreground" aria-hidden="true" />
-          <h2 class="text-sm font-semibold">No commits since {diffBase}</h2>
-          <p class="text-sm text-muted-foreground">
-            {workspace.branch} has no committed changes since it branched from {diffBase}.
-          </p>
-        {:else if planIdle}
-          <List class="size-8 text-muted-foreground" aria-hidden="true" />
-          <h2 class="text-sm font-semibold">Plan ready, nothing edited yet</h2>
-          <p class="text-sm text-muted-foreground">
-            Review the plan in the thread. Once you approve it, proposed edits stream in here for
-            file-by-file review.
-          </p>
-        {:else}
-          <Clock class="size-8 text-muted-foreground" aria-hidden="true" />
-          <h2 class="text-sm font-semibold">Waiting for the first edit</h2>
-          <p class="text-sm text-muted-foreground">
-            The agent is still reading the repository. Diffs appear here as soon as it proposes a
-            change.
-          </p>
-        {/if}
+        <MopSparkles class="size-8 text-muted-foreground" aria-hidden="true" />
+        <div>
+          <h2 class="text-sm font-semibold">Clean diff!</h2>
+          <p class="text-sm text-muted-foreground">Go make some changes</p>
+        </div>
+      </div>
+    {/if}
+    <!-- Covers the list rather than replacing it, so the diff views stay mounted. -->
+    {#if loading}
+      <div
+        class="changes-splash absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center"
+        role="status"
+      >
+        <AgentSpinner />
+        <p class="text-sm text-muted-foreground">
+          {pending?.retarget
+            ? pending.base
+              ? `Loading changes since ${pending.base}…`
+              : 'Loading uncommitted changes…'
+            : 'Loading changes…'}
+        </p>
       </div>
     {/if}
   </div>
 </div>
+
+<style>
+  /* Fast fetches finish before the splash shows, so it never flickers. */
+  .changes-splash {
+    animation: changes-splash-in 200ms ease-out 150ms both;
+  }
+
+  @keyframes changes-splash-in {
+    from {
+      opacity: 0;
+    }
+  }
+</style>
