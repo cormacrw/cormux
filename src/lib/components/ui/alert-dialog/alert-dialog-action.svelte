@@ -11,7 +11,7 @@
     ref = $bindable(null),
     class: className,
     variant = 'default',
-    size = 'default',
+    size = 'xl',
     ...restProps
   }: AlertDialogPrimitive.ActionProps & {
     variant?: ButtonVariant

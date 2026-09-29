@@ -11,7 +11,7 @@
     ref = $bindable(null),
     class: className,
     variant = 'outline',
-    size = 'default',
+    size = 'xl',
     ...restProps
   }: AlertDialogPrimitive.CancelProps & {
     variant?: ButtonVariant

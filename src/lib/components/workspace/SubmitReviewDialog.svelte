@@ -68,7 +68,7 @@
 
 <Dialog.Root {open} onOpenChange={(next) => !next && closeDialog()}>
   <Dialog.Content class="max-w-md gap-0 p-0">
-    <Dialog.Header class="border-b px-4 py-3">
+    <Dialog.Header class="px-5 pt-5">
       <Dialog.Title>Submit review</Dialog.Title>
       {#if workspace?.prNumber}
         <p class="text-sm text-muted-foreground">
@@ -77,7 +77,7 @@
       {/if}
     </Dialog.Header>
 
-    <div class="space-y-4 px-4 py-4">
+    <div class="space-y-4 p-5">
       <fieldset class="space-y-2">
         <legend class="text-sm font-medium">Verdict</legend>
         <label class="flex items-center gap-2 text-sm">
@@ -102,11 +102,11 @@
       {/if}
     </div>
 
-    <Dialog.Footer class="border-t px-4 py-3">
-      <Button variant="outline" onclick={closeDialog} disabled={submitting}>
+    <Dialog.Footer class="m-0 px-5 py-4">
+      <Button size="xl" variant="outline" onclick={closeDialog} disabled={submitting}>
         Cancel
       </Button>
-      <Button onclick={() => void submit()} disabled={submitting}>
+      <Button size="xl" onclick={() => void submit()} disabled={submitting}>
         {#if submitting}
           <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
           Posting…

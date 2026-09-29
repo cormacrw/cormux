@@ -8,6 +8,8 @@
     type HomebaseFilter,
   } from '$lib/homebase/filter'
   import { app, homebaseUi, workspaces } from '$lib/state'
+  import { Kbd } from '$lib/components/ui/kbd'
+  import CommandIcon from '@lucide/svelte/icons/command'
   import Plus from '@lucide/svelte/icons/plus'
   import OpenPrsSection from './OpenPrsSection.svelte'
   import ScratchesSection from './ScratchesSection.svelte'
@@ -64,28 +66,28 @@
       <div class="flex items-center gap-2">
         <Button
           variant="secondary"
-          size="lg"
+          size="xl"
           class="gap-2"
           data-od-id="new-session"
           onclick={() => app.requestNewScratch()}
         >
           <Plus class="size-4" aria-hidden="true" />
           New scratch
-          <kbd class="font-mono text-[10px] opacity-80" aria-hidden="true"
-            >⌘S</kbd
-          >
+          <Kbd class="gap-0.5" aria-hidden="true">
+            <CommandIcon />S
+          </Kbd>
         </Button>
         <Button
           variant="default"
-          size="lg"
+          size="xl"
           class="gap-2"
           onclick={() => app.requestNewWorkspace()}
         >
           <Plus class="size-4" aria-hidden="true" />
           New Workspace
-          <kbd class="font-mono text-[10px] opacity-80" aria-hidden="true"
-            >⌘N</kbd
-          >
+          <Kbd class="gap-0.5" aria-hidden="true">
+            <CommandIcon />N
+          </Kbd>
         </Button>
       </div>
     </header>

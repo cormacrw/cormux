@@ -62,7 +62,7 @@
       </Dialog.Description>
     </Dialog.Header>
     <form
-      class="grid gap-3"
+      class="grid gap-5"
       onsubmit={(event) => {
         event.preventDefault()
         void save()
@@ -70,8 +70,8 @@
     >
       <Input bind:value={name} aria-label="Workspace name" autofocus />
       <Dialog.Footer>
-        <Button type="button" variant="ghost" onclick={close}>Cancel</Button>
-        <Button type="submit" disabled={saving || !name.trim()}>
+        <Button size="xl" type="button" variant="ghost" onclick={close}>Cancel</Button>
+        <Button size="xl" type="submit" disabled={saving || !name.trim()}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
       </Dialog.Footer>

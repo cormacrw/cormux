@@ -193,7 +193,7 @@
       }}
       onkeydown={onFormKeydown}
     >
-      <Dialog.Header class="border-b px-4 py-3 gap-1">
+      <Dialog.Header class="px-5 pt-5 gap-1">
         <Dialog.Title>Create pull request</Dialog.Title>
         {#if routeLine}
           <p class="text-sm text-muted-foreground font-mono" data-od-id="pr-route">
@@ -202,7 +202,7 @@
         {/if}
       </Dialog.Header>
 
-      <div class="flex flex-col gap-4 px-4 py-4">
+      <div class="flex flex-col gap-5 p-5">
         <div class="grid gap-1.5">
           <label class="text-sm font-medium" for="pr-title">Title</label>
           <Input id="pr-title" bind:value={title} disabled={creating || drafting} />
@@ -288,16 +288,17 @@
         {/if}
       </div>
 
-      <Dialog.Footer class="border-t px-4 py-3 flex-row items-center justify-between">
+      <Dialog.Footer class="m-0 px-5 py-4 flex-row items-center justify-between">
         <p class="text-xs text-muted-foreground hidden sm:flex items-center gap-1">
           <KbdGroup><Kbd>⌘</Kbd><Kbd>↵</Kbd></KbdGroup>
           to create
         </p>
         <div class="flex gap-2 ml-auto">
-          <Button type="button" variant="ghost" disabled={creating} onclick={closeDialog}>
+          <Button size="xl" type="button" variant="ghost" disabled={creating} onclick={closeDialog}>
             Cancel
           </Button>
           <Button
+            size="xl"
             type="submit"
             data-od-id="pr-submit"
             disabled={drafting || creating}

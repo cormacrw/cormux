@@ -5,7 +5,9 @@
   import { Button } from '$lib/components/ui/button/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
-  import { Kbd, KbdGroup } from '$lib/components/ui/kbd/index.js'
+  import { Kbd } from '$lib/components/ui/kbd/index.js'
+  import CommandIcon from '@lucide/svelte/icons/command'
+  import CornerDownLeftIcon from '@lucide/svelte/icons/corner-down-left'
   import { commands } from '$lib/ipc'
   import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
@@ -314,11 +316,11 @@
       }}
       onkeydown={onFormKeydown}
     >
-      <Dialog.Header class="border-b px-4 py-3">
+      <Dialog.Header class="px-5 pt-5">
         <Dialog.Title>New workspace</Dialog.Title>
       </Dialog.Header>
 
-      <div class="flex flex-col gap-4 px-4 py-4">
+      <div class="flex flex-col gap-5 p-5">
         <div class="grid gap-4 min-[760px]:grid-cols-2">
           <div class="grid gap-1.5">
             <label class="text-sm font-medium" for="nw-name"
@@ -469,18 +471,21 @@
         {/if}
       </div>
 
-      <Dialog.Footer class="px-4 py-3 sm:justify-between">
-        <p class="text-xs text-muted-foreground">Esc to cancel</p>
-        <Button type="submit" disabled={submitting || !repoId}>
+      <Dialog.Footer class="m-0 px-5 py-4 sm:justify-between">
+        <p class="text-xs text-muted-foreground flex items-center gap-1">
+          <Kbd>Esc</Kbd>
+          to cancel
+        </p>
+        <Button size="xl" type="submit" disabled={submitting || !repoId}>
           {#if submitting}
             <LoaderCircleIcon class="size-4 animate-spin" aria-hidden="true" />
             Creating worktree…
           {:else}
             Create Workspace
-            <KbdGroup class="ml-2 hidden sm:inline-flex">
-              <Kbd>⌘</Kbd>
-              <Kbd>↵</Kbd>
-            </KbdGroup>
+            <Kbd class="ml-1 hidden gap-0.5 sm:inline-flex" aria-label="Command Enter">
+              <CommandIcon aria-hidden="true" />
+              <CornerDownLeftIcon aria-hidden="true" />
+            </Kbd>
           {/if}
         </Button>
       </Dialog.Footer>
