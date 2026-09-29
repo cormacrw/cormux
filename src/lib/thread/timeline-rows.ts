@@ -9,7 +9,8 @@ export function buildTimelineRows(
   let prevSpeaker: 'user' | 'agent' | null = null
 
   for (const item of items) {
-    if (item.kind === 'live') {
+    // App events sit between turns, so they neither start nor break an agent's turn.
+    if (item.kind === 'live' || item.kind === 'event') {
       rows.push({ kind: 'item', item })
       continue
     }

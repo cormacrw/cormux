@@ -9,7 +9,11 @@
     formatThreadTime,
     formatThreadTimeTitle,
   } from '$lib/thread/thread-time'
-  import type { TimelineRow, ToolRunStep } from '$lib/thread/timeline-types'
+  import type {
+    TimelineRow,
+    ToolRunStep,
+    ToolStepIcon,
+  } from '$lib/thread/timeline-types'
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
   import { cn } from '$lib/utils'
   import { openDiffForPath } from './open-changes'
@@ -26,6 +30,7 @@
   import Play from '@lucide/svelte/icons/play'
   import Pencil from '@lucide/svelte/icons/pencil'
   import Search from '@lucide/svelte/icons/search'
+  import Square from '@lucide/svelte/icons/square'
   import Terminal from '@lucide/svelte/icons/terminal'
   import Trash2 from '@lucide/svelte/icons/trash-2'
   let {
@@ -100,6 +105,10 @@
     if (step.kind === 'edit') {
       return step.verb === 'Deleted' ? Trash2 : Pencil
     }
+    return iconFor(step.icon)
+  }
+
+  function iconFor(icon: ToolStepIcon) {
     const map = {
       file: FileText,
       tool: Terminal,
@@ -115,8 +124,20 @@
       trash: Trash2,
       pause: Pause,
       play: Play,
+      stop: Square,
     } as const
-    return map[step.icon] ?? Terminal
+    return map[icon] ?? Terminal
+  }
+
+  // Titles wrap branch names in backticks; odd parts render as code.
+  function titleParts(title: string) {
+    return title
+      .split('`')
+      .map((text, index) => ({ text, code: index % 2 === 1 }))
+  }
+
+  function eventTitle(detail: string | undefined, atMs: number) {
+    return [detail, timeTitle(atMs)].filter(Boolean).join('\n')
   }
 
   async function copyText(text: string) {
@@ -371,6 +392,30 @@
           timeTitle={timeTitle(item.atMs)}
           {onFocusComposer}
         />
+      {:else if item.kind === 'event'}
+        {@const Icon = iconFor(item.icon)}
+        <div
+          class="flex items-center gap-3 py-1 text-xs text-foreground/80"
+          title={eventTitle(item.detail, item.atMs)}
+        >
+          <span class="h-px min-w-6 flex-1 bg-border" aria-hidden="true"
+          ></span>
+          <span class="flex min-w-0 items-center gap-1.5 font-medium">
+            <Icon class="size-3 shrink-0" aria-hidden="true" />
+            <span class="truncate"
+              >{#each titleParts(item.title) as part, index (index)}{#if part.code}<span
+                    class="font-mono">{part.text}</span
+                  >{:else}{part.text}{/if}{/each}</span
+            >
+            {#if timeLabel(item.atMs)}
+              <span class="shrink-0 font-normal text-muted-foreground"
+                >· {timeLabel(item.atMs)}</span
+              >
+            {/if}
+          </span>
+          <span class="h-px min-w-6 flex-1 bg-border" aria-hidden="true"
+          ></span>
+        </div>
       {:else if item.kind === 'findings'}
         <Card.Root data-od-id="findings-card">
           <Card.Header class="flex-row items-center gap-2 space-y-0 pb-2">

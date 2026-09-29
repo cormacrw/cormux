@@ -15,6 +15,8 @@ export function announcementForItem(
       if (step.kind === 'edit') return `${role} edited ${step.path}`
       return `${role}: ${step.title}`
     }
+    case 'event':
+      return item.title.replaceAll('`', '')
     case 'approval':
       return `${role} needs approval: ${item.title}, ${item.what}`
     case 'findings':

@@ -399,7 +399,13 @@ describe('shouldShowLiveRow', () => {
       showLive: false,
       liveToolTitle: null,
     })
-    const ids = items.flatMap((item) => (item.kind === 'toolRun' ? item.steps.map((step) => step.id) : []))
+    const ids = items.flatMap((item) =>
+      item.kind === 'toolRun'
+        ? item.steps.map((step) => step.id)
+        : item.kind === 'event'
+          ? [item.id]
+          : [],
+    )
     expect(ids).toHaveLength(4)
     expect(new Set(ids).size).toBe(ids.length)
   })

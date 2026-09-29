@@ -52,6 +52,29 @@ function iconForTool(kind: ToolKind, title: string): ToolStepIcon {
   return 'tool'
 }
 
+// The core writes its own steps with these id prefixes; agent tool calls never use them.
+const APP_EVENT_ID = /^(control|legacy|pr-open|scratch-open|review)-/
+
+function isAppEvent(event: Extract<AgentEvent, { type: 'toolCall' }>): boolean {
+  return APP_EVENT_ID.test(event.id)
+}
+
+function iconForAppEvent(title: string): ToolStepIcon {
+  const lower = title.toLowerCase()
+  if (lower.includes('you paused')) return 'pause'
+  if (lower.includes('you resumed')) return 'play'
+  if (lower.includes('you stopped')) return 'stop'
+  if (/^pulled /i.test(title)) return 'download'
+  if (/^(switched|rebased)|worktree/i.test(title)) return 'branch'
+  if (/#\d+|suggestions/i.test(title)) return 'pr'
+  if (/^read \d+ changed/i.test(title)) return 'file'
+  if (/^deleted /i.test(title)) return 'trash'
+  if (lower.includes('migration')) return 'database'
+  if (lower.includes('approved')) return 'check'
+  if (/^opened /i.test(title)) return 'file'
+  return 'tool'
+}
+
 function editVerb(
   kind: ToolKind,
   title: string,
@@ -283,6 +306,19 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
         break
       }
       case 'toolCall': {
+        if (isAppEvent(event)) {
+          flushRun(run, items, runSeq)
+          pushBeforeLive(items, {
+            kind: 'event',
+            id: event.id,
+            icon: iconForAppEvent(event.title),
+            title: event.title,
+            detail: event.detail ?? undefined,
+            seq,
+            atMs,
+          })
+          break
+        }
         if (!toolKindIsRunStep(event.kind)) break
         if (!run.length) runSeq = seq
         const scratchRead =
@@ -431,6 +467,20 @@ function flattenItemsToEvents(
           })
         }
       }
+    } else if (item.kind === 'event') {
+      events.push({
+        seq: item.seq,
+        event: {
+          type: 'toolCall',
+          id: item.id,
+          title: item.title,
+          name: null,
+          kind: 'other',
+          status: 'completed',
+          locations: [],
+          detail: item.detail ?? null,
+        },
+      })
     } else if (item.kind === 'plan') {
       events.push({
         seq: item.seq,

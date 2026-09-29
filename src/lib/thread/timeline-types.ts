@@ -22,6 +22,7 @@ export type ToolStepIcon =
   | 'trash'
   | 'pause'
   | 'play'
+  | 'stop'
 
 export type ToolRunStep =
   | {
@@ -70,6 +71,16 @@ export type TimelineItem =
       noLabel: string
       state: 'pending' | 'approved' | 'denied'
       doneAtMs: number | null
+      seq: number
+      atMs: number
+    }
+  | {
+      /** Something the app did in the thread (switched branch, pulled, opened a PR), not the agent. */
+      kind: 'event'
+      id: string
+      icon: ToolStepIcon
+      title: string
+      detail?: string
       seq: number
       atMs: number
     }
