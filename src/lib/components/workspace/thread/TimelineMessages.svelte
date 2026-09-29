@@ -16,6 +16,7 @@
   } from '$lib/thread/timeline-types'
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
   import { cn } from '$lib/utils'
+  import AgentSpinner from './AgentSpinner.svelte'
   import { openDiffForPath } from './open-changes'
   import ApprovalCard from './ApprovalCard.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
@@ -25,7 +26,6 @@
   import FileText from '@lucide/svelte/icons/file-text'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import List from '@lucide/svelte/icons/list'
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
   import Pencil from '@lucide/svelte/icons/pencil'
@@ -449,15 +449,13 @@
               aria-hidden="true"
             />
           {:else}
-            <LoaderCircle
-              class="size-3 shrink-0 animate-spin text-muted-foreground"
-              aria-hidden="true"
-            />
+            <AgentSpinner class="mr-2" />
           {/if}
           <span
             class={cn(
               'shrink-0 font-medium text-foreground/80',
-              !paused && 'animate-pulse',
+              // Re-added on resume as the spinner remounts, so both restart the beat together.
+              !paused && 'agent-working-text',
             )}>{liveTitle}</span
           >
           {#if liveSubtitle && liveSubtitle !== liveTitle}

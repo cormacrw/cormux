@@ -393,7 +393,8 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
   }
 
   if (input.showLive) {
-    items.push({ kind: 'live', id: nextId('live') })
+    // A stable id keeps the row mounted while replies stream, so its animations run on.
+    items.push({ kind: 'live', id: 'live' })
   }
 
   void input.liveToolTitle

@@ -254,6 +254,33 @@
   scroll-behavior: auto !important;
 }
 
+/*
+ * The agent's Working row: AgentSpinner beats on this cycle and the label fades with it,
+ * brightest on the two beats (10% and 30%) and dimmest while the dot rests.
+ */
+:root {
+  --agent-beat-duration: 4.5s;
+}
+
+.agent-working-text {
+  animation: agent-working-fade var(--agent-beat-duration) ease-in-out infinite;
+}
+
+@keyframes agent-working-fade {
+  0%,
+  60%,
+  100% {
+    opacity: 0.55;
+  }
+  10%,
+  30% {
+    opacity: 1;
+  }
+  20% {
+    opacity: 0.8;
+  }
+}
+
 .app-shell {
   --sidebar-w: 248px;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
