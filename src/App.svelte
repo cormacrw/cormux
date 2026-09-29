@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { ModeWatcher } from 'mode-watcher'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
   import CommandPalette from '$lib/components/shell/CommandPalette.svelte'
@@ -92,6 +93,8 @@
       })
   })
 </script>
+
+<ModeWatcher />
 
 <Tooltip.Provider>
   <ToastsRegion />

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { DiffModeEnum, DiffView, SplitSide } from '@git-diff-view/svelte'
   import '@git-diff-view/svelte/styles/diff-view-pure.css'
+  import { mode as theme } from 'mode-watcher'
   import type { DiffFile } from '$lib/ipc/bindings'
   import { diffComments, type DiffComment } from '$lib/changes/diff-comments.svelte'
   import { toDiffViewData } from '$lib/changes/diff-view-data'
@@ -66,7 +67,7 @@
     {data}
     {extendData}
     diffViewMode={mode}
-    diffViewTheme="dark"
+    diffViewTheme={theme.current === 'light' ? 'light' : 'dark'}
     diffViewHighlight
     diffViewAddWidget
     diffViewFontSize={12}
@@ -127,8 +128,8 @@
 </div>
 
 <style>
-  /* Match the app's surfaces instead of GitHub's dark palette. */
-  .changes-diff :global(.diff-tailwindcss-wrapper[data-theme='dark'] .diff-style-root) {
+  /* Match the app's surfaces instead of GitHub's palettes. */
+  .changes-diff :global(.diff-tailwindcss-wrapper .diff-style-root) {
     --diff-plain-content--: var(--background);
     --diff-plain-lineNumber--: var(--background);
     --diff-expand-content--: var(--card);

@@ -43,7 +43,7 @@
   <div class="grid gap-0.5 pb-2">
     <Button
       variant="outline"
-      class="mb-2 h-8 w-full justify-start gap-2 border-border/60 bg-white/[0.03] px-2 text-sm font-normal text-muted-foreground hover:text-foreground"
+      class="mb-2 h-8 w-full justify-start gap-2 border-border/60 bg-foreground/[0.03] px-2 text-sm font-normal text-muted-foreground hover:text-foreground"
       aria-label="Search or run a command (Command K)"
       onclick={() => app.requestCommandPalette()}
     >

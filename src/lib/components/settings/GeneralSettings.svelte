@@ -5,6 +5,8 @@
   import { Input } from '$lib/components/ui/input'
   import * as Select from '$lib/components/ui/select'
   import { Switch } from '$lib/components/ui/switch'
+  import * as ToggleGroup from '$lib/components/ui/toggle-group'
+  import { setMode, userPrefersMode } from 'mode-watcher'
   import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
   import { Kbd, KbdGroup } from '$lib/components/ui/kbd'
@@ -133,6 +135,32 @@
           </Alert>
         {/if}
       </div>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    title="Appearance"
+    description="Follow the system, or always use light or dark"
+  >
+    {#snippet control()}
+      <ToggleGroup.Root
+        type="single"
+        variant="outline"
+        size="sm"
+        aria-label="Appearance"
+        class="data-[spacing=0]:rounded-lg"
+        bind:value={
+          () => userPrefersMode.current,
+          (next) => {
+            // Clicking the pressed item deselects it; keep a mode selected.
+            if (next) setMode(next as 'system' | 'light' | 'dark')
+          }
+        }
+      >
+        <ToggleGroup.Item value="system">System</ToggleGroup.Item>
+        <ToggleGroup.Item value="light">Light</ToggleGroup.Item>
+        <ToggleGroup.Item value="dark">Dark</ToggleGroup.Item>
+      </ToggleGroup.Root>
     {/snippet}
   </SettingsRow>
 
