@@ -2,6 +2,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
   import * as ScrollArea from '$lib/components/ui/scroll-area'
+  import * as Tooltip from '$lib/components/ui/tooltip'
   import { app, memory, threads, workspaces } from '$lib/state'
   import { isActiveThread } from '$lib/sidebar/status'
   import Cpu from '@lucide/svelte/icons/cpu'
@@ -129,22 +130,25 @@
   </ScrollArea.Root>
 
   <div class="flex items-center gap-2 px-2 pt-2">
-    <div
-      class="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground"
-      role="group"
-      aria-label="Memory usage"
-    >
-      <Cpu class="size-3.5 shrink-0" aria-hidden="true" />
-      <span
-        class="relative h-1 w-12 shrink-0 overflow-hidden rounded-sm bg-sidebar-accent"
-        aria-hidden="true"
-      >
-        <span
-          class="absolute inset-y-0 left-0 origin-left rounded-sm bg-muted-foreground transition-transform duration-500 ease-out motion-reduce:transition-none"
-          style={`transform: scaleX(${memory.barScale})`}
-        ></span>
-      </span>
-      <span class="font-mono tabular-nums">{memory.label}</span>
+    <div class="flex min-w-0 flex-1 items-center">
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <span
+              {...props}
+              tabindex="0"
+              class="flex items-center gap-2 rounded-sm text-xs text-muted-foreground"
+              aria-label={`Memory used: ${memory.label}`}
+            >
+              <Cpu class="size-3.5 shrink-0" aria-hidden="true" />
+              <span class="font-mono tabular-nums">{memory.label}</span>
+            </span>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content side="top">
+          Memory used
+        </Tooltip.Content>
+      </Tooltip.Root>
     </div>
     <Button
       variant="ghost"

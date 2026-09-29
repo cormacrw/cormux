@@ -73,12 +73,3 @@ export function formatMemoryGb(bytes: number): string {
   if (gb >= 10) return `${Math.round(gb)} GB`
   return `${gb.toFixed(1)} GB`
 }
-
-/** Bar fill against a 4 GB reference, matching the product prototype. */
-export function memoryBarScale(
-  bytes: number,
-  maxBytes = 4 * 1024 ** 3,
-): number {
-  if (maxBytes <= 0) return 0
-  return Math.min(1, Math.max(0, bytes / maxBytes))
-}

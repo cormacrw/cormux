@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   formatMemoryGb,
   isActiveThread,
-  memoryBarScale,
   plural,
   statusDotVariantForThread,
   statusDotVariantForWorkspace,
@@ -102,12 +101,6 @@ describe('thread sidebar helpers', () => {
 describe('formatMemoryGb', () => {
   it('formats sub-10 GB with one decimal', () => {
     expect(formatMemoryGb(1.4 * 1024 ** 3)).toBe('1.4 GB')
-  })
-})
-
-describe('memoryBarScale', () => {
-  it('caps at 1', () => {
-    expect(memoryBarScale(8 * 1024 ** 3)).toBe(1)
   })
 })
 
