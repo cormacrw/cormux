@@ -30,6 +30,13 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
     return
   }
 
+  // Global on purpose: fires inside fields and dialogs, and keeps the browser save dialog away.
+  if (mod && key === 's' && !event.shiftKey && !event.altKey) {
+    event.preventDefault()
+    app.requestNewScratch()
+    return
+  }
+
   if (mod && key === 'n') {
     event.preventDefault()
     app.requestNewWorkspace()

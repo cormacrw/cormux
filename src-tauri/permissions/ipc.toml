@@ -47,5 +47,10 @@ commands.allow = [
   "remove_repo",
   "test_repo_setup",
   "set_setting",
-  "send_workspace_findings"
+  "send_workspace_findings",
+  "create_scratch",
+  "end_scratch",
+  "refresh_workspace_diff",
+  "review_worktree_file",
+  "unsubscribe"
 ]

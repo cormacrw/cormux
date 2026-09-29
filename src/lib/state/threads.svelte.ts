@@ -7,13 +7,18 @@ export type Thread = {
   paused: boolean
   activity: string
   pendingApprovals: number
+  /** Set on a scratch's thread, which lives outside any workspace. */
+  scratchId?: string
 }
 
 export class ThreadsStore {
   items = $state<Thread[]>([])
 
+  /** Workspace threads only. Scratches stay out of the sidebar and agent counts. */
+  readonly agents = $derived(this.items.filter((thread) => !thread.scratchId))
+
   readonly runningCount = $derived(
-    this.items.filter((thread) => thread.status === 'running').length,
+    this.agents.filter((thread) => thread.status === 'running').length,
   )
 
   hydrate(items: Thread[]) {
@@ -39,7 +44,7 @@ export class ThreadsStore {
 
   /** All threads in workspace list order, then thread list order. */
   readonly sidebarAgents = $derived.by(() => {
-    return this.items
+    return this.agents
   })
 }
 

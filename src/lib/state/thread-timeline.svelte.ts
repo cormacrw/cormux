@@ -18,6 +18,8 @@ type ThreadMeta = {
   paused: boolean
   role: string
   workspaceId: string
+  /** Scratch threads mark their reads `Read-only, no worktree`. */
+  scratch?: boolean
 }
 
 export class ThreadTimelineStore {
@@ -77,6 +79,7 @@ export class ThreadTimelineStore {
       ),
       showLive: shouldShowLiveRow(meta.status, meta.paused),
       liveToolTitle: this.currentToolByThread[threadId] ?? null,
+      scratch: meta.scratch,
     })
   }
 

@@ -1,6 +1,7 @@
 import type { RepoRecord, WorkspaceRecord } from '$lib/ipc/bindings'
 import { workspaceCardMetaText } from '$lib/homebase/card-status'
 import { plural } from '$lib/sidebar/status'
+import type { Scratch } from '$lib/state/scratches.svelte'
 import type { Thread } from '$lib/state/threads.svelte'
 import type { Workspace } from '$lib/state/workspaces.svelte'
 import type { AppRunStatus } from '$lib/state/workspace-records.svelte'
@@ -8,6 +9,8 @@ import type { PaletteCommand } from './types'
 
 export type PaletteRegistryActions = {
   requestNewWorkspace: () => void
+  requestNewScratch: () => void
+  openScratch: (scratchId: string) => void
   openHomebase: () => void
   openSettings: () => void
   openWorkspace: (workspaceId: string, threadId?: string) => void
@@ -26,6 +29,7 @@ export type PaletteRegistryActions = {
 export type PaletteRegistryState = {
   reduceMotion: boolean
   workspaces: Workspace[]
+  scratches: Scratch[]
   threads: Thread[]
   repos: RepoRecord[]
   records: WorkspaceRecord[]
@@ -53,6 +57,13 @@ export function buildPaletteCommandsFromState(
       label: 'New workspace',
       kbd: '⌘N',
       run: () => actions.requestNewWorkspace(),
+    },
+    {
+      id: 'action-new-scratch',
+      group: 'Actions',
+      label: 'New scratch',
+      kbd: '⌘S',
+      run: () => actions.requestNewScratch(),
     },
     {
       id: 'action-homebase',
@@ -98,6 +109,17 @@ export function buildPaletteCommandsFromState(
       label: `Open ${workspace.name}`,
       meta: workspaceCardMetaText(workspace, wsThreads),
       run: () => actions.openWorkspace(workspace.id),
+    })
+  }
+
+  // After Workspaces, before App.
+  for (const scratch of state.scratches) {
+    cmds.push({
+      id: `scratch-open-${scratch.id}`,
+      group: 'Scratches',
+      label: `Open ${scratch.title}`,
+      meta: scratch.repoId,
+      run: () => actions.openScratch(scratch.id),
     })
   }
 

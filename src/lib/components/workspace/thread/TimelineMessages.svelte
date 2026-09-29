@@ -119,8 +119,12 @@
         class="flex size-5 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold"
         >{mark}</span
       >
-      <span class="font-medium text-foreground">{row.role}</span>
-      <span>{engine}</span>
+      {#if row.role}
+        <span class="font-medium text-foreground">{row.role}</span>
+        <span>{engine}</span>
+      {:else}
+        <span class="font-medium text-foreground">{engine}</span>
+      {/if}
       {#if timeLabel(row.atMs)}
         <span class="text-muted-foreground/80" title={timeTitle(row.atMs)}
           >· {timeLabel(row.atMs)}</span

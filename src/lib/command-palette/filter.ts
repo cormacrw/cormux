@@ -22,6 +22,7 @@ export function filterCommands(
 export const GROUP_ORDER = [
   'Actions',
   'Workspaces',
+  'Scratches',
   'Threads',
   'App',
   'Git',

@@ -21,10 +21,16 @@
     thread,
     onSent,
     focusComposer = $bindable<(() => void) | null>(null),
+    inputLabel = 'Message the agent',
+    placeholder,
+    sendLabel = 'Send to agent',
   }: {
     thread: Thread
     onSent?: () => void
     focusComposer?: (() => void) | null
+    inputLabel?: string
+    placeholder?: string
+    sendLabel?: string
   } = $props()
 
   let inputEl = $state<HTMLTextAreaElement | null>(null)
@@ -162,14 +168,14 @@
       void sendMessage()
     }}
   >
-    <label class="sr-only" for="composer-input">Message the agent</label>
+    <label class="sr-only" for="composer-input">{inputLabel}</label>
     <Textarea
       bind:ref={inputEl}
       id="composer-input"
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      placeholder="Message {thread.role}…"
+      placeholder={placeholder ?? `Message ${thread.role}…`}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       oninput={onInput}
@@ -191,7 +197,9 @@
           class="engine-mark flex size-5 shrink-0 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold"
           aria-hidden="true">{mark}</span
         >
-        <span class="lbl truncate">{engineName} · {thread.role}</span>
+        <span class="lbl truncate"
+          >{thread.role ? `${engineName} · ${thread.role}` : engineName}</span
+        >
         {#if showPause}
           <Button
             type="button"
@@ -235,7 +243,7 @@
         size="icon-sm"
         class="composer-send size-8 shrink-0 rounded-lg"
         data-od-id="composer-send"
-        aria-label="Send to agent"
+        aria-label={sendLabel}
         disabled={!canSend}
       >
         <ArrowUp class="size-4" aria-hidden="true" />

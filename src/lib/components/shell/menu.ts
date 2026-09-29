@@ -17,6 +17,9 @@ export async function bindNativeMenu() {
     listen('menu://new-workspace', () => {
       app.requestNewWorkspace()
     }),
+    listen('menu://new-scratch', () => {
+      app.requestNewScratch()
+    }),
     listen('menu://reload-environment', () => {
       void (async () => {
         const result = await commands.reloadEnvironment()

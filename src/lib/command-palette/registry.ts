@@ -10,6 +10,7 @@ import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
 import Square from '@lucide/svelte/icons/square'
 import { app } from '$lib/state/app.svelte'
 import { repos } from '$lib/state/repos.svelte'
+import { scratches } from '$lib/state/scratches.svelte'
 import { settings } from '$lib/state/settings.svelte'
 import { threads } from '$lib/state/threads.svelte'
 import { workspaceRecords } from '$lib/state/workspace-records.svelte'
@@ -28,6 +29,7 @@ import {
 
 const iconByCommandPrefix: Record<string, PaletteCommand['icon']> = {
   'action-new-workspace': Plus,
+  'action-new-scratch': Plus,
   'action-homebase': Layers,
   'action-settings': SlidersHorizontal,
   'action-reduce-motion': SlidersHorizontal,
@@ -54,6 +56,9 @@ function attachIcons(commands: PaletteCommand[]): PaletteCommand[] {
     }
     if (command.id.startsWith('ws-open-')) {
       return { ...command, icon: workspaceIcon }
+    }
+    if (command.id.startsWith('scratch-open-')) {
+      return { ...command, icon: threadIcons.open }
     }
     if (command.id.startsWith('thread-open-')) {
       return { ...command, icon: threadIcons.open }
@@ -85,7 +90,8 @@ export function buildPaletteCommands(): PaletteCommand[] {
     {
       reduceMotion: settings.reduceMotion,
       workspaces: workspaces.items,
-      threads: threads.items,
+      scratches: scratches.items,
+      threads: threads.agents,
       repos: repos.items,
       records: workspaceRecords.records,
       runtimeFor: (id) => workspaceRecords.runtime(id),
@@ -94,6 +100,8 @@ export function buildPaletteCommands(): PaletteCommand[] {
     },
     {
       requestNewWorkspace: () => app.requestNewWorkspace(),
+      requestNewScratch: () => app.requestNewScratch(),
+      openScratch: (id) => app.openScratch(id),
       openHomebase: () => app.openHomebase(),
       openSettings: () => app.openSettings(),
       openWorkspace: (id, threadId) => app.openWorkspace(id, threadId),

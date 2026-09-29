@@ -1,13 +1,13 @@
-export type ViewId = 'homebase' | 'workspace' | 'settings'
+export type ViewId = 'homebase' | 'workspace' | 'scratch' | 'settings'
 
 export function resolveWindowTitle(
   view: ViewId,
-  workspaceId: string | null,
-  workspaceName: string | undefined,
+  openId: string | null,
+  openName: string | undefined,
 ): string {
   if (view === 'settings') return 'Cormux · Settings'
-  if (view === 'workspace' && workspaceId) {
-    return `Cormux · ${workspaceName ?? workspaceId}`
+  if ((view === 'workspace' || view === 'scratch') && openId) {
+    return `Cormux · ${openName ?? openId}`
   }
   return 'Cormux · Homebase'
 }

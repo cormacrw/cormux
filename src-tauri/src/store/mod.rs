@@ -8,8 +8,8 @@ use rusqlite::Connection;
 
 use crate::error::{Error, Result};
 use types::{
-    ApprovalRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, SettingRow, ThreadEventRow,
-    ThreadRow, WorkspaceRow,
+    ApprovalRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow, SettingRow,
+    ThreadEventRow, ThreadRow, WorkspaceRow,
 };
 
 /// SQLite persistence in the app data directory.
@@ -433,6 +433,68 @@ impl Store {
         })
     }
 
+    /// Any thread, including a scratch's. `snapshot().threads` only lists workspace threads.
+    pub fn thread_by_id(&self, thread_id: &str) -> Result<Option<ThreadRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(&format!("{THREAD_COLUMNS} WHERE id = ?1"))?;
+            let mut rows = stmt.query([thread_id])?;
+            match rows.next()? {
+                Some(row) => Ok(Some(row_to_thread(row)?)),
+                None => Ok(None),
+            }
+        })
+    }
+
+    pub fn insert_scratch(&self, scratch: &ScratchRow) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO scratches (id, repo_id, title, thread_id) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![scratch.id, scratch.repo_id, scratch.title, scratch.thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn scratch_by_id(&self, scratch_id: &str) -> Result<Option<ScratchRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(&format!("{SCRATCH_COLUMNS} WHERE s.id = ?1"))?;
+            let mut rows = stmt.query([scratch_id])?;
+            match rows.next()? {
+                Some(row) => Ok(Some(row_to_scratch(row)?)),
+                None => Ok(None),
+            }
+        })
+    }
+
+    pub fn scratch_for_thread(&self, thread_id: &str) -> Result<Option<ScratchRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(&format!("{SCRATCH_COLUMNS} WHERE s.thread_id = ?1"))?;
+            let mut rows = stmt.query([thread_id])?;
+            match rows.next()? {
+                Some(row) => Ok(Some(row_to_scratch(row)?)),
+                None => Ok(None),
+            }
+        })
+    }
+
+    /// Removes the scratch and its thread; events and approvals cascade with the thread.
+    pub fn delete_scratch(&self, scratch_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            let thread_id: Option<String> = conn
+                .query_row(
+                    "SELECT thread_id FROM scratches WHERE id = ?1",
+                    [scratch_id],
+                    |row| row.get(0),
+                )
+                .ok();
+            conn.execute("DELETE FROM scratches WHERE id = ?1", [scratch_id])?;
+            if let Some(thread_id) = thread_id {
+                conn.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
+            }
+            Ok(())
+        })
+    }
+
     pub fn append_event(&self, thread_id: &str, kind: &str, payload: &str) -> Result<i64> {
         self.with_conn(|conn| {
             let seq: i64 = conn.query_row(
@@ -598,26 +660,18 @@ impl Store {
                 )?,
                 threads: query_all(
                     conn,
-                    "SELECT id, workspace_id, title, engine, session_id, status,
-                            used_tokens, context_size, cost_usd, transcript_readonly
-                     FROM threads
-                     WHERE workspace_id IN (
-                        SELECT id FROM workspaces WHERE archived_at IS NULL
-                     )",
-                    |row| {
-                        Ok(ThreadRow {
-                            id: row.get(0)?,
-                            workspace_id: row.get(1)?,
-                            title: row.get(2)?,
-                            engine: row.get(3)?,
-                            session_id: row.get(4)?,
-                            status: row.get(5)?,
-                            used_tokens: row.get(6)?,
-                            context_size: row.get(7)?,
-                            cost_usd: row.get(8)?,
-                            transcript_readonly: row.get::<_, i64>(9)? != 0,
-                        })
-                    },
+                    &format!(
+                        "{THREAD_COLUMNS}
+                         WHERE workspace_id IN (
+                            SELECT id FROM workspaces WHERE archived_at IS NULL
+                         )"
+                    ),
+                    row_to_thread,
+                )?,
+                scratches: query_all(
+                    conn,
+                    &format!("{SCRATCH_COLUMNS} ORDER BY s.created_at DESC, s.rowid DESC"),
+                    row_to_scratch,
                 )?,
                 timeline: query_all(
                     conn,
@@ -686,6 +740,41 @@ impl Store {
     }
 }
 
+const THREAD_COLUMNS: &str = "SELECT id, workspace_id, title, engine, session_id, status,
+        used_tokens, context_size, cost_usd, transcript_readonly
+     FROM threads";
+
+fn row_to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
+    Ok(ThreadRow {
+        id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        title: row.get(2)?,
+        engine: row.get(3)?,
+        session_id: row.get(4)?,
+        status: row.get(5)?,
+        used_tokens: row.get(6)?,
+        context_size: row.get(7)?,
+        cost_usd: row.get(8)?,
+        transcript_readonly: row.get::<_, i64>(9)? != 0,
+    })
+}
+
+const SCRATCH_COLUMNS: &str = "SELECT s.id, s.repo_id, s.title, s.thread_id, t.engine, t.status,
+        s.created_at
+     FROM scratches s JOIN threads t ON t.id = s.thread_id";
+
+fn row_to_scratch(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScratchRow> {
+    Ok(ScratchRow {
+        id: row.get(0)?,
+        repo_id: row.get(1)?,
+        title: row.get(2)?,
+        thread_id: row.get(3)?,
+        engine: row.get(4)?,
+        status: row.get(5)?,
+        created_at: row.get(6)?,
+    })
+}
+
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
     Ok(WorkspaceRow {
         id: row.get(0)?,
@@ -729,6 +818,53 @@ impl Default for Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scratch_keeps_its_thread_out_of_workspace_lists() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .upsert_thread(&ThreadRow {
+                id: "t1".into(),
+                workspace_id: "scratch-1".into(),
+                title: "Scratch".into(),
+                engine: "cursor".into(),
+                session_id: None,
+                status: "running".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+            })
+            .unwrap();
+        store
+            .insert_scratch(&ScratchRow {
+                id: "scratch-1".into(),
+                repo_id: "gone-repo".into(),
+                title: "Why".into(),
+                thread_id: "t1".into(),
+                engine: String::new(),
+                status: String::new(),
+                created_at: String::new(),
+            })
+            .unwrap();
+        store.append_event("t1", "message", "{}").unwrap();
+        store.mark_thread_idle("t1").unwrap();
+
+        let snapshot = store.snapshot().unwrap();
+        assert!(snapshot.threads.is_empty());
+        assert_eq!(snapshot.scratches.len(), 1);
+        assert_eq!(snapshot.scratches[0].engine, "cursor");
+        assert_eq!(snapshot.scratches[0].status, "idle");
+        assert_eq!(store.scratch_for_thread("t1").unwrap().unwrap().id, "scratch-1");
+        assert!(store.thread_by_id("t1").unwrap().is_some());
+
+        store.delete_scratch("scratch-1").unwrap();
+        let snapshot = store.snapshot().unwrap();
+        assert!(snapshot.scratches.is_empty());
+        assert!(snapshot.timeline.is_empty());
+        assert!(store.thread_by_id("t1").unwrap().is_none());
+    }
 
     #[test]
     fn persists_and_restores_snapshot() {

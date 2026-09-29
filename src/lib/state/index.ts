@@ -16,7 +16,8 @@ import { repos } from './repos.svelte'
 import { settings } from './settings.svelte'
 import { findings } from './findings.svelte'
 import { threadTimeline } from './thread-timeline.svelte'
-import { threads } from './threads.svelte'
+import { threads, type Thread } from './threads.svelte'
+import { scratches, scratchFromRow } from './scratches.svelte'
 import { workspaceRecords } from './workspace-records.svelte'
 import {
   workspaces,
@@ -35,6 +36,7 @@ export { repos } from './repos.svelte'
 export { settings } from './settings.svelte'
 export { shellDialogs } from './shell-dialogs.svelte'
 export { threads } from './threads.svelte'
+export { scratches } from './scratches.svelte'
 export { workspaceRecords } from './workspace-records.svelte'
 export { homebaseUi } from './homebase-ui.svelte'
 export { workspaceUi } from './workspace-ui.svelte'
@@ -238,9 +240,28 @@ function buildThreadModels(snapshot: Snapshot) {
   return rows
 }
 
+/** A scratch's one thread, shaped like a workspace thread so the conversation and composer reuse it. */
+function buildScratchThreads(snapshot: Snapshot): Thread[] {
+  const pendingThreads = pendingByThread(snapshot.persisted.approvals)
+  return snapshot.persisted.scratches.map((row) => ({
+    id: row.threadId,
+    workspaceId: row.id,
+    role: '',
+    engine: row.engine,
+    status: row.status,
+    paused: row.status === 'paused',
+    activity: threadActivityLine(row.status),
+    pendingApprovals: pendingThreads.get(row.threadId) ?? 0,
+    scratchId: row.id,
+  }))
+}
+
 export function hydrateFromSnapshot(snapshot: Snapshot) {
   void onSnapshotSupervision(snapshot)
-  const threadModels = buildThreadModels(snapshot)
+  const threadModels = [
+    ...buildThreadModels(snapshot),
+    ...buildScratchThreads(snapshot),
+  ]
   settings.hydrate(
     {
       reduceMotion: snapshot.persisted.settings.some(
@@ -265,6 +286,10 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   }
   const aliveIds = new Set(nextWorkspaces.map((row) => row.id))
   if (app.workspaceId && !aliveIds.has(app.workspaceId)) {
+    app.openHomebase()
+  }
+  scratches.hydrate(snapshot.persisted.scratches.map(scratchFromRow))
+  if (app.scratchId && !scratches.getById(app.scratchId)) {
     app.openHomebase()
   }
   workspaces.hydrate(nextWorkspaces)

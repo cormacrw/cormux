@@ -54,6 +54,20 @@ pub struct ThreadRow {
     pub transcript_readonly: bool,
 }
 
+/// A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScratchRow {
+    pub id: String,
+    pub repo_id: String,
+    pub title: String,
+    pub thread_id: String,
+    pub engine: String,
+    pub status: String,
+    /// SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadEventRow {
@@ -108,6 +122,8 @@ pub struct PersistedSnapshot {
     pub repos: Vec<RepoRecord>,
     pub workspaces: Vec<WorkspaceRow>,
     pub threads: Vec<ThreadRow>,
+    /// Newest first.
+    pub scratches: Vec<ScratchRow>,
     pub timeline: Vec<ThreadEventRow>,
     pub approvals: Vec<ApprovalRow>,
     pub findings: Vec<FindingRow>,

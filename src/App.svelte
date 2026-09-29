@@ -17,6 +17,9 @@
   import TeardownDialog from '$lib/components/workspace/TeardownDialog.svelte'
   import CreatePrDialog from '$lib/components/workspace/CreatePrDialog.svelte'
   import SubmitReviewDialog from '$lib/components/workspace/SubmitReviewDialog.svelte'
+  import NewScratchDialog from '$lib/components/scratch/NewScratchDialog.svelte'
+  import EndScratchDialog from '$lib/components/scratch/EndScratchDialog.svelte'
+  import ScratchView from '$lib/components/scratch/ScratchView.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
   import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
@@ -96,12 +99,16 @@
   <TeardownDialog />
   <CreatePrDialog />
   <SubmitReviewDialog />
+  <NewScratchDialog />
+  <EndScratchDialog />
   <CommandPalette />
   <AppShell>
     {#if app.view === 'settings'}
       <Settings />
     {:else if app.view === 'workspace'}
       <Workspace />
+    {:else if app.view === 'scratch'}
+      <ScratchView />
     {:else}
       <Homebase />
     {/if}

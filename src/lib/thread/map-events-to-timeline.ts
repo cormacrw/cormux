@@ -14,7 +14,11 @@ export type MapTimelineInput = {
   findingsReady: boolean
   showLive: boolean
   liveToolTitle: string | null
+  /** A scratch runs on the main checkout in the engine's read-only mode. */
+  scratch?: boolean
 }
+
+const SCRATCH_CHIP: TimelineChip = { label: 'Read-only, no worktree', tone: 'muted' }
 
 let syntheticId = 0
 function nextId(prefix: string): string {
@@ -208,7 +212,13 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
       case 'toolCall': {
         if (!toolKindIsRunStep(event.kind)) break
         if (!run.length) runSeq = seq
-        const chips = pendingAutoChip ? [pendingAutoChip] : undefined
+        const scratchRead =
+          input.scratch && (event.kind === 'read' || event.kind === 'search')
+        const chips = pendingAutoChip
+          ? [pendingAutoChip]
+          : scratchRead
+            ? [SCRATCH_CHIP]
+            : undefined
         pendingAutoChip = undefined
         run.push(toolStepFromCall(event, seq, atMs, chips))
         break
@@ -227,10 +237,9 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
       case 'permission': {
         flushRun(run, items, runSeq)
         if (event.auto_approved) {
-          pendingAutoChip = {
-            label: 'Read-only, auto-approved',
-            tone: 'muted',
-          }
+          pendingAutoChip = input.scratch
+            ? SCRATCH_CHIP
+            : { label: 'Read-only, auto-approved', tone: 'muted' }
           break
         }
         pushBeforeLive(

@@ -66,6 +66,10 @@ impl ToolKind {
         }
     }
 
+    pub fn is_edit(self) -> bool {
+        matches!(self, Self::Edit | Self::Delete | Self::Move)
+    }
+
     pub fn is_readonly(self) -> bool {
         matches!(self, Self::Read | Self::Search | Self::Think)
     }

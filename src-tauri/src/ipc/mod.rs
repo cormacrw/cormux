@@ -57,7 +57,9 @@ pub fn builder() -> Builder {
             commands::remove_repo,
             commands::test_repo_setup,
             commands::set_setting,
-            commands::send_workspace_findings
+            commands::send_workspace_findings,
+            commands::create_scratch,
+            commands::end_scratch
         ])
         .events(tauri_specta::collect_events![
             events::StateChanged,
@@ -79,6 +81,30 @@ pub fn export_bindings(builder: &Builder) {
 
 #[cfg(test)]
 mod tests {
+    /// Tauri rejects any command missing from the allowlist, and the browser harness can't see it.
+    #[test]
+    fn every_command_is_allowlisted() {
+        let registered = include_str!("mod.rs")
+            .split(".events(")
+            .next()
+            .unwrap()
+            .split("commands::")
+            .skip(1)
+            .map(|rest| {
+                rest.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .next()
+                    .unwrap()
+            })
+            .filter(|name| !name.is_empty())
+            .collect::<Vec<_>>();
+        let allowlist = include_str!("../../permissions/ipc.toml");
+        let missing: Vec<_> = registered
+            .into_iter()
+            .filter(|name| !allowlist.contains(&format!("\"{name}\"")))
+            .collect();
+        assert!(missing.is_empty(), "add to permissions/ipc.toml: {missing:?}");
+    }
+
     #[test]
     fn export_typescript_bindings() {
         super::export_bindings(&super::builder());

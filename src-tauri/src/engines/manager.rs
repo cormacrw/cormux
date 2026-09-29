@@ -53,7 +53,13 @@ pub struct SpawnSpec {
     pub override_argv: Option<Vec<String>>,
     pub auto_approve_readonly: bool,
     pub auto_approve_all: bool,
+    /// Scratches: the engine's own read-only mode, and edits are denied without asking.
+    pub read_only: bool,
 }
+
+/// Sent back to an agent that tries to edit inside a read-only scratch.
+pub const READ_ONLY_DENIAL: &str =
+    "This is a read-only scratch. Do not edit files; answer in the conversation instead.";
 
 impl EngineRegistry {
     pub fn new(
@@ -302,7 +308,13 @@ impl EngineRegistry {
         } else {
             let binary = detect::resolve_binary(&env, spec.kind.binaries())
                 .unwrap_or_else(|| PathBuf::from("claude"));
-            (binary, Vec::new(), true)
+            // Plan mode reads without asking and never edits.
+            let extra = if spec.read_only {
+                vec!["--permission-mode".into(), "plan".into()]
+            } else {
+                Vec::new()
+            };
+            (binary, extra, true)
         };
 
         let mut options = SpawnOptions {
@@ -324,6 +336,7 @@ impl EngineRegistry {
         let thread_id = spec.thread_id.clone();
         let auto_ro = spec.auto_approve_readonly;
         let auto_all = spec.auto_approve_all;
+        let read_only = spec.read_only;
         let approval_notify = self.approval_notify.clone();
         tokio::spawn(async move {
             run_claude(
@@ -334,8 +347,11 @@ impl EngineRegistry {
                 store,
                 thread_id,
                 session_id,
-                auto_ro,
-                auto_all,
+                ClaudePolicy {
+                    auto_ro,
+                    auto_all,
+                    read_only,
+                },
                 approval_notify,
             )
             .await;
@@ -364,6 +380,7 @@ impl EngineRegistry {
             approvals: self.approvals.clone(),
             auto_approve_readonly: spec.auto_approve_readonly,
             auto_approve_all: spec.auto_approve_all,
+            read_only: spec.read_only,
             session_id,
             store: self.store.clone(),
             thread_id: spec.thread_id.clone(),
@@ -398,8 +415,7 @@ async fn run_claude(
     store: Store,
     thread_id: String,
     session_id: Arc<Mutex<Option<String>>>,
-    auto_ro: bool,
-    auto_all: bool,
+    policy: ClaudePolicy,
     approval_notify: tokio::sync::broadcast::Sender<()>,
 ) {
     let (answer_tx, mut answer_rx) =
@@ -455,8 +471,7 @@ async fn run_claude(
                                 &store,
                                 &thread_id,
                                 &approval_notify,
-                                auto_ro,
-                                auto_all,
+                                policy,
                                 answer_tx.clone(),
                             )
                             .await;
@@ -491,6 +506,13 @@ async fn run_claude(
     }
 }
 
+#[derive(Clone, Copy)]
+struct ClaudePolicy {
+    auto_ro: bool,
+    auto_all: bool,
+    read_only: bool,
+}
+
 async fn handle_claude_permission(
     session: &mut ClaudeSession,
     req: &CanUseTool,
@@ -499,14 +521,25 @@ async fn handle_claude_permission(
     store: &Store,
     thread_id: &str,
     approval_notify: &tokio::sync::broadcast::Sender<()>,
-    auto_ro: bool,
-    auto_all: bool,
+    policy: ClaudePolicy,
     answer_tx: mpsc::UnboundedSender<(String, ApprovalDecision, serde_json::Value)>,
 ) {
     let kind = ToolKind::from_claude_tool(&req.tool_name);
+    // Leaving plan mode is how Claude asks to start editing, so a scratch always says no.
+    if policy.read_only && (kind.is_edit() || req.tool_name == "ExitPlanMode") {
+        let _ = session
+            .answer_tool(
+                &req.request_id,
+                PermissionDecision::Deny {
+                    message: READ_ONLY_DENIAL.into(),
+                },
+            )
+            .await;
+        return;
+    }
     let mut mapped =
         claude_map::map_claude_event(&Event::CanUseTool(req.clone())).expect("permission maps");
-    if auto_all || (auto_ro && kind.is_readonly()) {
+    if policy.auto_all || (policy.auto_ro && kind.is_readonly()) {
         if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;
         }
@@ -609,6 +642,7 @@ mod tests {
                 override_argv: Some(mock_claude_argv()),
                 auto_approve_readonly: true,
                 auto_approve_all: false,
+                read_only: false,
             })
             .await
             .unwrap();
@@ -668,6 +702,7 @@ mod tests {
                 override_argv: Some(vec!["python3".into(), script.display().to_string()]),
                 auto_approve_readonly: false,
                 auto_approve_all: false,
+                read_only: false,
             })
             .await
             .unwrap();
@@ -779,6 +814,7 @@ mod tests {
                 override_argv: Some(vec!["python3".into(), script.display().to_string()]),
                 auto_approve_readonly: false,
                 auto_approve_all: false,
+                read_only: false,
             })
             .await
             .unwrap();
@@ -829,6 +865,7 @@ mod tests {
                 override_argv: Some(vec!["python3".into(), script.display().to_string()]),
                 auto_approve_readonly: false,
                 auto_approve_all: false,
+                read_only: false,
             })
             .await
             .unwrap();

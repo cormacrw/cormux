@@ -587,6 +587,7 @@ async fn spawn_engine(
             override_argv: None,
             auto_approve_readonly: false,
             auto_approve_all: run_everything,
+            read_only: false,
         })
         .await?;
     if let Some(text) = goal.filter(|value| !value.is_empty()) {

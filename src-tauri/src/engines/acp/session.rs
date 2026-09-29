@@ -5,7 +5,7 @@ use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     CancelNotification, ContentBlock, InitializeRequest, LoadSessionRequest, NewSessionRequest,
     PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionId, SessionNotification, TextContent,
+    SelectedPermissionOutcome, SessionId, SessionNotification, SetSessionModeRequest, TextContent,
 };
 use agent_client_protocol::{AcpAgent, AcpAgentConfig, Agent, ConnectionTo};
 use tokio::sync::{broadcast, mpsc};
@@ -16,6 +16,7 @@ use super::map::{
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::engines::command::EngineCommand;
 use crate::engines::events::AgentEvent;
+use crate::engines::manager::READ_ONLY_DENIAL;
 use crate::error::{Error, Result};
 use crate::shell_env::ShellEnv;
 use crate::store::Store;
@@ -29,6 +30,7 @@ pub struct AcpSpawn {
     pub approvals: Arc<ApprovalBroker>,
     pub auto_approve_readonly: bool,
     pub auto_approve_all: bool,
+    pub read_only: bool,
     pub session_id: Arc<std::sync::Mutex<Option<String>>>,
     pub store: Store,
     pub thread_id: String,
@@ -60,6 +62,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
     let approvals = spawn.approvals.clone();
     let auto_ro = spawn.auto_approve_readonly;
     let auto_all = spawn.auto_approve_all;
+    let read_only = spawn.read_only;
     let stored_id = spawn.session_id.clone();
     let cwd = spawn.cwd.clone();
     let resume = spawn.resume.clone();
@@ -113,6 +116,14 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                         &event,
                         AgentEvent::Permission { kind, .. } if kind.is_readonly()
                     );
+                    let edit = matches!(
+                        &event,
+                        AgentEvent::Permission { kind, .. } if kind.is_edit()
+                    );
+                    if read_only && edit {
+                        respond_permission(&request, responder, false);
+                        return Ok(());
+                    }
                     if auto_all || (auto_ro && readonly) {
                         if let AgentEvent::Permission { auto_approved, .. } = &mut event {
                             *auto_approved = true;
@@ -193,10 +204,24 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                     let _ = store.set_thread_session(&thread_id, &id_str);
                     let _ = events.send(AgentEvent::SessionStarted { session_id: id_str });
                 }
+                // Ask mode is the ACP read-only mode (Cursor: "no edits or command execution").
+                // An engine without it gets the rule written into every prompt instead.
+                let prefix_read_only = read_only
+                    && connection
+                        .send_request(SetSessionModeRequest::new(session_id.clone(), "ask"))
+                        .block_task()
+                        .await
+                        .inspect_err(|error| log::warn!("acp ask mode unavailable: {error}"))
+                        .is_err();
 
                 while let Some(command) = commands.recv().await {
                     match command {
                         EngineCommand::Prompt(text) => {
+                            let text = if prefix_read_only {
+                                format!("{READ_ONLY_DENIAL}\n\n{text}")
+                            } else {
+                                text
+                            };
                             let wait = connection
                                 .send_request(PromptRequest::new(
                                     session_id.clone(),

@@ -39,6 +39,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "006_findings_sent_thread",
         sql: include_str!("../../migrations/006_findings_sent_thread.sql"),
     },
+    Migration {
+        version: 7,
+        name: "007_scratches",
+        sql: include_str!("../../migrations/007_scratches.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -50,6 +55,15 @@ pub fn run(conn: &Connection) -> Result<()> {
         );",
     )?;
 
+    // Table rebuilds (007) drop a parent table, which would cascade-delete its children while
+    // foreign keys are on. The pragma is ignored inside a transaction, so set it out here.
+    conn.pragma_update(None, "foreign_keys", false)?;
+    let result = apply_pending(conn);
+    conn.pragma_update(None, "foreign_keys", true)?;
+    result
+}
+
+fn apply_pending(conn: &Connection) -> Result<()> {
     for migration in MIGRATIONS {
         let already_applied: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?1)",
@@ -70,6 +84,14 @@ pub fn run(conn: &Connection) -> Result<()> {
         log::info!("applied migration {}", migration.name);
     }
 
+    let broken: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_foreign_key_check",
+        [],
+        |row| row.get(0),
+    )?;
+    if broken > 0 {
+        log::warn!("{broken} rows fail foreign key checks after migrating");
+    }
     Ok(())
 }
 
@@ -106,7 +128,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
 
         for expected in [
             "approvals",
@@ -115,6 +137,7 @@ mod tests {
             "repo_config",
             "repos",
             "schema_migrations",
+            "scratches",
             "settings",
             "thread_events",
             "threads",
@@ -125,5 +148,62 @@ mod tests {
                 "missing {expected}"
             );
         }
+    }
+
+    #[test]
+    fn scratches_migration_keeps_thread_history() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+        for migration in &MIGRATIONS[..6] {
+            apply(&conn, migration).unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
+             INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status)
+                VALUES ('w', 'r', 'W', 'b', '/tmp/w', 'idle');
+             INSERT INTO threads (id, workspace_id, title, engine, status, used_tokens)
+                VALUES ('t', 'w', 'Lead', 'claude', 'idle', 42);
+             INSERT INTO thread_events (thread_id, seq, kind, payload) VALUES ('t', 1, 'message', '{}');
+             INSERT INTO approvals (id, thread_id, status, tool, payload)
+                VALUES ('a', 't', 'pending', 'Edit', '{}');",
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        let events: i64 = conn
+            .query_row("SELECT COUNT(*) FROM thread_events", [], |row| row.get(0))
+            .unwrap();
+        let approvals: i64 = conn
+            .query_row("SELECT COUNT(*) FROM approvals", [], |row| row.get(0))
+            .unwrap();
+        let tokens: i64 = conn
+            .query_row("SELECT used_tokens FROM threads WHERE id = 't'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!((events, approvals, tokens), (1, 1, 42));
+
+        // Scratch threads have no workspace row.
+        conn.execute(
+            "INSERT INTO threads (id, workspace_id, title, engine, status)
+             VALUES ('s', 'scratch-1', 'Scratch', 'claude', 'idle')",
+            [],
+        )
+        .unwrap();
+        // Child rows still cascade with their thread.
+        conn.execute("DELETE FROM threads WHERE id = 't'", []).unwrap();
+        let events: i64 = conn
+            .query_row("SELECT COUNT(*) FROM thread_events", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(events, 0);
     }
 }

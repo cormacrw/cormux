@@ -14,8 +14,12 @@ const ENGINE_NAMES: Record<string, string> = {
   gemini: 'Gemini',
 }
 
+/** Takes an engine id (`cursor`) or its display name (`Cursor`). */
 export function engineMark(engine: string): EngineMark {
-  return ENGINE_MARKS[engine] ?? 'CC'
+  const kind =
+    Object.keys(ENGINE_NAMES).find((key) => ENGINE_NAMES[key] === engine) ??
+    engine
+  return ENGINE_MARKS[kind] ?? 'CC'
 }
 
 export function engineDisplayName(engine: string): string {

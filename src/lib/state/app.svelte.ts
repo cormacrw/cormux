@@ -3,18 +3,23 @@ import { homebaseUi } from './homebase-ui.svelte'
 import { workspaceUi } from './workspace-ui.svelte'
 import { workspaces } from './workspaces.svelte'
 import { threads } from './threads.svelte'
+import { scratches } from './scratches.svelte'
 import { resolveWindowTitle, type ViewId } from './window-title'
 
 export type { ViewId } from './window-title'
 export { resolveWindowTitle } from './window-title'
 
-export type FocusTarget = 'homebase' | 'settings' | 'workspace'
+export type FocusTarget = 'homebase' | 'settings' | 'workspace' | 'scratch'
 
 export class AppStore {
   version = $state(0)
   view = $state<ViewId>('homebase')
   workspaceId = $state<string | null>(null)
   threadId = $state<string | null>(null)
+  /** The open scratch, or null on every other view. */
+  scratchId = $state<string | null>(null)
+  /** A scratch started without a prompt focuses its composer instead of its title. */
+  scratchComposerFocus = $state(false)
 
   /** Incremented when a view should move focus to its main heading. */
   focusGeneration = $state(0)
@@ -35,13 +40,20 @@ export class AppStore {
     mode: 'review' | 'continue'
   } | null>(null)
 
-  readonly windowTitle = $derived.by(() =>
-    resolveWindowTitle(
+  readonly windowTitle = $derived.by(() => {
+    if (this.view === 'scratch') {
+      return resolveWindowTitle(
+        this.view,
+        this.scratchId,
+        this.scratchId ? scratches.getById(this.scratchId)?.title : undefined,
+      )
+    }
+    return resolveWindowTitle(
       this.view,
       this.workspaceId,
       this.workspaceId ? workspaces.getById(this.workspaceId)?.name : undefined,
-    ),
-  )
+    )
+  })
 
   private requestFocus(target: FocusTarget) {
     this.focusTarget = target
@@ -59,6 +71,7 @@ export class AppStore {
     this.view = 'homebase'
     this.workspaceId = null
     this.threadId = null
+    this.scratchId = null
     this.requestFocus('homebase')
   }
 
@@ -67,6 +80,7 @@ export class AppStore {
     this.view = 'settings'
     this.workspaceId = null
     this.threadId = null
+    this.scratchId = null
     this.requestFocus('settings')
   }
 
@@ -77,6 +91,7 @@ export class AppStore {
     }
     const switching = this.workspaceId !== workspaceId
     this.view = 'workspace'
+    this.scratchId = null
     this.workspaceId = workspaceId
     const list = threads.forWorkspace(workspaceId)
     this.threadId = threadId ?? list[0]?.id ?? null
@@ -84,6 +99,19 @@ export class AppStore {
       workspaceUi.resetForWorkspace()
     }
     this.requestFocus('workspace')
+  }
+
+  openScratch(scratchId: string, focusComposer = false) {
+    this.view = 'scratch'
+    this.workspaceId = null
+    this.threadId = null
+    this.scratchId = scratchId
+    this.scratchComposerFocus = focusComposer
+    this.requestFocus('scratch')
+  }
+
+  requestNewScratch() {
+    window.dispatchEvent(new CustomEvent('cormux:new-scratch'))
   }
 
   requestCommandPalette() {
@@ -111,6 +139,7 @@ export class AppStore {
   }
 
   applyView(view: AppView) {
+    this.scratchId = null
     if (view === 'homebase') {
       this.view = 'homebase'
       this.workspaceId = null

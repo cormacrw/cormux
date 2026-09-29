@@ -31,6 +31,16 @@ describe('buildPaletteCommandsFromState', () => {
             setupFailedExitCode: null,
           },
         ],
+        scratches: [
+          {
+            id: 'scratch-1',
+            title: 'Why the webhook signature fails',
+            repoId: 'repo-1',
+            threadId: 'th-s',
+            engine: 'claude',
+            createdAtMs: null,
+          },
+        ],
         threads: [
           {
             id: 'th-1',
@@ -107,6 +117,8 @@ describe('buildPaletteCommandsFromState', () => {
       },
       {
         requestNewWorkspace: noop,
+        requestNewScratch: noop,
+        openScratch: noop,
         openHomebase: noop,
         openSettings: noop,
         openWorkspace: noop,
@@ -121,6 +133,8 @@ describe('buildPaletteCommandsFromState', () => {
     ).map((c) => c.label)
 
     expect(labels).toContain('New workspace')
+    expect(labels).toContain('New scratch')
+    expect(labels).toContain('Open Why the webhook signature fails')
     expect(labels).toContain('Open Auth')
     expect(labels).toContain('Run app in Auth')
     expect(labels).toContain('Pull 2 commits from main into Auth')

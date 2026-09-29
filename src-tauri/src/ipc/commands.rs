@@ -1195,6 +1195,9 @@ pub async fn send_thread_prompt(
     if text.is_empty() {
         return Ok(());
     }
+    if let Some(scratch) = state.store.scratch_for_thread(&thread_id)? {
+        return crate::scratch::send(&app, &state, &scratch, text).await;
+    }
     let thread = snapshot_thread(&state, &thread_id)?;
     let held = thread.status == "paused";
     if !held && !state.engines.has_thread(&thread_id) {
@@ -1236,10 +1239,7 @@ pub async fn cancel_thread_turn(
     let _ = persist_control_step(&state.store, &thread_id, "You stopped the agent");
     let _ = state.store.mark_thread_idle(&thread_id);
     if let Some(thread) = thread {
-        state
-            .workspace
-            .set_thread(&thread_id, &thread.workspace_id, ThreadActivity::Idle)
-            .await;
+        set_workspace_thread(&state, &thread, ThreadActivity::Idle).await;
     }
     emit_composer_snapshot(&app, &state);
     Ok(())
@@ -1259,10 +1259,7 @@ pub async fn pause_thread(
     state.engines.hold_thread(&thread_id)?;
     persist_control_step(&state.store, &thread_id, "You paused the agent")?;
     state.store.set_thread_status(&thread_id, "paused")?;
-    state
-        .workspace
-        .set_thread(&thread_id, &thread.workspace_id, ThreadActivity::Paused)
-        .await;
+    set_workspace_thread(&state, &thread, ThreadActivity::Paused).await;
     emit_composer_snapshot(&app, &state);
     Ok(())
 }
@@ -1280,10 +1277,7 @@ pub async fn resume_thread(
     }
     persist_control_step(&state.store, &thread_id, "You resumed the agent")?;
     state.store.set_thread_status(&thread_id, "running")?;
-    state
-        .workspace
-        .set_thread(&thread_id, &thread.workspace_id, ThreadActivity::Running)
-        .await;
+    set_workspace_thread(&state, &thread, ThreadActivity::Running).await;
     if let Some(text) = state.engines.release_thread(&thread_id)? {
         let _ = state.engines.prompt(&thread_id, text);
     }
@@ -1307,6 +1301,27 @@ pub async fn send_workspace_findings(
     .await?;
     emit_composer_snapshot(&app, &state);
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_scratch(
+    app: AppHandle,
+    input: super::types::CreateScratchInput,
+    state: State<'_, AppState>,
+) -> Result<super::types::CreateScratchResult> {
+    crate::scratch::create(&app, &state, input).await
+}
+
+/// Discards the scratch's conversation. The repo is not changed.
+#[tauri::command]
+#[specta::specta]
+pub async fn end_scratch(
+    app: AppHandle,
+    scratch_id: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::scratch::end(&app, &state, &scratch_id).await
 }
 
 /// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.
@@ -1386,14 +1401,23 @@ fn new_workspace_id() -> String {
     format!("ws{ms:x}")
 }
 
+/// Any thread, a scratch's included.
 fn snapshot_thread(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
     state
         .store
-        .snapshot()?
-        .threads
-        .into_iter()
-        .find(|row| row.id == thread_id)
+        .thread_by_id(thread_id)?
         .ok_or_else(|| Error::Store(format!("unknown thread {thread_id}")))
+}
+
+/// Workspace lifecycle bookkeeping. A scratch thread has no workspace, so it is skipped.
+async fn set_workspace_thread(state: &AppState, thread: &ThreadRow, activity: ThreadActivity) {
+    if state.store.scratch_for_thread(&thread.id).ok().flatten().is_some() {
+        return;
+    }
+    state
+        .workspace
+        .set_thread(&thread.id, &thread.workspace_id, activity)
+        .await;
 }
 
 fn emit_composer_snapshot(app: &AppHandle, state: &AppState) {

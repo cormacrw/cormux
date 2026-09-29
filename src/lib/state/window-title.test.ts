@@ -22,4 +22,14 @@ describe('resolveWindowTitle', () => {
       'Cormux · ws-1',
     )
   })
+
+  it('titles an open scratch by its title', () => {
+    expect(
+      resolveWindowTitle(
+        'scratch',
+        'scratch-1',
+        'Why the webhook signature fails',
+      ),
+    ).toBe('Cormux · Why the webhook signature fails')
+  })
 })

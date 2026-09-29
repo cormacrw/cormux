@@ -424,6 +424,25 @@ async sendWorkspaceFindings(input: SendWorkspaceFindingsInput) : Promise<Result<
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async createScratch(input: CreateScratchInput) : Promise<Result<CreateScratchResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_scratch", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Discards the scratch's conversation. The repo is not changed.
+ */
+async endScratch(scratchId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("end_scratch", { scratchId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -457,6 +476,12 @@ export type ApprovalRow = { id: string; threadId: string; status: string; tool: 
 export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
 export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number; title: string; head: string; base: string; author: string; authorIsYou: boolean; filesChanged: number; prHtmlUrl: string | null }
 export type CreateReviewWorkspaceResult = { workspaceId: string; created: boolean }
+export type CreateScratchInput = { title: string; repoId: string; 
+/**
+ * Optional. Blank opens an empty conversation.
+ */
+prompt: string | null }
+export type CreateScratchResult = { scratchId: string; threadId: string }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
 export type CreateWorkspacePullRequestInput = { workspaceId: string; why: string; title: string | null; draft: boolean; includeWhatChanged: boolean; includeHowTested: boolean }
@@ -483,7 +508,11 @@ export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; eng
 export type JoinWorkspaceThreadResult = { threadId: string }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
 export type MessageRole = "user" | "agent" | "thought"
-export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
+export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
+/**
+ * Newest first.
+ */
+scratches: ScratchRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PlanStep = { content: string; status: string }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PtyChunk = { workspaceId: string; line: string }
@@ -492,6 +521,14 @@ export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
 export type ResolveApprovalResult = { focusComposer: boolean }
+/**
+ * A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
+ */
+export type ScratchRow = { id: string; repoId: string; title: string; threadId: string; engine: string; status: string; 
+/**
+ * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+ */
+createdAt: string }
 export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }

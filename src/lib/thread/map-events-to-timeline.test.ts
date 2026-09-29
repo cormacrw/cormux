@@ -40,6 +40,52 @@ describe('mapEventsToTimeline', () => {
     })
   })
 
+  it('marks scratch reads read-only with no worktree', () => {
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          event: {
+            type: 'toolCall',
+            id: 'open',
+            title: 'Opened my-app',
+            name: null,
+            kind: 'read',
+            status: 'completed',
+            locations: [],
+            detail: '~/code/my-app',
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: 'toolCall',
+            id: 'bash',
+            title: 'git log',
+            name: null,
+            kind: 'execute',
+            status: 'completed',
+            locations: [],
+            detail: null,
+          },
+        },
+      ],
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+      scratch: true,
+    })
+    expect(items[0]).toMatchObject({ kind: 'toolRun' })
+    const steps = items[0]?.kind === 'toolRun' ? items[0].steps : []
+    expect(steps[0]).toMatchObject({
+      title: 'Opened my-app',
+      detail: '~/code/my-app',
+      chips: [{ label: 'Read-only, no worktree' }],
+    })
+    expect(steps[1]).toMatchObject({ title: 'git log', chips: undefined })
+  })
+
   it('hides a thought when the reply repeats it', () => {
     const items = mapEventsToTimeline({
       events: [

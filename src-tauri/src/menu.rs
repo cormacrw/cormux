@@ -3,6 +3,7 @@ use tauri::{AppHandle, Emitter};
 
 pub const COMMAND_PALETTE: &str = "command-palette";
 pub const NEW_WORKSPACE: &str = "new-workspace";
+pub const NEW_SCRATCH: &str = "new-scratch";
 pub const OPEN_SETTINGS: &str = "open-settings";
 pub const RELOAD_ENVIRONMENT: &str = "reload-environment";
 
@@ -53,7 +54,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         Some("CmdOrCtrl+N"),
     )?;
-    let file_menu = Submenu::with_items(app, "File", true, &[&new_workspace])?;
+    let new_scratch = MenuItem::with_id(
+        app,
+        NEW_SCRATCH,
+        "New Scratch",
+        true,
+        Some("CmdOrCtrl+S"),
+    )?;
+    let file_menu = Submenu::with_items(app, "File", true, &[&new_workspace, &new_scratch])?;
 
     let edit_menu = Submenu::with_items(
         app,
@@ -86,6 +94,7 @@ pub fn handle(app: &AppHandle, id: &str) {
     let event = match id {
         COMMAND_PALETTE => "menu://command-palette",
         NEW_WORKSPACE => "menu://new-workspace",
+        NEW_SCRATCH => "menu://new-scratch",
         OPEN_SETTINGS => "menu://open-settings",
         RELOAD_ENVIRONMENT => "menu://reload-environment",
         _ => return,

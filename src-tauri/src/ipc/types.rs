@@ -206,6 +206,22 @@ pub struct JoinWorkspaceThreadResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct CreateScratchInput {
+    pub title: String,
+    pub repo_id: String,
+    /// Optional. Blank opens an empty conversation.
+    pub prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateScratchResult {
+    pub scratch_id: String,
+    pub thread_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct RenameWorkspaceInput {
     pub workspace_id: String,
     pub name: String,
