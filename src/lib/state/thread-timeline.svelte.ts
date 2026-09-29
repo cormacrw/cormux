@@ -23,7 +23,9 @@ type ThreadMeta = {
 }
 
 export class ThreadTimelineStore {
-  eventsByThread = $state<
+  // Raw, not deep: a long thread holds thousands of events, and reading each through a
+  // reactive proxy made every rebuild of the timeline ~30x slower. Always replaced, never mutated.
+  eventsByThread = $state.raw<
     Record<string, { seq: number; atMs: number; event: AgentEvent }[]>
   >({})
   currentToolByThread = $state<Record<string, string>>({})

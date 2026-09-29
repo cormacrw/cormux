@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import {
     app,
     findings,
@@ -11,6 +11,7 @@
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
+  import { createEntryScope, liveReplyId } from '$lib/thread/entering'
   import { liveSubtitle, liveTitle } from '$lib/thread/map-events-to-timeline'
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
   import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
@@ -34,9 +35,13 @@
   // Whether the reader is at the bottom; streamed replies grow a row without adding one,
   // so follow height changes while pinned instead of only on new rows.
   let pinnedToBottom = true
+  // The last scrollTop we saw or set, and when the reader last touched the thread. Only the
+  // reader moving up unpins: the virtual list also moves scrollTop up when rows re-measure.
+  let lastScrollTop = 0
+  let readerInputAt = 0
+  const READER_INPUT_MS = 500
   let announceText = $state('')
   let nowMs = $state(Date.now())
-  let isNewIds = $state<Record<string, true>>({})
   let prevItemCount = $state(0)
   let prevThreadId = $state<string | null>(null)
   let scrollToEndNext = $state(true)
@@ -66,6 +71,15 @@
   )
 
   const useVirtual = $derived(rows.length > 150)
+  const typingReplyId = $derived(liveReplyId(items))
+
+  // Snapshot what the thread already shows when it opens; only rows after that animate.
+  // The thread object is replaced on every status change, so depend on the id alone.
+  const threadId = $derived(thread.id)
+  const entries = $derived.by(() => {
+    void threadId
+    return untrack(() => createEntryScope(rows))
+  })
 
   const liveRowTitle = $derived(
     liveTitle({
@@ -109,22 +123,23 @@
       pinnedToBottom = true
       scrollToEndNext = true
       prevItemCount = 0
-      isNewIds = {}
     }
+  })
+
+  // Every chunk changes the items; resize notifications alone can be dropped.
+  $effect(() => {
+    void items
+    untrack(() => {
+      if (pinnedToBottom) keepFollowing()
+    })
   })
 
   $effect(() => {
     const count = items.length
     if (count > prevItemCount && prevItemCount > 0) {
-      const fresh: Record<string, true> = {}
-      for (let i = prevItemCount; i < count; i += 1) {
-        const item = items[i]
-        if (item && item.kind !== 'live') fresh[item.id] = true
-      }
-      isNewIds = fresh
       const text = newestAgentAnnouncement(items, thread.role)
       if (text) announceText = text
-      if (pinnedToBottom) scrollToEndNext = true
+      if (stillFollowing()) scrollToEndNext = true
     }
     prevItemCount = count
   })
@@ -139,8 +154,9 @@
   $effect(() => {
     if (!scrollToEndNext || !scrollEl) return
     queueMicrotask(() => {
-      scrollEl!.scrollTop = scrollEl!.scrollHeight
+      followToEnd(scrollEl!)
       scrollToEndNext = false
+      keepFollowing()
     })
   })
 
@@ -156,17 +172,57 @@
     const content = contentEl
     if (!scroller || !content) return
     const onScroll = () => {
-      pinnedToBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80
+      pinnedToBottom = !readerScrolledUp(scroller)
+      lastScrollTop = scroller.scrollTop
     }
-    const observer = new ResizeObserver(() => {
-      if (pinnedToBottom) scroller.scrollTop = scroller.scrollHeight
-    })
+    const onReaderInput = () => {
+      readerInputAt = performance.now()
+    }
+    const inputs = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const
     scroller.addEventListener('scroll', onScroll, { passive: true })
-    observer.observe(content)
+    for (const name of inputs) {
+      scroller.addEventListener(name, onReaderInput, { passive: true })
+    }
+    followObserver.observe(content)
     return () => {
       scroller.removeEventListener('scroll', onScroll)
-      observer.disconnect()
+      for (const name of inputs) scroller.removeEventListener(name, onReaderInput)
+      followObserver.unobserve(content)
     }
+  })
+
+  // Follows the end as content grows. Virtual rows are positioned absolutely, so a row that
+  // grows (a reply typing out) can outrun the list's measured height; they're observed too.
+  const followObserver = new ResizeObserver(() => keepFollowing())
+
+  // WebKit drops resize notifications when rows re-measure in the same frame, so once
+  // something grows, re-check every frame until the end has held still for a moment.
+  const SETTLE_FRAMES = 30
+  let followFrame = 0
+  let stillFrames = 0
+
+  function keepFollowing() {
+    stillFrames = 0
+    if (!followFrame) followFrame = requestAnimationFrame(followStep)
+  }
+
+  function followStep() {
+    followFrame = 0
+    const scroller = scrollEl
+    if (!scroller || !stillFollowing()) return
+    const behind = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
+    if (behind > 1) {
+      followToEnd(scroller)
+      stillFrames = 0
+    } else {
+      stillFrames += 1
+    }
+    if (stillFrames < SETTLE_FRAMES) followFrame = requestAnimationFrame(followStep)
+  }
+
+  onDestroy(() => {
+    followObserver.disconnect()
+    cancelAnimationFrame(followFrame)
   })
 
   onMount(() => {
@@ -176,9 +232,30 @@
     return () => clearInterval(timer)
   })
 
+  function followToEnd(scroller: HTMLElement) {
+    scroller.scrollTop = scroller.scrollHeight
+    lastScrollTop = scroller.scrollTop
+  }
+
+  function readerScrolledUp(scroller: HTMLElement) {
+    const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+    if (gap < 80) return false
+    if (!pinnedToBottom) return true
+    const byReader = performance.now() - readerInputAt < READER_INPUT_MS
+    return byReader && scroller.scrollTop < lastScrollTop - 1
+  }
+
+  // Checked before the scroll event lands, so a row arriving right after the reader
+  // scrolls up doesn't pull them back down.
+  function stillFollowing() {
+    return pinnedToBottom && (!scrollEl || !readerScrolledUp(scrollEl))
+  }
+
   // Measure real row heights (and re-measure on resize) instead of the 96px estimate.
   function measureRow(node: HTMLElement) {
     $virtualizer.measureElement(node)
+    followObserver.observe(node)
+    return { destroy: () => followObserver.unobserve(node) }
   }
 
   function openFindingsTab() {
@@ -225,7 +302,8 @@
                     liveTitle={liveRowTitle}
                     liveSubtitle={liveRowSubtitle}
                     paused={thread.paused}
-                    {isNewIds}
+                    {entries}
+                    liveReplyId={typingReplyId}
                     onOpenFindings={openFindingsTab}
                     onFocusComposer={() => focusComposer?.()}
                   />
@@ -243,7 +321,8 @@
             liveTitle={liveRowTitle}
             liveSubtitle={liveRowSubtitle}
             paused={thread.paused}
-            {isNewIds}
+            {entries}
+            liveReplyId={typingReplyId}
             onOpenFindings={openFindingsTab}
             onFocusComposer={() => focusComposer?.()}
           />

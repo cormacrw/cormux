@@ -10,13 +10,16 @@
     formatThreadTimeTitle,
   } from '$lib/thread/thread-time'
   import type {
+    TimelineItem,
     TimelineRow,
     ToolRunStep,
     ToolStepIcon,
   } from '$lib/thread/timeline-types'
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
+  import { popIn, type EntryScope } from '$lib/thread/entering'
   import { cn } from '$lib/utils'
   import AgentSpinner from './AgentSpinner.svelte'
+  import StreamingText from './StreamingText.svelte'
   import { openDiffForPath } from './open-changes'
   import ApprovalCard from './ApprovalCard.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
@@ -43,7 +46,8 @@
     liveTitle,
     liveSubtitle,
     paused,
-    isNewIds = {},
+    entries,
+    liveReplyId = null,
     onOpenFindings,
     onFocusComposer,
   }: {
@@ -55,7 +59,10 @@
     liveTitle: string
     liveSubtitle: string
     paused: boolean
-    isNewIds: Record<string, true>
+    /** Rows new to this thread pop in and replies type out; omit to render without motion. */
+    entries?: EntryScope
+    /** The reply the agent is still writing keeps its typing cursor. */
+    liveReplyId?: string | null
     onOpenFindings: () => void
     onFocusComposer?: () => void
   } = $props()
@@ -91,6 +98,11 @@
     const prevLabels =
       prev?.kind === 'tool' ? (prev.chips ?? []).map((chip) => chip.label) : []
     return (step.chips ?? []).filter((chip) => !prevLabels.includes(chip.label))
+  }
+
+  // A tool run's steps pop one by one, a reply types in, and the live row has its own motion.
+  function popsAsRow(kind: TimelineItem['kind']) {
+    return kind !== 'toolRun' && kind !== 'thought' && kind !== 'live'
   }
 
   function timeLabel(atMs: number) {
@@ -166,6 +178,7 @@
     <li
       class="flex items-center gap-2 py-1 text-xs text-muted-foreground"
       aria-hidden="true"
+      use:popIn={{ entries, key: row.id }}
     >
       <span
         class="flex size-5 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold"
@@ -185,13 +198,16 @@
     </li>
   {:else}
     {@const item = row.item}
-    {@const isNew = Boolean(isNewIds[item.id])}
     <li
       class={cn(
         'py-1',
-        isNew && 'animate-in fade-in duration-300',
         item.kind === 'user' && 'flex flex-col items-end gap-1',
       )}
+      use:popIn={{
+        entries,
+        key: popsAsRow(item.kind) ? item.id : undefined,
+        origin: item.kind === 'user' ? 'right bottom' : undefined,
+      }}
     >
       {#if item.kind === 'user'}
         <div class="group relative max-w-[min(100%,34rem)]">
@@ -232,26 +248,33 @@
             {/if}
           </summary>
           <div
-            class="mt-1 border-l-2 border-border pl-3 text-sm leading-5 text-muted-foreground [&_p]:my-0 [&_p+p]:mt-2"
+            class="mt-1 border-l-2 border-border pl-3 text-sm text-muted-foreground"
           >
             <ThoughtMarkdown text={item.text} />
           </div>
         </details>
       {:else if item.kind === 'thought'}
-        <div class="group relative max-w-[42rem]">
-          <div
-            class="text-sm leading-5 text-foreground [&_p]:my-0 [&_p+p]:mt-2"
-          >
-            <ThoughtMarkdown text={item.text} />
+        <div class="group max-w-[42rem]">
+          <div class="text-sm text-foreground">
+            <StreamingText
+              text={item.text}
+              {entries}
+              key={item.id}
+              live={item.id === liveReplyId}
+            />
           </div>
-          <button
-            type="button"
-            class="absolute top-0 right-0 inline-flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-            aria-label="Copy message"
-            onclick={() => copyText(item.text)}
-          >
-            <Copy class="size-3" aria-hidden="true" />
-          </button>
+          <!-- Under the reply, not over it, so it never covers the last words of a line. -->
+          <div class="mt-1 flex h-5 items-center">
+            <button
+              type="button"
+              class="inline-flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+              aria-label="Copy message"
+              title="Copy message"
+              onclick={() => copyText(item.text)}
+            >
+              <Copy class="size-3" aria-hidden="true" />
+            </button>
+          </div>
         </div>
       {:else if item.kind === 'toolRun'}
         <div class="space-y-1.5">
@@ -264,6 +287,7 @@
                   <li
                     class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
                     title={timeTitle(step.atMs)}
+                    use:popIn={{ entries, key: step.id }}
                   >
                     <Icon class="size-3 shrink-0" aria-hidden="true" />
                     {#if step.kind === 'tool'}
@@ -312,7 +336,10 @@
                   <ul class="divide-y divide-border/60">
                     {#each segment.steps as step (step.id)}
                       {@const Icon = stepIcon(step)}
-                      <li class="flex items-start gap-3 px-3 py-2 text-sm">
+                      <li
+                        class="flex items-start gap-3 px-3 py-2 text-sm"
+                        use:popIn={{ entries, key: step.id }}
+                      >
                         <span
                           class={cn(
                             'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-muted/60',

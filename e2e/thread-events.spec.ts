@@ -35,7 +35,8 @@ test('New session keeps the log and adds a marker; ⌘L does the same', async ({
 
   await page.locator('#composer-input').fill('Fresh question')
   await page.keyboard.press('Enter')
-  await expect(timeline.getByText(/done\.$/).last()).toBeVisible()
+  // Replies type out after they stream in, so the last words land a few seconds later.
+  await expect(timeline.getByText(/done\.$/).last()).toBeVisible({ timeout: 20_000 })
   await expect(button).toBeEnabled()
   await page.keyboard.press('ControlOrMeta+l')
   await expect(markers).toHaveCount(2)

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
   import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
@@ -15,6 +15,7 @@
   import { scratchStatus, type Scratch } from '$lib/state/scratches.svelte'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
+  import { createEntryScope, liveReplyId } from '$lib/thread/entering'
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
   import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
   import ScratchStatusBadge from './ScratchStatusBadge.svelte'
@@ -64,7 +65,6 @@
   let focusComposer = $state<(() => void) | null>(null)
   let announceText = $state('')
   let nowMs = $state(Date.now())
-  let isNewIds = $state<Record<string, true>>({})
   let prevItemCount = 0
   let prevThreadId: string | null = null
   let scrollToEnd = $state(true)
@@ -82,24 +82,25 @@
     })
   })
 
-  // Only items added while this scratch is on screen animate and get announced.
+  // Snapshot what the scratch already shows when it opens; only rows after that animate.
+  // The thread object is replaced on every status change, so depend on the id alone.
+  const threadId = $derived(thread?.id)
+  const entries = $derived.by(() => {
+    void threadId
+    return untrack(() => createEntryScope(rows))
+  })
+
+  // Only items added while this scratch is on screen get announced.
   $effect(() => {
     const count = items.length
     const id = thread?.id ?? null
     if (id !== prevThreadId) {
       prevThreadId = id
       prevItemCount = count
-      isNewIds = {}
       scrollToEnd = true
       return
     }
     if (count > prevItemCount) {
-      const fresh: Record<string, true> = {}
-      for (let i = prevItemCount; i < count; i += 1) {
-        const item = items[i]
-        if (item && item.kind !== 'live') fresh[item.id] = true
-      }
-      isNewIds = fresh
       const text = newestAgentAnnouncement(items, engineName)
       if (text) announceText = text
       scrollToEnd = true
@@ -200,7 +201,8 @@
             {liveTitle}
             {liveSubtitle}
             paused={thread.paused}
-            {isNewIds}
+            {entries}
+            liveReplyId={liveReplyId(items)}
             onOpenFindings={() => {}}
             onFocusComposer={() => focusComposer?.()}
           />

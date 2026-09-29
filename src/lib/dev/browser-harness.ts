@@ -139,13 +139,25 @@ export function installBrowserHarness() {
       callbacks.get(channel.id)?.({ index: channel.index++, message: event })
     }
     persist('message', { type: 'messageChunk', role: 'user', text })
-    const words = `Reply to "${text}": ${'streamed word '.repeat(40)}done.`.split(' ')
+    // One tool call first, the way agents read before they answer.
+    setTimeout(() => {
+      const read = { type: 'toolCall', id: `harness-read-${seq}`, title: 'Read', name: null, kind: 'read', status: 'completed', locations: ['src/lib/auth.ts'], detail: 'src/lib/auth.ts' }
+      persist('tool', read)
+      send(read)
+    }, 40)
+    // `?slowReply=1` streams a long reply at a real agent's pace instead of a quick one.
+    const slow = new URLSearchParams(window.location.search).has('slowReply')
+    const wordMs = slow ? 40 : 10
+    const body = slow
+      ? Array.from({ length: 12 }, (_, n) => `Paragraph ${n + 1}: ${'streamed word '.repeat(25)}`).join('\n\n')
+      : 'streamed word '.repeat(40)
+    const words = `Reply to "${text}": ${body}done.`.split(' ')
     words.forEach((word, i) => {
       setTimeout(() => {
         const event = { type: 'messageChunk', role: 'agent', text: `${i ? ' ' : ''}${word}` }
         persist('message', event)
         send(event)
-      }, 50 + i * 10)
+      }, 50 + i * wordMs)
     })
     setTimeout(() => {
       const end = { type: 'turnEnd', stop_reason: 'end_turn', error: null }
@@ -154,7 +166,7 @@ export function installBrowserHarness() {
       const lead = fixtureSnapshot.persisted.threads.find((row) => row.id === threadId)
       if (lead) lead.status = 'idle'
       emitStateChanged()
-    }, 80 + words.length * 10)
+    }, 80 + words.length * wordMs)
   }
 
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {

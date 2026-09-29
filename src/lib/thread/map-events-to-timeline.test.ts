@@ -1,16 +1,11 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   mapEventsToTimeline,
-  resetTimelineIdCounter,
   shouldShowLiveRow,
 } from './map-events-to-timeline'
 import { agentEventsForThread } from './parse-agent-event'
 
 describe('mapEventsToTimeline', () => {
-  beforeEach(() => {
-    resetTimelineIdCounter()
-  })
-
   it('coalesces user and agent message chunks', () => {
     const items = mapEventsToTimeline({
       events: [

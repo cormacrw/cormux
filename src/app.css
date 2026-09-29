@@ -255,6 +255,79 @@
 }
 
 /*
+ * Agent replies and thoughts rendered from markdown. There's no typography plugin, so lists,
+ * spacing and code blocks are styled here.
+ */
+.agent-markdown {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.agent-markdown > * + * {
+  margin-top: 0.75em;
+}
+
+.agent-markdown :is(ul, ol) {
+  padding-left: 1.5em;
+}
+
+.agent-markdown ul {
+  list-style: disc;
+}
+
+.agent-markdown ol {
+  list-style: decimal;
+}
+
+.agent-markdown li + li,
+.agent-markdown li > :is(ul, ol, p + p) {
+  margin-top: 0.5em;
+}
+
+.agent-markdown li::marker {
+  color: var(--muted-foreground);
+}
+
+.agent-markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.agent-markdown code {
+  border-radius: calc(var(--radius) * 0.6);
+  background: var(--muted);
+  padding: 0.1em 0.3em;
+  font-size: var(--code-font-size);
+}
+
+.agent-markdown pre {
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  padding: 0.75em 1em;
+  line-height: 1.5;
+}
+
+.agent-markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+.agent-markdown blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.75em;
+  color: var(--muted-foreground);
+}
+
+.agent-markdown .type-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--muted-foreground);
+  line-height: 1;
+}
+
+/*
  * The agent's Working row: AgentSpinner beats on this cycle and the label fades with it,
  * brightest on the two beats (10% and 30%) and dimmest while the dot rests.
  */

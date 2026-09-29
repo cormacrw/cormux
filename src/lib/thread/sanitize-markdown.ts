@@ -20,7 +20,8 @@ const ALLOWED = {
     'a',
     'blockquote',
   ],
-  ALLOWED_ATTR: ['href', 'rel', 'target'],
+  // `start` keeps a list the agent continues (16., 17., …) from renumbering at 1.
+  ALLOWED_ATTR: ['href', 'rel', 'target', 'start'],
 }
 
 export function renderSanitizedMarkdown(source: string): string {

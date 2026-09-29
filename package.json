@@ -29,6 +29,7 @@
     "@tauri-apps/plugin-opener": "^2.6.0",
     "anser": "^2.3.5",
     "dompurify": "^3.4.16",
+    "gsap": "^3.15.0",
     "marked": "^18.0.14",
     "paneforge": "^1.0.2"
   },

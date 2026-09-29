@@ -23,14 +23,19 @@ const SCRATCH_CHIP: TimelineChip = {
   tone: 'muted',
 }
 
-let syntheticId = 0
-function nextId(prefix: string): string {
-  syntheticId += 1
-  return `${prefix}-${syntheticId}`
-}
+type NextId = (prefix: string) => string
 
-export function resetTimelineIdCounter() {
-  syntheticId = 0
+/**
+ * Ids count items of each kind (the 3rd user message is `user-3`), so a rebuild after a
+ * new chunk or a reload from the store gives every row the same key and it stays mounted.
+ */
+function ordinalIds(): NextId {
+  const counts = new Map<string, number>()
+  return (prefix) => {
+    const next = (counts.get(prefix) ?? 0) + 1
+    counts.set(prefix, next)
+    return `${prefix}-${next}`
+  }
 }
 
 function iconForTool(kind: ToolKind, title: string): ToolStepIcon {
@@ -203,7 +208,12 @@ function commandStep(
   }
 }
 
-function flushRun(run: ToolRunStep[], items: TimelineItem[], seq: number) {
+function flushRun(
+  run: ToolRunStep[],
+  items: TimelineItem[],
+  seq: number,
+  nextId: NextId,
+) {
   if (!run.length) return
   items.push({
     kind: 'toolRun',
@@ -212,12 +222,6 @@ function flushRun(run: ToolRunStep[], items: TimelineItem[], seq: number) {
     seq,
   })
   run.length = 0
-}
-
-function pushBeforeLive(items: TimelineItem[], item: TimelineItem) {
-  const liveIdx = items.findIndex((row) => row.kind === 'live')
-  if (liveIdx === -1) items.push(item)
-  else items.splice(liveIdx, 0, item)
 }
 
 type TimelineEvent = MapTimelineInput['events'][number]
@@ -262,6 +266,7 @@ function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
 
 export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
   const items: TimelineItem[] = []
+  const nextId = ordinalIds()
   const run: ToolRunStep[] = []
   let runSeq = 0
   let pendingAutoChip: TimelineChip | undefined
@@ -270,14 +275,14 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
   for (const { seq, atMs = 0, event } of mergeToolUpdates(input.events)) {
     switch (event.type) {
       case 'messageChunk': {
-        flushRun(run, items, runSeq)
+        flushRun(run, items, runSeq, nextId)
         if (event.role === 'user') {
           const last = items[items.length - 1]
           if (!sealMessage && last?.kind === 'user') {
             last.text += event.text
             last.seq = seq
           } else {
-            pushBeforeLive(items, {
+            items.push({
               kind: 'user',
               id: nextId('user'),
               text: event.text,
@@ -293,7 +298,7 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
             last.text += event.text
             last.seq = seq
           } else {
-            pushBeforeLive(items, {
+            items.push({
               kind: 'thought',
               id: nextId('thought'),
               role,
@@ -308,8 +313,8 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
       }
       case 'toolCall': {
         if (isAppEvent(event)) {
-          flushRun(run, items, runSeq)
-          pushBeforeLive(items, {
+          flushRun(run, items, runSeq, nextId)
+          items.push({
             kind: 'event',
             id: event.id,
             icon: iconForAppEvent(event.title),
@@ -334,8 +339,8 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
         break
       }
       case 'plan': {
-        flushRun(run, items, runSeq)
-        pushBeforeLive(items, {
+        flushRun(run, items, runSeq, nextId)
+        items.push({
           kind: 'plan',
           id: nextId('plan'),
           steps: event.entries.map((entry) => entry.content),
@@ -345,16 +350,14 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
         break
       }
       case 'permission': {
-        flushRun(run, items, runSeq)
+        flushRun(run, items, runSeq, nextId)
         if (event.auto_approved) {
           pendingAutoChip = input.scratch
             ? SCRATCH_CHIP
             : { label: 'Read-only, auto-approved', tone: 'muted' }
           break
         }
-        pushBeforeLive(
-          items,
-          approvalFromPermission(event, seq, atMs, input.approvals),
+        items.push(approvalFromPermission(event, seq, atMs, input.approvals),
         )
         break
       }
@@ -363,13 +366,13 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
       case 'usage':
       case 'turnEnd':
       case 'engineExited':
-        flushRun(run, items, runSeq)
+        flushRun(run, items, runSeq, nextId)
         sealMessage = true
         break
     }
   }
 
-  flushRun(run, items, runSeq)
+  flushRun(run, items, runSeq, nextId)
 
   // Cursor streams the answer inside the thought, then again as the reply.
   const visible = items.filter((item, index) => {
@@ -385,9 +388,9 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
   items.push(...visible)
 
   if (input.findingsReady) {
-    pushBeforeLive(items, {
+    items.push({
       kind: 'findings',
-      id: nextId('findings'),
+      id: 'findings',
       seq: input.events.at(-1)?.seq ?? 0,
     })
   }
