@@ -5,7 +5,7 @@
   import type { DiffFile } from '$lib/ipc/bindings'
   import { diffComments, type DiffComment } from '$lib/changes/diff-comments.svelte'
   import { toDiffViewData } from '$lib/changes/diff-view-data'
-  import { workspaceUi } from '$lib/state'
+  import { appearance, workspaceUi } from '$lib/state'
   import { Button } from '$lib/components/ui/button'
   import { Textarea } from '$lib/components/ui/textarea'
   import X from '@lucide/svelte/icons/x'
@@ -70,7 +70,7 @@
     diffViewTheme={theme.current === 'light' ? 'light' : 'dark'}
     diffViewHighlight
     diffViewAddWidget
-    diffViewFontSize={12}
+    diffViewFontSize={appearance.codeFontSize}
   >
     {#snippet renderWidgetLine({ lineNumber, side, diffFile, onClose })}
       {@const key = draftKey(side, lineNumber)}

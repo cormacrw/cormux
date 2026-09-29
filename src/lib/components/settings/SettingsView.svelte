@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import AgentsSettings from '$lib/components/settings/AgentsSettings.svelte'
+  import AppearanceSettings from '$lib/components/settings/AppearanceSettings.svelte'
   import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte'
   import GithubSettings from '$lib/components/settings/GithubSettings.svelte'
   import NotificationsSettings from '$lib/components/settings/NotificationsSettings.svelte'
@@ -61,8 +62,7 @@
   function updateActiveSection() {
     const root = scrollRoot
     if (!root) return
-    const atBottom =
-      root.scrollHeight - root.scrollTop - root.clientHeight < 8
+    const atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 8
     const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'skills'
     if (atBottom) {
       activeSection = last
@@ -90,7 +90,9 @@
     class="min-h-0 flex-1 overflow-y-auto"
     onscroll={updateActiveSection}
   >
-    <div class="set-inner mx-auto flex w-full max-w-3xl flex-col gap-6 p-6 min-[761px]:max-w-4xl min-[761px]:flex-row min-[761px]:items-start min-[761px]:gap-10">
+    <div
+      class="set-inner mx-auto flex w-full max-w-3xl flex-col gap-6 p-6 min-[761px]:max-w-4xl min-[761px]:flex-row min-[761px]:items-start min-[761px]:gap-10"
+    >
       <SettingsSectionNav active={activeSection} onJump={jumpTo} />
 
       <div class="set-sections min-w-0 flex-1 space-y-10 pb-10">
@@ -154,6 +156,24 @@
           />
           <div class="mt-4">
             <GeneralSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'appearance'}
+          id={settingsSectionDomId('appearance')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-appearance-h"
+          data-od-id="settings-appearance"
+        >
+          <SettingsSectionHead
+            id="settings-appearance-h"
+            title="Appearance"
+            description="Theme, primary color and text sizes on this Mac."
+          />
+          <div class="mt-4">
+            <AppearanceSettings />
           </div>
         </section>
 

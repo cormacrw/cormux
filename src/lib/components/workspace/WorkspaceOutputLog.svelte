@@ -22,7 +22,7 @@
   aria-label="App output"
   tabindex="0"
   aria-live="off"
-  class="h-full min-h-[12rem] overflow-auto rounded-md border border-border bg-muted/20 p-3 font-mono text-[12.5px] leading-5"
+  class="h-full min-h-[12rem] overflow-auto rounded-md border border-border bg-muted/20 p-3 font-mono text-(length:--code-font-size) leading-[1.6]"
   data-od-id="output-log"
   onscroll={onScroll}
 >

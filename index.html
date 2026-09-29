@@ -4,17 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cormux</title>
-    <!-- Pick the theme and paint its background before app.css loads so boot doesn't flash. -->
+    <!-- Apply Settings > Appearance and paint the background before app.css loads so boot doesn't flash. -->
     <script>
-      // Same key and values ModeWatcher persists from Settings > Appearance.
-      const saved = localStorage.getItem('mode-watcher-mode')
-      const mode = saved === 'light' || saved === 'dark' ? saved : 'system'
-      if (
-        mode === 'dark' ||
-        (mode === 'system' &&
-          matchMedia('(prefers-color-scheme: dark)').matches)
-      ) {
-        document.documentElement.classList.add('dark')
+      {
+        // Keys and values match mode-watcher and src/lib/state/appearance.svelte.ts.
+        const read = (key) => {
+          try {
+            return localStorage.getItem(key)
+          } catch {
+            return null
+          }
+        }
+        const root = document.documentElement
+        const saved = read('mode-watcher-mode')
+        const mode = saved === 'light' || saved === 'dark' ? saved : 'system'
+        if (
+          mode === 'dark' ||
+          (mode === 'system' &&
+            matchMedia('(prefers-color-scheme: dark)').matches)
+        ) {
+          root.classList.add('dark')
+        }
+        const accent = read('cormux-accent')
+        if (accent && accent !== 'neutral') root.dataset.accent = accent
+        const uiSize = Number(read('cormux-ui-font-size'))
+        if (uiSize >= 14 && uiSize <= 18) root.style.fontSize = uiSize + 'px'
+        const codeSize = Number(read('cormux-code-font-size'))
+        if (codeSize >= 11 && codeSize <= 16) {
+          root.style.setProperty('--code-font-size', codeSize + 'px')
+        }
       }
     </script>
     <style>

@@ -21,7 +21,8 @@
   --card-foreground: oklch(0.205 0.006 265);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.205 0.006 265);
-  --primary: oklch(0.215 0.006 265);
+  --swatch-neutral: oklch(0.215 0.006 265);
+  --primary: var(--swatch-neutral);
   --primary-foreground: oklch(0.985 0.002 265);
   --secondary: oklch(0.94 0.003 265);
   --secondary-foreground: oklch(0.205 0.006 265);
@@ -65,7 +66,8 @@
   --card-foreground: oklch(0.955 0.003 265);
   --popover: oklch(0.205 0.006 265);
   --popover-foreground: oklch(0.955 0.003 265);
-  --primary: oklch(0.945 0.003 265);
+  --swatch-neutral: oklch(0.945 0.003 265);
+  --primary: var(--swatch-neutral);
   --primary-foreground: oklch(0.185 0.005 265);
   --secondary: oklch(0.235 0.006 265);
   --secondary-foreground: oklch(0.955 0.003 265);
@@ -96,6 +98,53 @@
   --sidebar-accent-foreground: oklch(0.955 0.003 265);
   --sidebar-border: oklch(1 0 0 / 6%);
   --sidebar-ring: oklch(0.72 0.14 250);
+}
+
+/*
+ * Primary colour picked in Settings > Appearance (data-accent on <html>).
+ * Graphite is the default and follows the theme via --swatch-neutral; the
+ * others keep white text readable in both themes, except gold, which takes dark text. Swatches in the picker
+ * read these same variables.
+ */
+:root {
+  --code-font-size: 12px;
+
+  --swatch-blue: oklch(0.56 0.19 257);
+  --swatch-violet: oklch(0.55 0.21 292);
+  --swatch-green: oklch(0.56 0.14 155);
+  --swatch-gold: oklch(0.8 0.15 85);
+  --swatch-orange: oklch(0.61 0.18 45);
+  --swatch-rose: oklch(0.58 0.2 15);
+}
+
+:root[data-accent] {
+  --primary-foreground: oklch(0.985 0 0);
+}
+
+:root[data-accent='blue'] {
+  --primary: var(--swatch-blue);
+}
+
+:root[data-accent='violet'] {
+  --primary: var(--swatch-violet);
+}
+
+:root[data-accent='green'] {
+  --primary: var(--swatch-green);
+}
+
+:root[data-accent='gold'] {
+  --primary: var(--swatch-gold);
+  /* Too light for white text. */
+  --primary-foreground: oklch(0.22 0.03 75);
+}
+
+:root[data-accent='orange'] {
+  --primary: var(--swatch-orange);
+}
+
+:root[data-accent='rose'] {
+  --primary: var(--swatch-rose);
 }
 
 @theme inline {

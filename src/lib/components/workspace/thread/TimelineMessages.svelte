@@ -323,7 +323,7 @@
                                   >Details</summary
                                 >
                                 <pre
-                                  class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px]">{step.rawDetail}</pre>
+                                  class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-(length:--code-font-size)">{step.rawDetail}</pre>
                               </details>
                             {/if}
                           {/if}

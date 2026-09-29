@@ -19,7 +19,7 @@
 </script>
 
 <div
-  class="prose prose-sm dark:prose-invert max-w-none [&_a]:text-primary [&_p]:my-0 [&_p+p]:mt-2 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1"
+  class="prose prose-sm dark:prose-invert max-w-none [&_a]:text-primary [&_p]:my-0 [&_p+p]:mt-2 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_pre]:text-(length:--code-font-size)"
   onclick={handleClick}
   role="presentation"
 >

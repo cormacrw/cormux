@@ -2,6 +2,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'agents', label: 'Agents' },
   { id: 'repos', label: 'Repos' },
   { id: 'general', label: 'General' },
+  { id: 'appearance', label: 'Appearance' },
   { id: 'github', label: 'GitHub' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'skills', label: 'Skills' },
