@@ -61,15 +61,6 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
     }
     if (closeOpenPopover?.()) {
       event.preventDefault()
-      return
-    }
-    if (
-      app.view === 'workspace' &&
-      workspaceUi.changesOpen &&
-      !dialogBlocksShortcuts()
-    ) {
-      event.preventDefault()
-      workspaceUi.changesOpen = false
     }
   }
 }

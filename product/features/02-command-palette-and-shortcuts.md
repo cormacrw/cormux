@@ -74,7 +74,6 @@ Run and Restart first open the workspace, then perform the action. Stop acts wit
 | `⌘N` / `Ctrl+N` | Anywhere | Open the New workspace dialog. |
 | `Ctrl+\`` | Workspace view, no dialog open | Toggle between the Output tab and the tab you came from. |
 | `Esc` | A popover is open | Close the popover and return focus to its trigger. |
-| `Esc` | Workspace view, Changes panel open, no dialog open | Close the Changes panel. |
 | `←` `→` `Home` `End` | Focus on a workspace tab | Move between thread, Findings and Output tabs. |
 | `↵` / `⇧↵` | Composer | Send / new line. |
 | `⌘↵` / `Ctrl+↵` | New workspace Initial Prompt, Create PR reason | Submit the form. |

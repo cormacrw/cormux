@@ -5,11 +5,9 @@
   import {
     repos,
     threads,
-    workspaceDiff,
     workspaceRecords,
     workspaceUi,
   } from '$lib/state'
-  import { formatChangeCounts } from '$lib/workspace/diff-totals'
   import {
     rememberHeaderFocusKey,
     restoreHeaderFocus,
@@ -21,7 +19,6 @@
   import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte'
   import WorkspacePrimaryAction from './WorkspacePrimaryAction.svelte'
   import WorkspaceRunControls from './WorkspaceRunControls.svelte'
-  import File from '@lucide/svelte/icons/file'
   import Pencil from '@lucide/svelte/icons/pencil'
 
   let {
@@ -45,9 +42,6 @@
     provisioning || workspace.lifecycle === 'provisioningFailed',
   )
 
-  const diffTotals = $derived(workspaceDiff.totals(workspace.id))
-  const changeCountLabel = $derived(formatChangeCounts(diffTotals))
-
   const headerSignature = $derived(
     [
       workspace.name,
@@ -61,9 +55,7 @@
       runtime.behind,
       runtime.ahead,
       runtime.conflict,
-      workspaceUi.changesOpen,
       workspaceUi.activeTab,
-      changeCountLabel,
     ].join('|'),
   )
 
@@ -84,10 +76,6 @@
 
   function onTitleFocus() {
     rememberHeaderFocusKey('title')
-  }
-
-  function toggleChanges() {
-    workspaceUi.changesOpen = !workspaceUi.changesOpen
   }
 
   function startHeaderDrag(event: MouseEvent) {
@@ -148,25 +136,6 @@
         repoId={record?.repoId ?? ''}
         {runDisabled}
       />
-
-      <Button
-        variant="secondary"
-        size="sm"
-        class="gap-2"
-        aria-pressed={workspaceUi.changesOpen}
-        aria-controls="changes"
-        data-ws-focus="changes"
-        data-od-id="ws-changes-toggle"
-        onclick={toggleChanges}
-      >
-        <File class="size-4" aria-hidden="true" />
-        Changes
-        {#if changeCountLabel}
-          <span class="font-mono text-xs text-muted-foreground">
-            {changeCountLabel}
-          </span>
-        {/if}
-      </Button>
     {/if}
 
     <WorkspaceMoreMenu
@@ -177,7 +146,6 @@
       worktreePath={record?.worktreePath ?? ''}
       {narrow}
       {runDisabled}
-      {changeCountLabel}
       {onRename}
     />
 

@@ -1,4 +1,4 @@
-import { fixtureEngines, fixtureSnapshot } from './fixture-snapshot'
+import { fixtureDiff, fixtureEngines, fixtureSnapshot } from './fixture-snapshot'
 
 type InvokeArgs = Record<string, unknown> | undefined
 
@@ -80,6 +80,11 @@ export function installBrowserHarness() {
     if (cmd === 'detect_engines') return fixtureEngines
     if (cmd === 'list_repo_branches') {
       return { branches: ['main', 'develop', 'feat/oauth-login'] }
+    }
+    if (cmd === 'subscribe_diffs' && args.workspaceId === fixtureDiff.workspaceId) {
+      const channel = args.channel as { id: number }
+      queueMicrotask(() => callbacks.get(channel.id)?.({ index: 0, message: { workspaceId: fixtureDiff.workspaceId, path: '', diff: fixtureDiff } }))
+      return nextEventId++
     }
     if (cmd === 'get_metrics') return fixtureSnapshot.memory
     if (cmd === 'set_setting') return null

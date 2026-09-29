@@ -23,7 +23,6 @@
   import Upload from '@lucide/svelte/icons/upload'
   import Ellipsis from '@lucide/svelte/icons/ellipsis'
   import ExternalLink from '@lucide/svelte/icons/external-link'
-  import File from '@lucide/svelte/icons/file'
   import FolderOpen from '@lucide/svelte/icons/folder-open'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import Pencil from '@lucide/svelte/icons/pencil'
@@ -43,7 +42,6 @@
     worktreePath,
     narrow = false,
     runDisabled = false,
-    changeCountLabel = null as string | null,
     onRename,
   }: {
     workspaceId: string
@@ -53,7 +51,6 @@
     worktreePath: string
     narrow?: boolean
     runDisabled?: boolean
-    changeCountLabel?: string | null
     onRename: () => void
   } = $props()
 
@@ -105,12 +102,6 @@
 
   function requestRebase() {
     closeAndRun(() => rebaseWorkspace(workspaceId))
-  }
-
-  function toggleChanges() {
-    closeAndRun(() => {
-      workspaceUi.changesOpen = !workspaceUi.changesOpen
-    })
   }
 
   function toggleOutput() {
@@ -169,18 +160,6 @@
             Stop app
           </DropdownMenu.Item>
         {/if}
-        <DropdownMenu.Item
-          aria-pressed={workspaceUi.changesOpen}
-          onclick={toggleChanges}
-        >
-          <File class="size-4" aria-hidden="true" />
-          Changes
-          {#if changeCountLabel}
-            <span class="ml-auto font-mono text-xs text-muted-foreground">
-              {changeCountLabel}
-            </span>
-          {/if}
-        </DropdownMenu.Item>
       </DropdownMenu.Group>
       <DropdownMenu.Separator />
     {/if}

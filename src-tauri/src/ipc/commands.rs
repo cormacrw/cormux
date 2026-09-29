@@ -617,11 +617,14 @@ pub fn subscribe_pty(
 /// High-volume ordered stream of live diff updates for a worktree.
 #[tauri::command]
 #[specta::specta]
-pub fn subscribe_diffs(
+pub async fn subscribe_diffs(
     workspace_id: String,
     channel: Channel<DiffUpdate>,
     state: State<'_, AppState>,
 ) -> Result<u32> {
+    if let Err(error) = crate::git_workspace::load_workspace(&state, &workspace_id).await {
+        log::warn!("diff watch for {workspace_id} failed: {error}");
+    }
     let diffs = state.diffs.clone();
     let sub = state.subscriptions.register();
     let id = sub.id;
@@ -653,20 +656,35 @@ pub async fn refresh_workspace_diff(
 ) -> Result<()> {
     use std::path::Path;
 
-    let workspace = state
-        .workspace
-        .get(&workspace_id)
-        .await
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    let workspace = crate::git_workspace::load_workspace(&state, &workspace_id).await?;
     if let Ok(snapshot) = state.store.snapshot() {
         if let Some(row) = snapshot.workspaces.iter().find(|row| row.id == workspace_id) {
             if row.kind.as_deref() == Some("review") {
                 state
                     .diffs
-                    .set_pr_diff_base(&workspace_id, workspace.base.clone());
+                    .default_diff_base(&workspace_id, workspace.base.clone());
             }
         }
     }
+    state
+        .diffs
+        .compute(&workspace_id, Path::new(&workspace.worktree_path))
+        .await?;
+    Ok(())
+}
+
+/// Point the Changes panel at uncommitted work (`None`) or a branch (merge-base..HEAD).
+#[tauri::command]
+#[specta::specta]
+pub async fn set_workspace_diff_base(
+    workspace_id: String,
+    base: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    use std::path::Path;
+
+    let workspace = crate::git_workspace::load_workspace(&state, &workspace_id).await?;
+    state.diffs.set_diff_base(&workspace_id, base);
     state
         .diffs
         .compute(&workspace_id, Path::new(&workspace.worktree_path))
@@ -691,36 +709,6 @@ pub async fn submit_workspace_review(
     app: AppHandle,
 ) -> Result<()> {
     crate::review::submit_workspace_review(&app, input).await
-}
-
-/// Approve stages the file; reject discards worktree edits for that path.
-#[tauri::command]
-#[specta::specta]
-pub async fn review_worktree_file(
-    workspace_id: String,
-    path: String,
-    decision: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    use std::path::Path;
-
-    let workspace = state
-        .workspace
-        .get(&workspace_id)
-        .await
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    let worktree = Path::new(&workspace.worktree_path);
-    match decision.as_str() {
-        "approve" => state.git.stage_worktree_file(worktree, &path).await?,
-        "reject" => state.git.discard_worktree_file(worktree, &path).await?,
-        other => {
-            return Err(Error::Workspace(format!(
-                "unknown review decision {other}"
-            )))
-        }
-    }
-    state.diffs.compute(&workspace_id, worktree).await?;
-    Ok(())
 }
 
 /// Generate or return a cached workspace card summary (debounced LLM + local fallback).

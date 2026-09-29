@@ -12,6 +12,7 @@ export const THREAD_TAB_KNOWN_GAPS = [
 export type ThreadBarTabKey =
   | { kind: 'thread'; threadId: string }
   | { kind: 'findings' }
+  | { kind: 'changes' }
   | { kind: 'output' }
 
 export function threadTabAriaLabel(thread: Thread): string {
@@ -23,6 +24,10 @@ export function threadTabAriaLabel(thread: Thread): string {
 
 export function findingsTabAriaLabel(openCount: number): string {
   return `Review findings, ${plural(openCount, 'open finding', 'open findings')}`
+}
+
+export function changesTabAriaLabel(countLabel: string): string {
+  return countLabel ? `Changes, ${countLabel}` : 'Changes, none yet'
 }
 
 export type OutputTabAppStatus = 'stopped' | 'starting' | 'running' | 'crashed'
@@ -58,20 +63,18 @@ export function buildThreadBarTabOrder(
     threadId: thread.id,
   }))
   if (showFindings) keys.push({ kind: 'findings' })
-  keys.push({ kind: 'output' })
+  keys.push({ kind: 'changes' }, { kind: 'output' })
   return keys
 }
 
 export function activeThreadBarTabKey(input: {
   tabs: ThreadBarTabKey[]
-  panelTab: 'thread' | 'findings' | 'output'
+  panelTab: 'thread' | 'findings' | 'changes' | 'output'
   threadId: string | null
 }): ThreadBarTabKey | null {
-  if (input.panelTab === 'findings') {
-    return input.tabs.find((tab) => tab.kind === 'findings') ?? null
-  }
-  if (input.panelTab === 'output') {
-    return input.tabs.find((tab) => tab.kind === 'output') ?? null
+  if (input.panelTab !== 'thread') {
+    const kind = input.panelTab
+    return input.tabs.find((tab) => tab.kind === kind) ?? null
   }
   return (
     input.tabs.find(
@@ -85,6 +88,7 @@ export function activeThreadBarTabKey(input: {
 export function tabKeyId(tab: ThreadBarTabKey): string {
   if (tab.kind === 'thread') return `thread-tab-${tab.threadId}`
   if (tab.kind === 'findings') return 'thread-tab-findings'
+  if (tab.kind === 'changes') return 'thread-tab-changes'
   return 'thread-tab-output'
 }
 

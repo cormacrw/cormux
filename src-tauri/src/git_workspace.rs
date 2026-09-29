@@ -15,6 +15,30 @@ use crate::store::Store;
 use crate::store::types::WorkspaceRow;
 use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
 
+/// Load a workspace persisted by an earlier launch and start its live diff watcher.
+/// Only creating a worktree does either, so without this a restored workspace has
+/// no diff until something else (an agent starting) loads it.
+pub async fn load_workspace(state: &AppState, workspace_id: &str) -> Result<WorkspaceRecord> {
+    let record = match state.workspace.get(workspace_id).await {
+        Some(record) => record,
+        None => {
+            let row = state
+                .store
+                .workspace_by_id(workspace_id)?
+                .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+            let record = resolve_record(state, workspace_id, &row).await?;
+            state.workspace.remember(record.clone()).await;
+            record
+        }
+    };
+    if Path::new(&record.worktree_path).exists() {
+        state
+            .diffs
+            .watch(workspace_id, Path::new(&record.worktree_path))?;
+    }
+    Ok(record)
+}
+
 pub async fn resolve_record(
     state: &AppState,
     workspace_id: &str,

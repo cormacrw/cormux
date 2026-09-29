@@ -18,7 +18,7 @@
   import ThreadTabBar from './ThreadTabBar.svelte'
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
-  import WorkspaceChangesLayout from './WorkspaceChangesLayout.svelte'
+  import ChangesPanel from './changes/ChangesPanel.svelte'
 
   const workspace = $derived(
     app.workspaceId ? workspaces.getById(app.workspaceId) : undefined,
@@ -62,6 +62,7 @@
   const outputTabActive = $derived(workspaceUi.activeTab === 'output')
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
   const threadTabActive = $derived(workspaceUi.activeTab === 'thread')
+  const changesTabActive = $derived(workspaceUi.activeTab === 'changes')
 
   const threadPanelLabelId = $derived(
     activeThread ? `thread-tab-${activeThread.id}` : undefined,
@@ -169,13 +170,15 @@
     <ThreadTabBar {workspace} />
 
     {#if activeThread}
-      <WorkspaceChangesLayout {workspace} thread={activeThread}>
+      <div class="relative flex min-h-0 flex-1 flex-col">
         {#if threadTabActive}
           <ThreadPanel
             {workspace}
             thread={activeThread}
             panelLabelId={threadPanelLabelId}
           />
+        {:else if changesTabActive}
+          <ChangesPanel {workspace} thread={activeThread} />
         {:else if findingsTabActive}
           <WorkspaceFindingsPanel
             workspaceId={workspace.id}
@@ -195,7 +198,7 @@
             />
           </div>
         {/if}
-      </WorkspaceChangesLayout>
+      </div>
     {/if}
   {:else}
     <p class="text-sm text-muted-foreground">Workspace not found.</p>

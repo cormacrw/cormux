@@ -213,3 +213,46 @@ export const fixtureSnapshot: Snapshot = {
   prSyncedAt: null,
   workspaceApps: [],
 }
+
+/** Uncommitted diff the harness streams for the OAuth workspace. */
+export const fixtureDiff = {
+  workspaceId: 'ws-auth',
+  base: null,
+  files: [
+    {
+      path: 'src/auth/session.ts',
+      added: 4,
+      deleted: 1,
+      hunks: [
+        {
+          header: '@@ -1,5 +1,8 @@ export function getSession',
+          body: [
+            " import { cookies } from './cookies'",
+            '',
+            '-export function getSession() {',
+            '+export function getSession(provider?: string) {',
+            "+  if (provider === 'github') {",
+            '+    return cookies.get(`oauth:${provider}`)',
+            '+  }',
+            "   return cookies.get('session')",
+            ' }',
+            '',
+          ].join('\n'),
+        },
+      ],
+    },
+    {
+      path: 'src/auth/providers.ts',
+      added: 60,
+      deleted: 0,
+      hunks: [
+        {
+          header: '@@ -0,0 +1,60 @@',
+          body:
+            Array.from({ length: 60 }, (_, i) => `+export const provider${i + 1} = 'p${i + 1}'`).join('\n') +
+            '\n',
+        },
+      ],
+    },
+  ],
+}

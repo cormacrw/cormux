@@ -44,6 +44,7 @@ pub async fn draft_pr_why(
         .await
         .unwrap_or(crate::git::WorktreeDiff {
             workspace_id: workspace_id.to_string(),
+            base: None,
             files: vec![],
         });
 
@@ -143,6 +144,7 @@ pub async fn create_workspace_pull_request(
         .await
         .unwrap_or(crate::git::WorktreeDiff {
             workspace_id: input.workspace_id.clone(),
+            base: None,
             files: vec![],
         });
 

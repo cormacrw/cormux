@@ -10,6 +10,7 @@ commands.allow = [
   "subscribe_agent_events",
   "subscribe_pty",
   "subscribe_diffs",
+  "set_workspace_diff_base",
   "detect_engines",
   "send_thread_prompt",
   "cancel_thread_turn",
@@ -51,6 +52,5 @@ commands.allow = [
   "create_scratch",
   "end_scratch",
   "refresh_workspace_diff",
-  "review_worktree_file",
   "unsubscribe"
 ]

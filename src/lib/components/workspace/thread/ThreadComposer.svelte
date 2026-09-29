@@ -8,6 +8,7 @@
   import { commands } from '$lib/ipc'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
+  import { sendThreadMessage } from '$lib/thread/send-message'
   import { threads } from '$lib/state/threads.svelte'
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
@@ -69,15 +70,6 @@
     fitHeight()
   }
 
-  function sendFailed(threadId: string, text: string, message: string) {
-    composerDrafts.setFor(threadId, text)
-    threads.setStatus(threadId, 'idle')
-    showToast({
-      tone: 'bad',
-      parts: [{ type: 'text', value: message }],
-    })
-  }
-
   async function sendMessage() {
     const text = draft.trim()
     if (!text) return
@@ -85,22 +77,9 @@
     const threadId = thread.id
     composerDrafts.setFor(threadId, '')
     queueMicrotask(() => fitHeight())
-    threadTimeline.appendStreamChunk(threadId, text, 'user')
-    threads.setStatus(threadId, 'running')
     onSent?.()
-    try {
-      const result = await commands.sendThreadPrompt(threadId, text)
-      if (result.status === 'error') {
-        sendFailed(
-          threadId,
-          text,
-          typeof result.error.message === 'string'
-            ? result.error.message
-            : 'Could not reach the agent',
-        )
-      }
-    } catch (error) {
-      sendFailed(threadId, text, error instanceof Error ? error.message : 'Could not reach the agent')
+    if (!(await sendThreadMessage(threadId, text))) {
+      composerDrafts.setFor(threadId, text)
     }
   }
 

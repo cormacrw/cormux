@@ -300,7 +300,7 @@ pub async fn create_review_workspace(
         }
         state
             .diffs
-            .set_pr_diff_base(&workspace_id_bg, base_branch.clone());
+            .set_diff_base(&workspace_id_bg, Some(base_branch.clone()));
         let _ = state
             .diffs
             .compute(&workspace_id_bg, &worktree_path_bg)
@@ -360,7 +360,7 @@ async fn remember_workspace_from_row(
             setup_failed_exit_code: None,
         })
         .await;
-    state.diffs.set_pr_diff_base(&row.id, base.to_string());
+    state.diffs.default_diff_base(&row.id, base.to_string());
     Ok(())
 }
 
@@ -578,6 +578,7 @@ pub async fn complete_review(
         .latest(workspace_id)
         .unwrap_or(WorktreeDiff {
             workspace_id: workspace_id.to_string(),
+            base: None,
             files: vec![],
         });
 

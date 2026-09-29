@@ -1,11 +1,13 @@
-export type WorkspacePanelTab = 'thread' | 'findings' | 'output'
+export type WorkspacePanelTab = 'thread' | 'findings' | 'changes' | 'output'
 
 export class WorkspaceUiStore {
   activeTab = $state<WorkspacePanelTab>('thread')
   /** Tab before switching to Output (for Ctrl+` toggle). */
   tabBeforeOutput = $state<WorkspacePanelTab>('thread')
-  changesOpen = $state(false)
-  selectedDiffPath = $state<string | null>(null)
+  /** File to expand and scroll to in Changes (set by links in the conversation). */
+  revealDiffPath = $state<string | null>(null)
+  /** Files the user folded in Changes; everything else is expanded. */
+  collapsedDiffPaths = $state<Record<string, true>>({})
   diffMode = $state<'unified' | 'split'>('unified')
   /** When true, opening Findings focuses the panel heading (card entry). */
   findingsFocusPending = $state(false)
@@ -33,7 +35,8 @@ export class WorkspaceUiStore {
   resetForWorkspace() {
     this.activeTab = 'thread'
     this.tabBeforeOutput = 'thread'
-    this.selectedDiffPath = null
+    this.revealDiffPath = null
+    this.collapsedDiffPaths = {}
   }
 }
 

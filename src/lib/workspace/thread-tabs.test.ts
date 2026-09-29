@@ -48,11 +48,12 @@ describe('thread tab labels', () => {
 })
 
 describe('thread bar order', () => {
-  it('includes findings before output when enabled', () => {
+  it('puts findings after threads and changes before output', () => {
     const tabs = buildThreadBarTabOrder([sampleThread], true)
     expect(tabs.map((tab) => tab.kind)).toEqual([
       'thread',
       'findings',
+      'changes',
       'output',
     ])
   })

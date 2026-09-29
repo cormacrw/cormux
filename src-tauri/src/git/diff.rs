@@ -34,6 +34,8 @@ pub struct DiffFile {
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeDiff {
     pub workspace_id: String,
+    /// Branch the diff is taken against; `None` means uncommitted changes vs `HEAD`.
+    pub base: Option<String>,
     pub files: Vec<DiffFile>,
 }
 
@@ -49,7 +51,8 @@ pub struct LiveDiffEngine {
     git: Git,
     watched: Arc<Mutex<HashMap<String, Watched>>>,
     latest: Arc<Mutex<HashMap<String, WorktreeDiff>>>,
-    pr_diff_base: Arc<Mutex<HashMap<String, String>>>,
+    /// Absent: no choice made yet. `Some(None)`: explicitly uncommitted.
+    diff_base: Arc<Mutex<HashMap<String, Option<String>>>>,
     tx: mpsc::UnboundedSender<String>,
     rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
@@ -61,25 +64,36 @@ impl LiveDiffEngine {
             git,
             watched: Arc::new(Mutex::new(HashMap::new())),
             latest: Arc::new(Mutex::new(HashMap::new())),
-            pr_diff_base: Arc::new(Mutex::new(HashMap::new())),
+            diff_base: Arc::new(Mutex::new(HashMap::new())),
             tx,
             rx: Arc::new(Mutex::new(Some(rx))),
         }
     }
 
-    pub fn set_pr_diff_base(&self, workspace_id: &str, base: String) {
-        self.pr_diff_base
+    /// Diff against `base` (merge-base..HEAD), or uncommitted changes when `None`.
+    pub fn set_diff_base(&self, workspace_id: &str, base: Option<String>) {
+        self.diff_base
             .lock()
             .unwrap()
             .insert(workspace_id.to_string(), base);
     }
 
-    pub fn pr_diff_base(&self, workspace_id: &str) -> Option<String> {
-        self.pr_diff_base
+    /// Set `base` unless a target was already chosen for this workspace.
+    pub fn default_diff_base(&self, workspace_id: &str, base: String) {
+        self.diff_base
+            .lock()
+            .unwrap()
+            .entry(workspace_id.to_string())
+            .or_insert(Some(base));
+    }
+
+    pub fn diff_base(&self, workspace_id: &str) -> Option<String> {
+        self.diff_base
             .lock()
             .unwrap()
             .get(workspace_id)
             .cloned()
+            .flatten()
     }
 
     /// Start the debounce loop. Must run after a Tokio/Tauri runtime exists.
@@ -94,7 +108,7 @@ impl LiveDiffEngine {
         let git = self.git.clone();
         let watched = self.watched.clone();
         let latest = self.latest.clone();
-        let pr_diff_base = self.pr_diff_base.clone();
+        let diff_base = self.diff_base.clone();
         tauri::async_runtime::spawn(async move {
             let mut pending: HashMap<String, tokio::time::Instant> = HashMap::new();
             let mut ticker = tokio::time::interval(Duration::from_millis(50));
@@ -116,7 +130,7 @@ impl LiveDiffEngine {
                                 guard.get(&id).map(|item| item.path.clone())
                             };
                             if let Some(path) = path {
-                                let base = pr_diff_base.lock().unwrap().get(&id).cloned();
+                                let base = diff_base.lock().unwrap().get(&id).cloned().flatten();
                                 match compute_diff(&git, &id, &path, base.as_deref()).await {
                                     Ok(diff) => {
                                         latest.lock().unwrap().insert(id, diff);
@@ -132,6 +146,15 @@ impl LiveDiffEngine {
     }
 
     pub fn watch(&self, workspace_id: &str, path: &Path) -> Result<()> {
+        if self
+            .watched
+            .lock()
+            .unwrap()
+            .get(workspace_id)
+            .is_some_and(|item| item.path == path)
+        {
+            return Ok(());
+        }
         let tx = self.tx.clone();
         let id = workspace_id.to_string();
         let root = path.to_path_buf();
@@ -167,7 +190,7 @@ impl LiveDiffEngine {
     pub fn unwatch(&self, workspace_id: &str) {
         self.watched.lock().unwrap().remove(workspace_id);
         self.latest.lock().unwrap().remove(workspace_id);
-        self.pr_diff_base.lock().unwrap().remove(workspace_id);
+        self.diff_base.lock().unwrap().remove(workspace_id);
     }
 
     pub fn latest(&self, workspace_id: &str) -> Option<WorktreeDiff> {
@@ -179,7 +202,7 @@ impl LiveDiffEngine {
     }
 
     pub async fn compute(&self, workspace_id: &str, path: &Path) -> Result<WorktreeDiff> {
-        let base = self.pr_diff_base(workspace_id);
+        let base = self.diff_base(workspace_id);
         let diff = compute_diff(&self.git, workspace_id, path, base.as_deref()).await?;
         self.latest
             .lock()
@@ -236,6 +259,7 @@ async fn compute_diff(
     }
     Ok(WorktreeDiff {
         workspace_id: workspace_id.to_string(),
+        base: pr_base.map(str::to_string),
         files,
     })
 }

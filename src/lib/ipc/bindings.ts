@@ -161,11 +161,11 @@ async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Approve stages the file; reject discards worktree edits for that path.
+ * Point the Changes panel at uncommitted work (`None`) or a branch (merge-base..HEAD).
  */
-async reviewWorktreeFile(workspaceId: string, path: string, decision: string) : Promise<Result<null, Error>> {
+async setWorkspaceDiffBase(workspaceId: string, base: string | null) : Promise<Result<null, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("review_worktree_file", { workspaceId, path, decision }) };
+    return { status: "ok", data: await TAURI_INVOKE("set_workspace_diff_base", { workspaceId, base }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -594,7 +594,11 @@ export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; na
 export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; prHtmlUrl: string | null; modifiedFiles: number; archivedAt: string | null }
 export type WorkspaceStatusChanged = { version: number; workspaceId: string; status: WorkspaceLifecycle }
 export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
-export type WorktreeDiff = { workspaceId: string; files: DiffFile[] }
+export type WorktreeDiff = { workspaceId: string; 
+/**
+ * Branch the diff is taken against; `None` means uncommitted changes vs `HEAD`.
+ */
+base: string | null; files: DiffFile[] }
 
 /** tauri-specta globals **/
 

@@ -9,6 +9,8 @@ const emptyTotals = (): DiffLineTotals => ({ added: 0, deleted: 0 })
 
 export class WorkspaceDiffStore {
   filesByWorkspace = $state<Record<string, DiffFile[]>>({})
+  /** Branch each diff is taken against; `null` means uncommitted changes. */
+  baseByWorkspace = $state<Record<string, string | null>>({})
 
   totals(workspaceId: string): DiffLineTotals {
     const files = this.filesByWorkspace[workspaceId]
@@ -16,11 +18,16 @@ export class WorkspaceDiffStore {
     return totalsFromDiffFiles(files)
   }
 
-  setFiles(workspaceId: string, files: DiffFile[]) {
+  base(workspaceId: string): string | null {
+    return this.baseByWorkspace[workspaceId] ?? null
+  }
+
+  setFiles(workspaceId: string, files: DiffFile[], base: string | null = null) {
     this.filesByWorkspace = {
       ...this.filesByWorkspace,
       [workspaceId]: files,
     }
+    this.baseByWorkspace = { ...this.baseByWorkspace, [workspaceId]: base }
   }
 
   clearWorkspace(workspaceId: string) {
@@ -28,6 +35,9 @@ export class WorkspaceDiffStore {
     const next = { ...this.filesByWorkspace }
     delete next[workspaceId]
     this.filesByWorkspace = next
+    const bases = { ...this.baseByWorkspace }
+    delete bases[workspaceId]
+    this.baseByWorkspace = bases
   }
 }
 
@@ -36,7 +46,7 @@ export const workspaceDiff = new WorkspaceDiffStore()
 export function bindWorkspaceDiffSubscription(workspaceId: string) {
   const stop = subscribeDiffs(workspaceId, (update) => {
     if (update.diff?.files) {
-      workspaceDiff.setFiles(workspaceId, update.diff.files)
+      workspaceDiff.setFiles(workspaceId, update.diff.files, update.diff.base)
     }
   })
 

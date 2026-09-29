@@ -26,7 +26,7 @@ pub fn builder() -> Builder {
             commands::subscribe_diffs,
             commands::unsubscribe,
             commands::refresh_workspace_diff,
-            commands::review_worktree_file,
+            commands::set_workspace_diff_base,
             commands::start_streaming_spike,
             commands::summarise_workspace,
             commands::set_github_token,

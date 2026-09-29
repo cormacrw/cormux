@@ -1,45 +1,40 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { commands } from '$lib/ipc'
+  import { diffComments } from '$lib/changes/diff-comments.svelte'
+  import { formatCommentsForAgent } from '$lib/changes/diff-comment-format'
+  import { sendThreadMessage } from '$lib/thread/send-message'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import {
-    changesReview,
-    threadTimeline,
-    workspaceDiff,
-    workspaceUi,
-  } from '$lib/state'
+  import { app, threadTimeline, workspaceDiff, workspaceUi } from '$lib/state'
   import { formatChangeCounts } from '$lib/workspace/diff-totals'
-  import { inferFileStatus, statusLabel } from '$lib/changes/file-status'
-  import { applyFileReview } from '$lib/changes/review-actions'
-  import { selectedFile } from '$lib/changes/select-file'
   import { Button } from '$lib/components/ui/button'
-  import { Badge } from '$lib/components/ui/badge'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
-  import ChangesDiffBody from './ChangesDiffBody.svelte'
   import ChangesFileList from './ChangesFileList.svelte'
-  import { cn } from '$lib/utils'
-  import Check from '@lucide/svelte/icons/check'
+  import ChangesTargetPicker from './ChangesTargetPicker.svelte'
   import Clock from '@lucide/svelte/icons/clock'
+  import ChevronsDownUp from '@lucide/svelte/icons/chevrons-down-up'
+  import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down'
   import File from '@lucide/svelte/icons/file'
   import List from '@lucide/svelte/icons/list'
-  import X from '@lucide/svelte/icons/x'
+  import Send from '@lucide/svelte/icons/send'
 
   let {
     workspace,
     thread,
-    overlay = false,
   }: {
     workspace: Workspace
     thread: Thread
-    overlay?: boolean
   } = $props()
 
   const files = $derived(workspaceDiff.filesByWorkspace[workspace.id] ?? [])
   const totals = $derived(workspaceDiff.totals(workspace.id))
   const countLabel = $derived(formatChangeCounts(totals))
+  const diffBase = $derived(workspaceDiff.base(workspace.id))
 
-  const activeFile = $derived(selectedFile(files, workspaceUi.selectedDiffPath))
-  const selectedPath = $derived(activeFile?.path ?? null)
+  const allCollapsed = $derived(
+    files.length > 0 && files.every((file) => workspaceUi.collapsedDiffPaths[file.path]),
+  )
 
   const timelineItems = $derived(threadTimeline.itemsForThread(thread.id, {
     status: thread.status,
@@ -54,191 +49,142 @@
       thread.status === 'idle',
   )
 
-  let reviewBusy = $state(false)
-  let diffScrollTop = $state(0)
-  let diffBodyEl: HTMLDivElement | undefined = $state()
-
-  $effect(() => {
-    // Skip until the diff subscription has delivered files, or an empty
-    // first render wipes every review decision.
-    const loaded = workspaceDiff.filesByWorkspace[workspace.id]
-    if (!loaded) return
-    changesReview.pruneMissing(
-      workspace.id,
-      new Set(loaded.map((file) => file.path)),
-    )
-  })
+  let scrollEl: HTMLDivElement | undefined = $state()
 
   $effect(() => {
     void workspace.branch
     void commands.refreshWorkspaceDiff(workspace.id).catch(() => {})
   })
 
+  // A file link in the conversation expands that file and scrolls to it.
   $effect(() => {
-    void selectedPath
-    queueMicrotask(() => {
-      if (diffBodyEl) diffBodyEl.scrollTop = 0
+    const path = workspaceUi.revealDiffPath
+    if (!path || !files.some((file) => file.path === path)) return
+    workspaceUi.revealDiffPath = null
+    if (workspaceUi.collapsedDiffPaths[path]) {
+      const next = { ...workspaceUi.collapsedDiffPaths }
+      delete next[path]
+      workspaceUi.collapsedDiffPaths = next
+    }
+    void tick().then(() => {
+      scrollEl
+        ?.querySelector(`[data-diff-path="${CSS.escape(path)}"]`)
+        ?.scrollIntoView({ block: 'start' })
     })
   })
 
-  function closePanel() {
-    workspaceUi.changesOpen = false
-  }
-
-  function selectPath(path: string) {
-    workspaceUi.selectedDiffPath = path
-    workspaceUi.changesOpen = true
+  function setAllCollapsed(collapsed: boolean) {
+    workspaceUi.collapsedDiffPaths = collapsed
+      ? Object.fromEntries(files.map((file) => [file.path, true as const]))
+      : {}
   }
 
   function setDiffMode(mode: 'unified' | 'split') {
-    if (diffBodyEl) diffScrollTop = diffBodyEl.scrollTop
+    const top = scrollEl?.scrollTop ?? 0
     workspaceUi.diffMode = mode
     queueMicrotask(() => {
-      if (diffBodyEl) diffBodyEl.scrollTop = diffScrollTop
+      if (scrollEl) scrollEl.scrollTop = top
     })
   }
 
-  async function review(decision: 'approve' | 'reject' | 'undo') {
-    if (!selectedPath || reviewBusy) return
-    reviewBusy = true
-    try {
-      await applyFileReview(workspace.id, selectedPath, decision)
-    } catch (error) {
-      console.warn('review failed', error)
-    } finally {
-      reviewBusy = false
-    }
-  }
+  const comments = $derived(diffComments.list(workspace.id))
+  let sending = $state(false)
 
-  const fileReview = $derived(
-    selectedPath ? changesReview.review(workspace.id, selectedPath) : 'pending',
-  )
+  async function sendComments() {
+    if (!comments.length || sending) return
+    sending = true
+    const sent = comments
+    diffComments.clear(workspace.id)
+    if (await sendThreadMessage(thread.id, formatCommentsForAgent(sent))) {
+      // Show the conversation so the agent's reply is in view.
+      app.threadId = thread.id
+      workspaceUi.openTab('thread')
+    } else {
+      for (const comment of sent) diffComments.add(workspace.id, comment)
+    }
+    sending = false
+  }
 </script>
 
-<aside
-  id="changes"
-  aria-label="Changes"
+<div
+  id="changes-panel"
+  role="tabpanel"
+  aria-labelledby="thread-tab-changes"
   data-od-id="changes-panel"
-  class={cn(
-    'flex min-h-0 flex-col border-border bg-background',
-    overlay
-      ? 'absolute top-0 right-0 bottom-0 z-20 w-full max-w-[520px] border-l shadow-lg'
-      : 'min-w-[380px] border-l',
-  )}
+  class="flex min-h-0 flex-1 flex-col bg-background"
 >
-  <div class="flex h-11 shrink-0 items-center gap-2 border-b border-border/60 px-4">
-    <span class="text-sm font-semibold">Changes</span>
-    {#if countLabel}
-      <span class="font-mono text-xs text-muted-foreground">{countLabel}</span>
+  <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
+    <ChangesTargetPicker workspaceId={workspace.id} branch={workspace.branch} />
+    {#if files.length}
+      <ToggleGroup.Root
+        type="single"
+        value={workspaceUi.diffMode}
+        onValueChange={(value) => {
+          if (value === 'unified' || value === 'split') setDiffMode(value)
+        }}
+        variant="outline"
+        size="sm"
+        aria-label="Diff layout"
+      >
+        <ToggleGroup.Item value="unified" aria-pressed={workspaceUi.diffMode === 'unified'}>
+          Unified
+        </ToggleGroup.Item>
+        <ToggleGroup.Item value="split" aria-pressed={workspaceUi.diffMode === 'split'}>
+          Split
+        </ToggleGroup.Item>
+      </ToggleGroup.Root>
+      {#if countLabel}
+        <span class="font-mono text-xs whitespace-nowrap text-muted-foreground">{countLabel}</span>
+      {/if}
     {/if}
     <span class="flex-1"></span>
-    <Button variant="ghost" size="icon-sm" aria-label="Close changes" onclick={closePanel}>
-      <X class="size-4" aria-hidden="true" />
-    </Button>
+    {#if files.length}
+      <Button
+        variant="ghost"
+        size="sm"
+        class="gap-1.5 text-muted-foreground"
+        onclick={() => setAllCollapsed(!allCollapsed)}
+      >
+        {#if allCollapsed}
+          <ChevronsUpDown class="size-3.5" aria-hidden="true" /> Expand all
+        {:else}
+          <ChevronsDownUp class="size-3.5" aria-hidden="true" /> Collapse all
+        {/if}
+      </Button>
+    {/if}
+    {#if comments.length}
+      <Button
+        size="sm"
+        class="shrink-0 gap-1.5"
+        disabled={sending}
+        onclick={() => void sendComments()}
+      >
+        <Send class="size-3.5" aria-hidden="true" />
+        Send {comments.length} {comments.length === 1 ? 'comment' : 'comments'} to {thread.role}
+      </Button>
+    {/if}
   </div>
 
-  <ChangesFileList
-    workspaceId={workspace.id}
-    {files}
-    {selectedPath}
-    onSelect={selectPath}
-  />
-
-  <div class="flex min-h-0 flex-1 flex-col border-t border-border/40">
-    <div class="flex shrink-0 flex-col gap-2 border-b border-border/40 px-3 py-2">
-      {#if activeFile}
-        {@const status = inferFileStatus(activeFile)}
-        <div class="flex min-w-0 flex-wrap items-center gap-2 text-sm">
-          <File class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <span class="min-w-0 truncate font-mono text-xs" title={activeFile.path}>
-            {activeFile.path}
-          </span>
-          <Badge
-            variant="outline"
-            class={cn(
-              status === 'M' && 'border-[var(--warning)]/40 text-[var(--warning)]',
-              status === 'A' && 'border-[var(--success)]/40 text-[var(--success)]',
-              status === 'D' && 'border-destructive/40 text-destructive',
-            )}
-          >
-            {statusLabel[status]}
-          </Badge>
-          <span class="font-mono text-xs text-muted-foreground">
-            {#if activeFile.added > 0}+{activeFile.added}{/if}
-            {#if activeFile.deleted > 0} −{activeFile.deleted}{/if}
-          </span>
-        </div>
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <ToggleGroup.Root
-            type="single"
-            value={workspaceUi.diffMode}
-            onValueChange={(value) => {
-              if (value === 'unified' || value === 'split') setDiffMode(value)
-            }}
-            variant="outline"
-            size="sm"
-            aria-label="Diff layout"
-          >
-            <ToggleGroup.Item value="unified" aria-pressed={workspaceUi.diffMode === 'unified'}>
-              Unified
-            </ToggleGroup.Item>
-            <ToggleGroup.Item value="split" aria-pressed={workspaceUi.diffMode === 'split'}>
-              Split
-            </ToggleGroup.Item>
-          </ToggleGroup.Root>
-          <div class="flex flex-wrap items-center gap-2">
-            {#if fileReview === 'approved'}
-              <Badge variant="outline" class="border-[var(--success)]/40 text-[var(--success)]">
-                <Check class="size-3" aria-hidden="true" /> Approved
-              </Badge>
-              <Button variant="secondary" size="sm" disabled={reviewBusy} onclick={() => review('undo')}>
-                Undo
-              </Button>
-            {:else if fileReview === 'rejected'}
-              <Badge variant="outline" class="border-destructive/40 text-destructive">
-                <X class="size-3" aria-hidden="true" /> Rejected
-              </Badge>
-              <Button variant="secondary" size="sm" disabled={reviewBusy} onclick={() => review('undo')}>
-                Undo
-              </Button>
-            {:else}
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={reviewBusy}
-                onclick={() => review('reject')}
-              >
-                Reject
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                class="bg-[var(--success)] text-background hover:bg-[var(--success)]/90"
-                disabled={reviewBusy}
-                onclick={() => review('approve')}
-              >
-                <Check class="size-4" aria-hidden="true" /> Approve file
-              </Button>
-            {/if}
-          </div>
-        </div>
-      {:else}
-        <div class="flex items-center gap-2 text-sm text-muted-foreground">
-          <File class="size-4" aria-hidden="true" />
-          <span>No changes</span>
-        </div>
-      {/if}
-    </div>
-
-    {#if activeFile}
-      <div class="min-h-0 flex flex-1 flex-col">
-        {#key selectedPath}
-          <ChangesDiffBody file={activeFile} bind:scrollEl={diffBodyEl} />
-        {/key}
+  <div class="flex min-h-0 flex-1 flex-col">
+    {#if files.length}
+      <div
+        bind:this={scrollEl}
+        class="min-h-0 flex-1 overflow-y-auto"
+        tabindex="0"
+        role="region"
+        aria-label="Proposed changes"
+      >
+        <ChangesFileList workspaceId={workspace.id} {files} />
       </div>
     {:else}
       <div class="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        {#if planIdle}
+        {#if diffBase}
+          <File class="size-8 text-muted-foreground" aria-hidden="true" />
+          <h2 class="text-sm font-semibold">No commits since {diffBase}</h2>
+          <p class="text-sm text-muted-foreground">
+            {workspace.branch} has no committed changes since it branched from {diffBase}.
+          </p>
+        {:else if planIdle}
           <List class="size-8 text-muted-foreground" aria-hidden="true" />
           <h2 class="text-sm font-semibold">Plan ready, nothing edited yet</h2>
           <p class="text-sm text-muted-foreground">
@@ -256,4 +202,4 @@
       </div>
     {/if}
   </div>
-</aside>
+</div>
