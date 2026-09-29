@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cormux</title>
+    <!-- Paint the app background before app.css loads so boot doesn't flash white. -->
+    <style>
+      html {
+        color-scheme: dark;
+        background: #0b0c0e;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
