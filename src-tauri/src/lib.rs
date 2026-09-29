@@ -116,6 +116,7 @@ pub fn run() {
             let db_path = app.path().app_data_dir()?.join("cormux.db");
             state.store.open(&db_path)?;
             let approval_notify = state.approval_notify.clone();
+            let turn_end_notify = state.turn_end_notify.clone();
             app.manage(state);
             app.state::<AppState>()
                 .mcp
@@ -130,6 +131,35 @@ pub fn run() {
                     }
                     let state = approval_app.state::<AppState>();
                     crate::feedback::emit_approval_counts(&approval_app, &state);
+                }
+            });
+
+            // The engine pumps only update the database; keep the workspace's live status
+            // (what the sidebar shows) in step and tell the UI to refetch.
+            let turn_end_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut rx = turn_end_notify.subscribe();
+                loop {
+                    let thread_id = match rx.recv().await {
+                        Ok(thread_id) => thread_id,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    };
+                    let state = turn_end_app.state::<AppState>();
+                    let _ = state.store.mark_thread_idle(&thread_id);
+                    let is_scratch = state.store.scratch_for_thread(&thread_id).ok().flatten().is_some();
+                    if let (false, Ok(Some(thread))) = (is_scratch, state.store.thread_by_id(&thread_id)) {
+                        state
+                            .workspace
+                            .set_thread(&thread_id, &thread.workspace_id, crate::workspace::ThreadActivity::Idle)
+                            .await;
+                    }
+                    let version = state.bump_event_version();
+                    let _ = StateChanged {
+                        version,
+                        kind: StateChangeKind::WorkspaceStatus,
+                    }
+                    .emit(&turn_end_app);
                 }
             });
 

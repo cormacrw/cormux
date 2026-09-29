@@ -31,6 +31,8 @@ pub struct EngineRegistry {
     approvals: Arc<ApprovalBroker>,
     pub(crate) store: Store,
     approval_notify: tokio::sync::broadcast::Sender<()>,
+    /// Thread ids whose turn just ended (or whose engine exited).
+    turn_end_notify: tokio::sync::broadcast::Sender<String>,
     threads: Arc<Mutex<HashMap<String, ThreadSlot>>>,
     holds: Arc<Mutex<HashMap<String, HoldState>>>,
 }
@@ -67,12 +69,14 @@ impl EngineRegistry {
         approvals: Arc<ApprovalBroker>,
         store: Store,
         approval_notify: tokio::sync::broadcast::Sender<()>,
+        turn_end_notify: tokio::sync::broadcast::Sender<String>,
     ) -> Self {
         Self {
             env,
             approvals,
             store,
             approval_notify,
+            turn_end_notify,
             threads: Arc::new(Mutex::new(HashMap::new())),
             holds: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -114,6 +118,7 @@ impl EngineRegistry {
     pub async fn spawn(&self, spec: SpawnSpec) -> Result<()> {
         let _ = self.stop(&spec.thread_id).await;
         let (events, _) = broadcast::channel(EVENT_CAP);
+        self.forward_turn_ends(&spec.thread_id, events.subscribe());
         let resume = spec
             .resume
             .clone()
@@ -157,6 +162,23 @@ impl EngineRegistry {
                 },
             );
         Ok(())
+    }
+
+    /// Every engine ends a turn through its event stream, so this is the one place to hear it.
+    fn forward_turn_ends(&self, thread_id: &str, mut rx: broadcast::Receiver<AgentEvent>) {
+        let notify = self.turn_end_notify.clone();
+        let thread_id = thread_id.to_string();
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }) => {
+                        let _ = notify.send(thread_id.clone());
+                    }
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
     }
 
     pub fn prompt(&self, thread_id: &str, text: impl Into<String>) -> Result<()> {
@@ -621,7 +643,41 @@ mod tests {
         let store = Store::new();
         store.open_in_memory().unwrap();
         let (approval_notify, _) = tokio::sync::broadcast::channel(4);
-        EngineRegistry::new(env, approvals, store, approval_notify)
+        EngineRegistry::new(env, approvals, store, approval_notify, broadcast::channel(8).0)
+    }
+
+    #[tokio::test]
+    async fn turn_end_is_forwarded_with_the_thread_id() {
+        let env = Arc::new(RwLock::new(ShellEnv::new()));
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        let (turn_end_notify, mut turn_ends) = broadcast::channel(8);
+        let engines = EngineRegistry::new(
+            env,
+            Arc::new(ApprovalBroker::new()),
+            store,
+            broadcast::channel(4).0,
+            turn_end_notify,
+        );
+        engines
+            .spawn(SpawnSpec {
+                thread_id: "t-idle".into(),
+                kind: EngineKind::Claude,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: Some(mock_claude_argv()),
+                auto_approve_readonly: true,
+                auto_approve_all: true,
+                read_only: false,
+            })
+            .await
+            .unwrap();
+        engines.prompt("t-idle", "first: run echo spike-ok").unwrap();
+        let thread_id = tokio::time::timeout(std::time::Duration::from_secs(10), turn_ends.recv())
+            .await
+            .expect("turn end within 10s")
+            .unwrap();
+        assert_eq!(thread_id, "t-idle");
     }
 
     fn mock_claude_argv() -> Vec<String> {
