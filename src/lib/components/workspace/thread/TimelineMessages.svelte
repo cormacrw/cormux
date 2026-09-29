@@ -154,12 +154,19 @@
     return [detail, timeTitle(atMs)].filter(Boolean).join('\n')
   }
 
-  async function copyText(text: string) {
+  // The copy button for this item shows a check until the timer clears it.
+  let copiedId = $state<string | null>(null)
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined
+
+  async function copyText(id: string, text: string) {
     try {
       await navigator.clipboard.writeText(text)
     } catch {
-      /* ignore */
+      return
     }
+    copiedId = id
+    clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => (copiedId = null), 1500)
   }
 
   function findingSummary(items: FindingRow[]) {
@@ -220,9 +227,13 @@
             type="button"
             class="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded text-foreground/60 opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
             aria-label="Copy message"
-            onclick={() => copyText(item.text)}
+            onclick={() => copyText(item.id, item.text)}
           >
-            <Copy class="size-3" aria-hidden="true" />
+            {#if copiedId === item.id}
+              <Check class="size-3" aria-hidden="true" />
+            {:else}
+              <Copy class="size-3" aria-hidden="true" />
+            {/if}
           </button>
         </div>
         {@const clock = timeLabel(item.atMs)}
@@ -270,9 +281,13 @@
               class="inline-flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
               aria-label="Copy message"
               title="Copy message"
-              onclick={() => copyText(item.text)}
+              onclick={() => copyText(item.id, item.text)}
             >
-              <Copy class="size-3" aria-hidden="true" />
+              {#if copiedId === item.id}
+                <Check class="size-3" aria-hidden="true" />
+              {:else}
+                <Copy class="size-3" aria-hidden="true" />
+              {/if}
             </button>
           </div>
         </div>
