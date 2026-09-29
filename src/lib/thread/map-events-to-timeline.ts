@@ -206,6 +206,9 @@ function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
   for (const entry of events) {
     const { event } = entry
     if (event.type === 'toolCall') {
+      // A repeated id is the same call again (a session/load replay stored before that was
+      // fixed); keep the first so step ids, which key the rendered list, stay unique.
+      if (callIndex.has(event.id)) continue
       callIndex.set(event.id, merged.length)
       merged.push(entry)
       continue

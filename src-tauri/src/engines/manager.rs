@@ -884,6 +884,9 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
+            if let AgentEvent::MessageChunk { text, .. } = &event {
+                assert!(!text.starts_with("replayed"), "session/load replay leaked: {text}");
+            }
             match event {
                 AgentEvent::Usage { used_tokens, .. } => {
                     assert_eq!(used_tokens, 42);
@@ -901,6 +904,8 @@ mod tests {
             }
         }
         assert!(saw_usage);
+        let persisted = engines.store.transcript_summary("acp-resume", 100).unwrap();
+        assert!(!persisted.contains("replayed"), "replay was persisted: {persisted}");
         engines.stop("acp-resume").await.unwrap();
     }
 

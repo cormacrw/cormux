@@ -68,12 +68,94 @@ function createScratch(input: ScratchInput) {
   return { scratchId, threadId }
 }
 
+/** `?longThread=N` fills the Lead thread with N finished turns (virtualized timeline). */
+function seedLongThread(turns: number) {
+  const timeline = fixtureSnapshot.persisted.timeline
+  let id = 100_000
+  let seq = 0
+  const push = (kind: string, event: object) => {
+    seq += 1
+    id += 1
+    timeline.push({
+      id,
+      threadId: 'th-lead',
+      seq,
+      kind,
+      payload: JSON.stringify(event),
+      createdAt: '2026-09-28 12:00:00',
+    })
+  }
+  for (let turn = 1; turn <= turns; turn += 1) {
+    push('message', { type: 'messageChunk', role: 'user', text: `Question ${turn}` })
+    push('message', { type: 'messageChunk', role: 'agent', text: `Answer ${turn}` })
+    push('turn_end', { type: 'turnEnd', stop_reason: 'end_turn', error: null })
+  }
+  // Switching away from a branch and back writes two notes with the same title.
+  for (const branch of ['feat/test', 'feat/colors', 'feat/test']) {
+    push('tool', { icon: 'branch', title: `Switched to \`${branch}\``, detail: 'Checked out in this worktree' })
+  }
+}
+
 export function installBrowserHarness() {
   if (typeof window === 'undefined' || isRealTauri()) return
+  const longThread = Number(new URLSearchParams(window.location.search).get('longThread'))
+  if (longThread > 0) seedLongThread(longThread)
+  // Tests can inject a real thread's events (as exported from cormux.db) for the Lead thread.
+  const injected = (window as { __HARNESS_TIMELINE__?: typeof fixtureSnapshot.persisted.timeline })
+    .__HARNESS_TIMELINE__
+  if (injected) {
+    const persisted = fixtureSnapshot.persisted
+    persisted.timeline = [...persisted.timeline.filter((row) => row.threadId !== 'th-lead'), ...injected]
+  }
 
   const callbacks = new Map<number, (...args: unknown[]) => void>()
   let nextCallbackId = 1
   let nextEventId = 1
+  const agentChannels = new Map<string, { id: number; index: number }>()
+  const eventListeners = new Map<string, number[]>()
+
+  const emitStateChanged = () => {
+    for (const handler of eventListeners.get('state-changed') ?? []) {
+      callbacks.get(handler)?.({
+        event: 'state-changed',
+        id: nextEventId++,
+        payload: { version: nextEventId, kind: 'workspaceStatus' },
+      })
+    }
+  }
+
+  // Stream a reply the way a real engine does: many small chunks, then a turn end that
+  // the backend follows with a state-changed refetch.
+  const streamReply = (threadId: string, text: string) => {
+    const timeline = fixtureSnapshot.persisted.timeline
+    let seq = Math.max(0, ...timeline.filter((row) => row.threadId === threadId).map((row) => row.seq))
+    const persist = (kind: string, event: object) => {
+      seq += 1
+      timeline.push({ id: 900_000 + seq, threadId, seq, kind, payload: JSON.stringify(event), createdAt: '2026-09-28 12:00:00' })
+    }
+    const send = (event: object) => {
+      const channel = agentChannels.get(threadId)
+      if (!channel) return
+      callbacks.get(channel.id)?.({ index: channel.index++, message: event })
+    }
+    persist('message', { type: 'messageChunk', role: 'user', text })
+    const words = `Reply to "${text}": ${'streamed word '.repeat(40)}done.`.split(' ')
+    words.forEach((word, i) => {
+      setTimeout(() => {
+        const event = { type: 'messageChunk', role: 'agent', text: `${i ? ' ' : ''}${word}` }
+        persist('message', event)
+        send(event)
+      }, 50 + i * 10)
+    })
+    setTimeout(() => {
+      const end = { type: 'turnEnd', stop_reason: 'end_turn', error: null }
+      persist('turn_end', end)
+      send(end)
+      const lead = fixtureSnapshot.persisted.threads.find((row) => row.id === threadId)
+      if (lead) lead.status = 'idle'
+      emitStateChanged()
+    }, 80 + words.length * 10)
+  }
 
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {
     if (cmd === 'get_snapshot') return fixtureSnapshot
@@ -86,6 +168,17 @@ export function installBrowserHarness() {
       queueMicrotask(() => callbacks.get(channel.id)?.({ index: 0, message: { workspaceId: fixtureDiff.workspaceId, path: '', diff: fixtureDiff } }))
       return nextEventId++
     }
+    if (cmd === 'subscribe_agent_events') {
+      const channel = args.channel as { id: number }
+      agentChannels.set(args.threadId as string, { id: channel.id, index: 0 })
+      return nextEventId++
+    }
+    if (cmd === 'send_thread_prompt' && args.threadId === 'th-lead') {
+      const lead = fixtureSnapshot.persisted.threads.find((row) => row.id === 'th-lead')
+      if (lead) lead.status = 'running'
+      streamReply('th-lead', String(args.text))
+      return null
+    }
     if (cmd === 'get_metrics') return fixtureSnapshot.memory
     if (cmd === 'set_setting') return null
     if (cmd === 'create_scratch')
@@ -97,7 +190,11 @@ export function installBrowserHarness() {
       )
       return null
     }
-    if (cmd === 'plugin:event|listen') return nextEventId++
+    if (cmd === 'plugin:event|listen') {
+      const name = String(args.event)
+      eventListeners.set(name, [...(eventListeners.get(name) ?? []), Number(args.handler)])
+      return nextEventId++
+    }
     if (cmd === 'plugin:event|unlisten') return null
     if (cmd === 'plugin:window|is_focused') return true
     if (cmd === 'plugin:window|set_title') {

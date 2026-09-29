@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
@@ -70,6 +71,9 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
     let thread_id = spawn.thread_id.clone();
     let pending_seed = spawn.pending_seed.clone();
     let approval_notify = spawn.approval_notify.clone();
+    // session/load replays the whole conversation as updates. We already have it, so saving or
+    // streaming the replay would duplicate the history after the user's newest message.
+    let replaying = Arc::new(AtomicBool::new(false));
 
     agent_client_protocol::Client
         .builder()
@@ -79,7 +83,11 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                 let events = events.clone();
                 let store_notify = store.clone();
                 let thread_notify = thread_id.clone();
+                let replaying = replaying.clone();
                 async move |notification: SessionNotification, _cx| {
+                    if replaying.load(Ordering::SeqCst) {
+                        return Ok(());
+                    }
                     if let Some(event) = map_session_update(&notification.update) {
                         persist_event(&store_notify, &thread_notify, &event);
                         if let AgentEvent::Usage {
@@ -170,11 +178,13 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                     .await?;
                 let session_id = if let Some(existing) = resume {
                     let id = SessionId::new(existing.clone());
-                    match connection
+                    replaying.store(true, Ordering::SeqCst);
+                    let loaded = connection
                         .send_request(LoadSessionRequest::new(id.clone(), cwd.as_path()))
                         .block_task()
-                        .await
-                    {
+                        .await;
+                    replaying.store(false, Ordering::SeqCst);
+                    match loaded {
                         Ok(_) => id,
                         Err(error) => {
                             log::warn!("session/load failed, starting a new session: {error}");

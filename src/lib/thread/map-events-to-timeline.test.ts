@@ -4,6 +4,7 @@ import {
   resetTimelineIdCounter,
   shouldShowLiveRow,
 } from './map-events-to-timeline'
+import { agentEventsForThread } from './parse-agent-event'
 
 describe('mapEventsToTimeline', () => {
   beforeEach(() => {
@@ -357,5 +358,49 @@ describe('shouldShowLiveRow', () => {
     expect(shouldShowLiveRow('running', false)).toBe(true)
     expect(shouldShowLiveRow('provisioning', false)).toBe(true)
     expect(shouldShowLiveRow('idle', false)).toBe(false)
+  })
+
+  it('keeps step ids unique for repeated branch switches and replayed tool calls', () => {
+    const legacy = (seq: number, title: string) => ({
+      id: seq,
+      threadId: 't',
+      seq,
+      kind: 'tool',
+      payload: JSON.stringify({ icon: 'branch', title }),
+      createdAt: '2026-09-29 04:26:22',
+    })
+    const events = [
+      ...agentEventsForThread(
+        [
+          legacy(1, 'Switched to `feat/test`'),
+          legacy(2, 'Switched to `feat/colors`'),
+          legacy(3, 'Switched to `feat/test`'),
+        ],
+        't',
+      ),
+      ...[4, 5].map((seq) => ({
+        seq,
+        event: {
+          type: 'toolCall' as const,
+          id: 'call-1',
+          title: 'Read file',
+          name: null,
+          kind: 'read' as const,
+          status: 'completed' as const,
+          locations: [],
+          detail: null,
+        },
+      })),
+    ]
+    const items = mapEventsToTimeline({
+      events,
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    const ids = items.flatMap((item) => (item.kind === 'toolRun' ? item.steps.map((step) => step.id) : []))
+    expect(ids).toHaveLength(4)
+    expect(new Set(ids).size).toBe(ids.length)
   })
 })

@@ -1,11 +1,15 @@
 import type { AgentEvent, ThreadEventRow } from '$lib/ipc/bindings'
 import { eventCreatedAtMs } from '$lib/thread/thread-time'
 
-function normalizeLegacyTool(raw: Record<string, unknown>): AgentEvent | null {
+function normalizeLegacyTool(
+  raw: Record<string, unknown>,
+  seq: number | undefined,
+): AgentEvent | null {
   if (typeof raw.title !== 'string') return null
   return {
     type: 'toolCall',
-    id: `legacy-${raw.title}`,
+    // Titles repeat (switching back to a branch), and a repeated key crashes the timeline.
+    id: seq === undefined ? `legacy-${raw.title}` : `legacy-${seq}`,
     title: raw.title,
     name: null,
     kind: 'other',
@@ -15,13 +19,13 @@ function normalizeLegacyTool(raw: Record<string, unknown>): AgentEvent | null {
   }
 }
 
-export function parseAgentEventPayload(payload: string): AgentEvent | null {
+export function parseAgentEventPayload(payload: string, seq?: number): AgentEvent | null {
   try {
     const raw = JSON.parse(payload) as Record<string, unknown>
     if (typeof raw.type === 'string') {
       return raw as AgentEvent
     }
-    return normalizeLegacyTool(raw)
+    return normalizeLegacyTool(raw, seq)
   } catch {
     return null
   }
@@ -35,7 +39,7 @@ export function agentEventsForThread(
     .filter((row) => row.threadId === threadId)
     .sort((a, b) => a.seq - b.seq)
     .map((row) => {
-      const event = parseAgentEventPayload(row.payload)
+      const event = parseAgentEventPayload(row.payload, row.seq)
       if (!event) return null
       return { seq: row.seq, atMs: eventCreatedAtMs(row.createdAt), event }
     })

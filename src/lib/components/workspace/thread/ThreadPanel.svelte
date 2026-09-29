@@ -30,6 +30,10 @@
   } = $props()
 
   let scrollEl: HTMLElement | undefined = $state()
+  let contentEl: HTMLElement | undefined = $state()
+  // Whether the reader is at the bottom; streamed replies grow a row without adding one,
+  // so follow height changes while pinned instead of only on new rows.
+  let pinnedToBottom = true
   let announceText = $state('')
   let nowMs = $state(Date.now())
   let isNewIds = $state<Record<string, true>>({})
@@ -102,6 +106,7 @@
   $effect(() => {
     if (thread.id !== prevThreadId) {
       prevThreadId = thread.id
+      pinnedToBottom = true
       scrollToEndNext = true
       prevItemCount = 0
       isNewIds = {}
@@ -119,7 +124,7 @@
       isNewIds = fresh
       const text = newestAgentAnnouncement(items, thread.role)
       if (text) announceText = text
-      scrollToEndNext = true
+      if (pinnedToBottom) scrollToEndNext = true
     }
     prevItemCount = count
   })
@@ -127,6 +132,7 @@
   $effect(() => {
     void app.threadId
     void workspaceUi.activeTab
+    pinnedToBottom = true
     scrollToEndNext = true
   })
 
@@ -143,6 +149,24 @@
     return bindVisibleThreadEvents(thread.id, (event) => {
       threadTimeline.applyEvent(thread.id, event)
     })
+  })
+
+  $effect(() => {
+    const scroller = scrollEl
+    const content = contentEl
+    if (!scroller || !content) return
+    const onScroll = () => {
+      pinnedToBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80
+    }
+    const observer = new ResizeObserver(() => {
+      if (pinnedToBottom) scroller.scrollTop = scroller.scrollHeight
+    })
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    observer.observe(content)
+    return () => {
+      scroller.removeEventListener('scroll', onScroll)
+      observer.disconnect()
+    }
   })
 
   onMount(() => {
@@ -175,7 +199,7 @@
     bind:this={scrollEl}
     class="min-h-0 flex-1 overflow-y-auto"
   >
-    <div class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-3">
+    <div bind:this={contentEl} class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-3">
       <ThreadIntro {thread} {workspace} {otherThreadCount} {nowMs} />
 
       <ol class="mt-4 space-y-2" aria-label="Conversation" id="timeline">
@@ -236,6 +260,7 @@
     {thread}
     bind:focusComposer
     onSent={() => {
+      pinnedToBottom = true
       scrollToEndNext = true
     }}
   />

@@ -46,6 +46,24 @@ for raw in sys.stdin:
                 }
             )
         else:
+            # ACP agents replay the whole conversation as updates before answering a load.
+            for kind, text in (
+                ("user_message_chunk", "replayed question"),
+                ("agent_message_chunk", "replayed answer"),
+            ):
+                send(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "session/update",
+                        "params": {
+                            "sessionId": session_id,
+                            "update": {
+                                "sessionUpdate": kind,
+                                "content": {"type": "text", "text": text},
+                            },
+                        },
+                    }
+                )
             send({"jsonrpc": "2.0", "id": req_id, "result": {}})
     elif method == "session/prompt":
         pending_prompt_id = req_id
