@@ -31,8 +31,8 @@ query($q: String!) {
         baseRefName
         repository { nameWithOwner }
         statusCheckRollup { state }
-        requestedReviewers(first: 20) {
-          nodes { ... on User { login } }
+        reviewRequests(first: 20) {
+          nodes { requestedReviewer { ... on User { login } } }
         }
         assignees(first: 20) {
           nodes { login }
@@ -116,8 +116,12 @@ fn infer_relationship(pr: &PullRequestNode, viewer: &str) -> PrRelationship {
     if author.eq_ignore_ascii_case(viewer) {
         return PrRelationship::Author;
     }
-    if pr.requested_reviewers.nodes.iter().flatten().any(|user| {
-        user.login.eq_ignore_ascii_case(viewer)
+    if pr.review_requests.nodes.iter().flatten().any(|request| {
+        request
+            .requested_reviewer
+            .as_ref()
+            .and_then(|reviewer| reviewer.login.as_deref())
+            .is_some_and(|login| login.eq_ignore_ascii_case(viewer))
     }) {
         return PrRelationship::Review;
     }
@@ -236,7 +240,7 @@ struct PullRequestNode {
     base_ref_name: String,
     repository: RepositoryNode,
     status_check_rollup: Option<StatusCheckRollup>,
-    requested_reviewers: UserConnection,
+    review_requests: ReviewRequestConnection,
     assignees: UserConnection,
 }
 
@@ -253,6 +257,23 @@ struct RepositoryNode {
 #[derive(Debug, Deserialize)]
 struct StatusCheckRollup {
     state: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReviewRequestConnection {
+    nodes: Vec<Option<ReviewRequestNode>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewRequestNode {
+    requested_reviewer: Option<ReviewerNode>,
+}
+
+/// Teams, bots and mannequins can be requested too; only users carry a login here.
+#[derive(Debug, Deserialize)]
+struct ReviewerNode {
+    login: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

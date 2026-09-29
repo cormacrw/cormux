@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::path::Path;
 
 use crate::error::Result;
 use crate::git::Git;
+use crate::ipc::commands::expand_tilde;
 
 /// Normalised `owner/repo` slug used to match GitHub PRs to registered repos.
 pub fn parse_origin_url(raw: &str) -> Option<String> {
@@ -58,7 +58,7 @@ pub fn match_repo_id(
 pub async fn load_repo_origins(git: &Git, repos: &[(String, String)]) -> Result<HashMap<String, String>> {
     let mut map = HashMap::new();
     for (repo_id, path) in repos {
-        let url = git.remote_origin_url(Path::new(path)).await?;
+        let url = git.remote_origin_url(&expand_tilde(path)).await?;
         if let Some(url) = url {
             if let Some(slug) = parse_origin_url(&url) {
                 map.insert(repo_id.clone(), slug);
