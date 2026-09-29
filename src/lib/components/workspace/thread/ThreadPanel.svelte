@@ -178,15 +178,24 @@
     const onReaderInput = () => {
       readerInputAt = performance.now()
     }
-    const inputs = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const
+    // WebKit scrolls off the main thread, so the follow loop can land before scrollTop
+    // moves; an upward wheel unpins straight away instead of waiting for the scroll.
+    const onWheel = (event: WheelEvent) => {
+      onReaderInput()
+      if (event.deltaY < 0 && scroller.scrollTop > 0) pinnedToBottom = false
+    }
+    const inputs = ['touchmove', 'keydown', 'pointerdown'] as const
     scroller.addEventListener('scroll', onScroll, { passive: true })
+    scroller.addEventListener('wheel', onWheel, { passive: true })
     for (const name of inputs) {
       scroller.addEventListener(name, onReaderInput, { passive: true })
     }
     followObserver.observe(content)
     return () => {
       scroller.removeEventListener('scroll', onScroll)
-      for (const name of inputs) scroller.removeEventListener(name, onReaderInput)
+      scroller.removeEventListener('wheel', onWheel)
+      for (const name of inputs)
+        scroller.removeEventListener(name, onReaderInput)
       followObserver.unobserve(content)
     }
   })
@@ -210,14 +219,16 @@
     followFrame = 0
     const scroller = scrollEl
     if (!scroller || !stillFollowing()) return
-    const behind = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
+    const behind =
+      scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
     if (behind > 1) {
       followToEnd(scroller)
       stillFrames = 0
     } else {
       stillFrames += 1
     }
-    if (stillFrames < SETTLE_FRAMES) followFrame = requestAnimationFrame(followStep)
+    if (stillFrames < SETTLE_FRAMES)
+      followFrame = requestAnimationFrame(followStep)
   }
 
   onDestroy(() => {
@@ -237,12 +248,15 @@
     lastScrollTop = scroller.scrollTop
   }
 
+  // Any upward move by the reader unpins, however small: trackpads scroll a few pixels per
+  // event, and following would snap each one back before it added up to a real distance.
   function readerScrolledUp(scroller: HTMLElement) {
-    const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
-    if (gap < 80) return false
-    if (!pinnedToBottom) return true
     const byReader = performance.now() - readerInputAt < READER_INPUT_MS
-    return byReader && scroller.scrollTop < lastScrollTop - 1
+    if (byReader && scroller.scrollTop < lastScrollTop - 1) return true
+    const gap =
+      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+    if (gap < 80) return false
+    return !pinnedToBottom
   }
 
   // Checked before the scroll event lands, so a row arriving right after the reader
@@ -276,7 +290,10 @@
     bind:this={scrollEl}
     class="min-h-0 flex-1 overflow-y-auto"
   >
-    <div bind:this={contentEl} class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-3">
+    <div
+      bind:this={contentEl}
+      class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-3"
+    >
       <ThreadIntro {thread} {workspace} {otherThreadCount} {nowMs} />
 
       <ol class="mt-4 space-y-2" aria-label="Conversation" id="timeline">
