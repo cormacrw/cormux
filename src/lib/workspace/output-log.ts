@@ -1,11 +1,5 @@
 export type OutputLineStyle =
-  | 'cmd'
-  | 'out'
-  | 'dim'
-  | 'ok'
-  | 'warn'
-  | 'sep'
-  | 'blank'
+  'cmd' | 'out' | 'dim' | 'ok' | 'warn' | 'sep' | 'blank'
 
 export function classifyOutputLine(raw: string): OutputLineStyle {
   const line = raw.trimEnd()

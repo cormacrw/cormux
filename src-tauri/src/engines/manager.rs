@@ -234,10 +234,7 @@ impl EngineRegistry {
             .holds
             .lock()
             .map_err(|error| Error::Engine(error.to_string()))?;
-        holds
-            .entry(thread_id.to_string())
-            .or_default()
-            .paused = true;
+        holds.entry(thread_id.to_string()).or_default().paused = true;
         Ok(())
     }
 
@@ -457,6 +454,7 @@ fn resolved_acp_argv(kind: EngineKind, env: &ShellEnv) -> Vec<String> {
     argv
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_claude(
     mut session: ClaudeSession,
     mut commands: mpsc::UnboundedReceiver<EngineCommand>,
@@ -565,6 +563,7 @@ struct ClaudePolicy {
     read_only: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_claude_permission(
     session: &mut ClaudeSession,
     req: &CanUseTool,
@@ -615,8 +614,7 @@ async fn handle_claude_permission(
         req,
         ToolCallStatus::Pending,
     ));
-    if let Err(error) =
-        crate::approvals::record_pending_permission(store, thread_id, &mapped, None)
+    if let Err(error) = crate::approvals::record_pending_permission(store, thread_id, &mapped, None)
     {
         log::warn!("record approval: {error}");
     } else {
@@ -653,7 +651,10 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
     if let Ok(payload) = serde_json::to_string(event) {
         let _ = store.append_event(thread_id, kind, &payload);
     }
-    if matches!(event, AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }) {
+    if matches!(
+        event,
+        AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }
+    ) {
         let _ = store.mark_thread_idle(thread_id);
     }
 }
@@ -672,7 +673,13 @@ mod tests {
         let store = Store::new();
         store.open_in_memory().unwrap();
         let (approval_notify, _) = tokio::sync::broadcast::channel(4);
-        EngineRegistry::new(env, approvals, store, approval_notify, broadcast::channel(8).0)
+        EngineRegistry::new(
+            env,
+            approvals,
+            store,
+            approval_notify,
+            broadcast::channel(8).0,
+        )
     }
 
     #[tokio::test]
@@ -701,7 +708,9 @@ mod tests {
             })
             .await
             .unwrap();
-        engines.prompt("t-idle", "first: run echo spike-ok").unwrap();
+        engines
+            .prompt("t-idle", "first: run echo spike-ok")
+            .unwrap();
         let thread_id = tokio::time::timeout(std::time::Duration::from_secs(10), turn_ends.recv())
             .await
             .expect("turn end within 10s")
@@ -743,10 +752,7 @@ mod tests {
                 break id;
             }
         };
-        approvals
-            .resolve(&permission_id, true, None)
-            .await
-            .unwrap();
+        approvals.resolve(&permission_id, true, None).await.unwrap();
 
         loop {
             match events.recv().await.unwrap() {
@@ -762,12 +768,9 @@ mod tests {
         engines.prompt("t1", "second: count slowly").unwrap();
         engines.cancel("t1").unwrap();
         loop {
-            match events.recv().await.unwrap() {
-                AgentEvent::TurnEnd { stop_reason, .. } => {
-                    assert_ne!(stop_reason, "end_turn");
-                    break;
-                }
-                _ => {}
+            if let AgentEvent::TurnEnd { stop_reason, .. } = events.recv().await.unwrap() {
+                assert_ne!(stop_reason, "end_turn");
+                break;
             }
         }
 
@@ -805,10 +808,7 @@ mod tests {
                 break id;
             }
         };
-        approvals
-            .resolve(&permission_id, true, None)
-            .await
-            .unwrap();
+        approvals.resolve(&permission_id, true, None).await.unwrap();
 
         loop {
             let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
@@ -914,7 +914,10 @@ mod tests {
                 .unwrap()
                 .unwrap();
             if let AgentEvent::MessageChunk { text, .. } = &event {
-                assert!(!text.starts_with("replayed"), "session/load replay leaked: {text}");
+                assert!(
+                    !text.starts_with("replayed"),
+                    "session/load replay leaked: {text}"
+                );
             }
             match event {
                 AgentEvent::Usage { used_tokens, .. } => {
@@ -922,11 +925,7 @@ mod tests {
                     saw_usage = true;
                 }
                 AgentEvent::Permission { id, .. } => {
-                    engines
-                        .approvals
-                        .resolve(&id, true, None)
-                        .await
-                        .unwrap();
+                    engines.approvals.resolve(&id, true, None).await.unwrap();
                 }
                 AgentEvent::TurnEnd { .. } => break,
                 _ => {}
@@ -934,7 +933,10 @@ mod tests {
         }
         assert!(saw_usage);
         let persisted = engines.store.transcript_summary("acp-resume", 100).unwrap();
-        assert!(!persisted.contains("replayed"), "replay was persisted: {persisted}");
+        assert!(
+            !persisted.contains("replayed"),
+            "replay was persisted: {persisted}"
+        );
         engines.stop("acp-resume").await.unwrap();
     }
 
@@ -962,18 +964,16 @@ mod tests {
             .unwrap();
 
         let mut events = engines.subscribe("acp-miss").unwrap();
-        let mut saw_session = false;
+        // Times out and fails unless the session starts.
         loop {
             let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
                 .await
                 .unwrap()
                 .unwrap();
             if matches!(event, AgentEvent::SessionStarted { .. }) {
-                saw_session = true;
                 break;
             }
         }
-        assert!(saw_session);
         engines.prompt("acp-miss", "next").unwrap();
         loop {
             let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
@@ -982,11 +982,7 @@ mod tests {
                 .unwrap();
             match event {
                 AgentEvent::Permission { id, .. } => {
-                    engines
-                        .approvals
-                        .resolve(&id, true, None)
-                        .await
-                        .unwrap();
+                    engines.approvals.resolve(&id, true, None).await.unwrap();
                 }
                 AgentEvent::TurnEnd { .. } => break,
                 _ => {}

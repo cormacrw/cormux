@@ -3,7 +3,10 @@
   import '@git-diff-view/svelte/styles/diff-view-pure.css'
   import { mode as theme } from 'mode-watcher'
   import type { DiffFile } from '$lib/ipc/bindings'
-  import { diffComments, type DiffComment } from '$lib/changes/diff-comments.svelte'
+  import {
+    diffComments,
+    type DiffComment,
+  } from '$lib/changes/diff-comments.svelte'
   import { toDiffViewData } from '$lib/changes/diff-view-data'
   import { appearance, workspaceUi } from '$lib/state'
   import { Button } from '$lib/components/ui/button'
@@ -20,7 +23,9 @@
 
   const data = $derived(toDiffViewData(file))
   const mode = $derived(
-    workspaceUi.diffMode === 'split' ? DiffModeEnum.Split : DiffModeEnum.Unified,
+    workspaceUi.diffMode === 'split'
+      ? DiffModeEnum.Split
+      : DiffModeEnum.Unified,
   )
 
   const extendData = $derived.by(() => {
@@ -35,10 +40,21 @@
 
   // Unsent text per line, so a diff refresh that closes the box doesn't lose it.
   const drafts: Record<string, string> = {}
-  const draftKey = (side: SplitSide, line: number) => `${file.path}:${side}:${line}`
+  const draftKey = (side: SplitSide, line: number) =>
+    `${file.path}:${side}:${line}`
 
-  function lineCode(diffFile: { getOldPlainLine: (n: number) => { value: string }; getNewPlainLine: (n: number) => { value: string } }, side: SplitSide, line: number) {
-    const plain = side === SplitSide.old ? diffFile.getOldPlainLine(line) : diffFile.getNewPlainLine(line)
+  function lineCode(
+    diffFile: {
+      getOldPlainLine: (n: number) => { value: string }
+      getNewPlainLine: (n: number) => { value: string }
+    },
+    side: SplitSide,
+    line: number,
+  ) {
+    const plain =
+      side === SplitSide.old
+        ? diffFile.getOldPlainLine(line)
+        : diffFile.getNewPlainLine(line)
     return plain?.value?.replace(/\n$/, '') ?? ''
   }
 
@@ -101,14 +117,18 @@
           }}
         />
         <div class="flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onclick={onClose}>Cancel</Button>
+          <Button type="button" variant="ghost" size="sm" onclick={onClose}
+            >Cancel</Button
+          >
           <Button type="submit" size="sm">Add comment</Button>
         </div>
       </form>
     {/snippet}
 
     {#snippet renderExtendLine({ data: comments })}
-      <ul class="flex flex-col gap-1 border-y border-border/60 bg-card px-3 py-2 font-sans">
+      <ul
+        class="flex flex-col gap-1 border-y border-border/60 bg-card px-3 py-2 font-sans"
+      >
         {#each comments as comment (comment.id)}
           <li class="flex items-start gap-2 text-sm">
             <p class="min-w-0 flex-1 whitespace-pre-wrap">{comment.body}</p>

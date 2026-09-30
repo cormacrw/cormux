@@ -1,9 +1,5 @@
 export type BranchMeta =
-  | 'current'
-  | 'inOtherWorkspace'
-  | 'default'
-  | 'integration'
-  | 'staging'
+  'current' | 'inOtherWorkspace' | 'default' | 'integration' | 'staging'
 
 export type BranchPickerItem = {
   name: string
@@ -60,7 +56,12 @@ export function buildBranchPickerList(input: {
   )
 
   return ordered.map((name) => {
-    const meta = metaForBranch(name, input.current, occupied, input.defaultBranch)
+    const meta = metaForBranch(
+      name,
+      input.current,
+      occupied,
+      input.defaultBranch,
+    )
     return {
       name,
       meta,

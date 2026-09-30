@@ -1,4 +1,8 @@
-import { fixtureDiff, fixtureEngines, fixtureSnapshot } from './fixture-snapshot'
+import {
+  fixtureDiff,
+  fixtureEngines,
+  fixtureSnapshot,
+} from './fixture-snapshot'
 
 type InvokeArgs = Record<string, unknown> | undefined
 
@@ -90,42 +94,74 @@ function seedLongThread(turns: number) {
     })
   }
   for (let turn = 1; turn <= turns; turn += 1) {
-    push('message', { type: 'messageChunk', role: 'user', text: `Question ${turn}` })
-    push('message', { type: 'messageChunk', role: 'agent', text: `Answer ${turn}` })
+    push('message', {
+      type: 'messageChunk',
+      role: 'user',
+      text: `Question ${turn}`,
+    })
+    push('message', {
+      type: 'messageChunk',
+      role: 'agent',
+      text: `Answer ${turn}`,
+    })
     push('turn_end', { type: 'turnEnd', stop_reason: 'end_turn', error: null })
   }
   // Switching away from a branch and back writes two notes with the same title.
   for (const branch of ['feat/test', 'feat/colors', 'feat/test']) {
-    push('tool', { icon: 'branch', title: `Switched to \`${branch}\``, detail: 'Checked out in this worktree' })
+    push('tool', {
+      icon: 'branch',
+      title: `Switched to \`${branch}\``,
+      detail: 'Checked out in this worktree',
+    })
   }
 }
 
 export function installBrowserHarness() {
   if (typeof window === 'undefined' || isRealTauri()) return
-  const longThread = Number(new URLSearchParams(window.location.search).get('longThread'))
+  const longThread = Number(
+    new URLSearchParams(window.location.search).get('longThread'),
+  )
   if (longThread > 0) seedLongThread(longThread)
   // Tests can inject a real thread's events (as exported from cormux.db) for the Lead thread.
-  const injected = (window as { __HARNESS_TIMELINE__?: typeof fixtureSnapshot.persisted.timeline })
-    .__HARNESS_TIMELINE__
+  const injected = (
+    window as {
+      __HARNESS_TIMELINE__?: typeof fixtureSnapshot.persisted.timeline
+    }
+  ).__HARNESS_TIMELINE__
   if (injected) {
     const persisted = fixtureSnapshot.persisted
-    persisted.timeline = [...persisted.timeline.filter((row) => row.threadId !== 'th-lead'), ...injected]
+    persisted.timeline = [
+      ...persisted.timeline.filter((row) => row.threadId !== 'th-lead'),
+      ...injected,
+    ]
   }
   // Tests can inject review findings; this makes the fixture workspace a finished review.
-  const injectedFindings = (window as { __HARNESS_REVIEW_FINDINGS__?: typeof fixtureSnapshot.persisted.findings })
-    .__HARNESS_REVIEW_FINDINGS__
+  const injectedFindings = (
+    window as {
+      __HARNESS_REVIEW_FINDINGS__?: typeof fixtureSnapshot.persisted.findings
+    }
+  ).__HARNESS_REVIEW_FINDINGS__
   if (injectedFindings) {
     const persisted = fixtureSnapshot.persisted
-    const row = persisted.workspaces.find((workspace) => workspace.id === 'ws-auth')!
+    const row = persisted.workspaces.find(
+      (workspace) => workspace.id === 'ws-auth',
+    )!
     row.kind = 'review'
     row.prNumber = 2
-    persisted.threads.find((thread) => thread.id === 'th-lead')!.title = 'Reviewer'
+    persisted.threads.find((thread) => thread.id === 'th-lead')!.title =
+      'Reviewer'
     persisted.findings = injectedFindings
-    persisted.settings = [...persisted.settings, { key: 'review:ws-auth/status', value: 'ready' }]
+    persisted.settings = [
+      ...persisted.settings,
+      { key: 'review:ws-auth/status', value: 'ready' },
+    ]
   }
   // Tests can inject synced PRs; this also flips GitHub to connected.
-  const injectedPrs = (window as { __HARNESS_PRS__?: typeof fixtureSnapshot.persisted.pullRequests })
-    .__HARNESS_PRS__
+  const injectedPrs = (
+    window as {
+      __HARNESS_PRS__?: typeof fixtureSnapshot.persisted.pullRequests
+    }
+  ).__HARNESS_PRS__
   if (injectedPrs) {
     fixtureSnapshot.persisted.pullRequests = injectedPrs
     fixtureSnapshot.githubAuthConfigured = true
@@ -134,7 +170,9 @@ export function installBrowserHarness() {
 
   // Lets tests raise a toast of any tone without driving a flow that produces it.
   void import('$lib/feedback/show-toast').then(({ showToast }) => {
-    ;(window as { __HARNESS_SHOW_TOAST__?: typeof showToast }).__HARNESS_SHOW_TOAST__ = showToast
+    ;(
+      window as { __HARNESS_SHOW_TOAST__?: typeof showToast }
+    ).__HARNESS_SHOW_TOAST__ = showToast
   })
 
   const callbacks = new Map<number, (...args: unknown[]) => void>()
@@ -157,10 +195,22 @@ export function installBrowserHarness() {
   // the backend follows with a state-changed refetch.
   const streamReply = (threadId: string, text: string) => {
     const timeline = fixtureSnapshot.persisted.timeline
-    let seq = Math.max(0, ...timeline.filter((row) => row.threadId === threadId).map((row) => row.seq))
+    let seq = Math.max(
+      0,
+      ...timeline
+        .filter((row) => row.threadId === threadId)
+        .map((row) => row.seq),
+    )
     const persist = (kind: string, event: object) => {
       seq += 1
-      timeline.push({ id: 900_000 + seq, threadId, seq, kind, payload: JSON.stringify(event), createdAt: '2026-09-28 12:00:00' })
+      timeline.push({
+        id: 900_000 + seq,
+        threadId,
+        seq,
+        kind,
+        payload: JSON.stringify(event),
+        createdAt: '2026-09-28 12:00:00',
+      })
     }
     const send = (event: object) => {
       const channel = agentChannels.get(threadId)
@@ -170,7 +220,16 @@ export function installBrowserHarness() {
     persist('message', { type: 'messageChunk', role: 'user', text })
     // One tool call first, the way agents read before they answer.
     setTimeout(() => {
-      const read = { type: 'toolCall', id: `harness-read-${seq}`, title: 'Read', name: null, kind: 'read', status: 'completed', locations: ['src/lib/auth.ts'], detail: 'src/lib/auth.ts' }
+      const read = {
+        type: 'toolCall',
+        id: `harness-read-${seq}`,
+        title: 'Read',
+        name: null,
+        kind: 'read',
+        status: 'completed',
+        locations: ['src/lib/auth.ts'],
+        detail: 'src/lib/auth.ts',
+      }
       persist('tool', read)
       send(read)
     }, 40)
@@ -178,31 +237,49 @@ export function installBrowserHarness() {
     const slow = new URLSearchParams(window.location.search).has('slowReply')
     const wordMs = slow ? 40 : 10
     const body = slow
-      ? Array.from({ length: 12 }, (_, n) => `Paragraph ${n + 1}: ${'streamed word '.repeat(25)}`).join('\n\n')
+      ? Array.from(
+          { length: 12 },
+          (_, n) => `Paragraph ${n + 1}: ${'streamed word '.repeat(25)}`,
+        ).join('\n\n')
       : 'streamed word '.repeat(40)
     const words = `Reply to "${text}": ${body}done.`.split(' ')
     words.forEach((word, i) => {
-      setTimeout(() => {
-        const event = { type: 'messageChunk', role: 'agent', text: `${i ? ' ' : ''}${word}` }
-        persist('message', event)
-        send(event)
-      }, 50 + i * wordMs)
+      setTimeout(
+        () => {
+          const event = {
+            type: 'messageChunk',
+            role: 'agent',
+            text: `${i ? ' ' : ''}${word}`,
+          }
+          persist('message', event)
+          send(event)
+        },
+        50 + i * wordMs,
+      )
     })
-    setTimeout(() => {
-      const end = { type: 'turnEnd', stop_reason: 'end_turn', error: null }
-      persist('turn_end', end)
-      send(end)
-      const lead = fixtureSnapshot.persisted.threads.find((row) => row.id === threadId)
-      if (lead) lead.status = 'idle'
-      emitStateChanged()
-    }, 80 + words.length * wordMs)
+    setTimeout(
+      () => {
+        const end = { type: 'turnEnd', stop_reason: 'end_turn', error: null }
+        persist('turn_end', end)
+        send(end)
+        const lead = fixtureSnapshot.persisted.threads.find(
+          (row) => row.id === threadId,
+        )
+        if (lead) lead.status = 'idle'
+        emitStateChanged()
+      },
+      80 + words.length * wordMs,
+    )
   }
 
   let diffChannel: { id: number; index: number } | null = null
   const sendDiff = (target: { head: string; base: string } | null) => {
     if (!diffChannel) return
     const diff = { ...fixtureDiff, target }
-    callbacks.get(diffChannel.id)?.({ index: diffChannel.index++, message: { workspaceId: fixtureDiff.workspaceId, path: '', diff } })
+    callbacks.get(diffChannel.id)?.({
+      index: diffChannel.index++,
+      message: { workspaceId: fixtureDiff.workspaceId, path: '', diff },
+    })
   }
 
   // gh-stack stand-in: `?stack=none` starts unstacked, `?stack=unavailable` has no extension,
@@ -211,7 +288,10 @@ export function installBrowserHarness() {
   const stackMode = new URLSearchParams(window.location.search).get('stack')
   const fullStack = ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
   const stackBranches: string[] =
-    stackMode === 'none' || stackMode === 'unavailable' || stackMode === 'remote' || stackMode === 'behind'
+    stackMode === 'none' ||
+    stackMode === 'unavailable' ||
+    stackMode === 'remote' ||
+    stackMode === 'behind'
       ? []
       : [...fullStack]
   const stackStats: Record<string, [number, number, number, number]> = {
@@ -222,14 +302,19 @@ export function installBrowserHarness() {
   // PRs are opened by hand; the bottom branch already has one.
   const stackPrs: Record<string, number> = { 'feat/oauth-api': 101 }
   const setFixtureBranch = (workspaceId: string, branch: string) => {
-    const row = fixtureSnapshot.persisted.workspaces.find((workspace) => workspace.id === workspaceId)
-    const record = fixtureSnapshot.workspaces.find((workspace) => workspace.id === workspaceId)
+    const row = fixtureSnapshot.persisted.workspaces.find(
+      (workspace) => workspace.id === workspaceId,
+    )
+    const record = fixtureSnapshot.workspaces.find(
+      (workspace) => workspace.id === workspaceId,
+    )
     if (row) row.branch = branch
     if (record) record.branch = branch
     emitStateChanged()
   }
   const currentBranch = (workspaceId: string) =>
-    fixtureSnapshot.workspaces.find((workspace) => workspace.id === workspaceId)?.branch ?? 'main'
+    fixtureSnapshot.workspaces.find((workspace) => workspace.id === workspaceId)
+      ?.branch ?? 'main'
   const stackFor = (workspaceId: string) => {
     const current = currentBranch(workspaceId)
     // `?stack=behind` puts main ahead of the unstacked branch.
@@ -242,21 +327,30 @@ export function installBrowserHarness() {
       branches: [],
     }
     if (stackMode === 'unavailable') {
-      return { ...base, status: 'unavailable', message: 'The gh-stack extension isn\'t installed. Run: gh extension install github/gh-stack' }
+      return {
+        ...base,
+        status: 'unavailable',
+        message:
+          "The gh-stack extension isn't installed. Run: gh extension install github/gh-stack",
+      }
     }
     if (stackMode === 'remote' && !stackBranches.includes(current)) {
       if (!(window as { __stackRemoteUp?: boolean }).__stackRemoteUp) {
         return {
           ...base,
           status: 'notStacked',
-          message: "Looking for this branch's stack on GitHub failed talking to GitHub. Check `gh auth status`, then retry.",
+          message:
+            "Looking for this branch's stack on GitHub failed talking to GitHub. Check `gh auth status`, then retry.",
         }
       }
       stackBranches.push(...fullStack)
     }
-    if (!stackBranches.includes(current)) return { ...base, status: 'notStacked' }
+    if (!stackBranches.includes(current))
+      return { ...base, status: 'notStacked' }
     const branches = stackBranches.map((name, index) => {
-      const [additions, deletions, commits, files] = stackStats[name] ?? [0, 0, 0, 0]
+      const [additions, deletions, commits, files] = stackStats[name] ?? [
+        0, 0, 0, 0,
+      ]
       const number = stackPrs[name]
       return {
         name,
@@ -269,7 +363,13 @@ export function installBrowserHarness() {
         merged: false,
         queued: false,
         needsRebase: name === 'feat/oauth-ui',
-        pr: number ? { number, url: `https://github.com/acme/my-app/pull/${number}`, state: 'OPEN' } : null,
+        pr: number
+          ? {
+              number,
+              url: `https://github.com/acme/my-app/pull/${number}`,
+              state: 'OPEN',
+            }
+          : null,
       }
     })
     return { ...base, status: 'stacked', branches }
@@ -286,7 +386,8 @@ export function installBrowserHarness() {
     if (cmd === 'add_stack_branch') {
       const input = args.input as { workspaceId: string; branch: string }
       const current = currentBranch(input.workspaceId)
-      if (!stackBranches.includes(current) && current !== 'main') stackBranches.push(current)
+      if (!stackBranches.includes(current) && current !== 'main')
+        stackBranches.push(current)
       stackBranches.push(input.branch)
       setFixtureBranch(input.workspaceId, input.branch)
       return null
@@ -297,10 +398,18 @@ export function installBrowserHarness() {
     }
     if (cmd === 'sync_stack') return null
     if (cmd === 'draft_pr_why') {
-      return { workspaceId: args.workspaceId, text: 'Lets people sign in with their Google account.', fromLlm: false }
+      return {
+        workspaceId: args.workspaceId,
+        text: 'Lets people sign in with their Google account.',
+        fromLlm: false,
+      }
     }
     if (cmd === 'create_todo') {
-      const todo = { id: `todo-harness-${nextEventId++}`, title: String(args.title).trim(), pinned: false }
+      const todo = {
+        id: `todo-harness-${nextEventId++}`,
+        title: String(args.title).trim(),
+        pinned: false,
+      }
       fixtureSnapshot.persisted.todos.push(todo)
       return todo
     }
@@ -310,14 +419,18 @@ export function installBrowserHarness() {
       return null
     }
     if (cmd === 'set_todo_pinned') {
-      const todo = fixtureSnapshot.persisted.todos.find((row) => row.id === args.todoId)
+      const todo = fixtureSnapshot.persisted.todos.find(
+        (row) => row.id === args.todoId,
+      )
       if (todo) todo.pinned = Boolean(args.pinned)
       return null
     }
     if (cmd === 'detect_engines') return fixtureEngines
     if (cmd === 'set_repo_default_branch') {
       const input = args.input as { repoId: string; defaultBranch: string }
-      const repo = fixtureSnapshot.persisted.repos.find((row) => row.id === input.repoId)
+      const repo = fixtureSnapshot.persisted.repos.find(
+        (row) => row.id === input.repoId,
+      )
       if (repo) repo.defaultBranch = input.defaultBranch
       return null
     }
@@ -326,7 +439,9 @@ export function installBrowserHarness() {
       return null
     }
     if (cmd === 'open_workspace_terminal') {
-      ;(window as { __HARNESS_OPENED_TERMINAL__?: unknown }).__HARNESS_OPENED_TERMINAL__ = args.workspaceId
+      ;(
+        window as { __HARNESS_OPENED_TERMINAL__?: unknown }
+      ).__HARNESS_OPENED_TERMINAL__ = args.workspaceId
       return null
     }
     if (cmd === 'get_teardown_preview') {
@@ -338,25 +453,40 @@ export function installBrowserHarness() {
         worktreePath: '/tmp/cormux-fixture/oauth',
         appRunning: false,
         deleteBranchDefault: true,
-        dataLoss: { uncommittedFiles: 0, unpushedCommits: 0, hasDataLoss: false, warning: null },
+        dataLoss: {
+          uncommittedFiles: 0,
+          unpushedCommits: 0,
+          hasDataLoss: false,
+          warning: null,
+        },
       }
     }
     if (cmd === 'list_repo_branches') {
       return { branches: ['main', 'develop', 'feat/oauth-login'] }
     }
-    if (cmd === 'subscribe_diffs' && args.workspaceId === fixtureDiff.workspaceId) {
+    if (
+      cmd === 'subscribe_diffs' &&
+      args.workspaceId === fixtureDiff.workspaceId
+    ) {
       const channel = args.channel as { id: number }
       diffChannel = { id: channel.id, index: 0 }
       queueMicrotask(() => sendDiff(null))
       return nextEventId++
     }
     // `?slowDiff=1` holds diff fetches long enough to see the Changes splash.
-    if (cmd === 'refresh_workspace_diff' || cmd === 'set_workspace_diff_target') {
+    if (
+      cmd === 'refresh_workspace_diff' ||
+      cmd === 'set_workspace_diff_target'
+    ) {
       if (new URLSearchParams(window.location.search).has('slowDiff')) {
         await new Promise((resolve) => setTimeout(resolve, 1500))
       }
-      if (cmd === 'set_workspace_diff_target' && args.workspaceId === fixtureDiff.workspaceId) {
-        const target = (args.target as { head: string; base: string } | null) ?? null
+      if (
+        cmd === 'set_workspace_diff_target' &&
+        args.workspaceId === fixtureDiff.workspaceId
+      ) {
+        const target =
+          (args.target as { head: string; base: string } | null) ?? null
         setTimeout(() => sendDiff(target), 100)
       }
       return null
@@ -367,7 +497,9 @@ export function installBrowserHarness() {
       return nextEventId++
     }
     if (cmd === 'send_thread_prompt' && args.threadId === 'th-lead') {
-      const lead = fixtureSnapshot.persisted.threads.find((row) => row.id === 'th-lead')
+      const lead = fixtureSnapshot.persisted.threads.find(
+        (row) => row.id === 'th-lead',
+      )
       if (lead) lead.status = 'running'
       streamReply('th-lead', String(args.text))
       return null
@@ -375,25 +507,61 @@ export function installBrowserHarness() {
     if (cmd === 'new_thread_session') {
       const threadId = String(args.threadId)
       const timeline = fixtureSnapshot.persisted.timeline
-      const seq = Math.max(0, ...timeline.filter((row) => row.threadId === threadId).map((row) => row.seq)) + 1
-      const event = { type: 'toolCall', id: `control-${seq}`, title: 'Started a new session', name: null, kind: 'other', status: 'completed', locations: [], detail: null }
-      timeline.push({ id: 800_000 + seq, threadId, seq, kind: 'tool', payload: JSON.stringify(event), createdAt: '2026-09-28 12:00:00' })
-      const thread = fixtureSnapshot.persisted.threads.find((row) => row.id === threadId)
+      const seq =
+        Math.max(
+          0,
+          ...timeline
+            .filter((row) => row.threadId === threadId)
+            .map((row) => row.seq),
+        ) + 1
+      const event = {
+        type: 'toolCall',
+        id: `control-${seq}`,
+        title: 'Started a new session',
+        name: null,
+        kind: 'other',
+        status: 'completed',
+        locations: [],
+        detail: null,
+      }
+      timeline.push({
+        id: 800_000 + seq,
+        threadId,
+        seq,
+        kind: 'tool',
+        payload: JSON.stringify(event),
+        createdAt: '2026-09-28 12:00:00',
+      })
+      const thread = fixtureSnapshot.persisted.threads.find(
+        (row) => row.id === threadId,
+      )
       if (thread) thread.status = 'idle'
       emitStateChanged()
       return null
     }
     if (cmd === 'join_workspace_thread') {
-      const input = args.input as { workspaceId: string; title: string; engine: string }
+      const input = args.input as {
+        workspaceId: string
+        title: string
+        engine: string
+      }
       const threadId = `th-${Date.now()}`
       const lead = fixtureSnapshot.persisted.threads[0]!
-      fixtureSnapshot.persisted.threads.push({ ...lead, id: threadId, workspaceId: input.workspaceId, title: input.title, status: 'idle' })
+      fixtureSnapshot.persisted.threads.push({
+        ...lead,
+        id: threadId,
+        workspaceId: input.workspaceId,
+        title: input.title,
+        status: 'idle',
+      })
       emitStateChanged()
       return { threadId }
     }
     if (cmd === 'close_workspace_thread') {
       const persisted = fixtureSnapshot.persisted
-      persisted.threads = persisted.threads.filter((row) => row.id !== args.threadId)
+      persisted.threads = persisted.threads.filter(
+        (row) => row.id !== args.threadId,
+      )
       emitStateChanged()
       return null
     }
@@ -418,7 +586,10 @@ export function installBrowserHarness() {
     }
     if (cmd === 'plugin:event|listen') {
       const name = String(args.event)
-      eventListeners.set(name, [...(eventListeners.get(name) ?? []), Number(args.handler)])
+      eventListeners.set(name, [
+        ...(eventListeners.get(name) ?? []),
+        Number(args.handler),
+      ])
       return nextEventId++
     }
     if (cmd === 'plugin:event|unlisten') return null
@@ -435,7 +606,9 @@ export function installBrowserHarness() {
       return { workspaceId: 'ws-auth', created: true }
     }
     if (cmd === 'plugin:opener|open_url') {
-      const opened = ((window as { __HARNESS_OPENED__?: string[] }).__HARNESS_OPENED__ ??= [])
+      const opened = ((
+        window as { __HARNESS_OPENED__?: string[] }
+      ).__HARNESS_OPENED__ ??= [])
       opened.push(String(args.url))
       return null
     }

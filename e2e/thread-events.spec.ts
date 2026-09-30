@@ -17,7 +17,9 @@ test('app events render as divider markers, one per row', async ({ page }) => {
   expect(errors).toEqual([])
 })
 
-test('New session keeps the log and adds a marker; ⌘L does the same', async ({ page }) => {
+test('New session keeps the log and adds a marker; ⌘L does the same', async ({
+  page,
+}) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/?longThread=2')
@@ -36,7 +38,9 @@ test('New session keeps the log and adds a marker; ⌘L does the same', async ({
   await page.locator('#composer-input').fill('Fresh question')
   await page.keyboard.press('Enter')
   // Replies type out after they stream in, so the last words land a few seconds later.
-  await expect(timeline.getByText(/done\.$/).last()).toBeVisible({ timeout: 20_000 })
+  await expect(timeline.getByText(/done\.$/).last()).toBeVisible({
+    timeout: 20_000,
+  })
   await expect(button).toBeEnabled()
   await page.keyboard.press('ControlOrMeta+l')
   await expect(markers).toHaveCount(2)

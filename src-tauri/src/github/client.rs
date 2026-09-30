@@ -7,9 +7,7 @@ use tokio::sync::RwLock;
 use crate::error::Error;
 use crate::shell_env::ShellEnv;
 
-use super::types::{
-    PrChecksState, PrRelationship, PrReviewState, PullRequestPayload,
-};
+use super::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
 
 const SEARCH_QUERY: &str = r#"
 query($q: String!, $after: String) {
@@ -45,7 +43,8 @@ query($q: String!, $after: String) {
 "#;
 
 /// Parenthesised `OR` needs `ISSUE_ADVANCED`; the legacy `ISSUE` type silently returns nothing.
-const SEARCH: &str = "is:pr is:open (author:@me OR review-requested:@me OR assignee:@me OR mentions:@me)";
+const SEARCH: &str =
+    "is:pr is:open (author:@me OR review-requested:@me OR assignee:@me OR mentions:@me)";
 
 /// Hard stop so a runaway search can't burn the rate limit.
 const MAX_PAGES: usize = 5;
@@ -165,7 +164,10 @@ fn rel_priority(rel: PrRelationship) -> u8 {
 }
 
 fn infer_relationship(pr: &PullRequestNode, viewer: &str) -> PrRelationship {
-    let author = pr.author.as_ref().map_or("", |author| author.login.as_str());
+    let author = pr
+        .author
+        .as_ref()
+        .map_or("", |author| author.login.as_str());
     if author.eq_ignore_ascii_case(viewer) {
         return PrRelationship::Author;
     }
@@ -178,9 +180,13 @@ fn infer_relationship(pr: &PullRequestNode, viewer: &str) -> PrRelationship {
     }) {
         return PrRelationship::Review;
     }
-    if pr.assignees.nodes.iter().flatten().any(|user| {
-        user.login.eq_ignore_ascii_case(viewer)
-    }) {
+    if pr
+        .assignees
+        .nodes
+        .iter()
+        .flatten()
+        .any(|user| user.login.eq_ignore_ascii_case(viewer))
+    {
         return PrRelationship::Assigned;
     }
     PrRelationship::Mention
@@ -418,9 +424,15 @@ mod tests {
 
     #[test]
     fn signed_out_only_for_auth_failures() {
-        assert!(is_signed_out("gh failed: To get started with GitHub CLI, please run:  gh auth login"));
-        assert!(is_signed_out("gh failed: HTTP 401: Bad credentials (https://api.github.com/graphql)"));
-        assert!(!is_signed_out("gh failed: error connecting to api.github.com"));
+        assert!(is_signed_out(
+            "gh failed: To get started with GitHub CLI, please run:  gh auth login"
+        ));
+        assert!(is_signed_out(
+            "gh failed: HTTP 401: Bad credentials (https://api.github.com/graphql)"
+        ));
+        assert!(!is_signed_out(
+            "gh failed: error connecting to api.github.com"
+        ));
         assert!(!is_signed_out("gh: No such file or directory (os error 2)"));
     }
 }

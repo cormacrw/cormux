@@ -1,8 +1,5 @@
 export type AddRepoValidationError =
-  | 'empty'
-  | 'invalid-path'
-  | 'duplicate-path'
-  | 'duplicate-name'
+  'empty' | 'invalid-path' | 'duplicate-path' | 'duplicate-name'
 
 export function validateAddRepoPath(
   path: string,

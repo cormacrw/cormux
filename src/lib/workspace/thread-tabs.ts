@@ -27,7 +27,7 @@ export function findingsTabAriaLabel(openCount: number): string {
   return `Review findings, ${plural(openCount, 'open finding', 'open findings')}`
 }
 
-export function changesTabAriaLabel(countLabel: string): string {
+export function changesTabAriaLabel(countLabel: string | null): string {
   return countLabel ? `Git, ${countLabel}` : 'Git, no changes yet'
 }
 

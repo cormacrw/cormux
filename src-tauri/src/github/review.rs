@@ -1,4 +1,4 @@
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
+use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::Deserialize;
 
 use crate::error::{Error, Result};
@@ -60,7 +60,8 @@ impl RestGithubClient {
         pull_number: i64,
         input: &SubmitPullRequestReviewInput,
     ) -> Result<()> {
-        let url = format!("https://api.github.com/repos/{owner}/{repo}/pulls/{pull_number}/reviews");
+        let url =
+            format!("https://api.github.com/repos/{owner}/{repo}/pulls/{pull_number}/reviews");
         let comments: Vec<serde_json::Value> = input
             .comments
             .iter()
@@ -85,7 +86,10 @@ impl RestGithubClient {
             HeaderValue::from_str(&format!("Bearer {token}"))
                 .map_err(|error| Error::Github(error.to_string()))?,
         );
-        headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github+json"));
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github+json"),
+        );
         headers.insert(USER_AGENT, HeaderValue::from_static("cormux"));
 
         let response = self

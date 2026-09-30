@@ -38,7 +38,11 @@ pub async fn create(
         .filter(|text| !text.is_empty());
     // A blank title drafts one from the prompt now and asks Haiku for a better one below.
     let given: String = input.title.trim().chars().take(TITLE_MAX).collect();
-    let auto_name_from = if given.is_empty() { prompt.clone() } else { None };
+    let auto_name_from = if given.is_empty() {
+        prompt.clone()
+    } else {
+        None
+    };
     let title = if !given.is_empty() {
         given
     } else if let Some(text) = &prompt {
@@ -136,9 +140,13 @@ pub async fn send(
         ensure_engine(state, scratch).await?;
     }
     persist_user_message(&state.store, &scratch.thread_id, &text)?;
-    state.engines.submit_prompt(&scratch.thread_id, text, held)?;
+    state
+        .engines
+        .submit_prompt(&scratch.thread_id, text, held)?;
     if !held {
-        state.store.set_thread_status(&scratch.thread_id, "running")?;
+        state
+            .store
+            .set_thread_status(&scratch.thread_id, "running")?;
     }
     emit_changed(app, state);
     Ok(())
@@ -151,7 +159,10 @@ pub async fn end(app: &AppHandle, state: &AppState, scratch_id: &str) -> Result<
         .store
         .scratch_by_id(scratch_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown scratch {scratch_id}")))?;
-    for approval in state.store.pending_approvals_for_thread(&scratch.thread_id)? {
+    for approval in state
+        .store
+        .pending_approvals_for_thread(&scratch.thread_id)?
+    {
         let _ = state
             .approvals
             .resolve(&approval.id, false, Some("The scratch was ended".into()))

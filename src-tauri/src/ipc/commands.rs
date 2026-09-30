@@ -8,21 +8,21 @@ use uuid::Uuid;
 use crate::composer::{persist_control_step, persist_user_message};
 use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
-use crate::workspace::ThreadActivity;
 use crate::github::{clear_token, save_token};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, TodoRow, WorkspaceRow};
+use crate::workspace::ThreadActivity;
 
 use super::types::{
     AddRepoInput, AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
     CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
     CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RemoveRepoInput,
     RenameWorkspaceInput, RepoBranchesResult, ResolveApprovalResult, SendWorkspaceFindingsInput,
-    SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetSettingInput, Snapshot,
-    SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
+    SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetSettingInput,
+    Snapshot, SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
     TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
@@ -34,7 +34,10 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let trees = process_trees(&state);
     let memory = state.metrics.sample(&trees).ok();
     let github_auth_configured = state.pr_sync.auth_configured(&state);
-    let pr_synced_at = state.store.get_setting("githubPrSyncedAt")?.filter(|value| !value.is_empty());
+    let pr_synced_at = state
+        .store
+        .get_setting("githubPrSyncedAt")?
+        .filter(|value| !value.is_empty());
 
     let persisted = state.store.snapshot()?;
     let workspace_ids: Vec<String> = if state.workspace.list().await.is_empty() {
@@ -167,7 +170,11 @@ pub async fn set_repo_default_branch(
     state: State<'_, AppState>,
 ) -> Result<()> {
     let snapshot = state.store.snapshot()?;
-    let Some(mut repo) = snapshot.repos.into_iter().find(|row| row.id == input.repo_id) else {
+    let Some(mut repo) = snapshot
+        .repos
+        .into_iter()
+        .find(|row| row.id == input.repo_id)
+    else {
         return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
     };
     let branch = input.default_branch.trim().to_string();
@@ -203,7 +210,10 @@ pub async fn pull_repo_default_branch(
         .find(|row| row.id == repo_id)
         .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))?;
     let branch = repo.default_branch_or_main().to_string();
-    let pulled = state.git.pull_branch(&expand_tilde(&repo.path), &branch).await?;
+    let pulled = state
+        .git
+        .pull_branch(&expand_tilde(&repo.path), &branch)
+        .await?;
 
     // Workspaces count how far behind origin/<base> they are, which the pull just moved.
     let updates = state.fetch.tick().await?;
@@ -295,11 +305,12 @@ pub async fn add_repo(
         &app,
         crate::ipc::types::ToastRaisedPayload {
             tone: crate::ipc::types::ToastTone::Ok,
-            parts: vec![
-                crate::ipc::types::ToastPart::Text {
-                    value: format!("Added {}. Add its setup and run commands below.", record.name),
-                },
-            ],
+            parts: vec![crate::ipc::types::ToastPart::Text {
+                value: format!(
+                    "Added {}. Add its setup and run commands below.",
+                    record.name
+                ),
+            }],
             workspace_id: None,
         },
     );
@@ -350,10 +361,7 @@ pub async fn remove_repo(
         crate::ipc::types::ToastRaisedPayload {
             tone: crate::ipc::types::ToastTone::Ok,
             parts: vec![crate::ipc::types::ToastPart::Text {
-                value: format!(
-                    "Removed {}. The folder on disk wasn't touched.",
-                    repo.name
-                ),
+                value: format!("Removed {}. The folder on disk wasn't touched.", repo.name),
             }],
             workspace_id: None,
         },
@@ -398,7 +406,10 @@ pub async fn test_repo_setup(
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let harness_env = vec![
         ("HARNESS_REPO_PATH".into(), repo.path.clone()),
-        ("HARNESS_BRANCH".into(), repo.default_branch.clone().unwrap_or_else(|| "main".into())),
+        (
+            "HARNESS_BRANCH".into(),
+            repo.default_branch.clone().unwrap_or_else(|| "main".into()),
+        ),
     ];
 
     for (index, command) in commands.iter().enumerate() {
@@ -635,12 +646,10 @@ pub async fn resolve_approval(
         .resolve(&id, approved, deny_message.clone())
         .await?;
     let hints = crate::approvals::apply_harness_effects(&state, &row, &payload, approved)?;
-    if !approved {
-        if let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
-            let _ = state
-                .engines
-                .prompt(&row.thread_id, format!("Approval denied: {reason}"));
-        }
+    if !approved && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
+        let _ = state
+            .engines
+            .prompt(&row.thread_id, format!("Approval denied: {reason}"));
     }
     emit_approval_counts(&app, &state);
     let version = state.bump_event_version();
@@ -728,15 +737,15 @@ pub async fn subscribe_diffs(
     tauri::async_runtime::spawn(async move {
         let mut last = None;
         while !sub.is_stopped() {
-            if let Some(diff) = diffs.latest(&workspace_id) {
-                if last.as_ref() != Some(&diff) {
-                    let _ = channel.send(DiffUpdate {
-                        workspace_id: workspace_id.clone(),
-                        path: String::new(),
-                        diff: Some(diff.clone()),
-                    });
-                    last = Some(diff);
-                }
+            if let Some(diff) = diffs.latest(&workspace_id)
+                && last.as_ref() != Some(&diff)
+            {
+                let _ = channel.send(DiffUpdate {
+                    workspace_id: workspace_id.clone(),
+                    path: String::new(),
+                    diff: Some(diff.clone()),
+                });
+                last = Some(diff);
             }
             tokio::time::sleep(Duration::from_millis(300)).await;
         }
@@ -754,15 +763,17 @@ pub async fn refresh_workspace_diff(
     use std::path::Path;
 
     let workspace = crate::git_workspace::load_workspace(&state, &workspace_id).await?;
-    if let Ok(snapshot) = state.store.snapshot() {
-        if let Some(row) = snapshot.workspaces.iter().find(|row| row.id == workspace_id) {
-            if row.kind.as_deref() == Some("review") {
-                state.diffs.default_diff_target(
-                    &workspace_id,
-                    crate::git::DiffTarget::head_against(workspace.base.clone()),
-                );
-            }
-        }
+    if let Ok(snapshot) = state.store.snapshot()
+        && let Some(row) = snapshot
+            .workspaces
+            .iter()
+            .find(|row| row.id == workspace_id)
+        && row.kind.as_deref() == Some("review")
+    {
+        state.diffs.default_diff_target(
+            &workspace_id,
+            crate::git::DiffTarget::head_against(workspace.base.clone()),
+        );
     }
     state
         .diffs
@@ -827,16 +838,16 @@ pub async fn summarise_workspace(
         .cloned()
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
 
-    if let (Some(summary), Some(at)) = (&workspace.summary, &workspace.summary_at) {
-        if !summary.is_empty() {
-            return Ok(WorkspaceSummaryResult {
-                workspace_id,
-                summary: summary.clone(),
-                summary_at: at.clone(),
-                summary_source: workspace.summary_source.clone(),
-                from_llm: true,
-            });
-        }
+    if let (Some(summary), Some(at)) = (&workspace.summary, &workspace.summary_at)
+        && !summary.is_empty()
+    {
+        return Ok(WorkspaceSummaryResult {
+            workspace_id,
+            summary: summary.clone(),
+            summary_at: at.clone(),
+            summary_source: workspace.summary_source.clone(),
+            from_llm: true,
+        });
     }
 
     let threads: Vec<_> = snapshot
@@ -849,10 +860,7 @@ pub async fn summarise_workspace(
     let prompt = summaries::build_summary_prompt(&workspace, &threads);
     let (summary, from_llm) = match state.llm.summarise(&workspace_id, &prompt).await {
         Ok(Some(result)) if !result.text.is_empty() => (result.text, true),
-        _ => (
-            summaries::fallback_summary(&workspace, &threads),
-            false,
-        ),
+        _ => (summaries::fallback_summary(&workspace, &threads), false),
     };
 
     state
@@ -867,9 +875,7 @@ pub async fn summarise_workspace(
     Ok(WorkspaceSummaryResult {
         workspace_id,
         summary,
-        summary_at: updated
-            .summary_at
-            .unwrap_or_else(|| "now".into()),
+        summary_at: updated.summary_at.unwrap_or_else(|| "now".into()),
         summary_source: updated.summary_source,
         from_llm,
     })
@@ -1012,10 +1018,7 @@ pub async fn create_workspace(
     let thread_id_bg = thread_id.clone();
     let engine = input.engine.clone();
     let repo_name = repo.name.clone();
-    let setup_commands = crate::harness_config::effective_setup(
-        &repo.setup_commands,
-        &repo_path,
-    );
+    let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
 
     emit_toast(
         &app,
@@ -1061,10 +1064,7 @@ pub async fn create_workspace(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn retry_workspace_provisioning(
-    workspace_id: String,
-    app: AppHandle,
-) -> Result<()> {
+pub async fn retry_workspace_provisioning(workspace_id: String, app: AppHandle) -> Result<()> {
     tauri::async_runtime::spawn(async move {
         crate::provisioning::retry_provisioning(app, workspace_id).await;
     });
@@ -1073,10 +1073,7 @@ pub async fn retry_workspace_provisioning(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn skip_workspace_provisioning_setup(
-    workspace_id: String,
-    app: AppHandle,
-) -> Result<()> {
+pub async fn skip_workspace_provisioning_setup(workspace_id: String, app: AppHandle) -> Result<()> {
     tauri::async_runtime::spawn(async move {
         crate::provisioning::skip_provisioning_setup(app, workspace_id).await;
     });
@@ -1094,13 +1091,8 @@ pub async fn rename_workspace(
     if name.is_empty() {
         return Err(Error::Workspace("Workspace name is required".into()));
     }
-    state
-        .store
-        .set_workspace_name(&input.workspace_id, name)?;
-    state
-        .workspace
-        .rename(&input.workspace_id, name)
-        .await?;
+    state.store.set_workspace_name(&input.workspace_id, name)?;
+    state.workspace.rename(&input.workspace_id, name).await?;
     let version = state.bump_event_version();
     let _ = StateChanged {
         version,
@@ -1187,13 +1179,8 @@ pub async fn create_workspace_branch(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::create_workspace_branch(
-        &app,
-        &state,
-        &input.workspace_id,
-        &input.branch,
-    )
-    .await
+    crate::git_workspace::create_workspace_branch(&app, &state, &input.workspace_id, &input.branch)
+        .await
 }
 
 #[tauri::command]
@@ -1355,10 +1342,20 @@ pub async fn close_workspace_thread(
 ) -> Result<()> {
     let thread = snapshot_thread(&state, &thread_id)?;
     if state.store.scratch_for_thread(&thread_id)?.is_some() {
-        return Err(Error::Workspace("a scratch's thread can't be closed".into()));
+        return Err(Error::Workspace(
+            "a scratch's thread can't be closed".into(),
+        ));
     }
-    if state.store.first_thread_id(&thread.workspace_id)?.as_deref() == Some(thread_id.as_str()) {
-        return Err(Error::Workspace(format!("{} can't be closed", thread.title)));
+    if state
+        .store
+        .first_thread_id(&thread.workspace_id)?
+        .as_deref()
+        == Some(thread_id.as_str())
+    {
+        return Err(Error::Workspace(format!(
+            "{} can't be closed",
+            thread.title
+        )));
     }
     let _ = state.engines.stop(&thread_id).await;
     state.store.close_thread(&thread_id)?;
@@ -1481,7 +1478,9 @@ pub async fn new_thread_session(
 ) -> Result<()> {
     let thread = snapshot_thread(&state, &thread_id)?;
     if state.store.scratch_for_thread(&thread_id)?.is_some() {
-        return Err(Error::Workspace("a scratch can't start a new session".into()));
+        return Err(Error::Workspace(
+            "a scratch can't start a new session".into(),
+        ));
     }
     state.engines.discard(&thread_id)?;
     state.store.clear_thread_session(&thread_id)?;
@@ -1625,10 +1624,10 @@ pub fn worktrees_base(store: &crate::store::Store) -> Result<PathBuf> {
 }
 
 pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(rest);
-        }
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(rest);
     }
     PathBuf::from(path)
 }
@@ -1651,7 +1650,13 @@ fn snapshot_thread(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
 
 /// Workspace lifecycle bookkeeping. A scratch thread has no workspace, so it is skipped.
 async fn set_workspace_thread(state: &AppState, thread: &ThreadRow, activity: ThreadActivity) {
-    if state.store.scratch_for_thread(&thread.id).ok().flatten().is_some() {
+    if state
+        .store
+        .scratch_for_thread(&thread.id)
+        .ok()
+        .flatten()
+        .is_some()
+    {
         return;
     }
     state

@@ -10,7 +10,10 @@ export const SETTINGS_SHORTCUTS: ShortcutReference[] = [
   { keys: '⌘1–⌘9', description: 'Open a workspace, in sidebar order' },
   { keys: '⌘,', description: 'Open settings' },
   { keys: '⌘L', description: 'Start a new session in the open thread' },
-  { keys: '⌘P', description: 'Create or open the PR, or submit a review (workspace)' },
+  {
+    keys: '⌘P',
+    description: 'Create or open the PR, or submit a review (workspace)',
+  },
   { keys: '⌘R', description: 'Run or restart the app (workspace)' },
   { keys: '⌘.', description: 'Stop the app (workspace)' },
   { keys: '⌘B', description: 'Switch branch (workspace)' },

@@ -9,7 +9,9 @@ export type ApprovalAllowlistEntry = {
 
 export const APPROVAL_ALLOWLIST_SETTING_KEY = 'approvalCommandAllowlist'
 
-export function parseAllowlist(raw: string | undefined): ApprovalAllowlistEntry[] {
+export function parseAllowlist(
+  raw: string | undefined,
+): ApprovalAllowlistEntry[] {
   if (!raw?.trim()) return []
   try {
     const parsed = JSON.parse(raw) as ApprovalAllowlistEntry[]

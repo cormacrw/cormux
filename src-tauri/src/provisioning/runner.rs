@@ -10,7 +10,7 @@ use crate::ipc::commands::emit_workspace_status;
 use crate::ipc::events::StateChanged;
 use crate::ipc::types::StateChangeKind;
 use crate::process::ProcessSupervisor;
-use crate::provisioning::{parse_setup_commands, SETUP_COMMAND_TIMEOUT};
+use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::workspace::{ThreadActivity, WorkspaceLifecycle, WorkspaceManager, WorkspaceRecord};
@@ -52,22 +52,25 @@ pub async fn retry_provisioning(app: AppHandle, workspace_id: String) {
             return;
         }
     };
-    let workspace = match snapshot.workspaces.iter().find(|row| row.id == workspace_id) {
-        Some(row) => row.clone(),
-        None => return,
-    };
-    let thread = match snapshot
-        .threads
+    let workspace = match snapshot
+        .workspaces
         .iter()
-        .find(|row| {
-            row.workspace_id == workspace_id
-                && (row.title == "Lead" || row.title == "Reviewer")
-        })
+        .find(|row| row.id == workspace_id)
     {
         Some(row) => row.clone(),
         None => return,
     };
-    let repo = match snapshot.repos.iter().find(|row| row.id == workspace.repo_id) {
+    let thread = match snapshot.threads.iter().find(|row| {
+        row.workspace_id == workspace_id && (row.title == "Lead" || row.title == "Reviewer")
+    }) {
+        Some(row) => row.clone(),
+        None => return,
+    };
+    let repo = match snapshot
+        .repos
+        .iter()
+        .find(|row| row.id == workspace.repo_id)
+    {
         Some(row) => row.clone(),
         None => return,
     };
@@ -76,7 +79,11 @@ pub async fn retry_provisioning(app: AppHandle, workspace_id: String) {
         .iter()
         .find(|event| event.thread_id == thread.id && event.kind == "message")
         .and_then(|event| serde_json::from_str::<serde_json::Value>(&event.payload).ok())
-        .and_then(|value| value.get("text").and_then(|text| text.as_str().map(str::to_string)))
+        .and_then(|value| {
+            value
+                .get("text")
+                .and_then(|text| text.as_str().map(str::to_string))
+        })
         .unwrap_or_default();
 
     let _ = state
@@ -110,22 +117,25 @@ pub async fn skip_provisioning_setup(app: AppHandle, workspace_id: String) {
         Ok(snapshot) => snapshot,
         Err(_) => return,
     };
-    let workspace = match snapshot.workspaces.iter().find(|row| row.id == workspace_id) {
-        Some(row) => row.clone(),
-        None => return,
-    };
-    let thread = match snapshot
-        .threads
+    let workspace = match snapshot
+        .workspaces
         .iter()
-        .find(|row| {
-            row.workspace_id == workspace_id
-                && (row.title == "Lead" || row.title == "Reviewer")
-        })
+        .find(|row| row.id == workspace_id)
     {
         Some(row) => row.clone(),
         None => return,
     };
-    let repo = match snapshot.repos.iter().find(|row| row.id == workspace.repo_id) {
+    let thread = match snapshot.threads.iter().find(|row| {
+        row.workspace_id == workspace_id && (row.title == "Lead" || row.title == "Reviewer")
+    }) {
+        Some(row) => row.clone(),
+        None => return,
+    };
+    let repo = match snapshot
+        .repos
+        .iter()
+        .find(|row| row.id == workspace.repo_id)
+    {
         Some(row) => row.clone(),
         None => return,
     };
@@ -134,7 +144,11 @@ pub async fn skip_provisioning_setup(app: AppHandle, workspace_id: String) {
         .iter()
         .find(|event| event.thread_id == thread.id && event.kind == "message")
         .and_then(|event| serde_json::from_str::<serde_json::Value>(&event.payload).ok())
-        .and_then(|value| value.get("text").and_then(|text| text.as_str().map(str::to_string)))
+        .and_then(|value| {
+            value
+                .get("text")
+                .and_then(|text| text.as_str().map(str::to_string))
+        })
         .unwrap_or_default();
 
     let _ = state
@@ -204,14 +218,8 @@ pub async fn join_thread_provisioning(app: AppHandle, job: JoinProvisionJob) {
     )
     .await;
 
-    if let Err(error) = spawn_engine(
-        &state,
-        &job.thread_id,
-        &job.engine,
-        &job.workspace_id,
-        None,
-    )
-    .await
+    if let Err(error) =
+        spawn_engine(&state, &job.thread_id, &job.engine, &job.workspace_id, None).await
     {
         mark_failed(
             &app,
@@ -225,20 +233,18 @@ pub async fn join_thread_provisioning(app: AppHandle, job: JoinProvisionJob) {
         return;
     }
 
-    let _ = state
-        .store
-        .upsert_thread(&ThreadRow {
-            id: job.thread_id.clone(),
-            workspace_id: job.workspace_id.clone(),
-            title: snapshot_thread_title(&state, &job.thread_id),
-            engine: job.engine,
-            session_id: state.engines.session_id(&job.thread_id).ok().flatten(),
-            status: "running".into(),
-            used_tokens: None,
-            context_size: None,
-            cost_usd: None,
-            transcript_readonly: false,
-        });
+    let _ = state.store.upsert_thread(&ThreadRow {
+        id: job.thread_id.clone(),
+        workspace_id: job.workspace_id.clone(),
+        title: snapshot_thread_title(&state, &job.thread_id),
+        engine: job.engine,
+        session_id: state.engines.session_id(&job.thread_id).ok().flatten(),
+        status: "running".into(),
+        used_tokens: None,
+        context_size: None,
+        cost_usd: None,
+        transcript_readonly: false,
+    });
 
     let greeting = serde_json::json!({
         "role": "assistant",
@@ -277,15 +283,7 @@ async fn run_lead(app: &AppHandle, state: &AppState, job: LeadProvisionJob) -> R
     } else {
         "Running worktree setup…"
     };
-    set_activity(
-        state,
-        &job.workspace_id,
-        setup_activity,
-        1,
-        None,
-        None,
-    )
-    .await;
+    set_activity(state, &job.workspace_id, setup_activity, 1, None, None).await;
     emit_snapshot(app, state);
 
     if !worktree_exists(&record) {
@@ -365,28 +363,22 @@ async fn run_setup_commands(
             &harness_env,
         )?;
 
-        let code = match poll_session(
-            &state.process,
-            &session_id,
-            log_id,
-            SETUP_COMMAND_TIMEOUT,
-        )
-        .await
-        {
-            Ok(code) => code,
-            Err(error) => {
-                mark_failed(
-                    app,
-                    state,
-                    &job.workspace_id,
-                    Some(command.clone()),
-                    Some(-1),
-                    &error.to_string(),
-                )
-                .await;
-                return Ok(false);
-            }
-        };
+        let code =
+            match poll_session(&state.process, &session_id, log_id, SETUP_COMMAND_TIMEOUT).await {
+                Ok(code) => code,
+                Err(error) => {
+                    mark_failed(
+                        app,
+                        state,
+                        &job.workspace_id,
+                        Some(command.clone()),
+                        Some(-1),
+                        &error.to_string(),
+                    )
+                    .await;
+                    return Ok(false);
+                }
+            };
 
         forward_session_lines(&state.process, &session_id, log_id);
         let _ = state.process.stop_session(&session_id);
@@ -402,10 +394,9 @@ async fn run_setup_commands(
         );
 
         if code != 0 {
-            state.process.append_log_line(
-                log_id,
-                format!("Setup failed: exit code {code}"),
-            );
+            state
+                .process
+                .append_log_line(log_id, format!("Setup failed: exit code {code}"));
             mark_failed(
                 app,
                 state,
@@ -478,11 +469,7 @@ async fn finish_after_setup(
         seed_summary_if_needed(state, job).await?;
     }
 
-    let thread_title = if job.review {
-        "Reviewer"
-    } else {
-        "Lead"
-    };
+    let thread_title = if job.review { "Reviewer" } else { "Lead" };
     let thread_status = if start_agent { "running" } else { "idle" };
     let _ = state.store.upsert_thread(&ThreadRow {
         id: job.thread_id.clone(),
@@ -627,7 +614,11 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
         .find(|row| row.id == job.workspace_id)
         .cloned()
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", job.workspace_id)))?;
-    if workspace.summary.as_ref().is_some_and(|text| !text.is_empty()) {
+    if workspace
+        .summary
+        .as_ref()
+        .is_some_and(|text| !text.is_empty())
+    {
         return Ok(());
     }
 
@@ -765,7 +756,15 @@ fn emit_review_started_toast(app: &AppHandle, state: &AppState, workspace_id: &s
 }
 
 async fn clear_failure(state: &AppState, workspace_id: &str) {
-    set_activity(state, workspace_id, "Running worktree setup…", 1, None, None).await;
+    set_activity(
+        state,
+        workspace_id,
+        "Running worktree setup…",
+        1,
+        None,
+        None,
+    )
+    .await;
 }
 
 async fn set_activity(
@@ -778,13 +777,7 @@ async fn set_activity(
 ) {
     let _ = state
         .workspace
-        .set_provisioning_detail(
-            workspace_id,
-            activity,
-            prov_step,
-            failed_command,
-            exit_code,
-        )
+        .set_provisioning_detail(workspace_id, activity, prov_step, failed_command, exit_code)
         .await;
 }
 
@@ -835,7 +828,11 @@ fn persist_workspace_status(state: &AppState, workspace_id: &str, status: &str) 
     let Ok(snapshot) = state.store.snapshot() else {
         return;
     };
-    let Some(row) = snapshot.workspaces.iter().find(|row| row.id == workspace_id) else {
+    let Some(row) = snapshot
+        .workspaces
+        .iter()
+        .find(|row| row.id == workspace_id)
+    else {
         return;
     };
     let _ = state.store.upsert_workspace(&WorkspaceRow {
@@ -851,7 +848,11 @@ fn persist_workspace_row(
     record: &WorkspaceRecord,
 ) -> Result<()> {
     let snapshot = state.store.snapshot()?;
-    let Some(row) = snapshot.workspaces.iter().find(|row| row.id == workspace_id) else {
+    let Some(row) = snapshot
+        .workspaces
+        .iter()
+        .find(|row| row.id == workspace_id)
+    else {
         return Ok(());
     };
     state.store.upsert_workspace(&WorkspaceRow {
@@ -925,7 +926,12 @@ mod tests {
             .unwrap();
         assert_eq!(code, 0);
         forward_session_lines(&process, log_id, log_id);
-        assert!(process.drain_pending(log_id).iter().any(|l| l.contains("ok")));
+        assert!(
+            process
+                .drain_pending(log_id)
+                .iter()
+                .any(|l| l.contains("ok"))
+        );
 
         let fail_id = "test-ws-fail";
         process

@@ -70,7 +70,9 @@
     >
       <Input bind:value={name} aria-label="Workspace name" autofocus />
       <Dialog.Footer>
-        <Button size="xl" type="button" variant="ghost" onclick={close}>Cancel</Button>
+        <Button size="xl" type="button" variant="ghost" onclick={close}
+          >Cancel</Button
+        >
         <Button size="xl" type="submit" disabled={saving || !name.trim()}>
           {saving ? 'Saving…' : 'Save'}
         </Button>

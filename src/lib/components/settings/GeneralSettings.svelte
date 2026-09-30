@@ -15,7 +15,8 @@
   import { Alert, AlertDescription } from '$lib/components/ui/alert'
 
   let reloadingEnv = $state(false)
-  let worktreeDraft = $state(settings.worktreeRoot)
+  // Follows the saved setting, and holds edits until they're committed.
+  let worktreeDraft = $derived(settings.worktreeRoot)
 
   const defaultRepoId = $derived(
     resolveDefaultRepoId(repos.items, settings.defaultRepo),
@@ -25,10 +26,6 @@
   )
 
   const hasWorkspaces = $derived(workspaceRecords.records.length > 0)
-
-  $effect(() => {
-    worktreeDraft = settings.worktreeRoot
-  })
 
   async function reloadEnvironment() {
     reloadingEnv = true

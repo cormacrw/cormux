@@ -1,4 +1,4 @@
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
+use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::Deserialize;
 
 use crate::error::{Error, Result};
@@ -59,7 +59,10 @@ impl RestGithubClient {
             HeaderValue::from_str(&format!("Bearer {token}"))
                 .map_err(|error| Error::Github(error.to_string()))?,
         );
-        headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github+json"));
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github+json"),
+        );
         headers.insert(USER_AGENT, HeaderValue::from_static("cormux"));
 
         let response = self

@@ -44,10 +44,7 @@ fn normalise_slug(path: &str) -> Option<String> {
     Some(format!("{owner}/{repo}"))
 }
 
-pub fn match_repo_id(
-    repo_origins: &HashMap<String, String>,
-    pr_repo: &str,
-) -> Option<String> {
+pub fn match_repo_id(repo_origins: &HashMap<String, String>, pr_repo: &str) -> Option<String> {
     let needle = pr_repo.to_ascii_lowercase();
     repo_origins
         .iter()
@@ -55,14 +52,17 @@ pub fn match_repo_id(
         .map(|(id, _)| id.clone())
 }
 
-pub async fn load_repo_origins(git: &Git, repos: &[(String, String)]) -> Result<HashMap<String, String>> {
+pub async fn load_repo_origins(
+    git: &Git,
+    repos: &[(String, String)],
+) -> Result<HashMap<String, String>> {
     let mut map = HashMap::new();
     for (repo_id, path) in repos {
         let url = git.remote_origin_url(&expand_tilde(path)).await?;
-        if let Some(url) = url {
-            if let Some(slug) = parse_origin_url(&url) {
-                map.insert(repo_id.clone(), slug);
-            }
+        if let Some(url) = url
+            && let Some(slug) = parse_origin_url(&url)
+        {
+            map.insert(repo_id.clone(), slug);
         }
     }
     Ok(map)

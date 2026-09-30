@@ -1,3 +1,4 @@
+import { SvelteSet } from 'svelte/reactivity'
 import type { FindingRow } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc'
 import {
@@ -25,7 +26,11 @@ export class FindingsStore {
     }
     for (const [workspaceId, rows] of Object.entries(byWorkspace)) {
       const touched = this.selectionTouched[workspaceId] ?? false
-      const merged = mergeSelection(rows, this.selection[workspaceId] ?? new Set(), touched)
+      const merged = mergeSelection(
+        rows,
+        this.selection[workspaceId] ?? new SvelteSet(),
+        touched,
+      )
       this.selection = { ...this.selection, [workspaceId]: merged }
     }
   }
@@ -43,7 +48,7 @@ export class FindingsStore {
   }
 
   selectedIds(workspaceId: string): Set<string> {
-    return this.selection[workspaceId] ?? new Set()
+    return this.selection[workspaceId] ?? new SvelteSet()
   }
 
   ensureTargetThread(workspaceId: string, threadIds: string[]) {
@@ -61,7 +66,11 @@ export class FindingsStore {
 
   toggle(workspaceId: string, findingId: string, checked: boolean) {
     const rows = this.forWorkspace(workspaceId)
-    const next = toggleFinding(this.selectedIds(workspaceId), findingId, checked)
+    const next = toggleFinding(
+      this.selectedIds(workspaceId),
+      findingId,
+      checked,
+    )
     this.selection = { ...this.selection, [workspaceId]: next }
     this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
     void rows
@@ -77,7 +86,7 @@ export class FindingsStore {
   setGroup(workspaceId: string, severity: string, checked: boolean) {
     const rows = this.forWorkspace(workspaceId)
     const open = openFindings(rows).filter((row) => row.severity === severity)
-    const next = new Set(this.selectedIds(workspaceId))
+    const next = new SvelteSet(this.selectedIds(workspaceId))
     for (const row of open) {
       if (checked) next.add(row.id)
       else next.delete(row.id)

@@ -43,7 +43,6 @@
   let barEl: HTMLDivElement | undefined = $state()
 
   const wsThreads = $derived(threads.forWorkspace(workspace.id))
-  const findingCount = $derived(findings.forWorkspace(workspace.id).length)
   const showFindings = $derived(
     showFindingsTab({
       workspaceKind: workspace.kind,
@@ -54,7 +53,9 @@
   const tabOrder = $derived(buildThreadBarTabOrder(wsThreads, showFindings))
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runtime = $derived(workspaceRecords.runtime(workspace.id))
-  const changeCountLabel = $derived(formatChangeCounts(workspaceDiff.totals(workspace.id)))
+  const changeCountLabel = $derived(
+    formatChangeCounts(workspaceDiff.totals(workspace.id)),
+  )
 
   function isSelected(tab: ThreadBarTabKey): boolean {
     const active = activeThreadBarTabKey({
@@ -81,7 +82,8 @@
 
   function onBarKeydown(event: KeyboardEvent) {
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      const threadId = (document.activeElement as HTMLElement | null)?.dataset.threadId
+      const threadId = (document.activeElement as HTMLElement | null)?.dataset
+        .threadId
       if (threadId && canCloseThread(workspace.id, threadId)) {
         event.preventDefault()
         void closeThreadTab(workspace.id, threadId)
@@ -140,7 +142,10 @@
         activity: thread.activity,
       }}
       {@const closable = canCloseThread(workspace.id, thread.id)}
-      <span role="presentation" class="group/tab relative flex shrink-0 items-end">
+      <span
+        role="presentation"
+        class="group/tab relative flex shrink-0 items-end"
+      >
         <Button
           id="thread-tab-{thread.id}"
           role="tab"
@@ -155,7 +160,8 @@
           data-thread-id={thread.id}
           onclick={() => selectTab({ kind: 'thread', threadId: thread.id })}
           onauxclick={(event) => {
-            if (event.button === 1 && closable) void closeThreadTab(workspace.id, thread.id)
+            if (event.button === 1 && closable)
+              void closeThreadTab(workspace.id, thread.id)
           }}
         >
           <StatusDot variant={statusDotVariantForThread(statusInput)} />
@@ -179,7 +185,9 @@
             data-od-id="thread-close-{thread.id}"
             class={cn(
               'absolute top-1/2 right-1 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground',
-              selected ? 'opacity-100' : 'opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100',
+              selected
+                ? 'opacity-100'
+                : 'opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100',
             )}
             onclick={() => void closeThreadTab(workspace.id, thread.id)}
           >
@@ -257,7 +265,10 @@
       <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
       <span class="truncate" aria-hidden="true">Git</span>
       {#if changeCountLabel}
-        <span class="font-mono text-[10px] text-muted-foreground" aria-hidden="true">
+        <span
+          class="font-mono text-[10px] text-muted-foreground"
+          aria-hidden="true"
+        >
           {changeCountLabel}
         </span>
       {/if}

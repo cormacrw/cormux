@@ -13,7 +13,8 @@ export function bindWorkspaceAppControls() {
   }
 
   window.addEventListener('cormux:workspace-app', onWorkspaceApp)
-  return () => window.removeEventListener('cormux:workspace-app', onWorkspaceApp)
+  return () =>
+    window.removeEventListener('cormux:workspace-app', onWorkspaceApp)
 }
 
 async function controlWorkspaceApp(

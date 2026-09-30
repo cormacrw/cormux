@@ -91,14 +91,13 @@ pub fn extract_goal_from_events(events: &[ThreadEventRow]) -> String {
         if row.kind != "message" {
             continue;
         }
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&row.payload) {
-            if value.get("role").and_then(|role| role.as_str()) == Some("user") {
-                if let Some(text) = value.get("text").and_then(|text| text.as_str()) {
-                    let trimmed = text.trim();
-                    if !trimmed.is_empty() {
-                        return trimmed.to_string();
-                    }
-                }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&row.payload)
+            && value.get("role").and_then(|role| role.as_str()) == Some("user")
+            && let Some(text) = value.get("text").and_then(|text| text.as_str())
+        {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
             }
         }
     }
@@ -116,9 +115,7 @@ pub async fn draft_why(
 ) -> Result<(String, bool)> {
     let prompt = build_draft_prompt(workspace, base, goal, transcript, diff);
     match llm.complete(&prompt).await {
-        Ok(result) if !result.text.trim().is_empty() => {
-            Ok((result.text.trim().to_string(), true))
-        }
+        Ok(result) if !result.text.trim().is_empty() => Ok((result.text.trim().to_string(), true)),
         _ => Ok((fallback_why(workspace, goal), false)),
     }
 }
@@ -136,9 +133,7 @@ mod tests {
             worktree_path: "/tmp/wt".into(),
             status: "running".into(),
             created_at: String::new(),
-            summary: Some(
-                "Adds idle timeout. Sessions are rejected after 30 minutes.".into(),
-            ),
+            summary: Some("Adds idle timeout. Sessions are rejected after 30 minutes.".into()),
             summary_at: None,
             summary_source: "Haiku 4.5".into(),
             kind: None,

@@ -14,9 +14,19 @@ const comment = (over: Partial<DiffComment>): DiffComment => ({
 describe('formatCommentsForAgent', () => {
   it('orders by file then line and quotes the code', () => {
     const text = formatCommentsForAgent([
-      comment({ path: 'src/b.ts', line: 3, code: 'const b = 2', body: 'Rename b' }),
+      comment({
+        path: 'src/b.ts',
+        line: 3,
+        code: 'const b = 2',
+        body: 'Rename b',
+      }),
       comment({ line: 9, code: '  return x  ', body: ' Handle null ' }),
-      comment({ line: 2, side: 'old', code: 'legacy()', body: 'Why remove this?' }),
+      comment({
+        line: 2,
+        side: 'old',
+        code: 'legacy()',
+        body: 'Why remove this?',
+      }),
     ])
     expect(text).toBe(
       [

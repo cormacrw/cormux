@@ -103,18 +103,21 @@ mod tests {
         let mut ws = workspace();
         ws.kind = Some("review".into());
         ws.pr_number = Some(482);
-        let text = fallback_summary(&ws, &[ThreadRow {
-            id: "t1".into(),
-            workspace_id: "w1".into(),
-            title: "Reviewer".into(),
-            engine: "claude".into(),
-            session_id: None,
-            status: "running".into(),
-            used_tokens: None,
-            context_size: None,
-            cost_usd: None,
-            transcript_readonly: false,
-        }]);
+        let text = fallback_summary(
+            &ws,
+            &[ThreadRow {
+                id: "t1".into(),
+                workspace_id: "w1".into(),
+                title: "Reviewer".into(),
+                engine: "claude".into(),
+                session_id: None,
+                status: "running".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+            }],
+        );
         assert!(text.contains("#482"));
     }
 }

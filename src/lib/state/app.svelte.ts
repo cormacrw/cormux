@@ -10,11 +10,7 @@ export type { ViewId } from './window-title'
 export { resolveWindowTitle } from './window-title'
 
 export type FocusTarget =
-  | 'homebase'
-  | 'settings'
-  | 'workspace'
-  | 'scratch'
-  | 'todos'
+  'homebase' | 'settings' | 'workspace' | 'scratch' | 'todos'
 
 export class AppStore {
   version = $state(0)

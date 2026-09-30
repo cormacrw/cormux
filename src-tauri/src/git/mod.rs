@@ -511,10 +511,7 @@ impl Git {
             let Some(rest) = line.strip_prefix("branch ") else {
                 continue;
             };
-            let name = rest
-                .strip_prefix("refs/heads/")
-                .unwrap_or(rest)
-                .to_string();
+            let name = rest.strip_prefix("refs/heads/").unwrap_or(rest).to_string();
             if !name.is_empty() {
                 branches.push(name);
             }
@@ -524,10 +521,7 @@ impl Git {
 
     pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
         let output = self
-            .run(
-                repo,
-                &["for-each-ref", "--format=%(refname)", "refs/heads"],
-            )
+            .run(repo, &["for-each-ref", "--format=%(refname)", "refs/heads"])
             .await?;
         Self::require_success(&output, "for-each-ref heads")?;
         Ok(Self::stdout(&output)
@@ -594,7 +588,9 @@ impl Git {
 
     pub async fn remote_branch_exists(&self, repo: &Path, branch: &str) -> Result<bool> {
         let reference = format!("refs/remotes/origin/{branch}");
-        let output = self.run(repo, &["show-ref", "--verify", &reference]).await?;
+        let output = self
+            .run(repo, &["show-ref", "--verify", &reference])
+            .await?;
         Ok(output.status.success())
     }
 
@@ -766,11 +762,19 @@ mod tests {
     fn parses_shortstat() {
         assert_eq!(
             parse_shortstat(" 3 files changed, 10 insertions(+), 2 deletions(-)\n"),
-            ShortStat { files: 3, added: 10, deleted: 2 }
+            ShortStat {
+                files: 3,
+                added: 10,
+                deleted: 2
+            }
         );
         assert_eq!(
             parse_shortstat(" 1 file changed, 1 deletion(-)"),
-            ShortStat { files: 1, added: 0, deleted: 1 }
+            ShortStat {
+                files: 1,
+                added: 0,
+                deleted: 1
+            }
         );
         assert_eq!(parse_shortstat(""), ShortStat::default());
     }
@@ -790,14 +794,18 @@ mod tests {
         let mut remote = git.list_remote_branches(&clone, "origin").await.unwrap();
         remote.sort();
         assert_eq!(remote, vec!["feat/remote-only", "main"]);
-        assert!(!git
-            .list_local_branches(&clone)
-            .await
-            .unwrap()
-            .contains(&"feat/remote-only".to_string()));
+        assert!(
+            !git.list_local_branches(&clone)
+                .await
+                .unwrap()
+                .contains(&"feat/remote-only".to_string())
+        );
 
         git.switch(&clone, "feat/remote-only").await.unwrap();
-        assert_eq!(git.current_branch(&clone).await.unwrap(), "feat/remote-only");
+        assert_eq!(
+            git.current_branch(&clone).await.unwrap(),
+            "feat/remote-only"
+        );
     }
 
     #[tokio::test]

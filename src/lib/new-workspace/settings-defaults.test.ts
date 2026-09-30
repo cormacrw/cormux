@@ -9,12 +9,12 @@ import {
 describe('settings-defaults', () => {
   it('reads engine with fallbacks', () => {
     expect(readDefaultEngine([])).toBe('claude')
-    expect(
-      readDefaultEngine([{ key: 'defaultEngine', value: 'cursor' }]),
-    ).toBe('cursor')
-    expect(
-      readDefaultEngine([{ key: 'defaultEngine', value: 'codex' }]),
-    ).toBe('claude')
+    expect(readDefaultEngine([{ key: 'defaultEngine', value: 'cursor' }])).toBe(
+      'cursor',
+    )
+    expect(readDefaultEngine([{ key: 'defaultEngine', value: 'codex' }])).toBe(
+      'claude',
+    )
   })
 
   it('reads booleans and strings', () => {

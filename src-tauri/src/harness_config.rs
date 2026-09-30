@@ -67,22 +67,21 @@ pub fn suggest_commands(repo_path: &Path) -> SuggestedRepoCommands {
             setup_lines.push("pnpm install".into());
         }
 
-        if let Ok(text) = std::fs::read_to_string(&package_json) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                if let Some(scripts) = json.get("scripts").and_then(|v| v.as_object()) {
-                    for key in ["dev", "start", "serve"] {
-                        if scripts.contains_key(key) {
-                            let pm = if has_pnpm {
-                                "pnpm"
-                            } else if has_yarn {
-                                "yarn"
-                            } else {
-                                "npm run"
-                            };
-                            run_command = Some(format!("{pm} {key}"));
-                            break;
-                        }
-                    }
+        if let Ok(text) = std::fs::read_to_string(&package_json)
+            && let Ok(json) = serde_json::from_str::<serde_json::Value>(&text)
+            && let Some(scripts) = json.get("scripts").and_then(|v| v.as_object())
+        {
+            for key in ["dev", "start", "serve"] {
+                if scripts.contains_key(key) {
+                    let pm = if has_pnpm {
+                        "pnpm"
+                    } else if has_yarn {
+                        "yarn"
+                    } else {
+                        "npm run"
+                    };
+                    run_command = Some(format!("{pm} {key}"));
+                    break;
                 }
             }
         }
@@ -142,11 +141,7 @@ pub fn validate_add_path(path: &str) -> Result<(String, String)> {
         return Err(Error::Workspace("Enter the path to a folder".into()));
     }
     let normalized = trimmed.trim_end_matches('/').to_string();
-    let segment = normalized
-        .rsplit('/')
-        .next()
-        .unwrap_or("")
-        .trim();
+    let segment = normalized.rsplit('/').next().unwrap_or("").trim();
     if !normalized.starts_with("~/") && !normalized.starts_with('/') {
         return Err(Error::Workspace(
             "Use a full path, like ~/code/my-project".into(),
@@ -198,10 +193,7 @@ mod tests {
             r#"{"setupCommands":"from file","runCommand":"file run"}"#,
         )
         .unwrap();
-        assert_eq!(
-            effective_setup("local setup", dir.path()),
-            "local setup"
-        );
+        assert_eq!(effective_setup("local setup", dir.path()), "local setup");
         assert_eq!(
             effective_run_command(&Some("local run".into()), dir.path()).as_deref(),
             Some("local run")

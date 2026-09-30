@@ -92,7 +92,9 @@
         <span
           class={cn(
             'mt-1 size-4 shrink-0 rounded-full border-2',
-            selected ? 'border-primary bg-primary' : 'border-muted-foreground/40',
+            selected
+              ? 'border-primary bg-primary'
+              : 'border-muted-foreground/40',
           )}
           aria-hidden="true"
         ></span>

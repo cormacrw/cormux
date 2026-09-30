@@ -53,9 +53,9 @@ describe('findings selection', () => {
       'n1',
       's1',
     ])
-    expect([...applyQuickSelect(rows, defaultSelectedIds(rows), 'none')]).toEqual(
-      [],
-    )
+    expect([
+      ...applyQuickSelect(rows, defaultSelectedIds(rows), 'none'),
+    ]).toEqual([])
   })
 
   it('summarises selected blocking count', () => {

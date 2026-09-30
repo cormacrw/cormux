@@ -10,7 +10,11 @@ export const FINDING_GROUPS: {
   note: string
 }[] = [
   { severity: 'blocking', label: 'Blocking', note: 'Fix before this merges' },
-  { severity: 'suggestion', label: 'Suggestions', note: 'Worth doing in this PR' },
+  {
+    severity: 'suggestion',
+    label: 'Suggestions',
+    note: 'Worth doing in this PR',
+  },
   { severity: 'nit', label: 'Nits', note: 'Optional polish' },
 ]
 

@@ -150,7 +150,9 @@
 
         <div class="grid gap-1.5">
           <label class="text-sm font-medium" for="sess-title">
-            Title <span class="font-normal text-muted-foreground">(optional)</span>
+            Title <span class="font-normal text-muted-foreground"
+              >(optional)</span
+            >
           </label>
           <Input
             id="sess-title"
@@ -177,7 +179,10 @@
           >
           <Button size="xl" type="submit" disabled={!repoId}>
             Start scratch
-            <Kbd class="ml-1 hidden gap-0.5 sm:inline-flex" aria-label="Command Enter">
+            <Kbd
+              class="ml-1 hidden gap-0.5 sm:inline-flex"
+              aria-label="Command Enter"
+            >
               <CommandIcon aria-hidden="true" />
               <CornerDownLeftIcon aria-hidden="true" />
             </Kbd>

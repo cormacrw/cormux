@@ -5,8 +5,8 @@ use tauri::AppHandle;
 use crate::error::{Error, Result};
 use crate::feedback::{emit_toast, emit_toast_parts};
 use crate::ipc::commands::emit_workspace_status;
-use crate::ipc::types::{StateChangeKind, ToastPart, ToastTone};
 use crate::ipc::events::StateChanged;
+use crate::ipc::types::{StateChangeKind, ToastPart, ToastTone};
 use crate::state::AppState;
 use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
 use tauri_specta::Event;
@@ -134,18 +134,12 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
         .map(|thread| thread.id.clone())
         .collect();
 
-    if let Err(error) = run_teardown_steps(state, &record, input.delete_branch, &thread_ids).await
-    {
+    if let Err(error) = run_teardown_steps(state, &record, input.delete_branch, &thread_ids).await {
         let _ = state
             .workspace
             .set_status(&input.workspace_id, previous_status)
             .await;
-        emit_workspace_status(
-            app,
-            state,
-            &input.workspace_id,
-            previous_status,
-        );
+        emit_workspace_status(app, state, &input.workspace_id, previous_status);
         return Err(error);
     }
 
@@ -185,10 +179,7 @@ async fn run_teardown_steps(
             .await
             .map(|status| !status.trim().is_empty())
             .unwrap_or(false);
-        state
-            .git
-            .worktree_remove(&repo, &worktree, force)
-            .await?;
+        state.git.worktree_remove(&repo, &worktree, force).await?;
     }
 
     if delete_branch {
@@ -248,11 +239,7 @@ fn parse_lifecycle(raw: &str) -> WorkspaceLifecycle {
     }
 }
 
-async fn count_uncommitted_files(
-    state: &AppState,
-    worktree: &Path,
-    fallback: i64,
-) -> u32 {
+async fn count_uncommitted_files(state: &AppState, worktree: &Path, fallback: i64) -> u32 {
     if !worktree.is_dir() {
         return fallback.max(0) as u32;
     }
@@ -330,10 +317,10 @@ fn repo_dir_name(repo_path: &Path) -> &str {
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(rest);
-        }
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(rest);
     }
     PathBuf::from(path)
 }

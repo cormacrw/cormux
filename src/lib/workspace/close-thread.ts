@@ -23,7 +23,9 @@ export async function closeThreadTab(workspaceId: string, threadId: string) {
   if (result.status === 'error') {
     threads.hydrate(previous)
     const message =
-      typeof result.error.message === 'string' ? result.error.message : 'Could not close the thread'
+      typeof result.error.message === 'string'
+        ? result.error.message
+        : 'Could not close the thread'
     showToast(coreErrorToast(message))
   }
 }

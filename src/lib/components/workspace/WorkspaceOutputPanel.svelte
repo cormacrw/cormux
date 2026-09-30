@@ -122,9 +122,7 @@
       {#if provisioning || runtime.appStatus === 'starting'}
         <LoaderCircle class="mr-1 size-3 animate-spin" aria-hidden="true" />
       {:else if runtime.appStatus === 'running'}
-        <span
-          class="mr-1 size-2 rounded-full bg-emerald-500"
-          aria-hidden="true"
+        <span class="mr-1 size-2 rounded-full bg-emerald-500" aria-hidden="true"
         ></span>
       {/if}
       {chipLabel}

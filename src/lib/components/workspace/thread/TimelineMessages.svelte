@@ -447,8 +447,7 @@
           class="flex items-center gap-3 py-1 text-xs text-foreground/80"
           title={eventTitle(item.detail, item.atMs)}
         >
-          <span class="h-px min-w-6 flex-1 bg-border" aria-hidden="true"
-          ></span>
+          <span class="h-px min-w-6 flex-1 bg-border" aria-hidden="true"></span>
           <span class="flex min-w-0 items-center gap-1.5 font-medium">
             <Icon class="size-3 shrink-0" aria-hidden="true" />
             <span class="truncate"
@@ -462,8 +461,7 @@
               >
             {/if}
           </span>
-          <span class="h-px min-w-6 flex-1 bg-border" aria-hidden="true"
-          ></span>
+          <span class="h-px min-w-6 flex-1 bg-border" aria-hidden="true"></span>
         </div>
       {:else if item.kind === 'findings'}
         <div

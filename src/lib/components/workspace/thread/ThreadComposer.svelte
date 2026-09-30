@@ -26,7 +26,8 @@
   let {
     thread,
     onSent,
-    focusComposer = $bindable<(() => void) | null>(null),
+    // eslint-disable-next-line no-useless-assignment -- bindable, set by the effect below
+    focusComposer = $bindable(),
     inputLabel = 'Message the agent',
     placeholder,
     sendLabel = 'Send to agent',
@@ -50,9 +51,7 @@
   const draft = $derived(composerDrafts.textFor(thread.id))
   const canSend = $derived(draft.trim().length > 0)
   const showPause = $derived(composerShowsPauseControl(thread.status))
-  const pauseLabel = $derived(
-    composerPauseLabel(thread.status, thread.paused),
-  )
+  const pauseLabel = $derived(composerPauseLabel(thread.status, thread.paused))
   const isPaused = $derived(thread.status === 'paused' || thread.paused)
   const canStartNewSession = $derived(
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
@@ -240,7 +239,10 @@
         </Button>
       {/if}
 
-      <span class="composer-hint text-[10px] text-muted-foreground/80" aria-hidden="true">
+      <span
+        class="composer-hint text-[10px] text-muted-foreground/80"
+        aria-hidden="true"
+      >
         <kbd class="rounded border border-border/60 px-1">↵</kbd> send
         <kbd class="rounded border border-border/60 px-1">⇧↵</kbd> new line
       </span>

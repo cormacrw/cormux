@@ -1,4 +1,7 @@
-import { formatChangeCounts, type DiffLineTotals } from '$lib/workspace/diff-totals'
+import {
+  formatChangeCounts,
+  type DiffLineTotals,
+} from '$lib/workspace/diff-totals'
 
 export function formatPrRouteLine(input: {
   branch: string

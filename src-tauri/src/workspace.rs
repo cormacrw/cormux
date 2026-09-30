@@ -103,9 +103,7 @@ impl WorkspaceManager {
     }
 
     pub fn worktree_path(worktrees_base: &Path, repo: &str, branch: &str) -> PathBuf {
-        worktrees_base
-            .join(repo)
-            .join(branch_slug(branch))
+        worktrees_base.join(repo).join(branch_slug(branch))
     }
 
     pub fn harness_env(workspace: &WorkspaceRecord) -> Vec<(String, String)> {
@@ -154,6 +152,7 @@ impl WorkspaceManager {
         Ok(workspace.clone())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn register_provisioning(
         &self,
         workspace_id: &str,
@@ -273,6 +272,7 @@ impl WorkspaceManager {
         Ok(workspace.clone())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         &self,
         repo_id: &str,
@@ -286,15 +286,7 @@ impl WorkspaceManager {
         let id = workspace_id
             .map(str::to_string)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
-        self.register_provisioning(
-            &id,
-            repo_id,
-            repo_path,
-            name,
-            branch,
-            base,
-            worktrees_base,
-        )
+        self.register_provisioning(&id, repo_id, repo_path, name, branch, base, worktrees_base)
             .await?;
         self.add_worktree(&id).await?;
         self.set_status(&id, WorkspaceLifecycle::Ready).await
@@ -500,10 +492,7 @@ fn status_from_threads(
         )
     }) {
         WorkspaceLifecycle::Running
-    } else if threads
-        .iter()
-        .any(|activity| *activity == ThreadActivity::Waiting)
-    {
+    } else if threads.contains(&ThreadActivity::Waiting) {
         WorkspaceLifecycle::Waiting
     } else if threads.is_empty() {
         WorkspaceLifecycle::Ready
@@ -521,7 +510,7 @@ fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result
         (
             WorkspaceLifecycle::Creating,
             WorkspaceLifecycle::Provisioning
-        ) |         (
+        ) | (
             WorkspaceLifecycle::Provisioning,
             WorkspaceLifecycle::Ready
                 | WorkspaceLifecycle::Running

@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
 use serde_json::{Value, json};
+use tauri::AppHandle;
 use uuid::Uuid;
 
+use crate::app::WorkspaceAppService;
 use crate::approvals::ApprovalBroker;
 use crate::error::{Error, Result};
-use crate::app::WorkspaceAppService;
 use crate::process::ProcessSupervisor;
 use crate::store::Store;
 use crate::store::types::FindingRow;
@@ -95,11 +95,7 @@ impl CormuxMcp {
         let file = args.get("file").and_then(Value::as_str).map(str::to_string);
         let line = args.get("line").and_then(Value::as_i64);
         let worktree = crate::findings::worktree_for_workspace(&self.store, &ctx.workspace_id)?;
-        crate::findings::validate_finding_location(
-            &worktree,
-            file.as_deref(),
-            line,
-        )?;
+        crate::findings::validate_finding_location(&worktree, file.as_deref(), line)?;
         let id = args
             .get("id")
             .and_then(Value::as_str)
@@ -138,14 +134,13 @@ impl CormuxMcp {
         let id = required_string(args, "id")?;
         let commit = required_string(args, "commit")?;
         self.store.mark_finding_fixed(&id, &commit)?;
-        if let Ok(guard) = self.app.lock() {
-            if let Some(app) = guard.clone() {
-                let finding_id = id.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ =
-                        crate::findings::on_finding_marked_fixed(&app, &finding_id).await;
-                });
-            }
+        if let Ok(guard) = self.app.lock()
+            && let Some(app) = guard.clone()
+        {
+            let finding_id = id.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = crate::findings::on_finding_marked_fixed(&app, &finding_id).await;
+            });
         }
         Ok(McpToolResult {
             ok: true,
@@ -242,7 +237,10 @@ mod tests {
         let process = ProcessSupervisor::new(env);
         let approvals = Arc::new(ApprovalBroker::new());
         let apps = WorkspaceAppService::new();
-        (CormuxMcp::new(store.clone(), process, approvals, apps), store)
+        (
+            CormuxMcp::new(store.clone(), process, approvals, apps),
+            store,
+        )
     }
 
     fn ctx() -> McpContext {
