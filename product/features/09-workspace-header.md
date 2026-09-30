@@ -11,7 +11,7 @@ The header was deliberately stripped back. It previously held a back button, a s
 ## Where it lives
 
 - `<header class="ws-top" id="ws-top" data-od-id="ws-header">` at the top of the workspace view.
-- Hooks: `ws-branch`, `ws-actions`, `ws-run-controls`, `ws-output-toggle`, `ws-run`, `ws-restart`, `ws-stop`, `ws-changes-toggle`, `ws-more`, `ws-rebase`, `ws-create-pr`, `ws-submit-review`.
+- Hooks: `ws-branch`, `ws-actions`, `ws-run-controls`, `ws-run`, `ws-restart`, `ws-stop`, `ws-changes-toggle`, `ws-more`, `ws-rebase`, `ws-create-pr`, `ws-submit-review`.
 
 ## Anatomy
 

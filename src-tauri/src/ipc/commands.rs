@@ -616,11 +616,12 @@ pub fn subscribe_pty(
     let sub = state.subscriptions.register();
     let id = sub.id;
     tauri::async_runtime::spawn(async move {
+        // Replay the log so reopening the Output tab shows what already ran.
+        let mut lines = process.take_log_snapshot(&workspace_id);
         while !sub.is_stopped() {
-            let session_id = format!("{workspace_id}-app");
-            let mut lines = process.drain_pending(&workspace_id);
-            lines.extend(process.drain_pending(&session_id));
-            for line in lines {
+            // Run and setup sessions are forwarded into the workspace log by their monitors.
+            lines.extend(process.drain_pending(&workspace_id));
+            for line in lines.drain(..) {
                 let _ = channel.send(PtyChunk {
                     workspace_id: workspace_id.clone(),
                     line,

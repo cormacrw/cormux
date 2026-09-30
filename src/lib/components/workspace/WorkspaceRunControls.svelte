@@ -1,12 +1,10 @@
 <script lang="ts">
   import * as InputGroup from '$lib/components/ui/input-group'
   import { runWorkspaceApp } from '$lib/command-palette/actions'
-  import { repos, settings, workspaceRecords, workspaceUi } from '$lib/state'
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
+  import { repos, workspaceRecords } from '$lib/state'
   import Play from '@lucide/svelte/icons/play'
   import RotateCw from '@lucide/svelte/icons/rotate-cw'
   import Square from '@lucide/svelte/icons/square'
-  import Terminal from '@lucide/svelte/icons/terminal'
 
   let {
     workspaceId,
@@ -21,31 +19,9 @@
   const runtime = $derived(workspaceRecords.runtime(workspaceId))
   const appStatus = $derived(runtime.appStatus)
   const repo = $derived(repos.getById(repoId))
-  const outputPressed = $derived(workspaceUi.activeTab === 'output')
-
-  const outputLabel = $derived(
-    appStatus === 'running' && runtime.port
-      ? `localhost:${runtime.port}`
-      : appStatus === 'starting'
-        ? 'Starting…'
-        : 'Output',
-  )
-
-  const outputAria = $derived(
-    appStatus === 'running' && runtime.port
-      ? `app running on localhost:${runtime.port}`
-      : appStatus === 'starting'
-        ? 'app starting'
-        : 'app stopped',
-  )
-
   const hasRunCommand = $derived(!!repo?.runCommand?.trim())
 
   const runBlocked = $derived(runDisabled || !hasRunCommand)
-
-  function toggleOutput() {
-    workspaceUi.toggleOutputTab()
-  }
 
   function run(action: 'run' | 'restart' | 'stop') {
     runWorkspaceApp(workspaceId, action)
@@ -58,33 +34,6 @@
   data-od-id="ws-run-controls"
   class="w-auto shrink-0"
 >
-  <InputGroup.Button
-    variant={outputPressed ? 'secondary' : 'ghost'}
-    aria-pressed={outputPressed}
-    aria-controls="output-panel"
-    aria-label="Output, {outputAria}"
-    data-ws-focus="output-toggle"
-    data-od-id="ws-output-toggle"
-    class="gap-1.5 px-2.5 font-normal"
-    onclick={toggleOutput}
-  >
-    {#if appStatus === 'running'}
-      <span
-        class="size-2 shrink-0 rounded-full bg-emerald-500 {settings.reduceMotion
-          ? ''
-          : 'animate-pulse'}"
-        aria-hidden="true"
-      ></span>
-      <span class="font-mono text-xs">{outputLabel}</span>
-    {:else if appStatus === 'starting'}
-      <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />
-      <span class="text-xs">{outputLabel}</span>
-    {:else}
-      <Terminal class="size-3.5" aria-hidden="true" />
-      <span class="text-xs">{outputLabel}</span>
-    {/if}
-  </InputGroup.Button>
-
   {#if appStatus === 'stopped' || appStatus === 'crashed'}
     <InputGroup.Button
       disabled={appStatus === 'stopped' && runBlocked}

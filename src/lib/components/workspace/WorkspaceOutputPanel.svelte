@@ -31,6 +31,8 @@
   let stickToBottom = $state(true)
 
   const runtime = $derived(workspaceRecords.runtime(workspaceId))
+  // A primitive, so status or git updates to `runtime` don't wipe the log.
+  const logVersion = $derived(runtime.logVersion)
   const repo = $derived(repos.getById(repoId))
   const runCommand = $derived(repo?.runCommand?.trim() ?? '')
 
@@ -54,7 +56,7 @@
   )
 
   $effect(() => {
-    void runtime.logVersion
+    void logVersion
     lines = []
     stickToBottom = true
   })
@@ -113,7 +115,7 @@
 <section class="flex min-h-0 flex-1 flex-col gap-2" data-od-id="output">
   <header
     id="term-head"
-    class="flex flex-wrap items-center gap-2 border-b border-border/60 pb-2"
+    class="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2.5"
     data-od-id="output-head"
   >
     <Badge variant={runtime.appStatus === 'running' ? 'default' : 'secondary'}>

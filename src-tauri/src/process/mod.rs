@@ -236,6 +236,17 @@ impl ProcessSupervisor {
         merged
     }
 
+    /// The buffered lines of a workspace log, marking them all as delivered.
+    pub fn take_log_snapshot(&self, id: &str) -> Vec<String> {
+        let logs = self.logs.lock().unwrap();
+        let Some(shared) = logs.get(id) else {
+            return Vec::new();
+        };
+        let lines = shared.lines.lock().unwrap();
+        shared.pending.lock().unwrap().clear();
+        lines.iter().cloned().collect()
+    }
+
     pub fn write_input(&self, id: &str, data: &[u8]) -> Result<()> {
         let sessions = self.sessions.lock().unwrap();
         let app = sessions
@@ -401,6 +412,10 @@ impl SessionShared {
     fn push_line(&self, line: String) {
         {
             let mut lines = self.lines.lock().unwrap();
+            // Dev servers clear the screen by printing a screenful of newlines.
+            if is_blank(&line) && lines.back().is_some_and(|last| is_blank(last)) {
+                return;
+            }
             if lines.len() == RING_CAP {
                 lines.pop_front();
             }
@@ -411,8 +426,9 @@ impl SessionShared {
 }
 
 pub fn detect_port(output: &str) -> Option<u16> {
-    for marker in ["localhost:", "127.0.0.1:"] {
-        if let Some(index) = output.find(marker) {
+    let output = strip_ansi(output);
+    for marker in ["localhost:", "127.0.0.1:", "0.0.0.0:"] {
+        for (index, _) in output.match_indices(marker) {
             let digits: String = output[index + marker.len()..]
                 .chars()
                 .take_while(|c| c.is_ascii_digit())
@@ -423,6 +439,44 @@ pub fn detect_port(output: &str) -> Option<u16> {
         }
     }
     None
+}
+
+/// Removes ANSI escape sequences (CSI like `\x1b[1m`, and OSC like hyperlinks).
+pub fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                while let Some(c) = chars.next() {
+                    if c == '\x07' {
+                        break;
+                    }
+                    if c == '\x1b' && chars.peek() == Some(&'\\') {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn is_blank(line: &str) -> bool {
+    strip_ansi(line).trim().is_empty()
 }
 
 fn kill_group(pid: u32, signal: i32) -> Result<()> {
@@ -455,6 +509,23 @@ mod tests {
     fn reads_port_from_dev_server_banner() {
         assert_eq!(detect_port("Local:   http://127.0.0.1:5173/\n"), Some(5173));
         assert_eq!(detect_port("ready on localhost:3000"), Some(3000));
+        assert_eq!(
+            detect_port(
+                "  \x1b[32m➜\x1b[39m  \x1b[1mLocal\x1b[22m:   \x1b[36mhttp://localhost:\x1b[1m5173\x1b[22m/\x1b[39m"
+            ),
+            Some(5173)
+        );
+        assert_eq!(detect_port("see localhost: docs\nhttp://localhost:4000/"), Some(4000));
+    }
+
+    #[test]
+    fn collapses_runs_of_blank_lines() {
+        let proc = supervisor();
+        for line in ["a", "", "", "\x1b[1;1H\x1b[0J", "b"] {
+            proc.append_log_line("ws", line);
+        }
+        assert_eq!(proc.take_log_snapshot("ws"), vec!["a", "", "b"]);
+        assert!(proc.drain_pending("ws").is_empty());
     }
 
     #[test]

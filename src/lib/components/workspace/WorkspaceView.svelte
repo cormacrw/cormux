@@ -192,7 +192,7 @@
             id="output-panel"
             role="tabpanel"
             aria-labelledby="thread-tab-output"
-            class="min-h-0 flex-1"
+            class="flex min-h-0 flex-1 flex-col"
           >
             <WorkspaceOutputPanel
               workspaceId={workspace.id}

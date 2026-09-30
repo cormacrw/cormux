@@ -54,6 +54,8 @@ struct WorkspaceAppRecord {
     exit_code: Option<i32>,
     kind: AppKind,
     quiet_stop: bool,
+    /// Bumped on every run so a monitor from an earlier run knows to exit.
+    generation: u64,
 }
 
 #[derive(Clone)]
@@ -173,7 +175,7 @@ impl WorkspaceAppService {
         let port = self.pick_port_with_log(&state.process, workspace_id, kind);
         let env = run_env(state, workspace_id, port).await?;
 
-        self.set_record(workspace_id, kind);
+        let generation = self.set_record(workspace_id, kind);
         self.set_status(workspace_id, WorkspaceAppStatus::Starting, Some(port), None);
         state
             .process
@@ -192,7 +194,7 @@ impl WorkspaceAppService {
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
             service
-                .monitor(app_handle, workspace_id, name, kind, port)
+                .monitor(app_handle, workspace_id, name, generation)
                 .await;
         });
 
@@ -270,9 +272,9 @@ impl WorkspaceAppService {
         port
     }
 
-    fn set_record(&self, workspace_id: &str, kind: AppKind) {
+    fn set_record(&self, workspace_id: &str, kind: AppKind) -> u64 {
         let mut inner = self.inner.lock().unwrap();
-        inner
+        let record = inner
             .entry(workspace_id.to_string())
             .or_insert(WorkspaceAppRecord {
                 status: WorkspaceAppStatus::Stopped,
@@ -280,8 +282,20 @@ impl WorkspaceAppService {
                 exit_code: None,
                 kind,
                 quiet_stop: false,
-            })
-            .kind = kind;
+                generation: 0,
+            });
+        record.kind = kind;
+        record.generation += 1;
+        record.generation
+    }
+
+    fn generation(&self, workspace_id: &str) -> u64 {
+        self.inner
+            .lock()
+            .unwrap()
+            .get(workspace_id)
+            .map(|record| record.generation)
+            .unwrap_or(0)
     }
 
     fn used_ports(&self, except_workspace_id: &str) -> Vec<u16> {
@@ -306,8 +320,7 @@ impl WorkspaceAppService {
         app: AppHandle,
         workspace_id: String,
         workspace_name: String,
-        _kind: AppKind,
-        requested_port: u16,
+        generation: u64,
     ) {
         let state = app.state::<AppState>();
         let session_id = run_session_id(&workspace_id);
@@ -317,10 +330,19 @@ impl WorkspaceAppService {
 
         loop {
             let process = state.process.clone();
+            if self.generation(&workspace_id) != generation {
+                // A restart replaced this run; its own monitor takes over.
+                break;
+            }
             for line in process.drain_pending(&session_id) {
                 process.append_log_line(log_id, line);
             }
             if let Some(code) = process.exit_code(&session_id) {
+                // The reader can land the last lines just after exit.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                for line in process.drain_pending(&session_id) {
+                    process.append_log_line(log_id, line);
+                }
                 let killed = process.was_killed(&session_id);
                 if killed {
                     self.set_status(&workspace_id, WorkspaceAppStatus::Stopped, None, None);
@@ -347,13 +369,7 @@ impl WorkspaceAppService {
                 break;
             }
 
-            let output = format!(
-                "{}\n{}",
-                process.output_session(&session_id),
-                process.output_session(log_id)
-            );
-            if let Some(detected) = detect_port(&output) {
-                let _requested = requested_port;
+            if let Some(detected) = detect_port(&process.output_session(&session_id)) {
                 if self.runtime(&workspace_id).status == WorkspaceAppStatus::Starting {
                     self.set_status(
                         &workspace_id,
@@ -427,6 +443,7 @@ impl WorkspaceAppService {
             exit_code: None,
             kind: AppKind::Vite,
             quiet_stop: false,
+            generation: 0,
         });
         record.status = status;
         if port.is_some() {
