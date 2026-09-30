@@ -165,9 +165,7 @@
             </span>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content side="top">
-          Memory used
-        </Tooltip.Content>
+        <Tooltip.Content side="top">Memory used</Tooltip.Content>
       </Tooltip.Root>
     </div>
     <Button

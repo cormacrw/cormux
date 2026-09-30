@@ -19,7 +19,10 @@ function normalizeLegacyTool(
   }
 }
 
-export function parseAgentEventPayload(payload: string, seq?: number): AgentEvent | null {
+export function parseAgentEventPayload(
+  payload: string,
+  seq?: number,
+): AgentEvent | null {
   try {
     const raw = JSON.parse(payload) as Record<string, unknown>
     if (typeof raw.type === 'string') {

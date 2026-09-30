@@ -156,7 +156,11 @@
     const code = validateBranchName(value, branchValidationContext())
     const pr = app.newWorkspacePullRequest
     // Continuing a PR checks out its existing branch instead of creating one.
-    if (code === 'exists' && pr?.mode === 'continue' && value.trim() === pr.branch) {
+    if (
+      code === 'exists' &&
+      pr?.mode === 'continue' &&
+      value.trim() === pr.branch
+    ) {
       return null
     }
     return code
@@ -259,7 +263,8 @@
     const pr = app.newWorkspacePullRequest
     if (!open || !pr) return
     if (pr.mode === 'review') return
-    repoId = pr.repoId ?? resolveDefaultRepoId(repos.items, settings.defaultRepo)
+    repoId =
+      pr.repoId ?? resolveDefaultRepoId(repos.items, settings.defaultRepo)
     branchName = pr.branch
     branchEdited = true
     prompt = pr.title
@@ -302,8 +307,7 @@
             aria-describedby="nw-prompt-hint"
           />
           <p id="nw-prompt-hint" class="text-xs text-muted-foreground">
-            Optional. Leave blank and the thread waits until you send a
-            message.
+            Optional. Leave blank and the thread waits until you send a message.
           </p>
         </div>
 
@@ -431,7 +435,10 @@
             Creating worktree…
           {:else}
             Create Workspace
-            <Kbd class="ml-1 hidden gap-0.5 sm:inline-flex" aria-label="Command Enter">
+            <Kbd
+              class="ml-1 hidden gap-0.5 sm:inline-flex"
+              aria-label="Command Enter"
+            >
               <CommandIcon aria-hidden="true" />
               <CornerDownLeftIcon aria-hidden="true" />
             </Kbd>

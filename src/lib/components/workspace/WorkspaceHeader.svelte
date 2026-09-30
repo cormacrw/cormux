@@ -2,12 +2,7 @@
   import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
-  import {
-    repos,
-    threads,
-    workspaceRecords,
-    workspaceUi,
-  } from '$lib/state'
+  import { repos, threads, workspaceRecords, workspaceUi } from '$lib/state'
   import {
     rememberHeaderFocusKey,
     restoreHeaderFocus,
@@ -87,7 +82,7 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <header
   class="flex flex-col"
   data-tauri-drag-region
@@ -95,62 +90,62 @@
   onmousedown={startHeaderDrag}
 >
   <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
-  <div class="flex min-w-0 flex-1 items-center gap-2">
-    <h1
-      bind:this={titleRef}
-      tabindex="-1"
-      data-ws-focus="title"
-      class="min-w-0 truncate text-[15px] font-medium tracking-tight outline-none"
-      onfocus={onTitleFocus}
-    >
-      {workspace.name}
-    </h1>
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      class="size-6 shrink-0 text-muted-foreground"
-      aria-label="Rename workspace"
-      onclick={onRename}
-    >
-      <Pencil class="size-3.5" aria-hidden="true" />
-    </Button>
-    <WorkspaceBranchTag
-      workspaceId={workspace.id}
-      repoId={record?.repoId ?? ''}
-      branch={workspace.branch}
-      threads={wsThreads}
-      {provisioning}
-    />
-    {#if repo?.name}
-      <p class="truncate text-xs text-muted-foreground">{repo.name}</p>
-    {/if}
-  </div>
-
-  <div
-    class="flex flex-wrap items-center justify-end gap-2 max-md:w-full"
-    data-od-id="ws-actions"
-  >
-    {#if !narrow}
-      <WorkspaceRunControls
+    <div class="flex min-w-0 flex-1 items-center gap-2">
+      <h1
+        bind:this={titleRef}
+        tabindex="-1"
+        data-ws-focus="title"
+        class="min-w-0 truncate text-[15px] font-medium tracking-tight outline-none"
+        onfocus={onTitleFocus}
+      >
+        {workspace.name}
+      </h1>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="size-6 shrink-0 text-muted-foreground"
+        aria-label="Rename workspace"
+        onclick={onRename}
+      >
+        <Pencil class="size-3.5" aria-hidden="true" />
+      </Button>
+      <WorkspaceBranchTag
         workspaceId={workspace.id}
         repoId={record?.repoId ?? ''}
-        {runDisabled}
+        branch={workspace.branch}
+        threads={wsThreads}
+        {provisioning}
       />
-    {/if}
+      {#if repo?.name}
+        <p class="truncate text-xs text-muted-foreground">{repo.name}</p>
+      {/if}
+    </div>
 
-    <WorkspaceMoreMenu
-      workspaceId={workspace.id}
-      base={record?.base ?? 'main'}
-      behind={runtime.behind}
-      ahead={runtime.ahead}
-      worktreePath={record?.worktreePath ?? ''}
-      {narrow}
-      {runDisabled}
-      {onRename}
-    />
+    <div
+      class="flex flex-wrap items-center justify-end gap-2 max-md:w-full"
+      data-od-id="ws-actions"
+    >
+      {#if !narrow}
+        <WorkspaceRunControls
+          workspaceId={workspace.id}
+          repoId={record?.repoId ?? ''}
+          {runDisabled}
+        />
+      {/if}
 
-    <WorkspacePrimaryAction {workspace} />
-  </div>
+      <WorkspaceMoreMenu
+        workspaceId={workspace.id}
+        base={record?.base ?? 'main'}
+        behind={runtime.behind}
+        ahead={runtime.ahead}
+        worktreePath={record?.worktreePath ?? ''}
+        {narrow}
+        {runDisabled}
+        {onRename}
+      />
+
+      <WorkspacePrimaryAction {workspace} />
+    </div>
   </div>
   {#if runtime.conflict}
     <GitConflictBanner

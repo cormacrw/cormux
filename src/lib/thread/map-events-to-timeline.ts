@@ -357,8 +357,7 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
             : { label: 'Read-only, auto-approved', tone: 'muted' }
           break
         }
-        items.push(approvalFromPermission(event, seq, atMs, input.approvals),
-        )
+        items.push(approvalFromPermission(event, seq, atMs, input.approvals))
         break
       }
       case 'currentTool':

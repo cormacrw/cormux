@@ -31,7 +31,9 @@ test.describe('browser harness UI', () => {
     })
     await page.getByRole('button', { name: 'Homebase' }).click()
 
-    await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+    await page
+      .getByRole('button', { name: 'OAuth login, Idle, 1 agent' })
+      .click()
     await expect(
       page.getByRole('heading', { name: 'OAuth login' }),
     ).toBeVisible()
@@ -46,7 +48,9 @@ test.describe('browser harness UI', () => {
     const bubbleBox = await bubble.boundingBox()
     const youBox = await you.boundingBox()
     expect(youBox!.y).toBeGreaterThan(bubbleBox!.y)
-    await expect(page.locator('#timeline').getByText('Working').first()).toBeVisible()
+    await expect(
+      page.locator('#timeline').getByText('Working').first(),
+    ).toBeVisible()
     await page.getByRole('button', { name: 'Stop', exact: true }).click()
     await expect(page.locator('#timeline').getByText('Working')).toHaveCount(0)
     mkdirSync('e2e/output', { recursive: true })
@@ -56,7 +60,9 @@ test.describe('browser harness UI', () => {
     })
     await page.getByRole('button', { name: 'Homebase' }).click()
     await expect(page.getByRole('heading', { name: 'Homebase' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Go to Workspace' })).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: 'Go to Workspace' }),
+    ).toHaveCount(0)
     await page.screenshot({
       path: 'e2e/output/homebase.png',
       fullPage: true,

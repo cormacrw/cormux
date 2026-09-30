@@ -62,7 +62,9 @@
         reason?.trim() ? reason.trim() : null,
       )
       if (result.status === 'error') {
-        toastCoreError(coreErrorText(result.error, 'Could not resolve approval'))
+        toastCoreError(
+          coreErrorText(result.error, 'Could not resolve approval'),
+        )
       } else if (result.data.focusComposer) {
         onFocusComposer?.()
       }
@@ -98,23 +100,18 @@
       {:else if item.state === 'denied'}
         <X class="mt-0.5 size-4 text-muted-foreground" aria-hidden="true" />
       {:else}
-        <AlertTriangle
-          class="mt-0.5 size-4 text-warning"
-          aria-hidden="true"
-        />
+        <AlertTriangle class="mt-0.5 size-4 text-warning" aria-hidden="true" />
       {/if}
       <div class="min-w-0 flex-1 space-y-1">
         <div class="flex flex-wrap items-center gap-2">
           <Card.Title class="text-sm font-medium">{item.title}</Card.Title>
           {#if item.state === 'pending'}
-            <Badge
-              variant="outline"
-              class="border-warning/40 text-warning">Needs approval</Badge
+            <Badge variant="outline" class="border-warning/40 text-warning"
+              >Needs approval</Badge
             >
           {/if}
-          <span
-            class="ml-auto text-xs text-muted-foreground"
-            title={timeTitle}>{timeLabel}</span
+          <span class="ml-auto text-xs text-muted-foreground" title={timeTitle}
+            >{timeLabel}</span
           >
         </div>
         <p class="font-mono text-sm">{item.what}</p>

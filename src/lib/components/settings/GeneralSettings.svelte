@@ -17,7 +17,7 @@
   let branches = $state<string[]>([])
   let loadingBranches = $state(false)
   let reloadingEnv = $state(false)
-  let worktreeDraft = $state(settings.worktreeRoot)
+  let worktreeDraft = $derived(settings.worktreeRoot)
 
   const defaultRepoId = $derived(
     resolveDefaultRepoId(repos.items, settings.defaultRepo),
@@ -27,10 +27,6 @@
   )
 
   const hasWorkspaces = $derived(workspaceRecords.records.length > 0)
-
-  $effect(() => {
-    worktreeDraft = settings.worktreeRoot
-  })
 
   $effect(() => {
     void loadBranches(defaultRepoId)

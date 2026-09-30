@@ -32,10 +32,13 @@
   const countLabel = $derived(formatChangeCounts(totals))
   // Stale files give way to the splash on a retarget; a refresh keeps what is on screen.
   const pending = $derived(workspaceDiff.pending(workspace.id))
-  const loading = $derived(!!pending && (pending.retarget || files.length === 0))
+  const loading = $derived(
+    !!pending && (pending.retarget || files.length === 0),
+  )
 
   const allCollapsed = $derived(
-    files.length > 0 && files.every((file) => workspaceUi.collapsedDiffPaths[file.path]),
+    files.length > 0 &&
+      files.every((file) => workspaceUi.collapsedDiffPaths[file.path]),
   )
 
   let scrollEl: HTMLDivElement | undefined = $state()
@@ -68,7 +71,9 @@
       workspaceUi.collapsedDiffPaths = next
     }
     void tick().then(() => {
-      const fileEl = scrollEl?.querySelector(`[data-diff-path="${CSS.escape(path)}"]`)
+      const fileEl = scrollEl?.querySelector(
+        `[data-diff-path="${CSS.escape(path)}"]`,
+      )
       fileEl?.scrollIntoView({ block: 'start' })
       if (fileEl && line != null) revealDiffLine(fileEl, line)
     })
@@ -114,7 +119,9 @@
   data-od-id="changes-panel"
   class="flex min-h-0 flex-1 flex-col bg-background"
 >
-  <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
+  <div
+    class="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2"
+  >
     <ChangesTargetPicker workspaceId={workspace.id} branch={workspace.branch} />
     {#if files.length}
       <ToggleGroup.Root
@@ -127,15 +134,23 @@
         size="sm"
         aria-label="Diff layout"
       >
-        <ToggleGroup.Item value="unified" aria-pressed={workspaceUi.diffMode === 'unified'}>
+        <ToggleGroup.Item
+          value="unified"
+          aria-pressed={workspaceUi.diffMode === 'unified'}
+        >
           Unified
         </ToggleGroup.Item>
-        <ToggleGroup.Item value="split" aria-pressed={workspaceUi.diffMode === 'split'}>
+        <ToggleGroup.Item
+          value="split"
+          aria-pressed={workspaceUi.diffMode === 'split'}
+        >
           Split
         </ToggleGroup.Item>
       </ToggleGroup.Root>
       {#if countLabel}
-        <span class="font-mono text-xs whitespace-nowrap text-muted-foreground">{countLabel}</span>
+        <span class="font-mono text-xs whitespace-nowrap text-muted-foreground"
+          >{countLabel}</span
+        >
       {/if}
     {/if}
     <span class="flex-1"></span>
@@ -161,7 +176,8 @@
         onclick={() => void sendComments()}
       >
         <Send class="size-3.5" aria-hidden="true" />
-        Send {comments.length} {comments.length === 1 ? 'comment' : 'comments'} to {thread.role}
+        Send {comments.length}
+        {comments.length === 1 ? 'comment' : 'comments'} to {thread.role}
       </Button>
     {/if}
   </div>
@@ -178,7 +194,9 @@
         <ChangesFileList workspaceId={workspace.id} {files} />
       </div>
     {:else if !loading}
-      <div class="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+      <div
+        class="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center"
+      >
         <MopSparkles class="size-8 text-muted-foreground" aria-hidden="true" />
         <div>
           <h2 class="text-sm font-semibold">Clean diff!</h2>

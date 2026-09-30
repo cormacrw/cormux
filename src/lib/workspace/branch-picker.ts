@@ -1,9 +1,5 @@
 export type BranchMeta =
-  | 'current'
-  | 'inOtherWorkspace'
-  | 'default'
-  | 'integration'
-  | 'staging'
+  'current' | 'inOtherWorkspace' | 'default' | 'integration' | 'staging'
 
 export type BranchPickerItem = {
   name: string

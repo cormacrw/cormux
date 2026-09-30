@@ -53,16 +53,18 @@ export function bindGitWorkspaceControls() {
   }
 }
 
-export async function switchWorkspaceBranch(workspaceId: string, branch: string) {
-  return runGit(() =>
-    commands.switchWorkspaceBranch({ workspaceId, branch }),
-  )
+export async function switchWorkspaceBranch(
+  workspaceId: string,
+  branch: string,
+) {
+  return runGit(() => commands.switchWorkspaceBranch({ workspaceId, branch }))
 }
 
-export async function createWorkspaceBranch(workspaceId: string, branch: string) {
-  await runGit(() =>
-    commands.createWorkspaceBranch({ workspaceId, branch }),
-  )
+export async function createWorkspaceBranch(
+  workspaceId: string,
+  branch: string,
+) {
+  await runGit(() => commands.createWorkspaceBranch({ workspaceId, branch }))
 }
 
 export async function addStackBranch(workspaceId: string, branch: string) {

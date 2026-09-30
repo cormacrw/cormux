@@ -3,7 +3,10 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
   import { commands } from '$lib/ipc'
-  import type { Error as CoreError, SubmitReviewVerdict } from '$lib/ipc/bindings'
+  import type {
+    Error as CoreError,
+    SubmitReviewVerdict,
+  } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
   import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
   import { hydrateFromSnapshot, shellDialogs, workspaces } from '$lib/state'
@@ -103,7 +106,12 @@
     </div>
 
     <Dialog.Footer class="m-0 px-5 py-4">
-      <Button size="xl" variant="outline" onclick={closeDialog} disabled={submitting}>
+      <Button
+        size="xl"
+        variant="outline"
+        onclick={closeDialog}
+        disabled={submitting}
+      >
         Cancel
       </Button>
       <Button size="xl" onclick={() => void submit()} disabled={submitting}>

@@ -15,7 +15,10 @@
     branchMetaLabel,
     buildBranchPickerList,
   } from '$lib/workspace/branch-picker'
-  import { switchWorkspaceBranch, createWorkspaceBranch } from '$lib/workspace/wire-git-workspace'
+  import {
+    switchWorkspaceBranch,
+    createWorkspaceBranch,
+  } from '$lib/workspace/wire-git-workspace'
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { workspaceRecords } from '$lib/state'
@@ -66,9 +69,7 @@
   const filteredItems = $derived.by(() => {
     const q = query.trim().toLowerCase()
     if (!q) return pickerItems
-    return pickerItems.filter((item) =>
-      item.name.toLowerCase().includes(q),
-    )
+    return pickerItems.filter((item) => item.name.toLowerCase().includes(q))
   })
 
   async function loadBranches() {

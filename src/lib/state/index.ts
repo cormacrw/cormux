@@ -89,7 +89,9 @@ function parseLifecycle(raw: string): WorkspaceLifecycle {
   return 'ready'
 }
 
-function persistedWorkspaceRecord(row: Snapshot['persisted']['workspaces'][number]): WorkspaceRecord {
+function persistedWorkspaceRecord(
+  row: Snapshot['persisted']['workspaces'][number],
+): WorkspaceRecord {
   return {
     id: row.id,
     repoId: row.repoId,

@@ -1,4 +1,5 @@
-export type WorkspacePanelTab = 'thread' | 'findings' | 'changes' | 'stack' | 'output'
+export type WorkspacePanelTab =
+  'thread' | 'findings' | 'changes' | 'stack' | 'output'
 
 export class WorkspaceUiStore {
   activeTab = $state<WorkspacePanelTab>('thread')

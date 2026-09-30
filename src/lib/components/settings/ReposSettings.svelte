@@ -42,6 +42,8 @@
     expandedIds = expandedIds.filter((id) => id !== repoId)
   }
 
+  // Pending save timers aren't rendered, so this needn't be reactive.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   function debouncedSave(repoId: string, fn: () => void) {
@@ -94,7 +96,10 @@
   async function scrollRepoIntoView(repoId: string) {
     const key = repoDomKey(repoId)
     const el = document.querySelector(`[data-od-id="settings-repo-${key}"]`)
-    el?.scrollIntoView({ behavior: settings.reduceMotion ? 'auto' : 'smooth', block: 'start' })
+    el?.scrollIntoView({
+      behavior: settings.reduceMotion ? 'auto' : 'smooth',
+      block: 'start',
+    })
   }
 
   function coreErrorMessage(error: unknown) {
@@ -143,8 +148,9 @@
 
   function saveSetupCommands(repoId: string, value: string) {
     patchRepo(repoId, { setupCommands: value })
-    debouncedSave(`setup-${repoId}`, () =>
-      void persistSetupCommands(repoId, value),
+    debouncedSave(
+      `setup-${repoId}`,
+      () => void persistSetupCommands(repoId, value),
     )
   }
 
@@ -233,11 +239,7 @@
   {#each repos.items as repo (repo.id)}
     {@const key = repoDomKey(repo.id)}
     {@const used = workspaceCountForRepo(repo.id, workspaceRecords.records)}
-    {@const block = removeRepoBlockReason(
-      repo,
-      repos.items.length,
-      used,
-    )}
+    {@const block = removeRepoBlockReason(repo, repos.items.length, used)}
     {@const run = effectiveRun(
       repos.items.find((row) => row.id === repo.id) ?? repo,
     )}
@@ -247,7 +249,10 @@
       data-od-id="settings-repo-{key}"
     >
       <div class="set-row flex flex-wrap items-center gap-2 px-3 py-2">
-        <Folder class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <Folder
+          class="size-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
         <span class="txt min-w-0 flex-1">
           <span class="block text-sm font-medium">{repo.name}</span>
           <span
@@ -318,8 +323,8 @@
               class="font-mono text-xs"
               placeholder="pnpm install&#10;cp {repo.path}/.env .env"
               aria-describedby="repo-setup-hint-{key}"
-              value={repos.items.find((row) => row.id === repo.id)?.setupCommands ??
-                repo.setupCommands}
+              value={repos.items.find((row) => row.id === repo.id)
+                ?.setupCommands ?? repo.setupCommands}
               oninput={(event) =>
                 saveSetupCommands(repo.id, event.currentTarget.value)}
             />
@@ -328,7 +333,8 @@
               id="repo-setup-hint-{key}"
             >
               Runs top to bottom in each new worktree before the agent starts.
-              One command per line. Use $HARNESS_REPO_PATH for the main checkout.
+              One command per line. Use $HARNESS_REPO_PATH for the main
+              checkout.
             </p>
           </div>
           <div class="field space-y-1.5">
@@ -337,7 +343,8 @@
             </label>
             <Input
               id="run-{repo.id}"
-              value={repos.items.find((row) => row.id === repo.id)?.runCommand ??
+              value={repos.items.find((row) => row.id === repo.id)
+                ?.runCommand ??
                 repo.runCommand ??
                 ''}
               placeholder="pnpm dev"
@@ -389,7 +396,9 @@
       autocomplete="off"
       class="min-w-[240px] flex-1 font-mono text-xs"
       aria-invalid={pathError ? true : undefined}
-      aria-describedby={pathError ? 'settings-repo-error' : 'settings-repo-hint'}
+      aria-describedby={pathError
+        ? 'settings-repo-error'
+        : 'settings-repo-hint'}
       oninput={() => {
         if (pathError) pathError = null
       }}
@@ -415,11 +424,7 @@
     </Button>
   </div>
   {#if pathError}
-    <p
-      class="text-xs text-destructive"
-      id="settings-repo-error"
-      role="alert"
-    >
+    <p class="text-xs text-destructive" id="settings-repo-error" role="alert">
       {pathError}
     </p>
   {:else}

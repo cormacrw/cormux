@@ -32,6 +32,7 @@
       <div class="h-5" aria-hidden="true"></div>
     {:else}
       <div class={`whitespace-pre-wrap break-all ${OUTPUT_LINE_CLASS[style]}`}>
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- ansiLineToHtml escapes the line first -->
         {@html ansiLineToHtml(line)}
       </div>
     {/if}

@@ -85,7 +85,11 @@ export const fixtureSnapshot: Snapshot = {
       },
     ],
     todos: [
-      { id: 'todo-webhook', title: 'Rotate the Stripe webhook secret', pinned: true },
+      {
+        id: 'todo-webhook',
+        title: 'Rotate the Stripe webhook secret',
+        pinned: true,
+      },
       { id: 'todo-changelog', title: 'Draft the 0.4 changelog', pinned: false },
     ],
     scratches: [
@@ -253,8 +257,10 @@ export const fixtureDiff = {
         {
           header: '@@ -0,0 +1,60 @@',
           body:
-            Array.from({ length: 60 }, (_, i) => `+export const provider${i + 1} = 'p${i + 1}'`).join('\n') +
-            '\n',
+            Array.from(
+              { length: 60 },
+              (_, i) => `+export const provider${i + 1} = 'p${i + 1}'`,
+            ).join('\n') + '\n',
         },
       ],
     },

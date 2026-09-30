@@ -31,7 +31,11 @@ describe('new session', () => {
 
   it('has nothing to clear on an empty thread or right after a new session', () => {
     expect(hasSessionToClear([])).toBe(false)
-    expect(hasSessionToClear([{ event: message }, { event: marker }])).toBe(false)
-    expect(hasSessionToClear([{ event: marker }, { event: message }])).toBe(true)
+    expect(hasSessionToClear([{ event: message }, { event: marker }])).toBe(
+      false,
+    )
+    expect(hasSessionToClear([{ event: marker }, { event: message }])).toBe(
+      true,
+    )
   })
 })

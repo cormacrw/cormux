@@ -191,7 +191,7 @@
                 id="macro-name-{macro.id}"
                 maxlength={64}
                 autocomplete="off"
-                bind:value={drafts[macro.id].name}
+                bind:value={drafts[macro.id]!.name}
                 oninput={scheduleSave}
                 aria-describedby="macro-name-hint-{macro.id}"
               />
@@ -211,7 +211,7 @@
                 id="macro-prompt-{macro.id}"
                 rows={4}
                 placeholder="Summarize what changed on main since yesterday"
-                bind:value={drafts[macro.id].prompt}
+                bind:value={drafts[macro.id]!.prompt}
                 oninput={scheduleSave}
                 aria-describedby="macro-prompt-hint-{macro.id}"
               />

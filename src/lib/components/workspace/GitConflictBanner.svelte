@@ -29,7 +29,7 @@
 >
   <p class="font-medium">{headline}</p>
   <ul class="list-inside list-disc font-mono text-xs text-muted-foreground">
-    {#each conflict.paths as path}
+    {#each conflict.paths as path (path)}
       <li class="truncate">{path}</li>
     {/each}
   </ul>

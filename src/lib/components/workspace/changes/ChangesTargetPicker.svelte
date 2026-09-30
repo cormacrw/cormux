@@ -77,12 +77,16 @@
         aria-haspopup="true"
         aria-expanded={open}
         data-od-id="changes-target"
-        title={shownBase ? `Committed changes on ${branch} since it left ${shownBase}` : 'Uncommitted changes vs HEAD'}
+        title={shownBase
+          ? `Committed changes on ${branch} since it left ${shownBase}`
+          : 'Uncommitted changes vs HEAD'}
         class="h-6 max-w-[14rem] min-w-0 gap-1 px-1.5 font-mono text-xs"
       >
         <GitCompare class="size-3.5 shrink-0" aria-hidden="true" />
         <span class="sr-only">Compare against</span>
-        <span class="truncate">{shownBase ? `vs ${shownBase}` : UNCOMMITTED}</span>
+        <span class="truncate"
+          >{shownBase ? `vs ${shownBase}` : UNCOMMITTED}</span
+        >
         <ChevronDown class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
       </Button>
     {/snippet}
@@ -96,7 +100,11 @@
       Compare against
     </DropdownMenu.Label>
     <Command.Root shouldFilter={false} class="border-0 shadow-none">
-      <Command.Input bind:value={query} placeholder="Search branches…" class="h-9" />
+      <Command.Input
+        bind:value={query}
+        placeholder="Search branches…"
+        class="h-9"
+      />
       <Command.List class="max-h-[280px] min-w-[280px]">
         {#if !query.trim()}
           <Command.Group>
@@ -108,7 +116,10 @@
               class="flex gap-2 text-xs"
             >
               <span class="flex w-4 shrink-0 justify-center">
-                {#if base === null}<Check class="size-3.5" aria-hidden="true" />{/if}
+                {#if base === null}<Check
+                    class="size-3.5"
+                    aria-hidden="true"
+                  />{/if}
               </span>
               <span class="min-w-0 flex-1 truncate">Uncommitted changes</span>
             </Command.Item>
@@ -129,7 +140,10 @@
                 class="flex gap-2 font-mono text-xs"
               >
                 <span class="flex w-4 shrink-0 justify-center">
-                  {#if base === name}<Check class="size-3.5" aria-hidden="true" />{/if}
+                  {#if base === name}<Check
+                      class="size-3.5"
+                      aria-hidden="true"
+                    />{/if}
                 </span>
                 <span class="min-w-0 flex-1 truncate">{name}</span>
               </Command.Item>

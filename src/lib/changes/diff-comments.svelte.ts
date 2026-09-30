@@ -25,7 +25,9 @@ export class DiffCommentsStore {
   remove(workspaceId: string, id: string) {
     this.byWorkspace = {
       ...this.byWorkspace,
-      [workspaceId]: this.list(workspaceId).filter((comment) => comment.id !== id),
+      [workspaceId]: this.list(workspaceId).filter(
+        (comment) => comment.id !== id,
+      ),
     }
   }
 

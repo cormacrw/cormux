@@ -40,28 +40,40 @@ export function subscribeAgentChunks(
   threadId: string,
   onChunk: (chunk: AgentChunk) => void,
 ) {
-  return subscribe((channel) => commands.subscribeAgentChunks(threadId, channel), onChunk)
+  return subscribe(
+    (channel) => commands.subscribeAgentChunks(threadId, channel),
+    onChunk,
+  )
 }
 
 export function subscribeAgentEvents(
   threadId: string,
   onEvent: (event: AgentEvent) => void,
 ) {
-  return subscribe((channel) => commands.subscribeAgentEvents(threadId, channel), onEvent)
+  return subscribe(
+    (channel) => commands.subscribeAgentEvents(threadId, channel),
+    onEvent,
+  )
 }
 
 export function subscribePty(
   workspaceId: string,
   onChunk: (chunk: PtyChunk) => void,
 ) {
-  return subscribe((channel) => commands.subscribePty(workspaceId, channel), onChunk)
+  return subscribe(
+    (channel) => commands.subscribePty(workspaceId, channel),
+    onChunk,
+  )
 }
 
 export function subscribeDiffs(
   workspaceId: string,
   onUpdate: (update: DiffUpdate) => void,
 ) {
-  return subscribe((channel) => commands.subscribeDiffs(workspaceId, channel), onUpdate)
+  return subscribe(
+    (channel) => commands.subscribeDiffs(workspaceId, channel),
+    onUpdate,
+  )
 }
 
 export async function startStreamingSpike(

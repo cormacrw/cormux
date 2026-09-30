@@ -187,7 +187,9 @@
       data-od-id="ws-push"
     >
       <Upload class="size-4" aria-hidden="true" />
-      {ahead > 0 ? `Push ${plural(ahead, 'commit')} to origin` : 'Nothing to push'}
+      {ahead > 0
+        ? `Push ${plural(ahead, 'commit')} to origin`
+        : 'Nothing to push'}
     </DropdownMenu.Item>
 
     <DropdownMenu.Item
