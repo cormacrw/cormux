@@ -205,12 +205,15 @@ export function installBrowserHarness() {
     callbacks.get(diffChannel.id)?.({ index: diffChannel.index++, message: { workspaceId: fixtureDiff.workspaceId, path: '', diff } })
   }
 
-  // gh-stack stand-in: `?stack=none` starts unstacked, `?stack=unavailable` has no extension.
+  // gh-stack stand-in: `?stack=none` starts unstacked, `?stack=unavailable` has no extension,
+  // and `?stack=remote` fails to reach GitHub until a test sets `window.__stackRemoteUp`,
+  // then finds the stack there.
   const stackMode = new URLSearchParams(window.location.search).get('stack')
+  const fullStack = ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
   const stackBranches: string[] =
-    stackMode === 'none' || stackMode === 'unavailable'
+    stackMode === 'none' || stackMode === 'unavailable' || stackMode === 'remote'
       ? []
-      : ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
+      : [...fullStack]
   const stackStats: Record<string, [number, number, number, number]> = {
     'feat/oauth-api': [212, 38, 4, 6],
     'feat/oauth-login': [96, 12, 2, 3],
@@ -232,6 +235,16 @@ export function installBrowserHarness() {
     const base = { workspaceId, trunk: 'main', currentBranch: current, message: null, branches: [] }
     if (stackMode === 'unavailable') {
       return { ...base, status: 'unavailable', message: 'The gh-stack extension isn\'t installed. Run: gh extension install github/gh-stack' }
+    }
+    if (stackMode === 'remote' && !stackBranches.includes(current)) {
+      if (!(window as { __stackRemoteUp?: boolean }).__stackRemoteUp) {
+        return {
+          ...base,
+          status: 'notStacked',
+          message: "Looking for this branch's stack on GitHub failed talking to GitHub. Check `gh auth status`, then retry.",
+        }
+      }
+      stackBranches.push(...fullStack)
     }
     if (!stackBranches.includes(current)) return { ...base, status: 'notStacked' }
     const branches = stackBranches.map((name, index) => {

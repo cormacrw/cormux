@@ -43,6 +43,7 @@
   const cards = $derived(stackCardsTopFirst(stack))
   const trunk = $derived(stack?.trunk ?? 'main')
   const stacked = $derived(stack?.status === 'stacked')
+  const checking = $derived(stacks.loading[workspace.id] ?? false)
   const locked = $derived(
     provisioning || branchPickerLocked(threads.forWorkspace(workspace.id)),
   )
@@ -166,6 +167,23 @@
                 Sync
               </Button>
             {/if}
+            {#if !stacked}
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={checking}
+                title="Look for a stack on GitHub that has {workspace.branch}"
+                data-od-id="stack-check"
+                onclick={() => void stacks.load(workspace.id)}
+              >
+                {#if checking}
+                  <LoaderCircle class="animate-spin" aria-hidden="true" />
+                {:else}
+                  <RefreshCw aria-hidden="true" />
+                {/if}
+                Check GitHub
+              </Button>
+            {/if}
             {#if !adding}
               <Button
                 size="sm"
@@ -198,6 +216,15 @@
           </div>
         {/if}
       </header>
+
+      {#if stack?.status === 'notStacked' && stack.message}
+        <p
+          class="mt-6 rounded-lg border border-border/70 bg-muted/20 p-4 text-sm"
+          data-od-id="stack-check-failed"
+        >
+          {stack.message}
+        </p>
+      {/if}
 
       {#if stack?.status === 'unavailable'}
         <div

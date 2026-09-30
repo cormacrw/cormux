@@ -83,6 +83,28 @@ test('Stack tab starts a stack from an unstacked branch', async ({ page }) => {
   ).toBeVisible()
 })
 
+test('Stack tab says why the GitHub check failed and can check again', async ({
+  page,
+}) => {
+  const panel = await openStack(page, '?stack=remote')
+  await expect(
+    panel.locator('[data-od-id="stack-check-failed"]'),
+  ).toContainText('failed talking to GitHub')
+  await page.evaluate(
+    () => ((window as { __stackRemoteUp?: boolean }).__stackRemoteUp = true),
+  )
+  await panel.getByRole('button', { name: 'Check GitHub' }).click()
+  await expect(
+    page.getByRole('tab', { name: 'Stack, 3 branches' }),
+  ).toBeVisible()
+  await expect(panel.locator('[data-od-id="stack-check-failed"]')).toHaveCount(
+    0,
+  )
+  await expect(panel.getByRole('button', { name: 'Check GitHub' })).toHaveCount(
+    0,
+  )
+})
+
 test('Stack tab explains how to install gh-stack', async ({ page }) => {
   const panel = await openStack(page, '?stack=unavailable')
   await expect(panel).toContainText('gh extension install github/gh-stack')
