@@ -4,14 +4,11 @@ mod app;
 mod approvals;
 mod composer;
 mod create_pr;
+mod engines;
+mod error;
+mod feedback;
 mod findings;
 mod findings_block;
-mod review;
-mod scratch;
-mod pr_draft;
-mod engines;
-mod feedback;
-mod error;
 mod git;
 mod git_workspace;
 mod github;
@@ -19,11 +16,14 @@ mod harness_config;
 mod ipc;
 mod llm;
 mod mcp;
-mod naming;
 mod menu;
 mod metrics;
+mod naming;
+mod pr_draft;
 mod process;
 mod provisioning;
+mod review;
+mod scratch;
 mod shell_env;
 mod stack;
 mod state;
@@ -119,9 +119,7 @@ pub fn run() {
                 pr_sync.spawn_loop(pr_app);
             });
 
-            app.state::<AppState>()
-                .mcp
-                .attach_app(app.handle().clone());
+            app.state::<AppState>().mcp.attach_app(app.handle().clone());
 
             let approval_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -148,11 +146,22 @@ pub fn run() {
                     };
                     let state = turn_end_app.state::<AppState>();
                     let _ = state.store.mark_thread_idle(&thread_id);
-                    let is_scratch = state.store.scratch_for_thread(&thread_id).ok().flatten().is_some();
-                    if let (false, Ok(Some(thread))) = (is_scratch, state.store.thread_by_id(&thread_id)) {
+                    let is_scratch = state
+                        .store
+                        .scratch_for_thread(&thread_id)
+                        .ok()
+                        .flatten()
+                        .is_some();
+                    if let (false, Ok(Some(thread))) =
+                        (is_scratch, state.store.thread_by_id(&thread_id))
+                    {
                         state
                             .workspace
-                            .set_thread(&thread_id, &thread.workspace_id, crate::workspace::ThreadActivity::Idle)
+                            .set_thread(
+                                &thread_id,
+                                &thread.workspace_id,
+                                crate::workspace::ThreadActivity::Idle,
+                            )
                             .await;
                     }
                     let version = state.bump_event_version();
@@ -161,7 +170,9 @@ pub fn run() {
                         kind: StateChangeKind::WorkspaceStatus,
                     }
                     .emit(&turn_end_app);
-                    if let Err(error) = crate::review::on_reviewer_turn_end(&turn_end_app, &thread_id).await {
+                    if let Err(error) =
+                        crate::review::on_reviewer_turn_end(&turn_end_app, &thread_id).await
+                    {
                         log::warn!("reading review findings failed: {error}");
                     }
                 }

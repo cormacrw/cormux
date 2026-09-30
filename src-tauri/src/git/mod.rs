@@ -288,9 +288,7 @@ impl Git {
     ) -> Result<Vec<(String, u32, u32)>> {
         let merge_base = self.merge_base(worktree, base).await?;
         let range = format!("{merge_base}..HEAD");
-        let output = self
-            .run(worktree, &["diff", "--numstat", &range])
-            .await?;
+        let output = self.run(worktree, &["diff", "--numstat", &range]).await?;
         Self::diff_ok(&output, "diff --numstat")?;
         Ok(parse_numstat(&Self::stdout(&output)))
     }
@@ -381,9 +379,7 @@ impl Git {
     ) -> Result<String> {
         let merge_base = self.merge_base(worktree, base).await?;
         let range = format!("{merge_base}..HEAD");
-        let output = self
-            .run(worktree, &["diff", &range, "--", path])
-            .await?;
+        let output = self.run(worktree, &["diff", &range, "--", path]).await?;
         Self::diff_ok(&output, "diff file against base")?;
         Ok(Self::stdout(&output))
     }
@@ -480,10 +476,7 @@ impl Git {
             let Some(rest) = line.strip_prefix("branch ") else {
                 continue;
             };
-            let name = rest
-                .strip_prefix("refs/heads/")
-                .unwrap_or(rest)
-                .to_string();
+            let name = rest.strip_prefix("refs/heads/").unwrap_or(rest).to_string();
             if !name.is_empty() {
                 branches.push(name);
             }
@@ -493,10 +486,7 @@ impl Git {
 
     pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
         let output = self
-            .run(
-                repo,
-                &["for-each-ref", "--format=%(refname)", "refs/heads"],
-            )
+            .run(repo, &["for-each-ref", "--format=%(refname)", "refs/heads"])
             .await?;
         Self::require_success(&output, "for-each-ref heads")?;
         Ok(Self::stdout(&output)
@@ -548,7 +538,9 @@ impl Git {
 
     pub async fn remote_branch_exists(&self, repo: &Path, branch: &str) -> Result<bool> {
         let reference = format!("refs/remotes/origin/{branch}");
-        let output = self.run(repo, &["show-ref", "--verify", &reference]).await?;
+        let output = self
+            .run(repo, &["show-ref", "--verify", &reference])
+            .await?;
         Ok(output.status.success())
     }
 
@@ -693,11 +685,19 @@ mod tests {
     fn parses_shortstat() {
         assert_eq!(
             parse_shortstat(" 3 files changed, 10 insertions(+), 2 deletions(-)\n"),
-            ShortStat { files: 3, added: 10, deleted: 2 }
+            ShortStat {
+                files: 3,
+                added: 10,
+                deleted: 2
+            }
         );
         assert_eq!(
             parse_shortstat(" 1 file changed, 1 deletion(-)"),
-            ShortStat { files: 1, added: 0, deleted: 1 }
+            ShortStat {
+                files: 1,
+                added: 0,
+                deleted: 1
+            }
         );
         assert_eq!(parse_shortstat(""), ShortStat::default());
     }

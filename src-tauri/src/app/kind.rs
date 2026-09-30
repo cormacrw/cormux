@@ -36,8 +36,8 @@ pub fn port_in_use_message(kind: AppKind, port: u16) -> String {
         AppKind::Storybook => {
             format!("Port {port} is not available, using the next free port")
         }
-        AppKind::Python => format!(
-            "ERROR:    [Errno 48] Address already in use ({port}), trying the next port"
-        ),
+        AppKind::Python => {
+            format!("ERROR:    [Errno 48] Address already in use ({port}), trying the next port")
+        }
     }
 }

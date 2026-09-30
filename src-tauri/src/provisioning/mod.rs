@@ -1,8 +1,8 @@
 mod runner;
 
 pub use runner::{
-    ensure_thread_engine, join_thread_provisioning, retry_provisioning,
-    run_workspace_provisioning, skip_provisioning_setup, JoinProvisionJob, LeadProvisionJob,
+    JoinProvisionJob, LeadProvisionJob, ensure_thread_engine, join_thread_provisioning,
+    retry_provisioning, run_workspace_provisioning, skip_provisioning_setup,
 };
 
 use std::time::Duration;
@@ -25,9 +25,8 @@ mod tests {
 
     #[test]
     fn skips_blank_and_comment_lines() {
-        let cmds = parse_setup_commands(
-            "pnpm install\n\n# copy env\ncp .env.example .env\n  uv sync  \n",
-        );
+        let cmds =
+            parse_setup_commands("pnpm install\n\n# copy env\ncp .env.example .env\n  uv sync  \n");
         assert_eq!(
             cmds,
             vec![

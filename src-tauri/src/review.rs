@@ -4,7 +4,6 @@ use uuid::Uuid;
 
 use crate::error::{Error, Result};
 use crate::feedback::emit_toast;
-use crate::ipc::types::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::github::auth;
 use crate::github::review::{
     RestGithubClient, ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput,
@@ -12,6 +11,7 @@ use crate::github::review::{
 use crate::ipc::commands::{expand_tilde, worktrees_base};
 use crate::ipc::events::StateChanged;
 use crate::ipc::types::StateChangeKind;
+use crate::ipc::types::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::provisioning::LeadProvisionJob;
 use crate::state::AppState;
 use crate::store::Store;
@@ -185,11 +185,8 @@ pub async fn create_review_workspace(
         .unwrap_or("repo")
         .to_string();
     let worktrees_root = worktrees_base(&state.store)?;
-    let worktree_path = crate::workspace::WorkspaceManager::worktree_path(
-        &worktrees_root,
-        &repo_name,
-        &input.head,
-    );
+    let worktree_path =
+        crate::workspace::WorkspaceManager::worktree_path(&worktrees_root, &repo_name, &input.head);
 
     let workspace_name = format!("PR #{} Review", input.pr_number);
     state
@@ -299,10 +296,7 @@ pub async fn create_review_workspace(
     let pr_number = input.pr_number as u64;
     let base_branch = input.base.clone();
     let repo_id_bg = input.repo_id.clone();
-    let setup_commands = crate::harness_config::effective_setup(
-        &repo.setup_commands,
-        &repo_path,
-    );
+    let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
     let worktree_path_bg = worktree_path.clone();
     let workspace_id_bg = workspace_id.clone();
 
@@ -420,7 +414,10 @@ pub async fn on_reviewer_turn_end(app: &AppHandle, thread_id: &str) -> Result<()
     }
 
     let reply = state.store.last_agent_reply(thread_id)?;
-    let findings = match crate::findings_block::parse_findings_block(&reply, &workspace.worktree_path) {
+    let findings = match crate::findings_block::parse_findings_block(
+        &reply,
+        &workspace.worktree_path,
+    ) {
         Ok(findings) => findings,
         Err(error) => {
             let detail = match error {
@@ -437,7 +434,9 @@ pub async fn on_reviewer_turn_end(app: &AppHandle, thread_id: &str) -> Result<()
                 "title": "Couldn’t read the review findings",
                 "detail": detail,
             });
-            state.store.append_event(thread_id, "tool", &step.to_string())?;
+            state
+                .store
+                .append_event(thread_id, "tool", &step.to_string())?;
             emit_state_changed(app, &state);
             return Ok(());
         }
@@ -602,15 +601,16 @@ pub async fn submit_workspace_review(
     let mut body_lines = Vec::new();
     let mut line_comments = Vec::new();
     for finding in &open_findings {
-        if let (Some(path), Some(line)) = (finding.file.as_ref(), finding.line) {
-            if !path.is_empty() && line > 0 {
-                line_comments.push(ReviewLineComment {
-                    path: path.clone(),
-                    line,
-                    body: format!("**{}** — {}", finding.title, finding.explanation),
-                });
-                continue;
-            }
+        if let (Some(path), Some(line)) = (finding.file.as_ref(), finding.line)
+            && !path.is_empty()
+            && line > 0
+        {
+            line_comments.push(ReviewLineComment {
+                path: path.clone(),
+                line,
+                body: format!("**{}** — {}", finding.title, finding.explanation),
+            });
+            continue;
         }
         body_lines.push(format!(
             "- **{}** ({}) — {}",
@@ -620,10 +620,7 @@ pub async fn submit_workspace_review(
     let body = if body_lines.is_empty() {
         "Review submitted from Cormux.".into()
     } else {
-        format!(
-            "Review submitted from Cormux.\n\n{}",
-            body_lines.join("\n")
-        )
+        format!("Review submitted from Cormux.\n\n{}", body_lines.join("\n"))
     };
 
     let verdict = match input.verdict {
@@ -713,12 +710,12 @@ pub async fn submit_workspace_review(
 }
 
 fn parse_repo_slug(repo_path: &str, pr_html_url: Option<&str>) -> Result<(String, String)> {
-    if let Some(url) = pr_html_url {
-        if let Some(rest) = url.strip_prefix("https://github.com/") {
-            let parts: Vec<&str> = rest.split('/').collect();
-            if parts.len() >= 2 {
-                return Ok((parts[0].to_string(), parts[1].to_string()));
-            }
+    if let Some(url) = pr_html_url
+        && let Some(rest) = url.strip_prefix("https://github.com/")
+    {
+        let parts: Vec<&str> = rest.split('/').collect();
+        if parts.len() >= 2 {
+            return Ok((parts[0].to_string(), parts[1].to_string()));
         }
     }
     let origin = std::process::Command::new("git")

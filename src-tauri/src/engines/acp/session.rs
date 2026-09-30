@@ -310,7 +310,10 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
         AgentEvent::TurnEnd { .. } => "turn_end",
         AgentEvent::EngineExited { .. } => "exit",
     };
-    if matches!(event, AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }) {
+    if matches!(
+        event,
+        AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }
+    ) {
         let _ = store.mark_thread_idle(thread_id);
     }
     if let Ok(payload) = serde_json::to_string(event) {

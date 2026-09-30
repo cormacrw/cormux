@@ -113,19 +113,19 @@ impl WorkspaceAppService {
             WorkspaceAppAction::Clear => {
                 state.process.clear_log(workspace_id);
                 self.emit_changed(app, state);
-                return Ok(());
+                Ok(())
             }
             WorkspaceAppAction::Stop => {
                 self.stop(app, state, workspace_id, false).await?;
-                return Ok(());
+                Ok(())
             }
             WorkspaceAppAction::Restart => {
                 self.restart(app, state, workspace_id).await?;
-                return Ok(());
+                Ok(())
             }
             WorkspaceAppAction::Run => {
                 self.run(app, state, workspace_id).await?;
-                return Ok(());
+                Ok(())
             }
         }
     }
@@ -146,8 +146,9 @@ impl WorkspaceAppService {
             .find(|repo| repo.id == workspace.repo_id)
             .ok_or_else(|| Error::Workspace(format!("unknown repo {}", workspace.repo_id)))?;
         let repo_path = crate::ipc::commands::expand_tilde(&repo.path);
-        let run_command = crate::harness_config::effective_run_command(&repo.run_command, &repo_path)
-            .ok_or_else(|| Error::Process("no run command configured".into()))?;
+        let run_command =
+            crate::harness_config::effective_run_command(&repo.run_command, &repo_path)
+                .ok_or_else(|| Error::Process("no run command configured".into()))?;
         let repo_for_env = repo.clone();
 
         let session_id = run_session_id(workspace_id);
@@ -181,13 +182,7 @@ impl WorkspaceAppService {
             .process
             .append_log_line(workspace_id, format!("> {run_command}"));
 
-        spawn_run(
-            &state.process,
-            workspace_id,
-            &worktree,
-            &run_command,
-            &env,
-        )?;
+        spawn_run(&state.process, workspace_id, &worktree, &run_command, &env)?;
 
         let app_handle = app.clone();
         let workspace_id = workspace_id.to_string();
@@ -347,16 +342,8 @@ impl WorkspaceAppService {
                 if killed {
                     self.set_status(&workspace_id, WorkspaceAppStatus::Stopped, None, None);
                 } else if code != 0 {
-                    self.set_status(
-                        &workspace_id,
-                        WorkspaceAppStatus::Crashed,
-                        None,
-                        Some(code),
-                    );
-                    process.append_log_line(
-                        log_id,
-                        format!("──── Crashed (exit {code}) ────"),
-                    );
+                    self.set_status(&workspace_id, WorkspaceAppStatus::Crashed, None, Some(code));
+                    process.append_log_line(log_id, format!("──── Crashed (exit {code}) ────"));
                 } else {
                     self.set_status(&workspace_id, WorkspaceAppStatus::Stopped, None, None);
                 }
@@ -369,51 +356,46 @@ impl WorkspaceAppService {
                 break;
             }
 
-            if let Some(detected) = detect_port(&process.output_session(&session_id)) {
-                if self.runtime(&workspace_id).status == WorkspaceAppStatus::Starting {
-                    self.set_status(
-                        &workspace_id,
-                        WorkspaceAppStatus::Running,
-                        Some(detected),
-                        None,
+            if let Some(detected) = detect_port(&process.output_session(&session_id))
+                && self.runtime(&workspace_id).status == WorkspaceAppStatus::Starting
+            {
+                self.set_status(
+                    &workspace_id,
+                    WorkspaceAppStatus::Running,
+                    Some(detected),
+                    None,
+                );
+                if !running_toast_sent {
+                    running_toast_sent = true;
+                    emit_toast_parts(
+                        &app,
+                        ToastTone::Ok,
+                        vec![
+                            ToastPart::Code {
+                                value: workspace_name.clone(),
+                            },
+                            ToastPart::Text {
+                                value: " is running on localhost:".into(),
+                            },
+                            ToastPart::Code {
+                                value: detected.to_string(),
+                            },
+                        ],
+                        Some(workspace_id.clone()),
                     );
-                    if !running_toast_sent {
-                        running_toast_sent = true;
-                        emit_toast_parts(
-                            &app,
-                            ToastTone::Ok,
-                            vec![
-                                ToastPart::Code {
-                                    value: workspace_name.clone(),
-                                },
-                                ToastPart::Text {
-                                    value: " is running on localhost:".into(),
-                                },
-                                ToastPart::Code {
-                                    value: detected.to_string(),
-                                },
-                            ],
-                            Some(workspace_id.clone()),
-                        );
-                    }
-                    let version = state.bump_event_version();
-                    let _ = StateChanged {
-                        version,
-                        kind: StateChangeKind::WorkspaceApp,
-                    }
-                    .emit(&app);
                 }
+                let version = state.bump_event_version();
+                let _ = StateChanged {
+                    version,
+                    kind: StateChangeKind::WorkspaceApp,
+                }
+                .emit(&app);
             }
 
             if started.elapsed() > Duration::from_secs(120)
                 && self.runtime(&workspace_id).status == WorkspaceAppStatus::Starting
             {
-                self.set_status(
-                    &workspace_id,
-                    WorkspaceAppStatus::Crashed,
-                    None,
-                    Some(-1),
-                );
+                self.set_status(&workspace_id, WorkspaceAppStatus::Crashed, None, Some(-1));
                 process.append_log_line(log_id, "──── Crashed (startup timed out) ────");
                 let _ = process.stop_session(&session_id);
                 let version = state.bump_event_version();
@@ -437,19 +419,24 @@ impl WorkspaceAppService {
         exit_code: Option<i32>,
     ) {
         let mut inner = self.inner.lock().unwrap();
-        let record = inner.entry(workspace_id.to_string()).or_insert(WorkspaceAppRecord {
-            status: WorkspaceAppStatus::Stopped,
-            port: None,
-            exit_code: None,
-            kind: AppKind::Vite,
-            quiet_stop: false,
-            generation: 0,
-        });
+        let record = inner
+            .entry(workspace_id.to_string())
+            .or_insert(WorkspaceAppRecord {
+                status: WorkspaceAppStatus::Stopped,
+                port: None,
+                exit_code: None,
+                kind: AppKind::Vite,
+                quiet_stop: false,
+                generation: 0,
+            });
         record.status = status;
         if port.is_some() {
             record.port = port;
         }
-        if matches!(status, WorkspaceAppStatus::Stopped | WorkspaceAppStatus::Crashed) {
+        if matches!(
+            status,
+            WorkspaceAppStatus::Stopped | WorkspaceAppStatus::Crashed
+        ) {
             record.port = None;
         }
         record.exit_code = exit_code;
@@ -516,7 +503,10 @@ fn workspace_from_row(
     WorkspaceManager::harness_env(&record)
 }
 
-async fn run_context(state: &AppState, workspace_id: &str) -> Result<(String, String, AppKind, String)> {
+async fn run_context(
+    state: &AppState,
+    workspace_id: &str,
+) -> Result<(String, String, AppKind, String)> {
     let workspace = state
         .workspace
         .get(workspace_id)
@@ -533,19 +523,10 @@ async fn run_context(state: &AppState, workspace_id: &str) -> Result<(String, St
     let run_command = crate::harness_config::effective_run_command(&repo.run_command, &repo_path)
         .ok_or_else(|| Error::Process("no run command configured".into()))?;
     let kind = AppKind::detect(&run_command);
-    Ok((
-        workspace.worktree_path,
-        run_command,
-        kind,
-        workspace.name,
-    ))
+    Ok((workspace.worktree_path, run_command, kind, workspace.name))
 }
 
-async fn run_env(
-    state: &AppState,
-    workspace_id: &str,
-    port: u16,
-) -> Result<Vec<(String, String)>> {
+async fn run_env(state: &AppState, workspace_id: &str, port: u16) -> Result<Vec<(String, String)>> {
     let workspace = state
         .workspace
         .get(workspace_id)

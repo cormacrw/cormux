@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::app::WorkspaceAppRuntime;
 use crate::git::{BehindUpdate, WorktreeDiff};
 use crate::metrics::MemorySample;
 use crate::store::types::PersistedSnapshot;
-use crate::app::WorkspaceAppRuntime;
 use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

@@ -75,7 +75,10 @@ pub async fn resolve_record(
     })
 }
 
-pub fn git_runtime_snapshot(state: &AppState, workspace_ids: &[String]) -> Vec<WorkspaceGitRuntime> {
+pub fn git_runtime_snapshot(
+    state: &AppState,
+    workspace_ids: &[String],
+) -> Vec<WorkspaceGitRuntime> {
     let stats = state.workspace.git_stats_snapshot();
     workspace_ids
         .iter()
@@ -135,7 +138,7 @@ pub async fn switch_workspace_branch(
         state.store.set_workspace_pr_number(workspace_id, None)?;
     }
 
-    refresh_git_stats(state, workspace_id, &worktree, &record.base, &branch).await;
+    refresh_git_stats(state, workspace_id, &worktree, &record.base, branch).await;
 
     state.diffs.request_refresh(workspace_id);
     let _ = state
@@ -169,7 +172,7 @@ pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &st
     let record = resolve_record(state, workspace_id, &row).await?;
     state.workspace.remember(record.clone()).await;
 
-    let behind = state.workspace.git_stats(&workspace_id).await.behind;
+    let behind = state.workspace.git_stats(workspace_id).await.behind;
     if behind == 0 {
         return Err(Error::Git(format!(
             "already up to date with {}",
@@ -190,11 +193,12 @@ pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &st
                     &state.store,
                     &thread_id,
                     "download",
-                    &format!("Pulled {behind} commit{} from {}", if behind == 1 { "" } else { "s" }, record.base),
                     &format!(
-                        "Merged into {} with no conflicts",
-                        record.branch
+                        "Pulled {behind} commit{} from {}",
+                        if behind == 1 { "" } else { "s" },
+                        record.base
                     ),
+                    &format!("Merged into {} with no conflicts", record.branch),
                 );
             }
 
@@ -215,8 +219,7 @@ pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &st
                 .await;
             emit_git_state(app, state).await;
             Err(Error::Git(
-                "merge stopped with conflicts — resolve or abort from the workspace header"
-                    .into(),
+                "merge stopped with conflicts — resolve or abort from the workspace header".into(),
             ))
         }
         Err(error) => Err(error),
@@ -231,12 +234,9 @@ pub async fn rebase_workspace(app: &AppHandle, state: &AppState, workspace_id: &
     let record = resolve_record(state, workspace_id, &row).await?;
     state.workspace.remember(record.clone()).await;
 
-    let behind = state.workspace.git_stats(&workspace_id).await.behind;
+    let behind = state.workspace.git_stats(workspace_id).await.behind;
     if behind == 0 {
-        return Err(Error::Git(format!(
-            "already on the latest {}",
-            record.base
-        )));
+        return Err(Error::Git(format!("already on the latest {}", record.base)));
     }
 
     let repo_path = PathBuf::from(&record.repo_path);
@@ -290,8 +290,7 @@ pub async fn rebase_workspace(app: &AppHandle, state: &AppState, workspace_id: &
                 .await;
             emit_git_state(app, state).await;
             Err(Error::Git(
-                "rebase stopped with conflicts — resolve or abort from the workspace header"
-                    .into(),
+                "rebase stopped with conflicts — resolve or abort from the workspace header".into(),
             ))
         }
         Err(error) => Err(error),
@@ -310,14 +309,7 @@ pub async fn push_workspace_branch(
     let record = resolve_record(state, workspace_id, &row).await?;
     let worktree = PathBuf::from(&record.worktree_path);
     state.git.push(&worktree, &record.branch).await?;
-    refresh_git_stats(
-        state,
-        workspace_id,
-        &worktree,
-        &record.base,
-        &record.branch,
-    )
-    .await;
+    refresh_git_stats(state, workspace_id, &worktree, &record.base, &record.branch).await;
     emit_toast(
         app,
         ToastRaisedPayload {
@@ -347,7 +339,12 @@ pub async fn abort_workspace_git_conflict(
         .workspace_by_id(workspace_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
     let record = resolve_record(state, workspace_id, &row).await?;
-    let conflict = state.workspace.git_stats(workspace_id).await.conflict.clone();
+    let conflict = state
+        .workspace
+        .git_stats(workspace_id)
+        .await
+        .conflict
+        .clone();
     let Some(conflict) = conflict else {
         return Ok(());
     };
@@ -357,14 +354,7 @@ pub async fn abort_workspace_git_conflict(
         GitConflictOperation::Rebase => state.git.abort_rebase(&worktree).await?,
     }
     state.workspace.clear_git_conflict(workspace_id).await;
-    refresh_git_stats(
-        state,
-        workspace_id,
-        &worktree,
-        &record.base,
-        &record.branch,
-    )
-    .await;
+    refresh_git_stats(state, workspace_id, &worktree, &record.base, &record.branch).await;
     state.diffs.request_refresh(workspace_id);
     let _ = state.diffs.compute(workspace_id, &worktree).await;
     emit_git_state(app, state).await;
@@ -390,7 +380,10 @@ pub async fn create_workspace_branch(
     state.workspace.can_switch_branch(workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
     state.git.switch_new_branch(&worktree, name, "HEAD").await?;
-    state.workspace.switch_branch_record(workspace_id, name).await?;
+    state
+        .workspace
+        .switch_branch_record(workspace_id, name)
+        .await?;
     state.store.set_workspace_branch(workspace_id, name)?;
     if row.pr_number.is_some() {
         state.store.set_workspace_pr_number(workspace_id, None)?;
@@ -404,7 +397,10 @@ pub async fn create_workspace_branch(
             &thread_id,
             "branch",
             &format!("Switched to `{name}`"),
-            &format!("Created and checked out {name}, previously {}", record.branch),
+            &format!(
+                "Created and checked out {name}, previously {}",
+                record.branch
+            ),
         );
     }
     emit_switch_toast(
@@ -435,7 +431,10 @@ pub async fn adopt_checked_out_branch(
     let branch = state.git.current_branch(&worktree).await?;
     let switched = !branch.is_empty() && branch != record.branch;
     if switched {
-        state.workspace.switch_branch_record(workspace_id, &branch).await?;
+        state
+            .workspace
+            .switch_branch_record(workspace_id, &branch)
+            .await?;
         state.store.set_workspace_branch(workspace_id, &branch)?;
         if row.pr_number.is_some() {
             state.store.set_workspace_pr_number(workspace_id, None)?;
@@ -457,7 +456,11 @@ pub async fn adopt_checked_out_branch(
             state.process.workspace_has_session(workspace_id),
         );
     }
-    let current = if branch.is_empty() { &record.branch } else { &branch };
+    let current = if branch.is_empty() {
+        &record.branch
+    } else {
+        &branch
+    };
     refresh_git_stats(state, workspace_id, &worktree, &record.base, current).await;
     state.diffs.request_refresh(workspace_id);
     let _ = state.diffs.compute(workspace_id, &worktree).await;
@@ -525,7 +528,13 @@ pub fn lead_thread_id(state: &AppState, workspace_id: &str) -> Result<String> {
         .ok_or_else(|| Error::Workspace("no Lead thread for workspace".into()))
 }
 
-fn append_git_step(store: &Store, thread_id: &str, icon: &str, title: &str, detail: &str) -> Result<()> {
+fn append_git_step(
+    store: &Store,
+    thread_id: &str,
+    icon: &str,
+    title: &str,
+    detail: &str,
+) -> Result<()> {
     let step = serde_json::json!({
         "icon": icon,
         "title": title,
@@ -596,10 +605,7 @@ fn emit_pull_toast(
                     value: behind.to_string(),
                 },
                 ToastPart::Text {
-                    value: format!(
-                        " commit{} from ",
-                        if behind == 1 { "" } else { "s" }
-                    ),
+                    value: format!(" commit{} from ", if behind == 1 { "" } else { "s" }),
                 },
                 ToastPart::Code {
                     value: base.to_string(),
@@ -649,10 +655,10 @@ fn parse_lifecycle(raw: &str) -> WorkspaceLifecycle {
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(stripped) = path.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(stripped);
-        }
+    if let Some(stripped) = path.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(stripped);
     }
     PathBuf::from(path)
 }

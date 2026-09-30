@@ -40,10 +40,7 @@ struct RawFinding {
 
 /// Parses the last findings block in `reply`. `worktree` is used to turn absolute
 /// paths the agent may have written back into repo-relative ones.
-pub fn parse_findings_block(
-    reply: &str,
-    worktree: &str,
-) -> Result<Vec<ReviewFinding>, BlockError> {
+pub fn parse_findings_block(reply: &str, worktree: &str) -> Result<Vec<ReviewFinding>, BlockError> {
     let start = reply.rfind(OPEN_TAG).ok_or(BlockError::Missing)?;
     let body_start = start + OPEN_TAG.len();
     let body_len = reply[body_start..]

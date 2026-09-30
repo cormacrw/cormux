@@ -6,12 +6,10 @@ use tauri_specta::Event;
 use crate::engines::{AgentEvent, ToolCallStatus, ToolKind};
 use crate::error::{Error, Result};
 use crate::feedback::emit_toast;
+use crate::git_workspace::{lead_thread_id, resolve_record};
 use crate::github::auth;
 use crate::github::create::{CreatePullRequestInput, RestGithubClient};
-use crate::github::types::{
-    PrChecksState, PrRelationship, PrReviewState, PullRequestPayload,
-};
-use crate::git_workspace::{lead_thread_id, resolve_record};
+use crate::github::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
 use crate::ipc::events::StateChanged;
 use crate::ipc::types::{
     CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
@@ -21,10 +19,7 @@ use crate::pr_draft::{draft_why, extract_goal_from_events};
 use crate::state::AppState;
 use crate::store::types::{PrRow, WorkspaceRow};
 
-pub async fn draft_pr_why(
-    state: &AppState,
-    workspace_id: &str,
-) -> Result<DraftPrWhyResult> {
+pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftPrWhyResult> {
     let snapshot = state.store.snapshot()?;
     let workspace = snapshot
         .workspaces
@@ -106,7 +101,11 @@ pub async fn create_workspace_pull_request(
     // A stacked branch's PR targets the branch below it, which GitHub needs on the remote.
     let pr_base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await;
     if pr_base != record.base
-        && !state.git.remote_branch_exists(worktree, &pr_base).await.unwrap_or(false)
+        && !state
+            .git
+            .remote_branch_exists(worktree, &pr_base)
+            .await
+            .unwrap_or(false)
     {
         return Err(Error::Git(format!(
             "{} is stacked on {pr_base}, which isn't on GitHub yet. Push the stack from the Stack tab, then try again.",
@@ -129,7 +128,14 @@ pub async fn create_workspace_pull_request(
             other => other,
         })?;
 
-    refresh_git_stats(state, &input.workspace_id, worktree, &record.base, &record.branch).await;
+    refresh_git_stats(
+        state,
+        &input.workspace_id,
+        worktree,
+        &record.base,
+        &record.branch,
+    )
+    .await;
 
     let origin = state
         .git
@@ -176,9 +182,11 @@ pub async fn create_workspace_pull_request(
         )
         .await?;
 
-    state
-        .store
-        .set_workspace_pr(&input.workspace_id, Some(created.number), Some(&created.html_url))?;
+    state.store.set_workspace_pr(
+        &input.workspace_id,
+        Some(created.number),
+        Some(&created.html_url),
+    )?;
 
     let (additions, deletions, files) = diff_totals(&diff);
     let updated_at = iso_timestamp_now();
@@ -206,8 +214,8 @@ pub async fn create_workspace_pull_request(
         repo_full_name: slug.clone(),
         repo_id: Some(workspace.repo_id.clone()),
     };
-    let payload_json = serde_json::to_string(&payload)
-        .map_err(|error| Error::Store(error.to_string()))?;
+    let payload_json =
+        serde_json::to_string(&payload).map_err(|error| Error::Store(error.to_string()))?;
     state.store.upsert_pr(&PrRow {
         id: payload.cache_id(),
         repo_id: Some(workspace.repo_id.clone()),
@@ -217,7 +225,13 @@ pub async fn create_workspace_pull_request(
     })?;
 
     let lead_id = lead_thread_id(state, &input.workspace_id)?;
-    append_opened_pr_step(&state.store, &lead_id, created.number, &record.branch, &pr_base)?;
+    append_opened_pr_step(
+        &state.store,
+        &lead_id,
+        created.number,
+        &record.branch,
+        &pr_base,
+    )?;
 
     emit_toast(
         app,
@@ -268,7 +282,10 @@ async fn pr_diff(
     let diff = if pr_base == trunk {
         state.diffs.compute(workspace_id, worktree).await
     } else {
-        state.diffs.compute_against(workspace_id, worktree, pr_base).await
+        state
+            .diffs
+            .compute_against(workspace_id, worktree, pr_base)
+            .await
     };
     diff.unwrap_or(crate::git::WorktreeDiff {
         workspace_id: workspace_id.to_string(),

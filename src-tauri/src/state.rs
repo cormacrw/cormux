@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{RwLock, broadcast};
 
 use crate::app::WorkspaceAppService;
-use crate::ipc::subscriptions::Subscriptions;
 use crate::git::{FetchScheduler, LiveDiffEngine};
+use crate::ipc::subscriptions::Subscriptions;
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::GithubClient,
     github::PrSyncScheduler, llm::LlmClient, mcp::CormuxMcp, metrics::Metrics,

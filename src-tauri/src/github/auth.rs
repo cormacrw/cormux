@@ -47,11 +47,7 @@ async fn token_from_gh_cli(env: &Arc<RwLock<ShellEnv>>) -> Option<String> {
     let env = env.read().await;
     let token = env.run("gh", &["auth", "token"], None).await.ok()?;
     let token = token.trim().to_string();
-    if token.is_empty() {
-        None
-    } else {
-        Some(token)
-    }
+    if token.is_empty() { None } else { Some(token) }
 }
 
 #[cfg(test)]

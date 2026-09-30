@@ -105,7 +105,9 @@ pub async fn send_workspace_findings(
             return Err(Error::Store(format!("unknown finding {id}")));
         };
         if row.workspace_id != workspace_id {
-            return Err(Error::Store(format!("finding {id} is in another workspace")));
+            return Err(Error::Store(format!(
+                "finding {id} is in another workspace"
+            )));
         }
         if row.status != "open" {
             return Err(Error::Store(format!("finding {id} is not open")));
@@ -113,9 +115,7 @@ pub async fn send_workspace_findings(
         picked.push(row);
     }
 
-    state
-        .store
-        .mark_findings_sent(&finding_ids, thread_id)?;
+    state.store.mark_findings_sent(&finding_ids, thread_id)?;
     state.store.set_setting(
         &findings_batch_key(thread_id),
         &serde_json::to_string(&finding_ids).map_err(|error| Error::Store(error.to_string()))?,

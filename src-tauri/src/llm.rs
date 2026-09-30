@@ -38,10 +38,10 @@ impl LlmClient {
 
     pub fn allow(&self, workspace_id: &str) -> bool {
         let mut last = self.last_call.lock().unwrap();
-        if let Some(instant) = last.get(workspace_id) {
-            if instant.elapsed() < DEBOUNCE {
-                return false;
-            }
+        if let Some(instant) = last.get(workspace_id)
+            && instant.elapsed() < DEBOUNCE
+        {
+            return false;
         }
         last.insert(workspace_id.to_string(), Instant::now());
         true

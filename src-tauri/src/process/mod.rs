@@ -356,9 +356,11 @@ impl ProcessSupervisor {
     }
 
     pub fn workspace_has_session(&self, workspace_id: &str) -> bool {
-        self.sessions.lock().unwrap().keys().any(|id| {
-            id.as_str() == workspace_id || id.starts_with(&format!("{workspace_id}-"))
-        })
+        self.sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .any(|id| id.as_str() == workspace_id || id.starts_with(&format!("{workspace_id}-")))
     }
 
     pub fn stop_workspace_sessions(&self, workspace_id: &str) -> Result<()> {
@@ -367,9 +369,7 @@ impl ProcessSupervisor {
             .lock()
             .unwrap()
             .keys()
-            .filter(|id| {
-                id.as_str() == workspace_id || id.starts_with(&format!("{workspace_id}-"))
-            })
+            .filter(|id| id.as_str() == workspace_id || id.starts_with(&format!("{workspace_id}-")))
             .cloned()
             .collect();
         self.stop_sessions(ids)
@@ -515,7 +515,10 @@ mod tests {
             ),
             Some(5173)
         );
-        assert_eq!(detect_port("see localhost: docs\nhttp://localhost:4000/"), Some(4000));
+        assert_eq!(
+            detect_port("see localhost: docs\nhttp://localhost:4000/"),
+            Some(4000)
+        );
     }
 
     #[test]

@@ -57,13 +57,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         Some("CmdOrCtrl+N"),
     )?;
-    let new_scratch = MenuItem::with_id(
-        app,
-        NEW_SCRATCH,
-        "New Scratch",
-        true,
-        Some("CmdOrCtrl+S"),
-    )?;
+    let new_scratch =
+        MenuItem::with_id(app, NEW_SCRATCH, "New Scratch", true, Some("CmdOrCtrl+S"))?;
     let file_menu = Submenu::with_items(app, "File", true, &[&new_workspace, &new_scratch])?;
 
     let edit_menu = Submenu::with_items(
@@ -88,13 +83,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         Some("CmdOrCtrl+K"),
     )?;
-    let homebase = MenuItem::with_id(
-        app,
-        HOMEBASE,
-        "Go to Homebase",
-        true,
-        Some("CmdOrCtrl+H"),
-    )?;
+    let homebase = MenuItem::with_id(app, HOMEBASE, "Go to Homebase", true, Some("CmdOrCtrl+H"))?;
     let view_menu = Submenu::with_items(app, "View", true, &[&homebase, &command_palette])?;
 
     Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &view_menu])

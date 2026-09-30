@@ -1,4 +1,4 @@
-use super::payload::{payload_from_permission, payload_with_option_labels, ApprovalPayload};
+use super::payload::{ApprovalPayload, payload_from_permission, payload_with_option_labels};
 use crate::engines::AgentEvent;
 use crate::store::Store;
 use crate::store::types::ApprovalRow;
@@ -9,7 +9,10 @@ pub fn record_pending_permission(
     event: &AgentEvent,
     option_labels: Option<(Option<String>, Option<String>)>,
 ) -> Result<(), crate::error::Error> {
-    let AgentEvent::Permission { id, auto_approved, .. } = event else {
+    let AgentEvent::Permission {
+        id, auto_approved, ..
+    } = event
+    else {
         return Ok(());
     };
     if *auto_approved {

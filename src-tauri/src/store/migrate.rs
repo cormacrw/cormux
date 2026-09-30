@@ -94,11 +94,10 @@ fn apply_pending(conn: &Connection) -> Result<()> {
         log::info!("applied migration {}", migration.name);
     }
 
-    let broken: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_foreign_key_check",
-        [],
-        |row| row.get(0),
-    )?;
+    let broken: i64 =
+        conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })?;
     if broken > 0 {
         log::warn!("{broken} rows fail foreign key checks after migrating");
     }
@@ -197,9 +196,11 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM approvals", [], |row| row.get(0))
             .unwrap();
         let tokens: i64 = conn
-            .query_row("SELECT used_tokens FROM threads WHERE id = 't'", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT used_tokens FROM threads WHERE id = 't'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!((events, approvals, tokens), (1, 1, 42));
 
@@ -211,7 +212,8 @@ mod tests {
         )
         .unwrap();
         // Child rows still cascade with their thread.
-        conn.execute("DELETE FROM threads WHERE id = 't'", []).unwrap();
+        conn.execute("DELETE FROM threads WHERE id = 't'", [])
+            .unwrap();
         let events: i64 = conn
             .query_row("SELECT COUNT(*) FROM thread_events", [], |row| row.get(0))
             .unwrap();

@@ -47,7 +47,11 @@ fn state_bump(app: &AppHandle) -> u64 {
 
 pub fn sync_dock_badge(app: &AppHandle, state: &AppState) {
     let pending = pending_approvals(state);
-    let count = if pending == 0 { None } else { Some(pending as i64) };
+    let count = if pending == 0 {
+        None
+    } else {
+        Some(pending as i64)
+    };
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_badge_count(count);
     }
@@ -74,11 +78,9 @@ pub fn toast_for_approval(tool: &str, approved: bool) -> Option<ToastRaisedPaylo
     let (tone, parts) = match tool {
         "edit" | "delete_file" => (
             ToastTone::Ok,
-            vec![
-                ToastPart::Text {
-                    value: "Deleted legacy-cookie.ts in worktree".into(),
-                },
-            ],
+            vec![ToastPart::Text {
+                value: "Deleted legacy-cookie.ts in worktree".into(),
+            }],
         ),
         "send_suggestions" | "review_suggestions" => (
             ToastTone::Ok,

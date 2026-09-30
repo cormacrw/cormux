@@ -102,7 +102,10 @@ impl Store {
 
     pub fn delete_repo(&self, repo_id: &str) -> Result<()> {
         self.with_conn(|conn| {
-            conn.execute("DELETE FROM repos WHERE id = ?1", rusqlite::params![repo_id])?;
+            conn.execute(
+                "DELETE FROM repos WHERE id = ?1",
+                rusqlite::params![repo_id],
+            )?;
             Ok(())
         })
     }
@@ -120,8 +123,7 @@ impl Store {
 
     pub fn repo_count(&self) -> Result<usize> {
         self.with_conn(|conn| {
-            let count: i64 =
-                conn.query_row("SELECT COUNT(*) FROM repos", [], |row| row.get(0))?;
+            let count: i64 = conn.query_row("SELECT COUNT(*) FROM repos", [], |row| row.get(0))?;
             Ok(count as usize)
         })
     }
@@ -236,9 +238,9 @@ impl Store {
             )?;
             let mut rows = stmt.query([workspace_id])?;
             if let Some(row) = rows.next()? {
-                Ok(Some(row_to_workspace(&row).map_err(|error| {
-                    Error::Store(error.to_string())
-                })?))
+                Ok(Some(
+                    row_to_workspace(row).map_err(|error| Error::Store(error.to_string()))?,
+                ))
             } else {
                 Ok(None)
             }
@@ -261,9 +263,10 @@ impl Store {
         let Some(thread) = snapshot.threads.iter().find(|row| row.id == thread_id) else {
             return Ok(());
         };
-        let busy = snapshot.threads.iter().any(|row| {
-            row.workspace_id == thread.workspace_id && row.status == "running"
-        });
+        let busy = snapshot
+            .threads
+            .iter()
+            .any(|row| row.workspace_id == thread.workspace_id && row.status == "running");
         if !busy {
             self.set_workspace_status(&thread.workspace_id, "idle")?;
         }
@@ -371,11 +374,7 @@ impl Store {
         })
     }
 
-    pub fn mark_findings_sent(
-        &self,
-        finding_ids: &[String],
-        thread_id: &str,
-    ) -> Result<()> {
+    pub fn mark_findings_sent(&self, finding_ids: &[String], thread_id: &str) -> Result<()> {
         self.with_conn(|conn| {
             for id in finding_ids {
                 let changed = conn.execute(
@@ -461,7 +460,12 @@ impl Store {
         self.with_conn(|conn| {
             conn.execute(
                 "INSERT INTO scratches (id, repo_id, title, thread_id) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![scratch.id, scratch.repo_id, scratch.title, scratch.thread_id],
+                rusqlite::params![
+                    scratch.id,
+                    scratch.repo_id,
+                    scratch.title,
+                    scratch.thread_id
+                ],
             )?;
             Ok(())
         })
@@ -594,7 +598,6 @@ impl Store {
     }
 
     pub fn append_event(&self, thread_id: &str, kind: &str, payload: &str) -> Result<i64> {
-
         self.with_conn(|conn| {
             let seq: i64 = conn.query_row(
                 "SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_events WHERE thread_id = ?1",
@@ -667,15 +670,17 @@ impl Store {
         })
     }
 
-pub fn delete_findings_for_workspace(&self, workspace_id: &str) -> Result<()> {
+    pub fn delete_findings_for_workspace(&self, workspace_id: &str) -> Result<()> {
         self.with_conn(|conn| {
-            conn.execute("DELETE FROM findings WHERE workspace_id = ?1", [workspace_id])?;
+            conn.execute(
+                "DELETE FROM findings WHERE workspace_id = ?1",
+                [workspace_id],
+            )?;
             Ok(())
         })
     }
 
     pub fn upsert_finding(&self, finding: &FindingRow) -> Result<()> {
-
         self.with_conn(|conn| {
             conn.execute(
                 "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id)
@@ -766,7 +771,7 @@ pub fn delete_findings_for_workspace(&self, workspace_id: &str) -> Result<()> {
                             summary, summary_at, summary_source, kind, pr_number, pr_html_url,
                             modified_files, archived_at
                      FROM workspaces WHERE archived_at IS NULL",
-                    |row| Ok(row_to_workspace(row)?),
+                    row_to_workspace,
                 )?,
                 threads: query_all(
                     conn,
@@ -1003,7 +1008,10 @@ mod tests {
         assert_eq!(snapshot.scratches.len(), 1);
         assert_eq!(snapshot.scratches[0].engine, "cursor");
         assert_eq!(snapshot.scratches[0].status, "idle");
-        assert_eq!(store.scratch_for_thread("t1").unwrap().unwrap().id, "scratch-1");
+        assert_eq!(
+            store.scratch_for_thread("t1").unwrap().unwrap().id,
+            "scratch-1"
+        );
         assert!(store.thread_by_id("t1").unwrap().is_some());
 
         store.delete_scratch("scratch-1").unwrap();
@@ -1062,12 +1070,27 @@ mod tests {
             .unwrap();
         let events = [
             ("message", r#"{"role":"user","text":"Review #2"}"#),
-            ("message", r#"{"type":"messageChunk","role":"agent","text":"Old "}"#),
-            ("message", r#"{"type":"messageChunk","role":"user","text":"Again"}"#),
-            ("message", r#"{"type":"messageChunk","role":"thought","text":"hmm"}"#),
-            ("message", r#"{"type":"messageChunk","role":"agent","text":"Looks "}"#),
+            (
+                "message",
+                r#"{"type":"messageChunk","role":"agent","text":"Old "}"#,
+            ),
+            (
+                "message",
+                r#"{"type":"messageChunk","role":"user","text":"Again"}"#,
+            ),
+            (
+                "message",
+                r#"{"type":"messageChunk","role":"thought","text":"hmm"}"#,
+            ),
+            (
+                "message",
+                r#"{"type":"messageChunk","role":"agent","text":"Looks "}"#,
+            ),
             ("tool", r#"{"type":"toolCall","title":"Read"}"#),
-            ("message", r#"{"type":"messageChunk","role":"agent","text":"good."}"#),
+            (
+                "message",
+                r#"{"type":"messageChunk","role":"agent","text":"good."}"#,
+            ),
         ];
         for (kind, payload) in events {
             store.append_event("t1", kind, payload).unwrap();
@@ -1125,7 +1148,10 @@ mod tests {
                 .unwrap();
             store.append_event(id, "message", "{}").unwrap();
         }
-        assert_eq!(store.first_thread_id("w1").unwrap().as_deref(), Some("lead"));
+        assert_eq!(
+            store.first_thread_id("w1").unwrap().as_deref(),
+            Some("lead")
+        );
 
         store.close_thread("helper").unwrap();
         let snapshot = store.snapshot().unwrap();
@@ -1137,7 +1163,9 @@ mod tests {
         assert!(!store.transcript_summary("helper", 10).unwrap().is_empty());
 
         store.set_thread_session("lead", "sess-1").unwrap();
-        store.set_thread_usage("lead", 900, 1000, Some(0.5)).unwrap();
+        store
+            .set_thread_usage("lead", 900, 1000, Some(0.5))
+            .unwrap();
         store.clear_thread_session("lead").unwrap();
         assert_eq!(store.thread_session("lead").unwrap(), None);
         let lead = store.thread_by_id("lead").unwrap().unwrap();

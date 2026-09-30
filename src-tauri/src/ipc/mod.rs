@@ -111,7 +111,10 @@ mod tests {
             .into_iter()
             .filter(|name| !allowlist.contains(&format!("\"{name}\"")))
             .collect();
-        assert!(missing.is_empty(), "add to permissions/ipc.toml: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "add to permissions/ipc.toml: {missing:?}"
+        );
     }
 
     #[test]

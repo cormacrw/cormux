@@ -64,7 +64,11 @@ fn cross_thread_suggestions(
         })
         .ok_or_else(|| crate::error::Error::Store("lead thread missing".into()))?;
 
-    persist_control_step(&state.store, &reviewer_row.thread_id, "Sent suggestions to Lead")?;
+    persist_control_step(
+        &state.store,
+        &reviewer_row.thread_id,
+        "Sent suggestions to Lead",
+    )?;
 
     let thought = if payload.why.is_empty() {
         format!("Reviewer suggests changes to {}.", payload.what)
