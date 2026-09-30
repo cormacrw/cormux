@@ -92,12 +92,16 @@
     if (result.status === 'ok') engineStatuses = result.data
   }
 
+  function repoDefaultBranch(forRepoId: string) {
+    return repos.getById(forRepoId)?.defaultBranch?.trim() || 'main'
+  }
+
   function resetForm() {
     branchName = ''
     prompt = ''
     engine = settings.defaultEngine
     repoId = resolveDefaultRepoId(repos.items, settings.defaultRepo)
-    baseBranch = settings.defaultBase
+    baseBranch = repoDefaultBranch(repoId)
     branchEdited = false
     branchError = null
     baseError = null
@@ -139,8 +143,7 @@
   async function onRepoChange(event: Event) {
     const select = event.currentTarget as HTMLSelectElement
     repoId = select.value
-    const repo = repos.getById(repoId)
-    baseBranch = repo?.defaultBranch?.trim() || settings.defaultBase || 'main'
+    baseBranch = repoDefaultBranch(repoId)
     baseError = null
     await loadBranches(repoId)
   }
@@ -148,6 +151,7 @@
   function branchValidationContext() {
     return {
       existingBranches: repoBranches,
+      defaultBranch: repoDefaultBranch(repoId),
       workspaceBranches: workspaceRecords.records.map((row) => row.branch),
     }
   }

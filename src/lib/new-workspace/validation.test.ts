@@ -31,6 +31,12 @@ describe('validateBranchName', () => {
   it('detects workspace branch conflicts', () => {
     expect(validateBranchName('feat/active', ctx)).toBe('workspaceConflict')
   })
+
+  it("rejects the repo's default branch", () => {
+    expect(
+      validateBranchName('develop', { ...ctx, defaultBranch: 'develop' }),
+    ).toBe('default')
+  })
 })
 
 describe('validateBaseBranch', () => {

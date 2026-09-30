@@ -52,7 +52,6 @@ Description: `Defaults for new workspaces and how the app behaves.`
 | Row | Control | Default | Description |
 | --- | --- | --- | --- |
 | Default repository | Select of added repos | First repo | `Pre-selected whenever you pick a repo for a new workspace or scratch` |
-| Default base branch | Select of the default repository's branches | `main` | `New workspaces branch from here unless you pick another` |
 | Teardown after merge | Switch | On | `Delete the worktree once its branch is merged` |
 | Worktree location | Read-only path `~/.harness/worktrees` | | `Where each workspace's checkout lives on disk` |
 | Reduce motion | Switch | Off | `Turn off pulses and transitions` |
@@ -68,7 +67,7 @@ Description: `Defaults for new workspaces and how the app behaves.`
 - **Switches** toggle immediately and keep focus.
 - **Reduce motion** also applies instantly across the whole app (adds a `reduce-motion` class to the document). The palette has a matching command.
 - **Default repository** is pre-selected in the New workspace and New scratch dialogs. If that repo is removed, the first repo is used.
-- **Default base branch** applies to the next New workspace dialog.
+- The default base branch is set per repo, in Settings → Repos (see [22](22-repos.md)).
 - Opening Settings while already on it does nothing.
 
 ## Keyboard and accessibility
@@ -77,7 +76,6 @@ Description: `Defaults for new workspaces and how the app behaves.`
 - Each section is labelled by its heading.
 - Default engine is a real radio group (visually hidden native radios), labelled "Default engine"; a focus ring appears on the row when its radio has keyboard focus.
 - Switches are buttons with `role="switch"` and `aria-checked`.
-- Default base branch has a proper `<label>`.
 
 ## Data model
 
@@ -85,7 +83,6 @@ Description: `Defaults for new workspaces and how the app behaves.`
 state.settings = {
   defaultEngine: 'claude',
   autoApproveRead: true,
-  defaultBase: 'main',
   teardownAfterMerge: true,
   reduceMotion: false
 }
@@ -100,7 +97,6 @@ state.settings = {
 
 ## Known gaps and open questions
 
-- **Default base branch lists only `my-app`'s branches.** It should be per repo (most repos use `main`, but not all), probably moved into each repo's config.
 - **Default engine isn't used for new threads** added with +; they're always Claude Code.
 - Engine configuration is missing: whether each CLI is installed, its path and version, sign-in status, model choice, and extra flags.
 - Permissions are a single switch. A real permission model (per engine, per repo, allowlists of commands) needs designing.

@@ -1,10 +1,12 @@
 export type BranchValidationContext = {
   existingBranches: string[]
   workspaceBranches: string[]
+  /** The repo's default branch, which stays in its own checkout. */
+  defaultBranch?: string
 }
 
 export type BranchFieldError =
-  'required' | 'format' | 'exists' | 'workspaceConflict'
+  'required' | 'format' | 'default' | 'exists' | 'workspaceConflict'
 
 const BRANCH_FORMAT = /^[A-Za-z0-9._/-]+$/
 
@@ -23,6 +25,7 @@ export function validateBranchName(
   ) {
     return 'format'
   }
+  if (value === ctx.defaultBranch) return 'default'
   if (ctx.existingBranches.includes(value)) return 'exists'
   if (ctx.workspaceBranches.includes(value)) return 'workspaceConflict'
   return null
@@ -37,6 +40,8 @@ export function branchErrorMessage(
       return 'Add a branch name, e.g. feat/oauth-login.'
     case 'format':
       return 'Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.'
+    case 'default':
+      return `${branch.trim()} is the repo's default branch. Pick a new branch name.`
     case 'exists':
       return `${branch.trim()} already exists. Pick a new branch name.`
     case 'workspaceConflict':

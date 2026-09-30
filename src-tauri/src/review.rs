@@ -162,6 +162,7 @@ pub async fn create_review_workspace(
         .into_iter()
         .find(|row| row.id == input.repo_id)
         .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
+    repo.ensure_not_default_branch(&input.head)?;
     let repo_path = expand_tilde(&repo.path);
     if !repo_path.is_dir() {
         return Err(Error::Git(format!(

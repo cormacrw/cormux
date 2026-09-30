@@ -259,6 +259,13 @@ pub struct SetRepoSetupCommandsInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct SetRepoDefaultBranchInput {
+    pub repo_id: String,
+    pub default_branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AddRepoInput {
     pub path: String,
 }

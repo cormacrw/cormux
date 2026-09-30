@@ -4,7 +4,6 @@ import { toastCoreError } from '$lib/feedback/wire-feedback'
 import {
   DEFAULT_WORKTREE_ROOT,
   readBooleanSetting,
-  readDefaultBase,
   readDefaultEngine,
   readStringSetting,
 } from '$lib/new-workspace/settings-defaults'
@@ -26,7 +25,6 @@ export class SettingsStore {
   autoApproveReadOnly = $state(true)
   runEverything = $state(false)
   defaultEngine = $state<EngineKind>('claude')
-  defaultBase = $state('main')
   /** Preferred repo id; resolve with `resolveDefaultRepoId` since it may be removed. */
   defaultRepo = $state('')
   teardownAfterMerge = $state(true)
@@ -57,7 +55,6 @@ export class SettingsStore {
     this.rows = rows
     if (rows.length > 0) {
       this.defaultEngine = readDefaultEngine(rows)
-      this.defaultBase = readDefaultBase(rows)
       this.defaultRepo = readStringSetting(rows, 'defaultRepo', '')
       this.teardownAfterMerge = readBooleanSetting(
         rows,
@@ -97,12 +94,6 @@ export class SettingsStore {
   async setDefaultEngine(engine: EngineKind) {
     this.defaultEngine = engine
     await this.persist('defaultEngine', engine)
-  }
-
-  async setDefaultBase(branch: string) {
-    const trimmed = branch.trim()
-    this.defaultBase = trimmed || 'main'
-    await this.persist('defaultBase', this.defaultBase)
   }
 
   async setDefaultRepo(repoId: string) {

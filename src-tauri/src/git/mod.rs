@@ -262,6 +262,44 @@ impl Git {
         Self::require_success(&output, "fetch")
     }
 
+    /// Fast-forward the repo checkout's local `branch` to origin's and return how many
+    /// commits it moved. A checked-out `branch` is pulled in place; otherwise only the
+    /// ref moves, so the checkout's working tree is left alone.
+    pub async fn pull_branch(&self, repo: &Path, branch: &str) -> Result<u32> {
+        let local = format!("refs/heads/{branch}");
+        let before = self.resolve_ref(repo, &local).await?;
+        if self.current_branch(repo).await.ok().as_deref() == Some(branch) {
+            let output = self
+                .run(repo, &["pull", "--ff-only", "origin", branch])
+                .await?;
+            Self::require_success(&output, "pull --ff-only")?;
+        } else {
+            let refspec = format!("{local}:{local}");
+            let output = self.run(repo, &["fetch", "origin", &refspec]).await?;
+            Self::require_success(&output, "fetch")?;
+        }
+        let (Some(before), Some(after)) = (before, self.resolve_ref(repo, &local).await?) else {
+            return Ok(0);
+        };
+        let range = format!("{before}..{after}");
+        let output = self.run(repo, &["rev-list", "--count", &range]).await?;
+        Self::require_success(&output, "rev-list --count")?;
+        Self::stdout(&output)
+            .trim()
+            .parse()
+            .map_err(|error| Error::Git(format!("pulled count: {error}")))
+    }
+
+    async fn resolve_ref(&self, repo: &Path, reference: &str) -> Result<Option<String>> {
+        let output = self
+            .run(repo, &["rev-parse", "--verify", "--quiet", reference])
+            .await?;
+        Ok(output
+            .status
+            .success()
+            .then(|| Self::stdout(&output).trim().to_string()))
+    }
+
     pub async fn merge_base(&self, worktree: &Path, base: &str) -> Result<String> {
         let other = format!("origin/{base}");
         let output = self.run(worktree, &["merge-base", "HEAD", &other]).await?;
@@ -740,6 +778,31 @@ mod tests {
 
         git.switch(&clone, "feat/remote-only").await.unwrap();
         assert_eq!(git.current_branch(&clone).await.unwrap(), "feat/remote-only");
+    }
+
+    #[tokio::test]
+    async fn pulls_the_default_branch_checked_out_or_not() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let clone_dir = tempfile::tempdir().unwrap();
+        let clone = clone_dir.path().join("clone");
+        run_ok(
+            clone_dir.path(),
+            &["git", "clone", "-q", &origin.to_string_lossy(), "clone"],
+        );
+
+        std::fs::write(origin.join("README.md"), "one\n").unwrap();
+        run_ok(&origin, &["git", "commit", "-qam", "one"]);
+        assert_eq!(git.pull_branch(&clone, "main").await.unwrap(), 1);
+        assert_eq!(git.pull_branch(&clone, "main").await.unwrap(), 0);
+
+        run_ok(&clone, &["git", "switch", "-qc", "feat/elsewhere"]);
+        std::fs::write(origin.join("README.md"), "two\n").unwrap();
+        run_ok(&origin, &["git", "commit", "-qam", "two"]);
+        std::fs::write(origin.join("README.md"), "three\n").unwrap();
+        run_ok(&origin, &["git", "commit", "-qam", "three"]);
+        assert_eq!(git.pull_branch(&clone, "main").await.unwrap(), 2);
+        assert_eq!(git.current_branch(&clone).await.unwrap(), "feat/elsewhere");
     }
 
     #[tokio::test]

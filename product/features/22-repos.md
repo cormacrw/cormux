@@ -33,6 +33,11 @@ One row per repo:
 
 ### Config panel (expanded under the row)
 
+**Default branch**
+- Select of the repo's local and origin branches, monospace. Detected from `origin/HEAD` when the repo is added (`main` if that fails).
+- Hint: `New workspaces branch from here. It stays in the repo's own checkout, so workspaces can't check it out; refresh it from the sidebar.`
+- Saves on change. Refused while a workspace has that branch checked out: `<workspace> has <branch> checked out. Switch it to another branch first.`
+
 **Worktree setup**
 - Monospace textarea, 4 rows, no spellcheck.
 - Placeholder: `pnpm install` / `cp <repo path>/.env .env`.
@@ -95,6 +100,12 @@ Typing in the path field clears any error.
 - **Run command** is used by Run and Restart, shown in the Output header and palette meta, and determines the app type and base port (see [15](15-run-app-and-output.md)).
 - **Branches** feed the New workspace base-branch typeahead and the workspace branch picker.
 
+### The default branch belongs to the repo checkout
+Git lets a branch be checked out in one worktree only, and the sidebar's Repos refresh button pulls the default branch in the repo's own checkout (see [01](01-app-shell-and-sidebar.md)). So no workspace may check it out:
+- New workspace: a branch name equal to the default branch shows `<branch> is the repo's default branch. Pick a new branch name.` The base branch field starts on the repo's default branch.
+- Branch picker: the default branch is listed with a `default` tag and disabled.
+- The core refuses creating a workspace or review workspace on it, and switching to or creating it in a workspace: `Workspaces can't check out <branch>, the default branch of <repo>. Use another branch.`
+
 ## Sample repos
 
 | Name | Path | Worktree setup | Run command |
@@ -144,6 +155,6 @@ A real build must:
 - Removing a repo has no confirmation (it's harmless on disk, but loses its config).
 - Repos can't be renamed; two repos with the same folder name can't both be added.
 - One run command per repo; see [15](15-run-app-and-output.md) for multiple processes.
-- No per-repo environment variables, default base branch, default engine, or merge/rebase preference.
+- No per-repo environment variables, default engine, or merge/rebase preference.
 - No variables in setup commands (for example `$HARNESS_MAIN_CHECKOUT`), so the sample hard-codes `~/code/my-app/.env.local`.
 - No "Test setup" button to try the commands before creating a workspace.

@@ -18,7 +18,7 @@
   import { switchWorkspaceBranch, createWorkspaceBranch } from '$lib/workspace/wire-git-workspace'
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { workspaceRecords } from '$lib/state'
+  import { repos, workspaceRecords } from '$lib/state'
   import type { Thread } from '$lib/state/threads.svelte'
 
   let {
@@ -60,6 +60,7 @@
       current: branch,
       repoBranches,
       otherWorkspaceBranches,
+      defaultBranch: repos.getById(repoId)?.defaultBranch?.trim() || 'main',
     }),
   )
 

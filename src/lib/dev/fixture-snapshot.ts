@@ -39,7 +39,6 @@ export const fixtureSnapshot: Snapshot = {
   persisted: {
     settings: [
       { key: 'defaultEngine', value: 'cursor' },
-      { key: 'defaultBase', value: 'main' },
     ],
     repos: [
       {

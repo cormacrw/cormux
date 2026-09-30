@@ -50,6 +50,8 @@ commands.allow = [
   "control_workspace_app",
   "set_repo_run_command",
   "set_repo_setup_commands",
+  "set_repo_default_branch",
+  "pull_repo_default_branch",
   "add_repo",
   "remove_repo",
   "test_repo_setup",

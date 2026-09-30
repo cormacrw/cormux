@@ -439,6 +439,25 @@ async setRepoSetupCommands(input: SetRepoSetupCommandsInput) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
+async setRepoDefaultBranch(input: SetRepoDefaultBranchInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_repo_default_branch", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Fast-forward the repo checkout's default branch from origin.
+ */
+async pullRepoDefaultBranch(repoId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("pull_repo_default_branch", { repoId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async addRepo(input: AddRepoInput) : Promise<Result<RepoRecord, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("add_repo", { input }) };
@@ -619,6 +638,7 @@ export type ScratchRow = { id: string; repoId: string; title: string; threadId: 
  */
 createdAt: string }
 export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
+export type SetRepoDefaultBranchInput = { repoId: string; defaultBranch: string }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }
 export type SetSettingInput = { key: string; value: string }

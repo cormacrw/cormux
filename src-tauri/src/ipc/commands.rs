@@ -21,7 +21,7 @@ use super::types::{
     CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
     CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RemoveRepoInput,
     RenameWorkspaceInput, RepoBranchesResult, ResolveApprovalResult, SendWorkspaceFindingsInput,
-    SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetSettingInput, Snapshot,
+    SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetSettingInput, Snapshot,
     SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
     TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
@@ -157,6 +157,84 @@ pub async fn set_repo_setup_commands(
             run_command: repo.run_command,
         },
     )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_repo_default_branch(
+    app: AppHandle,
+    input: SetRepoDefaultBranchInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let snapshot = state.store.snapshot()?;
+    let Some(mut repo) = snapshot.repos.into_iter().find(|row| row.id == input.repo_id) else {
+        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
+    };
+    let branch = input.default_branch.trim().to_string();
+    if branch.is_empty() {
+        return Err(Error::Workspace("Pick a default branch".into()));
+    }
+    if let Some(workspace) = snapshot
+        .workspaces
+        .iter()
+        .find(|row| row.repo_id == repo.id && row.archived_at.is_none() && row.branch == branch)
+    {
+        return Err(Error::Workspace(format!(
+            "{} has {branch} checked out. Switch it to another branch first.",
+            workspace.name
+        )));
+    }
+    repo.default_branch = Some(branch);
+    upsert_repo_record(&app, &state, repo)
+}
+
+/// Fast-forward the repo checkout's default branch from origin.
+#[tauri::command]
+#[specta::specta]
+pub async fn pull_repo_default_branch(
+    repo_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let snapshot = state.store.snapshot()?;
+    let repo = snapshot
+        .repos
+        .into_iter()
+        .find(|row| row.id == repo_id)
+        .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))?;
+    let branch = repo.default_branch_or_main().to_string();
+    let pulled = state.git.pull_branch(&expand_tilde(&repo.path), &branch).await?;
+
+    // Workspaces count how far behind origin/<base> they are, which the pull just moved.
+    let updates = state.fetch.tick().await?;
+    crate::git_workspace::apply_behind_updates(&state, &updates).await;
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::BehindCounts,
+    }
+    .emit(&app);
+
+    let summary = match pulled {
+        0 => " is up to date".to_string(),
+        1 => ": pulled 1 commit".to_string(),
+        count => format!(": pulled {count} commits"),
+    };
+    emit_toast(
+        &app,
+        crate::ipc::types::ToastRaisedPayload {
+            tone: crate::ipc::types::ToastTone::Ok,
+            parts: vec![
+                crate::ipc::types::ToastPart::Text {
+                    value: format!("{} ", repo.name),
+                },
+                crate::ipc::types::ToastPart::Code { value: branch },
+                crate::ipc::types::ToastPart::Text { value: summary },
+            ],
+            workspace_id: None,
+        },
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -830,6 +908,7 @@ pub async fn create_workspace(
         .into_iter()
         .find(|row| row.id == input.repo_id)
         .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
+    repo.ensure_not_default_branch(&input.branch)?;
     let repo_path = expand_tilde(&repo.path);
     if !repo_path.is_dir() {
         return Err(Error::Git(format!(

@@ -12,10 +12,6 @@ export function readDefaultEngine(rows: SettingRow[]): EngineKind {
   return 'claude'
 }
 
-export function readDefaultBase(rows: SettingRow[]): string {
-  return rows.find((row) => row.key === 'defaultBase')?.value?.trim() || 'main'
-}
-
 export function readBooleanSetting(
   rows: SettingRow[],
   key: string,

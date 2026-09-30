@@ -307,6 +307,16 @@ export function installBrowserHarness() {
       return null
     }
     if (cmd === 'detect_engines') return fixtureEngines
+    if (cmd === 'set_repo_default_branch') {
+      const input = args.input as { repoId: string; defaultBranch: string }
+      const repo = fixtureSnapshot.persisted.repos.find((row) => row.id === input.repoId)
+      if (repo) repo.defaultBranch = input.defaultBranch
+      return null
+    }
+    if (cmd === 'pull_repo_default_branch') {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return null
+    }
     if (cmd === 'list_repo_branches') {
       return { branches: ['main', 'develop', 'feat/oauth-login'] }
     }

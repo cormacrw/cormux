@@ -3,7 +3,7 @@
   import { Button } from '$lib/components/ui/button'
   import * as ScrollArea from '$lib/components/ui/scroll-area'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import { app, memory, threads, todos, workspaces } from '$lib/state'
+  import { app, memory, repos, threads, todos, workspaces } from '$lib/state'
   import { isActiveThread } from '$lib/sidebar/status'
   import Cpu from '@lucide/svelte/icons/cpu'
   import Layers from '@lucide/svelte/icons/layers'
@@ -12,6 +12,7 @@
   import Search from '@lucide/svelte/icons/search'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import SidebarAgentRow from './SidebarAgentRow.svelte'
+  import SidebarRepoRow from './SidebarRepoRow.svelte'
   import SidebarWorkspaceRow from './SidebarWorkspaceRow.svelte'
 
   const workingAgents = $derived(
@@ -102,6 +103,27 @@
 
   <ScrollArea.Root class="sidebar-scroll -mx-2 min-h-0 flex-1 px-2">
     <div class="flex flex-col">
+      <div
+        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+        id="side-repo-label"
+      >
+        <span>Repos</span>
+        <span class="font-mono normal-case tracking-normal"
+          >{repos.items.length}</span
+        >
+      </div>
+      <ul class="grid list-none gap-px p-0" aria-labelledby="side-repo-label">
+        {#if repos.items.length === 0}
+          <li class="px-2 py-1.5 text-xs text-muted-foreground">
+            No repos yet
+          </li>
+        {:else}
+          {#each repos.items as repo (repo.id)}
+            <SidebarRepoRow {repo} />
+          {/each}
+        {/if}
+      </ul>
+
       <div
         class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
         id="side-ws-label"
