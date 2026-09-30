@@ -1,19 +1,21 @@
-import type { DiffFile } from '$lib/ipc/bindings'
+import type { DiffFile, DiffTarget } from '$lib/ipc/bindings'
 import { subscribeDiffs } from '$lib/ipc'
+import { sameDiffTarget } from '$lib/stack/stack'
 import {
   totalsFromDiffFiles,
   type DiffLineTotals,
 } from '$lib/workspace/diff-totals'
 
-/** A diff fetch in flight. `base` is set when the target changed, so the old files are stale. */
-type PendingDiff = { retarget: false } | { retarget: true; base: string | null }
+/** A diff fetch in flight. `target` is set when it changed, so the old files are stale. */
+type PendingDiff =
+  { retarget: false } | { retarget: true; target: DiffTarget | null }
 
 const emptyTotals = (): DiffLineTotals => ({ added: 0, deleted: 0 })
 
 export class WorkspaceDiffStore {
   filesByWorkspace = $state<Record<string, DiffFile[]>>({})
-  /** Branch each diff is taken against; `null` means uncommitted changes. */
-  baseByWorkspace = $state<Record<string, string | null>>({})
+  /** What each diff shows; `null` means uncommitted changes. */
+  targetByWorkspace = $state<Record<string, DiffTarget | null>>({})
   // Raw so `fetch` can tell its own entry apart from a newer one by identity.
   pendingByWorkspace = $state.raw<Record<string, PendingDiff>>({})
 
@@ -23,8 +25,8 @@ export class WorkspaceDiffStore {
     return totalsFromDiffFiles(files)
   }
 
-  base(workspaceId: string): string | null {
-    return this.baseByWorkspace[workspaceId] ?? null
+  target(workspaceId: string): DiffTarget | null {
+    return this.targetByWorkspace[workspaceId] ?? null
   }
 
   pending(workspaceId: string): PendingDiff | null {
@@ -33,16 +35,16 @@ export class WorkspaceDiffStore {
 
   /**
    * Track a diff fetch. The result arrives on the diff channel, so a retarget
-   * stays pending until an update for the new base lands; a plain refresh
+   * stays pending until an update for the new target lands; a plain refresh
    * clears when the command returns, since an unchanged diff sends nothing.
    */
   async fetch(
     workspaceId: string,
     run: () => Promise<boolean>,
-    retarget?: { base: string | null },
+    retarget?: { target: DiffTarget | null },
   ) {
     const pending: PendingDiff = retarget
-      ? { retarget: true, base: retarget.base }
+      ? { retarget: true, target: retarget.target }
       : { retarget: false }
     this.pendingByWorkspace = {
       ...this.pendingByWorkspace,
@@ -64,15 +66,25 @@ export class WorkspaceDiffStore {
     this.pendingByWorkspace = next
   }
 
-  setFiles(workspaceId: string, files: DiffFile[], base: string | null = null) {
+  setFiles(
+    workspaceId: string,
+    files: DiffFile[],
+    target: DiffTarget | null = null,
+  ) {
     const pending = this.pendingByWorkspace[workspaceId]
-    if (pending && (!pending.retarget || pending.base === base))
+    if (
+      pending &&
+      (!pending.retarget || sameDiffTarget(pending.target, target))
+    )
       this.clearPending(workspaceId)
     this.filesByWorkspace = {
       ...this.filesByWorkspace,
       [workspaceId]: files,
     }
-    this.baseByWorkspace = { ...this.baseByWorkspace, [workspaceId]: base }
+    this.targetByWorkspace = {
+      ...this.targetByWorkspace,
+      [workspaceId]: target,
+    }
   }
 
   clearWorkspace(workspaceId: string) {
@@ -81,9 +93,9 @@ export class WorkspaceDiffStore {
     const next = { ...this.filesByWorkspace }
     delete next[workspaceId]
     this.filesByWorkspace = next
-    const bases = { ...this.baseByWorkspace }
-    delete bases[workspaceId]
-    this.baseByWorkspace = bases
+    const targets = { ...this.targetByWorkspace }
+    delete targets[workspaceId]
+    this.targetByWorkspace = targets
   }
 }
 
@@ -92,7 +104,7 @@ export const workspaceDiff = new WorkspaceDiffStore()
 export function bindWorkspaceDiffSubscription(workspaceId: string) {
   const stop = subscribeDiffs(workspaceId, (update) => {
     if (update.diff?.files) {
-      workspaceDiff.setFiles(workspaceId, update.diff.files, update.diff.base)
+      workspaceDiff.setFiles(workspaceId, update.diff.files, update.diff.target)
     }
   })
 

@@ -77,6 +77,9 @@ pub struct WorkspaceStack {
     pub message: Option<String>,
     pub trunk: String,
     pub current_branch: String,
+    /// The checked-out branch is missing commits from the branch it's based on: the
+    /// one below it in the stack, or the trunk when it isn't stacked.
+    pub current_needs_rebase: bool,
     /// Bottom of the stack (closest to the trunk) first.
     pub branches: Vec<StackBranch>,
 }
@@ -251,12 +254,17 @@ pub fn parents(names_and_merged: &[(String, bool)], trunk: &str) -> Vec<String> 
 pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<WorkspaceStack> {
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
+    let solo_needs_rebase = record.branch != record.base && {
+        let trunk = trunk_ref(state, &worktree, &record.base).await;
+        !state.git.is_ancestor(&worktree, &trunk, "HEAD").await
+    };
     let empty = |status, message| WorkspaceStack {
         workspace_id: workspace_id.to_string(),
         status,
         message,
         trunk: record.base.clone(),
         current_branch: record.branch.clone(),
+        current_needs_rebase: solo_needs_rebase,
         branches: Vec::new(),
     };
 
@@ -288,8 +296,8 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
 
     let mut branches = Vec::with_capacity(json.branches.len());
     for (branch, parent) in json.branches.into_iter().zip(parents) {
-        let (stat, commits) = if branch.is_merged {
-            (ShortStat::default(), 0)
+        let (stat, commits, behind) = if branch.is_merged {
+            (ShortStat::default(), 0, false)
         } else {
             let base = if parent == json.trunk {
                 trunk_ref.clone()
@@ -306,7 +314,8 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
                 .rev_list_count(&worktree, &format!("{base}..{}", branch.name))
                 .await
                 .unwrap_or(0);
-            (stat, commits)
+            let behind = !state.git.is_ancestor(&worktree, &base, &branch.name).await;
+            (stat, commits, behind)
         };
         branches.push(StackBranch {
             current: branch.name == json.current_branch,
@@ -318,7 +327,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
             commits,
             merged: branch.is_merged,
             queued: branch.is_queued,
-            needs_rebase: branch.needs_rebase,
+            needs_rebase: branch.needs_rebase || behind,
             pr: branch.pr.map(|pr| StackPullRequest {
                 number: pr.number,
                 url: pr.url,
@@ -327,10 +336,14 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         });
     }
 
+    let current_needs_rebase = branches
+        .iter()
+        .any(|branch| branch.current && branch.needs_rebase);
     Ok(WorkspaceStack {
         workspace_id: workspace_id.to_string(),
         status: StackStatus::Stacked,
         message: None,
+        current_needs_rebase,
         trunk: json.trunk,
         current_branch: json.current_branch,
         branches,

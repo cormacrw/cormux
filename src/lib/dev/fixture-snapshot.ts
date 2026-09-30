@@ -220,7 +220,7 @@ export const fixtureSnapshot: Snapshot = {
 /** Uncommitted diff the harness streams for the OAuth workspace. */
 export const fixtureDiff = {
   workspaceId: 'ws-auth',
-  base: null,
+  target: null,
   files: [
     {
       path: 'src/auth/session.ts',

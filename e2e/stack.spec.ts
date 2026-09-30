@@ -4,21 +4,25 @@ import { mkdirSync } from 'node:fs'
 async function openStack(page: Page, query = '') {
   await page.goto(`/${query}`)
   await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
-  await page.getByRole('tab', { name: /^Stack/ }).click()
-  return page.getByRole('tabpanel', { name: /^Stack/ })
+  await page.getByRole('tab', { name: /^Git/ }).click()
+  return page
+    .getByRole('tabpanel', { name: /^Git/ })
+    .getByRole('navigation', { name: 'Stack' })
 }
 
-test('Stack tab shows a gh-stack stack, checks out, pushes and adds branches', async ({
+test('Changes shows the gh-stack stack beside the diff, checks out, pushes and adds branches', async ({
   page,
 }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   const panel = await openStack(page)
-  await expect(
-    page.getByRole('tab', { name: 'Stack, 3 branches' }),
-  ).toBeVisible()
+  await expect(page.getByRole('tab', { name: /^Stack/ })).toHaveCount(0)
   const cards = panel.locator('[data-stack-branch]')
   await expect(cards).toHaveCount(3)
+  // Uncommitted changes sit on top of the stack.
+  await expect(panel.locator('li').first()).toHaveAttribute(
+    'data-stack-uncommitted',
+  )
   // Top of the stack first, trunk underneath.
   await expect(cards.nth(0)).toContainText('feat/oauth-ui')
   await expect(cards.nth(0)).toContainText('needs rebase')
@@ -48,20 +52,15 @@ test('Stack tab shows a gh-stack stack, checks out, pushes and adds branches', a
   await expect(input).toBeFocused()
   await input.fill('feat/oauth-tests')
   await input.press('Enter')
-  await expect(
-    page.getByRole('tab', { name: 'Stack, 4 branches' }),
-  ).toBeVisible()
+  await expect(cards).toHaveCount(4)
   await expect(
     panel.locator('[data-stack-branch="feat/oauth-tests"]'),
   ).toContainText('current')
   expect(errors).toEqual([])
 })
 
-test('Stack tab starts a stack from an unstacked branch', async ({ page }) => {
+test('Stack starts from an unstacked branch', async ({ page }) => {
   const panel = await openStack(page, '?stack=none')
-  await expect(
-    page.getByRole('tab', { name: 'Stack, not stacked' }),
-  ).toBeVisible()
   await expect(panel).toContainText("feat/oauth-login isn't in a stack")
   await expect(panel.locator('[data-stack-branch]')).toContainText(
     'not stacked',
@@ -78,12 +77,10 @@ test('Stack tab starts a stack from an unstacked branch', async ({ page }) => {
   await page.screenshot({ path: 'e2e/output/stack-add.png' })
   await input.fill('feat/oauth-ui')
   await input.press('Enter')
-  await expect(
-    page.getByRole('tab', { name: 'Stack, 2 branches' }),
-  ).toBeVisible()
+  await expect(panel.locator('[data-stack-branch]')).toHaveCount(2)
 })
 
-test('Stack tab says why the GitHub check failed and can check again', async ({
+test('Stack says why the GitHub check failed and can check again', async ({
   page,
 }) => {
   const panel = await openStack(page, '?stack=remote')
@@ -94,9 +91,7 @@ test('Stack tab says why the GitHub check failed and can check again', async ({
     () => ((window as { __stackRemoteUp?: boolean }).__stackRemoteUp = true),
   )
   await panel.getByRole('button', { name: 'Check GitHub' }).click()
-  await expect(
-    page.getByRole('tab', { name: 'Stack, 3 branches' }),
-  ).toBeVisible()
+  await expect(panel.locator('[data-stack-branch]')).toHaveCount(3)
   await expect(panel.locator('[data-od-id="stack-check-failed"]')).toHaveCount(
     0,
   )
@@ -105,10 +100,15 @@ test('Stack tab says why the GitHub check failed and can check again', async ({
   )
 })
 
-test('Stack tab explains how to install gh-stack', async ({ page }) => {
+test('Stack explains how to install gh-stack and still shows the branch', async ({
+  page,
+}) => {
   const panel = await openStack(page, '?stack=unavailable')
   await expect(panel).toContainText('gh extension install github/gh-stack')
   await expect(panel.getByRole('button', { name: 'Add branch' })).toHaveCount(0)
+  await expect(
+    panel.locator('[data-stack-branch="feat/oauth-login"]'),
+  ).toContainText('vs main')
   await page.waitForTimeout(200)
   await page.screenshot({ path: 'e2e/output/stack-unavailable.png' })
 })
@@ -177,4 +177,23 @@ test('the header links a PR opened outside Cormux for the checked-out branch', a
     () => (window as { __HARNESS_OPENED__?: string[] }).__HARNESS_OPENED__,
   )
   expect(opened).toEqual(['https://github.com/acme/app/pull/57'])
+})
+
+test('Stack shows when a branch needs rebasing, stacked or not', async ({
+  page,
+}) => {
+  const stacked = await openStack(page)
+  await expect(
+    stacked.locator('[data-stack-branch="feat/oauth-ui"]'),
+  ).toContainText('needs rebase')
+  await expect(
+    stacked.locator('[data-stack-branch="feat/oauth-login"]'),
+  ).not.toContainText('needs rebase')
+
+  const solo = await openStack(page, '?stack=behind')
+  const branch = solo.locator('[data-stack-branch="feat/oauth-login"]')
+  await expect(branch).toContainText('not stacked')
+  await expect(branch).toContainText('needs rebase')
+  await page.waitForTimeout(200)
+  await page.screenshot({ path: 'e2e/output/stack-needs-rebase.png' })
 })

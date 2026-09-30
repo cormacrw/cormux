@@ -14,7 +14,7 @@ use tokio::sync::{Mutex as AsyncMutex, RwLock};
 use crate::error::{Error, Result};
 use crate::shell_env::ShellEnv;
 
-pub use diff::{LiveDiffEngine, WorktreeDiff};
+pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
 pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
 
 /// System `git` wrapper. Credential helpers, hooks and LFS apply because this
@@ -319,16 +319,13 @@ impl Git {
         Ok(files)
     }
 
-    pub async fn numstat_against_base(
+    /// Files changed by `range`, e.g. `main...feature`.
+    pub async fn numstat_range(
         &self,
         worktree: &Path,
-        base: &str,
+        range: &str,
     ) -> Result<Vec<(String, u32, u32)>> {
-        let merge_base = self.merge_base(worktree, base).await?;
-        let range = format!("{merge_base}..HEAD");
-        let output = self
-            .run(worktree, &["diff", "--numstat", &range])
-            .await?;
+        let output = self.run(worktree, &["diff", "--numstat", range]).await?;
         Self::diff_ok(&output, "diff --numstat")?;
         Ok(parse_numstat(&Self::stdout(&output)))
     }
@@ -411,18 +408,14 @@ impl Git {
         Ok(text)
     }
 
-    pub async fn diff_file_against_base(
+    pub async fn diff_file_range(
         &self,
         worktree: &Path,
-        base: &str,
+        range: &str,
         path: &str,
     ) -> Result<String> {
-        let merge_base = self.merge_base(worktree, base).await?;
-        let range = format!("{merge_base}..HEAD");
-        let output = self
-            .run(worktree, &["diff", &range, "--", path])
-            .await?;
-        Self::diff_ok(&output, "diff file against base")?;
+        let output = self.run(worktree, &["diff", range, "--", path]).await?;
+        Self::diff_ok(&output, "diff file in range")?;
         Ok(Self::stdout(&output))
     }
 
@@ -621,6 +614,33 @@ impl Git {
             .run(worktree, &["rev-parse", "--verify", "--quiet", reference])
             .await?;
         Ok(output.status.success())
+    }
+
+    /// Whether `descendant` already has every commit on `ancestor`.
+    pub async fn is_ancestor(&self, worktree: &Path, ancestor: &str, descendant: &str) -> bool {
+        self.run(
+            worktree,
+            &["merge-base", "--is-ancestor", ancestor, descendant],
+        )
+        .await
+        .is_ok_and(|output| output.status.success())
+    }
+
+    /// `origin/<branch>` when it has everything the local branch has (a stale local
+    /// trunk), else the local branch (a stack branch rebased but not pushed yet).
+    pub async fn freshest_ref(&self, worktree: &Path, branch: &str) -> String {
+        let remote = format!("origin/{branch}");
+        if !self.ref_exists(worktree, &remote).await.unwrap_or(false) {
+            return branch.to_string();
+        }
+        if !self.ref_exists(worktree, branch).await.unwrap_or(false) {
+            return remote;
+        }
+        if self.is_ancestor(worktree, branch, &remote).await {
+            remote
+        } else {
+            branch.to_string()
+        }
     }
 
     /// Lines added and removed by `range` (e.g. `main...feature`).

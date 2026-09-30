@@ -18,6 +18,7 @@ export const SETTINGS_SHORTCUTS: ShortcutReference[] = [
   { keys: '⌘D', description: 'Delete the workspace (workspace)' },
   { keys: '⌘J', description: 'More workspace actions (narrow windows)' },
   { keys: '⌘E', description: 'End scratch' },
+  { keys: '⌘G', description: 'Open the Git tab (workspace)' },
   { keys: 'Ctrl+`', description: 'Toggle Output tab (workspace)' },
   { keys: 'Esc', description: 'Close popovers, changes panel, or palette' },
 ]

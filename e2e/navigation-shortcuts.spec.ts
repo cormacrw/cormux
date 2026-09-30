@@ -27,4 +27,19 @@ test.describe('navigation shortcuts', () => {
 
     expect(errors).toEqual([])
   })
+
+  test('⌘G opens the Git tab in a workspace', async ({ page }) => {
+    await page.goto('/')
+    await expect(
+      page.getByRole('button', { name: /^OAuth login,/ }),
+    ).toBeVisible()
+    // Homebase has no Git tab; nothing happens.
+    await page.keyboard.press('ControlOrMeta+g')
+    await page.keyboard.press('ControlOrMeta+1')
+    const git = page.getByRole('tab', { name: /^Git/ })
+    await expect(git).toHaveAttribute('aria-selected', 'false')
+    await page.keyboard.press('ControlOrMeta+g')
+    await expect(git).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tabpanel', { name: /^Git/ })).toBeVisible()
+  })
 })

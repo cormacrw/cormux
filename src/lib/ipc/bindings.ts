@@ -183,11 +183,11 @@ async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Point the Changes panel at uncommitted work (`None`) or a branch (merge-base..HEAD).
+ * Point the Changes panel at uncommitted work (`None`) or a branch against its base.
  */
-async setWorkspaceDiffBase(workspaceId: string, base: string | null) : Promise<Result<null, Error>> {
+async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : Promise<Result<null, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("set_workspace_diff_base", { workspaceId, base }) };
+    return { status: "ok", data: await TAURI_INVOKE("set_workspace_diff_target", { workspaceId, target }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -604,6 +604,14 @@ export type CreateWorkspacePullRequestResult = { workspaceId: string; number: nu
 export type CreateWorkspaceResult = { workspaceId: string }
 export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
 export type DiffHunk = { header: string; body: string }
+/**
+ * Committed changes on `head` since it left `base` (`base...head`).
+ */
+export type DiffTarget = { 
+/**
+ * A branch, or `HEAD` for whatever the worktree has checked out.
+ */
+head: string; base: string }
 export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff | null }
 export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean }
 /**
@@ -741,6 +749,11 @@ export type WorkspaceStack = { workspaceId: string; status: StackStatus;
  */
 message: string | null; trunk: string; currentBranch: string; 
 /**
+ * The checked-out branch is missing commits from the branch it's based on: the
+ * one below it in the stack, or the trunk when it isn't stacked.
+ */
+currentNeedsRebase: boolean; 
+/**
  * Bottom of the stack (closest to the trunk) first.
  */
 branches: StackBranch[] }
@@ -748,9 +761,9 @@ export type WorkspaceStatusChanged = { version: number; workspaceId: string; sta
 export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
 export type WorktreeDiff = { workspaceId: string; 
 /**
- * Branch the diff is taken against; `None` means uncommitted changes vs `HEAD`.
+ * What the diff shows; `None` means uncommitted changes vs `HEAD`.
  */
-base: string | null; files: DiffFile[] }
+target: DiffTarget | null; files: DiffFile[] }
 
 /** tauri-specta globals **/
 

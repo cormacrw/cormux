@@ -43,7 +43,7 @@ A bordered card. Only the checkbox toggles selection; the rest is plain, selecta
 
 - Checkbox, labelled `Select “<title>”`.
 - **Title**, for example `Retries can process the same event twice`.
-- **Location** in monospace with a dotted underline: `src/lib/stripe/retry.ts:48` (line omitted when not applicable). Clicking it opens the **Changes** tab, expands that file, scrolls to the line in the new version of the file and flashes it. If the line is outside the diff's hunks, the file header stays in view.
+- **Location** in monospace with a dotted underline: `src/lib/stripe/retry.ts:48` (line omitted when not applicable). Clicking it opens the **Git** tab, expands that file, scrolls to the line in the new version of the file and flashes it. If the line is outside the diff's hunks, the file header stays in view.
 - **Explanation**: what's wrong and how to fix it, with line breaks kept.
 - **Status chip** on the right:
   - Open: none.

@@ -1,4 +1,4 @@
-import type { StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
+import type { DiffTarget, StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
 import type { PullRequest } from '$lib/state/prs.svelte'
 import { plural } from '$lib/sidebar/status'
 
@@ -16,10 +16,30 @@ export function canAddToStack(stack: WorkspaceStack | undefined): boolean {
   return stack.branches.at(-1)?.name === stack.currentBranch
 }
 
-export function stackTabAriaLabel(stack: WorkspaceStack | undefined): string {
-  const count = stack?.status === 'stacked' ? stack.branches.length : 0
-  if (count === 0) return 'Stack, not stacked'
-  return `Stack, ${plural(count, 'branch', 'branches')}`
+export function sameDiffTarget(
+  a: DiffTarget | null,
+  b: DiffTarget | null,
+): boolean {
+  return a?.head === b?.head && a?.base === b?.base
+}
+
+/**
+ * Whether the diff is showing `branch` against `base`. Review workspaces diff
+ * `HEAD`, which is the checked-out branch.
+ */
+export function isDiffTargetOf(
+  target: DiffTarget | null,
+  branch: string,
+  base: string,
+  currentBranch: string,
+): boolean {
+  if (!target || target.base !== base) return false
+  const head = target.head === 'HEAD' ? currentBranch : target.head
+  return head === branch
+}
+
+export function diffTargetLabel(target: DiffTarget | null): string {
+  return target ? `${target.head} vs ${target.base}` : 'Uncommitted changes'
 }
 
 export function stackSubtitle(stack: WorkspaceStack): string {

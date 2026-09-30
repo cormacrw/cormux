@@ -272,7 +272,7 @@ async fn pr_diff(
     };
     diff.unwrap_or(crate::git::WorktreeDiff {
         workspace_id: workspace_id.to_string(),
-        base: None,
+        target: None,
         files: vec![],
     })
 }

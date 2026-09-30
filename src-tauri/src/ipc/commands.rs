@@ -757,9 +757,10 @@ pub async fn refresh_workspace_diff(
     if let Ok(snapshot) = state.store.snapshot() {
         if let Some(row) = snapshot.workspaces.iter().find(|row| row.id == workspace_id) {
             if row.kind.as_deref() == Some("review") {
-                state
-                    .diffs
-                    .default_diff_base(&workspace_id, workspace.base.clone());
+                state.diffs.default_diff_target(
+                    &workspace_id,
+                    crate::git::DiffTarget::head_against(workspace.base.clone()),
+                );
             }
         }
     }
@@ -770,18 +771,18 @@ pub async fn refresh_workspace_diff(
     Ok(())
 }
 
-/// Point the Changes panel at uncommitted work (`None`) or a branch (merge-base..HEAD).
+/// Point the Changes panel at uncommitted work (`None`) or a branch against its base.
 #[tauri::command]
 #[specta::specta]
-pub async fn set_workspace_diff_base(
+pub async fn set_workspace_diff_target(
     workspace_id: String,
-    base: Option<String>,
+    target: Option<crate::git::DiffTarget>,
     state: State<'_, AppState>,
 ) -> Result<()> {
     use std::path::Path;
 
     let workspace = crate::git_workspace::load_workspace(&state, &workspace_id).await?;
-    state.diffs.set_diff_base(&workspace_id, base);
+    state.diffs.set_diff_target(&workspace_id, target);
     state
         .diffs
         .compute(&workspace_id, Path::new(&workspace.worktree_path))

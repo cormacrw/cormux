@@ -10,7 +10,7 @@ commands.allow = [
   "subscribe_agent_events",
   "subscribe_pty",
   "subscribe_diffs",
-  "set_workspace_diff_base",
+  "set_workspace_diff_target",
   "detect_engines",
   "send_thread_prompt",
   "close_workspace_thread",

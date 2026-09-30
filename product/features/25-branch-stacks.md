@@ -2,7 +2,7 @@
 
 ## Summary
 
-The **Stack** tab, between Changes and Output, shows the workspace's stack of branches and pull requests. The stack belongs to GitHub's [`gh stack`](https://github.com/github/gh-stack) CLI extension, so it matches what `gh stack view` prints and what github.com shows. Each branch is a card with its line counts and commit count against the branch below it, its pull request, and a **Check out** button. **Add branch**, **Push** and **Sync** run the matching `gh stack` commands. Pull requests are always opened by hand with **Create PR**, which works exactly as before; nothing in the Stack tab creates or edits one.
+The left pane of the **Git** tab (14) shows the workspace's stack of branches and pull requests. The stack belongs to GitHub's [`gh stack`](https://github.com/github/gh-stack) CLI extension, so it matches what `gh stack view` prints and what github.com shows. Uncommitted changes sit on top as their own level. Clicking a level shows its diff on the right. Each branch is a card with its line counts and commit count against the branch below it, its pull request, and a **Check out** button. **Add branch**, **Push** and **Sync** run the matching `gh stack` commands. Pull requests are always opened by hand with **Create PR**, which works exactly as before; nothing in the Stack tab creates or edits one.
 
 ## Why it exists
 
@@ -10,8 +10,8 @@ Big changes review better as a series of small pull requests, each built on the 
 
 ## Where it lives
 
-- Tab: `<button role="tab" id="thread-tab-stack">` in the right-hand tab group. Label **Stack**, plus the branch count when the checked-out branch is stacked.
-- Panel: `<section role="tabpanel" id="stack-panel">`.
+- `<nav aria-label="Stack">`, the left pane of the Git tabpanel (`#changes-panel`). There is no separate Stack tab.
+- Without a stack (not stacked, or gh-stack unavailable) it still renders as one: uncommitted changes, the checked-out branch against the trunk, then the trunk.
 
 ## States
 
@@ -24,11 +24,12 @@ Big changes review better as a series of small pull requests, each built on the 
 ## Anatomy
 
 - Heading **Stack** with a subtitle, e.g. `3 open branches stacked on main`.
-- Cards, top of the stack first, joined by a rail, then the trunk. Each card shows:
-  - The branch in monospace, a `current` badge on the checked-out branch, and `needs rebase` when the branch below has moved on.
+- **Uncommitted changes** always first, above the top branch. It's the default diff.
+- Cards, top of the stack first, joined by a rail, then the trunk. Clicking a card shows that branch's committed changes against the branch below it (the trunk for the bottom branch) as `git diff <base>...<branch>`, whichever branch is checked out. Each card shows:
+  - The branch in monospace, a `current` badge on the checked-out branch, and `needs rebase` when the branch below (the trunk for the bottom branch, `origin/<trunk>` when it exists) has commits this branch doesn't: gh-stack's flag, or `git merge-base --is-ancestor <base> <branch>` failing. An unstacked branch gets the same badge against the trunk (`currentNeedsRebase`), pointing at **Rebase branch** (17) instead of Sync.
   - `+adds −deletes · N commits` against the nearest unmerged branch below (or the trunk). Merged branches are dimmed and say `Merged into main`.
   - `#N` when the branch has a pull request, from gh-stack or, before gh-stack has seen it, from the synced open PRs (matched by head branch). Clicking it opens the PR.
-  - **Check out**, except on the current branch (`Checked out`) and merged branches.
+  - A **Check out** icon button, except on the current branch and merged branches. Merged branches can't be selected.
 
 ## Behaviour
 
@@ -71,4 +72,4 @@ Still opened by hand from the header, one branch at a time, with the same dialog
 - No way to reorder or remove branches: `gh stack modify` is TUI-only.
 - No UI to pull a stack from GitHub into a workspace (`gh stack checkout <pr>`).
 - Cormux doesn't retarget a PR when the branch below it merges. Check its base on GitHub afterwards.
-- Counts refresh when the tab opens, the branch changes, or after Push/Sync, not when an agent commits while the tab is open.
+- Counts refresh when the Git tab opens, the branch changes, or after Push/Sync, not when an agent commits while the tab is open.

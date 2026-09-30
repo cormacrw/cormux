@@ -14,7 +14,6 @@ export type ThreadBarTabKey =
   | { kind: 'thread'; threadId: string }
   | { kind: 'findings' }
   | { kind: 'changes' }
-  | { kind: 'stack' }
   | { kind: 'output' }
 
 export function threadTabAriaLabel(thread: Thread): string {
@@ -29,7 +28,7 @@ export function findingsTabAriaLabel(openCount: number): string {
 }
 
 export function changesTabAriaLabel(countLabel: string): string {
-  return countLabel ? `Changes, ${countLabel}` : 'Changes, none yet'
+  return countLabel ? `Git, ${countLabel}` : 'Git, no changes yet'
 }
 
 export type OutputTabAppStatus = 'stopped' | 'starting' | 'running' | 'crashed'
@@ -65,7 +64,7 @@ export function buildThreadBarTabOrder(
     threadId: thread.id,
   }))
   if (showFindings) keys.push({ kind: 'findings' })
-  keys.push({ kind: 'changes' }, { kind: 'stack' }, { kind: 'output' })
+  keys.push({ kind: 'changes' }, { kind: 'output' })
   return keys
 }
 
@@ -91,7 +90,6 @@ export function tabKeyId(tab: ThreadBarTabKey): string {
   if (tab.kind === 'thread') return `thread-tab-${tab.threadId}`
   if (tab.kind === 'findings') return 'thread-tab-findings'
   if (tab.kind === 'changes') return 'thread-tab-changes'
-  if (tab.kind === 'stack') return 'thread-tab-stack'
   return 'thread-tab-output'
 }
 

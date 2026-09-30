@@ -65,6 +65,18 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   }
 
   if (
+    mod &&
+    key === 'g' &&
+    !event.shiftKey &&
+    !event.altKey &&
+    app.view === 'workspace'
+  ) {
+    event.preventDefault()
+    if (!dialogBlocksShortcuts()) workspaceUi.openTab('changes')
+    return
+  }
+
+  if (
     event.ctrlKey &&
     event.key === '`' &&
     app.view === 'workspace' &&

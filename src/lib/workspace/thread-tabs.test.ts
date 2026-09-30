@@ -54,7 +54,6 @@ describe('thread bar order', () => {
       'thread',
       'findings',
       'changes',
-      'stack',
       'output',
     ])
   })

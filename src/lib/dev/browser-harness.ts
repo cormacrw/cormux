@@ -199,9 +199,9 @@ export function installBrowserHarness() {
   }
 
   let diffChannel: { id: number; index: number } | null = null
-  const sendDiff = (base: string | null) => {
+  const sendDiff = (target: { head: string; base: string } | null) => {
     if (!diffChannel) return
-    const diff = { ...fixtureDiff, base }
+    const diff = { ...fixtureDiff, target }
     callbacks.get(diffChannel.id)?.({ index: diffChannel.index++, message: { workspaceId: fixtureDiff.workspaceId, path: '', diff } })
   }
 
@@ -211,7 +211,7 @@ export function installBrowserHarness() {
   const stackMode = new URLSearchParams(window.location.search).get('stack')
   const fullStack = ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
   const stackBranches: string[] =
-    stackMode === 'none' || stackMode === 'unavailable' || stackMode === 'remote'
+    stackMode === 'none' || stackMode === 'unavailable' || stackMode === 'remote' || stackMode === 'behind'
       ? []
       : [...fullStack]
   const stackStats: Record<string, [number, number, number, number]> = {
@@ -232,7 +232,15 @@ export function installBrowserHarness() {
     fixtureSnapshot.workspaces.find((workspace) => workspace.id === workspaceId)?.branch ?? 'main'
   const stackFor = (workspaceId: string) => {
     const current = currentBranch(workspaceId)
-    const base = { workspaceId, trunk: 'main', currentBranch: current, message: null, branches: [] }
+    // `?stack=behind` puts main ahead of the unstacked branch.
+    const base = {
+      workspaceId,
+      trunk: 'main',
+      currentBranch: current,
+      currentNeedsRebase: stackMode === 'behind' || current === 'feat/oauth-ui',
+      message: null,
+      branches: [],
+    }
     if (stackMode === 'unavailable') {
       return { ...base, status: 'unavailable', message: 'The gh-stack extension isn\'t installed. Run: gh extension install github/gh-stack' }
     }
@@ -343,12 +351,13 @@ export function installBrowserHarness() {
       return nextEventId++
     }
     // `?slowDiff=1` holds diff fetches long enough to see the Changes splash.
-    if (cmd === 'refresh_workspace_diff' || cmd === 'set_workspace_diff_base') {
+    if (cmd === 'refresh_workspace_diff' || cmd === 'set_workspace_diff_target') {
       if (new URLSearchParams(window.location.search).has('slowDiff')) {
         await new Promise((resolve) => setTimeout(resolve, 1500))
       }
-      if (cmd === 'set_workspace_diff_base' && args.workspaceId === fixtureDiff.workspaceId) {
-        setTimeout(() => sendDiff((args.base as string | null) ?? null), 100)
+      if (cmd === 'set_workspace_diff_target' && args.workspaceId === fixtureDiff.workspaceId) {
+        const target = (args.target as { head: string; base: string } | null) ?? null
+        setTimeout(() => sendDiff(target), 100)
       }
       return null
     }
