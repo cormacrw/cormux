@@ -511,6 +511,21 @@ impl Git {
             .collect())
     }
 
+    /// Branches on `remote`, without the `<remote>/` prefix or its `HEAD` pointer.
+    pub async fn list_remote_branches(&self, repo: &Path, remote: &str) -> Result<Vec<String>> {
+        let prefix = format!("refs/remotes/{remote}/");
+        let output = self
+            .run(repo, &["for-each-ref", "--format=%(refname)", &prefix])
+            .await?;
+        Self::require_success(&output, "for-each-ref remotes")?;
+        Ok(Self::stdout(&output)
+            .lines()
+            .filter_map(|refname| refname.strip_prefix(prefix.as_str()))
+            .filter(|name| !name.is_empty() && *name != "HEAD")
+            .map(str::to_string)
+            .collect())
+    }
+
     pub async fn unmerged_paths(&self, worktree: &Path) -> Result<Vec<String>> {
         let output = self
             .run(worktree, &["diff", "--name-only", "--diff-filter=U"])
@@ -700,6 +715,31 @@ mod tests {
             ShortStat { files: 1, added: 0, deleted: 1 }
         );
         assert_eq!(parse_shortstat(""), ShortStat::default());
+    }
+
+    #[tokio::test]
+    async fn lists_and_switches_to_remote_only_branches() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        run_ok(&origin, &["git", "branch", "feat/remote-only"]);
+        let clone_dir = tempfile::tempdir().unwrap();
+        let clone = clone_dir.path().join("clone");
+        run_ok(
+            clone_dir.path(),
+            &["git", "clone", "-q", &origin.to_string_lossy(), "clone"],
+        );
+
+        let mut remote = git.list_remote_branches(&clone, "origin").await.unwrap();
+        remote.sort();
+        assert_eq!(remote, vec!["feat/remote-only", "main"]);
+        assert!(!git
+            .list_local_branches(&clone)
+            .await
+            .unwrap()
+            .contains(&"feat/remote-only".to_string()));
+
+        git.switch(&clone, "feat/remote-only").await.unwrap();
+        assert_eq!(git.current_branch(&clone).await.unwrap(), "feat/remote-only");
     }
 
     #[tokio::test]

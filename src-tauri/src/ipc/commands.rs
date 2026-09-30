@@ -810,6 +810,8 @@ pub async fn list_repo_branches(
         .ok_or_else(|| Error::Git(format!("unknown repo {repo_id}")))?;
     let repo_path = expand_tilde(&repo.path);
     let mut names = state.git.list_local_branches(&repo_path).await?;
+    // Branches that only exist on GitHub can be checked out too; `git switch` tracks them.
+    names.extend(state.git.list_remote_branches(&repo_path, "origin").await?);
     names.sort();
     names.dedup();
     Ok(RepoBranchesResult { branches: names })
