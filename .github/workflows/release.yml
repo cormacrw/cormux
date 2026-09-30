@@ -39,8 +39,6 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         if: steps.existing.outputs.released != 'true'
-        with:
-          version: 8
 
       - uses: actions/setup-node@v4
         if: steps.existing.outputs.released != 'true'
