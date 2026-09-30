@@ -98,11 +98,21 @@ impl EngineRegistry {
         Ok(slot.events.subscribe())
     }
 
+    /// Whether a live engine serves the thread. An engine whose pump has ended (the CLI
+    /// exited or its output broke) is dropped here, so the caller spawns a fresh one that
+    /// resumes the session instead of prompting into nothing.
     pub fn has_thread(&self, thread_id: &str) -> bool {
-        self.threads
-            .lock()
-            .ok()
-            .is_some_and(|threads| threads.contains_key(thread_id))
+        let Ok(mut threads) = self.threads.lock() else {
+            return false;
+        };
+        match threads.get(thread_id) {
+            Some(slot) if slot.commands.is_closed() => {
+                threads.remove(thread_id);
+                false
+            }
+            Some(_) => true,
+            None => false,
+        }
     }
 
     pub fn session_id(&self, thread_id: &str) -> Result<Option<String>> {
@@ -515,9 +525,11 @@ async fn run_claude(
                                 answer_tx.clone(),
                             )
                             .await;
-                        } else if let Some(mapped) = claude_map::map_claude_event(&raw) {
-                            persist_event(&store, &thread_id, &mapped);
-                            let _ = events.send(mapped);
+                        } else {
+                            for mapped in claude_map::map_claude_event(&raw) {
+                                persist_event(&store, &thread_id, &mapped);
+                                let _ = events.send(mapped);
+                            }
                         }
                     }
                     Ok(None) => {
@@ -577,8 +589,7 @@ async fn handle_claude_permission(
             .await;
         return;
     }
-    let mut mapped =
-        claude_map::map_claude_event(&Event::CanUseTool(req.clone())).expect("permission maps");
+    let mut mapped = claude_map::map_permission(req);
     if policy.auto_all || (policy.auto_ro && kind.is_readonly()) {
         if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;

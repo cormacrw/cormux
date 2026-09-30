@@ -15,7 +15,9 @@ use super::protocol::{
 use crate::engines::claude_argv;
 use crate::error::{Error, Result};
 
-const READ_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long the CLI gets to answer the initialize handshake. Once a session is up there is
+/// no read timeout: Claude is silent between turns and while a long tool runs.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
 pub struct SpawnOptions {
@@ -46,6 +48,9 @@ pub struct ClaudeSession {
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
+    /// The line being read. It lives here, not in `next_event`, so a read cancelled by
+    /// `select!` keeps what it had and the next call finishes the same line.
+    pending: Vec<u8>,
     session_id: Option<String>,
     next_request_id: u64,
 }
@@ -116,12 +121,15 @@ impl ClaudeSession {
             child,
             stdin,
             stdout: BufReader::new(stdout),
+            pending: Vec::new(),
             session_id: None,
             next_request_id: 1,
         };
 
         if options.use_default_args {
-            session.handshake_initialize().await?;
+            timeout(HANDSHAKE_TIMEOUT, session.handshake_initialize())
+                .await
+                .map_err(|_| Error::Engine("timed out waiting for Claude to start".into()))??;
         }
 
         Ok(session)
@@ -174,17 +182,20 @@ impl ClaudeSession {
         Ok(request_id)
     }
 
+    /// Cancel safe: `read_until` keeps partial reads in `pending`, so the pump can race this
+    /// against commands in `select!` without dropping half a line.
     pub async fn next_event(&mut self) -> Result<Option<Event>> {
-        let mut line = String::new();
         loop {
-            line.clear();
-            let read = timeout(READ_TIMEOUT, self.stdout.read_line(&mut line))
+            let read = self
+                .stdout
+                .read_until(b'\n', &mut self.pending)
                 .await
-                .map_err(|_| Error::Engine("timed out waiting for Claude stdout".into()))?
                 .map_err(|error| Error::Engine(error.to_string()))?;
-            if read == 0 {
+            if read == 0 && self.pending.is_empty() {
                 return Ok(None);
             }
+            let bytes = std::mem::take(&mut self.pending);
+            let line = String::from_utf8_lossy(&bytes);
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;

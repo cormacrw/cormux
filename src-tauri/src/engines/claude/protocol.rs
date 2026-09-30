@@ -76,9 +76,12 @@ pub enum Event {
     Init {
         session_id: String,
     },
+    /// One assistant message, its content blocks in order.
     Assistant {
-        text: String,
+        blocks: Vec<AssistantBlock>,
     },
+    /// Tool results, which the CLI echoes back as a `user` message.
+    ToolResults(Vec<ToolResult>),
     CanUseTool(CanUseTool),
     Result {
         session_id: Option<String>,
@@ -96,6 +99,23 @@ pub enum Event {
     Other {
         type_name: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AssistantBlock {
+    Text(String),
+    Thinking(String),
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolResult {
+    pub tool_use_id: String,
+    pub is_error: bool,
 }
 
 pub fn encode_line(message: &StdinMessage) -> Result<String> {
@@ -165,8 +185,9 @@ pub fn decode_event(line: &str) -> Result<Event> {
             })
         }
         "assistant" => Ok(Event::Assistant {
-            text: extract_assistant_text(&value),
+            blocks: assistant_blocks(&value),
         }),
+        "user" => Ok(Event::ToolResults(tool_results(&value))),
         "result" => Ok(Event::Result {
             session_id: value
                 .get("session_id")
@@ -272,22 +293,51 @@ fn decode_control_request(value: &Value) -> Result<Event> {
     }
 }
 
-fn extract_assistant_text(value: &Value) -> String {
-    let Some(content) = value.pointer("/message/content").and_then(Value::as_array) else {
-        return String::new();
-    };
+fn content_blocks(value: &Value) -> &[Value] {
+    value
+        .pointer("/message/content")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
 
-    content
+fn assistant_blocks(value: &Value) -> Vec<AssistantBlock> {
+    let str_field = |block: &Value, key: &str| {
+        block
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    content_blocks(value)
         .iter()
-        .filter_map(|block| {
-            if block.get("type").and_then(Value::as_str) == Some("text") {
-                block.get("text").and_then(Value::as_str)
-            } else {
-                None
-            }
+        .filter_map(|block| match block.get("type").and_then(Value::as_str)? {
+            "text" => Some(AssistantBlock::Text(str_field(block, "text"))),
+            "thinking" => Some(AssistantBlock::Thinking(str_field(block, "thinking"))),
+            "tool_use" => Some(AssistantBlock::ToolUse {
+                id: str_field(block, "id"),
+                name: str_field(block, "name"),
+                input: block.get("input").cloned().unwrap_or(Value::Null),
+            }),
+            _ => None,
         })
-        .collect::<Vec<_>>()
-        .join("")
+        .collect()
+}
+
+fn tool_results(value: &Value) -> Vec<ToolResult> {
+    content_blocks(value)
+        .iter()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_result"))
+        .filter_map(|block| {
+            Some(ToolResult {
+                tool_use_id: block.get("tool_use_id")?.as_str()?.to_string(),
+                is_error: block
+                    .get("is_error")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -1292,9 +1292,8 @@ pub async fn send_thread_prompt(
         .await?;
     }
     persist_user_message(&state.store, &thread_id, &text)?;
-    let _ = state
-        .engines
-        .submit_prompt(&thread_id, text, held);
+    // A failed send must not mark the thread running: nothing would ever end that turn.
+    state.engines.submit_prompt(&thread_id, text, held)?;
     if !held {
         state.store.set_thread_status(&thread_id, "running")?;
         state

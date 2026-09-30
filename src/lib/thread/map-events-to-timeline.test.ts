@@ -6,6 +6,67 @@ import {
 import { agentEventsForThread } from './parse-agent-event'
 
 describe('mapEventsToTimeline', () => {
+  it('shows tools Claude runs without asking, by command and path', () => {
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          event: {
+            type: 'messageChunk',
+            role: 'thought',
+            text: 'Check the repo.',
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: 'toolCall',
+            id: 'toolu_1',
+            title: 'ls -la',
+            name: 'Bash',
+            kind: 'execute',
+            status: 'inProgress',
+            locations: [],
+            detail: 'List files',
+          },
+        },
+        {
+          seq: 3,
+          event: {
+            type: 'toolCallUpdate',
+            id: 'toolu_1',
+            title: null,
+            kind: null,
+            status: 'completed',
+            locations: [],
+          },
+        },
+        {
+          seq: 4,
+          event: {
+            type: 'toolCall',
+            id: 'toolu_2',
+            title: 'Read',
+            name: 'Read',
+            kind: 'read',
+            status: 'inProgress',
+            locations: ['/repo/README.md'],
+            detail: '/repo/README.md',
+          },
+        },
+      ],
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    expect(items[0]).toMatchObject({ kind: 'thought', role: 'thought' })
+    const steps = items[1]?.kind === 'toolRun' ? items[1].steps : []
+    expect(steps).toHaveLength(2)
+    expect(JSON.stringify(steps[0])).toContain('ls -la')
+    expect(steps[1]).toMatchObject({ kind: 'tool', detail: '/repo/README.md' })
+  })
+
   it('coalesces user and agent message chunks', () => {
     const items = mapEventsToTimeline({
       events: [
