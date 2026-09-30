@@ -467,6 +467,16 @@ impl Store {
         })
     }
 
+    pub fn set_scratch_title(&self, scratch_id: &str, title: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE scratches SET title = ?1 WHERE id = ?2",
+                rusqlite::params![title, scratch_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn scratch_by_id(&self, scratch_id: &str) -> Result<Option<ScratchRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(&format!("{SCRATCH_COLUMNS} WHERE s.id = ?1"))?;

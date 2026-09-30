@@ -25,11 +25,6 @@ pub async fn create(
     state: &AppState,
     input: CreateScratchInput,
 ) -> Result<CreateScratchResult> {
-    let title = input.title.trim().to_string();
-    if title.is_empty() {
-        return Err(Error::Workspace("Give this scratch a title.".into()));
-    }
-    let title: String = title.chars().take(TITLE_MAX).collect();
     let repo = state
         .store
         .snapshot()?
@@ -41,6 +36,16 @@ pub async fn create(
         .prompt
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty());
+    // A blank title drafts one from the prompt now and asks Haiku for a better one below.
+    let given: String = input.title.trim().chars().take(TITLE_MAX).collect();
+    let auto_name_from = if given.is_empty() { prompt.clone() } else { None };
+    let title = if !given.is_empty() {
+        given
+    } else if let Some(text) = &prompt {
+        crate::naming::draft_title(text, TITLE_MAX)
+    } else {
+        crate::naming::UNTITLED_SCRATCH.to_string()
+    };
 
     let scratch_id = format!("scratch-{}", Uuid::new_v4().simple());
     let thread_id = Uuid::new_v4().to_string();
@@ -59,7 +64,7 @@ pub async fn create(
     state.store.insert_scratch(&ScratchRow {
         id: scratch_id.clone(),
         repo_id: repo.id.clone(),
-        title,
+        title: title.clone(),
         thread_id: thread_id.clone(),
         engine: String::new(),
         status: String::new(),
@@ -106,6 +111,10 @@ pub async fn create(
             }
             emit_changed(&app, &state);
         });
+    }
+
+    if let Some(text) = auto_name_from {
+        spawn_auto_title(app.clone(), scratch_id.clone(), title, text);
     }
 
     emit_changed(app, state);
@@ -204,6 +213,26 @@ fn fail_turn(state: &AppState, thread_id: &str, error: &Error) {
         let _ = state.store.append_event(thread_id, "turn_end", &payload);
     }
     let _ = state.store.set_thread_status(thread_id, "idle");
+}
+
+/// Swaps the drafted title for Haiku's unless the scratch was renamed or ended meanwhile.
+fn spawn_auto_title(app: AppHandle, scratch_id: String, draft: String, prompt: String) {
+    tauri::async_runtime::spawn(async move {
+        use tauri::Manager;
+        let state = app.state::<AppState>();
+        let Some(title) =
+            crate::naming::generate_title(&state.llm, &prompt, "scratch", TITLE_MAX).await
+        else {
+            return;
+        };
+        match state.store.scratch_by_id(&scratch_id) {
+            Ok(Some(scratch)) if scratch.title == draft => {}
+            _ => return,
+        }
+        if state.store.set_scratch_title(&scratch_id, &title).is_ok() {
+            emit_changed(&app, &state);
+        }
+    });
 }
 
 fn emit_changed(app: &AppHandle, state: &AppState) {

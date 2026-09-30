@@ -836,6 +836,15 @@ pub async fn create_workspace(
         )));
     }
 
+    // The dialog sends no name; each new workspace is numbered.
+    let name = match input.name.trim() {
+        "" => crate::naming::next_workspace_name(
+            snapshot.workspaces.iter().map(|row| row.name.as_str()),
+        ),
+        given => given.chars().take(48).collect(),
+    };
+    let input = CreateWorkspaceInput { name, ..input };
+
     let workspace_id = new_workspace_id();
     let thread_id = Uuid::new_v4().to_string();
     let repo_name = repo_path

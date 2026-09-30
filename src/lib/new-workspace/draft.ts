@@ -1,19 +1,3 @@
-/** Draft workspace title from initial prompt (spec §06). */
-export function draftWorkspaceName(prompt: string): string {
-  const trimmed = prompt.trim()
-  if (!trimmed) return ''
-
-  const words = trimmed.replace(/[.\s]+$/, '').split(/\s+/)
-  let out = ''
-  for (const word of words) {
-    const next = (out ? `${out} ${word}` : word).trim()
-    if (next.length > 40) break
-    out = next
-  }
-  if (!out) return ''
-  return out.charAt(0).toUpperCase() + out.slice(1)
-}
-
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -29,11 +13,6 @@ function branchPrefix(text: string): 'feat' | 'fix' | 'refactor' {
   if (/\b(fix|bug|broken|error|crash|repair)\b/i.test(text)) return 'fix'
   if (/\b(refactor|clean|rename)\b/i.test(text)) return 'refactor'
   return 'feat'
-}
-
-/** Name when the prompt did not draft one. */
-export function fallbackWorkspaceName(repoName: string): string {
-  return repoName.trim() || 'Workspace'
 }
 
 /** Branch when the prompt did not draft one. Skips names already taken. */

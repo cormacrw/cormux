@@ -11,7 +11,6 @@
   import { coreErrorText } from '$lib/feedback/core-error'
   import { showToast } from '$lib/feedback/show-toast'
   import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
-  import { draftWorkspaceName } from '$lib/new-workspace/draft'
   import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
   import {
     app,
@@ -25,23 +24,18 @@
   let title = $state('')
   let repoId = $state('')
   let prompt = $state('')
-  /** The title is the user's while it holds text; clearing it hands it back to the draft. */
-  let titleEdited = $state(false)
-  let titleError = $state(false)
-  let titleInput = $state<HTMLInputElement | null>(null)
+  let promptInput = $state<HTMLTextAreaElement | null>(null)
 
   async function prepareOpen() {
     dismissOpenPopover()
     window.dispatchEvent(new CustomEvent('cormux:close-palette'))
-    titleEdited = false
     title = ''
     prompt = ''
-    titleError = false
     repoId = resolveDefaultRepoId(repos.items, settings.defaultRepo)
     open = true
     shellDialogs.newScratchOpen = true
     await tick()
-    titleInput?.focus()
+    promptInput?.focus()
   }
 
   function closeDialog() {
@@ -49,24 +43,9 @@
     shellDialogs.newScratchOpen = false
   }
 
-  function onPromptInput() {
-    if (titleEdited) return
-    title = prompt.trim() ? draftWorkspaceName(prompt) : ''
-    if (title.trim()) titleError = false
-  }
-
-  function onTitleInput() {
-    titleEdited = title.length > 0
-    if (title.trim()) titleError = false
-  }
-
   async function submit() {
+    // Blank: the core drafts a title from the prompt, then Haiku renames it.
     const trimmed = title.trim()
-    if (!trimmed) {
-      titleError = true
-      titleInput?.focus()
-      return
-    }
     // Nothing is provisioned, so the dialog closes before the core answers.
     const text = prompt.trim()
     closeDialog()
@@ -91,7 +70,12 @@
     app.openScratch(result.data.scratchId, !text)
     showToast({
       tone: 'ok',
-      parts: [{ type: 'text', value: `Started ${trimmed}` }],
+      parts: [
+        {
+          type: 'text',
+          value: trimmed ? `Started ${trimmed}` : 'Started scratch',
+        },
+      ],
     })
   }
 
@@ -131,31 +115,19 @@
 
       <div class="flex flex-col gap-5 p-5">
         <div class="grid gap-1.5">
-          <label class="text-sm font-medium" for="sess-title">Title</label>
-          <Input
-            bind:ref={titleInput}
-            id="sess-title"
-            maxlength={64}
-            autocomplete="off"
-            placeholder="Why the webhook signature fails"
-            bind:value={title}
-            oninput={onTitleInput}
-            aria-invalid={titleError ? 'true' : undefined}
-            aria-describedby="sess-title-hint sess-title-error"
+          <label class="text-sm font-medium" for="sess-prompt">Prompt</label>
+          <Textarea
+            bind:ref={promptInput}
+            id="sess-prompt"
+            rows={4}
+            class="min-h-[112px] max-h-[280px] resize-y"
+            placeholder="Ask something that doesn’t need its own branch"
+            bind:value={prompt}
+            onkeydown={onPromptKeydown}
+            aria-describedby="sess-prompt-hint"
           />
-          <p
-            id="sess-title-hint"
-            class="text-xs text-muted-foreground"
-            hidden={titleError}
-          >
-            Shown on the card and at the top of the scratch
-          </p>
-          <p
-            id="sess-title-error"
-            class="text-xs text-destructive"
-            hidden={!titleError}
-          >
-            Give this scratch a title.
+          <p id="sess-prompt-hint" class="text-xs text-muted-foreground">
+            Optional. Leave it blank and write the first message in the scratch.
           </p>
         </div>
 
@@ -177,19 +149,19 @@
         </div>
 
         <div class="grid gap-1.5">
-          <label class="text-sm font-medium" for="sess-prompt">Prompt</label>
-          <Textarea
-            id="sess-prompt"
-            rows={4}
-            class="min-h-[112px] max-h-[280px] resize-y"
-            placeholder="Ask something that doesn’t need its own branch"
-            bind:value={prompt}
-            oninput={onPromptInput}
-            onkeydown={onPromptKeydown}
-            aria-describedby="sess-prompt-hint"
+          <label class="text-sm font-medium" for="sess-title">
+            Title <span class="font-normal text-muted-foreground">(optional)</span>
+          </label>
+          <Input
+            id="sess-title"
+            maxlength={64}
+            autocomplete="off"
+            placeholder="Named from the prompt"
+            bind:value={title}
+            aria-describedby="sess-title-hint"
           />
-          <p id="sess-prompt-hint" class="text-xs text-muted-foreground">
-            Optional. Leave it blank and write the first message in the scratch.
+          <p id="sess-title-hint" class="text-xs text-muted-foreground">
+            Leave blank and Haiku names it from the prompt.
           </p>
         </div>
       </div>

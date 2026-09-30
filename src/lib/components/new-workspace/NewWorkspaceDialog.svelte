@@ -12,12 +12,7 @@
   import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
   import { coreErrorText } from '$lib/feedback/core-error'
-  import {
-    draftBranchName,
-    draftWorkspaceName,
-    fallbackBranchName,
-    fallbackWorkspaceName,
-  } from '$lib/new-workspace/draft'
+  import { draftBranchName, fallbackBranchName } from '$lib/new-workspace/draft'
   import {
     ENGINE_OPTIONS,
     engineHint,
@@ -46,14 +41,12 @@
   let submitting = $state(false)
   let submitError = $state<string | null>(null)
 
-  let workspaceName = $state('')
   let branchName = $state('')
   let repoId = $state('')
   let baseBranch = $state('')
   let engine = $state<EngineKind>('claude')
   let prompt = $state('')
 
-  let nameEdited = $state(false)
   let branchEdited = $state(false)
   let branchError = $state<string | null>(null)
   let baseError = $state<string | null>(null)
@@ -61,7 +54,7 @@
   let repoBranches = $state<string[]>([])
   let engineStatuses = $state<EngineStatus[]>([])
 
-  let nameInput = $state<HTMLInputElement | null>(null)
+  let promptInput = $state<HTMLTextAreaElement | null>(null)
   let baseCombo: BaseBranchCombobox | undefined = $state()
 
   const workspaceBranchesOnRepo = $derived(
@@ -100,13 +93,11 @@
   }
 
   function resetForm() {
-    workspaceName = ''
     branchName = ''
     prompt = ''
     engine = settings.defaultEngine
     repoId = resolveDefaultRepoId(repos.items, settings.defaultRepo)
     baseBranch = settings.defaultBase
-    nameEdited = false
     branchEdited = false
     branchError = null
     baseError = null
@@ -124,7 +115,7 @@
     await loadEngines()
     await loadBranches(repoId)
     await tick()
-    nameInput?.focus()
+    promptInput?.focus()
   }
 
   function closeDialog() {
@@ -134,21 +125,9 @@
   }
 
   function onPromptInput() {
-    const trimmed = prompt.trim()
-    if (!nameEdited) workspaceName = trimmed ? draftWorkspaceName(prompt) : ''
-    if (!branchEdited) {
-      branchName = trimmed ? draftBranchName(prompt) : ''
-      branchError = null
-    }
-    if (!trimmed) {
-      if (!nameEdited) workspaceName = ''
-      if (!branchEdited) branchName = ''
-    }
-  }
-
-  function onNameInput() {
-    nameEdited = workspaceName.trim().length > 0
-    if (!workspaceName.trim()) nameEdited = false
+    if (branchEdited) return
+    branchName = prompt.trim() ? draftBranchName(prompt) : ''
+    branchError = null
   }
 
   function onBranchInput() {
@@ -190,15 +169,6 @@
     ]
   }
 
-  function resolvedName() {
-    const repoName = repos.getById(repoId)?.name ?? ''
-    return (
-      workspaceName.trim() ||
-      draftWorkspaceName(prompt) ||
-      fallbackWorkspaceName(repoName)
-    ).slice(0, 48)
-  }
-
   function resolvedBranch() {
     return (
       branchName.trim() ||
@@ -231,13 +201,13 @@
       return
     }
 
-    const name = resolvedName()
     const branch = resolvedBranch()
     submitting = true
 
     const result = await commands.createWorkspace({
       repoId,
-      name: name.slice(0, 48),
+      // The core numbers it: Workspace 1, Workspace 2, …
+      name: '',
       branch,
       base: baseBranch.trim(),
       engine,
@@ -289,7 +259,7 @@
     const pr = app.newWorkspacePullRequest
     if (!open || !pr) return
     if (pr.mode === 'review') return
-    repoId = pr.repoId ?? defaultRepoId()
+    repoId = pr.repoId ?? resolveDefaultRepoId(repos.items, settings.defaultRepo)
     branchName = pr.branch
     branchEdited = true
     prompt = pr.title
@@ -317,23 +287,100 @@
       </Dialog.Header>
 
       <div class="flex flex-col gap-5 p-5">
+        <div class="grid gap-1.5">
+          <label class="text-sm font-medium" for="nw-prompt"
+            >Initial prompt</label
+          >
+          <Textarea
+            bind:ref={promptInput}
+            id="nw-prompt"
+            rows={4}
+            class="min-h-[112px] max-h-[280px] resize-y"
+            placeholder="e.g., Implement OAuth login with Supabase"
+            bind:value={prompt}
+            oninput={onPromptInput}
+            aria-describedby="nw-prompt-hint"
+          />
+          <p id="nw-prompt-hint" class="text-xs text-muted-foreground">
+            Optional. Leave blank and the thread waits until you send a
+            message.
+          </p>
+        </div>
+
         <div class="grid gap-4 min-[760px]:grid-cols-2">
           <div class="grid gap-1.5">
-            <label class="text-sm font-medium" for="nw-name"
-              >Workspace name</label
+            <label class="text-sm font-medium" for="nw-engine">AI engine</label>
+            <select
+              id="nw-engine"
+              class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
+              bind:value={engine}
+              aria-describedby="nw-engine-hint"
             >
-            <Input
-              bind:ref={nameInput}
-              id="nw-name"
-              maxlength={48}
-              placeholder="OAuth login"
-              bind:value={workspaceName}
-              oninput={onNameInput}
-              aria-describedby="nw-name-hint"
-            />
-            <p id="nw-name-hint" class="text-xs text-muted-foreground">
-              Shown in the sidebar and on Homebase
+              {#each ENGINE_OPTIONS as option (option.kind)}
+                {@const status = engineStatusByKind.get(option.kind)}
+                {@const install = engineInstallLabel(status)}
+                <option value={option.kind}>
+                  {option.label}{install ? ` — ${install}` : ''}
+                </option>
+              {/each}
+            </select>
+            <p id="nw-engine-hint" class="text-xs text-muted-foreground">
+              {engineHintText}
             </p>
+          </div>
+          <div class="grid gap-1.5">
+            <label class="text-sm font-medium" for="nw-repo">Repository</label>
+            {#if repos.items.length === 0}
+              <div
+                id="nw-repo"
+                class="border-input bg-input/30 text-muted-foreground flex h-8 items-center rounded-lg border px-2.5 text-sm"
+              >
+                No repositories yet
+              </div>
+              <p id="nw-repo-hint" class="text-xs text-muted-foreground">
+                Add a repo in Settings before creating a workspace.
+              </p>
+            {:else}
+              <select
+                id="nw-repo"
+                class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
+                value={repoId}
+                onchange={onRepoChange}
+                aria-describedby="nw-repo-hint"
+              >
+                {#each repos.items as repo (repo.id)}
+                  <option value={repo.id}>{repo.name}</option>
+                {/each}
+              </select>
+              <p id="nw-repo-hint" class="text-xs text-muted-foreground">
+                The worktree is created from this repo
+              </p>
+            {/if}
+          </div>
+        </div>
+
+        <div class="grid gap-4 min-[760px]:grid-cols-2">
+          <div class="grid gap-1.5">
+            <label class="text-sm font-medium" for="nw-base">Base branch</label>
+            <BaseBranchCombobox
+              bind:this={baseCombo}
+              id="nw-base"
+              hintId="nw-base-hint"
+              errorId="nw-base-error"
+              bind:value={baseBranch}
+              branches={branchList}
+              workspaceBranches={workspaces.items.map((row) => row.branch)}
+              bind:error={baseError}
+            />
+            {#if baseError}
+              <p id="nw-base-error" class="text-xs text-destructive">
+                {baseError}
+              </p>
+            {:else}
+              <p id="nw-base-hint" class="text-xs text-muted-foreground">
+                Your new branch starts from here
+              </p>
+            {/if}
           </div>
           <div class="grid gap-1.5">
             <label class="text-sm font-medium" for="nw-branch"
@@ -366,100 +413,6 @@
               <span id="nw-branch-error" class="sr-only"></span>
             {/if}
           </div>
-        </div>
-
-        <div class="grid gap-4 min-[760px]:grid-cols-2">
-          <div class="grid gap-1.5">
-            <label class="text-sm font-medium" for="nw-repo">Repository</label>
-            {#if repos.items.length === 0}
-              <div
-                id="nw-repo"
-                class="border-input bg-input/30 text-muted-foreground flex h-8 items-center rounded-lg border px-2.5 text-sm"
-              >
-                No repositories yet
-              </div>
-              <p id="nw-repo-hint" class="text-xs text-muted-foreground">
-                Add a repo in Settings before creating a workspace.
-              </p>
-            {:else}
-              <select
-                id="nw-repo"
-                class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
-                value={repoId}
-                onchange={onRepoChange}
-                aria-describedby="nw-repo-hint"
-              >
-                {#each repos.items as repo (repo.id)}
-                  <option value={repo.id}>{repo.name}</option>
-                {/each}
-              </select>
-              <p id="nw-repo-hint" class="text-xs text-muted-foreground">
-                The worktree is created from this repo
-              </p>
-            {/if}
-          </div>
-          <div class="grid gap-1.5">
-            <label class="text-sm font-medium" for="nw-base">Base branch</label>
-            <BaseBranchCombobox
-              bind:this={baseCombo}
-              id="nw-base"
-              hintId="nw-base-hint"
-              errorId="nw-base-error"
-              bind:value={baseBranch}
-              branches={branchList}
-              workspaceBranches={workspaces.items.map((row) => row.branch)}
-              bind:error={baseError}
-            />
-            {#if baseError}
-              <p id="nw-base-error" class="text-xs text-destructive">
-                {baseError}
-              </p>
-            {:else}
-              <p id="nw-base-hint" class="text-xs text-muted-foreground">
-                Your new branch starts from here
-              </p>
-            {/if}
-          </div>
-        </div>
-
-        <div class="grid gap-1.5">
-          <label class="text-sm font-medium" for="nw-engine">AI engine</label>
-          <select
-            id="nw-engine"
-            class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
-            bind:value={engine}
-            aria-describedby="nw-engine-hint"
-          >
-            {#each ENGINE_OPTIONS as option (option.kind)}
-              {@const status = engineStatusByKind.get(option.kind)}
-              {@const install = engineInstallLabel(status)}
-              <option value={option.kind}>
-                {option.label}{install ? ` — ${install}` : ''}
-              </option>
-            {/each}
-          </select>
-          <p id="nw-engine-hint" class="text-xs text-muted-foreground">
-            {engineHintText}
-          </p>
-        </div>
-
-        <div class="grid gap-1.5">
-          <label class="text-sm font-medium" for="nw-prompt"
-            >Initial prompt</label
-          >
-          <Textarea
-            id="nw-prompt"
-            rows={4}
-            class="min-h-[112px] max-h-[280px] resize-y"
-            placeholder="e.g., Implement OAuth login with Supabase"
-            bind:value={prompt}
-            oninput={onPromptInput}
-            aria-describedby="nw-prompt-hint"
-          />
-          <p id="nw-prompt-hint" class="text-xs text-muted-foreground">
-            Optional. Leave blank and the thread waits until you send a
-            message.
-          </p>
         </div>
 
         {#if submitError}

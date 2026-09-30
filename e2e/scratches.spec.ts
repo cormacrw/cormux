@@ -67,21 +67,13 @@ test.describe('scratches', () => {
     await page.keyboard.press('ControlOrMeta+s')
     const dialog = page.getByRole('dialog', { name: 'New scratch' })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('textbox', { name: 'Title' })).toBeFocused()
+    await expect(dialog.getByRole('textbox', { name: 'Prompt' })).toBeFocused()
 
-    await dialog.getByRole('button', { name: /Start scratch/ }).click()
-    await expect(dialog.getByText('Give this scratch a title.')).toBeVisible()
-    await expect(
-      dialog.getByText('Shown on the card and at the top of the scratch'),
-    ).toBeHidden()
-
+    // The title is optional: left blank, the core drafts one from the prompt.
     await dialog
       .getByRole('textbox', { name: 'Prompt' })
       .fill('draft a short changelog for september')
-    await expect(dialog.getByRole('textbox', { name: 'Title' })).toHaveValue(
-      'Draft a short changelog for september',
-    )
-    await expect(dialog.getByText('Give this scratch a title.')).toBeHidden()
+    await expect(dialog.getByRole('textbox', { name: /Title/ })).toHaveValue('')
     await page.screenshot({ path: 'e2e/output/scratch-dialog.png' })
     await dialog
       .getByRole('textbox', { name: 'Prompt' })
@@ -94,15 +86,13 @@ test.describe('scratches', () => {
       }),
     ).toBeVisible()
     await expect(view.getByText('Opened my-app')).toBeVisible()
-    await expect(
-      page.getByText('Started Draft a short changelog for september'),
-    ).toBeVisible()
+    await expect(page.getByText('Started scratch')).toBeVisible()
     await expect(view.getByRole('button', { name: 'Pause' })).toBeVisible()
 
     // A blank start focuses the composer.
     await page.keyboard.press('ControlOrMeta+s')
-    await dialog.getByRole('textbox', { name: 'Title' }).fill('Blank scratch')
-    await dialog.getByRole('textbox', { name: 'Title' }).press('Enter')
+    await dialog.getByRole('textbox', { name: /Title/ }).fill('Blank scratch')
+    await dialog.getByRole('textbox', { name: /Title/ }).press('Enter')
     const composer = page.getByRole('textbox', { name: 'Message this scratch' })
     await expect(composer).toBeFocused()
     await expect(composer).toHaveAttribute(

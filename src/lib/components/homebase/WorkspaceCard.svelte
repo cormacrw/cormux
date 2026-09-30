@@ -10,11 +10,8 @@
     workspaceCardBadgeKind,
     workspaceCardMetaText,
   } from '$lib/homebase/card-status'
-  import { formatRelativeAge } from '$lib/homebase/relative-time'
-  import { ensureWorkspaceSummary } from '$lib/homebase/request-summary'
-  import { app, homebaseUi, settings, threads, workspaces } from '$lib/state'
+  import { app, homebaseUi, settings, threads } from '$lib/state'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import MessageSquare from '@lucide/svelte/icons/message-square'
   import { onMount } from 'svelte'
 
   let {
@@ -47,8 +44,6 @@
     }),
   )
 
-  const hasSummary = $derived(Boolean(workspace.summary?.trim()))
-
   onMount(() => {
     if (exiting) {
       const ms = settings.reduceMotion ? 0 : 150
@@ -58,9 +53,6 @@
     if (settings.reduceMotion) {
       homebaseUi.markCardSeen(workspace.id)
     }
-    void ensureWorkspaceSummary(workspace, (patch) => {
-      workspaces.patchCard(workspace.id, patch)
-    })
     return undefined
   })
 
@@ -91,7 +83,7 @@
       ? 'pointer-events-none opacity-0'
       : ''}"
   >
-    <Card.Header class="gap-3 border-b border-border/60 pb-3">
+    <Card.Header class="gap-3">
       <div class="flex items-start justify-between gap-3">
         <Card.Title
           id="ws-title-{workspace.id}"
@@ -141,37 +133,5 @@
         {/each}
       </p>
     </Card.Header>
-    <Card.Content class="grid gap-3 pt-3">
-      <div class="grid gap-2" aria-busy={hasSummary ? undefined : true}>
-        {#if hasSummary}
-          <p class="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
-            {workspace.summary}
-          </p>
-          <p class="flex items-center gap-1.5 text-xs text-muted-foreground/80">
-            <MessageSquare class="size-3 opacity-70" aria-hidden="true" />
-            Summarized by {workspace.summarySource}{workspace.summaryAtMs
-              ? `, ${formatRelativeAge(workspace.summaryAtMs, nowMs)}`
-              : ''}
-          </p>
-        {:else}
-          <div class="grid gap-2" aria-hidden="true">
-            <div
-              class="h-3 rounded-md bg-muted/80 {settings.reduceMotion
-                ? ''
-                : 'animate-pulse'}"
-            ></div>
-            <div
-              class="h-3 w-[70%] rounded-md bg-muted/60 {settings.reduceMotion
-                ? ''
-                : 'animate-pulse'}"
-            ></div>
-          </div>
-          <p class="flex items-center gap-1.5 text-xs text-muted-foreground/80">
-            <MessageSquare class="size-3 opacity-70" aria-hidden="true" />
-            Summarizing with Haiku 4.5…
-          </p>
-        {/if}
-      </div>
-    </Card.Content>
   </Card.Root>
 </button>

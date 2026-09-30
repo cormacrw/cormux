@@ -31,7 +31,11 @@ function createScratch(input: ScratchInput) {
     {
       id: scratchId,
       repoId: input.repoId,
-      title: input.title,
+      // The core drafts a blank title from the prompt; Haiku's rename is not stubbed.
+      title:
+        input.title.trim() ||
+        (prompt ? prompt.charAt(0).toUpperCase() + prompt.slice(1, 64) : '') ||
+        'Untitled scratch',
       threadId,
       engine: 'cursor',
       status: prompt ? 'running' : 'idle',

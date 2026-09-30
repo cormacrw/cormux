@@ -60,20 +60,6 @@ export class WorkspacesStore {
     return this.items.find((item) => item.id === id)
   }
 
-  patchCard(
-    id: string,
-    patch: Partial<
-      Pick<
-        Workspace,
-        'summary' | 'summaryAtMs' | 'summarySource' | 'modifiedFiles'
-      >
-    >,
-  ) {
-    this.items = this.items.map((item) =>
-      item.id === id ? { ...item, ...patch } : item,
-    )
-  }
-
   patchName(id: string, name: string) {
     this.items = this.items.map((item) =>
       item.id === id ? { ...item, name } : item,

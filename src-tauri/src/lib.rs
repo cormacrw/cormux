@@ -19,6 +19,7 @@ mod harness_config;
 mod ipc;
 mod llm;
 mod mcp;
+mod naming;
 mod menu;
 mod metrics;
 mod process;

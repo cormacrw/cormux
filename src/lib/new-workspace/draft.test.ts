@@ -1,22 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  draftBranchName,
-  draftWorkspaceName,
-  fallbackBranchName,
-  fallbackWorkspaceName,
-} from './draft'
-
-describe('draftWorkspaceName', () => {
-  it('capitalises and takes whole words up to 40 characters', () => {
-    const prompt =
-      'lazy-load the chart widgets on /dashboard so first paint does not wait'
-    expect(draftWorkspaceName(prompt)).toBe('Lazy-load the chart widgets on')
-  })
-
-  it('returns empty for blank prompt', () => {
-    expect(draftWorkspaceName('   ')).toBe('')
-  })
-})
+import { draftBranchName, fallbackBranchName } from './draft'
 
 describe('draftBranchName', () => {
   it('uses feat prefix for feature work', () => {
@@ -39,11 +22,6 @@ describe('draftBranchName', () => {
 })
 
 describe('blank prompt fallbacks', () => {
-  it('uses the repo name, or Workspace', () => {
-    expect(fallbackWorkspaceName('my-app')).toBe('my-app')
-    expect(fallbackWorkspaceName('  ')).toBe('Workspace')
-  })
-
   it('picks the next free feat/workspace branch', () => {
     expect(fallbackBranchName([])).toBe('feat/workspace')
     expect(fallbackBranchName(['feat/workspace', 'feat/workspace-2'])).toBe(
