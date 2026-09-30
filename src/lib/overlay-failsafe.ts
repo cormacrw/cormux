@@ -1,23 +1,47 @@
 /**
- * Safety net for bits-ui layers that never finish closing.
+ * Safety net for bits-ui layers that leave the app ignoring the mouse.
  *
- * While a dialog, menu, popover or select closes, bits-ui marks it `data-ending-style` and waits
- * for its exit animation before unmounting it and, for dialogs, restoring the body's
- * `pointer-events`. On some release installs WebKit never reports that animation finished, which
- * left an invisible overlay over the app and the body ignoring the mouse. If a layer is still
- * closing after STUCK_MS, finish its animations, stop it taking clicks, and unblock the body
- * once no modal is open.
+ * Dialogs, menus, popovers and selects set `pointer-events: none` on the body while open
+ * and restore it once they close. On some release installs that goes wrong in two ways:
+ *
+ * - WebKit never reports a closing layer's exit animation as finished, so bits-ui keeps it
+ *   mounted (`data-ending-style`) with its overlay over the app. After STUCK_MS, finish its
+ *   animations and stop it taking clicks.
+ * - The layer closes, but the body keeps `pointer-events: none`. The keyboard still works,
+ *   the mouse does nothing, not even hover. Whenever the body or a layer changes, check
+ *   again after SETTLE_MS and clear the lock if nothing that sets it is still open.
  */
 const STUCK_MS = 1000
+const SETTLE_MS = 300
 const ENDING = 'data-ending-style'
-const OPEN_MODAL =
-  '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'
+// Every bits-ui layer that locks the body renders one of these while it's open.
+const OPEN_LAYER = ['dialog', 'alertdialog', 'menu', 'listbox']
+  .map((role) => `[role="${role}"][data-state="open"]`)
+  .join(', ')
 
 export function installOverlayFailsafe(
   root: HTMLElement = document.body,
 ): () => void {
   const timers = new Map<Element, number>()
   const disabled = new Set<HTMLElement>()
+  let settleTimer: number | undefined
+
+  function unlockBodyIfIdle() {
+    settleTimer = undefined
+    if (
+      document.body.style.pointerEvents === 'none' &&
+      !document.querySelector(OPEN_LAYER)
+    ) {
+      document.body.style.removeProperty('pointer-events')
+    }
+  }
+
+  // Not a debounce: the DOM changes constantly while an agent streams, so a check that
+  // restarted on every change might never run.
+  function scheduleBodyCheck() {
+    if (settleTimer === undefined)
+      settleTimer = window.setTimeout(unlockBodyIfIdle, SETTLE_MS)
+  }
 
   function rescue(el: HTMLElement) {
     timers.delete(el)
@@ -34,15 +58,10 @@ export function installOverlayFailsafe(
       el.style.pointerEvents = 'none'
       disabled.add(el)
     }
-    if (
-      document.body.style.pointerEvents === 'none' &&
-      !document.querySelector(OPEN_MODAL)
-    ) {
-      document.body.style.removeProperty('pointer-events')
-    }
+    unlockBodyIfIdle()
   }
 
-  function watch(el: Element) {
+  function watchEnding(el: Element) {
     if (!(el instanceof HTMLElement)) return
     if (el.hasAttribute(ENDING)) {
       if (!timers.has(el))
@@ -60,19 +79,31 @@ export function installOverlayFailsafe(
   }
 
   const observer = new MutationObserver((records) => {
+    let layersChanged = false
     for (const record of records) {
-      if (record.type === 'attributes') watch(record.target as Element)
+      if (record.attributeName === ENDING) {
+        watchEnding(record.target as Element)
+      } else if (record.attributeName === 'data-state') {
+        layersChanged = true
+      } else if (record.target === document.body) {
+        // The body's own style, or a portal mounting or unmounting under it.
+        layersChanged = true
+      }
     }
+    if (layersChanged && document.body.style.pointerEvents === 'none')
+      scheduleBodyCheck()
   })
   observer.observe(root, {
     subtree: true,
+    childList: true,
     attributes: true,
-    attributeFilter: [ENDING],
+    attributeFilter: [ENDING, 'data-state', 'style'],
   })
 
   return () => {
     observer.disconnect()
     for (const timer of timers.values()) window.clearTimeout(timer)
     timers.clear()
+    if (settleTimer !== undefined) window.clearTimeout(settleTimer)
   }
 }
