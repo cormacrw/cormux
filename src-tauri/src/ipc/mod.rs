@@ -56,6 +56,7 @@ pub fn builder() -> Builder {
             commands::sync_stack,
             commands::get_teardown_preview,
             commands::teardown_workspace,
+            commands::open_workspace_terminal,
             commands::control_workspace_app,
             commands::set_repo_run_command,
             commands::set_repo_setup_commands,

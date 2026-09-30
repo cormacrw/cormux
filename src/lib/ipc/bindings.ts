@@ -415,6 +415,17 @@ async teardownWorkspace(input: TeardownInput) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Open a Terminal window in the workspace's worktree.
+ */
+async openWorkspaceTerminal(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_workspace_terminal", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async controlWorkspaceApp(input: ControlWorkspaceAppInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("control_workspace_app", { input }) };

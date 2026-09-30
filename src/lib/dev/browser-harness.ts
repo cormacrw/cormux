@@ -317,6 +317,22 @@ export function installBrowserHarness() {
       await new Promise((resolve) => setTimeout(resolve, 300))
       return null
     }
+    if (cmd === 'open_workspace_terminal') {
+      ;(window as { __HARNESS_OPENED_TERMINAL__?: unknown }).__HARNESS_OPENED_TERMINAL__ = args.workspaceId
+      return null
+    }
+    if (cmd === 'get_teardown_preview') {
+      return {
+        workspaceId: args.workspaceId,
+        workspaceName: 'OAuth login',
+        engineLabel: 'Cursor',
+        branch: 'feat/oauth-login',
+        worktreePath: '/tmp/cormux-fixture/oauth',
+        appRunning: false,
+        deleteBranchDefault: true,
+        dataLoss: { uncommittedFiles: 0, unpushedCommits: 0, hasDataLoss: false, warning: null },
+      }
+    }
     if (cmd === 'list_repo_branches') {
       return { branches: ['main', 'develop', 'feat/oauth-login'] }
     }

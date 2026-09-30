@@ -1243,6 +1243,31 @@ pub async fn get_teardown_preview(
     crate::teardown::preview(&state, &workspace_id).await
 }
 
+/// Open a Terminal window in the workspace's worktree.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_workspace_terminal(
+    workspace_id: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let row = state
+        .store
+        .workspace_by_id(&workspace_id)?
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    let status = tokio::process::Command::new("open")
+        .args(["-a", "Terminal", &row.worktree_path])
+        .status()
+        .await
+        .map_err(|error| Error::Process(format!("open Terminal: {error}")))?;
+    if !status.success() {
+        return Err(Error::Process(format!(
+            "Terminal couldn't open {}",
+            row.worktree_path
+        )));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn teardown_workspace(

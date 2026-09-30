@@ -46,6 +46,7 @@ commands.allow = [
   "sync_stack",
   "get_teardown_preview",
   "teardown_workspace",
+  "open_workspace_terminal",
   "start_streaming_spike",
   "control_workspace_app",
   "set_repo_run_command",

@@ -1,5 +1,7 @@
 <script lang="ts">
-  import * as InputGroup from '$lib/components/ui/input-group'
+  import { Button } from '$lib/components/ui/button'
+  import { Kbd } from '$lib/components/ui/kbd'
+  import CommandIcon from '@lucide/svelte/icons/command'
   import { runWorkspaceApp } from '$lib/command-palette/actions'
   import { repos, workspaceRecords } from '$lib/state'
   import Play from '@lucide/svelte/icons/play'
@@ -28,49 +30,60 @@
   }
 </script>
 
-<InputGroup.Root
+<div
   role="group"
   aria-label="App"
   data-od-id="ws-run-controls"
-  class="w-auto shrink-0"
+  class="flex shrink-0 items-center gap-2"
 >
   {#if appStatus === 'stopped' || appStatus === 'crashed'}
-    <InputGroup.Button
+    <Button
+      variant="secondary"
+      size="xl"
       disabled={appStatus === 'stopped' && runBlocked}
       aria-label={appStatus === 'crashed' ? 'Restart app' : 'Run app'}
+      aria-keyshortcuts="Meta+R"
       data-ws-focus={appStatus === 'crashed' ? 'restart' : 'run'}
       data-od-id={appStatus === 'crashed' ? 'ws-restart' : 'ws-run'}
-      class="gap-1 px-2.5"
       onclick={() => run(appStatus === 'crashed' ? 'restart' : 'run')}
     >
       {#if appStatus === 'crashed'}
-        <RotateCw class="size-3.5" aria-hidden="true" />
-        <span class="text-xs">Restart</span>
+        <RotateCw class="size-4" aria-hidden="true" />
+        Restart
       {:else}
-        <Play class="size-3.5" aria-hidden="true" />
-        <span class="text-xs">Run</span>
+        <Play class="size-4" aria-hidden="true" />
+        Run
       {/if}
-    </InputGroup.Button>
+      <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />R</Kbd>
+    </Button>
   {:else}
-    <InputGroup.Button
-      variant="ghost"
+    <Button
+      variant="secondary"
+      size="xl"
       aria-label="Restart app"
+      aria-keyshortcuts="Meta+R"
       disabled={appStatus === 'starting'}
       data-ws-focus="restart"
       data-od-id="ws-restart"
       onclick={() => run('restart')}
     >
-      <RotateCw class="size-3.5" aria-hidden="true" />
-    </InputGroup.Button>
-    <InputGroup.Button
-      variant="ghost"
+      <RotateCw class="size-4" aria-hidden="true" />
+      Restart
+      <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />R</Kbd>
+    </Button>
+    <Button
+      variant="secondary"
+      size="xl"
       aria-label="Stop app"
+      aria-keyshortcuts="Meta+."
       class="hover:text-destructive"
       data-ws-focus="stop"
       data-od-id="ws-stop"
       onclick={() => run('stop')}
     >
-      <Square class="size-3.5" aria-hidden="true" />
-    </InputGroup.Button>
+      <Square class="size-4" aria-hidden="true" />
+      Stop
+      <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />.</Kbd>
+    </Button>
   {/if}
-</InputGroup.Root>
+</div>
