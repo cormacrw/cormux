@@ -1,5 +1,7 @@
 # Cormux
 
+<p align="center"><img src="product/logos/full_cormux.png" alt="Cormux" width="491"></p>
+
 A macOS app for running many coding agents in parallel, each in its own git worktree. Product context lives in [`product/PRODUCT.md`](product/PRODUCT.md) and the technical design in [`product/ARCHITECTURE.md`](product/ARCHITECTURE.md).
 
 ## Stack
