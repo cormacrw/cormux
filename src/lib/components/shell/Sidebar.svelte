@@ -65,6 +65,10 @@
     >
       <Layers class="size-4 shrink-0 opacity-80" aria-hidden="true" />
       <span class="flex-1 text-left">Homebase</span>
+      <kbd
+        class="font-mono text-[10px] text-muted-foreground/80"
+        aria-hidden="true">⌘H</kbd
+      >
     </Button>
 
     <Button

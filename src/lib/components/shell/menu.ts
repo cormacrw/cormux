@@ -11,6 +11,9 @@ export async function bindNativeMenu() {
     listen('menu://open-settings', () => {
       app.openSettings()
     }),
+    listen('menu://homebase', () => {
+      app.openHomebase()
+    }),
     listen('menu://command-palette', () => {
       app.requestCommandPalette()
     }),
