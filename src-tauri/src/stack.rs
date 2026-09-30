@@ -6,8 +6,10 @@
 //! and `sync` with their non-interactive flags. Pull requests are opened by hand with
 //! Create PR, never by gh-stack. Exit codes are gh-stack's documented ones.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -22,6 +24,8 @@ use crate::state::AppState;
 use crate::workspace::WorkspaceRecord;
 
 const EXIT_NOT_IN_STACK: i32 = 2;
+/// `gh stack checkout`: no stack, local or on GitHub, has the branch.
+const EXIT_STACK_NOT_FOUND: i32 = 2;
 const EXIT_REBASE_CONFLICT: i32 = 3;
 const EXIT_GITHUB_API: i32 = 4;
 const EXIT_LOCKED: i32 = 8;
@@ -246,7 +250,15 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
 
     let json = match view(state, &worktree).await? {
         View::Stacked(json) => json,
-        View::NotStacked => return Ok(empty(StackStatus::NotStacked, None)),
+        View::NotStacked => {
+            if !checkout_remote_stack(state, &worktree, &record.branch, &record.base).await {
+                return Ok(empty(StackStatus::NotStacked, None));
+            }
+            match view(state, &worktree).await? {
+                View::Stacked(json) => json,
+                _ => return Ok(empty(StackStatus::NotStacked, None)),
+            }
+        }
         View::Unavailable(message) => return Ok(empty(StackStatus::Unavailable, Some(message))),
     };
 
@@ -307,6 +319,68 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         current_branch: json.current_branch,
         branches,
     })
+}
+
+/// The branch each worktree last looked for on GitHub, so reopening the Stack tab doesn't
+/// ask again until a different branch is checked out.
+static REMOTE_STACK_CHECKED: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(Default::default);
+
+/// A branch checked out from GitHub has no gh-stack metadata in this worktree, so
+/// `gh stack view` calls it unstacked. `gh stack checkout <branch>` looks for it in the
+/// stacks on GitHub too and, when one has it, sets that stack up here. Returns whether it did.
+async fn checkout_remote_stack(
+    state: &AppState,
+    worktree: &Path,
+    branch: &str,
+    trunk: &str,
+) -> bool {
+    if branch.is_empty() || branch == trunk {
+        return false;
+    }
+    let key = worktree.to_string_lossy().to_string();
+    {
+        let mut checked = REMOTE_STACK_CHECKED
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if checked.get(&key).is_some_and(|last| last == branch) {
+            return false;
+        }
+        checked.insert(key.clone(), branch.to_string());
+    }
+    let forget = || {
+        // Look again next time: this failure says nothing about whether a stack exists.
+        REMOTE_STACK_CHECKED
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key);
+    };
+
+    let token = fallback_token(state).await;
+    let output = match gh_stack(state, worktree, &["checkout", branch], token.as_deref()).await {
+        Ok(output) => output,
+        Err(_) => {
+            forget();
+            return false;
+        }
+    };
+    match output.status.code() {
+        Some(0) => {}
+        Some(EXIT_STACK_NOT_FOUND) => return false,
+        _ => {
+            log::warn!("gh stack checkout {branch}: {}", stderr_text(&output));
+            forget();
+            return false;
+        }
+    }
+    // gh-stack checks the branch out as part of setting up the stack; keep the workspace
+    // on the branch it asked for.
+    if state.git.current_branch(worktree).await.ok().as_deref() != Some(branch)
+        && let Err(error) = state.git.switch(worktree, branch).await
+    {
+        log::warn!("switching back to {branch} after gh stack checkout: {error}");
+    }
+    true
 }
 
 /// Add `branch` on top of the stack. When the checked-out branch isn't stacked yet,
