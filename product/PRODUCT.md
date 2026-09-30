@@ -22,15 +22,15 @@ Solo developer versus team, and how much PR review matters compared with buildin
 
 ## Product Purpose
 
-Harness lets one person run many coding agents in parallel without them interfering with each other. Each task gets a **workspace**, which is an isolated git worktree on its own branch with one or more agent **threads**. Harness covers the loop from creating a branch to tearing it down: set up the worktree, run agents, run the app, review changes, open a PR, and clean up.
+Cormux lets one person run many coding agents in parallel without them interfering with each other. Each task gets a **workspace**, which is an isolated git worktree on its own branch with one or more agent **threads**. Cormux covers the loop from creating a branch to tearing it down: set up the worktree, run agents, run the app, review changes, open a PR, and clean up.
 
 Success means the user can keep several workspaces moving at once and always knows which one needs them. **(inferred)**
 
 ## Positioning
 
-**(inferred, unconfirmed)** Harness sits above individual agent CLIs rather than competing with them:
+**(inferred, unconfirmed)** Cormux sits above individual agent CLIs rather than competing with them:
 
-- **Engine-agnostic:** every thread picks an engine. Harness drives the CLIs the user already has installed and signed in to, so it never handles their model accounts. Claude Code and Cursor CLI are the launch engines; Codex CLI and Gemini CLI follow, since all four can speak the same structured protocol.
+- **Engine-agnostic:** every thread picks an engine. Cormux drives the CLIs the user already has installed and signed in to, so it never handles their model accounts. **MVP launch:** Claude Code and Cursor CLI. Codex and Gemini use the same ACP adapters and appear in Settings when installed.
 - **Isolation by default:** one worktree and branch per workspace, so parallel agents never share a checkout.
 - **The whole lifecycle in one place:** worktree setup, running the app, diffs, PR creation, PR review and teardown, not just the chat.
 - **Local and light:** a small native app (about 10 MB) that runs everything on the user's machine with their own git and credentials.
@@ -43,7 +43,7 @@ Success means the user can keep several workspaces moving at once and always kno
 - Agents ask for **approvals** before risky tool calls. Read-only tools can be auto-approved.
 - **Review workspaces** check out a PR branch. A Reviewer thread produces **findings** grouped as Blocking, Suggestions and Nits, and the user picks which ones to send to an agent to fix.
 - The user works in a local git environment with GitHub as the remote.
-- Harness is often in the background while agents work. It must reach the user through OS notifications and the dock badge when something needs them.
+- Cormux is often in the background while agents work. It must reach the user through OS notifications and the dock badge when something needs them.
 
 ## Technical Foundation
 
@@ -58,9 +58,9 @@ The confirmed stack. Details, module boundaries and the feature-by-feature check
 
 What this means for the product:
 
-- **Agents are driven through structured protocols, not a terminal.** Each thread's CLI talks to Harness in JSON (the Agent Client Protocol, or Claude Code's stream-JSON), which is what lets Harness show tool steps, edits, plans and approval cards instead of raw terminal output. Setup and run commands do run in a terminal-like PTY, so the Output tab shows real colourised output.
-- **Harness uses the user's own tools and credentials.** It runs the system `git` with the user's config and SSH keys, spawns commands in the user's login shell environment (so `nvm`, `asdf`, `pnpm` and `uv` work), and keeps the GitHub token in the macOS Keychain.
-- **The Rust core owns the truth.** The interface can reload without losing work, and agent sessions resume after Harness restarts where the engine allows it.
+- **Agents are driven through structured protocols, not a terminal.** Each thread's CLI talks to Cormux in JSON (the Agent Client Protocol, or Claude Code's stream-JSON), which is what lets Cormux show tool steps, edits, plans and approval cards instead of raw terminal output. Setup and run commands do run in a terminal-like PTY, so the Output tab shows real colourised output.
+- **Cormux uses the user's own tools and credentials.** It runs the system `git` with the user's config and SSH keys, spawns commands in the user's login shell environment (so `nvm`, `asdf`, `pnpm` and `uv` work), and keeps the GitHub token in the macOS Keychain.
+- **The Rust core owns the truth.** The interface can reload without losing work, and agent sessions resume after Cormux restarts where the engine allows it.
 - **Memory is mostly the agents.** The core is light, but each agent CLI uses 150 to 400 MB. The memory meter reports that honestly.
 
 ## Capabilities and Constraints
@@ -79,40 +79,47 @@ Shown in the prototype, all simulated there, and all supported by the stack:
 Required by a real build, and missing from the prototype:
 
 - **Failure states** for worktree creation, setup commands, app crashes, git conflicts, push failures and GitHub errors. Each one says what failed and offers a next step.
-- **OS notifications** when an agent needs approval or a review finishes while Harness is in the background.
+- **OS notifications** when an agent needs approval or a review finishes while Cormux is in the background.
 - **Engine detection** in Settings: which CLIs are installed, their versions and whether they are signed in.
 - **Persistence** of settings, repos, workspaces and transcripts across restarts.
 
 Constraints:
 
-- The user must have git, at least one supported agent CLI, and a GitHub account. Harness doesn't install or sign in to engines for them.
+- The user must have git, at least one supported agent CLI, and a GitHub account. Cormux doesn't install or sign in to engines for them.
 - Nothing leaves the machine except the engines' own model traffic, GitHub API calls, and any small model calls the user enables.
 - **Pause is interrupt and hold.** An agent can't be frozen mid-request; Pause cancels the current turn and holds the thread until Resume. The composer spec should be updated to match.
 
 Terminology: **workspace**, **thread**, **engine**, **repo**, **Homebase**, **findings**, **teardown**. Workspaces are named in plain language ("Auth session timeout"); the branch (`feat/auth`) is shown separately and never stands in for the name.
 
-Decided:
+## Decisions (MVP)
+
+Recorded from the shipped build (epic COR-31). Technical detail in [`ARCHITECTURE.md` → Decisions (MVP)](ARCHITECTURE.md#decisions-mvp).
+
+| ID | Decision |
+| --- | --- |
+| COR-207 | **Engines at launch:** Claude Code + Cursor CLI. Codex and Gemini ACP adapters are in the app and selectable when the CLI is installed; not required for MVP positioning. |
+| COR-208 | **GitHub:** Personal access token in macOS Keychain (Settings), with optional fallback to `gh auth token` when no PAT is stored. Submit review posts **line comments** for findings that have file and line; others go in the review body. |
+| COR-209 | **Small model:** One-shot calls through the installed Claude CLI (`haiku`) using the user's existing Claude sign-in. Optional Anthropic API key in Keychain if set. No separate API key required for MVP. |
+| COR-210 | **Quit:** On exit, the process supervisor runs `stop_all` (app and setup PTYs). Agent engines get a **5s graceful shutdown** on workspace teardown; nothing is left running in the background after Cormux quits. |
+| COR-211 | **Transcripts after teardown:** Archive workspace and thread history in SQLite (`archived_at`); worktree and branch still removed on teardown. |
+| COR-212 | **Changes Approve / Reject:** Approve **stages** the file; Reject **discards** worktree edits for that path (restore tracked, remove untracked). **Undo** clears the UI review mark only. Create PR does not require per-file approvals. |
+| COR-213 | **Permissions:** Auto-approve read-only tools when enabled; edits, deletes and shell execution always need the user. Per-repo command allowlists are deferred (hook only). |
+| COR-214 | **Skills:** Settings placeholder only for MVP; no skill storage or engine attachment yet. |
+| COR-215 | **Merge, file tree, editor:** No in-app file tree or editor. Pull/merge conflicts offer abort; open files in the OS editor. Shipping is via Create PR, not an in-app merge action. |
+| COR-216 | **Visual:** shadcn-svelte **nova**, Geist and Geist Mono, dark developer UI aligned with the prototype, not pixel-perfect. Logo still open. |
+| COR-217 | **Threads and worktrees:** Join-thread adds another agent on the **same** worktree as the Lead, not sub-worktrees; coordination is conversational. |
+| COR-218 | **Pricing / distribution:** UNLICENSED local app for MVP; no billing or accounts. Commercial packaging and distribution later. |
+
+Also decided earlier:
 
 - Desktop app on Tauri 2 with a Svelte 5 interface, macOS first.
-- Worktrees live at `~/.harness/worktrees/<repo>/<branch>`, so two repos can use the same branch name.
-
-Undecided (see [Open technical decisions](ARCHITECTURE.md#open-technical-decisions) for recommended answers):
-
-- Whether Codex CLI and Gemini CLI ship at launch or follow.
-- How GitHub sign-in works (reuse the GitHub CLI's token, or Harness's own sign-in) and whether reviews are posted with line comments.
-- Where small model calls come from (through the user's Claude Code sign-in, or an API key they add).
-- Whether apps and agents keep running when Harness quits.
-- Whether transcripts are archived after teardown.
-- Skills management (the Settings section is a stub).
-- How the file tree and editor fit in.
-- Merge flow (Create PR replaced the old direct merge).
-- Pricing, licensing and distribution.
+- Worktrees live at `~/.cormux/worktrees/<repo>/<branch>`, so two repos can use the same branch name.
 
 ## Brand Commitments
 
-- The product name is **Harness**.
+- The product name is **Cormux**.
 - UI copy is plain and specific, in sentence case, with no em-dashes and at most one separator per metadata line. **(inferred from past edits)**
-- The interface is dark, built on shadcn-svelte components themed to Harness. Beyond that the visual direction isn't settled: the prototype uses its own dark palette and Geist, and there are two alternative directions (Ledger and Tidepool) in `alternatives/`. No logo exists.
+- The interface is dark, built on shadcn-svelte **nova** with Geist and Geist Mono (see COR-216). Ledger and Tidepool in `alternatives/` remain reference only. No logo yet.
 
 ## Evidence on Hand
 
@@ -125,11 +132,11 @@ Undecided (see [Open technical decisions](ARCHITECTURE.md#open-technical-decisio
 **(inferred from decisions made while building the prototype)**
 
 1. **The conversation is the product.** The agent thread is the main surface; code, diffs and output are available on demand without taking over.
-2. **Show what needs you.** Status comes down to working, idle or needs attention, so the user can supervise many workspaces at a glance, even when Harness is in the background.
+2. **Show what needs you.** Status comes down to working, idle or needs attention, so the user can supervise many workspaces at a glance, even when Cormux is in the background.
 3. **Isolation is non-negotiable.** One worktree per workspace. Actions that could break a running agent (like switching branches) are locked, and the lock explains why.
 4. **Drafted, never presumed.** Models draft names, PR reasons and findings, but the user edits, selects and confirms before anything leaves the machine.
 5. **Clean up is part of the job.** Teardown removes the worktree and, by default, the branch.
-6. **Your tools, your credentials.** Harness drives the git, shell and agent CLIs the user already trusts, and never asks for more access than they already have.
+6. **Your tools, your credentials.** Cormux drives the git, shell and agent CLIs the user already trusts, and never asks for more access than they already have.
 
 ## Accessibility & Inclusion
 

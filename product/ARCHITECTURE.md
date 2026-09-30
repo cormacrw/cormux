@@ -53,7 +53,7 @@ Each feature spec checked against the stack. "Supported" means the stack handles
 | 21 | Settings | Supported | Persisted in SQLite; engine detection by resolving each CLI on the login-shell `PATH`. |
 | 22 | Repos | Supported | Native folder picker (`tauri-plugin-dialog`); `git rev-parse` validation; default branch from `origin/HEAD`. |
 
-Nothing in the specs needs a different stack. Everything marked "needs a decision" is listed in [Open technical decisions](#open-technical-decisions).
+Nothing in the specs needs a different stack. Former open decisions are recorded in [Decisions (MVP)](#decisions-mvp).
 
 ## System overview
 
@@ -156,7 +156,7 @@ The core of the product. Each thread is one long-lived engine process with the w
 | Cursor CLI | `agent acp` | ACP over stdio | `session/request_permission` |
 | Gemini CLI | `gemini --acp` | ACP over stdio | `session/request_permission` |
 | Codex CLI | `codex-acp` (wraps `codex app-server`) | ACP over stdio | `session/request_permission` |
-| Claude Code | `claude --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio` | Claude stream-JSON, translated to ACP events in Rust | `control_request` with subtype `can_use_tool` |
+| Claude Code | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --await-initialize` | Claude stream-JSON, translated to ACP events in Rust | `control_request` with subtype `can_use_tool` |
 
 Claude Code gets a native Rust translator because its ACP adapter is a Node package, which would mean bundling or requiring Node. Its control protocol is the one Anthropic's Agent SDK uses, but it's thinly documented and has had permission bugs, so it's the first thing to spike (see [Spikes](#spikes-before-building-features)).
 
@@ -328,19 +328,24 @@ The stack's 15 to 30 MB claim holds for the core, but the number users see in Ac
 
 macOS first. Tauri, `portable-pty` (ConPTY on Windows) and the git approach all work on Windows and Linux, but three things need work there: login-shell environment resolution, process-group termination (job objects on Windows), and WebKitGTK's weaker CSS support on Linux.
 
-## Open technical decisions
+## Decisions (MVP)
 
-These are product decisions the architecture can support either way.
+Closed under epic COR-31. Product-facing summary in [`PRODUCT.md` → Decisions (MVP)](PRODUCT.md#decisions-mvp).
 
-| Decision | Options | Recommendation |
-| --- | --- | --- |
-| Engines at launch | Claude Code and Cursor CLI only (as in the stack brief), or all four | Launch with Claude Code and Cursor CLI. Codex and Gemini are mostly configuration once ACP works. |
-| Pause semantics | See below | Interrupt and hold. |
-| Small model access | Through Claude Code, or a direct API key | Through Claude Code by default; API key optional. |
-| GitHub auth | `gh auth token` if the GitHub CLI is installed; OAuth device flow; GitHub App | Use `gh` when present, device flow otherwise. |
-| Apps and agents on quit | Stop everything, or keep running in the background | Stop everything; resume agent sessions on relaunch. |
-| Transcripts after teardown | Delete, or archive | Archive in SQLite; worktree and branch still removed. |
-| Approve / Reject in Changes | Label only, stage and revert, or feedback to the agent | Reject sends the file back to the agent with a reason; Approve is a review mark. |
+| ID | Shipped behaviour |
+| --- | --- |
+| COR-207 | **Engines:** Adapters for Claude (stream-JSON), Cursor/Codex/Gemini (ACP). Settings `detectEngines` shows all four; default engine is Claude. MVP launch story is Claude + Cursor; Codex/Gemini when installed. |
+| COR-208 | **GitHub auth:** Keychain service `cormux` / user `github-token`; `resolve_token` falls back to `gh auth token`. **Reviews:** `ReviewLineComment` on submit when findings include path and line. |
+| COR-209 | **Small model:** `LlmClient::complete` uses Keychain Anthropic key if present, else `claude -p --model haiku --output-format json`. Debounced per workspace (~60s). |
+| COR-210 | **Quit:** `RunEvent::ExitRequested` → `process.stop_all()` (PTY apps). **Teardown:** `engines.stop_threads` sends `EngineCommand::Shutdown` then waits `STOP_GRACE` (5s) per thread. |
+| COR-211 | **Archive:** Teardown sets `workspaces.archived_at` and clears `worktree_path`; timeline events stay in SQLite. Active queries filter `archived_at IS NULL`. |
+| COR-212 | **Changes review:** `review_worktree_file`: `approve` → `git stage`; `reject` → `discard_worktree_file`. UI `undo` only resets `changesReview` state. |
+| COR-213 | **Approvals:** Broker auto-answers read/search when `autoApproveReadOnly` is on; edit/delete/execute always surface. Allowlist hooks reserved (`approvals/hooks.ts`) for COR-143. |
+| COR-214 | **Skills:** `SkillsSettings` empty state only; no persistence or session injection. |
+| COR-215 | **No in-app editor/tree.** Conflicts: `abort_workspace_git_conflict`. Workspace header opens worktree in OS editor/Finder via opener plugin. |
+| COR-216 | **UI stack:** `components.json` style `nova`; `@fontsource-variable/geist` fonts; Tailwind v4 + shadcn-svelte. |
+| COR-217 | **Join thread:** `join_thread_provisioning` attaches to existing worktree; no nested worktrees per thread. |
+| COR-218 | **License:** `Cargo.toml` `license = "UNLICENSED"`; no payment or entitlement checks in app. |
 
 ### Pause semantics
 
@@ -350,8 +355,8 @@ The composer's Pause ([12](features/12-composer.md)) can't freeze an agent mid-t
 
 Short experiments that de-risk the plan, in order:
 
-1. **Claude Code control protocol:** spawn `claude` with stream-JSON in and out and `--permission-prompt-tool stdio`, send two messages, receive and answer a `can_use_tool` request, interrupt a turn, resume a session.
-2. **Cursor over ACP:** `agent acp` with the Rust `agent-client-protocol` client; a permission request round trip and a session load.
-3. **Login-shell environment:** from a signed `.app` launched from Finder, resolve `PATH` and run `pnpm install` and `claude --version` in a worktree.
-4. **PTY app lifecycle:** run `pnpm dev`, detect the port, Stop kills the whole tree, a crash is reported with its exit code.
-5. **Streaming load:** one agent streaming, one app logging at 100 lines a second, and a 5,000-line diff open, while the UI stays responsive.
+1. **Claude Code control protocol:** spawn `claude -p` with stream-JSON in and out, `--permission-prompt-tool stdio`, and `--await-initialize`. Send a host `initialize` control request before the first user message, then two messages, receive and answer a `can_use_tool` request, interrupt a turn, resume a session. `-p` is required: the CLI only accepts `--input-format stream-json` in print mode. Without the initialize handshake, permission asks are auto-denied (`system`/`permission_denied`) instead of `can_use_tool`. Interrupt is a host `control_request` with `subtype: interrupt`. Resume is a new process with `--resume <session_id>` from `system`/`init`.
+2. **Cursor over ACP:** `agent acp` with the Rust `agent-client-protocol` client. Initialize, `session/new`, answer `session/request_permission`, then `session/load`. Mocked in tests; live binary is `--ignored`.
+3. **Login-shell environment:** resolve env via `$SHELL -l -i -c 'env -0'` (the same capture a signed Finder-launched `.app` needs), then run `claude --version` / `pnpm` in that env. Finder codesign is the same function with a GUI-empty `PATH`.
+4. **PTY app lifecycle:** `portable-pty`, port parsed from `localhost:<port>` / `127.0.0.1:<port>`, Stop uses `killpg`, non-zero exit is the crash code.
+5. **Streaming load:** Homebase → "Streaming load spike" streams agent text and 100 Hz logs over IPC while a 5000-line diff is open; fps is shown in the workspace header.

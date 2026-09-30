@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Changes panel shows everything the agents have changed in the worktree: a list of changed files with line counts, and a syntax-highlighted diff of the selected file in unified or split layout. The user can approve or reject each file. The panel is closed by default and opens beside the conversation (or over it on narrow windows).
+The Changes panel shows everything the agents have changed in the worktree: a list of changed files with line counts, and a syntax-highlighted diff of the selected file in unified or split layout. The user can leave comments on lines and send them to the agent as one message. It is a tab pinned to the right of the thread bar, beside Output, and fills the workspace body when selected.
 
 ## Why it exists
 
@@ -10,95 +10,78 @@ The user must be able to check the agent's work before it becomes a PR, without 
 
 ## Where it lives
 
-- `<aside class="changes" id="changes" aria-label="Changes" data-od-id="changes-panel">` inside the workspace body.
+- `<div role="tabpanel" id="changes-panel" aria-labelledby="thread-tab-changes" data-od-id="changes-panel">` in the workspace body, in place of the conversation.
 - Entry points:
-  - **Changes** button in the header (toggle, shows `+N −N`).
-  - Clicking a file name in an edit step in the conversation (opens the panel on that file).
+  - **Changes** tab in the thread bar, right-aligned before Output (shows `+N −N`).
+  - Clicking a file name in an edit step in the conversation (opens the tab on that file).
 - The file tree and in-app editor are deliberately out of scope for now.
 
 ## Anatomy
 
-### Panel header
-- `Changes` title, total `+N −N` (if there are files), and a close (×) icon button.
+### Toolbar
+One row: **Compare against** picker, then (when there are files) the **Unified** / **Split** toggle and total `+N −N`; on the right, **Collapse all** / **Expand all** and **Send N comments to <thread>** (when there are draft comments).
+- **Compare against** defaults to **Uncommitted** (worktree vs `HEAD`, including untracked files). Picking a branch shows committed changes on this branch since it left that branch (`merge-base..HEAD`). Review workspaces start on their PR base.
 
-### File list
-One row per changed file, in the order files were changed:
+### Files (accordion)
+One scrolling list with a section per changed file, in the order files were changed. Every file starts expanded; any number can be open at once.
 
-- **Path**, with the directory in a subtler colour and the file name emphasised; full path in the tooltip.
-- **Review mark**: a check (approved) or x (rejected), if reviewed.
-- **Counts**: `+N` and/or `−N` (zero counts are omitted).
-- **Status letter**: `M` (Modified), `A` (Added), `D` (Deleted), colour-coded; screen readers hear the word.
-- The selected file is marked `aria-current="true"`.
-
-Hidden when there are no changes.
-
-### Diff header
-- File icon, the full path, a status chip (`Modified` amber, `Added` green, `Deleted` red), and `+N −N`.
-- **Layout toggle**: segmented **Unified** / **Split**.
-- **Review controls**:
-  - Unreviewed: a red **Reject** pill and a green **Approve file** pill (check icon).
-  - Approved: `Approved` green chip and an **Undo** pill.
-  - Rejected: `Rejected` red chip and an **Undo** pill.
+- **Header** (sticky while its diff scrolls past; a button with `aria-expanded`): chevron, path with the directory in a subtler colour and the file name emphasised (full path in the tooltip), comment count (speech-bubble icon, if any), `+N` / `−N` (zero counts omitted), and the status letter `M` / `A` / `D`, colour-coded (screen readers hear the word).
+- **Body**: the file's diff, when expanded.
 
 ### Diff body
-- **Unified:** each line has old and new line numbers, a sign column (`+`, `−` or blank), and the code. Each hunk starts with a header like `@@ -1,11 +1,18 @@ getSession`.
-- **Split:** two side-by-side columns labelled "Before" and "After", with a striped fill where one side has no line. Horizontal scrolling of the two sides is synced.
-- **Syntax highlighting** for comments, strings, keywords, numbers, type names and function calls.
-- **Word-level highlights:** when a removed line is directly replaced by an added line, the changed middle portion is highlighted on both lines, unless it covers more than 80% of the line (then the whole line is treated as changed).
+Rendered by [`@git-diff-view/svelte`](https://github.com/MrWangJustToDo/git-diff-view) (patched in `patches/` so comments show in unified mode), recoloured to the app's surfaces.
+- **Unified** or **split** layout, line numbers, syntax highlighting (highlight.js via lowlight) and word-level change highlights.
+- **Comments:** hovering a line shows a `+`; clicking it opens a comment box under the line (`⌘↵` adds, `Esc` cancels). Added comments show under their line with a delete (×) button. Unsent text in a box survives a diff refresh.
 
 ### Empty state (no changes)
 - Diff header: `No changes`.
-- Body, depending on the workspace:
-  - Has an unapproved plan and is idle: list icon, `Plan ready, nothing edited yet`, `Review the plan in the thread. Once you approve it, proposed edits stream in here for file-by-file review.`
-  - Otherwise: clock icon, `Waiting for the first edit`, `The agent is still reading the repository. Diffs appear here as soon as it proposes a change.`
+- Body: mop-sparkles icon, `Clean diff!`, `Go make some changes`
 
 ## Behaviour
 
-- **Toggle:** the header button or the panel's × toggles the panel. `Esc` closes it when no dialog is open.
-- **Selecting a file** (in the list or from a conversation link) opens the panel if needed, shows that file, and scrolls the diff to the top.
+- **Opening:** the Changes tab, or a file link in the conversation. Picking another tab leaves it.
+- **Clicking a file header** expands or collapses that file.
+- **A file link in the conversation** opens the tab, expands that file and scrolls it to the top.
 - **Switching layout** keeps the vertical scroll position.
-- **Approve / Reject / Undo** set the file's review state; the list's review mark updates.
-- Opening a different workspace resets the selection to the first file. The panel's open/closed state carries across workspaces.
+- **Send N comments** posts every draft comment in the workspace to the open thread's agent as one message (each as `path:line`, the quoted line and the note; removed lines are marked), clears them and switches to that thread so its reply is in view. If sending fails the comments are restored. Drafts live in memory only.
+- Opening a different workspace expands every file again and returns to the thread tab.
 - New files added by agents (for example after approving a plan or a delete) appear in the list and update the header counts.
 
 ## Layout
 
-- **Wider than 1100px:** the workspace body splits into two columns: conversation on the left, Changes on the right at `minmax(380px, 44%)`.
-- **1100px and below:** the panel slides over the conversation from the right, up to 520px wide, with a shadow, instead of squeezing the conversation.
+- Full width of the workspace body at every window size; the toolbar wraps on narrow windows.
 
 ## Keyboard and accessibility
 
-- The panel is an `<aside>` labelled "Changes"; the file list is labelled "Changed files".
-- The diff body is focusable (`tabindex="0"`) and labelled "Proposed changes", so it can be scrolled with the keyboard.
-- Signs have screen-reader text (`Added:`, `Removed:`); status letters have their full words.
+- The panel is a `tabpanel` labelled by the Changes tab; the file list is labelled "Changed files".
+- The scrolling file list is focusable (`tabindex="0"`) and labelled "Proposed changes", so it can be scrolled with the keyboard.
+- File headers are buttons with `aria-expanded` / `aria-controls`; status letters have their full words.
 - The layout toggle uses `aria-pressed`.
-- Split columns are labelled "Before" and "After".
+- Diff lines themselves come from git-diff-view and have no screen-reader text for `+` / `−` (a regression from the prototype).
 
 ## Data model
 
 Per workspace, `files[]`:
 
 ```
-{ path, status: 'M' | 'A' | 'D', review: 'pending' | 'approved' | 'rejected',
-  hunks: [{ oldStart, newStart, ctx, lines: ['+added', '-removed', ' context'] }] }
+{ path, added, deleted, hunks: [{ header, body }] }
 ```
 
-Counts, hunk headers, line numbers and word ranges are derived and cached per file.
+Draft comments, per workspace: `{ id, path, side: 'old' | 'new', line, code, body }`.
 
 `state.changesOpen`, `state.fileIdx`, `state.diffMode` (`unified` | `split`).
 
 ## Simulated in the prototype
 
 - Diffs are hard-coded. A real build derives them from `git diff <base>...HEAD` plus uncommitted changes in the worktree, updating live as agents write files.
-- **Approve / Reject** only change a label. Decide what they mean for real: does Reject revert the file, or tell the agent to redo it? Does Approve stage it? Does Create PR require every file approved?
 
 ## Known gaps and open questions
 
 - **The diff doesn't change after a branch switch;** it still shows the old branch's files (see [16](16-branch-switching.md)).
 - Review workspaces show an empty Changes panel, so the user can't see the PR's diff or the diff of fixes made from findings.
-- No inline comments on lines (which would be the natural way to send feedback to an agent or draft PR review comments).
+- Comments are one line at a time; no range selection, and they can't be drafted as PR review comments yet.
+- Comments keep their line number when the file changes underneath them; the quoted code in the message keeps them meaningful.
 - No "whole-file" view, no expanding context around hunks.
 - No per-file filter or search; no grouping by directory for large diffs.
 - No indication of which thread made which change.
 - No way to discard a single hunk.
-- Review marks don't feed into anything (Create PR, findings, agent instructions).

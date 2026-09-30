@@ -61,6 +61,7 @@ Every spec follows the same outline:
 - [16 · Branch switching](16-branch-switching.md)
 - [17 · Pull and rebase](17-pull-and-rebase.md)
 - [18 · Create PR](18-create-pr.md)
+- [25 · Branch stacks](25-branch-stacks.md)
 
 ### Review
 - [19 · Review workspaces](19-review-workspaces.md)

@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Cormux webview: own commands plus dialog, opener and notification. No shell.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-title",
+    "core:window:allow-set-badge-count",
+    "core:window:allow-start-dragging",
+    "core:menu:default",
+    "dialog:default",
+    "opener:default",
+    "notification:default",
+    "allow-ipc"
+  ]
+}

@@ -1,0 +1,370 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn-svelte/tailwind.css';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Cormux follows the system appearance. Light tokens live on :root and the
+ * `dark` class (set before first paint in index.html, then kept in sync by
+ * ModeWatcher) swaps in the dark ones, so shadcn-svelte `dark:` variants
+ * apply as well.
+ */
+:root {
+  color-scheme: light;
+
+  --background: oklch(0.972 0.002 265);
+  --foreground: oklch(0.205 0.006 265);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.205 0.006 265);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.205 0.006 265);
+  --swatch-neutral: oklch(0.215 0.006 265);
+  --primary: var(--swatch-neutral);
+  --primary-foreground: oklch(0.985 0.002 265);
+  --secondary: oklch(0.94 0.003 265);
+  --secondary-foreground: oklch(0.205 0.006 265);
+  --muted: oklch(0.94 0.003 265);
+  --muted-foreground: oklch(0.5 0.01 265);
+  --accent: oklch(0.925 0.004 265);
+  --accent-foreground: oklch(0.205 0.006 265);
+  --destructive: oklch(0.577 0.215 27);
+  --border: oklch(0 0 0 / 9%);
+  --input: oklch(0 0 0 / 14%);
+  --ring: oklch(0.6 0.16 250);
+
+  --success: oklch(0.58 0.15 155);
+  --warning: oklch(0.6 0.14 65);
+  --info: oklch(0.6 0.16 250);
+
+  --chart-1: oklch(0.6 0.16 250);
+  --chart-2: oklch(0.58 0.15 155);
+  --chart-3: oklch(0.6 0.14 65);
+  --chart-4: oklch(0.577 0.215 27);
+  --chart-5: oklch(0.5 0.01 265);
+
+  --radius: 0.5rem;
+
+  --sidebar: oklch(0.952 0.003 265);
+  --sidebar-foreground: oklch(0.205 0.006 265);
+  --sidebar-primary: oklch(0.6 0.16 250);
+  --sidebar-primary-foreground: oklch(0.985 0.002 265);
+  --sidebar-accent: oklch(0.912 0.004 265);
+  --sidebar-accent-foreground: oklch(0.205 0.006 265);
+  --sidebar-border: oklch(0 0 0 / 7%);
+  --sidebar-ring: oklch(0.6 0.16 250);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: oklch(0.155 0.004 265);
+  --foreground: oklch(0.955 0.003 265);
+  --card: oklch(0.185 0.005 265);
+  --card-foreground: oklch(0.955 0.003 265);
+  --popover: oklch(0.205 0.006 265);
+  --popover-foreground: oklch(0.955 0.003 265);
+  --swatch-neutral: oklch(0.945 0.003 265);
+  --primary: var(--swatch-neutral);
+  --primary-foreground: oklch(0.185 0.005 265);
+  --secondary: oklch(0.235 0.006 265);
+  --secondary-foreground: oklch(0.955 0.003 265);
+  --muted: oklch(0.235 0.006 265);
+  --muted-foreground: oklch(0.68 0.01 265);
+  --accent: oklch(0.255 0.007 265);
+  --accent-foreground: oklch(0.955 0.003 265);
+  --destructive: oklch(0.66 0.2 25);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.72 0.14 250);
+
+  --success: oklch(0.74 0.15 155);
+  --warning: oklch(0.8 0.14 75);
+  --info: oklch(0.72 0.14 250);
+
+  --chart-1: oklch(0.72 0.14 250);
+  --chart-2: oklch(0.74 0.15 155);
+  --chart-3: oklch(0.8 0.14 75);
+  --chart-4: oklch(0.66 0.2 25);
+  --chart-5: oklch(0.68 0.01 265);
+
+  --sidebar: oklch(0.135 0.004 265);
+  --sidebar-foreground: oklch(0.955 0.003 265);
+  --sidebar-primary: oklch(0.72 0.14 250);
+  --sidebar-primary-foreground: oklch(0.155 0.004 265);
+  --sidebar-accent: oklch(0.215 0.006 265);
+  --sidebar-accent-foreground: oklch(0.955 0.003 265);
+  --sidebar-border: oklch(1 0 0 / 6%);
+  --sidebar-ring: oklch(0.72 0.14 250);
+}
+
+/*
+ * Primary colour picked in Settings > Appearance (data-accent on <html>).
+ * Graphite is the default and follows the theme via --swatch-neutral; the
+ * others keep white text readable in both themes, except gold, which takes dark text. Swatches in the picker
+ * read these same variables.
+ */
+:root {
+  --code-font-size: 12px;
+
+  --swatch-blue: oklch(0.56 0.19 257);
+  --swatch-violet: oklch(0.55 0.21 292);
+  --swatch-green: oklch(0.56 0.14 155);
+  --swatch-gold: oklch(0.8 0.15 85);
+  --swatch-orange: oklch(0.61 0.18 45);
+  --swatch-rose: oklch(0.58 0.2 15);
+}
+
+:root[data-accent] {
+  --primary-foreground: oklch(0.985 0 0);
+}
+
+:root[data-accent='blue'] {
+  --primary: var(--swatch-blue);
+}
+
+:root[data-accent='violet'] {
+  --primary: var(--swatch-violet);
+}
+
+:root[data-accent='green'] {
+  --primary: var(--swatch-green);
+}
+
+:root[data-accent='gold'] {
+  --primary: var(--swatch-gold);
+  /* Too light for white text. */
+  --primary-foreground: oklch(0.22 0.03 75);
+}
+
+:root[data-accent='orange'] {
+  --primary: var(--swatch-orange);
+}
+
+:root[data-accent='rose'] {
+  --primary: var(--swatch-rose);
+}
+
+@theme inline {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+
+  body {
+    @apply bg-background text-foreground min-h-screen overscroll-none select-none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  [data-tauri-drag-region] {
+    app-region: drag;
+    -webkit-app-region: drag;
+  }
+
+  [data-tauri-drag-region] button,
+  [data-tauri-drag-region] a,
+  [data-tauri-drag-region] input {
+    app-region: no-drag;
+    -webkit-app-region: no-drag;
+  }
+
+  input,
+  textarea,
+  [contenteditable='true'] {
+    @apply select-text;
+  }
+}
+
+/* Cut animation to ~0 for the OS setting and the in-app Reduce motion switch. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:root.reduce-motion *,
+:root.reduce-motion *::before,
+:root.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/*
+ * Agent replies and thoughts rendered from markdown. There's no typography plugin, so lists,
+ * spacing and code blocks are styled here.
+ */
+.agent-markdown {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.agent-markdown > * + * {
+  margin-top: 0.75em;
+}
+
+.agent-markdown :is(ul, ol) {
+  padding-left: 1.5em;
+}
+
+.agent-markdown ul {
+  list-style: disc;
+}
+
+.agent-markdown ol {
+  list-style: decimal;
+}
+
+.agent-markdown li + li,
+.agent-markdown li > :is(ul, ol, p + p) {
+  margin-top: 0.5em;
+}
+
+.agent-markdown li::marker {
+  color: var(--muted-foreground);
+}
+
+.agent-markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.agent-markdown code {
+  border-radius: calc(var(--radius) * 0.6);
+  background: var(--muted);
+  padding: 0.1em 0.3em;
+  font-size: var(--code-font-size);
+}
+
+.agent-markdown pre {
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  padding: 0.75em 1em;
+  line-height: 1.5;
+}
+
+.agent-markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+.agent-markdown blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.75em;
+  color: var(--muted-foreground);
+}
+
+.agent-markdown .type-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--muted-foreground);
+  line-height: 1;
+}
+
+/*
+ * The agent's Working row: AgentSpinner beats on this cycle and the label fades with it,
+ * brightest on the two beats (10% and 30%) and dimmest while the dot rests.
+ */
+:root {
+  --agent-beat-duration: 4.5s;
+}
+
+.agent-working-text {
+  animation: agent-working-fade var(--agent-beat-duration) ease-in-out infinite;
+}
+
+@keyframes agent-working-fade {
+  0%,
+  60%,
+  100% {
+    opacity: 0.55;
+  }
+  10%,
+  30% {
+    opacity: 1;
+  }
+  20% {
+    opacity: 0.8;
+  }
+}
+
+.app-shell {
+  --sidebar-w: 248px;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+}
+
+.app-shell > aside {
+  width: var(--sidebar-w);
+}
+
+@media (max-width: 1100px) {
+  .app-shell {
+    --sidebar-w: 216px;
+  }
+}

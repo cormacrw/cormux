@@ -2,7 +2,7 @@
 
 ## Summary
 
-The workspace header is a single, clean bar across the top of a workspace. On the left: the workspace name and its branch. On the right: the workspace's actions, in a fixed order: app run controls, the Changes toggle, a ⋯ menu for less frequent actions, and one primary action (**Create PR**, or **Submit review** in review workspaces).
+The workspace header is a single, clean bar across the top of a workspace. On the left: the workspace name and its branch. On the right: the workspace's actions, in a fixed order: app run controls, a ⋯ menu for less frequent actions, and one primary action (**Create PR**, or **Submit review** in review workspaces).
 
 ## Why it exists
 
@@ -11,7 +11,7 @@ The header was deliberately stripped back. It previously held a back button, a s
 ## Where it lives
 
 - `<header class="ws-top" id="ws-top" data-od-id="ws-header">` at the top of the workspace view.
-- Hooks: `ws-branch`, `ws-actions`, `ws-run-controls`, `ws-output-toggle`, `ws-run`, `ws-restart`, `ws-stop`, `ws-changes-toggle`, `ws-more`, `ws-rebase`, `ws-create-pr`, `ws-submit-review`.
+- Hooks: `ws-branch`, `ws-actions`, `ws-run-controls`, `ws-run`, `ws-restart`, `ws-stop`, `ws-changes-toggle`, `ws-more`, `ws-rebase`, `ws-create-pr`, `ws-submit-review`.
 
 ## Anatomy
 
@@ -26,8 +26,7 @@ The header was deliberately stripped back. It previously held a back button, a s
 1. **Run controls**: one joined control for the app. Full detail in [15](15-run-app-and-output.md).
    - Left segment toggles the Output tab and shows app state: `Output` (stopped), a spinner and `Starting…`, or a green dot and `localhost:5173`.
    - Right segment: **Run** (stopped) or **Restart** and **Stop** icon buttons (starting or running).
-2. **Changes** secondary button with a file icon. When the workspace has changed files it also shows `+N −N`. Toggles the Changes panel (`aria-pressed`). Full detail in [14](14-changes-panel.md).
-3. **⋯ (More workspace actions)** bordered icon button, opening a right-aligned menu:
+2. **⋯ (More workspace actions)** bordered icon button, opening a right-aligned menu:
    | Item | Icon | Enabled when | Detail |
    | --- | --- | --- | --- |
    | `Pull <N commits> from <base>` / `Up to date with <base>` | download | Branch is behind | See [17](17-pull-and-rebase.md) |
@@ -35,7 +34,7 @@ The header was deliberately stripped back. It previously held a back button, a s
    | `New thread` | plus | Always | See [10](10-thread-tabs.md) |
    | separator | | | |
    | `Teardown worktree…` | trash, red | Always | See [08](08-teardown.md) |
-4. **Primary action** (solid, the only primary in the header):
+3. **Primary action** (solid, the only primary in the header):
    - Build workspace: **Create PR** with a PR icon. After a PR is created it becomes a disabled `PR #<N> opened`. See [18](18-create-pr.md).
    - Review workspace: **Submit review** with a PR icon. Disabled after submitting. See [19](19-review-workspaces.md).
 
@@ -58,7 +57,6 @@ The header is rebuilt on every state change so labels, counts and enabled states
 | Agents running | Branch picker locked, no chevron. |
 | Branch behind base | Pull and Rebase enabled in ⋯. |
 | Up to date | Pull reads `Up to date with main` and is disabled; Rebase disabled. |
-| No changed files | Changes button shows no counts. |
 | PR created | Primary reads `PR #N opened`, disabled. |
 | Review workspace | Primary is **Submit review**. |
 | Review submitted | **Submit review** disabled. |
@@ -76,7 +74,7 @@ Reads: `title`, `branch`, `base`, `behind`, `kind`, `prNum`, `activity`, `files`
 
 ## Known gaps and open questions
 
-- On narrow windows the right-hand group can crowd the name. There's no overflow strategy beyond truncating the name; consider collapsing Changes and the run control into the ⋯ menu below a breakpoint.
+- On narrow windows the right-hand group can crowd the name. There's no overflow strategy beyond truncating the name; consider collapsing the run control into the ⋯ menu below a breakpoint.
 - There's no **Merge** action any more. Create PR replaced it. Decide whether direct merge (for solo repos) returns, perhaps in the ⋯ menu.
 - No "Open in editor" or "Reveal in Finder" for the worktree, which developers will expect even while the in-app editor is deferred.
 - No way to rename the workspace from the header.

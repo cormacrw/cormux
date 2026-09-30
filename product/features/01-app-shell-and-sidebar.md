@@ -68,9 +68,9 @@ The main area shows exactly one view at a time. The browser/window title follows
 
 | View | Window title |
 | --- | --- |
-| Homebase | `Harness · Homebase` |
-| Settings | `Harness · Settings` |
-| Workspace | `Harness · <workspace name>` |
+| Homebase | `Cormux · Homebase` |
+| Settings | `Cormux · Settings` |
+| Workspace | `Cormux · <workspace name>` |
 
 ## Responsive behaviour
 

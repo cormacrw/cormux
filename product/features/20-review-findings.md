@@ -20,8 +20,10 @@ Review output is only useful if acting on it is easy. Grouping by severity lets 
 ### Tab
 List icon, `Findings`, and a count badge of findings still open (not yet sent). No badge when all are sent.
 
+The body is a single centred column (max 3xl, 32px side padding). Its text is selectable so findings can be copied.
+
 ### Intro
-- Engine mark, heading `Review findings`, subtitle `#482 · reviewed by Reviewer with Claude Code`.
+- Heading `Review findings`, subtitle `#482 · reviewed by Reviewer with Claude Code`.
 - **Summary row:** one item per severity with a coloured dot and a count, for example `2 blocking`, `2 suggestions`, `2 nits`.
 - **Quick select** (right of the summary): label `Select`, and ghost buttons **Blocking**, **All**, **None**. Blocking and All are disabled when nothing is open; None is disabled when nothing is selected.
 
@@ -37,12 +39,12 @@ One section per severity that has findings, in this order:
 Group header: a select-all checkbox (checked when all open items are selected, indeterminate when some are, disabled when none are open), the dot, the group name, a count of all findings in the group, and the note.
 
 ### Finding row
-The entire row is a clickable label:
+A bordered card. Only the checkbox toggles selection; the rest is plain, selectable text.
 
-- Checkbox.
+- Checkbox, labelled `Select “<title>”`.
 - **Title**, for example `Retries can process the same event twice`.
-- **Location** in monospace: `src/lib/stripe/retry.ts:48` (line omitted when not applicable).
-- **Explanation**: one or two sentences describing the problem and the fix.
+- **Location** in monospace with a dotted underline: `src/lib/stripe/retry.ts:48` (line omitted when not applicable). Clicking it opens the **Changes** tab, expands that file, scrolls to the line in the new version of the file and flashes it. If the line is outside the diff's hunks, the file header stays in view.
+- **Explanation**: what's wrong and how to fix it, with line breaks kept.
 - **Status chip** on the right:
   - Open: none.
   - Sent: `Sent to <thread>` with a spinner (accent).
@@ -62,7 +64,7 @@ The entire row is a clickable label:
 ## Behaviour
 
 ### Selecting
-- Clicking a row or its checkbox toggles it.
+- Clicking a finding's checkbox toggles it. Clicking its text doesn't, so the text can be selected and copied.
 - A group checkbox selects or clears every *open* finding in that group.
 - Quick select: **Blocking** selects exactly the open blocking findings (and clears the rest); **All** selects every open finding; **None** clears all.
 - Blocking findings are selected by default when the review completes.
@@ -125,13 +127,12 @@ workspace.findings = {
 
 ## Simulated in the prototype
 
-- Findings are fixed per PR. A real build needs structured output from the reviewing engine (severity, file, line, title, explanation), validated before display.
+- Findings come from the Reviewer's structured `<cormux-findings>` block, parsed when its turn ends ([19](19-review-workspaces.md#review-finishing)).
 - Fixing is a timer. A real build sends the selected findings as a structured instruction to the target thread and tracks completion per finding. That needs the agent to report which finding each commit addresses, or the user to confirm.
 
 ## Known gaps and open questions
 
 - Findings can't be dismissed, edited, re-classified or commented on.
-- No link from a finding to the diff at its line (the Changes panel is empty in review workspaces).
 - **Findings don't flow into Submit review.** Unsent findings should become draft review comments.
 - "Fixed" is asserted by the agent. There's no verification step or view of the fix's diff.
 - No way to add your own finding.

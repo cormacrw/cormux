@@ -72,9 +72,10 @@ Run and Restart first open the workspace, then perform the action. Stop acts wit
 | --- | --- | --- |
 | `⌘K` / `Ctrl+K` | Anywhere | Open or close the command palette. |
 | `⌘N` / `Ctrl+N` | Anywhere | Open the New workspace dialog. |
+| `⌘H` / `Ctrl+H` | Anywhere but a dialog | Go to Homebase. Replaces the macOS Hide shortcut; **Hide Cormux** stays in the app menu without one. |
+| `⌘1`–`⌘9` / `Ctrl+1`–`Ctrl+9` | Anywhere but a dialog | Open the Nth workspace in sidebar order. No-op if there isn't one. |
 | `Ctrl+\`` | Workspace view, no dialog open | Toggle between the Output tab and the tab you came from. |
 | `Esc` | A popover is open | Close the popover and return focus to its trigger. |
-| `Esc` | Workspace view, Changes panel open, no dialog open | Close the Changes panel. |
 | `←` `→` `Home` `End` | Focus on a workspace tab | Move between thread, Findings and Output tabs. |
 | `↵` / `⇧↵` | Composer | Send / new line. |
 | `⌘↵` / `Ctrl+↵` | New workspace Initial Prompt, Create PR reason | Submit the form. |

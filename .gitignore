@@ -1,0 +1,21 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Dependencies and build output
+node_modules
+dist
+dist-ssr
+*.local
+test-results
+playwright-report
+e2e/output
+
+# Editor and OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.sw?

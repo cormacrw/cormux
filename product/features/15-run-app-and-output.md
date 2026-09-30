@@ -20,19 +20,7 @@ To check an agent's work, the user needs to see it running, and parallel workspa
 
 ### Header run controls
 
-One joined, bordered control with two parts.
-
-**Left part (Output toggle)**, content depends on app state:
-
-| App state | Content |
-| --- | --- |
-| Stopped | terminal icon and `Output` |
-| Starting | small spinner and `Starting…` |
-| Running | green pulsing dot and `localhost:5173` in monospace |
-
-Clicking it switches to the Output tab; clicking again goes back to the tab you came from. Tooltip: `Show output (⌃\`)` or `Back to thread (⌃\`)`. `aria-pressed` reflects whether Output is showing.
-
-**Right part (actions):**
+One joined, bordered control holding the run actions. App status and the port show on the Output tab (below), not here.
 
 | App state | Buttons |
 | --- | --- |
@@ -128,7 +116,7 @@ The log follows new output while you're at the bottom (within 24px). If you scro
 The log keeps the last **500 lines**; older lines are dropped from the top.
 
 ### Switching tabs
-- Header toggle and `Ctrl+\`` (no dialog open): go to Output, or back to the previous tab (Findings if you came from there and it still exists, otherwise the thread, scrolled to the end).
+- `Ctrl+\`` (no dialog open): go to Output, or back to the previous tab (Findings if you came from there and it still exists, otherwise the thread, scrolled to the end).
 - Clicking the Output tab or arrowing onto it also remembers the previous tab.
 
 ### Across the app
@@ -140,7 +128,6 @@ The log keeps the last **500 lines**; older lines are dropped from the top.
 
 - The log is `role="log"`, labelled "App output", focusable for keyboard scrolling, with `aria-live="off"` so chatty output isn't read aloud.
 - Every icon-only button has an `aria-label` (`Restart app`, `Stop app`, `Run app`).
-- The header toggle's label includes state: `Output, app running on localhost:5173`.
 - `Ctrl+\`` toggles; see [10](10-thread-tabs.md) for arrow-key tab navigation.
 
 ## Data model
