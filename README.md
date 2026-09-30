@@ -34,3 +34,12 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 `pnpm test:e2e` is how UI changes get verified without the native window. It stubs Tauri invoke (see `src/lib/dev/browser-harness.ts`), clicks through the Svelte shell, and writes `e2e/output/*.png`. Overlay traffic lights and Keychain still need `pnpm tauri dev`.
+
+## Releasing
+
+Every push to `main` runs `.github/workflows/release.yml`, but it only publishes a release when the version is new: if `v<version>` is already released, the run passes in seconds and builds nothing. So bump the version before merging `develop` into `main`, in all four places:
+
+- `src-tauri/tauri.conf.json` (the version the workflow reads)
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock` (the `cormux` package entry)
+- `package.json`
