@@ -1,3 +1,4 @@
+import Zap from '@lucide/svelte/icons/zap'
 import Download from '@lucide/svelte/icons/download'
 import GitBranch from '@lucide/svelte/icons/git-branch'
 import Layers from '@lucide/svelte/icons/layers'
@@ -24,6 +25,7 @@ import {
   openWorkspaceThread,
   pullWorkspace,
   requestNewThread,
+  runScratchMacro,
   runWorkspaceApp,
   toggleReduceMotion,
 } from './actions'
@@ -60,6 +62,9 @@ function attachIcons(commands: PaletteCommand[]): PaletteCommand[] {
     if (command.id.startsWith('ws-open-')) {
       return { ...command, icon: workspaceIcon }
     }
+    if (command.id.startsWith('macro-run-')) {
+      return { ...command, icon: Zap }
+    }
     if (command.id.startsWith('scratch-open-')) {
       return { ...command, icon: threadIcons.open }
     }
@@ -94,6 +99,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       reduceMotion: settings.reduceMotion,
       workspaces: workspaces.items,
       scratches: scratches.items,
+      scratchMacros: settings.scratchMacros,
       threads: threads.agents,
       repos: repos.items,
       records: workspaceRecords.records,
@@ -105,6 +111,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       requestNewWorkspace: () => app.requestNewWorkspace(),
       requestNewScratch: () => app.requestNewScratch(),
       openScratch: (id) => app.openScratch(id),
+      runScratchMacro: (id, extra) => void runScratchMacro(id, extra),
       openHomebase: () => app.openHomebase(),
       openTodos: () => app.openTodos(),
       openSettings: () => app.openSettings(),

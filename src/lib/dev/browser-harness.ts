@@ -250,7 +250,15 @@ export function installBrowserHarness() {
       return null
     }
     if (cmd === 'get_metrics') return fixtureSnapshot.memory
-    if (cmd === 'set_setting') return null
+    if (cmd === 'set_setting') {
+      const { key, value } = args.input as { key: string; value: string }
+      const persisted = fixtureSnapshot.persisted
+      persisted.settings = [
+        ...persisted.settings.filter((row) => row.key !== key),
+        { key, value },
+      ]
+      return null
+    }
     if (cmd === 'create_scratch')
       return createScratch(args.input as ScratchInput)
     if (cmd === 'end_scratch') {

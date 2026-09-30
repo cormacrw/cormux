@@ -9,7 +9,7 @@ const TOAST_DURATION_MS = 3600
 /** Show one Harness toast (spec §03). */
 export function showToast(payload: ToastPayload) {
   const label = formatToastPayload(payload)
-  const workspaceId = payload.workspaceId
+  const { workspaceId, scratchId } = payload
 
   toast.custom(ToastLine, {
     componentProps: {
@@ -19,7 +19,11 @@ export function showToast(payload: ToastPayload) {
         ? () => {
             app.openWorkspace(workspaceId)
           }
-        : undefined,
+        : scratchId
+          ? () => {
+              app.openScratch(scratchId)
+            }
+          : undefined,
     },
     duration: TOAST_DURATION_MS,
     dismissible: false,

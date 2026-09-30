@@ -6,6 +6,7 @@
   import GithubSettings from '$lib/components/settings/GithubSettings.svelte'
   import NotificationsSettings from '$lib/components/settings/NotificationsSettings.svelte'
   import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
+  import ScratchMacrosSettings from '$lib/components/settings/ScratchMacrosSettings.svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
   import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
   import SkillsSettings from '$lib/components/settings/SkillsSettings.svelte'
@@ -139,6 +140,22 @@
             description="Local folders that new workspaces can check out from."
           />
           <ReposSettings />
+        </section>
+
+        <section
+          use:bindSection={'macros'}
+          id={settingsSectionDomId('macros')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-macros-h"
+          data-od-id="settings-macros"
+        >
+          <SettingsSectionHead
+            id="settings-macros-h"
+            title="Scratch macros"
+            description="Saved prompts you can start as a scratch from the command palette."
+          />
+          <ScratchMacrosSettings />
         </section>
 
         <section

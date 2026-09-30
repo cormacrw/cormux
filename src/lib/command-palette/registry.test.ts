@@ -41,6 +41,10 @@ describe('buildPaletteCommandsFromState', () => {
             createdAtMs: null,
           },
         ],
+        scratchMacros: [
+          { id: 'macro-1', name: 'Morning triage', prompt: 'Check CI' },
+          { id: 'macro-2', name: 'Empty', prompt: '' },
+        ],
         threads: [
           {
             id: 'th-1',
@@ -119,6 +123,7 @@ describe('buildPaletteCommandsFromState', () => {
         requestNewWorkspace: noop,
         requestNewScratch: noop,
         openScratch: noop,
+        runScratchMacro: noop,
         openHomebase: noop,
         openTodos: noop,
         openSettings: noop,
@@ -137,6 +142,8 @@ describe('buildPaletteCommandsFromState', () => {
     expect(labels).toContain('New scratch')
     expect(labels).toContain('Go to TODOs')
     expect(labels).toContain('Add a task')
+    expect(labels).toContain('Morning triage')
+    expect(labels).not.toContain('Empty')
     expect(labels).toContain('Open Why the webhook signature fails')
     expect(labels).toContain('Open Auth')
     expect(labels).toContain('Run app in Auth')

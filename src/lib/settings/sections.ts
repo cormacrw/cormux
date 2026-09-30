@@ -1,6 +1,7 @@
 export const SETTINGS_SECTIONS = [
   { id: 'agents', label: 'Agents' },
   { id: 'repos', label: 'Repos' },
+  { id: 'macros', label: 'Scratch macros' },
   { id: 'general', label: 'General' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'github', label: 'GitHub' },

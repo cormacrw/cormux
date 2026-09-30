@@ -21,6 +21,7 @@ export function filterCommands(
 
 export const GROUP_ORDER = [
   'Actions',
+  'Macros',
   'Workspaces',
   'Scratches',
   'Threads',

@@ -43,6 +43,9 @@ Used as: the pre-selected engine in the New workspace dialog, and the engine for
 ### Repos
 Description: `Local folders that new workspaces can check out from.` Full detail in [22](22-repos.md).
 
+### Scratch macros
+Description: `Saved prompts you can start as a scratch from the command palette.` Laid out like Repos: one row per macro (lightning icon, name, first line of the prompt) with **Configure** and **Remove**, then an **Add a macro** name field. Adding a macro expands it and focuses **Prompt**. Configure shows **Name** and **Prompt**; edits save 350ms after typing stops. A cleared name keeps the previous one. Names must be unique when added. A macro without a prompt is flagged `Not in the palette`. Stored as JSON in the `scratchMacros` settings row. See [23](23-scratches.md#scratch-macros).
+
 ### General
 Description: `Defaults for new workspaces and how the app behaves.`
 

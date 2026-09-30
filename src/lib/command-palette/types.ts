@@ -5,6 +5,8 @@ export type PaletteCommand = {
   group: string
   label: string
   meta?: string
+  /** A quieter second line under the label. */
+  subtitle?: string
   kbd?: string
   icon?: Component
   run: () => void

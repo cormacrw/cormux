@@ -1,4 +1,11 @@
+import { coreErrorText } from '$lib/feedback/core-error'
+import { showToast } from '$lib/feedback/show-toast'
+import { commands, fetchSnapshot } from '$lib/ipc'
+import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
+import { macroPromptWithExtra } from '$lib/settings/scratch-macros'
+import { hydrateFromSnapshot } from '$lib/state'
 import { app } from '$lib/state/app.svelte'
+import { repos } from '$lib/state/repos.svelte'
 import { settings } from '$lib/state/settings.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
 
@@ -69,4 +76,37 @@ export function openWorkspaceThread(workspaceId: string, threadId: string) {
 
 export function toggleReduceMotion() {
   settings.toggleReduceMotion()
+}
+
+/**
+ * Starts a scratch from a macro in the default repo without leaving the current view.
+ * `extra` is what was typed after the macro chip in the palette.
+ */
+export async function runScratchMacro(macroId: string, extra = '') {
+  const macro = settings.scratchMacros.find((row) => row.id === macroId)
+  if (!macro) return
+  const title = macro.name.trim()
+  const result = await commands.createScratch({
+    title,
+    repoId: resolveDefaultRepoId(repos.items, settings.defaultRepo),
+    prompt: macroPromptWithExtra(macro.prompt, extra),
+  })
+  if (result.status === 'error') {
+    showToast({
+      tone: 'bad',
+      parts: [
+        {
+          type: 'text',
+          value: coreErrorText(result.error, 'Could not start the scratch'),
+        },
+      ],
+    })
+    return
+  }
+  hydrateFromSnapshot(await fetchSnapshot())
+  showToast({
+    tone: 'ok',
+    parts: [{ type: 'text', value: `Started ${title}` }],
+    scratchId: result.data.scratchId,
+  })
 }

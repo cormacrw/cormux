@@ -9,6 +9,8 @@ export type ToastPayload = {
   parts: ToastPart[]
   /** When set, clicking the toast opens this workspace (COR-81). */
   workspaceId?: string
+  /** When set, clicking the toast opens this scratch. */
+  scratchId?: string
 }
 
 export function pendingApprovalCount(

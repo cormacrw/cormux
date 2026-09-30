@@ -1,6 +1,11 @@
 import type { RepoRecord, WorkspaceRecord } from '$lib/ipc/bindings'
 import { workspaceCardMetaText } from '$lib/homebase/card-status'
 import { plural } from '$lib/sidebar/status'
+import {
+  isRunnableMacro,
+  macroPromptPreview,
+  type ScratchMacro,
+} from '$lib/settings/scratch-macros'
 import type { Scratch } from '$lib/state/scratches.svelte'
 import type { Thread } from '$lib/state/threads.svelte'
 import type { Workspace } from '$lib/state/workspaces.svelte'
@@ -13,6 +18,7 @@ export type PaletteRegistryActions = {
   requestNewWorkspace: () => void
   requestNewScratch: () => void
   openScratch: (scratchId: string) => void
+  runScratchMacro: (macroId: string, extra?: string) => void
   openHomebase: () => void
   openTodos: () => void
   openSettings: () => void
@@ -33,6 +39,7 @@ export type PaletteRegistryState = {
   reduceMotion: boolean
   workspaces: Workspace[]
   scratches: Scratch[]
+  scratchMacros: ScratchMacro[]
   threads: Thread[]
   repos: RepoRecord[]
   records: WorkspaceRecord[]
@@ -115,6 +122,17 @@ export function buildPaletteCommandsFromState(
       run: () => actions.openSettingsSection('agents'),
     },
   ]
+
+  for (const macro of state.scratchMacros) {
+    if (!isRunnableMacro(macro)) continue
+    cmds.push({
+      id: `macro-run-${macro.id}`,
+      group: 'Macros',
+      label: macro.name.trim(),
+      subtitle: macroPromptPreview(macro.prompt),
+      run: () => actions.runScratchMacro(macro.id),
+    })
+  }
 
   for (const workspace of state.workspaces) {
     const wsThreads = state.threads.filter(

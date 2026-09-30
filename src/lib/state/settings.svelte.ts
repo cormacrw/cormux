@@ -8,6 +8,12 @@ import {
   readDefaultEngine,
   readStringSetting,
 } from '$lib/new-workspace/settings-defaults'
+import {
+  parseScratchMacros,
+  SCRATCH_MACROS_KEY,
+  serializeScratchMacros,
+  type ScratchMacro,
+} from '$lib/settings/scratch-macros'
 
 function upsertRow(rows: SettingRow[], key: string, value: string) {
   const next = rows.filter((row) => row.key !== key)
@@ -27,6 +33,7 @@ export class SettingsStore {
   worktreeRoot = $state(DEFAULT_WORKTREE_ROOT)
   notifyApprovals = $state(true)
   notifyReviewFinished = $state(true)
+  scratchMacros = $state<ScratchMacro[]>([])
   rows = $state<SettingRow[]>([])
   /** When set, Settings view scrolls/focuses this section (palette deep links). */
   focusSection = $state<string | null>(null)
@@ -69,6 +76,9 @@ export class SettingsStore {
         true,
       )
       this.runEverything = readBooleanSetting(rows, 'runEverything', false)
+      this.scratchMacros = parseScratchMacros(
+        rows.find((row) => row.key === SCRATCH_MACROS_KEY)?.value,
+      )
     }
   }
 
@@ -133,6 +143,11 @@ export class SettingsStore {
   async setNotifyApprovals(next: boolean) {
     this.notifyApprovals = next
     await this.persist('notifyApprovals', next ? 'true' : 'false')
+  }
+
+  async setScratchMacros(next: ScratchMacro[]) {
+    this.scratchMacros = next
+    await this.persist(SCRATCH_MACROS_KEY, serializeScratchMacros(next))
   }
 
   async setNotifyReviewFinished(next: boolean) {
