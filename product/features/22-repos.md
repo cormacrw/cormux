@@ -90,6 +90,7 @@ Typing in the path field clears any error.
   - Workspaces use the repo: `<name> has <N workspaces>. Tear it down first.` / `…Tear them down first.`
   - It's the last repo: `Harness needs at least one repo`.
 - Otherwise the repo is removed immediately (no confirmation). Toast: `Removed <name>. The folder on disk wasn't touched.`
+- Removing it also deletes its torn-down (archived) workspaces with their threads, and its cached pull requests, since those rows point at the repo.
 - Focus moves to the next enabled Remove button, or to the path field.
 
 ### Jumping here from a workspace
