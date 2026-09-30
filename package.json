@@ -16,7 +16,9 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:dmg": "tauri build --bundles dmg",
+    "clean": "rm -rf dist e2e/output test-results playwright-report && cargo clean --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
