@@ -120,6 +120,7 @@ describe('buildPaletteCommandsFromState', () => {
         requestNewScratch: noop,
         openScratch: noop,
         openHomebase: noop,
+        openTodos: noop,
         openSettings: noop,
         openWorkspace: noop,
         toggleReduceMotion: noop,
@@ -134,6 +135,8 @@ describe('buildPaletteCommandsFromState', () => {
 
     expect(labels).toContain('New workspace')
     expect(labels).toContain('New scratch')
+    expect(labels).toContain('Go to TODOs')
+    expect(labels).toContain('Add a task')
     expect(labels).toContain('Open Why the webhook signature fails')
     expect(labels).toContain('Open Auth')
     expect(labels).toContain('Run app in Auth')

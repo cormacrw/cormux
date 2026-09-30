@@ -2,20 +2,14 @@
   import { flip } from 'svelte/animate'
   import { cubicOut } from 'svelte/easing'
   import { fly, slide } from 'svelte/transition'
-  import { app, settings, todos } from '$lib/state'
+  import { motionMs } from '$lib/motion'
+  import { app, todos } from '$lib/state'
   import Pin from '@lucide/svelte/icons/pin'
   import Plus from '@lucide/svelte/icons/plus'
   import Trash2 from '@lucide/svelte/icons/trash-2'
 
   let input: HTMLInputElement | undefined = $state()
   let draft = $state('')
-
-  // Svelte transitions run in JS, so the reduce-motion CSS rule doesn't reach them.
-  const ms = (duration: number) =>
-    settings.reduceMotion ||
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      ? 0
-      : duration
 
   $effect(() => {
     if (app.focusTarget !== 'todos') return
@@ -81,9 +75,9 @@
             class="todo-row group/todo grid grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-border/70 transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:bg-muted/40"
             role="row"
             data-todo-id={todo.id}
-            in:fly={{ y: 8, duration: ms(220), easing: cubicOut }}
-            out:slide={{ duration: ms(180), easing: cubicOut }}
-            animate:flip={{ duration: ms(200) }}
+            in:fly={{ y: 8, duration: motionMs(220), easing: cubicOut }}
+            out:slide={{ duration: motionMs(180), easing: cubicOut }}
+            animate:flip={{ duration: motionMs(200) }}
           >
             <span role="cell" class="flex justify-center">
               <button
@@ -150,7 +144,7 @@
     {#if todos.items.length === 0}
       <p
         class="text-sm text-muted-foreground"
-        in:fly={{ y: 4, duration: ms(200) }}
+        in:fly={{ y: 4, duration: motionMs(200) }}
       >
         Type a task and press Enter. Pin one to keep it at the top of Homebase.
       </p>

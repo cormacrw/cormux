@@ -2,15 +2,9 @@
   import { flip } from 'svelte/animate'
   import { cubicOut } from 'svelte/easing'
   import { scale, slide } from 'svelte/transition'
-  import { app, settings, todos } from '$lib/state'
+  import { motionMs } from '$lib/motion'
+  import { app, todos } from '$lib/state'
   import Pin from '@lucide/svelte/icons/pin'
-
-  // Svelte transitions run in JS, so the reduce-motion CSS rule doesn't reach them.
-  const ms = (duration: number) =>
-    settings.reduceMotion ||
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      ? 0
-      : duration
 </script>
 
 {#if todos.pinned.length > 0}
@@ -18,7 +12,7 @@
     class="grid gap-4"
     aria-labelledby="pinned-todos-title"
     data-od-id="home-pinned-todos"
-    transition:slide={{ duration: ms(220), easing: cubicOut }}
+    transition:slide={{ duration: motionMs(220), easing: cubicOut }}
   >
     <h2
       id="pinned-todos-title"
@@ -37,9 +31,9 @@
         <article
           class="group/pin flex min-h-[52px] min-w-0 items-stretch rounded-xl border border-border bg-card text-card-foreground transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:border-foreground/25 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-muted/40"
           data-pinned-todo={todo.id}
-          in:scale={{ start: 0.94, duration: ms(220), easing: cubicOut }}
-          out:scale={{ start: 0.94, duration: ms(160), easing: cubicOut }}
-          animate:flip={{ duration: ms(220) }}
+          in:scale={{ start: 0.94, duration: motionMs(220), easing: cubicOut }}
+          out:scale={{ start: 0.94, duration: motionMs(160), easing: cubicOut }}
+          animate:flip={{ duration: motionMs(220) }}
         >
           <button
             type="button"

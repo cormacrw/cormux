@@ -7,11 +7,14 @@ import type { Workspace } from '$lib/state/workspaces.svelte'
 import type { AppRunStatus } from '$lib/state/workspace-records.svelte'
 import type { PaletteCommand } from './types'
 
+export const ADD_TODO_COMMAND_ID = 'action-add-todo'
+
 export type PaletteRegistryActions = {
   requestNewWorkspace: () => void
   requestNewScratch: () => void
   openScratch: (scratchId: string) => void
   openHomebase: () => void
+  openTodos: () => void
   openSettings: () => void
   openWorkspace: (workspaceId: string, threadId?: string) => void
   toggleReduceMotion: () => void
@@ -70,6 +73,20 @@ export function buildPaletteCommandsFromState(
       group: 'Actions',
       label: 'Go to Homebase',
       run: () => actions.openHomebase(),
+    },
+    {
+      id: 'action-todos',
+      group: 'Actions',
+      label: 'Go to TODOs',
+      run: () => actions.openTodos(),
+    },
+    {
+      id: ADD_TODO_COMMAND_ID,
+      group: 'Actions',
+      label: 'Add a task',
+      meta: 'todo',
+      // The palette handles this one: it switches to todo mode instead of closing.
+      run: () => {},
     },
     {
       id: 'action-settings',

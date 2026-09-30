@@ -1,6 +1,7 @@
 import Download from '@lucide/svelte/icons/download'
 import GitBranch from '@lucide/svelte/icons/git-branch'
 import Layers from '@lucide/svelte/icons/layers'
+import ListTodo from '@lucide/svelte/icons/list-todo'
 import MessageSquare from '@lucide/svelte/icons/message-square'
 import Play from '@lucide/svelte/icons/play'
 import Plus from '@lucide/svelte/icons/plus'
@@ -31,6 +32,8 @@ const iconByCommandPrefix: Record<string, PaletteCommand['icon']> = {
   'action-new-workspace': Plus,
   'action-new-scratch': Plus,
   'action-homebase': Layers,
+  'action-todos': ListTodo,
+  'action-add-todo': Plus,
   'action-settings': SlidersHorizontal,
   'action-reduce-motion': SlidersHorizontal,
   'action-settings-repos': SlidersHorizontal,
@@ -103,6 +106,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       requestNewScratch: () => app.requestNewScratch(),
       openScratch: (id) => app.openScratch(id),
       openHomebase: () => app.openHomebase(),
+      openTodos: () => app.openTodos(),
       openSettings: () => app.openSettings(),
       openWorkspace: (id, threadId) => app.openWorkspace(id, threadId),
       toggleReduceMotion,

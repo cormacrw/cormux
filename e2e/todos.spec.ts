@@ -67,4 +67,64 @@ test.describe('todos', () => {
 
     expect(errors).toEqual([])
   })
+
+  test('adds a task from the command palette', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    mkdirSync('e2e/output', { recursive: true })
+    await page.goto('/')
+
+    const chip = page.locator('[data-od-id="palette-todo-chip"]')
+    const dialog = page.getByRole('dialog')
+    const field = dialog.locator('input')
+    // Focus moves into the dialog a beat after it opens.
+    const openPalette = async () => {
+      await page
+        .getByRole('button', { name: /Search or run a command/ })
+        .click()
+      await expect(field).toBeFocused()
+    }
+
+    // "todo" + Space turns into a chip and clears the field.
+    await openPalette()
+    await page.keyboard.type('todo ')
+    await expect(chip).toBeVisible()
+    await expect(field).toHaveValue('')
+
+    // Backspace on an empty field turns the chip back into text.
+    await page.keyboard.press('Backspace')
+    await expect(chip).toHaveCount(0)
+    await expect(field).toHaveValue('todo')
+
+    // Tab and Enter work too.
+    await page.keyboard.press('Tab')
+    await expect(chip).toBeVisible()
+    await expect(field).toBeFocused()
+    await page.keyboard.type('Renew the Apple cert')
+    await expect(dialog.getByText('Add “Renew the Apple cert”')).toBeVisible()
+    await page.screenshot({ path: 'e2e/output/todos-palette.png' })
+    await page.keyboard.press('Enter')
+    await expect(dialog).toHaveCount(0)
+    await expect(
+      page.getByText('Added “Renew the Apple cert” to TODOs'),
+    ).toBeVisible()
+
+    await openPalette()
+    await page.keyboard.type('todo')
+    await page.keyboard.press('Enter')
+    await expect(chip).toBeVisible()
+    await page.keyboard.type('Second task')
+    await page.keyboard.press('Enter')
+    await expect(dialog).toHaveCount(0)
+
+    await page
+      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('button', { name: /TODOs/ })
+      .click()
+    const rows = page.locator('[data-todo-id]')
+    await expect(rows.nth(-2)).toContainText('Renew the Apple cert')
+    await expect(rows.last()).toContainText('Second task')
+
+    expect(errors).toEqual([])
+  })
 })

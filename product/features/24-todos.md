@@ -18,6 +18,12 @@ A plain list of title-only tasks. **TODOs** sits in the sidebar directly under *
 - Section **Pinned tasks** with a count pill, first under the Homebase header. It only renders while at least one task is pinned, and slides open and closed.
 - One-line cards in a grid (`minmax(240px, 1fr)`). The title opens the TODOs page; the pin button unpins, and the card scales out.
 
+## Command palette
+
+- **Go to TODOs** opens the page. **Add a task** (meta `todo`) switches the palette into todo mode.
+- Typing `todo` then Space, Tab or Enter does the same: the word becomes a **TODO** chip in the search field and the field clears for the task title. Pasting `todo <title>` goes straight there with the title filled in.
+- In todo mode the list shows one row, **Add “<title>”**. Enter adds the task, closes the palette and shows the toast `Added “<title>” to TODOs`. Backspace on an empty field turns the chip back into the text `todo`.
+
 ## Storage
 
 `todos` table (migration 009): `id`, `title`, `pinned`, `created_at`. Listed oldest first in the snapshot. The UI updates first and rolls back with a toast if the core refuses the change (`create_todo`, `delete_todo`, `set_todo_pinned`).
