@@ -145,7 +145,7 @@ A real build must:
 - Verify the path exists and is a git repo (contains `.git`), and offer a native folder picker instead of typing paths.
 - Read branches from git (`git branch`, plus remotes) instead of a fixed list, and refresh them.
 - Detect the default branch.
-- Persist repo config. Consider also reading it from a file committed in the repo (for example `.harness.json` or similar), so a team shares setup and run commands, with Settings as a local override.
+- Persist repo config. Consider also reading it from a file committed in the repo (`.cormux/config.json`), so a team shares setup and run commands, with Settings as a local override.
 - Suggest setup and run commands by inspecting the repo (lockfile → package manager, `package.json` scripts, `pyproject.toml`).
 
 ## Known gaps and open questions

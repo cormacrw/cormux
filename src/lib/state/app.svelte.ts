@@ -4,6 +4,7 @@ import { workspaceUi } from './workspace-ui.svelte'
 import { workspaces } from './workspaces.svelte'
 import { threads } from './threads.svelte'
 import { scratches } from './scratches.svelte'
+import { appName } from '$lib/build-mode'
 import { resolveWindowTitle, type ViewId } from './window-title'
 
 export type { ViewId } from './window-title'
@@ -47,12 +48,14 @@ export class AppStore {
         this.view,
         this.scratchId,
         this.scratchId ? scratches.getById(this.scratchId)?.title : undefined,
+        appName,
       )
     }
     return resolveWindowTitle(
       this.view,
       this.workspaceId,
       this.workspaceId ? workspaces.getById(this.workspaceId)?.name : undefined,
+      appName,
     )
   })
 

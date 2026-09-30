@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
+  import { isDevBuild } from '$lib/build-mode'
   import { Button } from '$lib/components/ui/button'
   import * as ScrollArea from '$lib/components/ui/scroll-area'
   import * as Tooltip from '$lib/components/ui/tooltip'
@@ -38,10 +39,18 @@
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="titlebar h-10"
+    class="titlebar flex h-10 items-center justify-end"
     data-tauri-drag-region
     onmousedown={startWindowDrag}
-  ></div>
+  >
+    {#if isDevBuild}
+      <span
+        class="pointer-events-none rounded-md bg-warning px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider text-background"
+        title="Development build, with its own data"
+        data-od-id="dev-build-badge">DEV</span
+      >
+    {/if}
+  </div>
 
   <div class="grid gap-0.5 pb-2">
     <Button

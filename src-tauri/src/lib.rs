@@ -40,6 +40,16 @@ use state::AppState;
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_specta::Event;
 
+/// Dev builds keep their own data, so running Cormux from inside Cormux can't touch the
+/// installed app's workspaces.
+fn data_dir(app_data: std::path::PathBuf) -> std::path::PathBuf {
+    if cfg!(debug_assertions) {
+        app_data.join("dev")
+    } else {
+        app_data
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let ipc = ipc::builder();
@@ -103,7 +113,7 @@ pub fn run() {
             let env = state.shell_env.clone();
             let pr_sync = state.pr_sync.clone();
             let pr_app = app.handle().clone();
-            let db_path = app.path().app_data_dir()?.join("cormux.db");
+            let db_path = data_dir(app.path().app_data_dir()?).join("cormux.db");
             state.store.open(&db_path)?;
             let approval_notify = state.approval_notify.clone();
             let turn_end_notify = state.turn_end_notify.clone();

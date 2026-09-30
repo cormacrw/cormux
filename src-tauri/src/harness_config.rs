@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::error::{Error, Result};
 
-const CONFIG_REL: &str = ".harness/config.json";
+const CONFIG_REL: &str = ".cormux/config.json";
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,9 +173,9 @@ mod tests {
     #[test]
     fn reads_committed_config() {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join(".harness")).unwrap();
+        fs::create_dir_all(dir.path().join(".cormux")).unwrap();
         fs::write(
-            dir.path().join(".harness/config.json"),
+            dir.path().join(".cormux/config.json"),
             r#"{"setupCommands":"pnpm install","runCommand":"pnpm dev"}"#,
         )
         .unwrap();
@@ -187,9 +187,9 @@ mod tests {
     #[test]
     fn effective_prefers_local_override() {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join(".harness")).unwrap();
+        fs::create_dir_all(dir.path().join(".cormux")).unwrap();
         fs::write(
-            dir.path().join(".harness/config.json"),
+            dir.path().join(".cormux/config.json"),
             r#"{"setupCommands":"from file","runCommand":"file run"}"#,
         )
         .unwrap();

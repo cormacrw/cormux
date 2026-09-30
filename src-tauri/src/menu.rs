@@ -9,12 +9,19 @@ pub const NEW_SCRATCH: &str = "new-scratch";
 pub const OPEN_SETTINGS: &str = "open-settings";
 pub const RELOAD_ENVIRONMENT: &str = "reload-environment";
 
+/// Dev builds name themselves so they can't pass for the installed app.
+const APP_NAME: &str = if cfg!(debug_assertions) {
+    "Cormux Dev"
+} else {
+    "Cormux"
+};
+
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about = PredefinedMenuItem::about(
         app,
-        Some("About Cormux"),
+        Some(&format!("About {APP_NAME}")),
         Some(AboutMetadata {
-            name: Some("Cormux".into()),
+            name: Some(APP_NAME.into()),
             ..Default::default()
         }),
     )?;
@@ -27,14 +34,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
     // Not the predefined Hide: that one owns ⌘H, which goes to Homebase.
-    let hide = MenuItem::with_id(app, HIDE, "Hide Cormux", true, None::<&str>)?;
+    let hide = MenuItem::with_id(app, HIDE, format!("Hide {APP_NAME}"), true, None::<&str>)?;
     let hide_others = PredefinedMenuItem::hide_others(app, None)?;
     let show_all = PredefinedMenuItem::show_all(app, None)?;
     let quit = PredefinedMenuItem::quit(app, None)?;
 
     let app_menu = Submenu::with_items(
         app,
-        "Cormux",
+        APP_NAME,
         true,
         &[
             &about,

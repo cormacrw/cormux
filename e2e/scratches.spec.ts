@@ -53,7 +53,10 @@ test.describe('scratches', () => {
     await expect(
       page.getByRole('textbox', { name: 'Message this scratch' }),
     ).toHaveAttribute('placeholder', 'Ask a follow-up…')
-    await expect(page).toHaveTitle('Cormux · Why the webhook signature fails')
+    // The harness runs on Vite's dev server, so this is a dev build.
+    await expect(page).toHaveTitle(
+      'Cormux Dev · Why the webhook signature fails',
+    )
     await expect(
       page.getByRole('button', { name: 'Homebase' }),
     ).not.toHaveAttribute('aria-current', 'page')
