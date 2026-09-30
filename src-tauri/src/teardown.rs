@@ -106,12 +106,24 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
     }
 
     let record = resolve_record(state, &input.workspace_id, &row).await?;
+    if record.status == WorkspaceLifecycle::TearingDown {
+        return Err(Error::Workspace(format!(
+            "workspace {} is already being torn down",
+            input.workspace_id
+        )));
+    }
     state.workspace.remember(record.clone()).await;
     let previous_status = record.status;
     let _ = state
         .workspace
         .set_status(&input.workspace_id, WorkspaceLifecycle::TearingDown)
         .await;
+    emit_workspace_status(
+        app,
+        state,
+        &input.workspace_id,
+        WorkspaceLifecycle::TearingDown,
+    );
 
     let thread_ids: Vec<String> = state
         .store
@@ -333,7 +345,7 @@ fn emit_teardown_toast(app: &AppHandle, name: &str, branch: &str, deleted_branch
             ToastTone::Bad,
             vec![
                 ToastPart::Text {
-                    value: format!("Tore down {name} and deleted "),
+                    value: format!("Tore down {name} and deleted local branch "),
                 },
                 ToastPart::Code {
                     value: branch.to_string(),

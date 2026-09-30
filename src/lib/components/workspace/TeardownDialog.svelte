@@ -7,7 +7,6 @@
   import { fetchSnapshot } from '$lib/ipc'
   import { app, hydrateFromSnapshot, shellDialogs } from '$lib/state'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Trash2 from '@lucide/svelte/icons/trash-2'
 
   const workspaceId = $derived(shellDialogs.teardownWorkspaceId)
@@ -15,14 +14,12 @@
 
   let preview = $state<TeardownPreview | null>(null)
   let loadingPreview = $state(false)
-  let tearingDown = $state(false)
   let deleteBranch = $state(true)
   let confirmRef = $state<HTMLButtonElement | null>(null)
 
   $effect(() => {
     if (!workspaceId) {
       preview = null
-      tearingDown = false
       return
     }
     void loadPreview(workspaceId)
@@ -48,25 +45,23 @@
     if (!next) shellDialogs.closeTeardown()
   }
 
-  async function confirmTeardown() {
-    if (!workspaceId || tearingDown) return
-    tearingDown = true
+  // Close immediately and let the teardown run in the background; the core
+  // toasts on success and we toast here on failure.
+  function confirmTeardown() {
+    if (!workspaceId) return
     const tornId = workspaceId
-    const result = await commands.teardownWorkspace({
-      workspaceId: tornId,
-      deleteBranch,
-    })
-    await new Promise((resolve) => setTimeout(resolve, 900))
-    tearingDown = false
     shellDialogs.closeTeardown()
-    if (result.status === 'error') {
-      toastCoreError(JSON.stringify(result.error))
-      return
-    }
     if (app.workspaceId === tornId) {
       app.openHomebase()
     }
-    hydrateFromSnapshot(await fetchSnapshot())
+    void commands
+      .teardownWorkspace({ workspaceId: tornId, deleteBranch })
+      .then(async (result) => {
+        if (result.status === 'error') {
+          toastCoreError(JSON.stringify(result.error))
+        }
+        hydrateFromSnapshot(await fetchSnapshot())
+      })
   }
 
   const description = $derived.by(() => {
@@ -95,10 +90,9 @@
           type="checkbox"
           class="mt-0.5 size-4 rounded border border-input"
           bind:checked={deleteBranch}
-          disabled={tearingDown}
         />
         <span>
-          Also delete branch <code class="font-mono text-xs"
+          Also delete local branch <code class="font-mono text-xs"
             >{preview.branch}</code
           >
         </span>
@@ -116,23 +110,18 @@
     {/if}
 
     <AlertDialog.Footer>
-      <AlertDialog.Cancel disabled={tearingDown}>Cancel</AlertDialog.Cancel>
+      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
       <AlertDialog.Action
         bind:ref={confirmRef}
         variant="destructive"
-        disabled={loadingPreview || tearingDown || !preview}
+        disabled={loadingPreview || !preview}
         onclick={(event) => {
           event.preventDefault()
-          void confirmTeardown()
+          confirmTeardown()
         }}
       >
-        {#if tearingDown}
-          <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
-          Tearing down…
-        {:else}
-          <Trash2 class="size-4" aria-hidden="true" />
-          Teardown
-        {/if}
+        <Trash2 class="size-4" aria-hidden="true" />
+        Teardown
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
