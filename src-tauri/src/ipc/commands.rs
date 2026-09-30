@@ -9,7 +9,7 @@ use crate::composer::{persist_control_step, persist_user_message};
 use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
 use crate::workspace::ThreadActivity;
-use crate::github::{auth, clear_token, save_token};
+use crate::github::{clear_token, save_token};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
@@ -33,7 +33,7 @@ use crate::store::types::RepoRecord;
 pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let trees = process_trees(&state);
     let memory = state.metrics.sample(&trees).ok();
-    let github_auth_configured = auth::gh_authenticated(&state.shell_env).await;
+    let github_auth_configured = state.pr_sync.auth_configured(&state);
     let pr_synced_at = state.store.get_setting("githubPrSyncedAt")?.filter(|value| !value.is_empty());
 
     let persisted = state.store.snapshot()?;

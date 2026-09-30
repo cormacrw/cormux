@@ -96,28 +96,26 @@ pub fn run() {
             state.diffs.start();
             state.fetch.spawn_loop();
 
+            // PR sync shells out to `gh` and `git`, so it waits for the login-shell PATH.
+            let env = state.shell_env.clone();
             let pr_sync = state.pr_sync.clone();
             let pr_app = app.handle().clone();
-            let initial_sync = pr_sync.clone();
-            pr_sync.spawn_loop(pr_app.clone());
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = initial_sync.sync_app(&pr_app).await {
-                    log::warn!("initial PR sync failed: {error}");
-                }
-            });
-
-            let env = state.shell_env.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = env.write().await.load_or_inherit().await {
-                    log::warn!("shell env load failed: {error}");
-                }
-            });
-
             let db_path = app.path().app_data_dir()?.join("cormux.db");
             state.store.open(&db_path)?;
             let approval_notify = state.approval_notify.clone();
             let turn_end_notify = state.turn_end_notify.clone();
             app.manage(state);
+
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = env.write().await.load_or_inherit().await {
+                    log::warn!("shell env load failed: {error}");
+                }
+                if let Err(error) = pr_sync.sync_app(&pr_app).await {
+                    log::warn!("initial PR sync failed: {error}");
+                }
+                pr_sync.spawn_loop(pr_app);
+            });
+
             app.state::<AppState>()
                 .mcp
                 .attach_app(app.handle().clone());

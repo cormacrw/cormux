@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
@@ -13,29 +14,54 @@ use crate::state::AppState;
 use crate::store::types::PrRow;
 use tauri_specta::Event;
 
-use super::auth;
-use super::client;
+use super::client::{self, FetchError};
 use super::r#match::load_repo_origins;
 
 const SYNC_INTERVAL: Duration = Duration::from_secs(120);
 const SYNCED_AT_KEY: &str = "githubPrSyncedAt";
 
+const AUTH_UNKNOWN: u8 = 0;
+const AUTH_SIGNED_IN: u8 = 1;
+const AUTH_SIGNED_OUT: u8 = 2;
+
 #[derive(Clone)]
 pub struct PrSyncScheduler {
     git: Git,
     shell_env: Arc<RwLock<ShellEnv>>,
+    /// Outcome of the last sync that reached GitHub; read by snapshots instead of shelling out.
+    auth: Arc<AtomicU8>,
 }
 
 impl PrSyncScheduler {
     pub fn new(git: Git, shell_env: Arc<RwLock<ShellEnv>>) -> Self {
-        Self { git, shell_env }
+        Self {
+            git,
+            shell_env,
+            auth: Arc::new(AtomicU8::new(AUTH_UNKNOWN)),
+        }
     }
 
+    /// Before the first sync of this launch, trust the last launch: a stored sync time
+    /// means we were signed in, and it is cleared on sign-out.
+    pub fn auth_configured(&self, state: &AppState) -> bool {
+        match self.auth.load(Ordering::SeqCst) {
+            AUTH_SIGNED_IN => true,
+            AUTH_SIGNED_OUT => false,
+            _ => state
+                .store
+                .get_setting(SYNCED_AT_KEY)
+                .ok()
+                .flatten()
+                .is_some_and(|value| !value.is_empty()),
+        }
+    }
+
+    /// Returns whether the cache changed. Failures keep the last good list; only a
+    /// definite signed-out answer from `gh` clears it.
     pub async fn tick(&self, state: &AppState) -> Result<bool> {
-        if !auth::gh_authenticated(&self.shell_env).await {
-            state.store.replace_pull_requests(&[])?;
-            state.store.set_setting(SYNCED_AT_KEY, "")?;
-            return Ok(true);
+        // Until the login-shell env loads, `gh` and `git` aren't on PATH for a GUI launch.
+        if self.shell_env.read().await.vars().is_empty() {
+            return Ok(false);
         }
 
         let repos: Vec<(String, String)> = state
@@ -46,7 +72,17 @@ impl PrSyncScheduler {
             .map(|repo| (repo.id.clone(), repo.path.clone()))
             .collect();
         let origins = load_repo_origins(&self.git, &repos).await?;
-        let items = client::fetch_open_prs(&self.shell_env, &origins).await?;
+        let items = match client::fetch_open_prs(&self.shell_env, &origins).await {
+            Ok(items) => items,
+            Err(FetchError::SignedOut(message)) => {
+                log::info!("GitHub CLI is signed out; clearing PRs: {message}");
+                self.auth.store(AUTH_SIGNED_OUT, Ordering::SeqCst);
+                state.store.replace_pull_requests(&[])?;
+                state.store.set_setting(SYNCED_AT_KEY, "")?;
+                return Ok(true);
+            }
+            Err(FetchError::Other(error)) => return Err(error),
+        };
 
         let mut rows = Vec::with_capacity(items.len());
         for pr in &items {
@@ -64,6 +100,7 @@ impl PrSyncScheduler {
         state.store.replace_pull_requests(&rows)?;
         let synced_at = chrono_like_now();
         state.store.set_setting(SYNCED_AT_KEY, &synced_at)?;
+        self.auth.store(AUTH_SIGNED_IN, Ordering::SeqCst);
         Ok(true)
     }
 
@@ -71,6 +108,8 @@ impl PrSyncScheduler {
         tauri::async_runtime::spawn(async move {
             let mut interval = tokio::time::interval(SYNC_INTERVAL);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // The first tick fires immediately; the caller runs the initial sync itself.
+            interval.tick().await;
             loop {
                 interval.tick().await;
                 if let Err(error) = self.sync_app(&app).await {
@@ -82,7 +121,9 @@ impl PrSyncScheduler {
 
     pub async fn sync_app(&self, app: &AppHandle) -> Result<()> {
         let state = app.state::<AppState>();
-        let _changed = self.tick(&state).await?;
+        if !self.tick(&state).await? {
+            return Ok(());
+        }
         let version = state.bump_event_version();
         let _ = StateChanged {
             version,

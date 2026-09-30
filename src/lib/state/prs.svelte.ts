@@ -5,7 +5,7 @@ import {
   type PrRelationship,
 } from '$lib/homebase/pr-filter'
 
-export type PrChecksState = 'pass' | 'fail' | 'running'
+export type PrChecksState = 'pass' | 'fail' | 'running' | 'none'
 
 export type PrReviewState = 'required' | 'changes' | 'approved' | 'draft'
 

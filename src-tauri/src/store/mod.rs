@@ -672,14 +672,17 @@ impl Store {
 
     pub fn replace_pull_requests(&self, rows: &[PrRow]) -> Result<()> {
         self.with_conn(|conn| {
-            conn.execute("DELETE FROM pr_cache", [])?;
+            // One transaction so a concurrent snapshot never sees an empty table mid-sync.
+            let tx = conn.unchecked_transaction()?;
+            tx.execute("DELETE FROM pr_cache", [])?;
             for pr in rows {
-                conn.execute(
+                tx.execute(
                     "INSERT INTO pr_cache (id, repo_id, number, title, payload)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
                     rusqlite::params![pr.id, pr.repo_id, pr.number, pr.title, pr.payload],
                 )?;
             }
+            tx.commit()?;
             Ok(())
         })
     }

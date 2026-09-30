@@ -107,6 +107,14 @@ export function installBrowserHarness() {
     const persisted = fixtureSnapshot.persisted
     persisted.timeline = [...persisted.timeline.filter((row) => row.threadId !== 'th-lead'), ...injected]
   }
+  // Tests can inject synced PRs; this also flips GitHub to connected.
+  const injectedPrs = (window as { __HARNESS_PRS__?: typeof fixtureSnapshot.persisted.pullRequests })
+    .__HARNESS_PRS__
+  if (injectedPrs) {
+    fixtureSnapshot.persisted.pullRequests = injectedPrs
+    fixtureSnapshot.githubAuthConfigured = true
+    fixtureSnapshot.prSyncedAt = String(Math.floor(Date.now() / 1000))
+  }
 
   const callbacks = new Map<number, (...args: unknown[]) => void>()
   let nextCallbackId = 1
@@ -281,6 +289,11 @@ export function installBrowserHarness() {
       return null
     }
     if (cmd.startsWith('plugin:window|')) return null
+    if (cmd === 'plugin:opener|open_url') {
+      const opened = ((window as { __HARNESS_OPENED__?: string[] }).__HARNESS_OPENED__ ??= [])
+      opened.push(String(args.url))
+      return null
+    }
     if (cmd.startsWith('plugin:')) return null
     return null
   }

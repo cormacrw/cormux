@@ -16,6 +16,8 @@ pub enum PrChecksState {
     Pass,
     Fail,
     Running,
+    /// The PR has no status checks or check runs at all.
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

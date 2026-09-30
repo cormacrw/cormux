@@ -36,11 +36,6 @@ pub fn is_configured() -> bool {
     read_stored_token().is_some()
 }
 
-pub async fn gh_authenticated(env: &Arc<RwLock<ShellEnv>>) -> bool {
-    let env = env.read().await;
-    env.run("gh", &["auth", "status"], None).await.is_ok()
-}
-
 pub async fn resolve_token(env: &Arc<RwLock<ShellEnv>>) -> Option<String> {
     if let Some(token) = read_stored_token() {
         return Some(token);

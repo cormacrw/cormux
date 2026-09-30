@@ -30,9 +30,9 @@ A single bordered list (not cards), one row per PR, so it reads as a feed and do
 
 Left to right:
 
-1. **PR icon.** Muted when the PR is a draft. Screen-reader text: `Open pull request` or `Draft pull request`.
+1. **PR icon.** Grey for a draft, amber while checks are running, otherwise green. Screen-reader text: `Open pull request` or `Draft pull request`.
 2. **Main column.**
-   - Title line: the PR title, then `#482` in a subtler style.
+   - Title line: the PR title, then `#482` in a subtler style. The title is a link that opens the PR on GitHub in the browser.
    - Meta line, separated by spacing only:
      - **Relationship**: `Review requested` (emphasised), `Opened by you`, `Mentioned`, or `Assigned to you`.
      - **Author**: `@maya-r`. Omitted when the author is you.
@@ -40,11 +40,10 @@ Left to right:
      - **Size**: `6 files +214 −38`, additions green, deletions red.
      - **Updated**: `Updated 35m ago`. Ages of a day or more show as `Nd ago`.
 3. **Signals column.**
-   - Checks: `Checks passing` (check icon), `2 checks failing` (x icon), or `Checks running` (clock icon).
-   - Review state chip: `Awaiting review` (neutral), `Changes requested` (amber), `Approved` (green), `Draft` (neutral).
-4. **Action column.**
-   - If no review workspace exists for this PR: secondary **Review in workspace** button with a PR icon. Accessible name: `Review #482 in a workspace`.
-   - If one exists: secondary **Go to Workspace** button with a right arrow, which opens it.
+   - Checks: `Checks passing` (check icon), `2 checks failing` (x icon), or `Checks running` (clock icon). Omitted when the PR has no checks.
+4. **Action column.** A small ghost icon button with a glasses icon and a tooltip.
+   - If no review workspace exists for this PR, it starts one. Label: `Review #482 in a new workspace`.
+   - If one exists, it opens it. Label: `Open the review workspace for #482`.
 
 ## States
 
