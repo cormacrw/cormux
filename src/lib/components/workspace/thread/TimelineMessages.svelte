@@ -1,6 +1,6 @@
 <script lang="ts">
+  import { hideFindingsBlock } from '$lib/findings/findings-block'
   import { Badge } from '$lib/components/ui/badge'
-  import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
   import { engineMark } from '$lib/sidebar/engine'
@@ -170,13 +170,17 @@
   }
 
   function findingSummary(items: FindingRow[]) {
-    const counts: Record<string, number> = {}
-    for (const row of items) {
-      counts[row.severity] = (counts[row.severity] ?? 0) + 1
-    }
-    return Object.entries(counts)
-      .map(([severity, count]) => `${count} ${severity}`)
-      .join(' · ')
+    const count = (severity: string) =>
+      items.filter((row) => row.severity === severity).length
+    const parts = [
+      [count('blocking'), 'blocking', 'blocking'],
+      [count('suggestion'), 'suggestion', 'suggestions'],
+      [count('nit'), 'nit', 'nits'],
+    ] as const
+    return parts
+      .filter(([n]) => n > 0)
+      .map(([n, one, many]) => `${n} ${n === 1 ? one : many}`)
+      .join(', ')
   }
 </script>
 
@@ -264,11 +268,12 @@
             <ThoughtMarkdown text={item.text} />
           </div>
         </details>
-      {:else if item.kind === 'thought'}
+      {:else if item.kind === 'thought' && hideFindingsBlock(item.text)}
+        {@const replyText = hideFindingsBlock(item.text)}
         <div class="group max-w-[42rem]">
           <div class="text-sm text-foreground">
             <StreamingText
-              text={item.text}
+              text={replyText}
               {entries}
               key={item.id}
               live={item.id === liveReplyId}
@@ -281,7 +286,7 @@
               class="inline-flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
               aria-label="Copy message"
               title="Copy message"
-              onclick={() => copyText(item.id, item.text)}
+              onclick={() => copyText(item.id, replyText)}
             >
               {#if copiedId === item.id}
                 <Check class="size-3" aria-hidden="true" />
@@ -461,28 +466,27 @@
           ></span>
         </div>
       {:else if item.kind === 'findings'}
-        <Card.Root data-od-id="findings-card">
-          <Card.Header class="flex-row items-center gap-2 space-y-0 pb-2">
-            <List class="size-4" aria-hidden="true" />
-            <Card.Title class="text-sm font-medium">Review findings</Card.Title>
-          </Card.Header>
-          <Card.Content
-            class="flex flex-wrap items-center justify-between gap-3"
+        <div
+          class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+          data-od-id="findings-card"
+        >
+          <List class="size-3 shrink-0" aria-hidden="true" />
+          <span class="shrink-0">Review findings</span>
+          <span class="truncate text-muted-foreground/80"
+            >· {findings.length
+              ? findingSummary(findings)
+              : 'No findings'}</span
           >
-            <p class="text-sm text-muted-foreground">
-              {findings.length ? findingSummary(findings) : 'No findings'}
-            </p>
-            <Button
-              variant="secondary"
-              size="sm"
-              data-od-id="findings-card-open"
-              onclick={onOpenFindings}
-            >
-              Open findings
-              <ArrowRight class="size-3.5" aria-hidden="true" />
-            </Button>
-          </Card.Content>
-        </Card.Root>
+          <button
+            type="button"
+            class="inline-flex shrink-0 items-center gap-0.5 font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
+            data-od-id="findings-card-open"
+            onclick={onOpenFindings}
+          >
+            Open findings
+            <ArrowRight class="size-3" aria-hidden="true" />
+          </button>
+        </div>
       {:else if item.kind === 'live'}
         <div class="flex min-w-0 items-center gap-2 py-0.5 text-xs">
           {#if paused}

@@ -3,6 +3,7 @@
   import Layers from '@lucide/svelte/icons/layers'
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import type { ToastPart, ToastTone } from '$lib/feedback/toast-payload'
+  import { cn } from '$lib/utils'
 
   let {
     parts,
@@ -17,42 +18,38 @@
   const Icon = $derived(
     tone === 'ok' ? CircleCheck : tone === 'bad' ? Trash2 : Layers,
   )
+
+  // Solid fills so the tone reads at a glance; same colours in light and dark.
+  const toneClass = $derived(
+    tone === 'ok'
+      ? 'border-emerald-700/40 bg-emerald-600 text-white'
+      : tone === 'bad'
+        ? 'border-red-700/40 bg-red-600 text-white'
+        : 'border-amber-500/50 bg-amber-400 text-amber-950',
+  )
 </script>
 
-{#if onActivate}
-  <button
-    type="button"
-    class="inline-flex w-full items-start gap-2 border-0 bg-transparent p-0 text-left text-sm leading-snug cursor-pointer"
-    onclick={() => onActivate()}
-  >
-    <Icon class="mt-0.5 size-4 shrink-0 opacity-80" aria-hidden="true" />
-    <span class="inline">
-      {#each parts as part (part.type + part.value)}
-        {#if part.type === 'code'}
-          <code
-            class="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground"
-            >{part.value}</code
-          >
-        {:else}
-          {part.value}
-        {/if}
-      {/each}
-    </span>
-  </button>
-{:else}
-  <span class="inline-flex items-start gap-2 text-sm leading-snug">
-    <Icon class="mt-0.5 size-4 shrink-0 opacity-80" aria-hidden="true" />
-    <span class="inline">
-      {#each parts as part (part.type + part.value)}
-        {#if part.type === 'code'}
-          <code
-            class="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground"
-            >{part.value}</code
-          >
-        {:else}
-          {part.value}
-        {/if}
-      {/each}
-    </span>
+<svelte:element
+  this={onActivate ? 'button' : 'div'}
+  type={onActivate ? 'button' : undefined}
+  class={cn(
+    'flex w-[356px] max-w-[calc(100vw-2rem)] items-start gap-2 rounded-lg border px-4 py-3 text-left text-sm leading-snug shadow-lg',
+    onActivate && 'cursor-pointer transition-[filter] hover:brightness-105',
+    toneClass,
+  )}
+  data-tone={tone}
+  onclick={onActivate ? () => onActivate() : undefined}
+>
+  <Icon class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+  <span class="inline">
+    {#each parts as part (part.type + part.value)}
+      {#if part.type === 'code'}
+        <code class="rounded bg-black/15 px-1 py-0.5 font-mono text-xs"
+          >{part.value}</code
+        >
+      {:else}
+        {part.value}
+      {/if}
+    {/each}
   </span>
-{/if}
+</svelte:element>

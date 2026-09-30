@@ -18,11 +18,13 @@ Each toast is one row: an icon and a single line of text, which may include inli
 
 ## Tones
 
-| Tone | Icon | Used for |
-| --- | --- | --- |
-| `ok` | check-circle | Successful completion. |
-| `bad` | trash | Destructive outcomes (teardown). |
-| default | layers | Neutral information. |
+Each toast has a solid background in its tone's colour, the same in light and dark themes.
+
+| Tone | Background | Icon | Used for |
+| --- | --- | --- | --- |
+| `ok` | Green, white text | check-circle | Successful completion. |
+| `bad` | Red, white text | trash | Failures and destructive outcomes (teardown). |
+| default | Yellow, dark text | layers | Neutral information and notices. |
 
 ## Behaviour
 

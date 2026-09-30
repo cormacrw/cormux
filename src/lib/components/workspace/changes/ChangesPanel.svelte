@@ -8,6 +8,7 @@
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { app, workspaceDiff, workspaceUi } from '$lib/state'
   import { formatChangeCounts } from '$lib/workspace/diff-totals'
+  import { revealDiffLine } from '$lib/changes/reveal-line'
   import { Button } from '$lib/components/ui/button'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
   import ChangesFileList from './ChangesFileList.svelte'
@@ -54,20 +55,22 @@
     })
   })
 
-  // A file link in the conversation expands that file and scrolls to it.
+  // A file link (conversation, findings) expands that file and scrolls to it, or to its line.
   $effect(() => {
     const path = workspaceUi.revealDiffPath
     if (!path || !files.some((file) => file.path === path)) return
+    const line = workspaceUi.revealDiffLine
     workspaceUi.revealDiffPath = null
+    workspaceUi.revealDiffLine = null
     if (workspaceUi.collapsedDiffPaths[path]) {
       const next = { ...workspaceUi.collapsedDiffPaths }
       delete next[path]
       workspaceUi.collapsedDiffPaths = next
     }
     void tick().then(() => {
-      scrollEl
-        ?.querySelector(`[data-diff-path="${CSS.escape(path)}"]`)
-        ?.scrollIntoView({ block: 'start' })
+      const fileEl = scrollEl?.querySelector(`[data-diff-path="${CSS.escape(path)}"]`)
+      fileEl?.scrollIntoView({ block: 'start' })
+      if (fileEl && line != null) revealDiffLine(fileEl, line)
     })
   })
 

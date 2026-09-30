@@ -73,7 +73,11 @@ impl PrSyncScheduler {
             .collect();
         let origins = load_repo_origins(&self.git, &repos).await?;
         let items = match client::fetch_open_prs(&self.shell_env, &origins).await {
-            Ok(items) => items,
+            // Only PRs in repos registered in Settings; the search itself spans every repo.
+            Ok(items) => items
+                .into_iter()
+                .filter(|pr| pr.repo_id.is_some())
+                .collect::<Vec<_>>(),
             Err(FetchError::SignedOut(message)) => {
                 log::info!("GitHub CLI is signed out; clearing PRs: {message}");
                 self.auth.store(AUTH_SIGNED_OUT, Ordering::SeqCst);

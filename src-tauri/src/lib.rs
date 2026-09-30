@@ -5,6 +5,7 @@ mod approvals;
 mod composer;
 mod create_pr;
 mod findings;
+mod findings_block;
 mod review;
 mod scratch;
 mod pr_draft;
@@ -158,6 +159,9 @@ pub fn run() {
                         kind: StateChangeKind::WorkspaceStatus,
                     }
                     .emit(&turn_end_app);
+                    if let Err(error) = crate::review::on_reviewer_turn_end(&turn_end_app, &thread_id).await {
+                        log::warn!("reading review findings failed: {error}");
+                    }
                 }
             });
 

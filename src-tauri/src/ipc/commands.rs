@@ -225,6 +225,7 @@ pub async fn add_repo(
             workspace_id: None,
         },
     );
+    resync_prs(&app);
 
     Ok(record)
 }
@@ -279,7 +280,19 @@ pub async fn remove_repo(
             workspace_id: None,
         },
     );
+    resync_prs(&app);
     Ok(())
+}
+
+/// The PR list only shows registered repos, so re-sync when that set changes.
+fn resync_prs(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = tauri::Manager::state::<AppState>(&app);
+        if let Err(error) = state.pr_sync.sync_app(&app).await {
+            log::warn!("PR sync after repo change failed: {error}");
+        }
+    });
 }
 
 #[tauri::command]

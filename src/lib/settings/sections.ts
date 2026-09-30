@@ -6,7 +6,6 @@ export const SETTINGS_SECTIONS = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'github', label: 'GitHub' },
   { id: 'notifications', label: 'Notifications' },
-  { id: 'skills', label: 'Skills' },
 ] as const
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id']

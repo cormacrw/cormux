@@ -1,6 +1,3 @@
-use std::path::Path;
-
-use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use uuid::Uuid;
@@ -8,7 +5,6 @@ use uuid::Uuid;
 use crate::error::{Error, Result};
 use crate::feedback::emit_toast;
 use crate::ipc::types::{ToastPart, ToastRaisedPayload, ToastTone};
-use crate::git::WorktreeDiff;
 use crate::github::auth;
 use crate::github::review::{
     RestGithubClient, ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput,
@@ -16,7 +12,6 @@ use crate::github::review::{
 use crate::ipc::commands::{expand_tilde, worktrees_base};
 use crate::ipc::events::StateChanged;
 use crate::ipc::types::StateChangeKind;
-use crate::llm::LlmClient;
 use crate::provisioning::LeadProvisionJob;
 use crate::state::AppState;
 use crate::store::Store;
@@ -87,11 +82,30 @@ pub fn user_review_message(
     )
 }
 
-pub fn reviewer_rubric() -> &'static str {
-    "You are the Reviewer for this pull request. Read the PR description and diff carefully. \
-     Look for bugs, risky changes, and missing tests. Do not push commits or post to GitHub. \
-     For each issue, call the Harness MCP tool `report_finding` with severity (blocking, suggestion, or nit), \
-     title, file path, line number, and explanation. When finished, call `finish_review`."
+/// Sent to the engine after the user's message but never shown in the thread. The
+/// findings block it asks for is parsed at the end of the turn and hidden in the UI.
+pub fn reviewer_rubric() -> String {
+    format!(
+        "You are the Reviewer for this pull request. Its branch is checked out in your working directory; \
+         use `gh pr diff` or git against the base branch to see what changed, and read the surrounding code. \
+         Look for bugs, risky changes and missing tests. Do not edit files, push commits or post to GitHub.
+
+Write your review for the user in plain prose. Then end your final message with every finding as a JSON \
+array inside {open} tags. The user never sees this block; Cormux turns it into the Findings list. Format:
+
+{open}
+[
+  {{\"severity\": \"blocking\", \"title\": \"One-line summary\", \"file\": \"src/path/to/file.ts\", \"line\": 48, \"explanation\": \"What is wrong, why it matters, and how to fix it.\"}}
+]
+{close}
+
+- severity: \"blocking\" (must be fixed before merging), \"suggestion\" (worth doing in this PR) or \"nit\" (optional polish).
+- file: path relative to the repository root, or null if the finding isn't about one file.
+- line: line number in the PR's version of the file, or null.
+- Output raw JSON with no code fence. Use [] if you found nothing. Emit the block exactly once, at the very end.",
+        open = crate::findings_block::OPEN_TAG,
+        close = crate::findings_block::CLOSE_TAG,
+    )
 }
 
 pub fn reviewer_engine_prompt(user_message: &str) -> String {
@@ -121,8 +135,10 @@ fn default_engine(store: &Store) -> String {
         .unwrap_or_else(|| "claude".into())
 }
 
+/// Unique per review: PR numbers repeat across repos, and archived rows keep their ids.
 fn workspace_id_for_pr(pr_number: i64) -> String {
-    format!("pr{pr_number}")
+    let suffix = Uuid::new_v4().simple().to_string();
+    format!("pr{pr_number}-{}", &suffix[..8])
 }
 
 pub async fn create_review_workspace(
@@ -175,13 +191,14 @@ pub async fn create_review_workspace(
         &input.head,
     );
 
+    let workspace_name = format!("PR #{} Review", input.pr_number);
     state
         .workspace
         .register_provisioning(
             &workspace_id,
             &input.repo_id,
             &repo_path,
-            &input.title,
+            &workspace_name,
             &input.head,
             &input.base,
             &worktrees_root,
@@ -191,7 +208,7 @@ pub async fn create_review_workspace(
     state.store.upsert_workspace(&WorkspaceRow {
         id: workspace_id.clone(),
         repo_id: input.repo_id.clone(),
-        name: input.title.clone(),
+        name: workspace_name,
         branch: input.head.clone(),
         worktree_path: worktree_path.to_string_lossy().to_string(),
         status: "provisioning".into(),
@@ -204,6 +221,20 @@ pub async fn create_review_workspace(
         pr_html_url: input.pr_html_url.clone(),
         modified_files: 0,
         archived_at: None,
+    })?;
+
+    // Events reference the thread by foreign key, so the thread row has to exist first.
+    state.store.upsert_thread(&ThreadRow {
+        id: thread_id.clone(),
+        workspace_id: workspace_id.clone(),
+        title: "Reviewer".into(),
+        engine: engine.clone(),
+        session_id: None,
+        status: "provisioning".into(),
+        used_tokens: None,
+        context_size: None,
+        cost_usd: None,
+        transcript_readonly: false,
     })?;
 
     let user_message = user_review_message(
@@ -230,19 +261,6 @@ pub async fn create_review_workspace(
     state
         .store
         .append_event(&thread_id, "tool", &checkout_step.to_string())?;
-
-    state.store.upsert_thread(&ThreadRow {
-        id: thread_id.clone(),
-        workspace_id: workspace_id.clone(),
-        title: "Reviewer".into(),
-        engine: engine.clone(),
-        session_id: None,
-        status: "provisioning".into(),
-        used_tokens: None,
-        context_size: None,
-        cost_usd: None,
-        transcript_readonly: false,
-    })?;
 
     let author_label = if input.author_is_you {
         "you".into()
@@ -320,8 +338,6 @@ pub async fn create_review_workspace(
             },
         )
         .await;
-
-        schedule_reviewer_pass(app_handle, workspace_id_bg, thread_id).await;
     });
 
     Ok(CreateReviewWorkspaceResult {
@@ -375,35 +391,6 @@ fn parse_lifecycle(raw: &str) -> WorkspaceLifecycle {
     }
 }
 
-pub async fn schedule_reviewer_pass(app: AppHandle, workspace_id: String, thread_id: String) {
-    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
-    let state = app.state::<AppState>();
-    loop {
-        if review_is_ready(&state.store, &workspace_id) {
-            return;
-        }
-        if !reviewer_is_paused(&state, &thread_id).await {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    }
-    if let Err(error) = run_structured_review(&app, &workspace_id, &thread_id).await {
-        log::warn!("structured review failed: {error}");
-    }
-}
-
-async fn reviewer_is_paused(state: &AppState, thread_id: &str) -> bool {
-    let snapshot = match state.store.snapshot() {
-        Ok(snapshot) => snapshot,
-        Err(_) => return false,
-    };
-    snapshot
-        .threads
-        .iter()
-        .find(|row| row.id == thread_id)
-        .is_some_and(|row| row.status == "paused")
-}
-
 pub fn review_is_ready(store: &Store, workspace_id: &str) -> bool {
     store
         .get_setting(&review_status_key(workspace_id))
@@ -413,309 +400,137 @@ pub fn review_is_ready(store: &Store, workspace_id: &str) -> bool {
         == Some("ready")
 }
 
-pub async fn run_structured_review(
-    app: &AppHandle,
-    workspace_id: &str,
-    thread_id: &str,
-) -> Result<()> {
+/// Runs when any thread's turn ends. For a Reviewer whose review isn't done yet, reads
+/// the findings block from its last reply and turns it into the Findings list. If the
+/// block is missing or malformed, leaves a note in the thread and tries again next turn.
+pub async fn on_reviewer_turn_end(app: &AppHandle, thread_id: &str) -> Result<()> {
     let state = app.state::<AppState>();
-    if review_is_ready(&state.store, workspace_id) {
+    let Some(thread) = state.store.thread_by_id(thread_id)? else {
+        return Ok(());
+    };
+    let Some(workspace) = state.store.workspace_by_id(&thread.workspace_id)? else {
+        return Ok(());
+    };
+    if workspace.kind.as_deref() != Some("review")
+        || workspace.archived_at.is_some()
+        || thread.title != "Reviewer"
+        || review_is_ready(&state.store, &workspace.id)
+    {
         return Ok(());
     }
-    let snapshot = state.store.snapshot()?;
-    let workspace = snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == workspace_id)
-        .cloned()
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    let record = state
-        .workspace
-        .get(workspace_id)
-        .await
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
 
-    let diff = state
-        .diffs
-        .compute(workspace_id, Path::new(&record.worktree_path))
-        .await?;
-
-    let existing = snapshot
-        .findings
-        .iter()
-        .filter(|row| row.workspace_id == workspace_id)
-        .count();
-    if existing == 0 {
-        seed_findings_from_diff(&state.llm, &state.store, &workspace, &diff).await?;
-    }
-
-    complete_review(app, workspace_id, thread_id).await
-}
-
-async fn seed_findings_from_diff(
-    llm: &LlmClient,
-    store: &Store,
-    workspace: &WorkspaceRow,
-    diff: &WorktreeDiff,
-) -> Result<()> {
-    if diff.files.is_empty() {
-        return Ok(());
-    }
-    let prompt = build_findings_prompt(workspace, diff);
-    let parsed = match llm.complete(&prompt).await {
-        Ok(result) => parse_findings_json(&result.text),
+    let reply = state.store.last_agent_reply(thread_id)?;
+    let findings = match crate::findings_block::parse_findings_block(&reply, &workspace.worktree_path) {
+        Ok(findings) => findings,
         Err(error) => {
-            log::warn!("review LLM failed: {error}");
-            Vec::new()
+            let detail = match error {
+                crate::findings_block::BlockError::Missing => {
+                    "The reply didn’t end with a findings block. Ask the Reviewer to finish the review with its findings.".to_string()
+                }
+                crate::findings_block::BlockError::Invalid(reason) => {
+                    format!("The findings block wasn’t valid JSON ({reason}). Ask the Reviewer to send it again.")
+                }
+            };
+            log::warn!("review {}: {detail}", workspace.id);
+            let step = serde_json::json!({
+                "icon": "list",
+                "title": "Couldn’t read the review findings",
+                "detail": detail,
+            });
+            state.store.append_event(thread_id, "tool", &step.to_string())?;
+            emit_state_changed(app, &state);
+            return Ok(());
         }
     };
-    if parsed.is_empty() {
-        fallback_findings_from_diff(store, workspace, diff)?;
-        return Ok(());
-    }
-    for item in parsed {
-        store.upsert_finding(&FindingRow {
+
+    state.store.delete_findings_for_workspace(&workspace.id)?;
+    for finding in findings {
+        state.store.upsert_finding(&FindingRow {
             id: Uuid::new_v4().to_string(),
             workspace_id: workspace.id.clone(),
-            severity: item.severity,
-            title: item.title,
-            file: item.file,
-            line: item.line,
-            explanation: item.explanation,
+            severity: finding.severity,
+            title: finding.title,
+            file: finding.file,
+            line: finding.line,
+            explanation: finding.explanation,
             status: "open".into(),
             commit_sha: None,
             sent_to_thread_id: None,
         })?;
     }
-    Ok(())
+    complete_review(app, &workspace).await
 }
 
-#[derive(Debug, Deserialize)]
-struct ParsedFinding {
-    severity: String,
-    title: String,
-    file: Option<String>,
-    line: Option<i64>,
-    explanation: String,
-}
-
-fn parse_findings_json(text: &str) -> Vec<ParsedFinding> {
-    let trimmed = text.trim();
-    let Some(json_start) = trimmed.find('[') else {
-        return Vec::new();
-    };
-    let Some(json_end) = trimmed.rfind(']') else {
-        return Vec::new();
-    };
-    let slice = &trimmed[json_start..=json_end];
-    serde_json::from_str(slice).unwrap_or_default()
-}
-
-fn build_findings_prompt(workspace: &WorkspaceRow, diff: &WorktreeDiff) -> String {
-    let files: Vec<String> = diff
-        .files
-        .iter()
-        .take(20)
-        .map(|file| format!("- {} (+{} −{})", file.path, file.added, file.deleted))
-        .collect();
-    format!(
-        "Return ONLY a JSON array (no markdown) of code review findings for this pull request workspace \"{}\". \
-         Each item: {{\"severity\":\"blocking|suggestion|nit\",\"title\":\"…\",\"file\":\"path|null\",\"line\":number|null,\"explanation\":\"…\"}}. \
-         Flag real risks in the diff; prefer at most 6 items.\n\nChanged files:\n{}",
-        workspace.name,
-        files.join("\n")
-    )
-}
-
-fn fallback_findings_from_diff(
-    store: &Store,
-    workspace: &WorkspaceRow,
-    diff: &WorktreeDiff,
-) -> Result<()> {
-    if diff.files.is_empty() {
-        return Ok(());
-    }
-    let first = &diff.files[0];
-    store.upsert_finding(&FindingRow {
-        id: Uuid::new_v4().to_string(),
-        workspace_id: workspace.id.clone(),
-        severity: "suggestion".into(),
-        title: format!("Review changes in {}", first.path),
-        file: Some(first.path.clone()),
-        line: Some(1),
-        explanation: "Walk through this file for edge cases and missing tests.".into(),
-        status: "open".into(),
-        commit_sha: None,
-        sent_to_thread_id: None,
-    })?;
-    Ok(())
-}
-
-pub async fn complete_review(
-    app: &AppHandle,
-    workspace_id: &str,
-    thread_id: &str,
-) -> Result<()> {
+async fn complete_review(app: &AppHandle, workspace: &WorkspaceRow) -> Result<()> {
     let state = app.state::<AppState>();
-    if review_is_ready(&state.store, workspace_id) {
-        return Ok(());
-    }
-    let snapshot = state.store.snapshot()?;
-    let workspace = snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == workspace_id)
-        .cloned()
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    let record = state
-        .workspace
-        .get(workspace_id)
-        .await
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-
-    let diff = state
-        .diffs
-        .latest(workspace_id)
-        .unwrap_or(WorktreeDiff {
-            workspace_id: workspace_id.to_string(),
-            base: None,
-            files: vec![],
-        });
-
-    let file_count = diff.files.len();
-    let findings: Vec<FindingRow> = snapshot
+    let findings: Vec<FindingRow> = state
+        .store
+        .snapshot()?
         .findings
         .into_iter()
-        .filter(|row| row.workspace_id == workspace_id)
+        .filter(|row| row.workspace_id == workspace.id)
         .collect();
 
-    let read_step = serde_json::json!({
-        "icon": "file",
-        "title": format!("Read {} changed file{}", file_count, if file_count == 1 { "" } else { "s" }),
-        "detail": format!("{} against {}", record.branch, record.base),
-        "chip": "Read-only, auto-approved",
-    });
     state
         .store
-        .append_event(thread_id, "tool", &read_step.to_string())?;
-
-    let summary_thought = findings_summary_thought(&findings);
-    state.store.append_event(
-        thread_id,
-        "message",
-        &serde_json::json!({ "role": "assistant", "text": summary_thought }).to_string(),
-    )?;
-
-    state
-        .store
-        .set_setting(&review_status_key(workspace_id), "ready")?;
+        .set_setting(&review_status_key(&workspace.id), "ready")?;
 
     let author = state
         .store
-        .get_setting(&review_author_key(workspace_id))?
+        .get_setting(&review_author_key(&workspace.id))?
         .unwrap_or_else(|| "the author".into());
     let pr_label = workspace
         .pr_number
         .map(|num| format!("#{num}"))
         .unwrap_or_else(|| "the PR".into());
-    let counts = count_findings(&findings);
     let card_summary = if findings.is_empty() {
-        format!("Reviewed {pr_label} from {author}: no findings to send.")
+        format!("Reviewed {pr_label} from {author}: no findings.")
     } else {
         format!(
-            "Reviewed {pr_label} from {author}: {counts}. Choose which to send back for fixes in the Findings tab; nothing has been posted to GitHub yet."
+            "Reviewed {pr_label} from {author}: {}. Choose which to send back for fixes in the Findings tab; nothing has been posted to GitHub yet.",
+            count_findings(&findings)
         )
     };
-
-    let now = chrono_timestamp();
     state.store.upsert_workspace(&WorkspaceRow {
         summary: Some(card_summary),
-        summary_at: Some(now),
-        ..workspace
+        summary_at: Some(chrono_timestamp()),
+        ..workspace.clone()
     })?;
-
-    state
+    let _ = state
         .workspace
-        .set_provisioning_detail(workspace_id, "Review ready", 0, None, None)
-        .await?;
-
-    let engine = snapshot
-        .threads
-        .iter()
-        .find(|row| row.id == thread_id)
-        .map(|row| row.engine.clone())
-        .unwrap_or_else(|| "claude".into());
-
-    state.store.upsert_thread(&ThreadRow {
-        id: thread_id.to_string(),
-        workspace_id: workspace_id.to_string(),
-        title: "Reviewer".into(),
-        engine,
-        session_id: None,
-        status: "idle".into(),
-        used_tokens: None,
-        context_size: None,
-        cost_usd: None,
-        transcript_readonly: false,
-    })?;
-    state
-        .workspace
-        .set_thread(thread_id, workspace_id, ThreadActivity::Idle)
+        .set_provisioning_detail(&workspace.id, "Review ready", 0, None, None)
         .await;
 
-    let finding_count = findings.len() as i64;
-    let pr_number = workspace.pr_number.unwrap_or(0);
-    emit_toast(
-        app,
-        ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![
-                ToastPart::Text {
-                    value: format!("Review of #{pr_number} finished · "),
-                },
-                ToastPart::Code {
-                    value: finding_count.to_string(),
-                },
-                ToastPart::Text {
-                    value: if finding_count == 1 {
-                        " finding".into()
-                    } else {
-                        " findings".into()
+    // With findings, the frontend toasts (and notifies) when they first appear.
+    if findings.is_empty() {
+        emit_toast(
+            app,
+            ToastRaisedPayload {
+                tone: ToastTone::Ok,
+                parts: vec![
+                    ToastPart::Text {
+                        value: "Review of ".into(),
                     },
-                },
-            ],
-            workspace_id: Some(workspace_id.to_string()),
-        },
-    );
+                    ToastPart::Code { value: pr_label },
+                    ToastPart::Text {
+                        value: " finished · no findings".into(),
+                    },
+                ],
+                workspace_id: Some(workspace.id.clone()),
+            },
+        );
+    }
+    emit_state_changed(app, &state);
+    Ok(())
+}
 
+fn emit_state_changed(app: &AppHandle, state: &AppState) {
     let version = state.bump_event_version();
     let _ = StateChanged {
         version,
         kind: StateChangeKind::WorkspaceStatus,
     }
     .emit(app);
-    Ok(())
-}
-
-fn findings_summary_thought(findings: &[FindingRow]) -> String {
-    if findings.is_empty() {
-        return "Done. I didn’t find anything worth flagging in this diff.".into();
-    }
-    let blocking = findings
-        .iter()
-        .filter(|row| row.severity == "blocking")
-        .count();
-    let suggestions = findings
-        .iter()
-        .filter(|row| row.severity == "suggestion")
-        .count();
-    let nits = findings.iter().filter(|row| row.severity == "nit").count();
-    format!(
-        "Done. I found {blocking} blocking issue{}, {suggestions} suggestion{} and {nits} nit{}. Pick the ones you want fixed in the Findings tab and I’ll work through them; nothing has been posted to GitHub.",
-        if blocking == 1 { "" } else { "s" },
-        if suggestions == 1 { "" } else { "s" },
-        if nits == 1 { "" } else { "s" },
-    )
 }
 
 fn count_findings(findings: &[FindingRow]) -> String {
@@ -932,4 +747,17 @@ fn chrono_timestamp() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs().to_string())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rubric_describes_the_findings_block() {
+        let rubric = reviewer_rubric();
+        assert!(rubric.contains("<cormux-findings>"));
+        assert!(rubric.contains("</cormux-findings>"));
+        assert!(!rubric.contains("report_finding"));
+    }
 }

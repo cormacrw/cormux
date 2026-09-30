@@ -9,6 +9,7 @@
   import Clock from '@lucide/svelte/icons/clock'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Glasses from '@lucide/svelte/icons/glasses'
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import X from '@lucide/svelte/icons/x'
   import { openUrl } from '@tauri-apps/plugin-opener'
 
@@ -62,13 +63,20 @@
       : `Review #${pr.num} in a new workspace`,
   )
 
-  function onReview() {
+  let starting = $state(false)
+
+  async function onReview() {
     // One review workspace per PR: reopen it rather than starting a duplicate.
     if (reviewWorkspace) {
       app.openWorkspace(reviewWorkspace.id)
       return
     }
-    void startReviewWorkspace(pr)
+    starting = true
+    try {
+      await startReviewWorkspace(pr)
+    } finally {
+      starting = false
+    }
   }
 
   function onTitleClick(event: MouseEvent) {
@@ -177,10 +185,16 @@
             {...props}
             variant="ghost"
             size="icon-sm"
-            onclick={onReview}
+            onclick={() => void onReview()}
+            disabled={starting}
+            aria-busy={starting}
             aria-label={reviewLabel}
           >
-            <Glasses class="size-4" aria-hidden="true" />
+            {#if starting}
+              <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
+            {:else}
+              <Glasses class="size-4" aria-hidden="true" />
+            {/if}
           </Button>
         {/snippet}
       </Tooltip.Trigger>

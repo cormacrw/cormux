@@ -88,5 +88,10 @@ test('PR rows: status icon colour, title opens GitHub, glasses starts a review',
     'Review #482 in a new workspace',
   )
   await page.screenshot({ path: 'e2e/output/open-prs-tooltip.png' })
+
+  await review.click()
+  await expect(review).toBeDisabled()
+  await expect(review).toBeEnabled()
+  await expect(page.getByRole('heading', { name: 'Homebase' })).toBeVisible()
   expect(errors).toEqual([])
 })

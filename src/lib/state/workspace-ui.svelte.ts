@@ -6,6 +6,8 @@ export class WorkspaceUiStore {
   tabBeforeOutput = $state<WorkspacePanelTab>('thread')
   /** File to expand and scroll to in Changes (set by links in the conversation). */
   revealDiffPath = $state<string | null>(null)
+  /** Line of the new file to scroll to once `revealDiffPath` is shown. */
+  revealDiffLine = $state<number | null>(null)
   /** Files the user folded in Changes; everything else is expanded. */
   collapsedDiffPaths = $state<Record<string, true>>({})
   diffMode = $state<'unified' | 'split'>('unified')
@@ -23,6 +25,13 @@ export class WorkspaceUiStore {
     this.activeTab = tab
   }
 
+  /** Opens Changes at a file, and at a line of it when given. */
+  revealInChanges(path: string, line: number | null = null) {
+    this.revealDiffPath = path
+    this.revealDiffLine = line
+    this.openTab('changes')
+  }
+
   toggleOutputTab() {
     if (this.activeTab === 'output') {
       this.activeTab = this.tabBeforeOutput
@@ -36,6 +45,7 @@ export class WorkspaceUiStore {
     this.activeTab = 'thread'
     this.tabBeforeOutput = 'thread'
     this.revealDiffPath = null
+    this.revealDiffLine = null
     this.collapsedDiffPaths = {}
   }
 }

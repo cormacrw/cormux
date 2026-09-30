@@ -517,6 +517,9 @@ async fn finish_after_setup(
         .await;
         persist_workspace_row(state, &job.workspace_id, "running", &record)?;
         emit_workspace_status(app, state, &job.workspace_id, WorkspaceLifecycle::Running);
+        if job.review {
+            emit_review_started_toast(app, state, &job.workspace_id);
+        }
     } else {
         let record = state
             .workspace
@@ -726,6 +729,36 @@ async fn mark_failed(
             parts: vec![crate::ipc::types::ToastPart::Text {
                 value: message.to_string(),
             }],
+            workspace_id: Some(workspace_id.to_string()),
+        },
+    );
+}
+
+/// The worktree is checked out, setup has run, and the Reviewer has its prompt.
+fn emit_review_started_toast(app: &AppHandle, state: &AppState, workspace_id: &str) {
+    let pr_label = state
+        .store
+        .snapshot()
+        .ok()
+        .and_then(|snapshot| {
+            snapshot
+                .workspaces
+                .into_iter()
+                .find(|row| row.id == workspace_id)
+                .and_then(|row| row.pr_number)
+        })
+        .map(|num| format!("#{num}"))
+        .unwrap_or_else(|| "the PR".into());
+    crate::feedback::emit_toast(
+        app,
+        crate::ipc::types::ToastRaisedPayload {
+            tone: crate::ipc::types::ToastTone::Ok,
+            parts: vec![
+                crate::ipc::types::ToastPart::Text {
+                    value: "Reviewer started on ".into(),
+                },
+                crate::ipc::types::ToastPart::Code { value: pr_label },
+            ],
             workspace_id: Some(workspace_id.to_string()),
         },
     );

@@ -9,7 +9,6 @@
   import ScratchMacrosSettings from '$lib/components/settings/ScratchMacrosSettings.svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
   import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
-  import SkillsSettings from '$lib/components/settings/SkillsSettings.svelte'
   import {
     normalizeSettingsSection,
     SETTINGS_SECTIONS,
@@ -64,7 +63,7 @@
     const root = scrollRoot
     if (!root) return
     const atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 8
-    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'skills'
+    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'notifications'
     if (atBottom) {
       activeSection = last
       return
@@ -227,24 +226,6 @@
           />
           <div class="mt-4">
             <NotificationsSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'skills'}
-          id={settingsSectionDomId('skills')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-skills-h"
-          data-od-id="settings-skills"
-        >
-          <SettingsSectionHead
-            id="settings-skills-h"
-            title="Skills"
-            description="Reusable instructions any agent can load into its thread."
-          />
-          <div class="mt-4">
-            <SkillsSettings />
           </div>
         </section>
       </div>

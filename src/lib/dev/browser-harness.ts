@@ -107,6 +107,18 @@ export function installBrowserHarness() {
     const persisted = fixtureSnapshot.persisted
     persisted.timeline = [...persisted.timeline.filter((row) => row.threadId !== 'th-lead'), ...injected]
   }
+  // Tests can inject review findings; this makes the fixture workspace a finished review.
+  const injectedFindings = (window as { __HARNESS_REVIEW_FINDINGS__?: typeof fixtureSnapshot.persisted.findings })
+    .__HARNESS_REVIEW_FINDINGS__
+  if (injectedFindings) {
+    const persisted = fixtureSnapshot.persisted
+    const row = persisted.workspaces.find((workspace) => workspace.id === 'ws-auth')!
+    row.kind = 'review'
+    row.prNumber = 2
+    persisted.threads.find((thread) => thread.id === 'th-lead')!.title = 'Reviewer'
+    persisted.findings = injectedFindings
+    persisted.settings = [...persisted.settings, { key: 'review:ws-auth/status', value: 'ready' }]
+  }
   // Tests can inject synced PRs; this also flips GitHub to connected.
   const injectedPrs = (window as { __HARNESS_PRS__?: typeof fixtureSnapshot.persisted.pullRequests })
     .__HARNESS_PRS__
@@ -115,6 +127,11 @@ export function installBrowserHarness() {
     fixtureSnapshot.githubAuthConfigured = true
     fixtureSnapshot.prSyncedAt = String(Math.floor(Date.now() / 1000))
   }
+
+  // Lets tests raise a toast of any tone without driving a flow that produces it.
+  void import('$lib/feedback/show-toast').then(({ showToast }) => {
+    ;(window as { __HARNESS_SHOW_TOAST__?: typeof showToast }).__HARNESS_SHOW_TOAST__ = showToast
+  })
 
   const callbacks = new Map<number, (...args: unknown[]) => void>()
   let nextCallbackId = 1
@@ -289,6 +306,11 @@ export function installBrowserHarness() {
       return null
     }
     if (cmd.startsWith('plugin:window|')) return null
+    if (cmd === 'create_review_workspace') {
+      // Slow enough for tests to see the button's loading state; opens the fixture workspace.
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      return { workspaceId: 'ws-auth', created: true }
+    }
     if (cmd === 'plugin:opener|open_url') {
       const opened = ((window as { __HARNESS_OPENED__?: string[] }).__HARNESS_OPENED__ ??= [])
       opened.push(String(args.url))

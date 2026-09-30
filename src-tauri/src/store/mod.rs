@@ -558,7 +558,33 @@ impl Store {
         })
     }
 
+    /// Everything the agent said since the user's last message, with streamed chunks joined.
+    pub fn last_agent_reply(&self, thread_id: &str) -> Result<String> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT payload FROM thread_events WHERE thread_id = ?1 AND kind = 'message' ORDER BY seq",
+            )?;
+            let payloads = stmt
+                .query_map([thread_id], |row| row.get::<_, String>(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let mut reply = String::new();
+            for payload in payloads {
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload) else {
+                    continue;
+                };
+                let text = value.get("text").and_then(|text| text.as_str()).unwrap_or("");
+                match value.get("role").and_then(|role| role.as_str()) {
+                    Some("user") => reply.clear(),
+                    Some("agent") => reply.push_str(text),
+                    _ => {}
+                }
+            }
+            Ok(reply)
+        })
+    }
+
     pub fn append_event(&self, thread_id: &str, kind: &str, payload: &str) -> Result<i64> {
+
         self.with_conn(|conn| {
             let seq: i64 = conn.query_row(
                 "SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_events WHERE thread_id = ?1",
@@ -631,7 +657,15 @@ impl Store {
         })
     }
 
+pub fn delete_findings_for_workspace(&self, workspace_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM findings WHERE workspace_id = ?1", [workspace_id])?;
+            Ok(())
+        })
+    }
+
     pub fn upsert_finding(&self, finding: &FindingRow) -> Result<()> {
+
         self.with_conn(|conn| {
             conn.execute(
                 "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id)
@@ -967,6 +1001,68 @@ mod tests {
         assert!(snapshot.scratches.is_empty());
         assert!(snapshot.timeline.is_empty());
         assert!(store.thread_by_id("t1").unwrap().is_none());
+    }
+
+    #[test]
+    fn last_agent_reply_joins_chunks_since_the_last_user_message() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .upsert_repo(&RepoRecord {
+                id: "r1".into(),
+                path: "/tmp/app".into(),
+                name: "app".into(),
+                default_branch: Some("main".into()),
+                setup_commands: String::new(),
+                run_command: None,
+            })
+            .unwrap();
+        store
+            .upsert_workspace(&WorkspaceRow {
+                id: "w1".into(),
+                repo_id: "r1".into(),
+                name: "Review".into(),
+                branch: "feat".into(),
+                worktree_path: "/tmp/wt".into(),
+                status: "running".into(),
+                created_at: String::new(),
+                summary: None,
+                summary_at: None,
+                summary_source: "Haiku 4.5".into(),
+                kind: Some("review".into()),
+                pr_number: Some(2),
+                pr_html_url: None,
+                modified_files: 0,
+                archived_at: None,
+            })
+            .unwrap();
+        store
+            .upsert_thread(&ThreadRow {
+                id: "t1".into(),
+                workspace_id: "w1".into(),
+                title: "Reviewer".into(),
+                engine: "claude".into(),
+                session_id: None,
+                status: "running".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+            })
+            .unwrap();
+        let events = [
+            ("message", r#"{"role":"user","text":"Review #2"}"#),
+            ("message", r#"{"type":"messageChunk","role":"agent","text":"Old "}"#),
+            ("message", r#"{"type":"messageChunk","role":"user","text":"Again"}"#),
+            ("message", r#"{"type":"messageChunk","role":"thought","text":"hmm"}"#),
+            ("message", r#"{"type":"messageChunk","role":"agent","text":"Looks "}"#),
+            ("tool", r#"{"type":"toolCall","title":"Read"}"#),
+            ("message", r#"{"type":"messageChunk","role":"agent","text":"good."}"#),
+        ];
+        for (kind, payload) in events {
+            store.append_event("t1", kind, payload).unwrap();
+        }
+        assert_eq!(store.last_agent_reply("t1").unwrap(), "Looks good.");
     }
 
     #[test]

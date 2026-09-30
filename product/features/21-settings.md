@@ -2,7 +2,7 @@
 
 ## Summary
 
-Settings is a full page (not a popover) with four clearly separated sections on one scrolling page: **Agents**, **Repos**, **General** and **Skills**. A short sticky list on the left jumps between sections and highlights the one you're reading. Changes apply immediately; there's no Save button.
+Settings is a full page (not a popover) with four clearly separated sections on one scrolling page: **Agents**, **Repos**, **General** and **GitHub**, among others. A short sticky list on the left jumps between sections and highlights the one you're reading. Changes apply immediately; there's no Save button.
 
 ## Why it exists
 
@@ -12,12 +12,12 @@ Defaults matter in a tool used many times a day: which engine new workspaces use
 
 - `<main class="view" id="view-settings" data-od-id="settings-view">`.
 - Entry points: the sliders button at the bottom of the sidebar (`nav-settings`, shown selected while open), palette **Open settings**, and **Add run command** in an Output tab's empty state (which opens Repos with a repo expanded).
-- Hooks: `settings-title`, `settings-nav`, `settings-agents`, `settings-repos`, `settings-general`, `settings-skills`, plus one per control (below).
+- Hooks: `settings-title`, `settings-nav`, `settings-agents`, `settings-repos`, `settings-general`, plus one per control (below).
 
 ## Layout
 
 - **Title** `Settings` (`h1`, focused on arrival).
-- **Section list** (left, sticky): Agents, Repos, General, Skills.
+- **Section list** (left, sticky): Agents, Repos, Scratch macros, General, Appearance, GitHub, Notifications.
 - **Sections** (right), each with a heading, a one-line description, and one or more grouped panels of rows.
 - **Narrow windows:** the section list becomes a row of buttons above the content.
 
@@ -57,10 +57,9 @@ Description: `Defaults for new workspaces and how the app behaves.`
 | Worktree location | Read-only path `~/.harness/worktrees` | | `Where each workspace's checkout lives on disk` |
 | Reduce motion | Switch | Off | `Turn off pulses and transitions` |
 
-### Skills
-Description: `Reusable instructions any agent can load into its thread.`
+### GitHub
 
-An honest stub: `No skills yet` / `Skills you add here will be available to every engine. Managing them from this page isn't built yet.`
+- **GitHub account**: whether the gh CLI is signed in.
 
 ## Behaviour
 
@@ -105,7 +104,6 @@ state.settings = {
 - **Default engine isn't used for new threads** added with +; they're always Claude Code.
 - Engine configuration is missing: whether each CLI is installed, its path and version, sign-in status, model choice, and extra flags.
 - Permissions are a single switch. A real permission model (per engine, per repo, allowlists of commands) needs designing.
-- **Skills** is a stub. Needs: what a Skill is (a markdown instruction file?), where it's stored, how it's attached to a thread, and whether it syncs with each engine's native skills or rules format.
 - No GitHub account section (sign-in, which orgs, PR filters).
 - No notifications section (desktop notifications for approvals, finished reviews).
 - No keyboard shortcut reference.

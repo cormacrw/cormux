@@ -66,10 +66,11 @@ There is no segment for Mentioned or Assigned; those appear only under All.
 
 ## Behaviour
 
-- **Review in workspace** creates a review workspace and navigates straight into it. Full flow in [19](19-review-workspaces.md).
+- **Review in workspace** creates a review workspace in the background and stays on Homebase; the button is disabled with a spinner until it exists. Full flow in [19](19-review-workspaces.md).
 - A PR can only have one review workspace. Once it exists, the row's button becomes **Go to Workspace**, preventing duplicates.
 - **PRs created in Harness** (via Create PR, see [18](18-create-pr.md)) are inserted at the top of this list as `Opened by you`, `Checks running`, `Awaiting review`, updated `just now`.
 - The sync label's age does not currently tick forward.
+- **Only registered repos.** A PR is listed only if its repo matches the GitHub `origin` of a repo in Settings ([22](22-repos.md)). Adding or removing a repo re-syncs the list.
 
 ## Responsive behaviour
 
@@ -120,7 +121,6 @@ There is no segment for Mentioned or Assigned; those appear only under All.
 
 - No manual refresh button, and the sync time never changes.
 - No link out to the PR on GitHub.
-- PRs from repos not registered in Settings: show them, hide them, or offer to add the repo?
 - No indication of which repo each PR belongs to, which matters once there are several repos.
 - No Mentioned or Assigned filter.
 - For PRs the user authored, "Review in workspace" is the only action. A "Continue in workspace" (check out and keep building, for example to address requested changes on #477) is probably more useful than reviewing your own PR.
