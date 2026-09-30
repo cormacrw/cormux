@@ -29,6 +29,7 @@
     validateBranchName,
   } from '$lib/new-workspace/validation'
   import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
+  import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
   import {
     app,
     homebaseUi,
@@ -98,17 +99,12 @@
     if (result.status === 'ok') engineStatuses = result.data
   }
 
-  function defaultRepoId() {
-    if (repos.items.some((repo) => repo.id === 'my-app')) return 'my-app'
-    return repos.items[0]?.id ?? ''
-  }
-
   function resetForm() {
     workspaceName = ''
     branchName = ''
     prompt = ''
     engine = settings.defaultEngine
-    repoId = defaultRepoId()
+    repoId = resolveDefaultRepoId(repos.items, settings.defaultRepo)
     baseBranch = settings.defaultBase
     nameEdited = false
     branchEdited = false

@@ -4,6 +4,7 @@ import {
   readDefaultBase,
   readDefaultEngine,
   readStringSetting,
+  resolveDefaultRepoId,
 } from './settings-defaults'
 
 describe('settings-defaults', () => {
@@ -33,5 +34,13 @@ describe('settings-defaults', () => {
     expect(readStringSetting([], 'worktreeRoot', '~/.harness/worktrees')).toBe(
       '~/.harness/worktrees',
     )
+  })
+
+  it('resolves the default repo, falling back to the first', () => {
+    const repos = [{ id: 'a' }, { id: 'b' }]
+    expect(resolveDefaultRepoId(repos, 'b')).toBe('b')
+    expect(resolveDefaultRepoId(repos, 'gone')).toBe('a')
+    expect(resolveDefaultRepoId(repos, '')).toBe('a')
+    expect(resolveDefaultRepoId([], 'b')).toBe('')
   })
 })

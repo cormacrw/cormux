@@ -48,7 +48,8 @@ Description: `Defaults for new workspaces and how the app behaves.`
 
 | Row | Control | Default | Description |
 | --- | --- | --- | --- |
-| Default base branch | Select of `my-app`'s branches | `main` | `New workspaces branch from here unless you pick another` |
+| Default repository | Select of added repos | First repo | `Pre-selected whenever you pick a repo for a new workspace or scratch` |
+| Default base branch | Select of the default repository's branches | `main` | `New workspaces branch from here unless you pick another` |
 | Teardown after merge | Switch | On | `Delete the worktree once its branch is merged` |
 | Worktree location | Read-only path `~/.harness/worktrees` | | `Where each workspace's checkout lives on disk` |
 | Reduce motion | Switch | Off | `Turn off pulses and transitions` |
@@ -64,6 +65,7 @@ An honest stub: `No skills yet` / `Skills you add here will be available to ever
 - **Default engine:** choosing a row updates the default immediately, moves the `Default` tag, and keeps focus on the chosen radio.
 - **Switches** toggle immediately and keep focus.
 - **Reduce motion** also applies instantly across the whole app (adds a `reduce-motion` class to the document). The palette has a matching command.
+- **Default repository** is pre-selected in the New workspace and New scratch dialogs. If that repo is removed, the first repo is used.
 - **Default base branch** applies to the next New workspace dialog.
 - Opening Settings while already on it does nothing.
 

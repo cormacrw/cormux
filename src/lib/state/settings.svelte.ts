@@ -21,6 +21,8 @@ export class SettingsStore {
   runEverything = $state(false)
   defaultEngine = $state<EngineKind>('claude')
   defaultBase = $state('main')
+  /** Preferred repo id; resolve with `resolveDefaultRepoId` since it may be removed. */
+  defaultRepo = $state('')
   teardownAfterMerge = $state(true)
   worktreeRoot = $state(DEFAULT_WORKTREE_ROOT)
   notifyApprovals = $state(true)
@@ -49,6 +51,7 @@ export class SettingsStore {
     if (rows.length > 0) {
       this.defaultEngine = readDefaultEngine(rows)
       this.defaultBase = readDefaultBase(rows)
+      this.defaultRepo = readStringSetting(rows, 'defaultRepo', '')
       this.teardownAfterMerge = readBooleanSetting(
         rows,
         'teardownAfterMerge',
@@ -90,6 +93,11 @@ export class SettingsStore {
     const trimmed = branch.trim()
     this.defaultBase = trimmed || 'main'
     await this.persist('defaultBase', this.defaultBase)
+  }
+
+  async setDefaultRepo(repoId: string) {
+    this.defaultRepo = repoId
+    await this.persist('defaultRepo', repoId)
   }
 
   async setReduceMotion(next: boolean) {

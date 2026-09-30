@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
@@ -11,6 +10,7 @@
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { SETTINGS_SHORTCUTS } from '$lib/settings/shortcuts'
+  import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
   import { repos, settings, workspaceRecords } from '$lib/state'
   import { Alert, AlertDescription } from '$lib/components/ui/alert'
 
@@ -20,9 +20,10 @@
   let worktreeDraft = $state(settings.worktreeRoot)
 
   const defaultRepoId = $derived(
-    repos.items.some((repo) => repo.id === 'my-app')
-      ? 'my-app'
-      : (repos.items[0]?.id ?? ''),
+    resolveDefaultRepoId(repos.items, settings.defaultRepo),
+  )
+  const defaultRepoName = $derived(
+    repos.items.find((repo) => repo.id === defaultRepoId)?.name ?? '',
   )
 
   const hasWorkspaces = $derived(workspaceRecords.records.length > 0)
@@ -31,17 +32,17 @@
     worktreeDraft = settings.worktreeRoot
   })
 
-  onMount(() => {
-    void loadBranches()
+  $effect(() => {
+    void loadBranches(defaultRepoId)
   })
 
-  async function loadBranches() {
-    if (!defaultRepoId) {
+  async function loadBranches(repoId: string) {
+    if (!repoId) {
       branches = []
       return
     }
     loadingBranches = true
-    const result = await commands.listRepoBranches(defaultRepoId)
+    const result = await commands.listRepoBranches(repoId)
     loadingBranches = false
     if (result.status === 'ok') {
       branches = result.data.branches
@@ -62,6 +63,41 @@
 </script>
 
 <SettingsPanel data-od-id="settings-general-group">
+  <SettingsRow
+    title="Default repository"
+    description="Pre-selected whenever you pick a repo for a new workspace or scratch"
+    controlId="settings-default-repo"
+  >
+    {#snippet control()}
+      {#if repos.items.length === 0}
+        <span class="text-xs text-muted-foreground">Add a repo first</span>
+      {:else}
+        <Select.Root
+          type="single"
+          value={defaultRepoId}
+          onValueChange={(value) => {
+            if (value) void settings.setDefaultRepo(value)
+          }}
+        >
+          <Select.Trigger
+            id="settings-default-repo"
+            class="w-[180px]"
+            data-od-id="settings-default-repo"
+          >
+            <span class="truncate">{defaultRepoName}</span>
+          </Select.Trigger>
+          <Select.Content>
+            {#each repos.items as repo (repo.id)}
+              <Select.Item value={repo.id} label={repo.name}
+                >{repo.name}</Select.Item
+              >
+            {/each}
+          </Select.Content>
+        </Select.Root>
+      {/if}
+    {/snippet}
+  </SettingsRow>
+
   <SettingsRow
     title="Default base branch"
     description="New workspaces branch from here unless you pick another"

@@ -12,7 +12,14 @@
   import { showToast } from '$lib/feedback/show-toast'
   import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
   import { draftWorkspaceName } from '$lib/new-workspace/draft'
-  import { app, hydrateFromSnapshot, repos, shellDialogs } from '$lib/state'
+  import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
+  import {
+    app,
+    hydrateFromSnapshot,
+    repos,
+    settings,
+    shellDialogs,
+  } from '$lib/state'
 
   let open = $state(false)
   let title = $state('')
@@ -23,11 +30,6 @@
   let titleError = $state(false)
   let titleInput = $state<HTMLInputElement | null>(null)
 
-  function defaultRepoId() {
-    if (repos.items.some((repo) => repo.id === 'my-app')) return 'my-app'
-    return repos.items[0]?.id ?? ''
-  }
-
   async function prepareOpen() {
     dismissOpenPopover()
     window.dispatchEvent(new CustomEvent('cormux:close-palette'))
@@ -35,7 +37,7 @@
     title = ''
     prompt = ''
     titleError = false
-    repoId = defaultRepoId()
+    repoId = resolveDefaultRepoId(repos.items, settings.defaultRepo)
     open = true
     shellDialogs.newScratchOpen = true
     await tick()
