@@ -278,7 +278,7 @@
   }
 </script>
 
-<section
+<div
   id="thread-panel"
   role="tabpanel"
   aria-labelledby={panelLabelId}
@@ -361,4 +361,4 @@
       scrollToEndNext = true
     }}
   />
-</section>
+</div>

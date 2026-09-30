@@ -209,6 +209,8 @@
 
     <div class="relative flex min-h-0 flex-1 flex-col">
       {#if files.length}
+        <!-- Focusable so the diff can be scrolled from the keyboard. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div
           bind:this={scrollEl}
           class="min-h-0 flex-1 overflow-y-auto"

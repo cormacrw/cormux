@@ -125,12 +125,13 @@
   aria-label="Thread tabs"
   class="thread-bar flex h-9 shrink-0 items-end gap-1 overflow-x-auto border-b border-border/60 px-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
   data-od-id="thread-tabs"
-  onkeydown={onBarKeydown}
 >
   <div
     id="thread-tabs"
     class="flex min-w-0 items-end gap-0.5"
     role="tablist"
+    tabindex="-1"
+    onkeydown={onBarKeydown}
     aria-label="Agent threads"
   >
     {#each wsThreads as thread (thread.id)}
@@ -244,6 +245,8 @@
   <div
     id="out-tabs"
     role="tablist"
+    tabindex="-1"
+    onkeydown={onBarKeydown}
     aria-label="Git and app"
     class="flex shrink-0 items-end gap-0.5"
   >

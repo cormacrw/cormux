@@ -27,19 +27,15 @@
         ? 'border-red-700/40 bg-red-600 text-white'
         : 'border-amber-500/50 bg-amber-400 text-amber-950',
   )
+  const toastClass = $derived(
+    cn(
+      'flex w-[356px] max-w-[calc(100vw-2rem)] items-start gap-2 rounded-lg border px-4 py-3 text-left text-sm leading-snug shadow-lg',
+      toneClass,
+    ),
+  )
 </script>
 
-<svelte:element
-  this={onActivate ? 'button' : 'div'}
-  type={onActivate ? 'button' : undefined}
-  class={cn(
-    'flex w-[356px] max-w-[calc(100vw-2rem)] items-start gap-2 rounded-lg border px-4 py-3 text-left text-sm leading-snug shadow-lg',
-    onActivate && 'cursor-pointer transition-[filter] hover:brightness-105',
-    toneClass,
-  )}
-  data-tone={tone}
-  onclick={onActivate ? () => onActivate() : undefined}
->
+{#snippet content()}
   <Icon class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
   <span class="inline">
     {#each parts as part (part.type + part.value)}
@@ -52,4 +48,22 @@
       {/if}
     {/each}
   </span>
-</svelte:element>
+{/snippet}
+
+{#if onActivate}
+  <button
+    type="button"
+    class={cn(
+      toastClass,
+      'cursor-pointer transition-[filter] hover:brightness-105',
+    )}
+    data-tone={tone}
+    onclick={() => onActivate()}
+  >
+    {@render content()}
+  </button>
+{:else}
+  <div class={toastClass} data-tone={tone}>
+    {@render content()}
+  </div>
+{/if}

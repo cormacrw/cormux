@@ -118,7 +118,7 @@
   })
 </script>
 
-<section
+<div
   id="findings-panel"
   role="tabpanel"
   aria-labelledby="thread-tab-findings"
@@ -420,4 +420,4 @@
       {/if}
     </div>
   </div>
-</section>
+</div>

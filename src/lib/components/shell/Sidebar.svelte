@@ -183,18 +183,12 @@
   <div class="flex items-center gap-2 px-2 pt-2">
     <div class="flex min-w-0 flex-1 items-center">
       <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <span
-              {...props}
-              tabindex="0"
-              class="flex items-center gap-2 rounded-sm text-xs text-muted-foreground"
-              aria-label={`Memory used: ${memory.label}`}
-            >
-              <Cpu class="size-3.5 shrink-0" aria-hidden="true" />
-              <span class="font-mono tabular-nums">{memory.label}</span>
-            </span>
-          {/snippet}
+        <Tooltip.Trigger
+          class="flex cursor-default items-center gap-2 rounded-sm text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          aria-label={`Memory used: ${memory.label}`}
+        >
+          <Cpu class="size-3.5 shrink-0" aria-hidden="true" />
+          <span class="font-mono tabular-nums">{memory.label}</span>
         </Tooltip.Trigger>
         <Tooltip.Content side="top">Memory used</Tooltip.Content>
       </Tooltip.Root>
