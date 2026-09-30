@@ -4,6 +4,16 @@
 
 A macOS app for running many coding agents in parallel, each in its own git worktree. Product context lives in [`product/PRODUCT.md`](product/PRODUCT.md) and the technical design in [`product/ARCHITECTURE.md`](product/ARCHITECTURE.md).
 
+## Install
+
+Download the `.dmg` from the [latest release](https://github.com/cormacrw/cormux/releases/latest), open it, and drag Cormux to Applications. It needs macOS 13 or later and runs on Apple Silicon and Intel Macs.
+
+The app isn't signed with an Apple Developer ID yet, so macOS will say it's damaged or can't be opened. Clear the quarantine flag once after installing:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Cormux.app
+```
+
 ## Stack
 
 Tauri 2 (Rust) shell and core in `src-tauri/`, with a Svelte 5 + Vite + TypeScript single page app in `src/`.
