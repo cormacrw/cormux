@@ -8,6 +8,7 @@
     app,
     findings,
     settings,
+    stacks,
     threads,
     workspaceDiff,
     workspaceRecords,
@@ -17,6 +18,7 @@
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { statusDotVariantForThread } from '$lib/sidebar/status'
   import { cn } from '$lib/utils'
+  import { stackTabAriaLabel } from '$lib/stack/stack'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
   import {
     activeThreadBarTabKey,
@@ -31,6 +33,7 @@
     type ThreadBarTabKey,
   } from '$lib/workspace/thread-tabs'
   import File from '@lucide/svelte/icons/file'
+  import Layers from '@lucide/svelte/icons/layers'
   import List from '@lucide/svelte/icons/list'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Plus from '@lucide/svelte/icons/plus'
@@ -55,6 +58,8 @@
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runtime = $derived(workspaceRecords.runtime(workspace.id))
   const changeCountLabel = $derived(formatChangeCounts(workspaceDiff.totals(workspace.id)))
+  const stack = $derived(stacks.get(workspace.id))
+  const stackSize = $derived(stack?.status === 'stacked' ? stack.branches.length : 0)
 
   function isSelected(tab: ThreadBarTabKey): boolean {
     const active = activeThreadBarTabKey({
@@ -257,6 +262,27 @@
       {#if changeCountLabel}
         <span class="font-mono text-[10px] text-muted-foreground" aria-hidden="true">
           {changeCountLabel}
+        </span>
+      {/if}
+    </Button>
+    <Button
+      id="thread-tab-stack"
+      role="tab"
+      variant="ghost"
+      size="sm"
+      class={threadTabClass(workspaceUi.activeTab === 'stack')}
+      aria-selected={workspaceUi.activeTab === 'stack'}
+      aria-controls="stack-panel"
+      tabindex={tabIndex({ kind: 'stack' })}
+      aria-label={stackTabAriaLabel(stack)}
+      data-od-id="thread-tab-stack"
+      onclick={() => selectTab({ kind: 'stack' })}
+    >
+      <Layers class="size-3.5 shrink-0" aria-hidden="true" />
+      <span class="truncate" aria-hidden="true">Stack</span>
+      {#if stackSize > 0}
+        <span class="font-mono text-[10px] text-muted-foreground" aria-hidden="true">
+          {stackSize}
         </span>
       {/if}
     </Button>

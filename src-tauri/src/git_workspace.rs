@@ -418,6 +418,54 @@ pub async fn create_workspace_branch(
     Ok(())
 }
 
+/// Bring the workspace in line with whatever branch an outside tool (`gh stack`) left
+/// checked out and refresh its git stats and diff. Returns the branch.
+pub async fn adopt_checked_out_branch(
+    app: &AppHandle,
+    state: &AppState,
+    workspace_id: &str,
+    detail: &str,
+) -> Result<String> {
+    let row = state
+        .store
+        .workspace_by_id(workspace_id)?
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    let record = resolve_record(state, workspace_id, &row).await?;
+    let worktree = PathBuf::from(&record.worktree_path);
+    let branch = state.git.current_branch(&worktree).await?;
+    let switched = !branch.is_empty() && branch != record.branch;
+    if switched {
+        state.workspace.switch_branch_record(workspace_id, &branch).await?;
+        state.store.set_workspace_branch(workspace_id, &branch)?;
+        if row.pr_number.is_some() {
+            state.store.set_workspace_pr_number(workspace_id, None)?;
+        }
+        if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
+            let _ = append_git_step(
+                &state.store,
+                &thread_id,
+                "branch",
+                &format!("Switched to `{branch}`"),
+                detail,
+            );
+        }
+        emit_switch_toast(
+            app,
+            &record.name,
+            &branch,
+            workspace_id,
+            state.process.workspace_has_session(workspace_id),
+        );
+    }
+    let current = if branch.is_empty() { &record.branch } else { &branch };
+    refresh_git_stats(state, workspace_id, &worktree, &record.base, current).await;
+    state.diffs.request_refresh(workspace_id);
+    let _ = state.diffs.compute(workspace_id, &worktree).await;
+    emit_workspace_refresh(app, state);
+    emit_git_state(app, state).await;
+    Ok(current.clone())
+}
+
 fn parse_conflict_op(raw: &str) -> GitConflictOperation {
     if raw == "rebase" {
         GitConflictOperation::Rebase

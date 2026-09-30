@@ -38,15 +38,8 @@ pub async fn draft_pr_why(
 
     let record = resolve_record(state, workspace_id, &workspace).await?;
     let worktree = Path::new(&record.worktree_path);
-    let diff = state
-        .diffs
-        .compute(workspace_id, worktree)
-        .await
-        .unwrap_or(crate::git::WorktreeDiff {
-            workspace_id: workspace_id.to_string(),
-            base: None,
-            files: vec![],
-        });
+    let base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await;
+    let diff = pr_diff(state, workspace_id, worktree, &base, &record.base).await;
 
     let lead_id = lead_thread_id(state, workspace_id)?;
     let events: Vec<_> = snapshot
@@ -62,7 +55,7 @@ pub async fn draft_pr_why(
         &state.llm,
         workspace_id,
         &workspace,
-        &record.base,
+        &base,
         &goal,
         &transcript,
         &diff,
@@ -110,6 +103,17 @@ pub async fn create_workspace_pull_request(
         ));
     }
 
+    // A stacked branch's PR targets the branch below it, which GitHub needs on the remote.
+    let pr_base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await;
+    if pr_base != record.base
+        && !state.git.remote_branch_exists(worktree, &pr_base).await.unwrap_or(false)
+    {
+        return Err(Error::Git(format!(
+            "{} is stacked on {pr_base}, which isn't on GitHub yet. Push the stack from the Stack tab, then try again.",
+            record.branch
+        )));
+    }
+
     let token = auth::resolve_token(&state.shell_env)
         .await
         .ok_or_else(|| Error::Github("GitHub is not signed in — add a token in Settings".into()))?;
@@ -138,15 +142,7 @@ pub async fn create_workspace_pull_request(
         .split_once('/')
         .ok_or_else(|| Error::Git(format!("invalid origin slug {slug}")))?;
 
-    let diff = state
-        .diffs
-        .compute(&input.workspace_id, worktree)
-        .await
-        .unwrap_or(crate::git::WorktreeDiff {
-            workspace_id: input.workspace_id.clone(),
-            base: None,
-            files: vec![],
-        });
+    let diff = pr_diff(state, &input.workspace_id, worktree, &pr_base, &record.base).await;
 
     let title = input
         .title
@@ -174,7 +170,7 @@ pub async fn create_workspace_pull_request(
                 title: title.clone(),
                 body,
                 head: record.branch.clone(),
-                base: record.base.clone(),
+                base: pr_base.clone(),
                 draft: input.draft,
             },
         )
@@ -197,7 +193,7 @@ pub async fn create_workspace_pull_request(
         author: "you".into(),
         rel: PrRelationship::Author,
         head: record.branch.clone(),
-        base: record.base.clone(),
+        base: pr_base.clone(),
         updated_at: updated_at.clone(),
         checks: PrChecksState::Running,
         failing: None,
@@ -221,7 +217,7 @@ pub async fn create_workspace_pull_request(
     })?;
 
     let lead_id = lead_thread_id(state, &input.workspace_id)?;
-    append_opened_pr_step(&state.store, &lead_id, created.number, &record.branch, &record.base)?;
+    append_opened_pr_step(&state.store, &lead_id, created.number, &record.branch, &pr_base)?;
 
     emit_toast(
         app,
@@ -257,6 +253,27 @@ pub async fn create_workspace_pull_request(
         number: created.number,
         html_url: created.html_url,
         title,
+    })
+}
+
+/// The changes the PR will show. A stacked PR is measured against the branch below it;
+/// otherwise this is the Changes panel's diff, as it always was.
+async fn pr_diff(
+    state: &AppState,
+    workspace_id: &str,
+    worktree: &Path,
+    pr_base: &str,
+    trunk: &str,
+) -> crate::git::WorktreeDiff {
+    let diff = if pr_base == trunk {
+        state.diffs.compute(workspace_id, worktree).await
+    } else {
+        state.diffs.compute_against(workspace_id, worktree, pr_base).await
+    };
+    diff.unwrap_or(crate::git::WorktreeDiff {
+        workspace_id: workspace_id.to_string(),
+        base: None,
+        files: vec![],
     })
 }
 

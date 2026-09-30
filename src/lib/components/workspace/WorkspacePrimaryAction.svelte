@@ -2,12 +2,17 @@
   import { Button } from '$lib/components/ui/button'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
+    branchPullRequest,
     primaryPrActionLabel,
-    pullRequestForWorkspace,
-    resolvePrHtmlUrl,
   } from '$lib/create-pr/pr-header'
   import { reviewSubmitted as isReviewSubmitted } from '$lib/review/workspace-settings'
-  import { prs, settings, shellDialogs, workspaceRecords } from '$lib/state'
+  import {
+    prs,
+    settings,
+    shellDialogs,
+    stacks,
+    workspaceRecords,
+  } from '$lib/state'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
 
@@ -24,26 +29,35 @@
   )
 
   const record = $derived(workspaceRecords.getRecord(workspace.id))
-  const linkedPr = $derived(
-    record
-      ? pullRequestForWorkspace(prs.items, record.repoId, workspace.prNumber)
-      : undefined,
+  const stackPr = $derived(
+    stacks
+      .get(workspace.id)
+      ?.branches.find((branch) => branch.name === workspace.branch)?.pr,
+  )
+  // Any PR for the checked-out branch, not just one this workspace opened.
+  const branchPr = $derived(
+    branchPullRequest({
+      items: prs.items,
+      repoId: record?.repoId ?? '',
+      branch: workspace.branch,
+      prNumber: workspace.prNumber,
+      prHtmlUrl: workspace.prHtmlUrl,
+      stackPr,
+    }),
   )
   const prLabel = $derived(
-    workspace.prNumber != null
-      ? primaryPrActionLabel(linkedPr, workspace.prNumber)
+    branchPr
+      ? primaryPrActionLabel(branchPr.synced, branchPr.number)
       : 'Create PR',
   )
-  const prUrl = $derived(
-    resolvePrHtmlUrl(linkedPr, workspace.prHtmlUrl),
-  )
+  const prUrl = $derived(branchPr?.url ?? null)
 
   function onPrimaryClick() {
     if (workspace.kind === 'review') {
       shellDialogs.openSubmitReview(workspace.id)
       return
     }
-    if (workspace.prNumber != null && prUrl) {
+    if (branchPr && prUrl) {
       void openUrl(prUrl)
       return
     }
@@ -68,7 +82,7 @@
     <GitPullRequest class="size-4" aria-hidden="true" />
     Submit review
   </Button>
-{:else if workspace.prNumber}
+{:else if branchPr}
   <Button
     variant="default"
     size="sm"

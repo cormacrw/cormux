@@ -205,8 +205,79 @@ export function installBrowserHarness() {
     callbacks.get(diffChannel.id)?.({ index: diffChannel.index++, message: { workspaceId: fixtureDiff.workspaceId, path: '', diff } })
   }
 
+  // gh-stack stand-in: `?stack=none` starts unstacked, `?stack=unavailable` has no extension.
+  const stackMode = new URLSearchParams(window.location.search).get('stack')
+  const stackBranches: string[] =
+    stackMode === 'none' || stackMode === 'unavailable'
+      ? []
+      : ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
+  const stackStats: Record<string, [number, number, number, number]> = {
+    'feat/oauth-api': [212, 38, 4, 6],
+    'feat/oauth-login': [96, 12, 2, 3],
+    'feat/oauth-ui': [341, 57, 5, 9],
+  }
+  // PRs are opened by hand; the bottom branch already has one.
+  const stackPrs: Record<string, number> = { 'feat/oauth-api': 101 }
+  const setFixtureBranch = (workspaceId: string, branch: string) => {
+    const row = fixtureSnapshot.persisted.workspaces.find((workspace) => workspace.id === workspaceId)
+    const record = fixtureSnapshot.workspaces.find((workspace) => workspace.id === workspaceId)
+    if (row) row.branch = branch
+    if (record) record.branch = branch
+    emitStateChanged()
+  }
+  const currentBranch = (workspaceId: string) =>
+    fixtureSnapshot.workspaces.find((workspace) => workspace.id === workspaceId)?.branch ?? 'main'
+  const stackFor = (workspaceId: string) => {
+    const current = currentBranch(workspaceId)
+    const base = { workspaceId, trunk: 'main', currentBranch: current, message: null, branches: [] }
+    if (stackMode === 'unavailable') {
+      return { ...base, status: 'unavailable', message: 'The gh-stack extension isn\'t installed. Run: gh extension install github/gh-stack' }
+    }
+    if (!stackBranches.includes(current)) return { ...base, status: 'notStacked' }
+    const branches = stackBranches.map((name, index) => {
+      const [additions, deletions, commits, files] = stackStats[name] ?? [0, 0, 0, 0]
+      const number = stackPrs[name]
+      return {
+        name,
+        parent: stackBranches[index - 1] ?? 'main',
+        files,
+        additions,
+        deletions,
+        commits,
+        current: name === current,
+        merged: false,
+        queued: false,
+        needsRebase: name === 'feat/oauth-ui',
+        pr: number ? { number, url: `https://github.com/acme/my-app/pull/${number}`, state: 'OPEN' } : null,
+      }
+    })
+    return { ...base, status: 'stacked', branches }
+  }
+
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {
     if (cmd === 'get_snapshot') return fixtureSnapshot
+    if (cmd === 'get_workspace_stack') return stackFor(String(args.workspaceId))
+    if (cmd === 'switch_workspace_branch') {
+      const input = args.input as { workspaceId: string; branch: string }
+      setFixtureBranch(input.workspaceId, input.branch)
+      return null
+    }
+    if (cmd === 'add_stack_branch') {
+      const input = args.input as { workspaceId: string; branch: string }
+      const current = currentBranch(input.workspaceId)
+      if (!stackBranches.includes(current) && current !== 'main') stackBranches.push(current)
+      stackBranches.push(input.branch)
+      setFixtureBranch(input.workspaceId, input.branch)
+      return null
+    }
+    if (cmd === 'push_stack') {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return null
+    }
+    if (cmd === 'sync_stack') return null
+    if (cmd === 'draft_pr_why') {
+      return { workspaceId: args.workspaceId, text: 'Lets people sign in with their Google account.', fromLlm: false }
+    }
     if (cmd === 'create_todo') {
       const todo = { id: `todo-harness-${nextEventId++}`, title: String(args.title).trim(), pinned: false }
       fixtureSnapshot.persisted.todos.push(todo)

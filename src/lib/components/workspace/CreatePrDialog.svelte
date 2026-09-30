@@ -14,6 +14,7 @@
   import {
     hydrateFromSnapshot,
     shellDialogs,
+    stacks,
     workspaceDiff,
     workspaceRecords,
     workspaces,
@@ -46,14 +47,35 @@
     workspaceId ? (workspaceDiff.filesByWorkspace[workspaceId] ?? []) : [],
   )
   const diffTotals = $derived(workspaceDiff.totals(workspaceId ?? ''))
+  // A stacked branch's PR targets the nearest unmerged branch below it, and the
+  // counts are against that branch, matching what the backend opens.
+  const stackBranch = $derived(
+    workspaceId && workspace
+      ? stacks
+          .get(workspaceId)
+          ?.branches.find((row) => row.name === workspace.branch && !row.merged)
+      : undefined,
+  )
   const routeLine = $derived(
     record && workspace
-      ? formatPrRouteLine({
-          branch: workspace.branch,
-          base: record.base,
-          fileCount: diffFiles.length,
-          totals: diffTotals,
-        })
+      ? formatPrRouteLine(
+          stackBranch
+            ? {
+                branch: workspace.branch,
+                base: stackBranch.parent,
+                fileCount: stackBranch.files,
+                totals: {
+                  added: stackBranch.additions,
+                  deleted: stackBranch.deletions,
+                },
+              }
+            : {
+                branch: workspace.branch,
+                base: record.base,
+                fileCount: diffFiles.length,
+                totals: diffTotals,
+              },
+        )
       : '',
   )
 
@@ -196,7 +218,10 @@
       <Dialog.Header class="px-5 pt-5 gap-1">
         <Dialog.Title>Create pull request</Dialog.Title>
         {#if routeLine}
-          <p class="text-sm text-muted-foreground font-mono" data-od-id="pr-route">
+          <p
+            class="text-sm text-muted-foreground font-mono"
+            data-od-id="pr-route"
+          >
             {routeLine}
           </p>
         {/if}
@@ -205,7 +230,11 @@
       <div class="flex flex-col gap-5 p-5">
         <div class="grid gap-1.5">
           <label class="text-sm font-medium" for="pr-title">Title</label>
-          <Input id="pr-title" bind:value={title} disabled={creating || drafting} />
+          <Input
+            id="pr-title"
+            bind:value={title}
+            disabled={creating || drafting}
+          />
         </div>
 
         <div class="grid gap-1.5" data-od-id="pr-why-field">
@@ -262,7 +291,10 @@
             {hint}
           </p>
           {#if whyError}
-            <p id="pr-why-error" class="text-sm text-destructive flex items-center gap-1.5">
+            <p
+              id="pr-why-error"
+              class="text-sm text-destructive flex items-center gap-1.5"
+            >
               Add a reason so reviewers know what this fixes.
             </p>
           {/if}
@@ -270,11 +302,19 @@
 
         <div class="flex flex-col gap-2 text-sm">
           <label class="flex items-center gap-2">
-            <input type="checkbox" bind:checked={includeWhat} disabled={creating} />
+            <input
+              type="checkbox"
+              bind:checked={includeWhat}
+              disabled={creating}
+            />
             Include what changed in the PR body
           </label>
           <label class="flex items-center gap-2">
-            <input type="checkbox" bind:checked={includeTested} disabled={creating} />
+            <input
+              type="checkbox"
+              bind:checked={includeTested}
+              disabled={creating}
+            />
             Include how it was tested
           </label>
           <label class="flex items-center gap-2">
@@ -288,13 +328,23 @@
         {/if}
       </div>
 
-      <Dialog.Footer class="m-0 px-5 py-4 flex-row items-center justify-between">
-        <p class="text-xs text-muted-foreground hidden sm:flex items-center gap-1">
+      <Dialog.Footer
+        class="m-0 px-5 py-4 flex-row items-center justify-between"
+      >
+        <p
+          class="text-xs text-muted-foreground hidden sm:flex items-center gap-1"
+        >
           <KbdGroup><Kbd>⌘</Kbd><Kbd>↵</Kbd></KbdGroup>
           to create
         </p>
         <div class="flex gap-2 ml-auto">
-          <Button size="xl" type="button" variant="ghost" disabled={creating} onclick={closeDialog}>
+          <Button
+            size="xl"
+            type="button"
+            variant="ghost"
+            disabled={creating}
+            onclick={closeDialog}
+          >
             Cancel
           </Button>
           <Button

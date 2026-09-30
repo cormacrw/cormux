@@ -201,6 +201,16 @@ impl LiveDiffEngine {
         let _ = self.tx.send(workspace_id.to_string());
     }
 
+    /// The diff against `base`, whatever the Changes panel is comparing against.
+    pub async fn compute_against(
+        &self,
+        workspace_id: &str,
+        path: &Path,
+        base: &str,
+    ) -> Result<WorktreeDiff> {
+        compute_diff(&self.git, workspace_id, path, Some(base)).await
+    }
+
     pub async fn compute(&self, workspace_id: &str, path: &Path) -> Result<WorktreeDiff> {
         let base = self.diff_base(workspace_id);
         let diff = compute_diff(&self.git, workspace_id, path, base.as_deref()).await?;

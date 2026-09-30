@@ -1,4 +1,5 @@
 import type { Thread } from '$lib/state/threads.svelte'
+import type { WorkspacePanelTab } from '$lib/state/workspace-ui.svelte'
 import { plural, threadActivityLine } from '$lib/sidebar/status'
 
 /** Deferred per product/features/10-thread-tabs.md — COR-123 tracks these. */
@@ -13,6 +14,7 @@ export type ThreadBarTabKey =
   | { kind: 'thread'; threadId: string }
   | { kind: 'findings' }
   | { kind: 'changes' }
+  | { kind: 'stack' }
   | { kind: 'output' }
 
 export function threadTabAriaLabel(thread: Thread): string {
@@ -63,13 +65,13 @@ export function buildThreadBarTabOrder(
     threadId: thread.id,
   }))
   if (showFindings) keys.push({ kind: 'findings' })
-  keys.push({ kind: 'changes' }, { kind: 'output' })
+  keys.push({ kind: 'changes' }, { kind: 'stack' }, { kind: 'output' })
   return keys
 }
 
 export function activeThreadBarTabKey(input: {
   tabs: ThreadBarTabKey[]
-  panelTab: 'thread' | 'findings' | 'changes' | 'output'
+  panelTab: WorkspacePanelTab
   threadId: string | null
 }): ThreadBarTabKey | null {
   if (input.panelTab !== 'thread') {
@@ -89,6 +91,7 @@ export function tabKeyId(tab: ThreadBarTabKey): string {
   if (tab.kind === 'thread') return `thread-tab-${tab.threadId}`
   if (tab.kind === 'findings') return 'thread-tab-findings'
   if (tab.kind === 'changes') return 'thread-tab-changes'
+  if (tab.kind === 'stack') return 'thread-tab-stack'
   return 'thread-tab-output'
 }
 

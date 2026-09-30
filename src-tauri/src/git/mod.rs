@@ -75,6 +75,31 @@ impl Git {
             .await
     }
 
+    /// Run another git-driving tool (e.g. `gh stack`) in `worktree`, queued behind and
+    /// ahead of this worktree's own git calls. Spawn failures come back as `Err`.
+    pub async fn run_tool(
+        &self,
+        worktree: &Path,
+        program: &str,
+        args: &[&str],
+        extra_env: &[(&str, &str)],
+    ) -> Result<Output> {
+        self.with_queue(worktree, || async {
+            let env = self.inner.env.read().await;
+            let mut command = Command::new(program);
+            command.args(args);
+            env.apply(&mut command);
+            command.envs(extra_env.iter().copied());
+            command.current_dir(worktree);
+            command.stdin(std::process::Stdio::null());
+            command
+                .output()
+                .await
+                .map_err(|error| Error::Git(format!("{program}: {error}")))
+        })
+        .await
+    }
+
     async fn run_unlocked(&self, cwd: Option<&Path>, args: &[&str]) -> Result<Output> {
         let env = self.inner.env.read().await;
         let mut command = Command::new("git");
@@ -531,6 +556,53 @@ impl Git {
         let range = format!("origin/{branch}..HEAD");
         self.rev_list_count(worktree, &range).await
     }
+
+    pub async fn current_branch(&self, worktree: &Path) -> Result<String> {
+        let output = self.run(worktree, &["branch", "--show-current"]).await?;
+        Self::require_success(&output, "branch --show-current")?;
+        Ok(Self::stdout(&output).trim().to_string())
+    }
+
+    pub async fn ref_exists(&self, worktree: &Path, reference: &str) -> Result<bool> {
+        let output = self
+            .run(worktree, &["rev-parse", "--verify", "--quiet", reference])
+            .await?;
+        Ok(output.status.success())
+    }
+
+    /// Lines added and removed by `range` (e.g. `main...feature`).
+    pub async fn shortstat(&self, worktree: &Path, range: &str) -> Result<ShortStat> {
+        let output = self.run(worktree, &["diff", "--shortstat", range]).await?;
+        Self::require_success(&output, "diff --shortstat")?;
+        Ok(parse_shortstat(&Self::stdout(&output)))
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ShortStat {
+    pub files: u32,
+    pub added: u32,
+    pub deleted: u32,
+}
+
+fn parse_shortstat(text: &str) -> ShortStat {
+    let mut stat = ShortStat::default();
+    for part in text.split(',') {
+        let part = part.trim();
+        let count = part
+            .split_whitespace()
+            .next()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        if part.contains("file") {
+            stat.files = count;
+        } else if part.contains("insertion") {
+            stat.added = count;
+        } else if part.contains("deletion") {
+            stat.deleted = count;
+        }
+    }
+    stat
 }
 
 fn short_ref(refname: &str) -> String {
@@ -602,6 +674,32 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success(), "{args:?} failed in {}", cwd.display());
+    }
+
+    #[tokio::test]
+    async fn shortstat_counts_lines_between_refs() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        run_ok(&repo, &["git", "switch", "-c", "feat/a.v1"]);
+        std::fs::write(repo.join("README.md"), "hello\nworld\nagain\n").unwrap();
+        run_ok(&repo, &["git", "commit", "-am", "more"]);
+        let stat = git.shortstat(&repo, "main...feat/a.v1").await.unwrap();
+        assert_eq!((stat.files, stat.added, stat.deleted), (1, 2, 0));
+        assert!(git.ref_exists(&repo, "feat/a.v1").await.unwrap());
+        assert!(!git.ref_exists(&repo, "origin/main").await.unwrap());
+    }
+
+    #[test]
+    fn parses_shortstat() {
+        assert_eq!(
+            parse_shortstat(" 3 files changed, 10 insertions(+), 2 deletions(-)\n"),
+            ShortStat { files: 3, added: 10, deleted: 2 }
+        );
+        assert_eq!(
+            parse_shortstat(" 1 file changed, 1 deletion(-)"),
+            ShortStat { files: 1, added: 0, deleted: 1 }
+        );
+        assert_eq!(parse_shortstat(""), ShortStat::default());
     }
 
     #[tokio::test]

@@ -25,6 +25,7 @@ mod metrics;
 mod process;
 mod provisioning;
 mod shell_env;
+mod stack;
 mod state;
 mod store;
 mod summaries;

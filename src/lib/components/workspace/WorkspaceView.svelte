@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import {
     app,
     findings,
+    stacks,
     threads,
     workspaceRecords,
     workspaceUi,
@@ -19,6 +20,7 @@
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
   import ChangesPanel from './changes/ChangesPanel.svelte'
+  import StackPanel from './StackPanel.svelte'
 
   const workspace = $derived(
     app.workspaceId ? workspaces.getById(app.workspaceId) : undefined,
@@ -63,6 +65,7 @@
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
   const threadTabActive = $derived(workspaceUi.activeTab === 'thread')
   const changesTabActive = $derived(workspaceUi.activeTab === 'changes')
+  const stackTabActive = $derived(workspaceUi.activeTab === 'stack')
 
   const threadPanelLabelId = $derived(
     activeThread ? `thread-tab-${activeThread.id}` : undefined,
@@ -74,6 +77,17 @@
   $effect(() => {
     if (!workspaceId || isLoadSpike) return
     return bindWorkspaceDiffSubscription(workspaceId)
+  })
+
+  const workspaceBranch = $derived(workspace?.branch)
+
+  // The Stack tab's count needs the stack before the tab opens; opening it again
+  // picks up commits made since the last look.
+  $effect(() => {
+    if (!workspaceId || isLoadSpike) return
+    void workspaceBranch
+    void stackTabActive
+    untrack(() => void stacks.load(workspaceId))
   })
 
   $effect(() => {
@@ -182,6 +196,8 @@
           />
         {:else if changesTabActive}
           <ChangesPanel {workspace} thread={activeThread} />
+        {:else if stackTabActive}
+          <StackPanel {workspace} repoId={workspaceRepoId} {provisioning} />
         {:else if findingsTabActive}
           <WorkspaceFindingsPanel
             workspaceId={workspace.id}

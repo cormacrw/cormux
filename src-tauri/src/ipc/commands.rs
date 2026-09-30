@@ -1116,6 +1116,45 @@ pub async fn create_workspace_branch(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn get_workspace_stack(
+    workspace_id: String,
+    state: State<'_, AppState>,
+) -> Result<crate::stack::WorkspaceStack> {
+    crate::stack::workspace_stack(&state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn add_stack_branch(
+    input: CreateWorkspaceBranchInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::stack::add_branch(&app, &state, &input.workspace_id, &input.branch).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn push_stack(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::stack::push(&app, &state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_stack(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::stack::sync(&app, &state, &workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn get_teardown_preview(
     workspace_id: String,
     state: State<'_, AppState>,

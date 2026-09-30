@@ -367,6 +367,38 @@ async createWorkspaceBranch(input: CreateWorkspaceBranchInput) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+async getWorkspaceStack(workspaceId: string) : Promise<Result<WorkspaceStack, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_workspace_stack", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async addStackBranch(input: CreateWorkspaceBranchInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("add_stack_branch", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async pushStack(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("push_stack", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async syncStack(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_stack", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getTeardownPreview(workspaceId: string) : Promise<Result<TeardownPreview, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_teardown_preview", { workspaceId }) };
@@ -604,6 +636,29 @@ githubAuthConfigured: boolean;
  * Unix seconds string from the last successful PR sync, if any.
  */
 prSyncedAt: string | null; workspaceApps: WorkspaceAppRuntime[] }
+export type StackBranch = { name: string; 
+/**
+ * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
+ */
+parent: string; files: number; additions: number; deletions: number; commits: number; current: boolean; merged: boolean; queued: boolean; needsRebase: boolean; pr: StackPullRequest | null }
+export type StackPullRequest = { number: number; url: string | null; 
+/**
+ * `OPEN`, `MERGED` or `QUEUED`, as gh-stack reports it.
+ */
+state: string }
+export type StackStatus = 
+/**
+ * The checked-out branch is in a gh-stack stack.
+ */
+"stacked" | 
+/**
+ * gh-stack works here, but the checked-out branch isn't in a stack.
+ */
+"notStacked" | 
+/**
+ * `gh` or the gh-stack extension is missing, or stacks are off for this repo.
+ */
+"unavailable"
 export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "metrics" | "environment" | "workspaceApp"
 /**
  * Low-volume core → UI notification. `version` is monotonic; a gap means the
@@ -649,6 +704,15 @@ export type WorkspaceLifecycle = "creating" | "provisioning" | "ready" | "runnin
 export type WorkspaceMemory = { workspaceId: string; bytes: number }
 export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
 export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; prHtmlUrl: string | null; modifiedFiles: number; archivedAt: string | null }
+export type WorkspaceStack = { workspaceId: string; status: StackStatus; 
+/**
+ * Why the stack is unavailable, for the panel to show.
+ */
+message: string | null; trunk: string; currentBranch: string; 
+/**
+ * Bottom of the stack (closest to the trunk) first.
+ */
+branches: StackBranch[] }
 export type WorkspaceStatusChanged = { version: number; workspaceId: string; status: WorkspaceLifecycle }
 export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
 export type WorktreeDiff = { workspaceId: string; 
