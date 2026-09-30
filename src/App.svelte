@@ -6,6 +6,7 @@
   import CommandPalette from '$lib/components/shell/CommandPalette.svelte'
   import { bindNativeMenu } from '$lib/components/shell/menu'
   import { handleGlobalKeydown } from '$lib/keyboard/global-shortcuts'
+  import { installOverlayFailsafe } from '$lib/overlay-failsafe'
   import { fetchSnapshot, listenForStateChanges } from '$lib/ipc'
   import {
     app,
@@ -72,6 +73,8 @@
       unlisten?.()
     }
   })
+
+  onMount(() => installOverlayFailsafe())
 
   onMount(() => {
     window.addEventListener('keydown', handleGlobalKeydown)
