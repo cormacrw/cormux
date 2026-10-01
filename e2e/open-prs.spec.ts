@@ -4,7 +4,13 @@ import { mkdirSync } from 'node:fs'
 const pr = (
   num: number,
   title: string,
-  extra: { checks: string; isDraft?: boolean; rel?: string },
+  extra: {
+    checks: string
+    isDraft?: boolean
+    rel?: string
+    head?: string
+    base?: string
+  },
 ) => ({
   id: `acme/app#${num}`,
   repoId: 'my-app',
@@ -15,8 +21,8 @@ const pr = (
     title,
     author: extra.rel === 'author' ? 'you' : 'maya-r',
     rel: extra.rel ?? 'review',
-    head: `maya/pr-${num}`,
-    base: 'main',
+    head: extra.head ?? `maya/pr-${num}`,
+    base: extra.base ?? 'main',
     updatedAt: '2026-09-29T20:00:00Z',
     checks: extra.checks,
     failing: null,
@@ -94,4 +100,41 @@ test('PR rows: status icon colour, title opens GitHub, glasses starts a review',
   await expect(review).toBeEnabled()
   await expect(page.getByRole('heading', { name: 'Homebase' })).toBeVisible()
   expect(errors).toEqual([])
+})
+
+test('PRs that build on each other are grouped into a stack', async ({
+  page,
+}) => {
+  await page.addInitScript(
+    (prs) => {
+      ;(window as { __HARNESS_PRS__?: unknown }).__HARNESS_PRS__ = prs
+    },
+    [
+      pr(490, 'Add the billing page', {
+        checks: 'pass',
+        head: 'feat/billing-page',
+        base: 'feat/billing-api',
+      }),
+      pr(482, 'Retry Stripe webhooks', { checks: 'pass' }),
+      pr(488, 'Add the billing API', {
+        checks: 'pass',
+        head: 'feat/billing-api',
+        base: 'main',
+      }),
+    ],
+  )
+  await page.goto('/')
+
+  const section = page.locator('[data-od-id="open-prs"]')
+  const stack = section.getByRole('list', { name: 'Stack of 2' })
+  await expect(stack).toBeVisible()
+  await expect(stack.locator('[data-od-id^="pr-row-"]')).toHaveCount(2)
+  // Top of the stack first.
+  await expect(
+    stack.locator('[data-od-id^="pr-row-"]').first(),
+  ).toHaveAttribute('data-od-id', 'pr-row-490')
+  await expect(stack.locator('[data-od-id="pr-row-482"]')).toHaveCount(0)
+
+  mkdirSync('e2e/output', { recursive: true })
+  await section.screenshot({ path: 'e2e/output/open-prs-stack.png' })
 })

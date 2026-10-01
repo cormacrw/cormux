@@ -439,6 +439,12 @@ export function installBrowserHarness() {
       if (repo) repo.defaultBranch = input.defaultBranch
       return null
     }
+    if (cmd === 'get_repo_git') {
+      return (
+        (window as { __HARNESS_REPO_GIT__?: unknown }).__HARNESS_REPO_GIT__ ??
+        []
+      )
+    }
     if (cmd === 'pull_repo_default_branch') {
       await new Promise((resolve) => setTimeout(resolve, 300))
       return null

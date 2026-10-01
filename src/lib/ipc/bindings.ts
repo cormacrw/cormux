@@ -486,12 +486,22 @@ async setRepoDefaultBranch(input: SetRepoDefaultBranchInput) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Fast-forward the repo checkout's default branch from origin.
- */
 async pullRepoDefaultBranch(repoId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("pull_repo_default_branch", { repoId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Fast-forward the repo checkout's default branch from origin.
+ * Commits each repo's default branch is behind and ahead of `origin`, against the last
+ * fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
+ */
+async getRepoGit() : Promise<Result<RepoGitRuntime[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_repo_git") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -682,6 +692,10 @@ export type PtyChunk = { workspaceId: string; line: string }
 export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
+/**
+ * How far a repo's local default branch is from `origin`, as of the last fetch.
+ */
+export type RepoGitRuntime = { repoId: string; behind: number; ahead: number }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
 export type ResolveApprovalResult = { focusComposer: boolean }
 /**

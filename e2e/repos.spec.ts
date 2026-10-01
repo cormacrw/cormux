@@ -39,4 +39,25 @@ test.describe('repos', () => {
 
     expect(errors).toEqual([])
   })
+
+  test('shows how far the default branch is from origin', async ({ page }) => {
+    await page.addInitScript(() => {
+      ;(window as { __HARNESS_REPO_GIT__?: unknown }).__HARNESS_REPO_GIT__ = [
+        { repoId: 'my-app', behind: 3, ahead: 1 },
+      ]
+    })
+    await page.goto('/')
+
+    const repoList = page
+      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('list', { name: 'Repos' })
+    await expect(
+      repoList.getByText('3 behind, 1 ahead of origin/main'),
+    ).toBeAttached()
+    await expect(repoList.getByText('↓3')).toBeVisible()
+    await expect(repoList.getByText('↑1')).toBeVisible()
+    await expect(
+      repoList.getByRole('button', { name: 'Pull main for my-app' }),
+    ).toHaveAttribute('title', 'Pull 3 commits into main')
+  })
 })
