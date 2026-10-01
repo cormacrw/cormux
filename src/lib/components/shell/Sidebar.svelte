@@ -139,7 +139,7 @@
       >
         <span>Workspaces</span>
         <span class="font-mono normal-case tracking-normal"
-          >{workspaces.items.length}</span
+          >{workspaces.liveItems.length}</span
         >
       </div>
       <ul class="grid list-none gap-px p-0" aria-labelledby="side-ws-label">

@@ -97,7 +97,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
   const commands = buildPaletteCommandsFromState(
     {
       reduceMotion: settings.reduceMotion,
-      workspaces: workspaces.items,
+      workspaces: workspaces.liveItems,
       scratches: scratches.items,
       scratchMacros: settings.scratchMacros,
       threads: threads.agents,
