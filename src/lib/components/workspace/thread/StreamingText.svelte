@@ -17,10 +17,10 @@
   } = $props()
 
   // TextType's pacing: one character per tick at a jittered speed so it reads as typed
-  // (~35 chars/s). A reply far ahead speeds it up, but never past MAX_CHARS_PER_SEC, so long
+  // (~60 chars/s). A reply far ahead speeds it up, but never past MAX_CHARS_PER_SEC, so long
   // replies trail the agent rather than racing to keep up with it.
-  const SPEED_MS = { min: 18, max: 40 }
-  const MAX_CHARS_PER_SEC = 60
+  const SPEED_MS = { min: 10, max: 23 }
+  const MAX_CHARS_PER_SEC = 100
   const MAX_LAG_SEC = 3
 
   // Replies that were already in the thread when it opened show in full.
