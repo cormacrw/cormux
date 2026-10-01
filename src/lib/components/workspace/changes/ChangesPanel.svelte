@@ -23,6 +23,7 @@
   import GitCompare from '@lucide/svelte/icons/git-compare'
   import MopSparkles from '@lucide/svelte/icons/mop-sparkles'
   import Send from '@lucide/svelte/icons/send'
+  import Trash2 from '@lucide/svelte/icons/trash-2'
 
   let {
     workspace,
@@ -112,20 +113,17 @@
   )
   const comments = $derived(diffComments.forBranch(workspace.id, commentScope))
   let sending = $state(false)
+  // The agent works on the checked-out branch, so comments on another level wait until it's checked out.
+  const offBranch = $derived(
+    commentScope !== null && commentScope !== workspace.branch,
+  )
 
   async function sendComments() {
-    if (!comments.length || sending) return
+    if (!comments.length || sending || offBranch) return
     sending = true
     const sent = comments
-    const scope = commentScope
-    diffComments.clear(workspace.id, scope)
-    const elsewhere = scope && scope !== workspace.branch ? scope : undefined
-    if (
-      await sendThreadMessage(
-        thread.id,
-        formatCommentsForAgent(sent, elsewhere),
-      )
-    ) {
+    diffComments.clear(workspace.id, commentScope)
+    if (await sendThreadMessage(thread.id, formatCommentsForAgent(sent))) {
       // Show the conversation so the agent's reply is in view.
       app.threadId = thread.id
       workspaceUi.openTab('thread')
@@ -209,15 +207,34 @@
       {/if}
       {#if comments.length}
         <Button
-          size="sm"
-          class="shrink-0 gap-1.5"
+          variant="ghost"
+          size="icon-sm"
+          class="shrink-0 text-muted-foreground hover:text-destructive"
           disabled={sending}
-          onclick={() => void sendComments()}
+          title="Clear every unsent comment on this level"
+          aria-label="Clear comments"
+          onclick={() => diffComments.clear(workspace.id, commentScope)}
         >
-          <Send class="size-3.5" aria-hidden="true" />
-          Send {comments.length}
-          {comments.length === 1 ? 'comment' : 'comments'} to {thread.role}
+          <Trash2 class="size-3.5" aria-hidden="true" />
         </Button>
+        <!-- The wrapper carries the tooltip, since a disabled button gets no hover. -->
+        <span
+          class="shrink-0"
+          title={offBranch
+            ? `These comments are on ${commentScope}. Check it out to send them to ${thread.role}.`
+            : undefined}
+        >
+          <Button
+            size="sm"
+            class="gap-1.5"
+            disabled={sending || offBranch}
+            onclick={() => void sendComments()}
+          >
+            <Send class="size-3.5" aria-hidden="true" />
+            Send {comments.length}
+            {comments.length === 1 ? 'comment' : 'comments'} to {thread.role}
+          </Button>
+        </span>
       {/if}
     </div>
 
