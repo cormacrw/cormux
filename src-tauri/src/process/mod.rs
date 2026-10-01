@@ -441,6 +441,14 @@ pub fn detect_port(output: &str) -> Option<u16> {
     None
 }
 
+/// Whether the server announced `port` with an `https://` URL, so links to it should too.
+pub fn serves_https(output: &str, port: u16) -> bool {
+    let output = strip_ansi(output);
+    ["localhost", "127.0.0.1", "0.0.0.0"]
+        .iter()
+        .any(|host| output.contains(&format!("https://{host}:{port}")))
+}
+
 /// Removes ANSI escape sequences (CSI like `\x1b[1m`, and OSC like hyperlinks).
 pub fn strip_ansi(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -503,6 +511,19 @@ mod tests {
 
     fn supervisor() -> ProcessSupervisor {
         ProcessSupervisor::new(Arc::new(RwLock::new(ShellEnv::new())))
+    }
+
+    #[test]
+    fn spots_an_https_banner() {
+        assert!(serves_https(
+            "  \x1b[32m➜\x1b[39m  Local:   \x1b[36mhttps://localhost:\x1b[1m5173\x1b[22m/",
+            5173
+        ));
+        assert!(!serves_https("Local: http://localhost:5173/", 5173));
+        assert!(!serves_https(
+            "https://localhost:4000/ and localhost:5173",
+            5173
+        ));
     }
 
     #[test]

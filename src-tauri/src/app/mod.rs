@@ -15,7 +15,7 @@ use crate::error::{Error, Result};
 use crate::feedback::emit_toast_parts;
 use crate::ipc::events::StateChanged;
 use crate::ipc::types::{StateChangeKind, ToastPart, ToastTone};
-use crate::process::{ProcessSupervisor, detect_port};
+use crate::process::{ProcessSupervisor, detect_port, serves_https};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::workspace::WorkspaceManager;
@@ -37,6 +37,8 @@ pub struct WorkspaceAppRuntime {
     pub workspace_id: String,
     pub status: WorkspaceAppStatus,
     pub port: Option<u16>,
+    /// The server announced an `https://` URL, so links to it use that scheme.
+    pub https: bool,
     pub exit_code: Option<i32>,
 }
 
@@ -51,6 +53,7 @@ pub enum WorkspaceAppAction {
 struct WorkspaceAppRecord {
     status: WorkspaceAppStatus,
     port: Option<u16>,
+    https: bool,
     exit_code: Option<i32>,
     kind: AppKind,
     quiet_stop: bool,
@@ -79,6 +82,7 @@ impl WorkspaceAppService {
                 workspace_id: workspace_id.clone(),
                 status: record.status,
                 port: record.port,
+                https: record.https,
                 exit_code: record.exit_code,
             })
             .collect()
@@ -92,12 +96,14 @@ impl WorkspaceAppService {
                 workspace_id: workspace_id.to_string(),
                 status: record.status,
                 port: record.port,
+                https: record.https,
                 exit_code: record.exit_code,
             })
             .unwrap_or(WorkspaceAppRuntime {
                 workspace_id: workspace_id.to_string(),
                 status: WorkspaceAppStatus::Stopped,
                 port: None,
+                https: false,
                 exit_code: None,
             })
     }
@@ -274,6 +280,7 @@ impl WorkspaceAppService {
             .or_insert(WorkspaceAppRecord {
                 status: WorkspaceAppStatus::Stopped,
                 port: None,
+                https: false,
                 exit_code: None,
                 kind,
                 quiet_stop: false,
@@ -356,7 +363,8 @@ impl WorkspaceAppService {
                 break;
             }
 
-            if let Some(detected) = detect_port(&process.output_session(&session_id))
+            let output = process.output_session(&session_id);
+            if let Some(detected) = detect_port(&output)
                 && self.runtime(&workspace_id).status == WorkspaceAppStatus::Starting
             {
                 self.set_status(
@@ -365,6 +373,7 @@ impl WorkspaceAppService {
                     Some(detected),
                     None,
                 );
+                self.set_https(&workspace_id, serves_https(&output, detected));
                 if !running_toast_sent {
                     running_toast_sent = true;
                     emit_toast_parts(
@@ -424,6 +433,7 @@ impl WorkspaceAppService {
             .or_insert(WorkspaceAppRecord {
                 status: WorkspaceAppStatus::Stopped,
                 port: None,
+                https: false,
                 exit_code: None,
                 kind: AppKind::Vite,
                 quiet_stop: false,
@@ -438,8 +448,15 @@ impl WorkspaceAppService {
             WorkspaceAppStatus::Stopped | WorkspaceAppStatus::Crashed
         ) {
             record.port = None;
+            record.https = false;
         }
         record.exit_code = exit_code;
+    }
+
+    fn set_https(&self, workspace_id: &str, https: bool) {
+        if let Some(record) = self.inner.lock().unwrap().get_mut(workspace_id) {
+            record.https = https;
+        }
     }
 
     fn emit_changed(&self, app: &AppHandle, state: &AppState) {

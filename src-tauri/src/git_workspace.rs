@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::error::{Error, Result};
@@ -481,6 +482,56 @@ pub async fn adopt_checked_out_branch(
     emit_workspace_refresh(app, state);
     emit_git_state(app, state).await;
     Ok(current.clone())
+}
+
+/// How often each worktree's checked-out branch is compared with the one on record.
+const BRANCH_WATCH_INTERVAL: Duration = Duration::from_secs(3);
+
+/// A worktree's HEAD lives under the main repo's `.git/worktrees/`, outside the folder the
+/// diff watcher sees, so a checkout from a terminal or by the agent would go unnoticed.
+pub fn spawn_branch_watch(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(BRANCH_WATCH_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            let state = app.state::<AppState>();
+            if let Err(error) = adopt_outside_checkouts(&app, &state).await {
+                log::warn!("branch watch failed: {error}");
+            }
+        }
+    });
+}
+
+async fn adopt_outside_checkouts(app: &AppHandle, state: &AppState) -> Result<()> {
+    for row in state.store.live_workspaces()? {
+        if !matches!(
+            parse_lifecycle(&row.status),
+            WorkspaceLifecycle::Ready
+                | WorkspaceLifecycle::Running
+                | WorkspaceLifecycle::Idle
+                | WorkspaceLifecycle::Waiting
+        ) {
+            continue;
+        }
+        let worktree = Path::new(&row.worktree_path);
+        if !worktree.exists() {
+            continue;
+        }
+        // Empty while HEAD is detached (mid-rebase); wait until a branch is checked out.
+        let Ok(branch) = state.git.current_branch(worktree).await else {
+            continue;
+        };
+        if branch.is_empty() || branch == row.branch {
+            continue;
+        }
+        let detail = format!(
+            "Checked out {branch} outside Cormux, previously {}",
+            row.branch
+        );
+        adopt_checked_out_branch(app, state, &row.id, &detail).await?;
+    }
+    Ok(())
 }
 
 fn parse_conflict_op(raw: &str) -> GitConflictOperation {

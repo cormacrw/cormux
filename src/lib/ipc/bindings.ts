@@ -772,7 +772,11 @@ export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
  */
 export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other"
 export type WorkspaceAppControlAction = "run" | "restart" | "stop" | "clear"
-export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; exitCode: number | null }
+export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; 
+/**
+ * The server announced an `https://` URL, so links to it use that scheme.
+ */
+https: boolean; exitCode: number | null }
 export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
 export type WorkspaceGitRuntime = { workspaceId: string; behind: number; ahead: number; conflict: GitConflictState | null }
 /**
