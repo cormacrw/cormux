@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands, fetchSnapshot } from '$lib/ipc'
   import { coreErrorText } from '$lib/feedback/core-error'
   import { showToast } from '$lib/feedback/show-toast'
@@ -82,10 +83,17 @@
       : document.querySelector<HTMLElement>('[data-od-id="new-session"]')
     target?.focus()
   }
+
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      void confirm()
+    }
+  }
 </script>
 
 <AlertDialog.Root {open} {onOpenChange}>
-  <AlertDialog.Content class="max-w-md sm:max-w-md">
+  <AlertDialog.Content class="max-w-md sm:max-w-md" onkeydown={onKeydown}>
     <AlertDialog.Header>
       <AlertDialog.Title>
         {fromHome ? 'Delete this scratch?' : 'End this scratch?'}
@@ -96,7 +104,9 @@
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel disabled={busy}>Cancel</AlertDialog.Cancel>
+      <AlertDialog.Cancel disabled={busy}
+        >Cancel <DialogShortcut keys="cancel" /></AlertDialog.Cancel
+      >
       <AlertDialog.Action
         variant="destructive"
         disabled={busy || !scratch}
@@ -110,6 +120,7 @@
           {fromHome ? 'Deleting…' : 'Ending…'}
         {:else}
           {fromHome ? 'Delete scratch' : 'End scratch'}
+          <DialogShortcut keys="submit" />
         {/if}
       </AlertDialog.Action>
     </AlertDialog.Footer>

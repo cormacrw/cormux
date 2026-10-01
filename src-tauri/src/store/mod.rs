@@ -326,6 +326,29 @@ impl Store {
         })
     }
 
+    /// The model the user picked for the thread; `None` means the engine's default.
+    pub fn thread_model(&self, thread_id: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare("SELECT model FROM threads WHERE id = ?1")?;
+            let mut rows = stmt.query([thread_id])?;
+            if let Some(row) = rows.next()? {
+                Ok(row.get(0)?)
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    pub fn set_thread_model(&self, thread_id: &str, model: Option<&str>) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET model = ?1 WHERE id = ?2",
+                rusqlite::params![model, thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn set_thread_readonly(&self, thread_id: &str, readonly: bool) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -1255,6 +1278,14 @@ mod tests {
             .unwrap();
         store.clear_thread_session("lead").unwrap();
         assert_eq!(store.thread_session("lead").unwrap(), None);
+
+        assert_eq!(store.thread_model("lead").unwrap(), None);
+        store.set_thread_model("lead", Some("opus")).unwrap();
+        let lead = store.thread_by_id("lead").unwrap().unwrap();
+        store.upsert_thread(&lead).unwrap();
+        assert_eq!(store.thread_model("lead").unwrap().as_deref(), Some("opus"));
+        store.set_thread_model("lead", None).unwrap();
+        assert_eq!(store.thread_model("lead").unwrap(), None);
         let lead = store.thread_by_id("lead").unwrap().unwrap();
         assert_eq!((lead.used_tokens, lead.context_size), (None, None));
         assert_eq!(store.snapshot().unwrap().timeline.len(), 1);

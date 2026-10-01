@@ -5,9 +5,7 @@
   import { Button } from '$lib/components/ui/button/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
-  import { Kbd } from '$lib/components/ui/kbd/index.js'
-  import CommandIcon from '@lucide/svelte/icons/command'
-  import CornerDownLeftIcon from '@lucide/svelte/icons/corner-down-left'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
@@ -243,11 +241,8 @@
 
   function onFormKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      const target = event.target as HTMLElement
-      if (target.tagName === 'TEXTAREA') {
-        event.preventDefault()
-        void submit()
-      }
+      event.preventDefault()
+      void submit()
     }
   }
 
@@ -428,24 +423,21 @@
         {/if}
       </div>
 
-      <Dialog.Footer class="m-0 px-5 py-4 sm:justify-between">
-        <p class="text-xs text-muted-foreground flex items-center gap-1">
-          <Kbd>Esc</Kbd>
-          to cancel
-        </p>
+      <Dialog.Footer class="items-center m-0 px-5 py-4">
+        <Button
+          size="xl"
+          type="button"
+          variant="ghost"
+          disabled={submitting}
+          onclick={closeDialog}>Cancel <DialogShortcut keys="cancel" /></Button
+        >
         <Button size="xl" type="submit" disabled={submitting || !repoId}>
           {#if submitting}
             <LoaderCircleIcon class="size-4 animate-spin" aria-hidden="true" />
             Creating worktree…
           {:else}
             Create Workspace
-            <Kbd
-              class="ml-1 hidden gap-0.5 sm:inline-flex"
-              aria-label="Command Enter"
-            >
-              <CommandIcon aria-hidden="true" />
-              <CornerDownLeftIcon aria-hidden="true" />
-            </Kbd>
+            <DialogShortcut keys="submit" />
           {/if}
         </Button>
       </Dialog.Footer>

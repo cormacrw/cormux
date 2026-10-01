@@ -203,7 +203,7 @@ async fn ensure_engine(state: &AppState, scratch: &ScratchRow) -> Result<()> {
         .engines
         .spawn(SpawnSpec {
             thread_id: scratch.thread_id.clone(),
-            kind: engine_kind(&scratch.engine),
+            kind: EngineKind::from_name(&scratch.engine),
             cwd,
             resume: None,
             override_argv: None,
@@ -263,12 +263,4 @@ fn default_engine(state: &AppState) -> String {
         .flatten()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "claude".into())
-}
-
-fn engine_kind(engine: &str) -> EngineKind {
-    EngineKind::all()
-        .iter()
-        .copied()
-        .find(|kind| kind.as_str().eq_ignore_ascii_case(engine))
-        .unwrap_or(EngineKind::Claude)
 }

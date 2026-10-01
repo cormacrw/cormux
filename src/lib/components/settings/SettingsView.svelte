@@ -5,6 +5,7 @@
   import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte'
   import GithubSettings from '$lib/components/settings/GithubSettings.svelte'
   import NotificationsSettings from '$lib/components/settings/NotificationsSettings.svelte'
+  import PrPromptSettings from '$lib/components/settings/PrPromptSettings.svelte'
   import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
   import ScratchMacrosSettings from '$lib/components/settings/ScratchMacrosSettings.svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
@@ -21,7 +22,7 @@
 
   let settingsTitle: HTMLHeadingElement | undefined = $state()
   let scrollRoot: HTMLElement | undefined = $state()
-  let activeSection = $state<SettingsSectionId>('agents')
+  let activeSection = $state<SettingsSectionId>(SETTINGS_SECTIONS[0].id)
 
   const sectionRefs: Partial<Record<SettingsSectionId, HTMLElement>> = {}
 
@@ -108,6 +109,24 @@
         </header>
 
         <section
+          use:bindSection={'general'}
+          id={settingsSectionDomId('general')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-general-h"
+          data-od-id="settings-general"
+        >
+          <SettingsSectionHead
+            id="settings-general-h"
+            title="General"
+            description="Defaults for new workspaces and how the app behaves."
+          />
+          <div class="mt-4">
+            <GeneralSettings />
+          </div>
+        </section>
+
+        <section
           use:bindSection={'agents'}
           id={settingsSectionDomId('agents')}
           class="set-sec scroll-mt-6 outline-none"
@@ -122,6 +141,25 @@
           />
           <div class="mt-4">
             <AgentsSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'github'}
+          id={settingsSectionDomId('github')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-github-h"
+          data-od-id="settings-github-section"
+        >
+          <SettingsSectionHead
+            id="settings-github-h"
+            title="GitHub"
+            description="Pull requests sync through the gh CLI, and how Create PR drafts them."
+          />
+          <div class="mt-4">
+            <GithubSettings />
+            <PrPromptSettings />
           </div>
         </section>
 
@@ -158,24 +196,6 @@
         </section>
 
         <section
-          use:bindSection={'general'}
-          id={settingsSectionDomId('general')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-general-h"
-          data-od-id="settings-general"
-        >
-          <SettingsSectionHead
-            id="settings-general-h"
-            title="General"
-            description="Defaults for new workspaces and how the app behaves."
-          />
-          <div class="mt-4">
-            <GeneralSettings />
-          </div>
-        </section>
-
-        <section
           use:bindSection={'appearance'}
           id={settingsSectionDomId('appearance')}
           class="set-sec scroll-mt-6 outline-none"
@@ -190,24 +210,6 @@
           />
           <div class="mt-4">
             <AppearanceSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'github'}
-          id={settingsSectionDomId('github')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-github-h"
-          data-od-id="settings-github-section"
-        >
-          <SettingsSectionHead
-            id="settings-github-h"
-            title="GitHub"
-            description="Pull requests sync through the gh CLI."
-          />
-          <div class="mt-4">
-            <GithubSettings />
           </div>
         </section>
 

@@ -55,6 +55,17 @@
   --sidebar-accent-foreground: oklch(0.205 0.006 265);
   --sidebar-border: oklch(0 0 0 / 7%);
   --sidebar-ring: oklch(0.6 0.16 250);
+
+  /* Code block syntax colours: highlight.js's GitHub theme, as in the Changes diff. */
+  --syntax-keyword: #d73a49;
+  --syntax-entity: #6f42c1;
+  --syntax-constant: #005cc5;
+  --syntax-string: #032f62;
+  --syntax-variable: #e36209;
+  --syntax-comment: #6a737d;
+  --syntax-tag: #22863a;
+  --syntax-bullet: #735c0f;
+  --syntax-deletion: #b31d28;
 }
 
 .dark {
@@ -98,6 +109,16 @@
   --sidebar-accent-foreground: oklch(0.955 0.003 265);
   --sidebar-border: oklch(1 0 0 / 6%);
   --sidebar-ring: oklch(0.72 0.14 250);
+
+  --syntax-keyword: #ff7b72;
+  --syntax-entity: #d2a8ff;
+  --syntax-constant: #79c0ff;
+  --syntax-string: #a5d6ff;
+  --syntax-variable: #ffa657;
+  --syntax-comment: #8b949e;
+  --syntax-tag: #7ee787;
+  --syntax-bullet: #f2cc60;
+  --syntax-deletion: #ffa198;
 }
 
 /*
@@ -301,17 +322,95 @@
   font-size: var(--code-font-size);
 }
 
+/* The code scrolls instead of the pre, so the copy button stays pinned to the corner. */
 .agent-markdown pre {
-  overflow-x: auto;
+  position: relative;
   border-radius: var(--radius-md);
   background: var(--muted);
-  padding: 0.75em 1em;
   line-height: 1.5;
 }
 
 .agent-markdown pre code {
+  display: block;
+  overflow-x: auto;
   background: none;
-  padding: 0;
+  padding: 0.75em 1em;
+}
+
+.agent-markdown pre:hover .code-copy {
+  opacity: 1;
+}
+
+.agent-markdown
+  :is(
+    .hljs-keyword,
+    .hljs-doctag,
+    .hljs-template-tag,
+    .hljs-template-variable,
+    .hljs-type,
+    .hljs-variable.language_
+  ) {
+  color: var(--syntax-keyword);
+}
+
+.agent-markdown .hljs-title {
+  color: var(--syntax-entity);
+}
+
+.agent-markdown
+  :is(
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-literal,
+    .hljs-meta,
+    .hljs-number,
+    .hljs-operator,
+    .hljs-variable,
+    .hljs-selector-attr,
+    .hljs-selector-class,
+    .hljs-selector-id,
+    .hljs-section
+  ) {
+  color: var(--syntax-constant);
+}
+
+.agent-markdown :is(.hljs-regexp, .hljs-string, .hljs-meta .hljs-string) {
+  color: var(--syntax-string);
+}
+
+.agent-markdown :is(.hljs-built_in, .hljs-symbol) {
+  color: var(--syntax-variable);
+}
+
+.agent-markdown :is(.hljs-comment, .hljs-code, .hljs-formula) {
+  color: var(--syntax-comment);
+}
+
+.agent-markdown
+  :is(
+    .hljs-name,
+    .hljs-quote,
+    .hljs-selector-tag,
+    .hljs-selector-pseudo,
+    .hljs-addition
+  ) {
+  color: var(--syntax-tag);
+}
+
+.agent-markdown .hljs-bullet {
+  color: var(--syntax-bullet);
+}
+
+.agent-markdown .hljs-deletion {
+  color: var(--syntax-deletion);
+}
+
+.agent-markdown :is(.hljs-section, .hljs-strong) {
+  font-weight: 600;
+}
+
+.agent-markdown .hljs-emphasis {
+  font-style: italic;
 }
 
 .agent-markdown blockquote {

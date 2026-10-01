@@ -56,6 +56,12 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
     return
   }
 
+  if (mod && key === ',' && !event.shiftKey && !event.altKey) {
+    event.preventDefault()
+    if (!dialogBlocksShortcuts()) app.openSettings()
+    return
+  }
+
   // ⌘1–⌘9 open workspaces in sidebar order.
   if (mod && !event.shiftKey && !event.altKey && /^[1-9]$/.test(event.key)) {
     event.preventDefault()

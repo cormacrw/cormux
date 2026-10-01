@@ -1,9 +1,10 @@
 <script lang="ts">
   import { gsap } from 'gsap'
-  import { onDestroy } from 'svelte'
+  import { mount, onDestroy, unmount } from 'svelte'
   import { prefersReducedMotion } from '$lib/thread/entering'
   import { renderSanitizedMarkdown } from '$lib/thread/sanitize-markdown'
   import { openUrl } from '@tauri-apps/plugin-opener'
+  import CodeCopyButton from './CodeCopyButton.svelte'
 
   let {
     text,
@@ -51,6 +52,26 @@
       blink.restart()
     }
   })
+
+  // {@html} replaces every node when the text changes, so each render gets fresh copy buttons.
+  $effect(() => {
+    void html
+    const container = root
+    if (!container) return
+    const buttons = Array.from(container.querySelectorAll('pre'), (pre) =>
+      mount(CodeCopyButton, {
+        target: pre,
+        props: { getText: () => codeText(pre) },
+      }),
+    )
+    return () => buttons.forEach((button) => void unmount(button))
+  })
+
+  function codeText(pre: HTMLPreElement) {
+    const code = (pre.querySelector('code') ?? pre).cloneNode(true) as Element
+    code.querySelector('.type-cursor')?.remove()
+    return code.textContent ?? ''
+  }
 
   onDestroy(() => blink?.kill())
 

@@ -41,6 +41,12 @@ pub enum ControlRequest {
     Initialize {},
     #[serde(rename = "interrupt")]
     Interrupt,
+    /// Omitting `model` goes back to the CLI's default.
+    #[serde(rename = "set_model")]
+    SetModel {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,6 +155,13 @@ pub fn interrupt_request(request_id: impl Into<String>) -> StdinMessage {
     StdinMessage::ControlRequest {
         request_id: request_id.into(),
         request: ControlRequest::Interrupt,
+    }
+}
+
+pub fn set_model_request(request_id: impl Into<String>, model: Option<String>) -> StdinMessage {
+    StdinMessage::ControlRequest {
+        request_id: request_id.into(),
+        request: ControlRequest::SetModel { model },
     }
 }
 
@@ -352,6 +365,22 @@ mod tests {
         let value: Value = serde_json::from_str(line.trim_end()).unwrap();
         assert_eq!(value["type"], "user");
         assert_eq!(value["message"]["content"][0]["text"], "hello");
+    }
+
+    #[test]
+    fn encodes_set_model_and_omits_a_default_model() {
+        let line = encode_line(&set_model_request("model-1", Some("opus".into()))).unwrap();
+        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(value["type"], "control_request");
+        assert_eq!(value["request_id"], "model-1");
+        assert_eq!(
+            value["request"],
+            json!({"subtype": "set_model", "model": "opus"})
+        );
+
+        let line = encode_line(&set_model_request("model-2", None)).unwrap();
+        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(value["request"], json!({"subtype": "set_model"}));
     }
 
     #[test]

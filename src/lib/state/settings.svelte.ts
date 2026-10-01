@@ -14,6 +14,8 @@ import {
   type ScratchMacro,
 } from '$lib/settings/scratch-macros'
 
+const PR_PROMPT_KEY = 'prPrompt'
+
 function upsertRow(rows: SettingRow[], key: string, value: string) {
   const next = rows.filter((row) => row.key !== key)
   next.push({ key, value })
@@ -32,6 +34,8 @@ export class SettingsStore {
   notifyApprovals = $state(true)
   notifyReviewFinished = $state(true)
   scratchMacros = $state<ScratchMacro[]>([])
+  /** Instructions for drafting a PR description; empty means the built-in default. */
+  prPrompt = $state('')
   rows = $state<SettingRow[]>([])
   /** When set, Settings view scrolls/focuses this section (palette deep links). */
   focusSection = $state<string | null>(null)
@@ -73,6 +77,7 @@ export class SettingsStore {
         true,
       )
       this.runEverything = readBooleanSetting(rows, 'runEverything', false)
+      this.prPrompt = readStringSetting(rows, PR_PROMPT_KEY, '')
       this.scratchMacros = parseScratchMacros(
         rows.find((row) => row.key === SCRATCH_MACROS_KEY)?.value,
       )
@@ -139,6 +144,11 @@ export class SettingsStore {
   async setScratchMacros(next: ScratchMacro[]) {
     this.scratchMacros = next
     await this.persist(SCRATCH_MACROS_KEY, serializeScratchMacros(next))
+  }
+
+  async setPrPrompt(next: string) {
+    this.prPrompt = next
+    await this.persist(PR_PROMPT_KEY, next)
   }
 
   async setNotifyReviewFinished(next: boolean) {

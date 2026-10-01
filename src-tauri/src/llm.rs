@@ -51,12 +51,12 @@ impl LlmClient {
         if !self.allow(workspace_id) {
             return Ok(None);
         }
-        self.complete(prompt).await.map(Some)
+        self.complete(prompt, 256).await.map(Some)
     }
 
-    pub async fn complete(&self, prompt: &str) -> Result<LlmResult> {
+    pub async fn complete(&self, prompt: &str, max_tokens: u32) -> Result<LlmResult> {
         if let Some(key) = read_api_key() {
-            return complete_via_api(&key, prompt).await;
+            return complete_via_api(&key, prompt, max_tokens).await;
         }
         complete_via_claude(&self.env, prompt).await
     }
@@ -84,11 +84,11 @@ async fn complete_via_claude(env: &Arc<RwLock<ShellEnv>>, prompt: &str) -> Resul
     })
 }
 
-async fn complete_via_api(api_key: &str, prompt: &str) -> Result<LlmResult> {
+async fn complete_via_api(api_key: &str, prompt: &str, max_tokens: u32) -> Result<LlmResult> {
     let client = reqwest::Client::new();
     let body = serde_json::json!({
         "model": "claude-haiku-4-5",
-        "max_tokens": 256,
+        "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}]
     });
     let response = client

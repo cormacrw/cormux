@@ -2,11 +2,9 @@
   import { onMount, tick } from 'svelte'
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { Input } from '$lib/components/ui/input/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
-  import { Kbd } from '$lib/components/ui/kbd/index.js'
-  import CommandIcon from '@lucide/svelte/icons/command'
-  import CornerDownLeftIcon from '@lucide/svelte/icons/corner-down-left'
   import { commands, fetchSnapshot } from '$lib/ipc'
   import { coreErrorText } from '$lib/feedback/core-error'
   import { showToast } from '$lib/feedback/show-toast'
@@ -44,6 +42,7 @@
   }
 
   async function submit() {
+    if (!repoId) return
     // Blank: the core drafts a title from the prompt, then Haiku renames it.
     const trimmed = title.trim()
     // Nothing is provisioned, so the dialog closes before the core answers.
@@ -79,7 +78,7 @@
     })
   }
 
-  function onPromptKeydown(event: KeyboardEvent) {
+  function onFormKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       void submit()
@@ -101,6 +100,7 @@
     aria-labelledby="session-dlg-title"
     data-od-id="session-dialog"
   >
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <form
       class="flex flex-col"
       novalidate
@@ -108,6 +108,7 @@
         event.preventDefault()
         void submit()
       }}
+      onkeydown={onFormKeydown}
     >
       <Dialog.Header class="px-5 pt-5">
         <Dialog.Title id="session-dlg-title">New scratch</Dialog.Title>
@@ -123,7 +124,6 @@
             class="min-h-[112px] max-h-[280px] resize-y"
             placeholder="Ask something that doesn’t need its own branch"
             bind:value={prompt}
-            onkeydown={onPromptKeydown}
             aria-describedby="sess-prompt-hint"
           />
           <p id="sess-prompt-hint" class="text-xs text-muted-foreground">
@@ -168,26 +168,14 @@
         </div>
       </div>
 
-      <Dialog.Footer class="items-center m-0 px-5 py-4 sm:justify-between">
-        <p class="text-xs text-muted-foreground flex items-center gap-1">
-          <Kbd>Esc</Kbd>
-          to cancel
-        </p>
-        <div class="flex gap-2">
-          <Button size="xl" type="button" variant="ghost" onclick={closeDialog}
-            >Cancel</Button
-          >
-          <Button size="xl" type="submit" disabled={!repoId}>
-            Start scratch
-            <Kbd
-              class="ml-1 hidden gap-0.5 sm:inline-flex"
-              aria-label="Command Enter"
-            >
-              <CommandIcon aria-hidden="true" />
-              <CornerDownLeftIcon aria-hidden="true" />
-            </Kbd>
-          </Button>
-        </div>
+      <Dialog.Footer class="items-center m-0 px-5 py-4">
+        <Button size="xl" type="button" variant="ghost" onclick={closeDialog}
+          >Cancel <DialogShortcut keys="cancel" /></Button
+        >
+        <Button size="xl" type="submit" disabled={!repoId}>
+          Start scratch
+          <DialogShortcut keys="submit" />
+        </Button>
       </Dialog.Footer>
     </form>
   </Dialog.Content>

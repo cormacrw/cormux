@@ -71,7 +71,7 @@ pub async fn generate_title(
     kind: &str,
     max: usize,
 ) -> Option<String> {
-    match llm.complete(&build_title_prompt(prompt, kind)).await {
+    match llm.complete(&build_title_prompt(prompt, kind), 256).await {
         Ok(result) => clean_title(&result.text, max),
         Err(error) => {
             log::warn!("could not name the {kind}: {error}");

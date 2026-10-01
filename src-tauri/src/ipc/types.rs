@@ -308,11 +308,8 @@ pub struct DraftPrWhyResult {
 #[serde(rename_all = "camelCase")]
 pub struct CreateWorkspacePullRequestInput {
     pub workspace_id: String,
-    pub why: String,
+    pub body: String,
     pub title: Option<String>,
-    pub draft: bool,
-    pub include_what_changed: bool,
-    pub include_how_tested: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
