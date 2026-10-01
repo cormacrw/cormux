@@ -1239,7 +1239,7 @@ pub async fn get_teardown_preview(
     crate::teardown::preview(&state, &workspace_id).await
 }
 
-/// Open a Terminal window in the workspace's worktree.
+/// Open the worktree in the terminal app picked in Settings (Terminal by default).
 #[tauri::command]
 #[specta::specta]
 pub async fn open_workspace_terminal(
@@ -1250,18 +1250,26 @@ pub async fn open_workspace_terminal(
         .store
         .workspace_by_id(&workspace_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    let terminal = terminal_app(state.store.get_setting("terminalApp")?);
     let status = tokio::process::Command::new("open")
-        .args(["-a", "Terminal", &row.worktree_path])
+        .args(["-a", &terminal, &row.worktree_path])
         .status()
         .await
-        .map_err(|error| Error::Process(format!("open Terminal: {error}")))?;
+        .map_err(|error| Error::Process(format!("open {terminal}: {error}")))?;
     if !status.success() {
         return Err(Error::Process(format!(
-            "Terminal couldn't open {}",
+            "{terminal} couldn't open {}",
             row.worktree_path
         )));
     }
     Ok(())
+}
+
+fn terminal_app(setting: Option<String>) -> String {
+    setting
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Terminal".to_string())
 }
 
 #[tauri::command]

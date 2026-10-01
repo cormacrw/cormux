@@ -36,6 +36,8 @@ export class SettingsStore {
   scratchMacros = $state<ScratchMacro[]>([])
   /** Instructions for drafting a PR description; empty means the built-in default. */
   prPrompt = $state('')
+  /** App that Open in Terminal launches; empty means Terminal. */
+  terminalApp = $state('')
   rows = $state<SettingRow[]>([])
   /** When set, Settings view scrolls/focuses this section (palette deep links). */
   focusSection = $state<string | null>(null)
@@ -78,6 +80,7 @@ export class SettingsStore {
       )
       this.runEverything = readBooleanSetting(rows, 'runEverything', false)
       this.prPrompt = readStringSetting(rows, PR_PROMPT_KEY, '')
+      this.terminalApp = readStringSetting(rows, 'terminalApp', '')
       this.scratchMacros = parseScratchMacros(
         rows.find((row) => row.key === SCRATCH_MACROS_KEY)?.value,
       )
@@ -134,6 +137,11 @@ export class SettingsStore {
     const trimmed = path.trim() || DEFAULT_WORKTREE_ROOT
     this.worktreeRoot = trimmed
     await this.persist('worktreeRoot', trimmed)
+  }
+
+  async setTerminalApp(name: string) {
+    this.terminalApp = name.trim()
+    await this.persist('terminalApp', this.terminalApp)
   }
 
   async setNotifyApprovals(next: boolean) {

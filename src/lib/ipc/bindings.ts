@@ -444,7 +444,7 @@ async teardownWorkspace(input: TeardownInput) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Open a Terminal window in the workspace's worktree.
+ * Open the worktree in the terminal app picked in Settings (Terminal by default).
  */
 async openWorkspaceTerminal(workspaceId: string) : Promise<Result<null, Error>> {
     try {

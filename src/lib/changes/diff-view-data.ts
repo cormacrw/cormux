@@ -7,6 +7,7 @@ const langByExt: Record<string, string> = {
   jsx: 'javascript',
   mjs: 'javascript',
   svelte: 'xml',
+  vue: 'xml',
   html: 'xml',
   rs: 'rust',
   py: 'python',

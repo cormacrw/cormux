@@ -11,6 +11,7 @@
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { app, workspaceDiff, workspaceUi } from '$lib/state'
   import { formatChangeCounts } from '$lib/workspace/diff-totals'
+  import { isDiffCollapsed } from '$lib/changes/file-status'
   import { revealDiffLine } from '$lib/changes/reveal-line'
   import { Button } from '$lib/components/ui/button'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
@@ -52,7 +53,9 @@
 
   const allCollapsed = $derived(
     files.length > 0 &&
-      files.every((file) => workspaceUi.collapsedDiffPaths[file.path]),
+      files.every((file) =>
+        isDiffCollapsed(workspaceUi.collapsedDiffPaths, file.path),
+      ),
   )
 
   let scrollEl: HTMLDivElement | undefined = $state()
@@ -79,10 +82,11 @@
     const line = workspaceUi.revealDiffLine
     workspaceUi.revealDiffPath = null
     workspaceUi.revealDiffLine = null
-    if (workspaceUi.collapsedDiffPaths[path]) {
-      const next = { ...workspaceUi.collapsedDiffPaths }
-      delete next[path]
-      workspaceUi.collapsedDiffPaths = next
+    if (isDiffCollapsed(workspaceUi.collapsedDiffPaths, path)) {
+      workspaceUi.collapsedDiffPaths = {
+        ...workspaceUi.collapsedDiffPaths,
+        [path]: false,
+      }
     }
     void tick().then(() => {
       const fileEl = scrollEl?.querySelector(
@@ -94,9 +98,9 @@
   })
 
   function setAllCollapsed(collapsed: boolean) {
-    workspaceUi.collapsedDiffPaths = collapsed
-      ? Object.fromEntries(files.map((file) => [file.path, true as const]))
-      : {}
+    workspaceUi.collapsedDiffPaths = Object.fromEntries(
+      files.map((file) => [file.path, collapsed]),
+    )
   }
 
   function setDiffMode(mode: 'unified' | 'split') {

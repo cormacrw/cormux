@@ -90,7 +90,7 @@ test.describe('browser harness UI', () => {
       ),
     ).toBeVisible()
 
-    const footerHint = dialog.getByText('Esc to cancel')
+    const footerHint = dialog.getByRole('button', { name: /Cancel/ })
     await expect(footerHint).toBeVisible()
 
     const dialogBox = await dialog.boundingBox()

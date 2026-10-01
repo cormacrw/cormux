@@ -65,6 +65,9 @@
 
   let headingEl = $state<HTMLHeadingElement | null>(null)
   let scrollEl = $state<HTMLElement | null>(null)
+  let contentEl = $state<HTMLElement | null>(null)
+  // Off once the reader scrolls up; back on when they return to the end.
+  let pinnedToBottom = true
   let focusComposer = $state<(() => void) | null>(null)
   let announceText = $state('')
   let nowMs = $state(Date.now())
@@ -116,9 +119,29 @@
     const element = scrollEl
     queueMicrotask(() => {
       element.scrollTop = element.scrollHeight
+      pinnedToBottom = true
       scrollToEnd = false
     })
   })
+
+  // A reply typing out grows its row without adding one, so follow the content's height too.
+  $effect(() => {
+    const scroller = scrollEl
+    const content = contentEl
+    if (!scroller || !content) return
+    const observer = new ResizeObserver(() => {
+      if (pinnedToBottom) scroller.scrollTop = scroller.scrollHeight
+    })
+    observer.observe(content)
+    return () => observer.disconnect()
+  })
+
+  function onThreadScroll() {
+    if (!scrollEl) return
+    const gap =
+      scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+    pinnedToBottom = gap < 80
+  }
 
   $effect(() => {
     const id = thread?.id
@@ -202,8 +225,12 @@
       bind:this={scrollEl}
       class="min-h-0 flex-1 overflow-y-auto"
       data-od-id="session-thread"
+      onscroll={onThreadScroll}
     >
-      <div class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-6">
+      <div
+        bind:this={contentEl}
+        class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-6"
+      >
         <ol class="space-y-2" aria-label="Conversation">
           <TimelineMessages
             {rows}
