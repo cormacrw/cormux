@@ -5,6 +5,10 @@
     composerPauseLabel,
     composerShowsPauseControl,
   } from '$lib/composer/can-pause'
+  import {
+    promptHistory,
+    stepPromptHistory,
+  } from '$lib/composer/prompt-history'
   import { commands } from '$lib/ipc'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
@@ -47,6 +51,8 @@
 
   let inputEl = $state<HTMLTextAreaElement | null>(null)
   let composing = $state(false)
+  /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
+  let historyIndex = $state<number | null>(null)
 
   const mark = $derived(engineMark(thread.engine))
   const engineName = $derived(engineDisplayName(thread.engine))
@@ -61,6 +67,7 @@
 
   $effect(() => {
     void thread.id
+    historyIndex = null
     queueMicrotask(() => fitHeight())
   })
 
@@ -79,6 +86,7 @@
   function onInput(event: Event) {
     const target = event.currentTarget as HTMLTextAreaElement
     composerDrafts.setFor(thread.id, target.value)
+    historyIndex = null
     fitHeight()
   }
 
@@ -88,6 +96,7 @@
     // The composer is reused across thread tabs, so pin the id before awaiting.
     const threadId = thread.id
     composerDrafts.setFor(threadId, '')
+    historyIndex = null
     queueMicrotask(() => fitHeight())
     onSent?.()
     if (!(await sendThreadMessage(threadId, text))) {
@@ -134,11 +143,68 @@
     if (event.key === 'Enter' && !event.shiftKey && !imeConfirm) {
       event.preventDefault()
       void sendMessage()
+      return
     }
+    const plain =
+      !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey
+    if (
+      plain &&
+      !imeConfirm &&
+      (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+    ) {
+      recallPrompt(event)
+    }
+  }
+
+  // ↑/↓ cycle past prompts from an empty composer, and keep cycling while the
+  // recalled prompt is untouched and the caret is on its first (↑) or last (↓) line.
+  function recallPrompt(event: KeyboardEvent) {
+    const target = event.currentTarget as HTMLTextAreaElement
+    const prompts = promptHistory(
+      threadTimeline.eventsByThread[thread.id] ?? [],
+    )
+    const older = event.key === 'ArrowUp'
+    if (draft !== '') {
+      if (historyIndex === null || draft !== prompts[historyIndex]) return
+      const caret = target.selectionStart
+      const atEdge = older
+        ? !draft.slice(0, caret).includes('\n')
+        : !draft.slice(target.selectionEnd).includes('\n')
+      if (!atEdge) return
+    }
+    const next = stepPromptHistory(
+      historyIndex,
+      prompts.length,
+      older ? 'older' : 'newer',
+    )
+    if (next === undefined) return
+    event.preventDefault()
+    historyIndex = next
+    const text = next === null ? '' : (prompts[next] ?? '')
+    composerDrafts.setFor(thread.id, text)
+    queueMicrotask(() => {
+      fitHeight()
+      target.setSelectionRange(text.length, text.length)
+    })
   }
 
   // ⌘↵ anywhere jumps to the composer; dialogs and the diff comment box handle it first.
   function onWindowKeydown(event: KeyboardEvent) {
+    // Esc stops the agent, unless a dialog, popover or inline editor took it first.
+    if (
+      event.key === 'Escape' &&
+      thread.status === 'running' &&
+      !event.defaultPrevented &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      !shellDialogs.blocksCommandPalette()
+    ) {
+      event.preventDefault()
+      void stopTurn()
+      return
+    }
     if (
       event.key !== 'Enter' ||
       !(event.metaKey || event.ctrlKey) ||
@@ -252,7 +318,7 @@
           variant="ghost"
           size="icon-xs"
           data-od-id="composer-stop"
-          title="Stop"
+          title="Stop (Esc)"
           aria-label="Stop"
           onclick={() => void stopTurn()}
         >
