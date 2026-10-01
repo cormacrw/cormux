@@ -5,6 +5,7 @@
   import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte'
   import GithubSettings from '$lib/components/settings/GithubSettings.svelte'
   import NotificationsSettings from '$lib/components/settings/NotificationsSettings.svelte'
+  import PrPromptSettings from '$lib/components/settings/PrPromptSettings.svelte'
   import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
   import ScratchMacrosSettings from '$lib/components/settings/ScratchMacrosSettings.svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
@@ -154,10 +155,11 @@
           <SettingsSectionHead
             id="settings-github-h"
             title="GitHub"
-            description="Pull requests sync through the gh CLI."
+            description="Pull requests sync through the gh CLI, and how Create PR drafts them."
           />
           <div class="mt-4">
             <GithubSettings />
+            <PrPromptSettings />
           </div>
         </section>
 

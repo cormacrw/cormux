@@ -357,6 +357,12 @@ async pushWorkspaceBranch(workspaceId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The PR prompt Settings shows until the user writes their own.
+ */
+async defaultPrPrompt() : Promise<string> {
+    return await TAURI_INVOKE("default_pr_prompt");
+},
 async draftPrWhy(workspaceId: string) : Promise<Result<DraftPrWhyResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("draft_pr_why", { workspaceId }) };
@@ -621,7 +627,7 @@ prompt: string | null }
 export type CreateScratchResult = { scratchId: string; threadId: string }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
-export type CreateWorkspacePullRequestInput = { workspaceId: string; why: string; title: string | null; draft: boolean; includeWhatChanged: boolean; includeHowTested: boolean }
+export type CreateWorkspacePullRequestInput = { workspaceId: string; body: string; title: string | null }
 export type CreateWorkspacePullRequestResult = { workspaceId: string; number: number; htmlUrl: string; title: string }
 export type CreateWorkspaceResult = { workspaceId: string }
 export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }

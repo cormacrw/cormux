@@ -59,6 +59,7 @@ Description: `Defaults for new workspaces and how the app behaves.`
 ### GitHub
 
 - **GitHub account**: whether the gh CLI is signed in.
+- **PR prompt** (`settings-pr-prompt`): a textarea holding the instructions Create PR gives the model when drafting a description ([18](18-create-pr.md)). Prefilled with the default; edits save 350ms after typing stops. **Reset to default** appears once it differs. Stored in the `prPrompt` settings row, empty when it matches the default.
 
 ## Behaviour
 

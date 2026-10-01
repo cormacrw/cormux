@@ -48,6 +48,7 @@ pub fn builder() -> Builder {
             commands::pull_workspace,
             commands::rebase_workspace,
             commands::push_workspace_branch,
+            commands::default_pr_prompt,
             commands::draft_pr_why,
             commands::create_workspace_pull_request,
             commands::abort_workspace_git,

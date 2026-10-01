@@ -399,6 +399,9 @@ export function installBrowserHarness() {
       return null
     }
     if (cmd === 'sync_stack') return null
+    if (cmd === 'default_pr_prompt') {
+      return 'Write the description for this pull request.'
+    }
     if (cmd === 'draft_pr_why') {
       return {
         workspaceId: args.workspaceId,

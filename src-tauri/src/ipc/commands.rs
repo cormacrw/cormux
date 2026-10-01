@@ -1144,6 +1144,13 @@ pub async fn push_workspace_branch(
     crate::git_workspace::push_workspace_branch(&app, &state, &workspace_id).await
 }
 
+/// The PR prompt Settings shows until the user writes their own.
+#[tauri::command]
+#[specta::specta]
+pub fn default_pr_prompt() -> String {
+    crate::pr_draft::DEFAULT_PR_PROMPT.into()
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn draft_pr_why(
