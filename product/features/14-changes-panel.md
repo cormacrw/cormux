@@ -12,15 +12,18 @@ The user must be able to check the agent's work before it becomes a PR, without 
 
 - `<div role="tabpanel" id="changes-panel" aria-labelledby="thread-tab-changes" data-od-id="changes-panel">` in the workspace body, in place of the conversation.
 - Entry points:
-  - **Changes** tab in the thread bar, right-aligned before Output (shows `+N −N`).
+  - **Git** tab in the thread bar, right-aligned before Output (shows `+N −N`).
   - Clicking a file name in an edit step in the conversation (opens the tab on that file).
 - The file tree and in-app editor are deliberately out of scope for now.
 
 ## Anatomy
 
-### Toolbar
-One row: **Compare against** picker, then (when there are files) the **Unified** / **Split** toggle and total `+N −N`; on the right, **Collapse all** / **Expand all** and **Send N comments to <thread>** (when there are draft comments).
-- **Compare against** defaults to **Uncommitted** (worktree vs `HEAD`, including untracked files). Picking a branch shows committed changes on this branch since it left that branch (`merge-base..HEAD`). Review workspaces start on their PR base.
+### Stack and toolbar
+Two panes: the stack (25) on the left and the diff on the right. The stack picks what the diff shows:
+- **Uncommitted changes** (the top level, and the default): worktree vs `HEAD`, including untracked files.
+- **A branch**: its committed changes since it left its base, the branch below it in the stack or the trunk (`git diff <base>...<branch>`). The base is `origin/<base>` when that has everything the local branch has, else the local branch, so a rebased but unpushed stack still diffs cleanly. Review workspaces start on `HEAD` against their PR base.
+
+The diff's toolbar is one row: what it shows (`Uncommitted changes` or `feat/b vs feat/a`), then (when there are files) the **Unified** / **Split** toggle and total `+N −N`; on the right, **Collapse all** / **Expand all** and **Send N comments to <thread>** (when there are draft comments).
 
 ### Files (accordion)
 One scrolling list with a section per changed file, in the order files were changed. Every file starts expanded; any number can be open at once.
@@ -39,7 +42,7 @@ Rendered by [`@git-diff-view/svelte`](https://github.com/MrWangJustToDo/git-diff
 
 ## Behaviour
 
-- **Opening:** the Changes tab, or a file link in the conversation. Picking another tab leaves it.
+- **Opening:** the Git tab, or a file link in the conversation. Picking another tab leaves it.
 - **Clicking a file header** expands or collapses that file.
 - **A file link in the conversation** opens the tab, expands that file and scrolls it to the top.
 - **Switching layout** keeps the vertical scroll position.
@@ -49,11 +52,11 @@ Rendered by [`@git-diff-view/svelte`](https://github.com/MrWangJustToDo/git-diff
 
 ## Layout
 
-- Full width of the workspace body at every window size; the toolbar wraps on narrow windows.
+- Full width of the workspace body: an 18rem stack pane, then the diff. The toolbar wraps on narrow windows.
 
 ## Keyboard and accessibility
 
-- The panel is a `tabpanel` labelled by the Changes tab; the file list is labelled "Changed files".
+- The panel is a `tabpanel` labelled by the Git tab; the file list is labelled "Changed files".
 - The scrolling file list is focusable (`tabindex="0"`) and labelled "Proposed changes", so it can be scrolled with the keyboard.
 - File headers are buttons with `aria-expanded` / `aria-controls`; status letters have their full words.
 - The layout toggle uses `aria-pressed`.

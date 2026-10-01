@@ -1,9 +1,48 @@
 use agent_client_protocol::schema::v1::{
-    ContentBlock, PermissionOptionKind, RequestPermissionRequest, SessionUpdate, StopReason,
-    ToolCall, ToolCallStatus as AcpStatus, ToolKind as AcpKind,
+    ContentBlock, PermissionOptionKind, RequestPermissionRequest, SessionConfigId,
+    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+    SessionConfigSelectOptions, SessionConfigValueId, SessionUpdate, StopReason, ToolCall,
+    ToolCallStatus as AcpStatus, ToolKind as AcpKind,
 };
 
 use crate::engines::events::{AgentEvent, MessageRole, PlanStep, ToolCallStatus, ToolKind};
+use crate::engines::models::ModelOption;
+
+/// The session's model picker, from the config options the agent sent with the session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelConfig {
+    pub config_id: SessionConfigId,
+    /// The value the session started on, which "Default" goes back to.
+    pub initial: SessionConfigValueId,
+    pub options: Vec<ModelOption>,
+}
+
+pub fn model_config(options: &[SessionConfigOption]) -> Option<ModelConfig> {
+    let option = options
+        .iter()
+        .find(|option| matches!(option.category, Some(SessionConfigOptionCategory::Model)))?;
+    let SessionConfigKind::Select(select) = &option.kind else {
+        return None;
+    };
+    let values: Vec<_> = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(values) => values.iter().collect(),
+        SessionConfigSelectOptions::Grouped(groups) => {
+            groups.iter().flat_map(|group| &group.options).collect()
+        }
+        _ => Vec::new(),
+    };
+    Some(ModelConfig {
+        config_id: option.id.clone(),
+        initial: select.current_value.clone(),
+        options: values
+            .into_iter()
+            .map(|value| ModelOption {
+                id: value.value.to_string(),
+                label: value.name.clone(),
+            })
+            .collect(),
+    })
+}
 
 pub fn map_session_update(update: &SessionUpdate) -> Option<AgentEvent> {
     match update {
@@ -185,6 +224,42 @@ fn text_chunk(block: &ContentBlock, role: MessageRole) -> Option<AgentEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_config_reads_the_model_category() {
+        let options: Vec<SessionConfigOption> = serde_json::from_value(serde_json::json!([
+            {
+                "id": "mode", "name": "Mode", "category": "mode", "type": "select",
+                "currentValue": "agent", "options": [{ "value": "agent", "name": "Agent" }]
+            },
+            {
+                "id": "model", "name": "Model", "category": "model", "type": "select",
+                "currentValue": "gpt-5",
+                "options": [
+                    { "value": "gpt-5", "name": "GPT-5" },
+                    { "value": "sonnet-4", "name": "Sonnet 4" }
+                ]
+            }
+        ]))
+        .unwrap();
+        let config = model_config(&options).unwrap();
+        assert_eq!(config.config_id.to_string(), "model");
+        assert_eq!(config.initial.to_string(), "gpt-5");
+        assert_eq!(
+            config.options,
+            [
+                ModelOption {
+                    id: "gpt-5".into(),
+                    label: "GPT-5".into()
+                },
+                ModelOption {
+                    id: "sonnet-4".into(),
+                    label: "Sonnet 4".into()
+                },
+            ]
+        );
+        assert!(model_config(&options[..1]).is_none());
+    }
 
     #[test]
     fn tool_call_update_carries_late_locations() {

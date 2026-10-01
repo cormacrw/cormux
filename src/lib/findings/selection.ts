@@ -4,10 +4,6 @@ import { openFindings } from './types'
 
 export type QuickSelectMode = 'blocking' | 'all' | 'none'
 
-export function emptySelection(): Set<string> {
-  return new Set()
-}
-
 export function defaultSelectedIds(rows: FindingRow[]): Set<string> {
   const selected = new Set<string>()
   for (const row of rows) {

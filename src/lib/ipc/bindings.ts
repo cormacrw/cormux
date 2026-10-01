@@ -122,6 +122,28 @@ async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The models the thread's composer can pick from, and the current pick.
+ */
+async threadModels(threadId: string) : Promise<Result<ThreadModels, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("thread_models", { threadId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * `None` goes back to the engine's default. A live engine switches before its next turn.
+ */
+async setThreadModel(threadId: string, model: string | null) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_thread_model", { threadId, model }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved, denyReason }) };
@@ -183,11 +205,11 @@ async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Point the Changes panel at uncommitted work (`None`) or a branch (merge-base..HEAD).
+ * Point the Changes panel at uncommitted work (`None`) or a branch against its base.
  */
-async setWorkspaceDiffBase(workspaceId: string, base: string | null) : Promise<Result<null, Error>> {
+async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : Promise<Result<null, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("set_workspace_diff_base", { workspaceId, base }) };
+    return { status: "ok", data: await TAURI_INVOKE("set_workspace_diff_target", { workspaceId, target }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -335,6 +357,12 @@ async pushWorkspaceBranch(workspaceId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The PR prompt Settings shows until the user writes their own.
+ */
+async defaultPrPrompt() : Promise<string> {
+    return await TAURI_INVOKE("default_pr_prompt");
+},
 async draftPrWhy(workspaceId: string) : Promise<Result<DraftPrWhyResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("draft_pr_why", { workspaceId }) };
@@ -415,6 +443,17 @@ async teardownWorkspace(input: TeardownInput) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Open a Terminal window in the workspace's worktree.
+ */
+async openWorkspaceTerminal(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_workspace_terminal", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async controlWorkspaceApp(input: ControlWorkspaceAppInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("control_workspace_app", { input }) };
@@ -434,6 +473,25 @@ async setRepoRunCommand(input: SetRepoRunCommandInput) : Promise<Result<null, Er
 async setRepoSetupCommands(input: SetRepoSetupCommandsInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_repo_setup_commands", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setRepoDefaultBranch(input: SetRepoDefaultBranchInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_repo_default_branch", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Fast-forward the repo checkout's default branch from origin.
+ */
+async pullRepoDefaultBranch(repoId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("pull_repo_default_branch", { repoId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -569,11 +627,19 @@ prompt: string | null }
 export type CreateScratchResult = { scratchId: string; threadId: string }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
-export type CreateWorkspacePullRequestInput = { workspaceId: string; why: string; title: string | null; draft: boolean; includeWhatChanged: boolean; includeHowTested: boolean }
+export type CreateWorkspacePullRequestInput = { workspaceId: string; body: string; title: string | null }
 export type CreateWorkspacePullRequestResult = { workspaceId: string; number: number; htmlUrl: string; title: string }
 export type CreateWorkspaceResult = { workspaceId: string }
 export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
 export type DiffHunk = { header: string; body: string }
+/**
+ * Committed changes on `head` since it left `base` (`base...head`).
+ */
+export type DiffTarget = { 
+/**
+ * A branch, or `HEAD` for whatever the worktree has checked out.
+ */
+head: string; base: string }
 export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff | null }
 export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean }
 /**
@@ -593,6 +659,14 @@ export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; eng
 export type JoinWorkspaceThreadResult = { threadId: string }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
 export type MessageRole = "user" | "agent" | "thought"
+/**
+ * One entry in the composer's model picker.
+ */
+export type ModelOption = { 
+/**
+ * What the engine is told: a `--model` alias for Claude, an ACP config value otherwise.
+ */
+id: string; label: string }
 export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
 /**
  * Newest first.
@@ -619,6 +693,7 @@ export type ScratchRow = { id: string; repoId: string; title: string; threadId: 
  */
 createdAt: string }
 export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
+export type SetRepoDefaultBranchInput = { repoId: string; defaultBranch: string }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }
 export type SetSettingInput = { key: string; value: string }
@@ -678,6 +753,10 @@ export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: 
  * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
  */
 createdAt: string }
+/**
+ * The models a thread can switch to, and the one it's on (`None` is the engine's default).
+ */
+export type ThreadModels = { current: string | null; options: ModelOption[] }
 export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
@@ -710,6 +789,11 @@ export type WorkspaceStack = { workspaceId: string; status: StackStatus;
  */
 message: string | null; trunk: string; currentBranch: string; 
 /**
+ * The checked-out branch is missing commits from the branch it's based on: the
+ * one below it in the stack, or the trunk when it isn't stacked.
+ */
+currentNeedsRebase: boolean; 
+/**
  * Bottom of the stack (closest to the trunk) first.
  */
 branches: StackBranch[] }
@@ -717,9 +801,9 @@ export type WorkspaceStatusChanged = { version: number; workspaceId: string; sta
 export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
 export type WorktreeDiff = { workspaceId: string; 
 /**
- * Branch the diff is taken against; `None` means uncommitted changes vs `HEAD`.
+ * What the diff shows; `None` means uncommitted changes vs `HEAD`.
  */
-base: string | null; files: DiffFile[] }
+target: DiffTarget | null; files: DiffFile[] }
 
 /** tauri-specta globals **/
 

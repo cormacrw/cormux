@@ -162,6 +162,7 @@ pub async fn create_review_workspace(
         .into_iter()
         .find(|row| row.id == input.repo_id)
         .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
+    repo.ensure_not_default_branch(&input.head)?;
     let repo_path = expand_tilde(&repo.path);
     if !repo_path.is_dir() {
         return Err(Error::Git(format!(
@@ -310,9 +311,10 @@ pub async fn create_review_workspace(
             log::warn!("review worktree failed: {error}");
             return;
         }
-        state
-            .diffs
-            .set_diff_base(&workspace_id_bg, Some(base_branch.clone()));
+        state.diffs.set_diff_target(
+            &workspace_id_bg,
+            Some(crate::git::DiffTarget::head_against(base_branch.clone())),
+        );
         let _ = state
             .diffs
             .compute(&workspace_id_bg, &worktree_path_bg)
@@ -370,7 +372,9 @@ async fn remember_workspace_from_row(
             setup_failed_exit_code: None,
         })
         .await;
-    state.diffs.default_diff_base(&row.id, base.to_string());
+    state
+        .diffs
+        .default_diff_target(&row.id, crate::git::DiffTarget::head_against(base));
     Ok(())
 }
 

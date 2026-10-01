@@ -1,9 +1,10 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
+  import { isDevBuild } from '$lib/build-mode'
   import { Button } from '$lib/components/ui/button'
   import * as ScrollArea from '$lib/components/ui/scroll-area'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import { app, memory, threads, todos, workspaces } from '$lib/state'
+  import { app, memory, repos, threads, todos, workspaces } from '$lib/state'
   import { isActiveThread } from '$lib/sidebar/status'
   import Cpu from '@lucide/svelte/icons/cpu'
   import Layers from '@lucide/svelte/icons/layers'
@@ -12,6 +13,7 @@
   import Search from '@lucide/svelte/icons/search'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import SidebarAgentRow from './SidebarAgentRow.svelte'
+  import SidebarRepoRow from './SidebarRepoRow.svelte'
   import SidebarWorkspaceRow from './SidebarWorkspaceRow.svelte'
 
   const workingAgents = $derived(
@@ -37,10 +39,18 @@
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="titlebar h-10"
+    class="titlebar flex h-10 items-center justify-end"
     data-tauri-drag-region
     onmousedown={startWindowDrag}
-  ></div>
+  >
+    {#if isDevBuild}
+      <span
+        class="pointer-events-none rounded-md bg-warning px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider text-background"
+        title="Development build, with its own data"
+        data-od-id="dev-build-badge">DEV</span
+      >
+    {/if}
+  </div>
 
   <div class="grid gap-0.5 pb-2">
     <Button
@@ -104,11 +114,32 @@
     <div class="flex flex-col">
       <div
         class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+        id="side-repo-label"
+      >
+        <span>Repos</span>
+        <span class="font-mono normal-case tracking-normal"
+          >{repos.items.length}</span
+        >
+      </div>
+      <ul class="grid list-none gap-px p-0" aria-labelledby="side-repo-label">
+        {#if repos.items.length === 0}
+          <li class="px-2 py-1.5 text-xs text-muted-foreground">
+            No repos yet
+          </li>
+        {:else}
+          {#each repos.items as repo (repo.id)}
+            <SidebarRepoRow {repo} />
+          {/each}
+        {/if}
+      </ul>
+
+      <div
+        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
         id="side-ws-label"
       >
         <span>Workspaces</span>
         <span class="font-mono normal-case tracking-normal"
-          >{workspaces.items.length}</span
+          >{workspaces.liveItems.length}</span
         >
       </div>
       <ul class="grid list-none gap-px p-0" aria-labelledby="side-ws-label">
@@ -152,18 +183,12 @@
   <div class="flex items-center gap-2 px-2 pt-2">
     <div class="flex min-w-0 flex-1 items-center">
       <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <span
-              {...props}
-              tabindex="0"
-              class="flex items-center gap-2 rounded-sm text-xs text-muted-foreground"
-              aria-label={`Memory used: ${memory.label}`}
-            >
-              <Cpu class="size-3.5 shrink-0" aria-hidden="true" />
-              <span class="font-mono tabular-nums">{memory.label}</span>
-            </span>
-          {/snippet}
+        <Tooltip.Trigger
+          class="flex cursor-default items-center gap-2 rounded-sm text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          aria-label={`Memory used: ${memory.label}`}
+        >
+          <Cpu class="size-3.5 shrink-0" aria-hidden="true" />
+          <span class="font-mono tabular-nums">{memory.label}</span>
         </Tooltip.Trigger>
         <Tooltip.Content side="top">Memory used</Tooltip.Content>
       </Tooltip.Root>

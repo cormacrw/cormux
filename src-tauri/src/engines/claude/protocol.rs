@@ -41,6 +41,12 @@ pub enum ControlRequest {
     Initialize {},
     #[serde(rename = "interrupt")]
     Interrupt,
+    /// Omitting `model` goes back to the CLI's default.
+    #[serde(rename = "set_model")]
+    SetModel {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,9 +82,12 @@ pub enum Event {
     Init {
         session_id: String,
     },
+    /// One assistant message, its content blocks in order.
     Assistant {
-        text: String,
+        blocks: Vec<AssistantBlock>,
     },
+    /// Tool results, which the CLI echoes back as a `user` message.
+    ToolResults(Vec<ToolResult>),
     CanUseTool(CanUseTool),
     Result {
         session_id: Option<String>,
@@ -96,6 +105,23 @@ pub enum Event {
     Other {
         type_name: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AssistantBlock {
+    Text(String),
+    Thinking(String),
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolResult {
+    pub tool_use_id: String,
+    pub is_error: bool,
 }
 
 pub fn encode_line(message: &StdinMessage) -> Result<String> {
@@ -132,6 +158,13 @@ pub fn interrupt_request(request_id: impl Into<String>) -> StdinMessage {
     }
 }
 
+pub fn set_model_request(request_id: impl Into<String>, model: Option<String>) -> StdinMessage {
+    StdinMessage::ControlRequest {
+        request_id: request_id.into(),
+        request: ControlRequest::SetModel { model },
+    }
+}
+
 pub fn permission_response(
     request_id: impl Into<String>,
     decision: PermissionDecision,
@@ -165,8 +198,9 @@ pub fn decode_event(line: &str) -> Result<Event> {
             })
         }
         "assistant" => Ok(Event::Assistant {
-            text: extract_assistant_text(&value),
+            blocks: assistant_blocks(&value),
         }),
+        "user" => Ok(Event::ToolResults(tool_results(&value))),
         "result" => Ok(Event::Result {
             session_id: value
                 .get("session_id")
@@ -272,22 +306,51 @@ fn decode_control_request(value: &Value) -> Result<Event> {
     }
 }
 
-fn extract_assistant_text(value: &Value) -> String {
-    let Some(content) = value.pointer("/message/content").and_then(Value::as_array) else {
-        return String::new();
-    };
+fn content_blocks(value: &Value) -> &[Value] {
+    value
+        .pointer("/message/content")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
 
-    content
+fn assistant_blocks(value: &Value) -> Vec<AssistantBlock> {
+    let str_field = |block: &Value, key: &str| {
+        block
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    content_blocks(value)
         .iter()
-        .filter_map(|block| {
-            if block.get("type").and_then(Value::as_str) == Some("text") {
-                block.get("text").and_then(Value::as_str)
-            } else {
-                None
-            }
+        .filter_map(|block| match block.get("type").and_then(Value::as_str)? {
+            "text" => Some(AssistantBlock::Text(str_field(block, "text"))),
+            "thinking" => Some(AssistantBlock::Thinking(str_field(block, "thinking"))),
+            "tool_use" => Some(AssistantBlock::ToolUse {
+                id: str_field(block, "id"),
+                name: str_field(block, "name"),
+                input: block.get("input").cloned().unwrap_or(Value::Null),
+            }),
+            _ => None,
         })
-        .collect::<Vec<_>>()
-        .join("")
+        .collect()
+}
+
+fn tool_results(value: &Value) -> Vec<ToolResult> {
+    content_blocks(value)
+        .iter()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_result"))
+        .filter_map(|block| {
+            Some(ToolResult {
+                tool_use_id: block.get("tool_use_id")?.as_str()?.to_string(),
+                is_error: block
+                    .get("is_error")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -302,6 +365,22 @@ mod tests {
         let value: Value = serde_json::from_str(line.trim_end()).unwrap();
         assert_eq!(value["type"], "user");
         assert_eq!(value["message"]["content"][0]["text"], "hello");
+    }
+
+    #[test]
+    fn encodes_set_model_and_omits_a_default_model() {
+        let line = encode_line(&set_model_request("model-1", Some("opus".into()))).unwrap();
+        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(value["type"], "control_request");
+        assert_eq!(value["request_id"], "model-1");
+        assert_eq!(
+            value["request"],
+            json!({"subtype": "set_model", "model": "opus"})
+        );
+
+        let line = encode_line(&set_model_request("model-2", None)).unwrap();
+        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(value["request"], json!({"subtype": "set_model"}));
     }
 
     #[test]

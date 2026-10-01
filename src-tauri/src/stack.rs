@@ -6,10 +6,8 @@
 //! and `sync` with their non-interactive flags. Pull requests are opened by hand with
 //! Create PR, never by gh-stack. Exit codes are gh-stack's documented ones.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Output;
-use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -79,6 +77,9 @@ pub struct WorkspaceStack {
     pub message: Option<String>,
     pub trunk: String,
     pub current_branch: String,
+    /// The checked-out branch is missing commits from the branch it's based on: the
+    /// one below it in the stack, or the trunk when it isn't stacked.
+    pub current_needs_rebase: bool,
     /// Bottom of the stack (closest to the trunk) first.
     pub branches: Vec<StackBranch>,
 }
@@ -126,6 +127,16 @@ async fn gh_stack(
     args: &[&str],
     token: Option<&str>,
 ) -> Result<Output> {
+    gh_stack_with_env(state, worktree, args, token, &[]).await
+}
+
+async fn gh_stack_with_env(
+    state: &AppState,
+    worktree: &Path,
+    args: &[&str],
+    token: Option<&str>,
+    extra_env: &[(&str, &str)],
+) -> Result<Output> {
     let mut full = vec!["stack"];
     full.extend_from_slice(args);
     // Never let gh or gh-stack wait on a prompt; there's no terminal to answer it.
@@ -133,6 +144,7 @@ async fn gh_stack(
     if let Some(token) = token {
         env.push(("GH_TOKEN", token));
     }
+    env.extend_from_slice(extra_env);
     state
         .git
         .run_tool(worktree, "gh", &full, &env)
@@ -165,11 +177,15 @@ fn extension_missing(output: &Output) -> bool {
 
 /// Turn a failed gh-stack run into an error the UI can show as-is.
 fn failure(output: &Output, action: &str) -> Error {
+    Error::Git(failure_message(output, action))
+}
+
+fn failure_message(output: &Output, action: &str) -> String {
     if extension_missing(output) {
-        return Error::Git(format!("gh-stack isn't installed. Run: {INSTALL_HINT}"));
+        return format!("gh-stack isn't installed. Run: {INSTALL_HINT}");
     }
     let detail = stderr_text(output);
-    let message = match output.status.code() {
+    match output.status.code() {
         Some(EXIT_REBASE_CONFLICT) => format!(
             "{action} stopped on a rebase conflict and put the stack back. Run `gh stack rebase` in the worktree to resolve it."
         ),
@@ -184,8 +200,7 @@ fn failure(output: &Output, action: &str) -> Error {
         Some(EXIT_UNAVAILABLE) => "Stacked pull requests aren't enabled on this repository.".into(),
         _ if detail.is_empty() => format!("{action} failed"),
         _ => format!("{action} failed: {detail}"),
-    };
-    Error::Git(message)
+    }
 }
 
 async fn view(state: &AppState, worktree: &Path) -> Result<View> {
@@ -239,20 +254,29 @@ pub fn parents(names_and_merged: &[(String, bool)], trunk: &str) -> Vec<String> 
 pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<WorkspaceStack> {
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
+    let solo_needs_rebase = record.branch != record.base && {
+        let trunk = trunk_ref(state, &worktree, &record.base).await;
+        !state.git.is_ancestor(&worktree, &trunk, "HEAD").await
+    };
     let empty = |status, message| WorkspaceStack {
         workspace_id: workspace_id.to_string(),
         status,
         message,
         trunk: record.base.clone(),
         current_branch: record.branch.clone(),
+        current_needs_rebase: solo_needs_rebase,
         branches: Vec::new(),
     };
 
     let json = match view(state, &worktree).await? {
         View::Stacked(json) => json,
         View::NotStacked => {
-            if !checkout_remote_stack(state, &worktree, &record.branch, &record.base).await {
-                return Ok(empty(StackStatus::NotStacked, None));
+            match checkout_remote_stack(state, &worktree, &record.branch, &record.base).await {
+                RemoteStack::CheckedOut => {}
+                RemoteStack::None => return Ok(empty(StackStatus::NotStacked, None)),
+                RemoteStack::Failed(message) => {
+                    return Ok(empty(StackStatus::NotStacked, Some(message)));
+                }
             }
             match view(state, &worktree).await? {
                 View::Stacked(json) => json,
@@ -272,8 +296,8 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
 
     let mut branches = Vec::with_capacity(json.branches.len());
     for (branch, parent) in json.branches.into_iter().zip(parents) {
-        let (stat, commits) = if branch.is_merged {
-            (ShortStat::default(), 0)
+        let (stat, commits, behind) = if branch.is_merged {
+            (ShortStat::default(), 0, false)
         } else {
             let base = if parent == json.trunk {
                 trunk_ref.clone()
@@ -290,7 +314,8 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
                 .rev_list_count(&worktree, &format!("{base}..{}", branch.name))
                 .await
                 .unwrap_or(0);
-            (stat, commits)
+            let behind = !state.git.is_ancestor(&worktree, &base, &branch.name).await;
+            (stat, commits, behind)
         };
         branches.push(StackBranch {
             current: branch.name == json.current_branch,
@@ -302,7 +327,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
             commits,
             merged: branch.is_merged,
             queued: branch.is_queued,
-            needs_rebase: branch.needs_rebase,
+            needs_rebase: branch.needs_rebase || behind,
             pr: branch.pr.map(|pr| StackPullRequest {
                 number: pr.number,
                 url: pr.url,
@@ -311,66 +336,86 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         });
     }
 
+    let current_needs_rebase = branches
+        .iter()
+        .any(|branch| branch.current && branch.needs_rebase);
     Ok(WorkspaceStack {
         workspace_id: workspace_id.to_string(),
         status: StackStatus::Stacked,
         message: None,
+        current_needs_rebase,
         trunk: json.trunk,
         current_branch: json.current_branch,
         branches,
     })
 }
 
-/// The branch each worktree last looked for on GitHub, so reopening the Stack tab doesn't
-/// ask again until a different branch is checked out.
-static REMOTE_STACK_CHECKED: LazyLock<Mutex<HashMap<String, String>>> =
-    LazyLock::new(Default::default);
+enum RemoteStack {
+    /// A stack on GitHub has the branch, and it's now set up in this worktree.
+    CheckedOut,
+    /// No stack on GitHub has the branch, or it's the trunk.
+    None,
+    /// Looking failed; the message says why, for the Stack tab to show.
+    Failed(String),
+}
 
 /// A branch checked out from GitHub has no gh-stack metadata in this worktree, so
 /// `gh stack view` calls it unstacked. `gh stack checkout <branch>` looks for it in the
-/// stacks on GitHub too and, when one has it, sets that stack up here. Returns whether it did.
+/// stacks on GitHub too and, when one has it, sets that stack up here. This runs on every
+/// load of an unstacked branch, so a stack made elsewhere shows up the next time the Stack
+/// tab opens or the branch is checked out.
 async fn checkout_remote_stack(
     state: &AppState,
     worktree: &Path,
     branch: &str,
     trunk: &str,
-) -> bool {
+) -> RemoteStack {
     if branch.is_empty() || branch == trunk {
-        return false;
+        return RemoteStack::None;
     }
-    let key = worktree.to_string_lossy().to_string();
-    {
-        let mut checked = REMOTE_STACK_CHECKED
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if checked.get(&key).is_some_and(|last| last == branch) {
-            return false;
-        }
-        checked.insert(key.clone(), branch.to_string());
-    }
-    let forget = || {
-        // Look again next time: this failure says nothing about whether a stack exists.
-        REMOTE_STACK_CHECKED
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&key);
+    // With several remotes and no default, gh-stack asks which to fetch from, and there's
+    // no terminal to answer. Cormux works against origin everywhere else, so default to it.
+    let push_default = state
+        .git
+        .run_tool(
+            worktree,
+            "git",
+            &["config", "--get", "remote.pushDefault"],
+            &[],
+        )
+        .await
+        .is_ok_and(|output| output.status.success());
+    let origin_default: &[(&str, &str)] = if push_default {
+        &[]
+    } else {
+        &[
+            ("GIT_CONFIG_COUNT", "1"),
+            ("GIT_CONFIG_KEY_0", "remote.pushDefault"),
+            ("GIT_CONFIG_VALUE_0", "origin"),
+        ]
     };
 
     let token = fallback_token(state).await;
-    let output = match gh_stack(state, worktree, &["checkout", branch], token.as_deref()).await {
+    let output = match gh_stack_with_env(
+        state,
+        worktree,
+        &["checkout", branch],
+        token.as_deref(),
+        origin_default,
+    )
+    .await
+    {
         Ok(output) => output,
-        Err(_) => {
-            forget();
-            return false;
-        }
+        Err(Error::Git(message)) => return RemoteStack::Failed(message),
+        Err(error) => return RemoteStack::Failed(error.to_string()),
     };
     match output.status.code() {
         Some(0) => {}
-        Some(EXIT_STACK_NOT_FOUND) => return false,
+        Some(EXIT_STACK_NOT_FOUND) => return RemoteStack::None,
         _ => {
-            log::warn!("gh stack checkout {branch}: {}", stderr_text(&output));
-            forget();
-            return false;
+            let message = failure_message(&output, "Looking for this branch's stack on GitHub");
+            log::warn!("gh stack checkout {branch}: {message}");
+            return RemoteStack::Failed(message);
         }
     }
     // gh-stack checks the branch out as part of setting up the stack; keep the workspace
@@ -380,7 +425,7 @@ async fn checkout_remote_stack(
     {
         log::warn!("switching back to {branch} after gh stack checkout: {error}");
     }
-    true
+    RemoteStack::CheckedOut
 }
 
 /// Add `branch` on top of the stack. When the checked-out branch isn't stacked yet,

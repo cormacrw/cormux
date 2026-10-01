@@ -31,6 +31,15 @@ impl EngineKind {
         }
     }
 
+    /// A stored engine name; anything unknown is Claude.
+    pub fn from_name(name: &str) -> Self {
+        Self::all()
+            .iter()
+            .copied()
+            .find(|kind| kind.as_str().eq_ignore_ascii_case(name))
+            .unwrap_or(Self::Claude)
+    }
+
     pub fn all() -> &'static [EngineKind] {
         &[Self::Claude, Self::Cursor, Self::Codex, Self::Gemini]
     }

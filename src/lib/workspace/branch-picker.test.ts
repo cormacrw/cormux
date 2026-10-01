@@ -7,6 +7,7 @@ describe('buildBranchPickerList', () => {
       current: 'feat/auth',
       repoBranches: ['develop', 'main', 'feat/auth'],
       otherWorkspaceBranches: ['feat/billing'],
+      defaultBranch: 'main',
     })
     expect(items.map((item) => item.name)).toEqual([
       'feat/auth',
@@ -18,5 +19,9 @@ describe('buildBranchPickerList', () => {
     expect(items.find((item) => item.name === 'feat/billing')?.meta).toBe(
       'inOtherWorkspace',
     )
+    expect(items.find((item) => item.name === 'main')).toMatchObject({
+      meta: 'default',
+      disabled: true,
+    })
   })
 })

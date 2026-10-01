@@ -2,19 +2,32 @@
   import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
-  import { repos, threads, workspaceRecords, workspaceUi } from '$lib/state'
+  import {
+    repos,
+    shellDialogs,
+    threads,
+    workspaceRecords,
+    workspaceUi,
+  } from '$lib/state'
   import {
     rememberHeaderFocusKey,
     restoreHeaderFocus,
   } from '$lib/workspace/header-focus'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
+  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { runWorkspaceApp } from '$lib/command-palette/actions'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import GitConflictBanner from './GitConflictBanner.svelte'
   import WorkspaceBranchTag from './WorkspaceBranchTag.svelte'
   import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte'
   import WorkspacePrimaryAction from './WorkspacePrimaryAction.svelte'
   import WorkspaceRunControls from './WorkspaceRunControls.svelte'
+  import { Kbd } from '$lib/components/ui/kbd'
+  import { openWorkspaceTerminal } from '$lib/workspace/worktree-actions'
+  import CommandIcon from '@lucide/svelte/icons/command'
   import Pencil from '@lucide/svelte/icons/pencil'
+  import SquareTerminal from '@lucide/svelte/icons/square-terminal'
+  import Trash2 from '@lucide/svelte/icons/trash-2'
 
   let {
     workspace,
@@ -69,6 +82,34 @@
     return () => media.removeEventListener('change', sync)
   })
 
+  // Handled here rather than on the buttons, which narrow windows fold into ⋯.
+  function onKeydown(event: KeyboardEvent) {
+    const status = runtime.appStatus
+    if (isHeaderShortcut(event, 'r')) {
+      event.preventDefault()
+      if (status === 'crashed' || status === 'running') {
+        runWorkspaceApp(workspace.id, 'restart')
+      } else if (
+        status === 'stopped' &&
+        !runDisabled &&
+        repo?.runCommand?.trim()
+      ) {
+        runWorkspaceApp(workspace.id, 'run')
+      }
+    } else if (isHeaderShortcut(event, '.')) {
+      event.preventDefault()
+      if (status !== 'stopped' && status !== 'crashed') {
+        runWorkspaceApp(workspace.id, 'stop')
+      }
+    } else if (isHeaderShortcut(event, 't')) {
+      event.preventDefault()
+      void openWorkspaceTerminal(workspace.id)
+    } else if (isHeaderShortcut(event, 'd')) {
+      event.preventDefault()
+      shellDialogs.openTeardown(workspace.id)
+    }
+  }
+
   function onTitleFocus() {
     rememberHeaderFocusKey('title')
   }
@@ -82,6 +123,8 @@
   }
 </script>
 
+<svelte:window onkeydown={onKeydown} />
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <header
   class="flex flex-col"
@@ -89,7 +132,7 @@
   data-od-id="ws-header"
   onmousedown={startHeaderDrag}
 >
-  <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
+  <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
     <div class="flex min-w-0 flex-1 items-center gap-2">
       <h1
         bind:this={titleRef}
@@ -125,24 +168,40 @@
       class="flex flex-wrap items-center justify-end gap-2 max-md:w-full"
       data-od-id="ws-actions"
     >
-      {#if !narrow}
+      {#if narrow}
+        <WorkspaceMoreMenu workspaceId={workspace.id} {runDisabled} />
+      {:else}
         <WorkspaceRunControls
           workspaceId={workspace.id}
           repoId={record?.repoId ?? ''}
           {runDisabled}
         />
+        <Button
+          variant="secondary"
+          size="xl"
+          aria-keyshortcuts="Meta+T"
+          data-ws-focus="terminal"
+          data-od-id="ws-terminal"
+          onclick={() => void openWorkspaceTerminal(workspace.id)}
+        >
+          <SquareTerminal class="size-4" aria-hidden="true" />
+          Terminal
+          <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />T</Kbd>
+        </Button>
+        <Button
+          variant="destructive"
+          size="xl"
+          aria-label="Delete workspace"
+          aria-keyshortcuts="Meta+D"
+          data-ws-focus="delete"
+          data-od-id="ws-delete"
+          onclick={() => shellDialogs.openTeardown(workspace.id)}
+        >
+          <Trash2 class="size-4" aria-hidden="true" />
+          Delete
+          <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />D</Kbd>
+        </Button>
       {/if}
-
-      <WorkspaceMoreMenu
-        workspaceId={workspace.id}
-        base={record?.base ?? 'main'}
-        behind={runtime.behind}
-        ahead={runtime.ahead}
-        worktreePath={record?.worktreePath ?? ''}
-        {narrow}
-        {runDisabled}
-        {onRename}
-      />
 
       <WorkspacePrimaryAction {workspace} />
     </div>

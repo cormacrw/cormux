@@ -74,6 +74,7 @@ Run and Restart first open the workspace, then perform the action. Stop acts wit
 | `⌘N` / `Ctrl+N` | Anywhere | Open the New workspace dialog. |
 | `⌘H` / `Ctrl+H` | Anywhere but a dialog | Go to Homebase. Replaces the macOS Hide shortcut; **Hide Cormux** stays in the app menu without one. |
 | `⌘1`–`⌘9` / `Ctrl+1`–`Ctrl+9` | Anywhere but a dialog | Open the Nth workspace in sidebar order. No-op if there isn't one. |
+| `⌘G` / `Ctrl+G` | Workspace view, no dialog open | Open the Git tab (stack and diff). |
 | `Ctrl+\`` | Workspace view, no dialog open | Toggle between the Output tab and the tab you came from. |
 | `Esc` | A popover is open | Close the popover and return focus to its trigger. |
 | `←` `→` `Home` `End` | Focus on a workspace tab | Move between thread, Findings and Output tabs. |

@@ -11,6 +11,7 @@ use super::claude::{CanUseTool, ClaudeSession, Event, PermissionDecision, SpawnO
 use super::command::EngineCommand;
 use super::detect::{self, EngineStatus};
 use super::events::{AgentEvent, EngineKind, ToolCallStatus, ToolKind};
+use super::models::{ModelOption, ThreadModels, static_models};
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::error::{Error, Result};
 use crate::shell_env::ShellEnv;
@@ -38,12 +39,13 @@ pub struct EngineRegistry {
 }
 
 struct ThreadSlot {
-    #[allow(dead_code)]
     kind: EngineKind,
     commands: mpsc::UnboundedSender<EngineCommand>,
     events: broadcast::Sender<AgentEvent>,
     session_id: Arc<Mutex<Option<String>>>,
     pending_seed: Arc<Mutex<Option<String>>>,
+    /// Models an ACP engine offered when its session started; empty until then.
+    models: Arc<Mutex<Vec<ModelOption>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,11 +100,21 @@ impl EngineRegistry {
         Ok(slot.events.subscribe())
     }
 
+    /// Whether a live engine serves the thread. An engine whose pump has ended (the CLI
+    /// exited or its output broke) is dropped here, so the caller spawns a fresh one that
+    /// resumes the session instead of prompting into nothing.
     pub fn has_thread(&self, thread_id: &str) -> bool {
-        self.threads
-            .lock()
-            .ok()
-            .is_some_and(|threads| threads.contains_key(thread_id))
+        let Ok(mut threads) = self.threads.lock() else {
+            return false;
+        };
+        match threads.get(thread_id) {
+            Some(slot) if slot.commands.is_closed() => {
+                threads.remove(thread_id);
+                false
+            }
+            Some(_) => true,
+            None => false,
+        }
     }
 
     pub fn session_id(&self, thread_id: &str) -> Result<Option<String>> {
@@ -127,11 +139,14 @@ impl EngineRegistry {
         spec.resume = resume;
         let session_id = Arc::new(Mutex::new(spec.resume.clone()));
         let pending_seed = Arc::new(Mutex::new(None));
+        let models = Arc::new(Mutex::new(Vec::new()));
+        let model = self.store.thread_model(&spec.thread_id).ok().flatten();
         let env = self.env.read().await.clone();
         let commands = match spec.kind {
             EngineKind::Claude => {
                 self.spawn_claude(
                     &spec,
+                    model,
                     env,
                     events.clone(),
                     session_id.clone(),
@@ -141,10 +156,12 @@ impl EngineRegistry {
             }
             EngineKind::Cursor | EngineKind::Codex | EngineKind::Gemini => self.spawn_acp(
                 &spec,
+                model,
                 env,
                 events.clone(),
                 session_id.clone(),
                 pending_seed.clone(),
+                models.clone(),
             ),
         };
 
@@ -159,8 +176,36 @@ impl EngineRegistry {
                     events,
                     session_id,
                     pending_seed,
+                    models,
                 },
             );
+        Ok(())
+    }
+
+    /// The thread's picked model and what it can switch to. ACP engines only know their
+    /// models once a session is running, so an idle ACP thread lists none.
+    pub fn thread_models(&self, thread_id: &str, kind: EngineKind) -> Result<ThreadModels> {
+        let current = self.store.thread_model(thread_id)?;
+        let options = match kind {
+            EngineKind::Claude => static_models(kind),
+            EngineKind::Cursor | EngineKind::Codex | EngineKind::Gemini => self
+                .threads
+                .lock()
+                .map_err(|error| Error::Engine(error.to_string()))?
+                .get(thread_id)
+                .filter(|slot| slot.kind == kind)
+                .and_then(|slot| slot.models.lock().ok().map(|models| models.clone()))
+                .unwrap_or_default(),
+        };
+        Ok(ThreadModels { current, options })
+    }
+
+    /// Saves the pick for future spawns and switches a live engine over now.
+    pub fn set_thread_model(&self, thread_id: &str, model: Option<String>) -> Result<()> {
+        self.store.set_thread_model(thread_id, model.as_deref())?;
+        if self.has_thread(thread_id) {
+            self.send(thread_id, EngineCommand::SetModel(model))?;
+        }
         Ok(())
     }
 
@@ -329,9 +374,11 @@ impl EngineRegistry {
             .map_err(|_| Error::Engine("engine process is gone".into()))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn spawn_claude(
         &self,
         spec: &SpawnSpec,
+        model: Option<String>,
         env: ShellEnv,
         events: broadcast::Sender<AgentEvent>,
         session_id: Arc<Mutex<Option<String>>>,
@@ -358,6 +405,7 @@ impl EngineRegistry {
             binary,
             cwd: Some(spec.cwd.clone()),
             resume: spec.resume.clone(),
+            model,
             extra_args,
             use_default_args,
             env: Some(env.vars().clone()),
@@ -396,13 +444,16 @@ impl EngineRegistry {
         Ok(tx)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn spawn_acp(
         &self,
         spec: &SpawnSpec,
+        model: Option<String>,
         env: ShellEnv,
         events: broadcast::Sender<AgentEvent>,
         session_id: Arc<Mutex<Option<String>>>,
         pending_seed: Arc<Mutex<Option<String>>>,
+        models: Arc<Mutex<Vec<ModelOption>>>,
     ) -> mpsc::UnboundedSender<EngineCommand> {
         let argv = spec
             .override_argv
@@ -422,6 +473,8 @@ impl EngineRegistry {
             store: self.store.clone(),
             thread_id: spec.thread_id.clone(),
             pending_seed,
+            model,
+            models,
             approval_notify: self.approval_notify.clone(),
         })
     }
@@ -470,6 +523,11 @@ async fn run_claude(
                     Some(EngineCommand::Cancel) => {
                         let _ = session.interrupt().await;
                     }
+                    Some(EngineCommand::SetModel(model)) => {
+                        if let Err(error) = session.set_model(model).await {
+                            log::warn!("claude set model: {error}");
+                        }
+                    }
                     Some(EngineCommand::Shutdown) | None => {
                         let _ = session.shutdown().await;
                         break;
@@ -513,9 +571,11 @@ async fn run_claude(
                                 answer_tx.clone(),
                             )
                             .await;
-                        } else if let Some(mapped) = claude_map::map_claude_event(&raw) {
-                            persist_event(&store, &thread_id, &mapped);
-                            let _ = events.send(mapped);
+                        } else {
+                            for mapped in claude_map::map_claude_event(&raw) {
+                                persist_event(&store, &thread_id, &mapped);
+                                let _ = events.send(mapped);
+                            }
                         }
                     }
                     Ok(None) => {
@@ -576,8 +636,7 @@ async fn handle_claude_permission(
             .await;
         return;
     }
-    let mut mapped =
-        claude_map::map_claude_event(&Event::CanUseTool(req.clone())).expect("permission maps");
+    let mut mapped = claude_map::map_permission(req);
     if policy.auto_all || (policy.auto_ro && kind.is_readonly()) {
         if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;
@@ -953,7 +1012,7 @@ mod tests {
             .unwrap();
 
         let mut events = engines.subscribe("acp-miss").unwrap();
-        // Times out (and fails) unless the session starts.
+        // Times out and fails unless the session starts.
         loop {
             let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
                 .await

@@ -25,30 +25,16 @@ export function bindGitWorkspaceControls() {
     void runGit(() => commands.pullWorkspace(detail.workspaceId))
   }
 
-  const onRebase = (event: Event) => {
-    const detail = (event as CustomEvent).detail as { workspaceId: string }
-    void runGit(() => commands.rebaseWorkspace(detail.workspaceId))
-  }
-
-  const onPush = (event: Event) => {
-    const detail = (event as CustomEvent).detail as { workspaceId: string }
-    void runGit(() => commands.pushWorkspaceBranch(detail.workspaceId))
-  }
-
   const onAbort = (event: Event) => {
     const detail = (event as CustomEvent).detail as { workspaceId: string }
     void runGit(() => commands.abortWorkspaceGit(detail.workspaceId))
   }
 
   window.addEventListener('cormux:workspace-pull', onPull)
-  window.addEventListener('cormux:workspace-rebase', onRebase)
-  window.addEventListener('cormux:workspace-push', onPush)
   window.addEventListener('cormux:workspace-git-abort', onAbort)
 
   return () => {
     window.removeEventListener('cormux:workspace-pull', onPull)
-    window.removeEventListener('cormux:workspace-rebase', onRebase)
-    window.removeEventListener('cormux:workspace-push', onPush)
     window.removeEventListener('cormux:workspace-git-abort', onAbort)
   }
 }

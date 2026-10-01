@@ -1,15 +1,14 @@
+import { SvelteSet } from 'svelte/reactivity'
 import type { FindingRow } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc'
 import {
   applyQuickSelect,
   defaultSelectedIds,
-  emptySelection,
   mergeSelection,
-  setGroupSelection,
   type QuickSelectMode,
   toggleFinding,
 } from '$lib/findings/selection'
-import { openFindings, type FindingSeverity } from '$lib/findings/types'
+import { openFindings } from '$lib/findings/types'
 
 export class FindingsStore {
   items = $state<FindingRow[]>([])
@@ -29,7 +28,7 @@ export class FindingsStore {
       const touched = this.selectionTouched[workspaceId] ?? false
       const merged = mergeSelection(
         rows,
-        this.selection[workspaceId] ?? emptySelection(),
+        this.selection[workspaceId] ?? new SvelteSet(),
         touched,
       )
       this.selection = { ...this.selection, [workspaceId]: merged }
@@ -49,7 +48,7 @@ export class FindingsStore {
   }
 
   selectedIds(workspaceId: string): Set<string> {
-    return this.selection[workspaceId] ?? emptySelection()
+    return this.selection[workspaceId] ?? new SvelteSet()
   }
 
   ensureTargetThread(workspaceId: string, threadIds: string[]) {
@@ -84,14 +83,14 @@ export class FindingsStore {
     this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
   }
 
-  setGroup(workspaceId: string, severity: FindingSeverity, checked: boolean) {
+  setGroup(workspaceId: string, severity: string, checked: boolean) {
     const rows = this.forWorkspace(workspaceId)
-    const next = setGroupSelection(
-      rows,
-      this.selectedIds(workspaceId),
-      severity,
-      checked,
-    )
+    const open = openFindings(rows).filter((row) => row.severity === severity)
+    const next = new SvelteSet(this.selectedIds(workspaceId))
+    for (const row of open) {
+      if (checked) next.add(row.id)
+      else next.delete(row.id)
+    }
     this.selection = { ...this.selection, [workspaceId]: next }
     this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
   }

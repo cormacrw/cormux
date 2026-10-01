@@ -2,6 +2,9 @@
   import { onMount, tick, untrack } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
+  import { Kbd } from '$lib/components/ui/kbd'
+  import CommandIcon from '@lucide/svelte/icons/command'
+  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
   import TimelineMessages from '$lib/components/workspace/thread/TimelineMessages.svelte'
   import {
@@ -139,7 +142,15 @@
     if (target.closest('button, a, input, textarea')) return
     void getCurrentWindow().startDragging()
   }
+
+  function onKeydown(event: KeyboardEvent) {
+    if (!scratch || !isHeaderShortcut(event, 'e')) return
+    event.preventDefault()
+    shellDialogs.openEndScratch(scratch.id, false)
+  }
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 {#if scratch && thread}
   <section
@@ -150,7 +161,7 @@
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <header
-      class="ws-top flex items-start justify-between gap-4 border-b border-border/60 px-5 py-3"
+      class="ws-top flex items-center justify-between gap-4 border-b border-border/60 px-5 py-3"
       data-tauri-drag-region
       data-od-id="session-header"
       onmousedown={startHeaderDrag}
@@ -174,13 +185,15 @@
       <div class="flex shrink-0 items-center gap-2">
         <ScratchStatusBadge {status} />
         <Button
-          variant="ghost"
-          size="sm"
+          variant="secondary"
+          size="xl"
           data-action="end-scratch"
           data-od-id="session-end"
+          aria-keyshortcuts="Meta+E"
           onclick={() => shellDialogs.openEndScratch(scratch.id, false)}
         >
           End scratch
+          <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />E</Kbd>
         </Button>
       </div>
     </header>

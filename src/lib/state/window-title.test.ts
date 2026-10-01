@@ -11,6 +11,12 @@ describe('resolveWindowTitle', () => {
     )
   })
 
+  it('names dev builds in the title', () => {
+    expect(resolveWindowTitle('homebase', null, undefined, 'Cormux Dev')).toBe(
+      'Cormux Dev · Homebase',
+    )
+  })
+
   it('titles an open workspace by name', () => {
     expect(
       resolveWindowTitle('workspace', 'ws-1', 'Auth session timeout'),

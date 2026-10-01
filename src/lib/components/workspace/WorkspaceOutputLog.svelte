@@ -16,6 +16,8 @@
   } = $props()
 </script>
 
+<!-- Focusable so the log can be scrolled from the keyboard. -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   bind:this={logEl}
   role="log"

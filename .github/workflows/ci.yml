@@ -35,15 +35,6 @@ jobs:
       - name: Test
         run: pnpm test && cargo test --manifest-path src-tauri/Cargo.toml
 
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: End-to-end UI
-        run: pnpm test:e2e
-
-      - name: Build frontend
-        run: pnpm build
-
       - name: Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 

@@ -15,9 +15,9 @@ use crate::ipc::types::{
     CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
     StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone,
 };
-use crate::pr_draft::{draft_why, extract_goal_from_events};
+use crate::pr_draft::{PR_PROMPT_KEY, draft_why, extract_goal_from_events, pr_prompt};
 use crate::state::AppState;
-use crate::store::types::{PrRow, WorkspaceRow};
+use crate::store::types::PrRow;
 
 pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftPrWhyResult> {
     let snapshot = state.store.snapshot()?;
@@ -45,10 +45,11 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
         .collect();
     let goal = extract_goal_from_events(&events);
     let transcript = state.store.transcript_summary(&lead_id, 24)?;
+    let instructions = pr_prompt(state.store.get_setting(PR_PROMPT_KEY)?);
 
     let (text, from_llm) = draft_why(
         &state.llm,
-        workspace_id,
+        &instructions,
         &workspace,
         &base,
         &goal,
@@ -69,10 +70,10 @@ pub async fn create_workspace_pull_request(
     state: &AppState,
     input: CreateWorkspacePullRequestInput,
 ) -> Result<CreateWorkspacePullRequestResult> {
-    let why = input.why.trim();
-    if why.is_empty() {
+    let body = input.body.trim();
+    if body.is_empty() {
         return Err(Error::Workspace(
-            "Add a reason so reviewers know what this fixes.".into(),
+            "Add a description so reviewers know what this changes.".into(),
         ));
     }
 
@@ -158,14 +159,6 @@ pub async fn create_workspace_pull_request(
         .unwrap_or(workspace.name.as_str())
         .to_string();
 
-    let body = build_pr_body(
-        why,
-        &diff,
-        &workspace,
-        input.include_what_changed,
-        input.include_how_tested,
-    );
-
     let client = RestGithubClient::new();
     let created = client
         .create_pull_request(
@@ -174,10 +167,10 @@ pub async fn create_workspace_pull_request(
             repo,
             &CreatePullRequestInput {
                 title: title.clone(),
-                body,
+                body: body.to_string(),
                 head: record.branch.clone(),
                 base: pr_base.clone(),
-                draft: input.draft,
+                draft: false,
             },
         )
         .await?;
@@ -190,11 +183,6 @@ pub async fn create_workspace_pull_request(
 
     let (additions, deletions, files) = diff_totals(&diff);
     let updated_at = iso_timestamp_now();
-    let review = if input.draft {
-        PrReviewState::Draft
-    } else {
-        PrReviewState::Required
-    };
     let payload = PullRequestPayload {
         num: created.number,
         title: title.clone(),
@@ -205,11 +193,11 @@ pub async fn create_workspace_pull_request(
         updated_at: updated_at.clone(),
         checks: PrChecksState::Running,
         failing: None,
-        review,
+        review: PrReviewState::Required,
         additions: additions as i64,
         deletions: deletions as i64,
         files: files as i64,
-        is_draft: input.draft,
+        is_draft: false,
         html_url: created.html_url.clone(),
         repo_full_name: slug.clone(),
         repo_id: Some(workspace.repo_id.clone()),
@@ -289,49 +277,9 @@ async fn pr_diff(
     };
     diff.unwrap_or(crate::git::WorktreeDiff {
         workspace_id: workspace_id.to_string(),
-        base: None,
+        target: None,
         files: vec![],
     })
-}
-
-fn build_pr_body(
-    why: &str,
-    diff: &crate::git::WorktreeDiff,
-    workspace: &WorkspaceRow,
-    include_what: bool,
-    include_tested: bool,
-) -> String {
-    let mut sections = vec![why.to_string()];
-
-    if include_what {
-        let mut lines = Vec::new();
-        if diff.files.is_empty() {
-            lines.push("No file changes in this workspace.".into());
-        } else {
-            for file in diff.files.iter().take(20) {
-                lines.push(format!(
-                    "- `{}` (+{} −{})",
-                    file.path, file.added, file.deleted
-                ));
-            }
-        }
-        sections.push(format!("## What changed\n{}", lines.join("\n")));
-    }
-
-    if include_tested {
-        let tested = workspace
-            .summary
-            .as_deref()
-            .filter(|summary| summary.to_lowercase().contains("test"))
-            .map(|summary| summary.to_string())
-            .unwrap_or_else(|| {
-                "Automated and manual checks from the agent run are included in the workspace thread."
-                    .into()
-            });
-        sections.push(format!("## How tested\n{tested}"));
-    }
-
-    sections.join("\n\n")
 }
 
 fn diff_totals(diff: &crate::git::WorktreeDiff) -> (u32, u32, u32) {

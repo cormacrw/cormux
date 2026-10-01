@@ -2,7 +2,7 @@
 
 ## Summary
 
-**Create PR** is the primary action in a build workspace's header. It opens a small dialog with one field, "Why is this change necessary?", which a small model drafts automatically from the thread and diff. The user edits the draft and creates the PR. The new PR appears on Homebase and the header button changes to `PR #N opened`.
+**Create PR** is the primary action in a build workspace's header. It opens a wide dialog with a title and a tall **Description** field, which a small model drafts automatically from the thread and diff using the **PR prompt** from Settings → GitHub. The user edits the draft and creates the PR. The new PR appears on Homebase and the header button changes to `PR #N opened`.
 
 ## Why it exists
 
@@ -24,14 +24,14 @@ Getting agent work into review is the end of the build loop. The hardest part of
 1. **Title:** `Create pull request`.
 2. **Route line** under the title: `<branch> → <base> · <N files> +A −D`, for example `feat/auth → main · 3 files +32 −4`. With no changes: `· No file changes yet`.
 3. **Close** (×) icon button.
-4. **Field:** label `Why is this change necessary?` with a ghost **Redraft** button on the same row.
-   - Textarea, 5 rows, placeholder `The problem this solves and why it matters now`.
-   - While drafting: a shimmering three-line placeholder overlays the textarea.
+4. **Field:** label `Description` with a ghost **Redraft** button on the same row.
+   - Tall textarea (up to 560px, shrinking to fit short windows), placeholder `Why this change is necessary, what changed, and how it was tested`. The dialog is up to 880px wide, since descriptions are usually long.
+   - While drafting: a padded, shimmering paragraph-shaped placeholder overlays the textarea.
    - Hint below (live region): `Drafting from the thread and diff…` then `Drafted from the thread and diff. Edit it before creating.`
-   - Error: `Add a reason so reviewers know what this fixes.`
+   - Error: `Add a description so reviewers know what this changes.`
 5. **Footer:** hint `⌘ ↵ to create`, ghost **Cancel**, primary **Create PR**.
 
-There's only one field. Title, body and reviewers aren't asked for.
+There are no other options: the description is sent as the PR body verbatim, and the PR isn't opened as a draft.
 
 ## Behaviour
 
@@ -46,6 +46,8 @@ There's only one field. Title, body and reviewers aren't asked for.
 4. Closing the dialog cancels a pending draft.
 
 ### Draft content
+- The model gets the **PR prompt** (Settings → GitHub; blank means the built-in default, which asks for the why, a `## What changed` list and a `## How it was tested` section), followed by the workspace, goal, thread excerpt and changed files.
+- If the model call fails, a short canned reason is used instead:
 - The three sample workspaces have written reasons. For example, Auth session timeout: `Sessions never expire while the cookie is valid, so a forgotten or stolen session stays usable indefinitely. This adds a 30-minute sliding idle timeout and a 12-hour absolute cap: stale sessions are rejected in getSession() and the user is sent back to /login.`
 - Other workspaces: `This change is needed to <goal, first letter lowercased>. <first sentence of the summary>.`
 

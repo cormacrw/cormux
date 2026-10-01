@@ -26,6 +26,8 @@ Requirements: macOS, Node 22+, pnpm 8+, and rustup (the toolchain in `rust-toolc
 pnpm install
 pnpm tauri dev     # run the app with hot reload
 pnpm tauri build   # build Cormux.app and a .dmg
+pnpm build:dmg     # build just the .dmg, for this Mac's architecture
+pnpm clean         # delete build output, including src-tauri/target (next build starts from scratch)
 pnpm lint          # ESLint + Prettier
 pnpm check         # svelte-check + tsc
 pnpm test          # Vitest (pure TS helpers)

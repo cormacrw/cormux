@@ -10,9 +10,10 @@
     workspaceCardBadgeKind,
     workspaceCardMetaText,
   } from '$lib/homebase/card-status'
-  import { app, homebaseUi, settings, threads } from '$lib/state'
+  import { app, homebaseUi, settings, threads, workspaces } from '$lib/state'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { onMount } from 'svelte'
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
 
   let {
     workspace,
@@ -29,6 +30,7 @@
   } = $props()
 
   const workspaceThreads = $derived(threads.forWorkspace(workspace.id))
+  const deleting = $derived(workspaces.isDeleting(workspace))
   const badgeKind = $derived(
     workspaceCardBadgeKind(workspace, workspaceThreads),
   )
@@ -57,6 +59,7 @@
   })
 
   function openWorkspace() {
+    if (deleting) return
     app.openWorkspace(workspace.id)
   }
 </script>
@@ -64,7 +67,10 @@
 <button
   type="button"
   aria-labelledby="ws-title-{workspace.id}"
-  class="group/ws block min-w-0 w-full cursor-pointer border-0 bg-transparent p-0 text-left font-[inherit] text-inherit {entering &&
+  aria-disabled={deleting}
+  class="group/ws block min-w-0 w-full {deleting
+    ? 'cursor-default'
+    : 'cursor-pointer'} border-0 bg-transparent p-0 text-left font-[inherit] text-inherit {entering &&
   !settings.reduceMotion
     ? 'animate-in fade-in duration-300'
     : ''} {exiting && !settings.reduceMotion
@@ -79,9 +85,11 @@
   }}
 >
   <Card.Root
-    class="transition-[box-shadow,ring-color] hover:ring-foreground/20 {exiting
+    class="transition-[box-shadow,ring-color,opacity] {exiting
       ? 'pointer-events-none opacity-0'
-      : ''}"
+      : deleting
+        ? 'opacity-60'
+        : 'hover:ring-foreground/20'}"
   >
     <Card.Header class="gap-3">
       <div class="flex items-start justify-between gap-3">
@@ -91,24 +99,37 @@
         >
           {workspace.name}
         </Card.Title>
-        <Badge
-          variant="outline"
-          class={badgeKind === 'needsAttention'
-            ? 'shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
-            : badgeKind === 'working'
-              ? 'shrink-0 border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-              : 'shrink-0 text-muted-foreground'}
-        >
-          {#if badgeKind === 'working'}
-            <span
-              class="size-1.5 rounded-full bg-emerald-500 {settings.reduceMotion
-                ? ''
-                : 'animate-pulse'}"
+        {#if deleting}
+          <Badge
+            variant="outline"
+            class="shrink-0 border-destructive/30 bg-destructive/5 text-destructive"
+          >
+            <LoaderCircle
+              class="size-3 {settings.reduceMotion ? '' : 'animate-spin'}"
               aria-hidden="true"
-            ></span>
-          {/if}
-          {badgeText}
-        </Badge>
+            />
+            Deleting…
+          </Badge>
+        {:else}
+          <Badge
+            variant="outline"
+            class={badgeKind === 'needsAttention'
+              ? 'shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+              : badgeKind === 'working'
+                ? 'shrink-0 border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                : 'shrink-0 text-muted-foreground'}
+          >
+            {#if badgeKind === 'working'}
+              <span
+                class="size-1.5 rounded-full bg-emerald-500 {settings.reduceMotion
+                  ? ''
+                  : 'animate-pulse'}"
+                aria-hidden="true"
+              ></span>
+            {/if}
+            {badgeText}
+          </Badge>
+        {/if}
       </div>
       <p class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
         {#each detailParts as part, index (part.kind + index)}

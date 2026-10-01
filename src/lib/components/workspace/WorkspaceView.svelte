@@ -20,7 +20,6 @@
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
   import ChangesPanel from './changes/ChangesPanel.svelte'
-  import StackPanel from './StackPanel.svelte'
 
   const workspace = $derived(
     app.workspaceId ? workspaces.getById(app.workspaceId) : undefined,
@@ -65,7 +64,6 @@
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
   const threadTabActive = $derived(workspaceUi.activeTab === 'thread')
   const changesTabActive = $derived(workspaceUi.activeTab === 'changes')
-  const stackTabActive = $derived(workspaceUi.activeTab === 'stack')
 
   const threadPanelLabelId = $derived(
     activeThread ? `thread-tab-${activeThread.id}` : undefined,
@@ -81,12 +79,11 @@
 
   const workspaceBranch = $derived(workspace?.branch)
 
-  // The Stack tab's count needs the stack before the tab opens; opening it again
-  // picks up commits made since the last look.
+  // Opening Changes again picks up commits made since the last look.
   $effect(() => {
     if (!workspaceId || isLoadSpike) return
     void workspaceBranch
-    void stackTabActive
+    void changesTabActive
     untrack(() => void stacks.load(workspaceId))
   })
 
@@ -195,9 +192,12 @@
             panelLabelId={threadPanelLabelId}
           />
         {:else if changesTabActive}
-          <ChangesPanel {workspace} thread={activeThread} />
-        {:else if stackTabActive}
-          <StackPanel {workspace} repoId={workspaceRepoId} {provisioning} />
+          <ChangesPanel
+            {workspace}
+            thread={activeThread}
+            repoId={workspaceRepoId}
+            {provisioning}
+          />
         {:else if findingsTabActive}
           <WorkspaceFindingsPanel
             workspaceId={workspace.id}

@@ -75,6 +75,19 @@ pub async fn resolve_record(
     })
 }
 
+fn ensure_not_default_branch(state: &AppState, repo_id: &str, branch: &str) -> Result<()> {
+    match state
+        .store
+        .snapshot()?
+        .repos
+        .iter()
+        .find(|repo| repo.id == repo_id)
+    {
+        Some(repo) => repo.ensure_not_default_branch(branch),
+        None => Ok(()),
+    }
+}
+
 pub fn git_runtime_snapshot(
     state: &AppState,
     workspace_ids: &[String],
@@ -124,7 +137,7 @@ pub async fn switch_workspace_branch(
     }
 
     state.workspace.can_switch_branch(workspace_id).await?;
-    state.workspace.can_switch_branch(workspace_id).await?;
+    ensure_not_default_branch(state, &row.repo_id, branch)?;
 
     let worktree = PathBuf::from(&record.worktree_path);
     state.git.switch(&worktree, branch).await?;
@@ -378,6 +391,7 @@ pub async fn create_workspace_branch(
     let record = resolve_record(state, workspace_id, &row).await?;
     state.workspace.remember(record.clone()).await;
     state.workspace.can_switch_branch(workspace_id).await?;
+    ensure_not_default_branch(state, &row.repo_id, name)?;
     let worktree = PathBuf::from(&record.worktree_path);
     state.git.switch_new_branch(&worktree, name, "HEAD").await?;
     state

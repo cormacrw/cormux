@@ -5,7 +5,7 @@
   import { Button } from '$lib/components/ui/button/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
-  import { Kbd, KbdGroup } from '$lib/components/ui/kbd/index.js'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { Error as CoreError } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
@@ -31,9 +31,6 @@
 
   let why = $state('')
   let title = $state('')
-  let draftPr = $state(false)
-  let includeWhat = $state(true)
-  let includeTested = $state(false)
   let drafting = $state(false)
   let creating = $state(false)
   let whyError = $state(false)
@@ -80,6 +77,7 @@
   )
 
   const MIN_DRAFT_MS = 1200
+  const SKELETON_WIDTHS = ['100%', '94%', '62%', '36%', '82%', '74%', '48%']
 
   function coreErrorMessage(error: CoreError): string {
     if (
@@ -115,7 +113,7 @@
     if (draftResult.status === 'error') {
       drafting = false
       submitError = coreErrorMessage(draftResult.error)
-      hint = 'Edit the reason before creating.'
+      hint = 'Edit the description before creating.'
       return
     }
 
@@ -133,9 +131,6 @@
     if (!ws || ws.prNumber != null || ws.kind === 'review') return
     shellDialogs.openCreatePr(id)
     title = ws.name
-    draftPr = false
-    includeWhat = true
-    includeTested = false
     creating = false
     submitError = null
     whyError = false
@@ -166,11 +161,8 @@
     submitError = null
     const result = await commands.createWorkspacePullRequest({
       workspaceId,
-      why: trimmed,
+      body: trimmed,
       title: title.trim() || null,
-      draft: draftPr,
-      includeWhatChanged: includeWhat,
-      includeHowTested: includeTested,
     })
     creating = false
     if (result.status === 'error') {
@@ -202,7 +194,7 @@
   <Dialog.Content
     id="pr-dialog"
     data-od-id="pr-dialog"
-    class="max-w-[560px] sm:max-w-[560px] gap-0 p-0"
+    class="max-w-[min(880px,calc(100vw-4rem))] sm:max-w-[min(880px,calc(100vw-4rem))] gap-0 p-0"
   >
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <form
@@ -240,7 +232,7 @@
         <div class="grid gap-1.5" data-od-id="pr-why-field">
           <div class="flex items-center justify-between gap-2">
             <label class="text-sm font-medium" for="pr-why">
-              Why is this change necessary?
+              Description
             </label>
             <Button
               type="button"
@@ -257,8 +249,8 @@
             <Textarea
               bind:ref={whyField}
               id="pr-why"
-              rows={5}
-              placeholder="The problem this solves and why it matters now"
+              class="h-[min(560px,calc(100vh-22rem))] min-h-40 resize-none field-sizing-fixed px-4 py-3 leading-relaxed"
+              placeholder="Why this change is necessary, what changed, and how it was tested"
               bind:value={why}
               readonly={drafting}
               aria-busy={drafting}
@@ -269,14 +261,14 @@
             />
             {#if drafting}
               <div
-                class="pointer-events-none absolute inset-px grid content-start gap-2.5 rounded-lg bg-background p-4"
+                class="pointer-events-none absolute inset-px grid content-start gap-3 rounded-lg bg-background px-5 py-4"
                 aria-hidden="true"
               >
-                {#each [1, 2, 3] as line (line)}
+                {#each SKELETON_WIDTHS as width, index (index)}
                   <span
-                    class="h-2 rounded bg-linear-to-r from-muted via-muted-foreground/20 to-muted bg-size-[200%_100%] animate-[shimmer_1.4s_linear_infinite]"
-                    class:w-[88%]={line === 2}
-                    class:w-[56%]={line === 3}
+                    class="h-2.5 rounded bg-linear-to-r from-muted via-muted-foreground/20 to-muted bg-size-[200%_100%] animate-[shimmer_1.4s_linear_infinite]"
+                    class:mt-3={index === 3}
+                    style:width
                   ></span>
                 {/each}
               </div>
@@ -295,32 +287,9 @@
               id="pr-why-error"
               class="text-sm text-destructive flex items-center gap-1.5"
             >
-              Add a reason so reviewers know what this fixes.
+              Add a description so reviewers know what this changes.
             </p>
           {/if}
-        </div>
-
-        <div class="flex flex-col gap-2 text-sm">
-          <label class="flex items-center gap-2">
-            <input
-              type="checkbox"
-              bind:checked={includeWhat}
-              disabled={creating}
-            />
-            Include what changed in the PR body
-          </label>
-          <label class="flex items-center gap-2">
-            <input
-              type="checkbox"
-              bind:checked={includeTested}
-              disabled={creating}
-            />
-            Include how it was tested
-          </label>
-          <label class="flex items-center gap-2">
-            <input type="checkbox" bind:checked={draftPr} disabled={creating} />
-            Open as draft PR
-          </label>
         </div>
 
         {#if submitError}
@@ -328,15 +297,7 @@
         {/if}
       </div>
 
-      <Dialog.Footer
-        class="m-0 px-5 py-4 flex-row items-center justify-between"
-      >
-        <p
-          class="text-xs text-muted-foreground hidden sm:flex items-center gap-1"
-        >
-          <KbdGroup><Kbd>⌘</Kbd><Kbd>↵</Kbd></KbdGroup>
-          to create
-        </p>
+      <Dialog.Footer class="m-0 px-5 py-4 flex-row items-center justify-end">
         <div class="flex gap-2 ml-auto">
           <Button
             size="xl"
@@ -346,6 +307,7 @@
             onclick={closeDialog}
           >
             Cancel
+            <DialogShortcut keys="cancel" />
           </Button>
           <Button
             size="xl"
@@ -358,6 +320,7 @@
               Creating PR…
             {:else}
               Create PR
+              <DialogShortcut keys="submit" />
             {/if}
           </Button>
         </div>

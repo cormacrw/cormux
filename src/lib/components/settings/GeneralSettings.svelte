@@ -14,9 +14,8 @@
   import { repos, settings, workspaceRecords } from '$lib/state'
   import { Alert, AlertDescription } from '$lib/components/ui/alert'
 
-  let branches = $state<string[]>([])
-  let loadingBranches = $state(false)
   let reloadingEnv = $state(false)
+  // Follows the saved setting, and holds edits until they're committed.
   let worktreeDraft = $derived(settings.worktreeRoot)
 
   const defaultRepoId = $derived(
@@ -27,23 +26,6 @@
   )
 
   const hasWorkspaces = $derived(workspaceRecords.records.length > 0)
-
-  $effect(() => {
-    void loadBranches(defaultRepoId)
-  })
-
-  async function loadBranches(repoId: string) {
-    if (!repoId) {
-      branches = []
-      return
-    }
-    loadingBranches = true
-    const result = await commands.listRepoBranches(repoId)
-    loadingBranches = false
-    if (result.status === 'ok') {
-      branches = result.data.branches
-    }
-  }
 
   async function reloadEnvironment() {
     reloadingEnv = true
@@ -86,41 +68,6 @@
             {#each repos.items as repo (repo.id)}
               <Select.Item value={repo.id} label={repo.name}
                 >{repo.name}</Select.Item
-              >
-            {/each}
-          </Select.Content>
-        </Select.Root>
-      {/if}
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    title="Default base branch"
-    description="New workspaces branch from here unless you pick another"
-    controlId="settings-default-base"
-  >
-    {#snippet control()}
-      {#if loadingBranches}
-        <LoaderCircleIcon class="size-4 animate-spin text-muted-foreground" />
-      {:else if !defaultRepoId}
-        <span class="text-xs text-muted-foreground">Add a repo first</span>
-      {:else}
-        <Select.Root
-          type="single"
-          value={settings.defaultBase}
-          onValueChange={(value) => {
-            if (value) void settings.setDefaultBase(value)
-          }}
-        >
-          <Select.Trigger id="settings-default-base" class="w-[180px]">
-            <Select.Value placeholder="Branch" />
-          </Select.Trigger>
-          <Select.Content>
-            {#each branches as branch (branch)}
-              <Select.Item value={branch}>{branch}</Select.Item>
-            {:else}
-              <Select.Item value={settings.defaultBase}
-                >{settings.defaultBase}</Select.Item
               >
             {/each}
           </Select.Content>

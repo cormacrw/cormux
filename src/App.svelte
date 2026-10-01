@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { isDevBuild } from '$lib/build-mode'
   import { ModeWatcher } from 'mode-watcher'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
@@ -99,6 +100,14 @@
 </script>
 
 <ModeWatcher />
+
+{#if isDevBuild}
+  <!-- Dev builds get a stripe across the top so they can't pass for the installed app. -->
+  <div
+    class="pointer-events-none fixed inset-x-0 top-0 z-[100] h-[3px] bg-warning"
+    aria-hidden="true"
+  ></div>
+{/if}
 
 <Tooltip.Provider>
   <ToastsRegion />

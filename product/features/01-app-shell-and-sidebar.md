@@ -22,19 +22,24 @@ From top to bottom:
 2. **Search button.** A full-width field-like button reading **Search** with a `⌘K` key hint. Opens the command palette (see [02](02-command-palette-and-shortcuts.md)).
 3. **Homebase** nav item, with a layers icon. Marked `aria-current="page"` while Homebase is showing.
 4. **New workspace** nav item, with a plus icon and a `⌘N` key hint. Opens the New workspace dialog (see [06](06-new-workspace.md)).
-5. **Workspaces** section.
+5. **Repos** section.
+   - Section label **Repos** with a count of added repos on the right.
+   - One row per repo, in Settings order: a folder icon, the repo name on line 1 and its default branch (monospace) on line 2.
+   - A refresh icon button at the right edge (`Pull <branch> for <repo>`) fast-forwards the default branch in the repo's own checkout from origin: `git pull --ff-only` when that branch is checked out there, otherwise `git fetch origin <branch>:<branch>` so the checkout's files aren't touched. The icon spins while it runs; a toast reports the commits pulled or that the branch is up to date, and workspaces' behind counts refresh. Failures (for example a non-fast-forward) toast the git error.
+   - Empty state: **No repos yet**.
+6. **Workspaces** section.
    - Section label **Workspaces** with a count of all workspaces on the right.
    - One row per workspace, newest first (new workspaces are inserted at the top).
    - Each row: a status dot, the workspace name on line 1, and on line 2 the status word plus agent count, for example `Running · 3 agents`. If any thread in the workspace has approvals waiting, an amber numeric badge sits at the right edge.
    - The row for the open workspace is marked `aria-current="page"` and shown with a stronger background (no coloured side stripe).
    - Empty state: **No workspaces yet**.
-6. **Agents** section.
+7. **Agents** section.
    - Section label **Agents** with `N working` on the right, where N counts threads that are running or provisioning and not paused, across all workspaces.
    - One row per thread across every workspace, in workspace order then thread order.
    - Each row: the engine's two-letter mark (`CC`, `CU`, `CX`, `GM`), line 1 `Lead in Auth session timeout` (role, then "in" and the workspace name in a subtler colour), line 2 the thread's current activity, or `Paused`.
    - Right edge: an amber approval badge if the thread has pending approvals, otherwise the thread's status dot.
    - Empty state: **No agents running**.
-7. **Footer.**
+8. **Footer.**
    - **Memory meter**: a CPU icon, a horizontal bar and a value like `1.4 GB`. Grouped as "Memory usage" for screen readers.
    - **Settings** icon button (sliders icon). Shows as selected (`aria-current="page"`) while the Settings page is open.
 

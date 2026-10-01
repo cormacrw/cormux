@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import * as Dialog from '$lib/components/ui/dialog'
   import { Input } from '$lib/components/ui/input'
   import { commands } from '$lib/ipc'
@@ -61,20 +62,32 @@
         Shown in the sidebar and on Homebase.
       </Dialog.Description>
     </Dialog.Header>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <form
       class="grid gap-5"
       onsubmit={(event) => {
         event.preventDefault()
         void save()
       }}
+      onkeydown={(event) => {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault()
+          void save()
+        }
+      }}
     >
       <Input bind:value={name} aria-label="Workspace name" autofocus />
       <Dialog.Footer>
         <Button size="xl" type="button" variant="ghost" onclick={close}
-          >Cancel</Button
+          >Cancel <DialogShortcut keys="cancel" /></Button
         >
         <Button size="xl" type="submit" disabled={saving || !name.trim()}>
-          {saving ? 'Saving…' : 'Save'}
+          {#if saving}
+            Saving…
+          {:else}
+            Save
+            <DialogShortcut keys="submit" />
+          {/if}
         </Button>
       </Dialog.Footer>
     </form>

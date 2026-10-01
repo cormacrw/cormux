@@ -6,8 +6,9 @@ import {
   commitsLabel,
   pullRequestForBranch,
   stackCardsTopFirst,
+  diffTargetLabel,
+  isDiffTargetOf,
   stackSubtitle,
-  stackTabAriaLabel,
 } from './stack'
 
 function branch(name: string, extra: Partial<StackBranch> = {}): StackBranch {
@@ -33,6 +34,7 @@ function stack(extra: Partial<WorkspaceStack> = {}): WorkspaceStack {
     status: 'stacked',
     message: null,
     trunk: 'main',
+    currentNeedsRebase: false,
     currentBranch: 'b',
     branches: [branch('a', { merged: true }), branch('b', { current: true })],
     ...extra,
@@ -60,11 +62,7 @@ describe('stack helpers', () => {
     expect(canAddToStack(undefined)).toBe(false)
   })
 
-  it('labels the tab and subtitle', () => {
-    expect(stackTabAriaLabel(stack())).toBe('Stack, 2 branches')
-    expect(
-      stackTabAriaLabel(stack({ status: 'notStacked', branches: [] })),
-    ).toBe('Stack, not stacked')
+  it('labels the subtitle', () => {
     expect(stackSubtitle(stack())).toBe('1 open branch stacked on main')
     expect(
       stackSubtitle(
@@ -72,6 +70,18 @@ describe('stack helpers', () => {
       ),
     ).toBe('Add a branch to start a stack on main.')
     expect(commitsLabel(0)).toBe('No commits yet')
+  })
+
+  it('picks out the level the diff is showing', () => {
+    const target = { head: 'b', base: 'a' }
+    expect(isDiffTargetOf(target, 'b', 'a', 'a')).toBe(true)
+    expect(isDiffTargetOf(target, 'b', 'main', 'a')).toBe(false)
+    expect(isDiffTargetOf(null, 'b', 'a', 'b')).toBe(false)
+    // Review workspaces diff HEAD, the checked-out branch.
+    const review = { head: 'HEAD', base: 'main' }
+    expect(isDiffTargetOf(review, 'pr-7', 'main', 'pr-7')).toBe(true)
+    expect(diffTargetLabel(target)).toBe('b vs a')
+    expect(diffTargetLabel(null)).toBe('Uncommitted changes')
   })
 
   it('matches synced pull requests by repo and head branch', () => {

@@ -10,18 +10,21 @@ use tokio::time::timeout;
 
 use super::protocol::{
     Event, PermissionDecision, StdinMessage, decode_event, encode_line, initialize_request,
-    interrupt_request, permission_response, user_message,
+    interrupt_request, permission_response, set_model_request, user_message,
 };
 use crate::engines::claude_argv;
 use crate::error::{Error, Result};
 
-const READ_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long the CLI gets to answer the initialize handshake. Once a session is up there is
+/// no read timeout: Claude is silent between turns and while a long tool runs.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
 pub struct SpawnOptions {
     pub binary: PathBuf,
     pub cwd: Option<PathBuf>,
     pub resume: Option<String>,
+    pub model: Option<String>,
     pub extra_args: Vec<String>,
     /// When false, only `extra_args` are passed (used by the mock CLI fixture).
     pub use_default_args: bool,
@@ -34,6 +37,7 @@ impl Default for SpawnOptions {
             binary: PathBuf::from("claude"),
             cwd: None,
             resume: None,
+            model: None,
             extra_args: Vec::new(),
             use_default_args: true,
             env: None,
@@ -46,6 +50,9 @@ pub struct ClaudeSession {
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
+    /// The line being read. It lives here, not in `next_event`, so a read cancelled by
+    /// `select!` keeps what it had and the next call finishes the same line.
+    pending: Vec<u8>,
     session_id: Option<String>,
     next_request_id: u64,
 }
@@ -53,7 +60,7 @@ pub struct ClaudeSession {
 impl ClaudeSession {
     pub async fn spawn(options: SpawnOptions) -> Result<Self> {
         let mut args = if options.use_default_args {
-            claude_argv(options.resume.as_deref())
+            claude_argv(options.resume.as_deref(), options.model.as_deref())
         } else {
             Vec::new()
         };
@@ -116,12 +123,15 @@ impl ClaudeSession {
             child,
             stdin,
             stdout: BufReader::new(stdout),
+            pending: Vec::new(),
             session_id: None,
             next_request_id: 1,
         };
 
         if options.use_default_args {
-            session.handshake_initialize().await?;
+            timeout(HANDSHAKE_TIMEOUT, session.handshake_initialize())
+                .await
+                .map_err(|_| Error::Engine("timed out waiting for Claude to start".into()))??;
         }
 
         Ok(session)
@@ -174,17 +184,27 @@ impl ClaudeSession {
         Ok(request_id)
     }
 
+    pub async fn set_model(&mut self, model: Option<String>) -> Result<String> {
+        let request_id = self.alloc_request_id("model");
+        self.write_message(&set_model_request(&request_id, model))
+            .await?;
+        Ok(request_id)
+    }
+
+    /// Cancel safe: `read_until` keeps partial reads in `pending`, so the pump can race this
+    /// against commands in `select!` without dropping half a line.
     pub async fn next_event(&mut self) -> Result<Option<Event>> {
-        let mut line = String::new();
         loop {
-            line.clear();
-            let read = timeout(READ_TIMEOUT, self.stdout.read_line(&mut line))
+            let read = self
+                .stdout
+                .read_until(b'\n', &mut self.pending)
                 .await
-                .map_err(|_| Error::Engine("timed out waiting for Claude stdout".into()))?
                 .map_err(|error| Error::Engine(error.to_string()))?;
-            if read == 0 {
+            if read == 0 && self.pending.is_empty() {
                 return Ok(None);
             }
+            let bytes = std::mem::take(&mut self.pending);
+            let line = String::from_utf8_lossy(&bytes);
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
@@ -488,7 +508,7 @@ mod tests {
         assert!(saw_error_result);
 
         // Resume is a new process with --resume <id>; prove the argv and a second init.
-        let resume_args = crate::engines::claude_argv(host.session_id());
+        let resume_args = crate::engines::claude_argv(host.session_id(), None);
         assert!(resume_args.windows(2).any(|w| w == ["--resume", "sess-1"]));
 
         let (host2_out, _mock2_in) = duplex(4096);

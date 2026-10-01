@@ -8,6 +8,7 @@
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
+  import RepoDefaultBranchField from '$lib/components/settings/RepoDefaultBranchField.svelte'
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { showToast } from '$lib/feedback/show-toast'
@@ -42,8 +43,7 @@
     expandedIds = expandedIds.filter((id) => id !== repoId)
   }
 
-  // Pending save timers aren't rendered, so this needn't be reactive.
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- timer handles, never rendered
   const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   function debouncedSave(repoId: string, fn: () => void) {
@@ -311,6 +311,10 @@
           id="repo-cfg-{key}"
           data-od-id="settings-repo-{key}-config"
         >
+          <RepoDefaultBranchField
+            {repo}
+            hintId="repo-default-branch-hint-{key}"
+          />
           <div class="field space-y-1.5">
             <label class="text-sm font-medium" for="setup-{repo.id}">
               Worktree setup

@@ -56,11 +56,29 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
     return
   }
 
+  if (mod && key === ',' && !event.shiftKey && !event.altKey) {
+    event.preventDefault()
+    if (!dialogBlocksShortcuts()) app.openSettings()
+    return
+  }
+
   // ⌘1–⌘9 open workspaces in sidebar order.
   if (mod && !event.shiftKey && !event.altKey && /^[1-9]$/.test(event.key)) {
     event.preventDefault()
     const workspace = workspaces.sidebarItems[Number(event.key) - 1]
     if (workspace && !dialogBlocksShortcuts()) app.openWorkspace(workspace.id)
+    return
+  }
+
+  if (
+    mod &&
+    key === 'g' &&
+    !event.shiftKey &&
+    !event.altKey &&
+    app.view === 'workspace'
+  ) {
+    event.preventDefault()
+    if (!dialogBlocksShortcuts()) workspaceUi.openTab('changes')
     return
   }
 

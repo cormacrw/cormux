@@ -100,12 +100,21 @@ impl Store {
         })
     }
 
+    /// Removes a repo with its torn-down workspaces and cached PRs, which reference it.
+    /// Callers refuse while the repo still has active workspaces.
     pub fn delete_repo(&self, repo_id: &str) -> Result<()> {
         self.with_conn(|conn| {
-            conn.execute(
-                "DELETE FROM repos WHERE id = ?1",
-                rusqlite::params![repo_id],
+            let tx = conn.unchecked_transaction()?;
+            // Threads only name their owner, so they go first; their events and approvals cascade.
+            tx.execute(
+                "DELETE FROM threads WHERE workspace_id IN
+                     (SELECT id FROM workspaces WHERE repo_id = ?1)",
+                [repo_id],
             )?;
+            tx.execute("DELETE FROM workspaces WHERE repo_id = ?1", [repo_id])?;
+            tx.execute("DELETE FROM pr_cache WHERE repo_id = ?1", [repo_id])?;
+            tx.execute("DELETE FROM repos WHERE id = ?1", [repo_id])?;
+            tx.commit()?;
             Ok(())
         })
     }
@@ -314,6 +323,29 @@ impl Store {
             } else {
                 Ok(None)
             }
+        })
+    }
+
+    /// The model the user picked for the thread; `None` means the engine's default.
+    pub fn thread_model(&self, thread_id: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare("SELECT model FROM threads WHERE id = ?1")?;
+            let mut rows = stmt.query([thread_id])?;
+            if let Some(row) = rows.next()? {
+                Ok(row.get(0)?)
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    pub fn set_thread_model(&self, thread_id: &str, model: Option<&str>) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET model = ?1 WHERE id = ?2",
+                rusqlite::params![model, thread_id],
+            )?;
+            Ok(())
         })
     }
 
@@ -1022,6 +1054,84 @@ mod tests {
     }
 
     #[test]
+    fn deleting_a_repo_clears_its_archived_workspaces_and_prs() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        for id in ["r1", "r2"] {
+            store
+                .upsert_repo(&RepoRecord {
+                    id: id.into(),
+                    path: format!("/tmp/{id}"),
+                    name: id.into(),
+                    default_branch: Some("main".into()),
+                    setup_commands: String::new(),
+                    run_command: None,
+                })
+                .unwrap();
+        }
+        store
+            .upsert_workspace(&WorkspaceRow {
+                id: "w1".into(),
+                repo_id: "r1".into(),
+                name: "Old".into(),
+                branch: "feat".into(),
+                worktree_path: "/tmp/wt".into(),
+                status: "ready".into(),
+                created_at: String::new(),
+                summary: None,
+                summary_at: None,
+                summary_source: String::new(),
+                kind: None,
+                pr_number: None,
+                pr_html_url: None,
+                modified_files: 0,
+                archived_at: None,
+            })
+            .unwrap();
+        store
+            .upsert_thread(&ThreadRow {
+                id: "t1".into(),
+                workspace_id: "w1".into(),
+                title: "Lead".into(),
+                engine: "claude".into(),
+                session_id: None,
+                status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+            })
+            .unwrap();
+        store.append_event("t1", "message", "{}").unwrap();
+        store.archive_workspace("w1").unwrap();
+        for (id, repo) in [("p1", "r1"), ("p2", "r2")] {
+            store
+                .upsert_pr(&PrRow {
+                    id: id.into(),
+                    repo_id: Some(repo.into()),
+                    number: 1,
+                    title: "PR".into(),
+                    payload: "{}".into(),
+                })
+                .unwrap();
+        }
+
+        store.delete_repo("r1").unwrap();
+
+        let snapshot = store.snapshot().unwrap();
+        let repos: Vec<_> = snapshot.repos.iter().map(|repo| repo.id.as_str()).collect();
+        assert_eq!(repos, ["r2"]);
+        assert!(store.workspace_by_id("w1").unwrap().is_none());
+        assert!(store.thread_by_id("t1").unwrap().is_none());
+        let prs: Vec<_> = snapshot
+            .pull_requests
+            .iter()
+            .map(|pr| pr.id.as_str())
+            .collect();
+        assert_eq!(prs, ["p2"]);
+    }
+
+    #[test]
     fn last_agent_reply_joins_chunks_since_the_last_user_message() {
         let store = Store::new();
         store.open_in_memory().unwrap();
@@ -1168,6 +1278,14 @@ mod tests {
             .unwrap();
         store.clear_thread_session("lead").unwrap();
         assert_eq!(store.thread_session("lead").unwrap(), None);
+
+        assert_eq!(store.thread_model("lead").unwrap(), None);
+        store.set_thread_model("lead", Some("opus")).unwrap();
+        let lead = store.thread_by_id("lead").unwrap().unwrap();
+        store.upsert_thread(&lead).unwrap();
+        assert_eq!(store.thread_model("lead").unwrap().as_deref(), Some("opus"));
+        store.set_thread_model("lead", None).unwrap();
+        assert_eq!(store.thread_model("lead").unwrap(), None);
         let lead = store.thread_by_id("lead").unwrap().unwrap();
         assert_eq!((lead.used_tokens, lead.context_size), (None, None));
         assert_eq!(store.snapshot().unwrap().timeline.len(), 1);

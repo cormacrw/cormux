@@ -234,7 +234,7 @@ Summaries refresh on significant events (edit batches, approvals, turn end), deb
 
 SQLite (`rusqlite`, bundled) in the app data directory. Settings, repos and repo config, workspaces, threads, the full timeline of each thread as an append-only event log, approvals, findings, and a PR cache. Keeping transcripts here means a workspace's history can outlive its worktree, which answers the "transcripts are lost on teardown" gap in [08](features/08-teardown.md) if the product wants an archive.
 
-Repo config can also be read from a committed file (for example `.harness/config.json`) so a team shares setup and run commands, with Settings as a local override.
+Repo config can also be read from a committed file (`.cormux/config.json`) so a team shares setup and run commands, with Settings as a local override.
 
 ### Metrics (`metrics`)
 

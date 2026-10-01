@@ -14,7 +14,7 @@ use tokio::sync::{Mutex as AsyncMutex, RwLock};
 use crate::error::{Error, Result};
 use crate::shell_env::ShellEnv;
 
-pub use diff::{LiveDiffEngine, WorktreeDiff};
+pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
 pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
 
 /// System `git` wrapper. Credential helpers, hooks and LFS apply because this
@@ -262,6 +262,44 @@ impl Git {
         Self::require_success(&output, "fetch")
     }
 
+    /// Fast-forward the repo checkout's local `branch` to origin's and return how many
+    /// commits it moved. A checked-out `branch` is pulled in place; otherwise only the
+    /// ref moves, so the checkout's working tree is left alone.
+    pub async fn pull_branch(&self, repo: &Path, branch: &str) -> Result<u32> {
+        let local = format!("refs/heads/{branch}");
+        let before = self.resolve_ref(repo, &local).await?;
+        if self.current_branch(repo).await.ok().as_deref() == Some(branch) {
+            let output = self
+                .run(repo, &["pull", "--ff-only", "origin", branch])
+                .await?;
+            Self::require_success(&output, "pull --ff-only")?;
+        } else {
+            let refspec = format!("{local}:{local}");
+            let output = self.run(repo, &["fetch", "origin", &refspec]).await?;
+            Self::require_success(&output, "fetch")?;
+        }
+        let (Some(before), Some(after)) = (before, self.resolve_ref(repo, &local).await?) else {
+            return Ok(0);
+        };
+        let range = format!("{before}..{after}");
+        let output = self.run(repo, &["rev-list", "--count", &range]).await?;
+        Self::require_success(&output, "rev-list --count")?;
+        Self::stdout(&output)
+            .trim()
+            .parse()
+            .map_err(|error| Error::Git(format!("pulled count: {error}")))
+    }
+
+    async fn resolve_ref(&self, repo: &Path, reference: &str) -> Result<Option<String>> {
+        let output = self
+            .run(repo, &["rev-parse", "--verify", "--quiet", reference])
+            .await?;
+        Ok(output
+            .status
+            .success()
+            .then(|| Self::stdout(&output).trim().to_string()))
+    }
+
     pub async fn merge_base(&self, worktree: &Path, base: &str) -> Result<String> {
         let other = format!("origin/{base}");
         let output = self.run(worktree, &["merge-base", "HEAD", &other]).await?;
@@ -281,14 +319,13 @@ impl Git {
         Ok(files)
     }
 
-    pub async fn numstat_against_base(
+    /// Files changed by `range`, e.g. `main...feature`.
+    pub async fn numstat_range(
         &self,
         worktree: &Path,
-        base: &str,
+        range: &str,
     ) -> Result<Vec<(String, u32, u32)>> {
-        let merge_base = self.merge_base(worktree, base).await?;
-        let range = format!("{merge_base}..HEAD");
-        let output = self.run(worktree, &["diff", "--numstat", &range]).await?;
+        let output = self.run(worktree, &["diff", "--numstat", range]).await?;
         Self::diff_ok(&output, "diff --numstat")?;
         Ok(parse_numstat(&Self::stdout(&output)))
     }
@@ -371,16 +408,14 @@ impl Git {
         Ok(text)
     }
 
-    pub async fn diff_file_against_base(
+    pub async fn diff_file_range(
         &self,
         worktree: &Path,
-        base: &str,
+        range: &str,
         path: &str,
     ) -> Result<String> {
-        let merge_base = self.merge_base(worktree, base).await?;
-        let range = format!("{merge_base}..HEAD");
-        let output = self.run(worktree, &["diff", &range, "--", path]).await?;
-        Self::diff_ok(&output, "diff file against base")?;
+        let output = self.run(worktree, &["diff", range, "--", path]).await?;
+        Self::diff_ok(&output, "diff file in range")?;
         Ok(Self::stdout(&output))
     }
 
@@ -577,6 +612,33 @@ impl Git {
         Ok(output.status.success())
     }
 
+    /// Whether `descendant` already has every commit on `ancestor`.
+    pub async fn is_ancestor(&self, worktree: &Path, ancestor: &str, descendant: &str) -> bool {
+        self.run(
+            worktree,
+            &["merge-base", "--is-ancestor", ancestor, descendant],
+        )
+        .await
+        .is_ok_and(|output| output.status.success())
+    }
+
+    /// `origin/<branch>` when it has everything the local branch has (a stale local
+    /// trunk), else the local branch (a stack branch rebased but not pushed yet).
+    pub async fn freshest_ref(&self, worktree: &Path, branch: &str) -> String {
+        let remote = format!("origin/{branch}");
+        if !self.ref_exists(worktree, &remote).await.unwrap_or(false) {
+            return branch.to_string();
+        }
+        if !self.ref_exists(worktree, branch).await.unwrap_or(false) {
+            return remote;
+        }
+        if self.is_ancestor(worktree, branch, &remote).await {
+            remote
+        } else {
+            branch.to_string()
+        }
+    }
+
     /// Lines added and removed by `range` (e.g. `main...feature`).
     pub async fn shortstat(&self, worktree: &Path, range: &str) -> Result<ShortStat> {
         let output = self.run(worktree, &["diff", "--shortstat", range]).await?;
@@ -744,6 +806,31 @@ mod tests {
             git.current_branch(&clone).await.unwrap(),
             "feat/remote-only"
         );
+    }
+
+    #[tokio::test]
+    async fn pulls_the_default_branch_checked_out_or_not() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let clone_dir = tempfile::tempdir().unwrap();
+        let clone = clone_dir.path().join("clone");
+        run_ok(
+            clone_dir.path(),
+            &["git", "clone", "-q", &origin.to_string_lossy(), "clone"],
+        );
+
+        std::fs::write(origin.join("README.md"), "one\n").unwrap();
+        run_ok(&origin, &["git", "commit", "-qam", "one"]);
+        assert_eq!(git.pull_branch(&clone, "main").await.unwrap(), 1);
+        assert_eq!(git.pull_branch(&clone, "main").await.unwrap(), 0);
+
+        run_ok(&clone, &["git", "switch", "-qc", "feat/elsewhere"]);
+        std::fs::write(origin.join("README.md"), "two\n").unwrap();
+        run_ok(&origin, &["git", "commit", "-qam", "two"]);
+        std::fs::write(origin.join("README.md"), "three\n").unwrap();
+        run_ok(&origin, &["git", "commit", "-qam", "three"]);
+        assert_eq!(git.pull_branch(&clone, "main").await.unwrap(), 2);
+        assert_eq!(git.current_branch(&clone).await.unwrap(), "feat/elsewhere");
     }
 
     #[tokio::test]

@@ -1,11 +1,17 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { TeardownPreview } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { fetchSnapshot } from '$lib/ipc'
-  import { app, hydrateFromSnapshot, shellDialogs } from '$lib/state'
+  import {
+    app,
+    hydrateFromSnapshot,
+    shellDialogs,
+    workspaces,
+  } from '$lib/state'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
   import Trash2 from '@lucide/svelte/icons/trash-2'
 
@@ -45,23 +51,38 @@
     if (!next) shellDialogs.closeTeardown()
   }
 
-  // Close immediately and let the teardown run in the background; the core
-  // toasts on success and we toast here on failure.
+  // Close immediately and let the teardown run in the background: the sidebar
+  // drops the workspace and its Homebase card shows Deleting until the core
+  // finishes. The core toasts on success and we toast here on failure.
   function confirmTeardown() {
     if (!workspaceId) return
     const tornId = workspaceId
+    workspaces.markDeleting(tornId)
     shellDialogs.closeTeardown()
-    if (app.workspaceId === tornId) {
+    if (app.view !== 'homebase') {
       app.openHomebase()
     }
     void commands
       .teardownWorkspace({ workspaceId: tornId, deleteBranch })
       .then(async (result) => {
         if (result.status === 'error') {
+          workspaces.clearDeleting(tornId)
           toastCoreError(JSON.stringify(result.error))
         }
         hydrateFromSnapshot(await fetchSnapshot())
       })
+  }
+
+  function onKeydown(event: KeyboardEvent) {
+    if (
+      event.key === 'Enter' &&
+      (event.metaKey || event.ctrlKey) &&
+      preview &&
+      !loadingPreview
+    ) {
+      event.preventDefault()
+      confirmTeardown()
+    }
   }
 
   const description = $derived.by(() => {
@@ -72,7 +93,7 @@
 </script>
 
 <AlertDialog.Root {open} {onOpenChange}>
-  <AlertDialog.Content class="max-w-md sm:max-w-md">
+  <AlertDialog.Content class="max-w-md sm:max-w-md" onkeydown={onKeydown}>
     <AlertDialog.Header>
       <AlertDialog.Title>Teardown & delete worktree?</AlertDialog.Title>
       <AlertDialog.Description>
@@ -110,7 +131,9 @@
     {/if}
 
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+      <AlertDialog.Cancel
+        >Cancel <DialogShortcut keys="cancel" /></AlertDialog.Cancel
+      >
       <AlertDialog.Action
         bind:ref={confirmRef}
         variant="destructive"
@@ -122,6 +145,7 @@
       >
         <Trash2 class="size-4" aria-hidden="true" />
         Teardown
+        <DialogShortcut keys="submit" />
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>

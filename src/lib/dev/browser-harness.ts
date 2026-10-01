@@ -273,21 +273,27 @@ export function installBrowserHarness() {
   }
 
   let diffChannel: { id: number; index: number } | null = null
-  const sendDiff = (base: string | null) => {
+  const sendDiff = (target: { head: string; base: string } | null) => {
     if (!diffChannel) return
-    const diff = { ...fixtureDiff, base }
+    const diff = { ...fixtureDiff, target }
     callbacks.get(diffChannel.id)?.({
       index: diffChannel.index++,
       message: { workspaceId: fixtureDiff.workspaceId, path: '', diff },
     })
   }
 
-  // gh-stack stand-in: `?stack=none` starts unstacked, `?stack=unavailable` has no extension.
+  // gh-stack stand-in: `?stack=none` starts unstacked, `?stack=unavailable` has no extension,
+  // and `?stack=remote` fails to reach GitHub until a test sets `window.__stackRemoteUp`,
+  // then finds the stack there.
   const stackMode = new URLSearchParams(window.location.search).get('stack')
+  const fullStack = ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
   const stackBranches: string[] =
-    stackMode === 'none' || stackMode === 'unavailable'
+    stackMode === 'none' ||
+    stackMode === 'unavailable' ||
+    stackMode === 'remote' ||
+    stackMode === 'behind'
       ? []
-      : ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
+      : [...fullStack]
   const stackStats: Record<string, [number, number, number, number]> = {
     'feat/oauth-api': [212, 38, 4, 6],
     'feat/oauth-login': [96, 12, 2, 3],
@@ -311,10 +317,12 @@ export function installBrowserHarness() {
       ?.branch ?? 'main'
   const stackFor = (workspaceId: string) => {
     const current = currentBranch(workspaceId)
+    // `?stack=behind` puts main ahead of the unstacked branch.
     const base = {
       workspaceId,
       trunk: 'main',
       currentBranch: current,
+      currentNeedsRebase: stackMode === 'behind' || current === 'feat/oauth-ui',
       message: null,
       branches: [],
     }
@@ -325,6 +333,17 @@ export function installBrowserHarness() {
         message:
           "The gh-stack extension isn't installed. Run: gh extension install github/gh-stack",
       }
+    }
+    if (stackMode === 'remote' && !stackBranches.includes(current)) {
+      if (!(window as { __stackRemoteUp?: boolean }).__stackRemoteUp) {
+        return {
+          ...base,
+          status: 'notStacked',
+          message:
+            "Looking for this branch's stack on GitHub failed talking to GitHub. Check `gh auth status`, then retry.",
+        }
+      }
+      stackBranches.push(...fullStack)
     }
     if (!stackBranches.includes(current))
       return { ...base, status: 'notStacked' }
@@ -356,6 +375,8 @@ export function installBrowserHarness() {
     return { ...base, status: 'stacked', branches }
   }
 
+  const threadModels = new Map<string, string | null>()
+
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {
     if (cmd === 'get_snapshot') return fixtureSnapshot
     if (cmd === 'get_workspace_stack') return stackFor(String(args.workspaceId))
@@ -378,6 +399,9 @@ export function installBrowserHarness() {
       return null
     }
     if (cmd === 'sync_stack') return null
+    if (cmd === 'default_pr_prompt') {
+      return 'Write the description for this pull request.'
+    }
     if (cmd === 'draft_pr_why') {
       return {
         workspaceId: args.workspaceId,
@@ -407,6 +431,41 @@ export function installBrowserHarness() {
       return null
     }
     if (cmd === 'detect_engines') return fixtureEngines
+    if (cmd === 'set_repo_default_branch') {
+      const input = args.input as { repoId: string; defaultBranch: string }
+      const repo = fixtureSnapshot.persisted.repos.find(
+        (row) => row.id === input.repoId,
+      )
+      if (repo) repo.defaultBranch = input.defaultBranch
+      return null
+    }
+    if (cmd === 'pull_repo_default_branch') {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return null
+    }
+    if (cmd === 'open_workspace_terminal') {
+      ;(
+        window as { __HARNESS_OPENED_TERMINAL__?: unknown }
+      ).__HARNESS_OPENED_TERMINAL__ = args.workspaceId
+      return null
+    }
+    if (cmd === 'get_teardown_preview') {
+      return {
+        workspaceId: args.workspaceId,
+        workspaceName: 'OAuth login',
+        engineLabel: 'Cursor',
+        branch: 'feat/oauth-login',
+        worktreePath: '/tmp/cormux-fixture/oauth',
+        appRunning: false,
+        deleteBranchDefault: true,
+        dataLoss: {
+          uncommittedFiles: 0,
+          unpushedCommits: 0,
+          hasDataLoss: false,
+          warning: null,
+        },
+      }
+    }
     if (cmd === 'list_repo_branches') {
       return { branches: ['main', 'develop', 'feat/oauth-login'] }
     }
@@ -420,15 +479,20 @@ export function installBrowserHarness() {
       return nextEventId++
     }
     // `?slowDiff=1` holds diff fetches long enough to see the Changes splash.
-    if (cmd === 'refresh_workspace_diff' || cmd === 'set_workspace_diff_base') {
+    if (
+      cmd === 'refresh_workspace_diff' ||
+      cmd === 'set_workspace_diff_target'
+    ) {
       if (new URLSearchParams(window.location.search).has('slowDiff')) {
         await new Promise((resolve) => setTimeout(resolve, 1500))
       }
       if (
-        cmd === 'set_workspace_diff_base' &&
+        cmd === 'set_workspace_diff_target' &&
         args.workspaceId === fixtureDiff.workspaceId
       ) {
-        setTimeout(() => sendDiff((args.base as string | null) ?? null), 100)
+        const target =
+          (args.target as { head: string; base: string } | null) ?? null
+        setTimeout(() => sendDiff(target), 100)
       }
       return null
     }
@@ -443,6 +507,30 @@ export function installBrowserHarness() {
       )
       if (lead) lead.status = 'running'
       streamReply('th-lead', String(args.text))
+      return null
+    }
+    if (cmd === 'thread_models') {
+      const engine = [
+        ...fixtureSnapshot.persisted.threads.map((row) => ({
+          threadId: row.id,
+          engine: row.engine,
+        })),
+        ...fixtureSnapshot.persisted.scratches,
+      ].find((row) => row.threadId === args.threadId)?.engine
+      return {
+        current: threadModels.get(String(args.threadId)) ?? null,
+        options:
+          engine === 'claude'
+            ? [
+                { id: 'opus', label: 'Opus' },
+                { id: 'sonnet', label: 'Sonnet' },
+                { id: 'haiku', label: 'Haiku' },
+              ]
+            : [],
+      }
+    }
+    if (cmd === 'set_thread_model') {
+      threadModels.set(String(args.threadId), (args.model as string) ?? null)
       return null
     }
     if (cmd === 'new_thread_session') {

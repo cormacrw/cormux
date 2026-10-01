@@ -30,12 +30,30 @@ pub struct DiffFile {
     pub hunks: Vec<DiffHunk>,
 }
 
+/// Committed changes on `head` since it left `base` (`base...head`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffTarget {
+    /// A branch, or `HEAD` for whatever the worktree has checked out.
+    pub head: String,
+    pub base: String,
+}
+
+impl DiffTarget {
+    pub fn head_against(base: impl Into<String>) -> Self {
+        Self {
+            head: "HEAD".into(),
+            base: base.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeDiff {
     pub workspace_id: String,
-    /// Branch the diff is taken against; `None` means uncommitted changes vs `HEAD`.
-    pub base: Option<String>,
+    /// What the diff shows; `None` means uncommitted changes vs `HEAD`.
+    pub target: Option<DiffTarget>,
     pub files: Vec<DiffFile>,
 }
 
@@ -52,7 +70,7 @@ pub struct LiveDiffEngine {
     watched: Arc<Mutex<HashMap<String, Watched>>>,
     latest: Arc<Mutex<HashMap<String, WorktreeDiff>>>,
     /// Absent: no choice made yet. `Some(None)`: explicitly uncommitted.
-    diff_base: Arc<Mutex<HashMap<String, Option<String>>>>,
+    diff_target: Arc<Mutex<HashMap<String, Option<DiffTarget>>>>,
     tx: mpsc::UnboundedSender<String>,
     rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
@@ -64,31 +82,31 @@ impl LiveDiffEngine {
             git,
             watched: Arc::new(Mutex::new(HashMap::new())),
             latest: Arc::new(Mutex::new(HashMap::new())),
-            diff_base: Arc::new(Mutex::new(HashMap::new())),
+            diff_target: Arc::new(Mutex::new(HashMap::new())),
             tx,
             rx: Arc::new(Mutex::new(Some(rx))),
         }
     }
 
-    /// Diff against `base` (merge-base..HEAD), or uncommitted changes when `None`.
-    pub fn set_diff_base(&self, workspace_id: &str, base: Option<String>) {
-        self.diff_base
+    /// Diff a branch against its base, or uncommitted changes when `None`.
+    pub fn set_diff_target(&self, workspace_id: &str, target: Option<DiffTarget>) {
+        self.diff_target
             .lock()
             .unwrap()
-            .insert(workspace_id.to_string(), base);
+            .insert(workspace_id.to_string(), target);
     }
 
-    /// Set `base` unless a target was already chosen for this workspace.
-    pub fn default_diff_base(&self, workspace_id: &str, base: String) {
-        self.diff_base
+    /// Set `target` unless one was already chosen for this workspace.
+    pub fn default_diff_target(&self, workspace_id: &str, target: DiffTarget) {
+        self.diff_target
             .lock()
             .unwrap()
             .entry(workspace_id.to_string())
-            .or_insert(Some(base));
+            .or_insert(Some(target));
     }
 
-    pub fn diff_base(&self, workspace_id: &str) -> Option<String> {
-        self.diff_base
+    pub fn diff_target(&self, workspace_id: &str) -> Option<DiffTarget> {
+        self.diff_target
             .lock()
             .unwrap()
             .get(workspace_id)
@@ -108,7 +126,7 @@ impl LiveDiffEngine {
         let git = self.git.clone();
         let watched = self.watched.clone();
         let latest = self.latest.clone();
-        let diff_base = self.diff_base.clone();
+        let diff_target = self.diff_target.clone();
         tauri::async_runtime::spawn(async move {
             let mut pending: HashMap<String, tokio::time::Instant> = HashMap::new();
             let mut ticker = tokio::time::interval(Duration::from_millis(50));
@@ -130,8 +148,8 @@ impl LiveDiffEngine {
                                 guard.get(&id).map(|item| item.path.clone())
                             };
                             if let Some(path) = path {
-                                let base = diff_base.lock().unwrap().get(&id).cloned().flatten();
-                                match compute_diff(&git, &id, &path, base.as_deref()).await {
+                                let target = diff_target.lock().unwrap().get(&id).cloned().flatten();
+                                match compute_diff(&git, &id, &path, target.as_ref()).await {
                                     Ok(diff) => {
                                         latest.lock().unwrap().insert(id, diff);
                                     }
@@ -190,7 +208,7 @@ impl LiveDiffEngine {
     pub fn unwatch(&self, workspace_id: &str) {
         self.watched.lock().unwrap().remove(workspace_id);
         self.latest.lock().unwrap().remove(workspace_id);
-        self.diff_base.lock().unwrap().remove(workspace_id);
+        self.diff_target.lock().unwrap().remove(workspace_id);
     }
 
     pub fn latest(&self, workspace_id: &str) -> Option<WorktreeDiff> {
@@ -201,19 +219,20 @@ impl LiveDiffEngine {
         let _ = self.tx.send(workspace_id.to_string());
     }
 
-    /// The diff against `base`, whatever the Changes panel is comparing against.
+    /// `HEAD` against `base`, whatever the Changes panel is showing.
     pub async fn compute_against(
         &self,
         workspace_id: &str,
         path: &Path,
         base: &str,
     ) -> Result<WorktreeDiff> {
-        compute_diff(&self.git, workspace_id, path, Some(base)).await
+        let target = DiffTarget::head_against(base);
+        compute_diff(&self.git, workspace_id, path, Some(&target)).await
     }
 
     pub async fn compute(&self, workspace_id: &str, path: &Path) -> Result<WorktreeDiff> {
-        let base = self.diff_base(workspace_id);
-        let diff = compute_diff(&self.git, workspace_id, path, base.as_deref()).await?;
+        let target = self.diff_target(workspace_id);
+        let diff = compute_diff(&self.git, workspace_id, path, target.as_ref()).await?;
         self.latest
             .lock()
             .unwrap()
@@ -244,17 +263,25 @@ async fn compute_diff(
     git: &Git,
     workspace_id: &str,
     path: &Path,
-    pr_base: Option<&str>,
+    target: Option<&DiffTarget>,
 ) -> Result<WorktreeDiff> {
-    let stats = if let Some(base) = pr_base {
-        git.numstat_against_base(path, base).await?
+    let range = match target {
+        Some(target) => Some(format!(
+            "{}...{}",
+            git.freshest_ref(path, &target.base).await,
+            target.head
+        )),
+        None => None,
+    };
+    let stats = if let Some(range) = &range {
+        git.numstat_range(path, range).await?
     } else {
         git.numstat(path).await?
     };
     let mut files = Vec::new();
     for (file_path, added, deleted) in stats {
-        let text = if let Some(base) = pr_base {
-            git.diff_file_against_base(path, base, &file_path)
+        let text = if let Some(range) = &range {
+            git.diff_file_range(path, range, &file_path)
                 .await
                 .unwrap_or_default()
         } else {
@@ -269,7 +296,7 @@ async fn compute_diff(
     }
     Ok(WorktreeDiff {
         workspace_id: workspace_id.to_string(),
-        base: pr_base.map(str::to_string),
+        target: target.cloned(),
         files,
     })
 }
@@ -313,6 +340,80 @@ mod tests {
         assert_eq!(hunks.len(), 1);
         assert_eq!(hunks[0].header, "@@ -1,1 +1,2 @@");
         assert!(hunks[0].body.contains("+world"));
+    }
+
+    fn commit_file(repo: &Path, name: &str) {
+        std::fs::write(repo.join(name), "one\ntwo\n").unwrap();
+        for args in [
+            vec!["add", name],
+            vec![
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                name,
+            ],
+        ] {
+            let status = std::process::Command::new("git")
+                .args(&args)
+                .current_dir(repo)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_branch_diffs_against_its_base_not_the_checkout() {
+        use crate::shell_env::ShellEnv;
+        use tokio::sync::RwLock;
+
+        let git = Git::new(Arc::new(RwLock::new(ShellEnv::new())));
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        };
+        run(&["init", "-q", "-b", "main"]);
+        commit_file(repo, "base.txt");
+        run(&["switch", "-q", "-c", "feat/a"]);
+        commit_file(repo, "a.txt");
+        run(&["switch", "-q", "-c", "feat/b"]);
+        commit_file(repo, "b.txt");
+        std::fs::write(repo.join("wip.txt"), "wip\n").unwrap();
+
+        let paths = |diff: WorktreeDiff| -> Vec<String> {
+            diff.files.into_iter().map(|file| file.path).collect()
+        };
+        let target = |head: &str, base: &str| DiffTarget {
+            head: head.into(),
+            base: base.into(),
+        };
+        let lower = compute_diff(&git, "w", repo, Some(&target("feat/a", "main")))
+            .await
+            .unwrap();
+        assert_eq!(paths(lower), ["a.txt"]);
+        let upper = compute_diff(&git, "w", repo, Some(&target("feat/b", "feat/a")))
+            .await
+            .unwrap();
+        assert_eq!(paths(upper), ["b.txt"]);
+        let uncommitted = compute_diff(&git, "w", repo, None).await.unwrap();
+        assert_eq!(paths(uncommitted), ["wip.txt"]);
+
+        // feat/a needs a rebase once main moves on without it.
+        assert!(git.is_ancestor(repo, "main", "feat/a").await);
+        run(&["switch", "-q", "main"]);
+        commit_file(repo, "later.txt");
+        assert!(!git.is_ancestor(repo, "main", "feat/a").await);
+        assert!(git.is_ancestor(repo, "feat/a", "feat/b").await);
     }
 
     #[test]

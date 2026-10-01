@@ -259,6 +259,13 @@ pub struct SetRepoSetupCommandsInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct SetRepoDefaultBranchInput {
+    pub repo_id: String,
+    pub default_branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AddRepoInput {
     pub path: String,
 }
@@ -301,11 +308,8 @@ pub struct DraftPrWhyResult {
 #[serde(rename_all = "camelCase")]
 pub struct CreateWorkspacePullRequestInput {
     pub workspace_id: String,
-    pub why: String,
+    pub body: String,
     pub title: Option<String>,
-    pub draft: bool,
-    pub include_what_changed: bool,
-    pub include_how_tested: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

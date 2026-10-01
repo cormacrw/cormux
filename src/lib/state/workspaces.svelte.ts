@@ -28,6 +28,8 @@ export type Workspace = {
 
 export class WorkspacesStore {
   items = $state<Workspace[]>([])
+  /** Teardowns confirmed here but not yet reflected in a snapshot. */
+  deletingIds = $state<string[]>([])
 
   readonly workingCount = $derived(
     this.items.filter((workspace) => workspace.cardStatus === 'working').length,
@@ -38,11 +40,35 @@ export class WorkspacesStore {
       .length,
   )
 
+  /** Workspaces not being deleted; the sidebar and palette hide the rest. */
+  readonly liveItems = $derived(
+    this.items.filter((workspace) => !this.isDeleting(workspace)),
+  )
+
   /** Newest workspaces first (sidebar spec). */
-  readonly sidebarItems = $derived([...this.items].reverse())
+  readonly sidebarItems = $derived([...this.liveItems].reverse())
 
   hydrate(items: Workspace[]) {
     this.items = items
+    this.deletingIds = this.deletingIds.filter((id) =>
+      items.some((item) => item.id === id),
+    )
+  }
+
+  isDeleting(workspace: Workspace) {
+    return (
+      workspace.lifecycle === 'tearingDown' ||
+      this.deletingIds.includes(workspace.id)
+    )
+  }
+
+  markDeleting(id: string) {
+    if (this.deletingIds.includes(id)) return
+    this.deletingIds = [...this.deletingIds, id]
+  }
+
+  clearDeleting(id: string) {
+    this.deletingIds = this.deletingIds.filter((item) => item !== id)
   }
 
   upsert(workspace: Workspace) {

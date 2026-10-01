@@ -20,8 +20,11 @@
     createWorkspaceBranch,
   } from '$lib/workspace/wire-git-workspace'
   import { commands } from '$lib/ipc'
+  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { Kbd } from '$lib/components/ui/kbd'
+  import CommandIcon from '@lucide/svelte/icons/command'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { workspaceRecords } from '$lib/state'
+  import { repos, workspaceRecords } from '$lib/state'
   import type { Thread } from '$lib/state/threads.svelte'
 
   let {
@@ -63,6 +66,7 @@
       current: branch,
       repoBranches,
       otherWorkspaceBranches,
+      defaultBranch: repos.getById(repoId)?.defaultBranch?.trim() || 'main',
     }),
   )
 
@@ -108,7 +112,15 @@
     triggerEl?.focus()
     await createWorkspaceBranch(workspaceId, name)
   }
+
+  function onKeydown(event: KeyboardEvent) {
+    if (!isHeaderShortcut(event, 'b')) return
+    event.preventDefault()
+    if (!locked) open = !open
+  }
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 {#if locked}
   <Button
@@ -139,6 +151,7 @@
           aria-haspopup="true"
           aria-expanded={open}
           aria-controls="ws-branch-menu"
+          aria-keyshortcuts="Meta+B"
           data-ws-focus="branch"
           data-od-id="ws-branch"
           class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
@@ -146,6 +159,10 @@
           <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
           <span class="sr-only">Branch</span>
           <span class="truncate">{branch}</span>
+          <Kbd
+            class="h-4 min-w-4 shrink-0 gap-0.5 px-1 text-[10px]"
+            aria-hidden="true"><CommandIcon class="size-2.5" />B</Kbd
+          >
           <ChevronDown
             class="size-3.5 shrink-0 opacity-70"
             aria-hidden="true"

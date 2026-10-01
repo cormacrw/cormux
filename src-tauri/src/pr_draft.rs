@@ -50,7 +50,25 @@ pub fn fallback_why(workspace: &WorkspaceRow, goal: &str) -> String {
     }
 }
 
+/// Settings key for the instructions the drafting model gets; empty means the default.
+pub const PR_PROMPT_KEY: &str = "prPrompt";
+
+pub const DEFAULT_PR_PROMPT: &str = "Write the description for this pull request in GitHub-flavoured markdown. \
+Open with two or three sentences on why the change is necessary: the problem it solves and why it matters now. \
+Then add a \"## What changed\" section with a short bullet list of the meaningful changes, \
+and a \"## How it was tested\" section if the thread shows any testing. \
+Don't add a title, and don't invent details the thread and diff don't support.";
+
+/// The saved prompt, or the default when it's unset or blank.
+pub fn pr_prompt(saved: Option<String>) -> String {
+    saved
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| DEFAULT_PR_PROMPT.into())
+}
+
 pub fn build_draft_prompt(
+    instructions: &str,
     workspace: &WorkspaceRow,
     base: &str,
     goal: &str,
@@ -60,7 +78,7 @@ pub fn build_draft_prompt(
     let file_lines: Vec<String> = diff
         .files
         .iter()
-        .take(12)
+        .take(40)
         .map(|file| format!("- {} (+{} −{})", file.path, file.added, file.deleted))
         .collect();
     let file_block = if file_lines.is_empty() {
@@ -70,9 +88,8 @@ pub fn build_draft_prompt(
     };
 
     format!(
-        "Write a 2–3 sentence problem statement for a pull request description. \
-         Focus on why the change is necessary now, not implementation details. \
-         No markdown, no title, plain prose only.\n\n\
+        "{instructions}\n\n\
+         Reply with only the description.\n\n\
          Workspace: \"{}\" on branch {} → base {}.\n\
          User goal: {}\n\
          Thread excerpt:\n{}\n\
@@ -106,15 +123,15 @@ pub fn extract_goal_from_events(events: &[ThreadEventRow]) -> String {
 
 pub async fn draft_why(
     llm: &LlmClient,
-    _workspace_id: &str,
+    instructions: &str,
     workspace: &WorkspaceRow,
     base: &str,
     goal: &str,
     transcript: &str,
     diff: &WorktreeDiff,
 ) -> Result<(String, bool)> {
-    let prompt = build_draft_prompt(workspace, base, goal, transcript, diff);
-    match llm.complete(&prompt).await {
+    let prompt = build_draft_prompt(instructions, workspace, base, goal, transcript, diff);
+    match llm.complete(&prompt, 2048).await {
         Ok(result) if !result.text.trim().is_empty() => Ok((result.text.trim().to_string(), true)),
         _ => Ok((fallback_why(workspace, goal), false)),
     }
@@ -142,6 +159,13 @@ mod tests {
             modified_files: 2,
             archived_at: None,
         }
+    }
+
+    #[test]
+    fn blank_prompt_falls_back_to_default() {
+        assert_eq!(pr_prompt(None), DEFAULT_PR_PROMPT);
+        assert_eq!(pr_prompt(Some("  \n".into())), DEFAULT_PR_PROMPT);
+        assert_eq!(pr_prompt(Some(" Be brief. ".into())), "Be brief.");
     }
 
     #[test]

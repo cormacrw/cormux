@@ -22,10 +22,11 @@ export function metaForBranch(
   branch: string,
   current: string,
   occupied: Set<string>,
+  defaultBranch: string,
 ): BranchMeta | null {
   if (branch === current) return 'current'
+  if (branch === defaultBranch) return 'default'
   if (occupied.has(branch)) return 'inOtherWorkspace'
-  if (branch === 'main') return 'default'
   if (branch === 'develop') return 'integration'
   if (branch === 'staging') return 'staging'
   return null
@@ -35,6 +36,7 @@ export function buildBranchPickerList(input: {
   current: string
   repoBranches: string[]
   otherWorkspaceBranches: string[]
+  defaultBranch: string
 }): BranchPickerItem[] {
   const seen = new Set<string>()
   const ordered: string[] = []
@@ -54,11 +56,18 @@ export function buildBranchPickerList(input: {
   )
 
   return ordered.map((name) => {
-    const meta = metaForBranch(name, input.current, occupied)
+    const meta = metaForBranch(
+      name,
+      input.current,
+      occupied,
+      input.defaultBranch,
+    )
     return {
       name,
       meta,
-      disabled: meta === 'current' || meta === 'inOtherWorkspace',
+      // The default branch stays in the repo checkout; workspaces never take it.
+      disabled:
+        meta === 'current' || meta === 'inOtherWorkspace' || meta === 'default',
       checked: name === input.current,
     }
   })

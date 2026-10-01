@@ -1,5 +1,8 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button'
+  import { Kbd } from '$lib/components/ui/kbd'
+  import CommandIcon from '@lucide/svelte/icons/command'
+  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
     branchPullRequest,
@@ -52,6 +55,16 @@
   )
   const prUrl = $derived(branchPr?.url ?? null)
 
+  const primaryDisabled = $derived(
+    workspace.kind === 'review' ? reviewSubmitted : Boolean(branchPr && !prUrl),
+  )
+
+  function onKeydown(event: KeyboardEvent) {
+    if (!isHeaderShortcut(event, 'p')) return
+    event.preventDefault()
+    if (!primaryDisabled) onPrimaryClick()
+  }
+
   function onPrimaryClick() {
     if (workspace.kind === 'review') {
       shellDialogs.openSubmitReview(workspace.id)
@@ -69,42 +82,50 @@
   }
 </script>
 
+<svelte:window onkeydown={onKeydown} />
+
 {#if workspace.kind === 'review'}
   <Button
     variant="default"
-    size="sm"
+    size="xl"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={reviewSubmitted}
+    aria-keyshortcuts="Meta+P"
     data-ws-focus="primary"
     data-od-id="ws-submit-review"
     onclick={onPrimaryClick}
   >
     <GitPullRequest class="size-4" aria-hidden="true" />
     Submit review
+    <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />P</Kbd>
   </Button>
 {:else if branchPr}
   <Button
     variant="default"
-    size="sm"
+    size="xl"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={!prUrl}
+    aria-keyshortcuts="Meta+P"
     data-ws-focus="primary"
     data-od-id="ws-create-pr"
     onclick={onPrimaryClick}
   >
     <GitPullRequest class="size-4" aria-hidden="true" />
     {prLabel}
+    <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />P</Kbd>
   </Button>
 {:else}
   <Button
     variant="default"
-    size="sm"
+    size="xl"
     class="gap-2 shrink-0 max-md:flex-1"
+    aria-keyshortcuts="Meta+P"
     data-ws-focus="primary"
     data-od-id="ws-create-pr"
     onclick={onPrimaryClick}
   >
     <GitPullRequest class="size-4" aria-hidden="true" />
     Create PR
+    <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />P</Kbd>
   </Button>
 {/if}

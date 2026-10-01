@@ -106,6 +106,15 @@
     overscan: 8,
   })
 
+  // When a row above the fold re-measures, the list shifts scrollTop from the offset it last
+  // saw, which lags our own writes, so following the end got yanked back up for a frame.
+  // While pinned the follow loop owns the scroll; scrolled up, the list keeps the reader's place.
+  Object.defineProperty(
+    $virtualizer,
+    'shouldAdjustScrollPositionOnItemSizeChange',
+    { get: () => (pinnedToBottom ? () => false : undefined) },
+  )
+
   $effect(() => {
     const count = rows.length
     const element = scrollEl
@@ -202,7 +211,12 @@
 
   // Follows the end as content grows. Virtual rows are positioned absolutely, so a row that
   // grows (a reply typing out) can outrun the list's measured height; they're observed too.
-  const followObserver = new ResizeObserver(() => keepFollowing())
+  // Observers fire after layout but before paint, so catching up here means the frame never
+  // shows the old offset; waiting for the next frame painted a jump on every re-measure.
+  const followObserver = new ResizeObserver(() => {
+    if (scrollEl && stillFollowing()) followToEnd(scrollEl)
+    keepFollowing()
+  })
 
   // WebKit drops resize notifications when rows re-measure in the same frame, so once
   // something grows, re-check every frame until the end has held still for a moment.
@@ -278,7 +292,7 @@
   }
 </script>
 
-<section
+<div
   id="thread-panel"
   role="tabpanel"
   aria-labelledby={panelLabelId}
@@ -361,4 +375,4 @@
       scrollToEndNext = true
     }}
   />
-</section>
+</div>

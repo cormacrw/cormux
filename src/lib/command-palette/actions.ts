@@ -34,18 +34,6 @@ export function pullWorkspace(workspaceId: string) {
   )
 }
 
-export function rebaseWorkspace(workspaceId: string) {
-  window.dispatchEvent(
-    new CustomEvent('cormux:workspace-rebase', { detail: { workspaceId } }),
-  )
-}
-
-export function pushWorkspace(workspaceId: string) {
-  window.dispatchEvent(
-    new CustomEvent('cormux:workspace-push', { detail: { workspaceId } }),
-  )
-}
-
 export function abortWorkspaceGit(workspaceId: string) {
   window.dispatchEvent(
     new CustomEvent('cormux:workspace-git-abort', { detail: { workspaceId } }),

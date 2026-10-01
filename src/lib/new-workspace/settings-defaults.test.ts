@@ -1,24 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
   readBooleanSetting,
-  readDefaultBase,
   readDefaultEngine,
   readStringSetting,
   resolveDefaultRepoId,
 } from './settings-defaults'
 
 describe('settings-defaults', () => {
-  it('reads engine and base with fallbacks', () => {
+  it('reads engine with fallbacks', () => {
     expect(readDefaultEngine([])).toBe('claude')
-    expect(readDefaultBase([])).toBe('main')
     expect(readDefaultEngine([{ key: 'defaultEngine', value: 'cursor' }])).toBe(
       'cursor',
     )
     expect(readDefaultEngine([{ key: 'defaultEngine', value: 'codex' }])).toBe(
       'claude',
-    )
-    expect(readDefaultBase([{ key: 'defaultBase', value: 'develop' }])).toBe(
-      'develop',
     )
   })
 

@@ -37,10 +37,7 @@ export const fixtureSnapshot: Snapshot = {
   version: 1,
   view: 'homebase',
   persisted: {
-    settings: [
-      { key: 'defaultEngine', value: 'cursor' },
-      { key: 'defaultBase', value: 'main' },
-    ],
+    settings: [{ key: 'defaultEngine', value: 'cursor' }],
     repos: [
       {
         id: FIXTURE_REPO_ID,
@@ -225,7 +222,7 @@ export const fixtureSnapshot: Snapshot = {
 /** Uncommitted diff the harness streams for the OAuth workspace. */
 export const fixtureDiff = {
   workspaceId: 'ws-auth',
-  base: null,
+  target: null,
   files: [
     {
       path: 'src/auth/session.ts',

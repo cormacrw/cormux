@@ -4,7 +4,6 @@ import { toastCoreError } from '$lib/feedback/wire-feedback'
 import {
   DEFAULT_WORKTREE_ROOT,
   readBooleanSetting,
-  readDefaultBase,
   readDefaultEngine,
   readStringSetting,
 } from '$lib/new-workspace/settings-defaults'
@@ -14,6 +13,8 @@ import {
   serializeScratchMacros,
   type ScratchMacro,
 } from '$lib/settings/scratch-macros'
+
+const PR_PROMPT_KEY = 'prPrompt'
 
 function upsertRow(rows: SettingRow[], key: string, value: string) {
   const next = rows.filter((row) => row.key !== key)
@@ -26,7 +27,6 @@ export class SettingsStore {
   autoApproveReadOnly = $state(true)
   runEverything = $state(false)
   defaultEngine = $state<EngineKind>('claude')
-  defaultBase = $state('main')
   /** Preferred repo id; resolve with `resolveDefaultRepoId` since it may be removed. */
   defaultRepo = $state('')
   teardownAfterMerge = $state(true)
@@ -34,6 +34,8 @@ export class SettingsStore {
   notifyApprovals = $state(true)
   notifyReviewFinished = $state(true)
   scratchMacros = $state<ScratchMacro[]>([])
+  /** Instructions for drafting a PR description; empty means the built-in default. */
+  prPrompt = $state('')
   rows = $state<SettingRow[]>([])
   /** When set, Settings view scrolls/focuses this section (palette deep links). */
   focusSection = $state<string | null>(null)
@@ -57,7 +59,6 @@ export class SettingsStore {
     this.rows = rows
     if (rows.length > 0) {
       this.defaultEngine = readDefaultEngine(rows)
-      this.defaultBase = readDefaultBase(rows)
       this.defaultRepo = readStringSetting(rows, 'defaultRepo', '')
       this.teardownAfterMerge = readBooleanSetting(
         rows,
@@ -76,6 +77,7 @@ export class SettingsStore {
         true,
       )
       this.runEverything = readBooleanSetting(rows, 'runEverything', false)
+      this.prPrompt = readStringSetting(rows, PR_PROMPT_KEY, '')
       this.scratchMacros = parseScratchMacros(
         rows.find((row) => row.key === SCRATCH_MACROS_KEY)?.value,
       )
@@ -97,12 +99,6 @@ export class SettingsStore {
   async setDefaultEngine(engine: EngineKind) {
     this.defaultEngine = engine
     await this.persist('defaultEngine', engine)
-  }
-
-  async setDefaultBase(branch: string) {
-    const trimmed = branch.trim()
-    this.defaultBase = trimmed || 'main'
-    await this.persist('defaultBase', this.defaultBase)
   }
 
   async setDefaultRepo(repoId: string) {
@@ -148,6 +144,11 @@ export class SettingsStore {
   async setScratchMacros(next: ScratchMacro[]) {
     this.scratchMacros = next
     await this.persist(SCRATCH_MACROS_KEY, serializeScratchMacros(next))
+  }
+
+  async setPrPrompt(next: string) {
+    this.prPrompt = next
+    await this.persist(PR_PROMPT_KEY, next)
   }
 
   async setNotifyReviewFinished(next: boolean) {
