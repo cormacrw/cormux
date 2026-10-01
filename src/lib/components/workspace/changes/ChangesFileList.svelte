@@ -14,9 +14,11 @@
 
   let {
     workspaceId,
+    branch,
     files,
   }: {
     workspaceId: string
+    branch: string | null
     files: DiffFile[]
   } = $props()
 
@@ -33,7 +35,11 @@
     {@const status = inferFileStatus(file)}
     {@const parts = splitPath(file.path)}
     {@const open = !workspaceUi.collapsedDiffPaths[file.path]}
-    {@const commentCount = diffComments.forFile(workspaceId, file.path).length}
+    {@const commentCount = diffComments.forFile(
+      workspaceId,
+      branch,
+      file.path,
+    ).length}
     {@const bodyId = `changes-file-${file.path.replace(/[^\w-]/g, '_')}`}
     <li class="border-b border-border/60" data-diff-path={file.path}>
       <button
@@ -58,9 +64,7 @@
           <span class="font-medium">{parts.name}</span>
         </span>
         {#if commentCount}
-          <span
-            class="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground"
-          >
+          <span class="flex shrink-0 items-center gap-0.5 text-xs text-info">
             <MessageSquare class="size-3.5" aria-hidden="true" />
             {commentCount}
             <span class="sr-only"
@@ -91,7 +95,7 @@
       {#if open}
         <div id={bodyId}>
           {#if file.hunks.length}
-            <ChangesDiffView {workspaceId} {file} />
+            <ChangesDiffView {workspaceId} {branch} {file} />
           {:else}
             <p class="px-3 py-2 text-xs text-muted-foreground">
               No text changes to show.

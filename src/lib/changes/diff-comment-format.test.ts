@@ -46,4 +46,10 @@ describe('formatCommentsForAgent', () => {
       'Review comments on your changes:\n\nsrc/a.ts:1\nAdd a test',
     )
   })
+
+  it('names the branch when given one', () => {
+    expect(
+      formatCommentsForAgent([comment({ body: 'Add a test' })], 'feat/ui'),
+    ).toMatch(/^Review comments on your changes on feat\/ui:/)
+  })
 })

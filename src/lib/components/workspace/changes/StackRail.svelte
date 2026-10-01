@@ -5,12 +5,14 @@
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Layers from '@lucide/svelte/icons/layers'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
+  import MessageSquare from '@lucide/svelte/icons/message-square'
   import Plus from '@lucide/svelte/icons/plus'
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import Upload from '@lucide/svelte/icons/upload'
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
+  import { diffComments } from '$lib/changes/diff-comments.svelte'
   import type { DiffTarget } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import {
@@ -184,6 +186,23 @@
   >
 {/snippet}
 
+{#snippet commentCount(branch: string | null)}
+  {@const count = diffComments.forBranch(workspace.id, branch).length}
+  {#if count}
+    <Badge
+      variant="outline"
+      class="shrink-0 gap-0.5 border-info/40 bg-info/10 px-1.5 font-mono text-[10px] text-info"
+      title="{count} unsent {count === 1
+        ? 'comment'
+        : 'comments'} on this level"
+    >
+      <MessageSquare class="size-2.5" aria-hidden="true" />
+      {count}
+      <span class="sr-only">{count === 1 ? 'comment' : 'comments'}</span>
+    </Badge>
+  {/if}
+{/snippet}
+
 {#snippet dot(kind: 'current' | 'merged' | 'open' | 'uncommitted')}
   <div class="flex w-4 shrink-0 justify-center" aria-hidden="true">
     <span
@@ -307,7 +326,10 @@
               aria-pressed={shownTarget === null}
               onclick={() => void select(null)}
             >
-              <span class="block truncate text-sm">Uncommitted changes</span>
+              <span class="flex items-center gap-1.5">
+                <span class="truncate text-sm">Uncommitted changes</span>
+                {@render commentCount(null)}
+              </span>
               <span class="block truncate text-xs text-muted-foreground">
                 Not committed to {workspace.branch} yet
               </span>
@@ -406,6 +428,7 @@
                   <span class="max-w-full truncate font-mono text-sm"
                     >{workspace.branch}</span
                   >
+                  {@render commentCount(workspace.branch)}
                   {#if stack?.status === 'notStacked'}
                     <Badge
                       variant="secondary"
@@ -454,6 +477,7 @@
                   <span class="max-w-full truncate font-mono text-sm"
                     >{card.name}</span
                   >
+                  {@render commentCount(card.name)}
                   {#if card.current}
                     <Badge
                       variant="secondary"

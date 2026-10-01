@@ -10,8 +10,14 @@ export type DiffComment = {
   body: string
 }
 
-/** One message for the agent: each comment as `path:line`, the quoted code, then the note. */
-export function formatCommentsForAgent(comments: DiffComment[]): string {
+/**
+ * One message for the agent: each comment as `path:line`, the quoted code, then the note.
+ * `branch` names the branch when the comments aren't on the one the agent has checked out.
+ */
+export function formatCommentsForAgent(
+  comments: DiffComment[],
+  branch?: string,
+): string {
   const sorted = [...comments].sort(
     (a, b) => a.path.localeCompare(b.path) || a.line - b.line,
   )
@@ -21,5 +27,6 @@ export function formatCommentsForAgent(comments: DiffComment[]): string {
     const quote = code ? `\n> ${code}` : ''
     return `${where}${quote}\n${comment.body.trim()}`
   })
-  return `Review comments on your changes:\n\n${blocks.join('\n\n')}`
+  const on = branch ? `your changes on ${branch}` : 'your changes'
+  return `Review comments on ${on}:\n\n${blocks.join('\n\n')}`
 }

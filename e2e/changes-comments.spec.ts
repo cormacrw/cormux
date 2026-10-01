@@ -47,6 +47,7 @@ test('comment on a diff line and send it to the agent', async ({ page }) => {
   await line.locator('.diff-add-widget').first().click()
   const box = panel.getByRole('textbox', { name: /Comment on line/ })
   await box.fill('Use a map of providers instead of an if')
+  await page.screenshot({ path: 'e2e/output/changes-comment-compose.png' })
   await panel.getByRole('button', { name: 'Add comment' }).click()
   await expect(
     diff.getByText('Use a map of providers instead of an if'),
@@ -54,6 +55,13 @@ test('comment on a diff line and send it to the agent', async ({ page }) => {
   await expect(
     files.getByRole('button', { name: /session\.ts/ }),
   ).toContainText('1')
+
+  // The counter sits on the stack level the comment was written on.
+  const stack = page.getByRole('navigation', { name: 'Stack' })
+  await expect(
+    stack.locator('[data-stack-uncommitted]').getByText('1 comment'),
+  ).toHaveCount(1)
+  await expect(stack.getByText(/\d+ comments?$/)).toHaveCount(1)
 
   await page.waitForTimeout(300)
   await page.screenshot({ path: 'e2e/output/changes-comment.png' })

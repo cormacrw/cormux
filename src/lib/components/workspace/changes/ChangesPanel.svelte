@@ -1,7 +1,10 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
   import { commands } from '$lib/ipc'
-  import { diffComments } from '$lib/changes/diff-comments.svelte'
+  import {
+    commentBranch,
+    diffComments,
+  } from '$lib/changes/diff-comments.svelte'
   import { formatCommentsForAgent } from '$lib/changes/diff-comment-format'
   import { sendThreadMessage } from '$lib/thread/send-message'
   import type { Thread } from '$lib/state/threads.svelte'
@@ -103,15 +106,26 @@
     })
   }
 
-  const comments = $derived(diffComments.list(workspace.id))
+  // Comments belong to the level on screen, not to whatever is mid-load.
+  const commentScope = $derived(
+    commentBranch(workspaceDiff.target(workspace.id), workspace.branch),
+  )
+  const comments = $derived(diffComments.forBranch(workspace.id, commentScope))
   let sending = $state(false)
 
   async function sendComments() {
     if (!comments.length || sending) return
     sending = true
     const sent = comments
-    diffComments.clear(workspace.id)
-    if (await sendThreadMessage(thread.id, formatCommentsForAgent(sent))) {
+    const scope = commentScope
+    diffComments.clear(workspace.id, scope)
+    const elsewhere = scope && scope !== workspace.branch ? scope : undefined
+    if (
+      await sendThreadMessage(
+        thread.id,
+        formatCommentsForAgent(sent, elsewhere),
+      )
+    ) {
       // Show the conversation so the agent's reply is in view.
       app.threadId = thread.id
       workspaceUi.openTab('thread')
@@ -218,7 +232,11 @@
           role="region"
           aria-label="Proposed changes"
         >
-          <ChangesFileList workspaceId={workspace.id} {files} />
+          <ChangesFileList
+            workspaceId={workspace.id}
+            branch={commentScope}
+            {files}
+          />
         </div>
       {:else if !loading}
         <div
