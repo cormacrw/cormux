@@ -18,6 +18,7 @@
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import { engineDisplayName, engineMark } from '$lib/sidebar/engine'
+  import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
@@ -189,6 +190,7 @@
         <span class="lbl truncate"
           >{thread.role ? `${engineName} · ${thread.role}` : engineName}</span
         >
+        <ThreadModelPicker {thread} />
         {#if showPause}
           <Button
             type="button"

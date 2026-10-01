@@ -375,6 +375,8 @@ export function installBrowserHarness() {
     return { ...base, status: 'stacked', branches }
   }
 
+  const threadModels = new Map<string, string | null>()
+
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {
     if (cmd === 'get_snapshot') return fixtureSnapshot
     if (cmd === 'get_workspace_stack') return stackFor(String(args.workspaceId))
@@ -502,6 +504,30 @@ export function installBrowserHarness() {
       )
       if (lead) lead.status = 'running'
       streamReply('th-lead', String(args.text))
+      return null
+    }
+    if (cmd === 'thread_models') {
+      const engine = [
+        ...fixtureSnapshot.persisted.threads.map((row) => ({
+          threadId: row.id,
+          engine: row.engine,
+        })),
+        ...fixtureSnapshot.persisted.scratches,
+      ].find((row) => row.threadId === args.threadId)?.engine
+      return {
+        current: threadModels.get(String(args.threadId)) ?? null,
+        options:
+          engine === 'claude'
+            ? [
+                { id: 'opus', label: 'Opus' },
+                { id: 'sonnet', label: 'Sonnet' },
+                { id: 'haiku', label: 'Haiku' },
+              ]
+            : [],
+      }
+    }
+    if (cmd === 'set_thread_model') {
+      threadModels.set(String(args.threadId), (args.model as string) ?? null)
       return null
     }
     if (cmd === 'new_thread_session') {

@@ -565,7 +565,7 @@ async fn spawn_engine(
         .get(workspace_id)
         .await
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    let kind = parse_engine_kind(engine);
+    let kind = EngineKind::from_name(engine);
     let run_everything = crate::approvals::run_everything_from_store(&state.store);
     state
         .engines
@@ -584,15 +584,6 @@ async fn spawn_engine(
         state.engines.prompt(thread_id, text)?;
     }
     Ok(())
-}
-
-fn parse_engine_kind(engine: &str) -> EngineKind {
-    match engine.to_lowercase().as_str() {
-        "cursor" => EngineKind::Cursor,
-        "codex" => EngineKind::Codex,
-        "gemini" => EngineKind::Gemini,
-        _ => EngineKind::Claude,
-    }
 }
 
 fn initial_running_activity(engine: &str, review: bool) -> &'static str {

@@ -122,6 +122,28 @@ async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The models the thread's composer can pick from, and the current pick.
+ */
+async threadModels(threadId: string) : Promise<Result<ThreadModels, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("thread_models", { threadId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * `None` goes back to the engine's default. A live engine switches before its next turn.
+ */
+async setThreadModel(threadId: string, model: string | null) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_thread_model", { threadId, model }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved, denyReason }) };
@@ -631,6 +653,14 @@ export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; eng
 export type JoinWorkspaceThreadResult = { threadId: string }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
 export type MessageRole = "user" | "agent" | "thought"
+/**
+ * One entry in the composer's model picker.
+ */
+export type ModelOption = { 
+/**
+ * What the engine is told: a `--model` alias for Claude, an ACP config value otherwise.
+ */
+id: string; label: string }
 export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
 /**
  * Newest first.
@@ -717,6 +747,10 @@ export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: 
  * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
  */
 createdAt: string }
+/**
+ * The models a thread can switch to, and the one it's on (`None` is the engine's default).
+ */
+export type ThreadModels = { current: string | null; options: ModelOption[] }
 export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }

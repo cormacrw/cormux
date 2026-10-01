@@ -18,6 +18,8 @@ commands.allow = [
   "pause_thread",
   "resume_thread",
   "new_thread_session",
+  "thread_models",
+  "set_thread_model",
   "resolve_approval",
   "resolve_all_approvals",
   "summarise_workspace",

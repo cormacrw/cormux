@@ -17,7 +17,8 @@ Steering is the user's main job while agents work: clarifying scope, redirecting
 
 1. **Textarea** (`#composer-input`), one row tall to start, placeholder `Message <role>…` (for example `Message Lead…`). Visually labelled only by its placeholder; has a screen-reader label `Message the agent`.
 2. **Footer row:**
-   - **Meta** (left): the engine mark, `<Engine> · <role>` (for example `Claude Code · Lead`), and, when the thread is running, a ghost **Pause** button (pause icon) or **Resume** button (play icon).
+   - **Meta** (left): the engine mark, `<Engine> · <role>` (for example `Claude Code · Lead`), the **model picker**, and, when the thread is running, a ghost **Pause** button (pause icon) or **Resume** button (play icon).
+   - **Model picker** (`composer-model`): a ghost button showing the thread's model (`Default` until one is picked) that opens a menu of `Default` plus the engine's models. Claude lists Opus, Sonnet and Haiku (passed as `--model` aliases). ACP engines (Cursor, Codex, Gemini) list the models their session advertises as its `model` config option, so the picker appears once the session starts; an engine that advertises none shows no picker. The pick is saved per thread, used on every later spawn, and applied to a live engine straight away (Claude's `set_model` control request, ACP's `session/set_config_option`; mid-turn on ACP, it applies when the turn ends).
    - **Hint** (right of meta): `↵ send  ⇧↵ new line`.
    - **Send** button: a square primary button with an up-arrow icon, accessible name `Send to agent`.
 

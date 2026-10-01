@@ -20,7 +20,7 @@ pub use protocol::{CanUseTool, Event, PermissionDecision};
 pub use session::{ClaudeSession, SpawnOptions};
 
 /// Argument vector for a streaming Claude Code session (binary not included).
-pub fn claude_argv(resume: Option<&str>) -> Vec<String> {
+pub fn claude_argv(resume: Option<&str>, model: Option<&str>) -> Vec<String> {
     let mut args = vec![
         "-p".into(),
         "--verbose".into(),
@@ -38,6 +38,10 @@ pub fn claude_argv(resume: Option<&str>) -> Vec<String> {
         args.push("--resume".into());
         args.push(id.into());
     }
+    if let Some(model) = model {
+        args.push("--model".into());
+        args.push(model.into());
+    }
     args
 }
 
@@ -47,7 +51,7 @@ mod tests {
 
     #[test]
     fn argv_includes_print_and_stdio_permission_tool() {
-        let args = claude_argv(None);
+        let args = claude_argv(None, None);
         assert!(args.contains(&"-p".into()));
         assert!(
             args.windows(2)
@@ -58,7 +62,14 @@ mod tests {
 
     #[test]
     fn argv_resume_appends_session_id() {
-        let args = claude_argv(Some("sess-1"));
+        let args = claude_argv(Some("sess-1"), None);
         assert!(args.windows(2).any(|w| w == ["--resume", "sess-1"]));
+        assert!(!args.contains(&"--model".into()));
+    }
+
+    #[test]
+    fn argv_model_appends_flag() {
+        let args = claude_argv(None, Some("opus"));
+        assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
     }
 }

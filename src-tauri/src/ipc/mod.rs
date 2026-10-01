@@ -22,6 +22,8 @@ pub fn builder() -> Builder {
             commands::pause_thread,
             commands::resume_thread,
             commands::new_thread_session,
+            commands::thread_models,
+            commands::set_thread_model,
             commands::resolve_approval,
             commands::resolve_all_approvals,
             commands::subscribe_pty,

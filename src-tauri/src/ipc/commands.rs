@@ -6,6 +6,7 @@ use tauri_specta::Event;
 use uuid::Uuid;
 
 use crate::composer::{persist_control_step, persist_user_message};
+use crate::engines::{EngineKind, ThreadModels};
 use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
 use crate::github::{clear_token, save_token};
@@ -1466,6 +1467,28 @@ pub async fn resume_thread(
     }
     emit_composer_snapshot(&app, &state);
     Ok(())
+}
+
+/// The models the thread's composer can pick from, and the current pick.
+#[tauri::command]
+#[specta::specta]
+pub async fn thread_models(thread_id: String, state: State<'_, AppState>) -> Result<ThreadModels> {
+    let thread = snapshot_thread(&state, &thread_id)?;
+    state
+        .engines
+        .thread_models(&thread_id, EngineKind::from_name(&thread.engine))
+}
+
+/// `None` goes back to the engine's default. A live engine switches before its next turn.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_thread_model(
+    thread_id: String,
+    model: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    snapshot_thread(&state, &thread_id)?;
+    state.engines.set_thread_model(&thread_id, model)
 }
 
 /// Like `/clear`: the agent forgets the conversation, but the thread keeps showing it.
