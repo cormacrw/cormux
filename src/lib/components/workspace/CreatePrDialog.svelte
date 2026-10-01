@@ -5,7 +5,7 @@
   import { Button } from '$lib/components/ui/button/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
-  import { Kbd, KbdGroup } from '$lib/components/ui/kbd/index.js'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { Error as CoreError } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
@@ -328,15 +328,7 @@
         {/if}
       </div>
 
-      <Dialog.Footer
-        class="m-0 px-5 py-4 flex-row items-center justify-between"
-      >
-        <p
-          class="text-xs text-muted-foreground hidden sm:flex items-center gap-1"
-        >
-          <KbdGroup><Kbd>⌘</Kbd><Kbd>↵</Kbd></KbdGroup>
-          to create
-        </p>
+      <Dialog.Footer class="m-0 px-5 py-4 flex-row items-center justify-end">
         <div class="flex gap-2 ml-auto">
           <Button
             size="xl"
@@ -346,6 +338,7 @@
             onclick={closeDialog}
           >
             Cancel
+            <DialogShortcut keys="cancel" />
           </Button>
           <Button
             size="xl"
@@ -358,6 +351,7 @@
               Creating PR…
             {:else}
               Create PR
+              <DialogShortcut keys="submit" />
             {/if}
           </Button>
         </div>

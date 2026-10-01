@@ -243,11 +243,8 @@
 
   function onFormKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      const target = event.target as HTMLElement
-      if (target.tagName === 'TEXTAREA') {
-        event.preventDefault()
-        void submit()
-      }
+      event.preventDefault()
+      void submit()
     }
   }
 

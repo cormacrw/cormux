@@ -2,6 +2,7 @@
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type {
     Error as CoreError,
@@ -61,6 +62,13 @@
     closeDialog()
   }
 
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      void submit()
+    }
+  }
+
   $effect(() => {
     if (open) {
       dismissOpenPopover()
@@ -70,7 +78,7 @@
 </script>
 
 <Dialog.Root {open} onOpenChange={(next) => !next && closeDialog()}>
-  <Dialog.Content class="max-w-md gap-0 p-0">
+  <Dialog.Content class="max-w-md gap-0 p-0" onkeydown={onKeydown}>
     <Dialog.Header class="px-5 pt-5">
       <Dialog.Title>Submit review</Dialog.Title>
       {#if workspace?.prNumber}
@@ -113,6 +121,7 @@
         disabled={submitting}
       >
         Cancel
+        <DialogShortcut keys="cancel" />
       </Button>
       <Button size="xl" onclick={() => void submit()} disabled={submitting}>
         {#if submitting}
@@ -120,6 +129,7 @@
           Posting…
         {:else}
           Submit review
+          <DialogShortcut keys="submit" />
         {/if}
       </Button>
     </Dialog.Footer>

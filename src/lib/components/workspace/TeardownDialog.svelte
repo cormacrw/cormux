@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { TeardownPreview } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
@@ -64,6 +65,18 @@
       })
   }
 
+  function onKeydown(event: KeyboardEvent) {
+    if (
+      event.key === 'Enter' &&
+      (event.metaKey || event.ctrlKey) &&
+      preview &&
+      !loadingPreview
+    ) {
+      event.preventDefault()
+      confirmTeardown()
+    }
+  }
+
   const description = $derived.by(() => {
     if (!preview) return ''
     const appPart = preview.appRunning ? ' and the running app' : ''
@@ -72,7 +85,7 @@
 </script>
 
 <AlertDialog.Root {open} {onOpenChange}>
-  <AlertDialog.Content class="max-w-md sm:max-w-md">
+  <AlertDialog.Content class="max-w-md sm:max-w-md" onkeydown={onKeydown}>
     <AlertDialog.Header>
       <AlertDialog.Title>Teardown & delete worktree?</AlertDialog.Title>
       <AlertDialog.Description>
@@ -110,7 +123,9 @@
     {/if}
 
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+      <AlertDialog.Cancel
+        >Cancel <DialogShortcut keys="cancel" /></AlertDialog.Cancel
+      >
       <AlertDialog.Action
         bind:ref={confirmRef}
         variant="destructive"
@@ -122,6 +137,7 @@
       >
         <Trash2 class="size-4" aria-hidden="true" />
         Teardown
+        <DialogShortcut keys="submit" />
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
