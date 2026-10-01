@@ -8,6 +8,7 @@
   import { commands } from '$lib/ipc'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { sendThreadMessage } from '$lib/thread/send-message'
   import {
     hasSessionToClear,
@@ -136,6 +137,22 @@
     }
   }
 
+  // ⌘↵ anywhere jumps to the composer; dialogs and the diff comment box handle it first.
+  function onWindowKeydown(event: KeyboardEvent) {
+    if (
+      event.key !== 'Enter' ||
+      !(event.metaKey || event.ctrlKey) ||
+      event.shiftKey ||
+      event.altKey ||
+      event.defaultPrevented ||
+      shellDialogs.blocksCommandPalette()
+    ) {
+      return
+    }
+    event.preventDefault()
+    inputEl?.focus()
+  }
+
   function onCompositionStart() {
     composing = true
   }
@@ -144,6 +161,8 @@
     composing = false
   }
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <div
   class="composer-wrap sticky bottom-0 z-10 bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
