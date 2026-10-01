@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Badge } from '$lib/components/ui/badge'
-  import { app } from '$lib/state'
+  import { app, workspaceRecords } from '$lib/state'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
     plural,
@@ -24,8 +24,19 @@
     app.view === 'workspace' && app.workspaceId === workspace.id,
   )
 
+  // The workspace's dev app, shown so a running server is findable without opening it.
+  const appRuntime = $derived(workspaceRecords.runtime(workspace.id))
+  const appRunning = $derived(appRuntime.appStatus === 'running')
+
   const ariaLabel = $derived.by(() => {
     const parts = [workspace.name, statusWord, plural(agentCount, 'agent')]
+    if (appRunning) {
+      parts.push(
+        appRuntime.port
+          ? `app running on port ${appRuntime.port}`
+          : 'app running',
+      )
+    }
     if (workspace.pendingApprovals > 0) {
       parts.push(
         plural(workspace.pendingApprovals, 'approval', 'approvals') +
@@ -61,6 +72,17 @@
       >
         {workspace.pendingApprovals}
       </Badge>
+    {:else if appRunning}
+      <span
+        class="flex items-center gap-1 font-mono text-[10px] text-emerald-600"
+        title={appRuntime.port
+          ? `App running on localhost:${appRuntime.port}`
+          : 'App running'}
+        aria-hidden="true"
+      >
+        <span class="size-1.5 rounded-full bg-emerald-500"></span>
+        {#if appRuntime.port}:{appRuntime.port}{/if}
+      </span>
     {:else}
       <span aria-hidden="true"></span>
     {/if}

@@ -409,6 +409,69 @@ describe('mapEventsToTimeline', () => {
   })
 })
 
+describe('named tool steps', () => {
+  function stepFor(name: string, detail: string | null) {
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          event: {
+            type: 'toolCall',
+            id: 'toolu_1',
+            title: name,
+            name,
+            kind: 'other',
+            status: 'inProgress',
+            locations: [],
+            detail,
+          },
+        },
+      ],
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    const run = items[0]
+    if (run?.kind !== 'toolRun') throw new Error('expected a tool run')
+    return run.steps[0]
+  }
+
+  it('shows an MCP call by its server and tool', () => {
+    expect(
+      stepFor('mcp__claude_ai_Trello__trelloReadCard', null),
+    ).toMatchObject({
+      title: 'Used Trello',
+      detail: 'Read card',
+      quiet: true,
+    })
+  })
+
+  it('turns snake and kebab case names into words', () => {
+    expect(stepFor('mcp__linear-server__list_issues', null)).toMatchObject({
+      title: 'Used Linear server',
+      detail: 'List issues',
+    })
+    expect(stepFor('mcp__github__github_get_pr', 'cormux#3')).toMatchObject({
+      title: 'Used Github',
+      detail: 'Get pr · cormux#3',
+    })
+  })
+
+  it('shows other tools by name in words', () => {
+    expect(stepFor('TodoWrite', null)).toMatchObject({ title: 'Todo write' })
+  })
+
+  it('shows ToolSearch as a quiet lookup', () => {
+    expect(stepFor('ToolSearch', 'select:Read')).toMatchObject({
+      icon: 'search',
+      title: 'Looked up tools',
+      detail: 'select:Read',
+      quiet: true,
+    })
+  })
+})
+
 describe('shouldShowLiveRow', () => {
   it('shows live while running or provisioning', () => {
     expect(shouldShowLiveRow('running', false)).toBe(true)
