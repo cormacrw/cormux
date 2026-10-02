@@ -23,7 +23,6 @@ test.describe('clickup', () => {
     const nav = page.getByRole('navigation', { name: 'Harness' })
     await expect(nav.getByRole('button', { name: /TODOs/ })).toBeVisible()
     await expect(nav.getByRole('button', { name: /Sprint/ })).toHaveCount(0)
-    await expect(page.locator('[data-od-id="home-in-progress"]')).toHaveCount(0)
   })
 
   test('saving a key in Settings reveals the Sprint page', async ({ page }) => {
@@ -52,10 +51,7 @@ test.describe('clickup', () => {
     ).toHaveText('Sprints')
   })
 
-  test('board, drag between lanes, points and Homebase', async ({
-    page,
-    context,
-  }) => {
+  test('board, drag between lanes and points', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
@@ -63,23 +59,15 @@ test.describe('clickup', () => {
     await enableClickup(page)
     await page.goto('/')
 
-    // Homebase lists every in-progress task under the PRs, the key owner's first.
-    const inProgress = page.locator('[data-od-id="home-in-progress"]')
-    await expect(inProgress.locator('li')).toHaveCount(3)
-    await expect(inProgress.locator('li').first()).toContainText('ENG-198')
-    await expect(inProgress.locator('li').last()).toContainText('ENG-184')
-    const prs = page.locator('[data-od-id="open-prs"]')
-    expect((await prs.boundingBox())!.y).toBeLessThan(
-      (await inProgress.boundingBox())!.y,
-    )
-    await inProgress.scrollIntoViewIfNeeded()
-    await inProgress.screenshot({ path: 'e2e/output/clickup-home.png' })
-
-    // Opening one lands on the board with its details open.
-    await inProgress.getByRole('button', { name: /^ENG-198 Session/ }).click()
+    // Opening a card shows its details in the pane.
+    await page
+      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('button', { name: /Sprint/ })
+      .click()
     await expect(
       page.getByRole('heading', { name: 'Sprint 14', level: 1 }),
     ).toBeVisible()
+    await page.locator('[data-task-id="t2"]').click()
     const panel = page.locator('[data-od-id="sprint-task-panel"]')
     await expect(
       panel.getByRole('heading', {
@@ -138,7 +126,7 @@ test.describe('clickup', () => {
     await page.mouse.up()
     await expect(target.locator('[data-task-id="t1"]')).toBeVisible()
 
-    // The moved task shows up on Homebase straight away.
+    // The sidebar's in-progress count picks up the moved task straight away.
     await expect(
       page
         .getByRole('navigation', { name: 'Harness' })
@@ -165,13 +153,6 @@ test.describe('clickup', () => {
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
     await expect(page.locator('[data-task-id="t2"]')).toBeFocused()
-
-    await page
-      .getByRole('navigation', { name: 'Harness' })
-      .getByRole('button', { name: /Homebase/ })
-      .click()
-    await expect(inProgress.locator('li')).toHaveCount(4)
-    await expect(inProgress.getByText('ENG-201')).toBeVisible()
 
     expect(errors).toEqual([])
   })

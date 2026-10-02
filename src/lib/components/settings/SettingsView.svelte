@@ -176,7 +176,7 @@
           <SettingsSectionHead
             id="settings-clickup-h"
             title="ClickUp"
-            description="Your team's current sprint as a board, and your in-progress tasks on Homebase."
+            description="Your team's current sprint as a board."
           />
           <div class="mt-4">
             <ClickupSettings />

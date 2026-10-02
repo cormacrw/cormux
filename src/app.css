@@ -232,6 +232,22 @@
     @apply bg-background text-foreground min-h-screen overscroll-none select-none;
   }
 
+  /* Paneforge forces ew-resize/ns-resize on everything mid-drag, which WKWebView
+     draws as the arrow. Layered !important beats its unlayered !important. */
+  body:has(
+      [data-pane-resizer][data-active='pointer'][data-direction='horizontal']
+    )
+    * {
+    cursor: col-resize !important;
+  }
+
+  body:has(
+      [data-pane-resizer][data-active='pointer'][data-direction='vertical']
+    )
+    * {
+    cursor: row-resize !important;
+  }
+
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;

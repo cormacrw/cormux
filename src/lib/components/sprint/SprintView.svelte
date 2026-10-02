@@ -295,7 +295,7 @@
       <Resizable.Pane id="sprint-board" order={1} minSize={35}>
         <div
           bind:this={boardEl}
-          class="flex h-full min-h-0 gap-3 overflow-x-auto overflow-y-hidden p-4"
+          class="flex h-full min-h-0 items-start gap-3 overflow-x-auto overflow-y-hidden p-4"
           role="list"
           aria-label="Sprint lanes"
           data-od-id="sprint-board"
@@ -307,7 +307,7 @@
               drag.task.status.toLowerCase() !== lane.status.name.toLowerCase()}
             <section
               class={cn(
-                'flex h-full w-[272px] shrink-0 flex-col rounded-xl border border-transparent bg-muted/40 transition-colors',
+                'flex max-h-full w-[272px] shrink-0 flex-col rounded-xl border border-transparent bg-muted/40 transition-colors',
                 isTarget && 'border-primary/60 bg-primary/[0.07]',
               )}
               role="listitem"
@@ -340,7 +340,7 @@
                 {/if}
               </header>
               <div
-                class="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2"
+                class="flex min-h-16 flex-col gap-2 overflow-y-auto px-2 pt-1 pb-2"
               >
                 {#each lane.tasks as task (task.id)}
                   <SprintTaskCard

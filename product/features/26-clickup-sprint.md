@@ -2,7 +2,7 @@
 
 ## Summary
 
-A **Sprint** page shows the team's current ClickUp sprint as a Kanban board, one lane per status. Cards can be dragged between lanes to change status, and a resizable pane on the right shows the selected task's details, where sprint points can be set. Homebase lists the sprint's in-progress tasks under Open pull requests. Nothing ClickUp-related shows until an API key is saved in Settings.
+A **Sprint** page shows the team's current ClickUp sprint as a Kanban board, one lane per status. Cards can be dragged between lanes to change status, and a resizable pane on the right shows the selected task's details, where sprint points can be set. Nothing ClickUp-related shows until an API key is saved in Settings.
 
 ## Setup (Settings › ClickUp)
 
@@ -15,7 +15,7 @@ ClickUp's API has no sprint endpoint. With the Sprints ClickApp, each sprint is 
 
 ## Sprint page
 
-- Sidebar item **Sprint** (under TODOs), with a count of the user's in-progress tasks. Palette: **Go to sprint** (meta `clickup`).
+- Sidebar item **Sprint** (under TODOs), with a count of the sprint's in-progress tasks: every status with ClickUp type `custom`, so everything between to do and done. Palette: **Go to sprint** (meta `clickup`).
 - Header: the sprint's name, `Sep 22 – Oct 5 · 4 days left`, total points, a warning chip `N tasks without points`, and **Refresh**.
 - Lanes follow the list's statuses in ClickUp's order. Each lane shows its task count and points. Tasks come from `GET /list/{id}/task` with `include_timl` (sprint tasks usually live in another home list), `subtasks` and `include_closed`.
 - Cards lead with the title, then a footer with the task's ID, a priority flag, assignee initials and a points pill. The ID is the custom ID, or ClickUp's own when the workspace has no Custom Task IDs. **Unpointed cards are highlighted** with a dashed amber outline, an amber tint and a dashed `No pts` pill.
@@ -25,11 +25,7 @@ ClickUp's API has no sprint endpoint. With the Sprints ClickApp, each sprint is 
 
 ## Task pane
 
-A header with the ID as a one-click **copy** button, the list, **Open in ClickUp** and close. Then the title, the status as a read-only pill (status changes by dragging), **Sprint points** (1, 2, 3, 5, 8, 13 or any other value; a `Not estimated yet` warning while unset), assignees, priority, due date, tags, the description rendered as rich markdown (headings, lists, tables, strikethrough, checklists and code; sanitised, with links opening in the browser) and who created it. Points use `PUT /task/{id}` `{ points }` and status uses `{ status }`. Both update the board at once, and the board reloads shortly after so it picks up anything ClickUp's automations did in response.
-
-## Homebase
-
-Section **In progress** under Open pull requests, shown only with a key. It lists every task in the current sprint whose status has ClickUp type `custom`, which covers everything between to do and done (so "in progress" and "in review" both count). Tasks assigned to the key's owner come first. Rows show the ID, title, assignees, status and points, or `No pts`, with copy ID and Open in ClickUp on hover. Clicking one opens the Sprint page with that task selected.
+A header with the ID as a one-click **copy** button, **Open in ClickUp** and close. Then the title, the status as a read-only pill (status changes by dragging), **Sprint points** (1, 2, 3, 5 or 8; a caution sign by the label while unset), assignees, priority, due date, tags, the description rendered as rich markdown (headings, lists, tables, strikethrough, checklists and code; sanitised, with links opening in the browser) and who created it. Points use `PUT /task/{id}` `{ points }` and status uses `{ status }`. Both update the board at once, and the board reloads shortly after so it picks up anything ClickUp's automations did in response.
 
 ## Refresh
 

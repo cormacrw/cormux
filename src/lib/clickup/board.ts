@@ -12,7 +12,7 @@ export const CLICKUP_SPACE_KEY = 'clickupSpaceId'
 export const CLICKUP_FOLDER_KEY = 'clickupFolderId'
 
 /** The Fibonacci values most teams estimate in, offered as one-click choices. */
-export const POINT_PRESETS = [1, 2, 3, 5, 8, 13] as const
+export const POINT_PRESETS = [1, 2, 3, 5, 8] as const
 
 function sameStatus(a: string, b: string) {
   return a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0
@@ -118,12 +118,4 @@ export function sprintRange(startMs: number | null, dueMs: number | null) {
 export function daysLeft(dueMs: number | null, nowMs: number) {
   if (dueMs == null) return null
   return Math.max(0, Math.ceil((dueMs - nowMs) / 86_400_000))
-}
-
-/** Parses a typed points value. Blank, negative or non-numeric input is null. */
-export function parsePoints(raw: string): number | null {
-  const trimmed = raw.trim()
-  if (!trimmed) return null
-  const value = Number(trimmed)
-  return Number.isFinite(value) && value >= 0 ? value : null
 }

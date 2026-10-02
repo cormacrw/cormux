@@ -1,15 +1,8 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-  import { Input } from '$lib/components/ui/input'
   import ThoughtMarkdown from '$lib/components/workspace/thread/ThoughtMarkdown.svelte'
-  import {
-    formatPoints,
-    parsePoints,
-    POINT_PRESETS,
-    statusLabel,
-    taskRef,
-  } from '$lib/clickup/board'
+  import { POINT_PRESETS, statusLabel, taskRef } from '$lib/clickup/board'
   import { clickup } from '$lib/state'
   import { cn } from '$lib/utils'
   import Check from '@lucide/svelte/icons/check'
@@ -39,28 +32,12 @@
 
   onDestroy(() => clearTimeout(copiedTimer))
 
-  let pointsDraft = $state('')
   let titleEl: HTMLHeadingElement | undefined = $state()
-
-  $effect(() => {
-    if (!task) return
-    pointsDraft = task.points == null ? '' : formatPoints(task.points)
-  })
 
   // Opening a task from Homebase or the board moves focus here for keyboard users.
   $effect(() => {
     if (task?.id) titleEl?.focus({ preventScroll: true })
   })
-
-  function commitDraft() {
-    if (!task) return
-    const points = parsePoints(pointsDraft)
-    if (points == null) {
-      pointsDraft = task.points == null ? '' : formatPoints(task.points)
-      return
-    }
-    void clickup.setPoints(task.id, points)
-  }
 
   const DATE = new Intl.DateTimeFormat('en-US', {
     month: 'short',
@@ -93,10 +70,6 @@
           <Copy class="size-3 text-muted-foreground" aria-hidden="true" />
         {/if}
       </button>
-      {#if detail?.listName}
-        <span aria-hidden="true">·</span>
-        <span class="truncate">{detail.listName}</span>
-      {/if}
       <div class="ml-auto flex items-center gap-1">
         <Button
           variant="ghost"
@@ -148,19 +121,20 @@
             </span>
           </dd>
 
-          <dt class="self-start pt-1.5 text-xs text-muted-foreground">
+          <dt class="flex items-center gap-1.5 text-xs text-muted-foreground">
             Sprint points
-          </dt>
-          <dd class="grid gap-2">
             {#if task.points == null}
-              <p
-                class="inline-flex w-fit items-center gap-1.5 rounded-md border border-warning/50 bg-warning/15 px-2 py-1 text-xs font-medium text-warning"
+              <span
+                class="text-warning"
+                title="Not estimated yet"
                 data-od-id="sprint-task-unpointed"
               >
                 <TriangleAlert class="size-3.5" aria-hidden="true" />
-                Not estimated yet
-              </p>
+                <span class="sr-only">Not estimated yet</span>
+              </span>
             {/if}
+          </dt>
+          <dd>
             <div
               class="flex flex-wrap items-center gap-1"
               role="group"
@@ -182,20 +156,6 @@
                   {value}
                 </button>
               {/each}
-              <Input
-                class="h-8 w-16 font-mono text-xs"
-                inputmode="decimal"
-                placeholder="Other"
-                aria-label="Other points value"
-                bind:value={pointsDraft}
-                onblur={commitDraft}
-                onkeydown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    commitDraft()
-                  }
-                }}
-              />
             </div>
           </dd>
 

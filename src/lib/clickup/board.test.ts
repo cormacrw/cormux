@@ -8,7 +8,6 @@ import {
   daysLeft,
   inProgressTasks,
   taskRef,
-  parsePoints,
   sprintLanes,
   sprintRange,
   sprintTotals,
@@ -92,16 +91,6 @@ describe('withTaskStatus', () => {
 describe('sprintTotals', () => {
   it('sums points and counts unpointed tasks', () => {
     expect(sprintTotals(board.tasks)).toEqual({ points: 10, unpointed: 1 })
-  })
-})
-
-describe('parsePoints', () => {
-  it('accepts zero and decimals, rejects junk', () => {
-    expect(parsePoints('0')).toBe(0)
-    expect(parsePoints(' 2.5 ')).toBe(2.5)
-    expect(parsePoints('')).toBeNull()
-    expect(parsePoints('-1')).toBeNull()
-    expect(parsePoints('abc')).toBeNull()
   })
 })
 
