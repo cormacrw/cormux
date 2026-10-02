@@ -1,4 +1,4 @@
-import type { DiffFile, DiffTarget } from '$lib/ipc/bindings'
+import type { DiffFile, DiffTarget, LineCounts } from '$lib/ipc/bindings'
 import { subscribeDiffs } from '$lib/ipc'
 import { sameDiffTarget } from '$lib/stack/stack'
 import {
@@ -16,6 +16,8 @@ export class WorkspaceDiffStore {
   filesByWorkspace = $state<Record<string, DiffFile[]>>({})
   /** What each diff shows; `null` means uncommitted changes. */
   targetByWorkspace = $state<Record<string, DiffTarget | null>>({})
+  /** Uncommitted lines, whichever diff is showing. */
+  uncommittedByWorkspace = $state<Record<string, LineCounts>>({})
   // Raw so `fetch` can tell its own entry apart from a newer one by identity.
   pendingByWorkspace = $state.raw<Record<string, PendingDiff>>({})
 
@@ -23,6 +25,10 @@ export class WorkspaceDiffStore {
     const files = this.filesByWorkspace[workspaceId]
     if (!files?.length) return emptyTotals()
     return totalsFromDiffFiles(files)
+  }
+
+  uncommitted(workspaceId: string): DiffLineTotals {
+    return this.uncommittedByWorkspace[workspaceId] ?? emptyTotals()
   }
 
   target(workspaceId: string): DiffTarget | null {
@@ -70,6 +76,7 @@ export class WorkspaceDiffStore {
     workspaceId: string,
     files: DiffFile[],
     target: DiffTarget | null = null,
+    uncommitted: LineCounts = totalsFromDiffFiles(files),
   ) {
     const pending = this.pendingByWorkspace[workspaceId]
     if (
@@ -85,6 +92,10 @@ export class WorkspaceDiffStore {
       ...this.targetByWorkspace,
       [workspaceId]: target,
     }
+    this.uncommittedByWorkspace = {
+      ...this.uncommittedByWorkspace,
+      [workspaceId]: uncommitted,
+    }
   }
 
   clearWorkspace(workspaceId: string) {
@@ -96,6 +107,9 @@ export class WorkspaceDiffStore {
     const targets = { ...this.targetByWorkspace }
     delete targets[workspaceId]
     this.targetByWorkspace = targets
+    const uncommitted = { ...this.uncommittedByWorkspace }
+    delete uncommitted[workspaceId]
+    this.uncommittedByWorkspace = uncommitted
   }
 }
 
@@ -104,7 +118,12 @@ export const workspaceDiff = new WorkspaceDiffStore()
 export function bindWorkspaceDiffSubscription(workspaceId: string) {
   const stop = subscribeDiffs(workspaceId, (update) => {
     if (update.diff?.files) {
-      workspaceDiff.setFiles(workspaceId, update.diff.files, update.diff.target)
+      workspaceDiff.setFiles(
+        workspaceId,
+        update.diff.files,
+        update.diff.target,
+        update.diff.uncommitted,
+      )
     }
   })
 

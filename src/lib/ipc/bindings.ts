@@ -667,6 +667,10 @@ export type GitConflictOperation = "merge" | "rebase"
 export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
 export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; engine: string }
 export type JoinWorkspaceThreadResult = { threadId: string }
+/**
+ * Lines added and deleted across a set of files.
+ */
+export type LineCounts = { added: number; deleted: number }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
 export type MessageRole = "user" | "agent" | "thought"
 /**
@@ -821,7 +825,11 @@ export type WorktreeDiff = { workspaceId: string;
 /**
  * What the diff shows; `None` means uncommitted changes vs `HEAD`.
  */
-target: DiffTarget | null; files: DiffFile[] }
+target: DiffTarget | null; files: DiffFile[]; 
+/**
+ * Uncommitted changes vs `HEAD`, whatever `target` is.
+ */
+uncommitted: LineCounts }
 
 /** tauri-specta globals **/
 
