@@ -52,16 +52,22 @@ test.describe('clickup', () => {
     ).toHaveText('Sprints')
   })
 
-  test('board, drag between lanes, points and Homebase', async ({ page }) => {
+  test('board, drag between lanes, points and Homebase', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     mkdirSync('e2e/output', { recursive: true })
     await enableClickup(page)
     await page.goto('/')
 
-    // Homebase lists the key owner's in-progress tasks under the PRs.
+    // Homebase lists every in-progress task under the PRs, the key owner's first.
     const inProgress = page.locator('[data-od-id="home-in-progress"]')
-    await expect(inProgress.locator('li')).toHaveCount(2)
+    await expect(inProgress.locator('li')).toHaveCount(3)
+    await expect(inProgress.locator('li').first()).toContainText('ENG-198')
+    await expect(inProgress.locator('li').last()).toContainText('ENG-184')
     const prs = page.locator('[data-od-id="open-prs"]')
     expect((await prs.boundingBox())!.y).toBeLessThan(
       (await inProgress.boundingBox())!.y,
@@ -70,7 +76,7 @@ test.describe('clickup', () => {
     await inProgress.screenshot({ path: 'e2e/output/clickup-home.png' })
 
     // Opening one lands on the board with its details open.
-    await inProgress.getByRole('button', { name: /ENG-198/ }).click()
+    await inProgress.getByRole('button', { name: /^ENG-198 Session/ }).click()
     await expect(
       page.getByRole('heading', { name: 'Sprint 14', level: 1 }),
     ).toBeVisible()
@@ -81,6 +87,29 @@ test.describe('clickup', () => {
       }),
     ).toBeVisible()
     await expect(panel.getByText('Customers lose their cart')).toBeVisible()
+
+    // The description renders as rich markdown.
+    await expect(panel.getByRole('heading', { name: 'Problem' })).toBeVisible()
+    await expect(panel.getByRole('cell', { name: 'Safari 18' })).toBeVisible()
+    await expect(panel.getByRole('checkbox')).toHaveCount(2)
+    await expect(panel.locator('strong')).toHaveText('mid checkout')
+
+    // The ID copies in one click.
+    await panel.getByRole('button', { name: 'Copy ENG-198' }).click()
+    await expect(
+      panel.getByRole('button', { name: 'Copied ENG-198' }),
+    ).toBeVisible()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      'ENG-198',
+    )
+
+    // Without a custom ID the card shows ClickUp's own.
+    await expect(page.locator('[data-task-id="t4"]')).toHaveAccessibleName(
+      /^t4 Audit log/,
+    )
+    await expect(
+      page.getByRole('button', { name: 'Open t4 in ClickUp' }),
+    ).toBeAttached()
 
     // Unpointed tasks stand out on the board and in the header.
     const unpointed = page.locator('[data-unpointed]')
@@ -109,6 +138,13 @@ test.describe('clickup', () => {
     await page.mouse.up()
     await expect(target.locator('[data-task-id="t1"]')).toBeVisible()
 
+    // The moved task shows up on Homebase straight away.
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Harness' })
+        .getByRole('button', { name: /Sprint/ }),
+    ).toContainText('4')
+
     expect(await calls(page)).toEqual([
       {
         cmd: 'set_clickup_task_points',
@@ -129,6 +165,13 @@ test.describe('clickup', () => {
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
     await expect(page.locator('[data-task-id="t2"]')).toBeFocused()
+
+    await page
+      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('button', { name: /Homebase/ })
+      .click()
+    await expect(inProgress.locator('li')).toHaveCount(4)
+    await expect(inProgress.getByText('ENG-201')).toBeVisible()
 
     expect(errors).toEqual([])
   })

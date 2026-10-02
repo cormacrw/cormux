@@ -2,20 +2,28 @@
   import { gsap } from 'gsap'
   import { mount, onDestroy, unmount } from 'svelte'
   import { prefersReducedMotion } from '$lib/thread/entering'
-  import { renderSanitizedMarkdown } from '$lib/thread/sanitize-markdown'
+  import {
+    renderRichMarkdown,
+    renderSanitizedMarkdown,
+  } from '$lib/thread/sanitize-markdown'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import CodeCopyButton from './CodeCopyButton.svelte'
 
   let {
     text,
     cursor = false,
+    rich = false,
   }: {
     text: string
+    /** Documents (task descriptions) rather than chat: headings, tables and checklists too. */
+    rich?: boolean
     /** TextType's ▎ cursor, blinking at the end of the last line while a reply types. */
     cursor?: boolean
   } = $props()
 
-  const html = $derived(renderSanitizedMarkdown(text))
+  const html = $derived(
+    rich ? renderRichMarkdown(text) : renderSanitizedMarkdown(text),
+  )
 
   let root: HTMLDivElement | undefined = $state()
   let cursorEl: HTMLSpanElement | null = null

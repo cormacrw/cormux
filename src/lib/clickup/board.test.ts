@@ -7,6 +7,7 @@ import type {
 import {
   daysLeft,
   inProgressTasks,
+  taskRef,
   parsePoints,
   sprintLanes,
   sprintRange,
@@ -74,8 +75,8 @@ describe('sprintLanes', () => {
 })
 
 describe('inProgressTasks', () => {
-  it("keeps the key owner's tasks in a between status", () => {
-    expect(inProgressTasks(board).map((t) => t.id)).toEqual(['b', 'd'])
+  it("keeps every task in a between status, the key owner's first", () => {
+    expect(inProgressTasks(board).map((t) => t.id)).toEqual(['b', 'd', 'c'])
     expect(inProgressTasks(null)).toEqual([])
   })
 })
@@ -112,5 +113,12 @@ describe('sprint dates', () => {
     expect(sprintRange(null, due)).toBeNull()
     expect(daysLeft(due, due - 2.5 * 86_400_000)).toBe(3)
     expect(daysLeft(due, due + 1)).toBe(0)
+  })
+})
+
+describe('taskRef', () => {
+  it('falls back to the ClickUp ID without a custom one', () => {
+    expect(taskRef({ id: '86abc', customId: 'ENG-1' })).toBe('ENG-1')
+    expect(taskRef({ id: '86abc', customId: null })).toBe('86abc')
   })
 })

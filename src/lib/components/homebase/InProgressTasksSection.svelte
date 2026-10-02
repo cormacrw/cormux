@@ -1,9 +1,10 @@
 <script lang="ts">
   import * as Empty from '$lib/components/ui/empty'
-  import { formatPoints, statusLabel } from '$lib/clickup/board'
+  import TaskActions from '$lib/components/sprint/TaskActions.svelte'
+  import { formatPoints, statusLabel, taskRef } from '$lib/clickup/board'
   import { app, clickup } from '$lib/state'
   import Kanban from '@lucide/svelte/icons/square-kanban'
-  import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
+  import CircleDashed from '@lucide/svelte/icons/circle-dashed'
 </script>
 
 {#if clickup.configured}
@@ -33,51 +34,72 @@
 
     {#if clickup.inProgress.length > 0}
       <ul
-        class="divide-y rounded-xl border border-border text-sm"
+        class="divide-y rounded-xl border border-border text-sm [&>li]:transition-colors [&>li:hover]:bg-muted/40"
         data-od-id="in-progress-list"
       >
         {#each clickup.inProgress as task (task.id)}
-          <li>
+          <li class="group/row flex items-center pr-2">
             <button
               type="button"
-              class="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+              class="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
               onclick={() => app.openSprint(task.id)}
             >
-              {#if task.customId}
-                <span
-                  class="w-20 shrink-0 truncate font-mono text-xs text-muted-foreground"
-                  >{task.customId}</span
-                >
-              {/if}
+              <span
+                class="w-24 shrink-0 truncate font-mono text-xs text-muted-foreground"
+                >{taskRef(task)}</span
+              >
               <span class="min-w-0 flex-1 truncate font-medium"
                 >{task.name}</span
               >
+              {#if task.assignees.length > 0}
+                <span
+                  class="flex shrink-0 -space-x-1.5"
+                  title={task.assignees.map((user) => user.username).join(', ')}
+                >
+                  {#each task.assignees.slice(0, 3) as user (user.id)}
+                    <span
+                      class="flex size-5 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-2 ring-background"
+                      style:background-color={user.color ??
+                        'var(--muted-foreground)'}
+                      aria-hidden="true">{user.initials}</span
+                    >
+                  {/each}
+                </span>
+              {/if}
               <span
-                class="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+                class="inline-flex w-24 shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
               >
                 <span
                   class="size-2 rounded-full"
                   style:background-color={task.statusColor ?? 'currentColor'}
                   aria-hidden="true"
                 ></span>
-                {statusLabel(task.status)}
+                <span class="truncate">{statusLabel(task.status)}</span>
               </span>
-              <span class="flex w-[84px] shrink-0 justify-end">
+              <span class="flex w-16 shrink-0 justify-end">
                 {#if task.points == null}
                   <span
-                    class="inline-flex shrink-0 items-center gap-1 rounded-md border border-warning/50 bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning"
+                    class="inline-flex items-center gap-1 rounded-full border border-dashed border-warning/80 bg-warning/15 px-1.5 py-px text-[10px] font-semibold text-warning"
                   >
-                    <TriangleAlert class="size-3" aria-hidden="true" />
-                    No points
+                    <CircleDashed class="size-3" aria-hidden="true" />
+                    No pts
                   </span>
                 {:else}
                   <span
-                    class="inline-flex min-w-6 shrink-0 justify-center rounded-md border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px]"
-                    title="Sprint points">{formatPoints(task.points)}</span
+                    class="inline-flex items-baseline gap-0.5 rounded-full bg-muted px-2 py-px font-mono text-[11px] font-semibold"
+                    title="Sprint points"
+                    >{formatPoints(task.points)}<span
+                      class="text-[9px] font-normal text-muted-foreground"
+                      >pts</span
+                    ></span
                   >
                 {/if}
               </span>
             </button>
+            <TaskActions
+              {task}
+              class="ml-2 opacity-0 transition-opacity group-focus-within/row:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:group-hover/row:opacity-100"
+            />
           </li>
         {/each}
       </ul>
@@ -99,8 +121,7 @@
             {#if !clickup.ready}
               Pick it in Settings › ClickUp to see your tasks here.
             {:else if clickup.board}
-              Tasks assigned to you in this sprint show up here once they're
-              started.
+              Sprint tasks show up here once they're started.
             {:else if clickup.error}
               {clickup.error}
             {/if}

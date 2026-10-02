@@ -1,16 +1,19 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
-  import * as Select from '$lib/components/ui/select'
   import ThoughtMarkdown from '$lib/components/workspace/thread/ThoughtMarkdown.svelte'
   import {
     formatPoints,
     parsePoints,
     POINT_PRESETS,
     statusLabel,
+    taskRef,
   } from '$lib/clickup/board'
   import { clickup } from '$lib/state'
   import { cn } from '$lib/utils'
+  import Check from '@lucide/svelte/icons/check'
+  import Copy from '@lucide/svelte/icons/copy'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import X from '@lucide/svelte/icons/x'
@@ -18,12 +21,23 @@
 
   const task = $derived(clickup.selectedTask)
   const detail = $derived(task ? clickup.details[task.id] : undefined)
-  const statuses = $derived(clickup.board?.statuses ?? [])
-  const currentStatus = $derived(
-    statuses.find(
-      (status) => status.name.toLowerCase() === task?.status.toLowerCase(),
-    ),
-  )
+  const ref = $derived(task ? taskRef(task) : '')
+
+  let copied = $state(false)
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined
+
+  async function copyRef() {
+    try {
+      await navigator.clipboard.writeText(ref)
+    } catch {
+      return
+    }
+    copied = true
+    clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => (copied = false), 1500)
+  }
+
+  onDestroy(() => clearTimeout(copiedTimer))
 
   let pointsDraft = $state('')
   let titleEl: HTMLHeadingElement | undefined = $state()
@@ -64,7 +78,21 @@
     <header
       class="flex items-center gap-2 border-b border-border px-4 py-2.5 text-xs text-muted-foreground"
     >
-      <span class="font-mono">{task.customId ?? 'Task'}</span>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 font-mono text-[11px] text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+        aria-label={copied ? `Copied ${ref}` : `Copy ${ref}`}
+        title="Copy ID"
+        data-od-id="sprint-task-copy-id"
+        onclick={copyRef}
+      >
+        {ref}
+        {#if copied}
+          <Check class="size-3 text-success" aria-hidden="true" />
+        {:else}
+          <Copy class="size-3 text-muted-foreground" aria-hidden="true" />
+        {/if}
+      </button>
       {#if detail?.listName}
         <span aria-hidden="true">·</span>
         <span class="truncate">{detail.listName}</span>
@@ -107,43 +135,17 @@
         >
           <dt class="text-xs text-muted-foreground">Status</dt>
           <dd>
-            <Select.Root
-              type="single"
-              value={currentStatus?.name ?? task.status}
-              onValueChange={(next) => {
-                if (next) void clickup.moveTask(task.id, next)
-              }}
+            <span
+              class="inline-flex items-center gap-2 rounded-full border border-border px-2.5 py-0.5 text-xs font-medium"
+              data-od-id="sprint-task-status"
             >
-              <Select.Trigger
-                class="h-8 w-[200px]"
-                aria-label="Status"
-                data-od-id="sprint-task-status"
-              >
-                <span class="flex items-center gap-2 truncate">
-                  <span
-                    class="size-2 shrink-0 rounded-full"
-                    style:background-color={task.statusColor ?? 'currentColor'}
-                    aria-hidden="true"
-                  ></span>
-                  {statusLabel(task.status)}
-                </span>
-              </Select.Trigger>
-              <Select.Content>
-                {#each statuses as status (status.name)}
-                  <Select.Item
-                    value={status.name}
-                    label={statusLabel(status.name)}
-                  >
-                    <span
-                      class="size-2 shrink-0 rounded-full"
-                      style:background-color={status.color ?? 'currentColor'}
-                      aria-hidden="true"
-                    ></span>
-                    {statusLabel(status.name)}
-                  </Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
+              <span
+                class="size-2 shrink-0 rounded-full"
+                style:background-color={task.statusColor ?? 'currentColor'}
+                aria-hidden="true"
+              ></span>
+              {statusLabel(task.status)}
+            </span>
           </dd>
 
           <dt class="self-start pt-1.5 text-xs text-muted-foreground">
@@ -257,7 +259,7 @@
           {#if detail}
             {#if detail.description.trim()}
               <div class="text-sm">
-                <ThoughtMarkdown text={detail.description} />
+                <ThoughtMarkdown text={detail.description} rich />
               </div>
             {:else}
               <p class="text-sm text-muted-foreground">No description.</p>

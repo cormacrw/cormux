@@ -21,7 +21,7 @@ const teammate: ClickupUser = {
 
 function task(
   id: string,
-  customId: string,
+  customId: string | null,
   name: string,
   status: string,
   statusColor: string,
@@ -90,7 +90,8 @@ export function fixtureClickupBoard(): ClickupBoard {
       ),
       task(
         't4',
-        'ENG-205',
+        // Workspaces without Custom Task IDs only have ClickUp's own.
+        null,
         'Audit log for admin role changes',
         'to do',
         '#87909e',
@@ -123,7 +124,27 @@ export function fixtureClickupBoard(): ClickupBoard {
 export function fixtureClickupDetail(source: ClickupTask): ClickupTaskDetail {
   return {
     task: source,
-    description: `Customers lose their cart when the session cookie expires.\n\n**Steps**\n\n1. Add an item\n2. Wait 30 minutes\n3. Check out\n\nSee [the incident](https://example.com/incident).`,
+    description: [
+      '## Problem',
+      '',
+      'Customers lose their cart when the session cookie expires **mid checkout**.',
+      '',
+      '### Steps',
+      '',
+      '1. Add an item',
+      '2. Wait 30 minutes',
+      '3. Check out',
+      '',
+      '| Browser | Affected |',
+      '| --- | --- |',
+      '| Safari 18 | Yes |',
+      '| Chrome | ~~No~~ Sometimes |',
+      '',
+      '- [x] Reproduce locally',
+      '- [ ] Extend the cookie on activity',
+      '',
+      'See [the incident](https://example.com/incident).',
+    ].join('\n'),
     tags: [{ name: 'checkout', fg: '#ffffff', bg: '#e5484d' }],
     creator: teammate,
     listName: 'Sprint 14',

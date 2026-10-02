@@ -119,7 +119,7 @@
         {#if clickup.inProgress.length > 0}
           <span
             class="font-mono text-[10px] text-muted-foreground/80"
-            title="Your tasks in progress">{clickup.inProgress.length}</span
+            title="Tasks in progress">{clickup.inProgress.length}</span
           >
         {/if}
       </Button>

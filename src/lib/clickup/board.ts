@@ -53,19 +53,25 @@ export function sprintTotals(tasks: ClickupTask[]) {
 }
 
 /**
- * The key owner's tasks in a status between to do and done (ClickUp's `custom` type),
- * for Homebase.
+ * Sprint tasks in a status between to do and done (ClickUp's `custom` type), for Homebase.
+ * The key owner's come first; the rest keep the board's order.
  */
 export function inProgressTasks(board: ClickupBoard | null): ClickupTask[] {
   if (!board) return []
   const active = board.statuses
     .filter((status) => status.kind === 'custom')
     .map((status) => status.name)
-  return board.tasks.filter(
-    (task) =>
-      active.some((name) => sameStatus(name, task.status)) &&
-      task.assignees.some((user) => user.id === board.userId),
+  const tasks = board.tasks.filter((task) =>
+    active.some((name) => sameStatus(name, task.status)),
   )
+  const mine = (task: ClickupTask) =>
+    task.assignees.some((user) => user.id === board.userId)
+  return [...tasks.filter(mine), ...tasks.filter((task) => !mine(task))]
+}
+
+/** The ID people say out loud: the custom ID when the workspace has them, else ClickUp's own. */
+export function taskRef(task: Pick<ClickupTask, 'id' | 'customId'>) {
+  return task.customId ?? task.id
 }
 
 /** A copy of the board with one task in a new lane, for optimistic moves. */

@@ -421,6 +421,74 @@
   color: var(--muted-foreground);
 }
 
+/* Only rich markdown (task descriptions) emits these. */
+.agent-markdown :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.agent-markdown * + :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 1.25em;
+}
+
+.agent-markdown h1 {
+  font-size: 1.35em;
+}
+
+.agent-markdown h2 {
+  font-size: 1.2em;
+}
+
+.agent-markdown h3 {
+  font-size: 1.05em;
+}
+
+.agent-markdown :is(h4, h5, h6) {
+  font-size: 1em;
+  color: var(--muted-foreground);
+}
+
+.agent-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.agent-markdown :is(del, s) {
+  color: var(--muted-foreground);
+}
+
+.agent-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.925em;
+}
+
+.agent-markdown :is(th, td) {
+  border: 1px solid var(--border);
+  padding: 0.35em 0.65em;
+  text-align: left;
+}
+
+.agent-markdown th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+/* GFM task lists: the checkbox replaces the bullet. */
+.agent-markdown li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.25em;
+}
+
+.agent-markdown input[type='checkbox'] {
+  margin-right: 0.5em;
+  vertical-align: -0.1em;
+  accent-color: var(--primary);
+}
+
 .agent-markdown .type-cursor {
   display: inline-block;
   margin-left: 1px;
