@@ -46,6 +46,7 @@ export const fixtureSnapshot: Snapshot = {
         defaultBranch: 'main',
         setupCommands: '',
         runCommand: null,
+        singleInstance: false,
       },
     ],
     workspaces: [
@@ -216,6 +217,7 @@ export const fixtureSnapshot: Snapshot = {
   pendingLiveApprovals: 0,
   githubAuthConfigured: false,
   prSyncedAt: null,
+  clickupConfigured: false,
   workspaceApps: [],
 }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import AgentsSettings from '$lib/components/settings/AgentsSettings.svelte'
+  import ClickupSettings from '$lib/components/settings/ClickupSettings.svelte'
   import AppearanceSettings from '$lib/components/settings/AppearanceSettings.svelte'
   import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte'
   import GithubSettings from '$lib/components/settings/GithubSettings.svelte'
@@ -8,6 +9,7 @@
   import PrPromptSettings from '$lib/components/settings/PrPromptSettings.svelte'
   import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
   import ScratchMacrosSettings from '$lib/components/settings/ScratchMacrosSettings.svelte'
+  import ShortcutsSettings from '$lib/components/settings/ShortcutsSettings.svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
   import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
   import {
@@ -64,7 +66,7 @@
     const root = scrollRoot
     if (!root) return
     const atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 8
-    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'notifications'
+    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'shortcuts'
     if (atBottom) {
       activeSection = last
       return
@@ -164,6 +166,24 @@
         </section>
 
         <section
+          use:bindSection={'clickup'}
+          id={settingsSectionDomId('clickup')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-clickup-h"
+          data-od-id="settings-clickup-section"
+        >
+          <SettingsSectionHead
+            id="settings-clickup-h"
+            title="ClickUp"
+            description="Your team's current sprint as a board."
+          />
+          <div class="mt-4">
+            <ClickupSettings />
+          </div>
+        </section>
+
+        <section
           use:bindSection={'repos'}
           id={settingsSectionDomId('repos')}
           class="set-sec scroll-mt-6 outline-none"
@@ -228,6 +248,24 @@
           />
           <div class="mt-4">
             <NotificationsSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'shortcuts'}
+          id={settingsSectionDomId('shortcuts')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-shortcuts-h"
+          data-od-id="settings-shortcuts"
+        >
+          <SettingsSectionHead
+            id="settings-shortcuts-h"
+            title="Keyboard shortcuts"
+            description="Keys for getting around Cormux."
+          />
+          <div class="mt-4">
+            <ShortcutsSettings />
           </div>
         </section>
       </div>

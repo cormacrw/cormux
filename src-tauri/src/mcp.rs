@@ -212,6 +212,7 @@ mod tests {
                 default_branch: Some("main".into()),
                 setup_commands: String::new(),
                 run_command: Some("echo hi".into()),
+                single_instance: false,
             })
             .unwrap();
         store

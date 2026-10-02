@@ -87,3 +87,45 @@ export function renderSanitizedMarkdown(source: string): string {
   const raw = marked.parse(source, { async: false })
   return DOMPurify.sanitize(raw, ALLOWED)
 }
+
+/** ClickUp task descriptions are written as documents, so they also get headings, tables and checklists. */
+const RICH = {
+  ALLOWED_TAGS: [
+    ...ALLOWED.ALLOWED_TAGS,
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'hr',
+    'del',
+    's',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+    'input',
+  ],
+  ALLOWED_ATTR: [
+    ...ALLOWED.ALLOWED_ATTR,
+    'type',
+    'checked',
+    'disabled',
+    'align',
+  ],
+}
+
+export function renderRichMarkdown(source: string): string {
+  const raw = marked.parse(source, { async: false })
+  const html = DOMPurify.sanitize(raw, RICH)
+  // GFM task lists are the only inputs marked emits; anything else is dropped.
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  doc.querySelectorAll('input').forEach((input) => {
+    if (input.type !== 'checkbox') input.remove()
+    else input.disabled = true
+  })
+  return doc.body.innerHTML
+}

@@ -6,6 +6,7 @@
   import Plus from '@lucide/svelte/icons/plus'
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import { Button } from '$lib/components/ui/button'
+  import { Checkbox } from '$lib/components/ui/checkbox'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
   import RepoDefaultBranchField from '$lib/components/settings/RepoDefaultBranchField.svelte'
@@ -137,6 +138,18 @@
       setupCommands: value,
     })
     if (result.status === 'error') {
+      toastCoreError(result.error)
+    }
+  }
+
+  async function saveSingleInstance(repoId: string, singleInstance: boolean) {
+    patchRepo(repoId, { singleInstance })
+    const result = await commands.setRepoSingleInstance({
+      repoId,
+      singleInstance,
+    })
+    if (result.status === 'error') {
+      patchRepo(repoId, { singleInstance: !singleInstance })
       toastCoreError(result.error)
     }
   }
@@ -366,6 +379,28 @@
               Starts the app from the worktree root when you press Run in a
               workspace
             </p>
+          </div>
+          <div class="field flex items-start gap-2">
+            <Checkbox
+              id="single-{repo.id}"
+              class="mt-0.5"
+              checked={repos.items.find((row) => row.id === repo.id)
+                ?.singleInstance ?? repo.singleInstance}
+              aria-describedby="repo-single-hint-{key}"
+              onCheckedChange={(next) => void saveSingleInstance(repo.id, next)}
+            />
+            <div class="space-y-1.5">
+              <label class="text-sm font-medium" for="single-{repo.id}">
+                Run one instance at a time
+              </label>
+              <p
+                class="field-hint text-xs text-muted-foreground"
+                id="repo-single-hint-{key}"
+              >
+                Running the app in a workspace stops it in this repo's other
+                workspaces
+              </p>
+            </div>
           </div>
           <div class="flex flex-wrap gap-2">
             <Button

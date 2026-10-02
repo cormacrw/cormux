@@ -1,6 +1,6 @@
 [package]
 name = "cormux"
-version = "0.1.4"
+version = "0.1.5"
 description = "Run many coding agents in parallel, each in its own git worktree"
 authors = ["Cormac Williamson"]
 license = "UNLICENSED"
@@ -38,7 +38,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 notify = "8"
 ignore = "0.4"
 sysinfo = "0.33"
-keyring = "3"
+keyring = { version = "3", features = ["apple-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]

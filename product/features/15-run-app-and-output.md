@@ -95,6 +95,9 @@ If there's setup output but the app is stopped, the setup log is shown with no e
 5. When the last line lands, status becomes **running** and a toast says `<name> is running on localhost:<port>`.
 6. **Run does not switch tabs.** You stay where you are; the Output tab's spinner, then dot and port, show progress. Focus moves to the Stop button (or to **Add run command** if there's no command).
 
+### One instance at a time
+If the repo has **Run one instance at a time** on (see [22](22-repos.md)), Run first stops the app in the repo's other workspaces, each with the usual Stop log lines and toast.
+
 ### Stop
 - Pending boot lines are cancelled, `^C` and a `App stopped` separator are written, status becomes **stopped**, the port is released, and a toast says `Stopped the app in <name>`. Focus moves to Run.
 

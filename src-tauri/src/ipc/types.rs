@@ -22,6 +22,8 @@ pub struct Snapshot {
     pub github_auth_configured: bool,
     /// Unix seconds string from the last successful PR sync, if any.
     pub pr_synced_at: Option<String>,
+    /// True when a ClickUp API key is in the Keychain. Every ClickUp surface hides without one.
+    pub clickup_configured: bool,
     pub workspace_apps: Vec<WorkspaceAppRuntime>,
 }
 
@@ -257,6 +259,13 @@ pub enum WorkspaceAppControlAction {
 pub struct SetRepoRunCommandInput {
     pub repo_id: String,
     pub run_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRepoSingleInstanceInput {
+    pub repo_id: String,
+    pub single_instance: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

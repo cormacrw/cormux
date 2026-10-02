@@ -11,6 +11,7 @@
   import { fetchSnapshot, listenForStateChanges } from '$lib/ipc'
   import {
     app,
+    clickup,
     hydrateFromSnapshot,
     patchFromEvent,
     settings,
@@ -24,6 +25,7 @@
   import EndScratchDialog from '$lib/components/scratch/EndScratchDialog.svelte'
   import ScratchView from '$lib/components/scratch/ScratchView.svelte'
   import TodosView from '$lib/components/todos/TodosView.svelte'
+  import SprintView from '$lib/components/sprint/SprintView.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
   import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
@@ -50,6 +52,7 @@
       const win = getCurrentWindow()
       const unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
         setHarnessWindowFocused(focused)
+        if (focused) void clickup.refresh()
       })
       setHarnessWindowFocused(await win.isFocused())
       const unlistenState = await listenForStateChanges({
@@ -76,6 +79,13 @@
   })
 
   onMount(() => installOverlayFailsafe())
+
+  // Teammates move tasks in ClickUp too, so the sprint refreshes every couple of minutes.
+  $effect(() => {
+    if (!clickup.ready) return
+    const id = window.setInterval(() => void clickup.refresh(), 120_000)
+    return () => window.clearInterval(id)
+  })
 
   onMount(() => {
     window.addEventListener('keydown', handleGlobalKeydown)
@@ -127,6 +137,8 @@
       <ScratchView />
     {:else if app.view === 'todos'}
       <TodosView />
+    {:else if app.view === 'sprint'}
+      <SprintView />
     {:else}
       <Homebase />
     {/if}

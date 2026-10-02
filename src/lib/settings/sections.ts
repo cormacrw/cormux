@@ -2,10 +2,12 @@ export const SETTINGS_SECTIONS = [
   { id: 'general', label: 'General' },
   { id: 'agents', label: 'Agents' },
   { id: 'github', label: 'GitHub' },
+  { id: 'clickup', label: 'ClickUp' },
   { id: 'repos', label: 'Repos' },
   { id: 'macros', label: 'Scratch macros' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'notifications', label: 'Notifications' },
+  { id: 'shortcuts', label: 'Keyboard shortcuts' },
 ] as const
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id']

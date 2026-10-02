@@ -2,6 +2,7 @@ import Zap from '@lucide/svelte/icons/zap'
 import Download from '@lucide/svelte/icons/download'
 import GitBranch from '@lucide/svelte/icons/git-branch'
 import Layers from '@lucide/svelte/icons/layers'
+import Kanban from '@lucide/svelte/icons/square-kanban'
 import ListTodo from '@lucide/svelte/icons/list-todo'
 import MessageSquare from '@lucide/svelte/icons/message-square'
 import Play from '@lucide/svelte/icons/play'
@@ -11,6 +12,7 @@ import Search from '@lucide/svelte/icons/search'
 import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
 import Square from '@lucide/svelte/icons/square'
 import { app } from '$lib/state/app.svelte'
+import { clickup } from '$lib/state/clickup.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches } from '$lib/state/scratches.svelte'
 import { settings } from '$lib/state/settings.svelte'
@@ -35,6 +37,7 @@ const iconByCommandPrefix: Record<string, PaletteCommand['icon']> = {
   'action-new-scratch': Plus,
   'action-homebase': Layers,
   'action-todos': ListTodo,
+  'action-sprint': Kanban,
   'action-add-todo': Plus,
   'action-settings': SlidersHorizontal,
   'action-reduce-motion': SlidersHorizontal,
@@ -97,6 +100,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
   const commands = buildPaletteCommandsFromState(
     {
       reduceMotion: settings.reduceMotion,
+      clickupConfigured: clickup.configured,
       workspaces: workspaces.liveItems,
       scratches: scratches.items,
       scratchMacros: settings.scratchMacros,
@@ -114,6 +118,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       runScratchMacro: (id, extra) => void runScratchMacro(id, extra),
       openHomebase: () => app.openHomebase(),
       openTodos: () => app.openTodos(),
+      openSprint: () => app.openSprint(),
       openSettings: () => app.openSettings(),
       openWorkspace: (id, threadId) => app.openWorkspace(id, threadId),
       toggleReduceMotion,

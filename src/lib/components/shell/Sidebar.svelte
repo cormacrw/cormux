@@ -6,6 +6,7 @@
   import * as Tooltip from '$lib/components/ui/tooltip'
   import {
     app,
+    clickup,
     memory,
     repos,
     scratches,
@@ -15,6 +16,7 @@
   } from '$lib/state'
   import { isActiveThread } from '$lib/sidebar/status'
   import Cpu from '@lucide/svelte/icons/cpu'
+  import Kanban from '@lucide/svelte/icons/square-kanban'
   import Layers from '@lucide/svelte/icons/layers'
   import ListTodo from '@lucide/svelte/icons/list-todo'
   import Plus from '@lucide/svelte/icons/plus'
@@ -104,6 +106,24 @@
         >
       {/if}
     </Button>
+
+    {#if clickup.configured}
+      <Button
+        variant="ghost"
+        class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
+        aria-current={app.view === 'sprint' ? 'page' : undefined}
+        onclick={() => app.openSprint()}
+      >
+        <Kanban class="size-4 shrink-0 opacity-80" aria-hidden="true" />
+        <span class="flex-1 text-left">Sprint</span>
+        {#if clickup.progress.openTasks > 0}
+          <span
+            class="font-mono text-[10px] text-muted-foreground/80"
+            title="Open tasks">{clickup.progress.openTasks}</span
+          >
+        {/if}
+      </Button>
+    {/if}
 
     <Button
       variant="ghost"

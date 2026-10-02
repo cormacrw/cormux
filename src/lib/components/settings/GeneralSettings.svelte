@@ -6,10 +6,8 @@
   import { Switch } from '$lib/components/ui/switch'
   import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
-  import { Kbd, KbdGroup } from '$lib/components/ui/kbd'
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { SETTINGS_SHORTCUTS } from '$lib/settings/shortcuts'
   import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
   import { repos, settings, workspaceRecords } from '$lib/state'
   import { Alert, AlertDescription } from '$lib/components/ui/alert'
@@ -169,24 +167,3 @@
     {/snippet}
   </SettingsRow>
 </SettingsPanel>
-
-<div class="mt-4 space-y-2" data-od-id="settings-shortcuts">
-  <h3 class="text-sm font-medium">Keyboard shortcuts</h3>
-  <SettingsPanel>
-    {#each SETTINGS_SHORTCUTS as row (row.keys)}
-      <div
-        class="flex items-center justify-between gap-4 border-b border-border px-4 py-2.5 last:border-b-0"
-      >
-        <span class="text-sm text-muted-foreground">{row.description}</span>
-        <KbdGroup>
-          {#each row.keys.split('+') as part, index (part + index)}
-            {#if index > 0}
-              <span class="text-xs text-muted-foreground">+</span>
-            {/if}
-            <Kbd>{part}</Kbd>
-          {/each}
-        </KbdGroup>
-      </div>
-    {/each}
-  </SettingsPanel>
-</div>

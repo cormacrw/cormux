@@ -5,6 +5,7 @@ use tauri::{AppHandle, State, ipc::Channel};
 use tauri_specta::Event;
 use uuid::Uuid;
 
+use crate::clickup::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
 use crate::composer::{persist_control_step, persist_user_message};
 use crate::engines::{EngineKind, ThreadModels};
 use crate::error::{Error, Result};
@@ -23,12 +24,15 @@ use super::types::{
     CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RemoveRepoInput,
     RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime, ResolveApprovalResult,
     SendWorkspaceFindingsInput, SetRepoDefaultBranchInput, SetRepoRunCommandInput,
-    SetRepoSetupCommandsInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
-    TeardownInput, TeardownPreview, TestRepoSetupInput, TestRepoSetupResult,
-    WorkspaceAppControlAction, WorkspaceSummaryResult,
+    SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, SetSettingInput, Snapshot,
+    SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
+    TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
 use crate::store::types::RepoRecord;
+
+/// Settings key for the ClickUp folder whose lists are the sprints.
+const CLICKUP_FOLDER_KEY: &str = "clickupFolderId";
 
 #[tauri::command]
 #[specta::specta]
@@ -70,6 +74,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         pending_live_approvals: state.approvals.pending_count(),
         github_auth_configured,
         pr_synced_at,
+        clickup_configured: state.clickup.is_configured(),
         workspace_apps: state.apps.snapshot(),
     })
 }
@@ -134,8 +139,24 @@ pub async fn set_repo_run_command(
             default_branch: repo.default_branch,
             setup_commands: repo.setup_commands,
             run_command: repo.run_command,
+            single_instance: repo.single_instance,
         },
     )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_repo_single_instance(
+    app: AppHandle,
+    input: SetRepoSingleInstanceInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let repos = state.store.snapshot()?.repos;
+    let Some(mut repo) = repos.into_iter().find(|row| row.id == input.repo_id) else {
+        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
+    };
+    repo.single_instance = input.single_instance;
+    upsert_repo_record(&app, &state, repo)
 }
 
 #[tauri::command]
@@ -160,6 +181,7 @@ pub async fn set_repo_setup_commands(
             default_branch: repo.default_branch,
             setup_commands: repo.setup_commands,
             run_command: repo.run_command,
+            single_instance: repo.single_instance,
         },
     )
 }
@@ -326,6 +348,7 @@ pub async fn add_repo(
         default_branch,
         setup_commands,
         run_command,
+        single_instance: false,
     };
     upsert_repo_record(&app, &state, record.clone())?;
 
@@ -548,6 +571,101 @@ pub async fn set_github_token(token: String) -> Result<()> {
 #[specta::specta]
 pub async fn clear_github_token() -> Result<()> {
     clear_token()
+}
+
+fn emit_settings_changed(app: &AppHandle, state: &AppState) {
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(app);
+}
+
+/// Checks the key with ClickUp, then stores it in the Keychain.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_clickup_api_key(
+    app: AppHandle,
+    key: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    state.clickup.save_key(&key).await?;
+    emit_settings_changed(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn clear_clickup_api_key(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    state.clickup.clear_key()?;
+    emit_settings_changed(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn clickup_workspaces(state: State<'_, AppState>) -> Result<Vec<ClickupOption>> {
+    state.clickup.workspaces().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn clickup_spaces(
+    workspace_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ClickupOption>> {
+    state.clickup.spaces(&workspace_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn clickup_folders(
+    space_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ClickupOption>> {
+    state.clickup.folders(&space_id).await
+}
+
+/// The current sprint in the sprint folder chosen in Settings.
+#[tauri::command]
+#[specta::specta]
+pub async fn clickup_board(state: State<'_, AppState>) -> Result<ClickupBoard> {
+    let folder_id = state
+        .store
+        .get_setting(CLICKUP_FOLDER_KEY)?
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| Error::Clickup("choose a sprint folder in Settings".into()))?;
+    state.clickup.board(&folder_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn clickup_task(
+    task_id: String,
+    state: State<'_, AppState>,
+) -> Result<ClickupTaskDetail> {
+    state.clickup.task(&task_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_clickup_task_status(
+    task_id: String,
+    status: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    state.clickup.set_status(&task_id, &status).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_clickup_task_points(
+    task_id: String,
+    points: f64,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    state.clickup.set_points(&task_id, points).await
 }
 
 #[tauri::command]

@@ -9,6 +9,7 @@ import type {
 } from '$lib/ipc/bindings'
 import { commands, fetchSnapshot } from '$lib/ipc'
 import { app } from './app.svelte'
+import { clickup } from './clickup.svelte'
 import { homebaseUi } from './homebase-ui.svelte'
 import { memory } from './memory.svelte'
 import { prs } from './prs.svelte'
@@ -31,6 +32,7 @@ import {
 } from '$lib/workspace/provisioning'
 
 export { app } from './app.svelte'
+export { clickup } from './clickup.svelte'
 export { memory } from './memory.svelte'
 export { prs } from './prs.svelte'
 export { repos } from './repos.svelte'
@@ -348,6 +350,8 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     syncedAtMs: Number.isFinite(prSyncedAtMs) ? prSyncedAtMs : null,
     authConfigured: snapshot.githubAuthConfigured,
   })
+  clickup.hydrate(snapshot.clickupConfigured, snapshot.persisted.settings)
+  if (app.view === 'sprint' && !clickup.configured) app.openHomebase()
 }
 
 export async function patchFromEvent(event: StateChanged) {

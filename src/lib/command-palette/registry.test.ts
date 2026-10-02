@@ -8,6 +8,7 @@ describe('buildPaletteCommandsFromState', () => {
     const labels = buildPaletteCommandsFromState(
       {
         reduceMotion: false,
+        clickupConfigured: false,
         workspaces: [
           {
             id: 'ws-1',
@@ -65,6 +66,7 @@ describe('buildPaletteCommandsFromState', () => {
             defaultBranch: 'main',
             setupCommands: '',
             runCommand: 'pnpm dev',
+            singleInstance: false,
           },
         ],
         records: [
@@ -98,6 +100,7 @@ describe('buildPaletteCommandsFromState', () => {
                 defaultBranch: 'main',
                 setupCommands: '',
                 runCommand: 'pnpm dev',
+                singleInstance: false,
               }
             : undefined,
         recordFor: (id) =>
@@ -126,6 +129,7 @@ describe('buildPaletteCommandsFromState', () => {
         runScratchMacro: noop,
         openHomebase: noop,
         openTodos: noop,
+        openSprint: noop,
         openSettings: noop,
         openWorkspace: noop,
         toggleReduceMotion: noop,
@@ -142,6 +146,8 @@ describe('buildPaletteCommandsFromState', () => {
     expect(labels).toContain('New scratch')
     expect(labels).toContain('Go to TODOs')
     expect(labels).toContain('Add a task')
+    // No ClickUp key, no sprint page.
+    expect(labels).not.toContain('Go to sprint')
     expect(labels).toContain('Morning triage')
     expect(labels).not.toContain('Empty')
     expect(labels).toContain('Open Why the webhook signature fails')

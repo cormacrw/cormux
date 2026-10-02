@@ -2,6 +2,7 @@
 
 mod app;
 mod approvals;
+mod clickup;
 mod composer;
 mod create_pr;
 mod engines;

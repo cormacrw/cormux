@@ -261,6 +261,84 @@ async syncPullRequests() : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Checks the key with ClickUp, then stores it in the Keychain.
+ */
+async setClickupApiKey(key: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_clickup_api_key", { key }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearClickupApiKey() : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_clickup_api_key") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clickupWorkspaces() : Promise<Result<ClickupOption[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clickup_workspaces") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clickupSpaces(workspaceId: string) : Promise<Result<ClickupOption[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clickup_spaces", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clickupFolders(spaceId: string) : Promise<Result<ClickupOption[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clickup_folders", { spaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The current sprint in the sprint folder chosen in Settings.
+ */
+async clickupBoard() : Promise<Result<ClickupBoard, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clickup_board") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clickupTask(taskId: string) : Promise<Result<ClickupTaskDetail, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clickup_task", { taskId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setClickupTaskStatus(taskId: string, status: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_clickup_task_status", { taskId, status }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setClickupTaskPoints(taskId: string, points: number) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_clickup_task_points", { taskId, points }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listRepoBranches(repoId: string) : Promise<Result<RepoBranchesResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_repo_branches", { repoId }) };
@@ -470,6 +548,14 @@ async setRepoRunCommand(input: SetRepoRunCommandInput) : Promise<Result<null, Er
     else return { status: "error", error: e  as any };
 }
 },
+async setRepoSingleInstance(input: SetRepoSingleInstanceInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_repo_single_instance", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setRepoSetupCommands(input: SetRepoSetupCommandsInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_repo_setup_commands", { input }) };
@@ -626,6 +712,28 @@ export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type
 { type: "toolCallUpdate"; id: string; title: string | null; kind: ToolKind | null; status: ToolCallStatus | null; locations: string[] } | { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
+/**
+ * Everything the sprint board renders: the current sprint, its lanes and its tasks.
+ */
+export type ClickupBoard = { sprint: ClickupSprint; statuses: ClickupStatus[]; tasks: ClickupTask[]; 
+/**
+ * The API key's owner, so Homebase can pick out their in-progress tasks.
+ */
+userId: number }
+/**
+ * A workspace, space or folder offered by the Settings pickers.
+ */
+export type ClickupOption = { id: string; name: string }
+export type ClickupSprint = { id: string; name: string; startMs: number | null; dueMs: number | null }
+export type ClickupStatus = { name: string; color: string | null; 
+/**
+ * `open`, `custom`, `done` or `closed`. `custom` statuses are the ones between to do and done.
+ */
+kind: string; order: number }
+export type ClickupTag = { name: string; fg: string | null; bg: string | null }
+export type ClickupTask = { id: string; customId: string | null; name: string; status: string; statusColor: string | null; points: number | null; assignees: ClickupUser[]; priority: string | null; priorityColor: string | null; parent: string | null; url: string }
+export type ClickupTaskDetail = { task: ClickupTask; description: string; tags: ClickupTag[]; creator: ClickupUser | null; listName: string | null; dueMs: number | null; createdMs: number | null; updatedMs: number | null }
+export type ClickupUser = { id: number; username: string; initials: string; color: string | null }
 export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
 export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number; title: string; head: string; base: string; author: string; authorIsYou: boolean; filesChanged: number; prHtmlUrl: string | null }
 export type CreateReviewWorkspaceResult = { workspaceId: string; created: boolean }
@@ -661,7 +769,7 @@ export type EngineStatus = { kind: EngineKind; installed: boolean; binary: strin
  * Shared error type for the Rust core. Serialised as a tagged union so the
  * generated TypeScript bindings stay in lockstep with Rust.
  */
-export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: string; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string } | { kind: "NotImplemented"; message: string }
+export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: string; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string } | { kind: "NotImplemented"; message: string }
 export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null; sentToThreadId: string | null }
 export type GitConflictOperation = "merge" | "rebase"
 export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
@@ -700,7 +808,11 @@ export type RepoBranchesResult = { branches: string[] }
  * How far a repo's local default branch is from `origin`, as of the last fetch.
  */
 export type RepoGitRuntime = { repoId: string; behind: number; ahead: number }
-export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
+export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null; 
+/**
+ * Running the app in one workspace stops it in the repo's other workspaces.
+ */
+singleInstance: boolean }
 export type ResolveApprovalResult = { focusComposer: boolean }
 /**
  * A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
@@ -714,6 +826,7 @@ export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string
 export type SetRepoDefaultBranchInput = { repoId: string; defaultBranch: string }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }
+export type SetRepoSingleInstanceInput = { repoId: string; singleInstance: boolean }
 export type SetSettingInput = { key: string; value: string }
 export type SettingRow = { key: string; value: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
@@ -728,7 +841,11 @@ githubAuthConfigured: boolean;
 /**
  * Unix seconds string from the last successful PR sync, if any.
  */
-prSyncedAt: string | null; workspaceApps: WorkspaceAppRuntime[] }
+prSyncedAt: string | null; 
+/**
+ * True when a ClickUp API key is in the Keychain. Every ClickUp surface hides without one.
+ */
+clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.

@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{RwLock, broadcast};
 
 use crate::app::WorkspaceAppService;
+use crate::clickup::ClickupClient;
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::ipc::subscriptions::Subscriptions;
 use crate::{
@@ -24,6 +25,7 @@ pub struct AppState {
     pub process: ProcessSupervisor,
     pub apps: WorkspaceAppService,
     pub github: GithubClient,
+    pub clickup: ClickupClient,
     pub llm: LlmClient,
     pub store: Store,
     pub metrics: Metrics,
@@ -73,6 +75,7 @@ impl AppState {
             process,
             apps,
             github: GithubClient::new(),
+            clickup: ClickupClient::new(),
             llm: LlmClient::new(shell_env),
             store,
             metrics: Metrics::new(),
