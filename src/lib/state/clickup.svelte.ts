@@ -10,9 +10,9 @@ import { settings } from './settings.svelte'
 import {
   CLICKUP_FOLDER_KEY,
   CLICKUP_HIDDEN_STATUSES_KEY,
-  inProgressTasks,
   parseHiddenStatuses,
   sprintLanes,
+  sprintProgress,
   statusKey,
   statusLabel,
   withTaskPoints,
@@ -58,7 +58,7 @@ export class ClickupStore {
     this.allLanes.filter((lane) => !this.isHidden(lane.status.name)),
   )
   readonly hiddenLaneCount = $derived(this.allLanes.length - this.lanes.length)
-  readonly inProgress = $derived(inProgressTasks(this.board))
+  readonly progress = $derived(sprintProgress(this.board))
   readonly selectedTask = $derived(
     this.board?.tasks.find((task) => task.id === this.selectedTaskId) ?? null,
   )

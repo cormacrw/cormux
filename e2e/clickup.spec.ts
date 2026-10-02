@@ -107,9 +107,20 @@ test.describe('clickup', () => {
     ).toHaveText(/2 tasks without points/)
     await page.screenshot({ path: 'e2e/output/clickup-board.png' })
 
-    // Estimating from the pane clears the highlight.
+    // The meter counts points in done or closed lanes out of every pointed task.
+    const progress = page.locator('[data-od-id="sprint-progress"]')
+    await expect(progress).toHaveAttribute(
+      'aria-valuetext',
+      '1 of 11 points done',
+    )
+
+    // Estimating from the pane clears the highlight and grows the total.
     await panel.getByRole('button', { name: '3 points', exact: true }).click()
     await expect(unpointed).toHaveCount(1)
+    await expect(progress).toHaveAttribute(
+      'aria-valuetext',
+      '1 of 14 points done',
+    )
     await expect(
       panel.getByRole('button', { name: '3 points', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true')
@@ -126,12 +137,12 @@ test.describe('clickup', () => {
     await page.mouse.up()
     await expect(target.locator('[data-task-id="t1"]')).toBeVisible()
 
-    // The sidebar's in-progress count picks up the moved task straight away.
+    // The sidebar counts every task not yet done; moving between open lanes keeps it.
     await expect(
       page
         .getByRole('navigation', { name: 'Harness' })
         .getByRole('button', { name: /Sprint/ }),
-    ).toContainText('4')
+    ).toContainText('5')
 
     expect(await calls(page)).toEqual([
       {

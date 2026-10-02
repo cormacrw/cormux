@@ -15,10 +15,10 @@ ClickUp's API has no sprint endpoint. With the Sprints ClickApp, each sprint is 
 
 ## Sprint page
 
-- Sidebar item **Sprint** (under TODOs), with a count of the sprint's in-progress tasks: every status with ClickUp type `custom`, so everything between to do and done. Palette: **Go to sprint** (meta `clickup`).
-- Header: the sprint's name, `Sep 22 – Oct 5 · 4 days left`, total points, a warning chip `N tasks without points`, and **Refresh**.
+- Sidebar item **Sprint** (under TODOs), with a count of the sprint's open tasks: every task not in a status with ClickUp type `done` or `closed`. Palette: **Go to sprint** (meta `clickup`).
+- Header: the sprint's name, `Sep 22 – Oct 5 · 4 days left`, a progress meter of points done out of total points (done means a `done` or `closed` status; unpointed tasks don't count), a warning chip `N tasks without points`, **Lanes** and **Refresh**.
 - Lanes follow the list's statuses in ClickUp's order. Each lane shows its task count and points. Tasks come from `GET /list/{id}/task` with `include_timl` (sprint tasks usually live in another home list), `subtasks` and `include_closed`.
-- **Hide** a lane from the eye button in its header (shown on hover or focus), or toggle lanes from the header's **Lanes** menu, which counts hidden lanes and offers **Show all lanes**. Hidden statuses are saved by name in the `clickupHiddenStatuses` setting, so they stay hidden across sprints and restarts. Header totals still cover the whole sprint.
+- **Hide** a lane from the eye button in its header (shown on hover or focus), or toggle lanes from the header's **Lanes** menu, which counts hidden lanes and offers **Show all lanes**. Hidden statuses are saved by name in the `clickupHiddenStatuses` setting, so they stay hidden across sprints and restarts. The header meter and warning still cover the whole sprint.
 - Cards lead with the title, then a footer with the task's ID, a priority flag, assignee initials and a points pill. The ID is the custom ID, or ClickUp's own when the workspace has no Custom Task IDs. **Unpointed cards are highlighted** with a dashed amber outline, an amber tint and a dashed `No pts` pill.
 - Hovering or focusing a card shows **Copy ID** and **Open in ClickUp** buttons. They don't start a drag or select the card.
 - **Drag** a card onto another lane to change its status. Drags are pointer-based, so Tauri's native file-drop handling doesn't interfere. A drag starts after 4px of travel so a click still selects, the board scrolls when the pointer nears its edge, and Escape cancels. The move applies at once and rolls back with a toast if ClickUp refuses it.

@@ -71,21 +71,28 @@ export function sprintTotals(tasks: ClickupTask[]) {
   return { points, unpointed }
 }
 
-/**
- * Sprint tasks in a status between to do and done (ClickUp's `custom` type), for Homebase.
- * The key owner's come first; the rest keep the board's order.
- */
-export function inProgressTasks(board: ClickupBoard | null): ClickupTask[] {
-  if (!board) return []
-  const active = board.statuses
-    .filter((status) => status.kind === 'custom')
+/** ClickUp's `done` and `closed` status types both mean finished. */
+function isDoneKind(kind: string) {
+  return kind === 'done' || kind === 'closed'
+}
+
+/** Points finished out of all pointed tasks, and how many tasks are still open. */
+export function sprintProgress(board: ClickupBoard | null) {
+  let donePoints = 0
+  let totalPoints = 0
+  let openTasks = 0
+  if (!board) return { donePoints, totalPoints, openTasks }
+  const done = board.statuses
+    .filter((status) => isDoneKind(status.kind))
     .map((status) => status.name)
-  const tasks = board.tasks.filter((task) =>
-    active.some((name) => sameStatus(name, task.status)),
-  )
-  const mine = (task: ClickupTask) =>
-    task.assignees.some((user) => user.id === board.userId)
-  return [...tasks.filter(mine), ...tasks.filter((task) => !mine(task))]
+  for (const task of board.tasks) {
+    const finished = done.some((name) => sameStatus(name, task.status))
+    if (!finished) openTasks += 1
+    if (task.points == null) continue
+    totalPoints += task.points
+    if (finished) donePoints += task.points
+  }
+  return { donePoints, totalPoints, openTasks }
 }
 
 /** The ID people say out loud: the custom ID when the workspace has them, else ClickUp's own. */

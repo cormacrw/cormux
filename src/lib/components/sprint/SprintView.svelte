@@ -215,9 +215,35 @@
     </div>
     <div class="flex items-center gap-3">
       {#if clickup.board}
-        <span class="font-mono text-xs text-muted-foreground"
-          >{formatPoints(totals.points)} pts</span
+        {@const { donePoints, totalPoints } = clickup.progress}
+        <div
+          class="flex items-center gap-2.5"
+          role="progressbar"
+          aria-label="Sprint points done"
+          aria-valuemin={0}
+          aria-valuemax={totalPoints}
+          aria-valuenow={donePoints}
+          aria-valuetext="{formatPoints(donePoints)} of {formatPoints(
+            totalPoints,
+          )} points done"
+          data-od-id="sprint-progress"
         >
+          <span class="font-mono text-xs text-muted-foreground"
+            ><span class="text-foreground">{formatPoints(donePoints)}</span>
+            / {formatPoints(totalPoints)} pts</span
+          >
+          <span
+            class="h-1.5 w-28 overflow-hidden rounded-full bg-muted"
+            aria-hidden="true"
+          >
+            <span
+              class="block h-full rounded-full bg-success transition-[width] duration-500"
+              style:width="{totalPoints > 0
+                ? (donePoints / totalPoints) * 100
+                : 0}%"
+            ></span>
+          </span>
+        </div>
         {#if totals.unpointed > 0}
           <span
             class="inline-flex items-center gap-1.5 rounded-md border border-warning/50 bg-warning/15 px-2 py-1 text-xs font-medium text-warning"

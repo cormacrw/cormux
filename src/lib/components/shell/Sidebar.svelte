@@ -116,10 +116,10 @@
       >
         <Kanban class="size-4 shrink-0 opacity-80" aria-hidden="true" />
         <span class="flex-1 text-left">Sprint</span>
-        {#if clickup.inProgress.length > 0}
+        {#if clickup.progress.openTasks > 0}
           <span
             class="font-mono text-[10px] text-muted-foreground/80"
-            title="Tasks in progress">{clickup.inProgress.length}</span
+            title="Open tasks">{clickup.progress.openTasks}</span
           >
         {/if}
       </Button>

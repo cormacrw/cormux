@@ -6,10 +6,10 @@ import type {
 } from '$lib/ipc/bindings'
 import {
   daysLeft,
-  inProgressTasks,
   parseHiddenStatuses,
   taskRef,
   sprintLanes,
+  sprintProgress,
   sprintRange,
   sprintTotals,
   withTaskStatus,
@@ -74,10 +74,27 @@ describe('sprintLanes', () => {
   })
 })
 
-describe('inProgressTasks', () => {
-  it("keeps every task in a between status, the key owner's first", () => {
-    expect(inProgressTasks(board).map((t) => t.id)).toEqual(['b', 'd', 'c'])
-    expect(inProgressTasks(null)).toEqual([])
+describe('sprintProgress', () => {
+  it('counts done and closed points, and every task not yet finished', () => {
+    const finished: ClickupBoard = {
+      ...board,
+      statuses: [...statuses, status('shipped', 'done', 4)],
+      tasks: [
+        ...board.tasks,
+        task('e', 'Complete', 8),
+        task('f', 'shipped', null),
+      ],
+    }
+    expect(sprintProgress(finished)).toEqual({
+      donePoints: 8,
+      totalPoints: 18,
+      openTasks: 4,
+    })
+    expect(sprintProgress(null)).toEqual({
+      donePoints: 0,
+      totalPoints: 0,
+      openTasks: 0,
+    })
   })
 })
 
