@@ -46,6 +46,7 @@ export const fixtureSnapshot: Snapshot = {
         defaultBranch: 'main',
         setupCommands: '',
         runCommand: null,
+        singleInstance: false,
       },
     ],
     workspaces: [

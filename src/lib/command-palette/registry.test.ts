@@ -65,6 +65,7 @@ describe('buildPaletteCommandsFromState', () => {
             defaultBranch: 'main',
             setupCommands: '',
             runCommand: 'pnpm dev',
+            singleInstance: false,
           },
         ],
         records: [
@@ -98,6 +99,7 @@ describe('buildPaletteCommandsFromState', () => {
                 defaultBranch: 'main',
                 setupCommands: '',
                 runCommand: 'pnpm dev',
+                singleInstance: false,
               }
             : undefined,
         recordFor: (id) =>

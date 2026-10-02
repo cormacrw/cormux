@@ -261,6 +261,13 @@ pub struct SetRepoRunCommandInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct SetRepoSingleInstanceInput {
+    pub repo_id: String,
+    pub single_instance: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct SetRepoSetupCommandsInput {
     pub repo_id: String,
     pub setup_commands: String,

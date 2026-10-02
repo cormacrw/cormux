@@ -62,6 +62,7 @@ pub fn builder() -> Builder {
             commands::open_workspace_terminal,
             commands::control_workspace_app,
             commands::set_repo_run_command,
+            commands::set_repo_single_instance,
             commands::set_repo_setup_commands,
             commands::set_repo_default_branch,
             commands::pull_repo_default_branch,

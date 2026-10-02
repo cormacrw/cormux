@@ -53,6 +53,7 @@ commands.allow = [
   "start_streaming_spike",
   "control_workspace_app",
   "set_repo_run_command",
+  "set_repo_single_instance",
   "set_repo_setup_commands",
   "set_repo_default_branch",
   "pull_repo_default_branch",

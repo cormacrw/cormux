@@ -179,6 +179,7 @@ impl WorkspaceAppService {
 
     async fn run(&self, app: &AppHandle, state: &AppState, workspace_id: &str) -> Result<()> {
         let (worktree, run_command, kind, name) = run_context(state, workspace_id).await?;
+        self.stop_other_instances(app, state, workspace_id).await?;
         let port = self.pick_port_with_log(&state.process, workspace_id, kind);
         let env = run_env(state, workspace_id, port).await?;
 
@@ -255,6 +256,52 @@ impl WorkspaceAppService {
         }
         self.set_status(workspace_id, WorkspaceAppStatus::Stopped, None, None);
         self.emit_changed(app, state);
+        Ok(())
+    }
+
+    /// With the repo's "one instance at a time" on, stops its app in every other workspace.
+    async fn stop_other_instances(
+        &self,
+        app: &AppHandle,
+        state: &AppState,
+        workspace_id: &str,
+    ) -> Result<()> {
+        let Some(workspace) = state.workspace.get(workspace_id).await else {
+            return Ok(());
+        };
+        let single_instance = state
+            .store
+            .snapshot()?
+            .repos
+            .iter()
+            .any(|repo| repo.id == workspace.repo_id && repo.single_instance);
+        if !single_instance {
+            return Ok(());
+        }
+        let active: Vec<String> = self
+            .inner
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(id, record)| {
+                id.as_str() != workspace_id
+                    && matches!(
+                        record.status,
+                        WorkspaceAppStatus::Starting | WorkspaceAppStatus::Running
+                    )
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for other_id in active {
+            let same_repo = state
+                .workspace
+                .get(&other_id)
+                .await
+                .is_some_and(|other| other.repo_id == workspace.repo_id);
+            if same_repo {
+                self.stop(app, state, &other_id, false).await?;
+            }
+        }
         Ok(())
     }
 

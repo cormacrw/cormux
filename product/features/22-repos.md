@@ -47,6 +47,11 @@ One row per repo:
 - Single-line text input, no spellcheck, placeholder `pnpm dev`.
 - Hint: `Starts the app from the worktree root when you press Run in a workspace`.
 
+**Run one instance at a time**
+- Checkbox, off by default. Saves on change.
+- Hint: `Running the app in a workspace stops it in this repo's other workspaces`.
+- When on, Run (and Restart) in one workspace first stops the app in every other workspace on the repo that's starting or running, as a normal Stop (see [15](15-run-app-and-output.md)).
+
 ### Add form (under the list)
 - Label `Add a repo`.
 - Path input, placeholder `~/code/my-project`.

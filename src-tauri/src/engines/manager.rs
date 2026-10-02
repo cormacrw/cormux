@@ -897,6 +897,7 @@ mod tests {
                 default_branch: Some("main".into()),
                 setup_commands: String::new(),
                 run_command: None,
+                single_instance: false,
             })
             .unwrap();
         store

@@ -91,10 +91,16 @@ impl Store {
                 rusqlite::params![repo.id, repo.path, repo.name, repo.default_branch],
             )?;
             conn.execute(
-                "INSERT INTO repo_config (repo_id, setup_commands, run_command) VALUES (?1, ?2, ?3)
+                "INSERT INTO repo_config (repo_id, setup_commands, run_command, single_instance)
+                 VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(repo_id) DO UPDATE SET setup_commands = excluded.setup_commands,
-                    run_command = excluded.run_command",
-                rusqlite::params![repo.id, repo.setup_commands, repo.run_command],
+                    run_command = excluded.run_command, single_instance = excluded.single_instance",
+                rusqlite::params![
+                    repo.id,
+                    repo.setup_commands,
+                    repo.run_command,
+                    repo.single_instance
+                ],
             )?;
             Ok(())
         })
@@ -798,7 +804,8 @@ impl Store {
                 repos: query_all(
                     conn,
                     "SELECT r.id, r.path, r.name, r.default_branch,
-                            COALESCE(c.setup_commands, ''), c.run_command
+                            COALESCE(c.setup_commands, ''), c.run_command,
+                            COALESCE(c.single_instance, 0) != 0
                      FROM repos r LEFT JOIN repo_config c ON c.repo_id = r.id",
                     |row| {
                         Ok(RepoRecord {
@@ -808,6 +815,7 @@ impl Store {
                             default_branch: row.get(3)?,
                             setup_commands: row.get(4)?,
                             run_command: row.get(5)?,
+                            single_instance: row.get(6)?,
                         })
                     },
                 )?,
@@ -1080,6 +1088,7 @@ mod tests {
                     default_branch: Some("main".into()),
                     setup_commands: String::new(),
                     run_command: None,
+                    single_instance: false,
                 })
                 .unwrap();
         }
@@ -1157,6 +1166,7 @@ mod tests {
                 default_branch: Some("main".into()),
                 setup_commands: String::new(),
                 run_command: None,
+                single_instance: false,
             })
             .unwrap();
         store
@@ -1234,6 +1244,7 @@ mod tests {
                 default_branch: Some("main".into()),
                 setup_commands: String::new(),
                 run_command: None,
+                single_instance: false,
             })
             .unwrap();
         store
@@ -1318,6 +1329,7 @@ mod tests {
                 default_branch: Some("main".into()),
                 setup_commands: "pnpm install".into(),
                 run_command: Some("pnpm dev".into()),
+                single_instance: false,
             })
             .unwrap();
         store

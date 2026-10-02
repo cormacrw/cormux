@@ -470,6 +470,14 @@ async setRepoRunCommand(input: SetRepoRunCommandInput) : Promise<Result<null, Er
     else return { status: "error", error: e  as any };
 }
 },
+async setRepoSingleInstance(input: SetRepoSingleInstanceInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_repo_single_instance", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setRepoSetupCommands(input: SetRepoSetupCommandsInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_repo_setup_commands", { input }) };
@@ -700,7 +708,11 @@ export type RepoBranchesResult = { branches: string[] }
  * How far a repo's local default branch is from `origin`, as of the last fetch.
  */
 export type RepoGitRuntime = { repoId: string; behind: number; ahead: number }
-export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
+export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null; 
+/**
+ * Running the app in one workspace stops it in the repo's other workspaces.
+ */
+singleInstance: boolean }
 export type ResolveApprovalResult = { focusComposer: boolean }
 /**
  * A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
@@ -714,6 +726,7 @@ export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string
 export type SetRepoDefaultBranchInput = { repoId: string; defaultBranch: string }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }
+export type SetRepoSingleInstanceInput = { repoId: string; singleInstance: boolean }
 export type SetSettingInput = { key: string; value: string }
 export type SettingRow = { key: string; value: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 

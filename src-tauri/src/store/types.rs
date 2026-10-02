@@ -19,6 +19,8 @@ pub struct RepoRecord {
     pub default_branch: Option<String>,
     pub setup_commands: String,
     pub run_command: Option<String>,
+    /// Running the app in one workspace stops it in the repo's other workspaces.
+    pub single_instance: bool,
 }
 
 impl RepoRecord {

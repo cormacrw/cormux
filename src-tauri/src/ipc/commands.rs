@@ -23,9 +23,9 @@ use super::types::{
     CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RemoveRepoInput,
     RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime, ResolveApprovalResult,
     SendWorkspaceFindingsInput, SetRepoDefaultBranchInput, SetRepoRunCommandInput,
-    SetRepoSetupCommandsInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
-    TeardownInput, TeardownPreview, TestRepoSetupInput, TestRepoSetupResult,
-    WorkspaceAppControlAction, WorkspaceSummaryResult,
+    SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, SetSettingInput, Snapshot,
+    SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
+    TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
 use crate::store::types::RepoRecord;
@@ -134,8 +134,24 @@ pub async fn set_repo_run_command(
             default_branch: repo.default_branch,
             setup_commands: repo.setup_commands,
             run_command: repo.run_command,
+            single_instance: repo.single_instance,
         },
     )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_repo_single_instance(
+    app: AppHandle,
+    input: SetRepoSingleInstanceInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let repos = state.store.snapshot()?.repos;
+    let Some(mut repo) = repos.into_iter().find(|row| row.id == input.repo_id) else {
+        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
+    };
+    repo.single_instance = input.single_instance;
+    upsert_repo_record(&app, &state, repo)
 }
 
 #[tauri::command]
@@ -160,6 +176,7 @@ pub async fn set_repo_setup_commands(
             default_branch: repo.default_branch,
             setup_commands: repo.setup_commands,
             run_command: repo.run_command,
+            single_instance: repo.single_instance,
         },
     )
 }
@@ -326,6 +343,7 @@ pub async fn add_repo(
         default_branch,
         setup_commands,
         run_command,
+        single_instance: false,
     };
     upsert_repo_record(&app, &state, record.clone())?;
 

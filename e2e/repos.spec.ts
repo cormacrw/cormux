@@ -35,6 +35,12 @@ test.describe('repos', () => {
     await expect(
       repoList.getByRole('button', { name: 'Pull develop for my-app' }),
     ).toBeVisible()
+    const single = page.getByRole('checkbox', {
+      name: 'Run one instance at a time',
+    })
+    await expect(single).not.toBeChecked()
+    await single.click()
+    await expect(single).toBeChecked()
     await page.screenshot({ path: 'e2e/output/repos-settings.png' })
 
     expect(errors).toEqual([])
