@@ -8,6 +8,7 @@
   import PrPromptSettings from '$lib/components/settings/PrPromptSettings.svelte'
   import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
   import ScratchMacrosSettings from '$lib/components/settings/ScratchMacrosSettings.svelte'
+  import ShortcutsSettings from '$lib/components/settings/ShortcutsSettings.svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
   import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
   import {
@@ -64,7 +65,7 @@
     const root = scrollRoot
     if (!root) return
     const atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 8
-    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'notifications'
+    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'shortcuts'
     if (atBottom) {
       activeSection = last
       return
@@ -228,6 +229,24 @@
           />
           <div class="mt-4">
             <NotificationsSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'shortcuts'}
+          id={settingsSectionDomId('shortcuts')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-shortcuts-h"
+          data-od-id="settings-shortcuts"
+        >
+          <SettingsSectionHead
+            id="settings-shortcuts-h"
+            title="Keyboard shortcuts"
+            description="Keys for getting around Cormux."
+          />
+          <div class="mt-4">
+            <ShortcutsSettings />
           </div>
         </section>
       </div>
