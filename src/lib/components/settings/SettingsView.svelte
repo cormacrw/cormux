@@ -88,7 +88,7 @@
 >
   <div
     bind:this={scrollRoot}
-    class="min-h-0 flex-1 overflow-y-auto"
+    class="relative min-h-0 flex-1 overflow-y-auto"
     onscroll={updateActiveSection}
   >
     <div

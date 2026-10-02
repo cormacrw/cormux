@@ -368,6 +368,8 @@ export async function patchFromEvent(event: StateChanged) {
     app.version = snapshot.version
     return
   }
+  // A fetch or pull moved `origin`, so the repo rows' counts are stale too.
+  if (event.kind === 'behindCounts') void repos.refreshGit()
   if (
     event.kind === 'behindCounts' ||
     event.kind === 'workspaceStatus' ||

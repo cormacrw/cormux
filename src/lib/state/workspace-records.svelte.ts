@@ -10,6 +10,8 @@ export type AppRunStatus = 'stopped' | 'starting' | 'running' | 'crashed'
 export type WorkspaceRuntime = {
   appStatus: AppRunStatus
   port: number | null
+  /** The app announced an `https://` URL. */
+  https: boolean
   behind: number
   ahead: number
   conflict: GitConflictState | null
@@ -29,6 +31,7 @@ export class WorkspaceRecordsStore {
         next[record.id] = {
           appStatus: 'stopped',
           port: null,
+          https: false,
           behind: 0,
           ahead: 0,
           conflict: null,
@@ -54,6 +57,7 @@ export class WorkspaceRecordsStore {
       this.runtimeById[id] ?? {
         appStatus: 'stopped',
         port: null,
+        https: false,
         behind: 0,
         ahead: 0,
         conflict: null,
@@ -103,6 +107,7 @@ export class WorkspaceRecordsStore {
         ...current,
         appStatus,
         port: nextPort,
+        https: nextPort === null ? false : current.https,
         exitCode:
           appStatus === 'crashed' ? (exitCode ?? current.exitCode) : null,
       },
@@ -118,6 +123,7 @@ export class WorkspaceRecordsStore {
         ...current,
         appStatus: app.status as AppRunStatus,
         port: app.port,
+        https: app.https,
         exitCode: app.exitCode,
       }
     }

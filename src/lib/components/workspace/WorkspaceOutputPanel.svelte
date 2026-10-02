@@ -108,7 +108,9 @@
 
   function openAppUrl() {
     if (!runtime.port) return
-    void openUrl(`http://localhost:${runtime.port}/`)
+    void openUrl(
+      `${runtime.https ? 'https' : 'http'}://localhost:${runtime.port}/`,
+    )
   }
 </script>
 

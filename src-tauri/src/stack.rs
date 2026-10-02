@@ -271,11 +271,13 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
     let json = match view(state, &worktree).await? {
         View::Stacked(json) => json,
         View::NotStacked => {
-            match checkout_remote_stack(state, &worktree, &record.branch, &record.base).await {
-                RemoteStack::CheckedOut => {}
-                RemoteStack::None => return Ok(empty(StackStatus::NotStacked, None)),
-                RemoteStack::Failed(message) => {
-                    return Ok(empty(StackStatus::NotStacked, Some(message)));
+            if !adopt_local_stack(state, &worktree, &record.branch).await {
+                match checkout_remote_stack(state, &worktree, &record.branch, &record.base).await {
+                    RemoteStack::CheckedOut => {}
+                    RemoteStack::None => return Ok(empty(StackStatus::NotStacked, None)),
+                    RemoteStack::Failed(message) => {
+                        return Ok(empty(StackStatus::NotStacked, Some(message)));
+                    }
                 }
             }
             match view(state, &worktree).await? {
@@ -350,6 +352,106 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
     })
 }
 
+/// gh-stack's state file, `$(git rev-parse --git-dir)/gh-stack`; only the fields read here.
+#[derive(Debug, Deserialize)]
+struct StackFile {
+    #[serde(default)]
+    stacks: Vec<StackFileStack>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StackFileStack {
+    trunk: StackFileRef,
+    #[serde(default)]
+    branches: Vec<StackFileRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StackFileRef {
+    branch: String,
+}
+
+/// The trunk and branches (bottom first) of the stack in `file` that has `branch`.
+fn stack_with_branch(file: &str, branch: &str) -> Option<(String, Vec<String>)> {
+    let parsed: StackFile = serde_json::from_str(file).ok()?;
+    parsed
+        .stacks
+        .into_iter()
+        .find(|stack| stack.branches.iter().any(|entry| entry.branch == branch))
+        .map(|stack| {
+            let branches = stack
+                .branches
+                .into_iter()
+                .map(|entry| entry.branch)
+                .collect();
+            (stack.trunk.branch, branches)
+        })
+}
+
+/// gh-stack keeps one state file per worktree, so a stack made in the main checkout or
+/// another workspace is invisible here and the branch reads as unstacked. When another
+/// worktree of the repo has a stack with this branch, set the same stack up here with
+/// `gh stack init`. Returns whether the branch is stacked afterwards.
+async fn adopt_local_stack(state: &AppState, worktree: &Path, branch: &str) -> bool {
+    let Some((trunk, branches)) = stack_in_other_worktrees(state, worktree, branch).await else {
+        return false;
+    };
+    // Merged branches may be gone locally, and `init` can't adopt a branch that isn't there.
+    let mut present = Vec::with_capacity(branches.len());
+    for name in branches {
+        let local = format!("refs/heads/{name}");
+        if state
+            .git
+            .ref_exists(worktree, &local)
+            .await
+            .unwrap_or(false)
+        {
+            present.push(name);
+        }
+    }
+    let mut args = vec!["init", "--base", trunk.as_str()];
+    args.extend(present.iter().map(String::as_str));
+    // `init` saves the stack, then checks out its top branch. That fails when the branch
+    // is checked out in the worktree the stack came from, so judge by `view`, not the exit code.
+    if let Err(error) = gh_stack(state, worktree, &args, None).await {
+        log::warn!("adopting the stack for {branch}: {error}");
+        return false;
+    }
+    if state.git.current_branch(worktree).await.ok().as_deref() != Some(branch)
+        && let Err(error) = state.git.switch(worktree, branch).await
+    {
+        log::warn!("switching back to {branch} after adopting its stack: {error}");
+    }
+    matches!(view(state, worktree).await, Ok(View::Stacked(_)))
+}
+
+/// Looks through the gh-stack files of the repo's other worktrees for a stack with `branch`.
+async fn stack_in_other_worktrees(
+    state: &AppState,
+    worktree: &Path,
+    branch: &str,
+) -> Option<(String, Vec<String>)> {
+    let git_dir = |args: &'static [&'static str]| async move {
+        let output = state.git.run_tool(worktree, "git", args, &[]).await.ok()?;
+        output
+            .status
+            .success()
+            .then(|| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
+    };
+    let own = git_dir(&["rev-parse", "--absolute-git-dir"]).await?;
+    let common = git_dir(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).await?;
+
+    let mut files = vec![common.join("gh-stack")];
+    if let Ok(entries) = std::fs::read_dir(common.join("worktrees")) {
+        files.extend(entries.flatten().map(|entry| entry.path().join("gh-stack")));
+    }
+    files
+        .into_iter()
+        .filter(|file| *file != own.join("gh-stack"))
+        .filter_map(|file| std::fs::read_to_string(file).ok())
+        .find_map(|text| stack_with_branch(&text, branch))
+}
+
 enum RemoteStack {
     /// A stack on GitHub has the branch, and it's now set up in this worktree.
     CheckedOut,
@@ -412,6 +514,14 @@ async fn checkout_remote_stack(
     match output.status.code() {
         Some(0) => {}
         Some(EXIT_STACK_NOT_FOUND) => return RemoteStack::None,
+        // `checkout` uses gh-stack's conflict code when the stack here and the one on
+        // GitHub hold different branches, not for a rebase.
+        Some(EXIT_REBASE_CONFLICT) => {
+            return RemoteStack::Failed(format!(
+                "This branch's stack on GitHub has different branches from the one here. {}",
+                stderr_text(&output)
+            ));
+        }
         _ => {
             let message = failure_message(&output, "Looking for this branch's stack on GitHub");
             log::warn!("gh stack checkout {branch}: {message}");
@@ -756,6 +866,105 @@ mod tests {
             .await
             .unwrap();
         assert!(!add.status.success());
+    }
+
+    /// A stack made in the main checkout shows up in a workspace on one of its branches,
+    /// even with the top branch still checked out there. Needs gh with gh-stack.
+    #[tokio::test]
+    #[ignore = "needs gh with the gh-stack extension"]
+    async fn adopts_a_stack_made_in_another_worktree() {
+        let state = AppState::new();
+        state
+            .shell_env
+            .write()
+            .await
+            .load_or_inherit()
+            .await
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        let commit = |cwd: &Path, message: &str| {
+            git_cmd(
+                cwd,
+                &[
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    message,
+                ],
+            )
+        };
+        git_cmd(&repo, &["init", "-q", "-b", "main"]);
+        commit(&repo, "init");
+        git_cmd(&repo, &["switch", "-q", "-c", "feat/a"]);
+        commit(&repo, "a");
+        let quiet = [("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1")];
+        for args in [
+            &["stack", "init", "--base", "main", "feat/a"][..],
+            &["stack", "add", "feat/b"],
+        ] {
+            let output = state.git.run_tool(&repo, "gh", args, &quiet).await.unwrap();
+            assert!(output.status.success(), "gh {args:?}");
+        }
+        commit(&repo, "b");
+
+        let worktree = dir.path().join("wt");
+        git_cmd(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                worktree.to_str().unwrap(),
+                "feat/a",
+            ],
+        );
+        assert!(matches!(
+            view(&state, &worktree).await.unwrap(),
+            View::NotStacked
+        ));
+
+        assert!(adopt_local_stack(&state, &worktree, "feat/a").await);
+        assert_eq!(state.git.current_branch(&worktree).await.unwrap(), "feat/a");
+        let View::Stacked(json) = view(&state, &worktree).await.unwrap() else {
+            panic!("not stacked after adopting");
+        };
+        let names: Vec<_> = json
+            .branches
+            .iter()
+            .map(|branch| branch.name.as_str())
+            .collect();
+        assert_eq!(names, ["feat/a", "feat/b"]);
+
+        // A branch no other worktree has a stack for is left alone.
+        git_cmd(&worktree, &["switch", "-q", "-c", "feat/solo", "main"]);
+        assert!(!adopt_local_stack(&state, &worktree, "feat/solo").await);
+    }
+
+    #[test]
+    fn finds_the_stack_with_a_branch_in_a_stack_file() {
+        let file = r#"{
+          "schemaVersion": 1,
+          "repository": "",
+          "stacks": [
+            {"trunk": {"branch": "main", "head": "0"},
+             "branches": [{"branch": "x", "base": "0"}]},
+            {"trunk": {"branch": "develop", "head": "1"},
+             "branches": [{"branch": "a", "base": "1"}, {"branch": "b", "base": "2"}]}
+          ]
+        }"#;
+        assert_eq!(
+            stack_with_branch(file, "b"),
+            Some(("develop".into(), vec!["a".into(), "b".into()]))
+        );
+        assert_eq!(stack_with_branch(file, "nope"), None);
+        assert_eq!(stack_with_branch("not json", "b"), None);
     }
 
     #[test]

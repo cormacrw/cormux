@@ -222,7 +222,9 @@
   }
 
   html {
-    @apply font-sans antialiased;
+    /* WebKit reads the page's overscroll from html, not body: without it the
+       whole window rubber-bands when a view scrolls past its top or bottom. */
+    @apply font-sans antialiased overscroll-none;
     font-feature-settings: 'ss01', 'cv11';
   }
 

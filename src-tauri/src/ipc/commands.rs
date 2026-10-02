@@ -21,10 +21,11 @@ use super::types::{
     AddRepoInput, AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
     CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
     CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RemoveRepoInput,
-    RenameWorkspaceInput, RepoBranchesResult, ResolveApprovalResult, SendWorkspaceFindingsInput,
-    SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetSettingInput,
-    Snapshot, SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
-    TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
+    RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime, ResolveApprovalResult,
+    SendWorkspaceFindingsInput, SetRepoDefaultBranchInput, SetRepoRunCommandInput,
+    SetRepoSetupCommandsInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
+    TeardownInput, TeardownPreview, TestRepoSetupInput, TestRepoSetupResult,
+    WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
 use crate::store::types::RepoRecord;
@@ -197,6 +198,32 @@ pub async fn set_repo_default_branch(
 }
 
 /// Fast-forward the repo checkout's default branch from origin.
+/// Commits each repo's default branch is behind and ahead of `origin`, against the last
+/// fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_repo_git(state: State<'_, AppState>) -> Result<Vec<RepoGitRuntime>> {
+    let mut rows = Vec::new();
+    for repo in state.store.snapshot()?.repos {
+        let path = expand_tilde(&repo.path);
+        let branch = repo.default_branch_or_main();
+        let behind = state
+            .git
+            .rev_list_count(&path, &format!("{branch}..origin/{branch}"))
+            .await?;
+        let ahead = state
+            .git
+            .rev_list_count(&path, &format!("origin/{branch}..{branch}"))
+            .await?;
+        rows.push(RepoGitRuntime {
+            repo_id: repo.id,
+            behind,
+            ahead,
+        });
+    }
+    Ok(rows)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn pull_repo_default_branch(
@@ -1239,7 +1266,7 @@ pub async fn get_teardown_preview(
     crate::teardown::preview(&state, &workspace_id).await
 }
 
-/// Open a Terminal window in the workspace's worktree.
+/// Open the worktree in the terminal app picked in Settings (Terminal by default).
 #[tauri::command]
 #[specta::specta]
 pub async fn open_workspace_terminal(
@@ -1250,18 +1277,26 @@ pub async fn open_workspace_terminal(
         .store
         .workspace_by_id(&workspace_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    let terminal = terminal_app(state.store.get_setting("terminalApp")?);
     let status = tokio::process::Command::new("open")
-        .args(["-a", "Terminal", &row.worktree_path])
+        .args(["-a", &terminal, &row.worktree_path])
         .status()
         .await
-        .map_err(|error| Error::Process(format!("open Terminal: {error}")))?;
+        .map_err(|error| Error::Process(format!("open {terminal}: {error}")))?;
     if !status.success() {
         return Err(Error::Process(format!(
-            "Terminal couldn't open {}",
+            "{terminal} couldn't open {}",
             row.worktree_path
         )));
     }
     Ok(())
+}
+
+fn terminal_app(setting: Option<String>) -> String {
+    setting
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Terminal".to_string())
 }
 
 #[tauri::command]

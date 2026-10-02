@@ -256,6 +256,20 @@ impl Store {
         })
     }
 
+    /// Workspaces that haven't been archived, without the rest of the snapshot.
+    pub fn live_workspaces(&self) -> Result<Vec<WorkspaceRow>> {
+        self.with_conn(|conn| {
+            query_all(
+                conn,
+                "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
+                        summary, summary_at, summary_source, kind, pr_number, pr_html_url,
+                        modified_files, archived_at
+                 FROM workspaces WHERE archived_at IS NULL",
+                row_to_workspace,
+            )
+        })
+    }
+
     pub fn set_workspace_status(&self, workspace_id: &str, status: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(

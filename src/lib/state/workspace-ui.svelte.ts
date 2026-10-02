@@ -8,8 +8,8 @@ export class WorkspaceUiStore {
   revealDiffPath = $state<string | null>(null)
   /** Line of the new file to scroll to once `revealDiffPath` is shown. */
   revealDiffLine = $state<number | null>(null)
-  /** Files the user folded in Changes; everything else is expanded. */
-  collapsedDiffPaths = $state<Record<string, true>>({})
+  /** Files the user folded (true) or unfolded (false) in Changes; others use the default. */
+  collapsedDiffPaths = $state<Record<string, boolean>>({})
   diffMode = $state<'unified' | 'split'>('unified')
   /** When true, opening Findings focuses the panel heading (card entry). */
   findingsFocusPending = $state(false)

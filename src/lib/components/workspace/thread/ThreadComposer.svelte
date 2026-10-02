@@ -312,20 +312,6 @@
         {/if}
       </div>
 
-      {#if thread.status === 'running'}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          data-od-id="composer-stop"
-          title="Stop (Esc)"
-          aria-label="Stop"
-          onclick={() => void stopTurn()}
-        >
-          <Square class="size-3" />
-        </Button>
-      {/if}
-
       <span
         class="composer-hint text-[10px] text-muted-foreground/80"
         aria-hidden="true"
@@ -333,6 +319,21 @@
         <kbd class="rounded border border-border/60 px-1">↵</kbd> send
         <kbd class="rounded border border-border/60 px-1">⇧↵</kbd> new line
       </span>
+
+      {#if thread.status === 'running'}
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon-sm"
+          class="size-8 shrink-0 rounded-lg"
+          data-od-id="composer-stop"
+          title="Stop (Esc)"
+          aria-label="Stop"
+          onclick={() => void stopTurn()}
+        >
+          <Square class="size-3 fill-current" aria-hidden="true" />
+        </Button>
+      {/if}
 
       <Button
         type="submit"

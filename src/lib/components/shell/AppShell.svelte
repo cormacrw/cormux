@@ -6,7 +6,7 @@
 </script>
 
 <div
-  class="app-shell grid h-dvh min-h-0 overflow-hidden bg-background text-foreground"
+  class="app-shell relative grid h-dvh min-h-0 overflow-hidden bg-background text-foreground"
 >
   <aside
     class="flex min-h-0 min-w-0 flex-col border-r border-sidebar-border bg-sidebar"

@@ -7,6 +7,11 @@ import type {
   ToolStepIcon,
 } from './timeline-types'
 import { toolKindIsEdit, toolKindIsRunStep } from './timeline-types'
+import {
+  humanizeIdentifier,
+  parseMcpToolName,
+  toolDisplayName,
+} from './humanize'
 
 export type MapTimelineInput = {
   events: { seq: number; atMs?: number; event: AgentEvent }[]
@@ -101,6 +106,11 @@ function approvalState(
   return 'pending'
 }
 
+// Approval labels quote the raw tool name ("Use mcp__github__get_pr"); show it as words.
+function withToolName(text: string, toolName: string): string {
+  return toolName ? text.replace(toolName, toolDisplayName(toolName)) : text
+}
+
 function approvalFromPermission(
   event: Extract<AgentEvent, { type: 'permission' }>,
   seq: number,
@@ -113,9 +123,12 @@ function approvalFromPermission(
   return {
     kind: 'approval' as const,
     id: event.id,
-    title: payload?.title ?? event.title,
-    what: payload?.what ?? event.detail ?? event.tool_name,
-    why: payload?.why ?? event.tool_name,
+    title: withToolName(payload?.title ?? event.title, event.tool_name),
+    what: withToolName(
+      payload?.what ?? event.detail ?? event.tool_name,
+      event.tool_name,
+    ),
+    why: withToolName(payload?.why ?? event.tool_name, event.tool_name),
     okLabel: payload?.okLabel ?? 'Approve',
     noLabel: payload?.noLabel ?? 'Deny',
     state,
@@ -143,6 +156,19 @@ function toolStepFromCall(
     }
   }
   if (event.kind === 'execute') return commandStep(event, seq, atMs, chips)
+  const named = namedToolStep(event)
+  if (named) {
+    return {
+      kind: 'tool',
+      id: event.id,
+      ...named,
+      chips,
+      quiet: true,
+      seq,
+      atMs,
+      rawDetail: event.detail ?? undefined,
+    }
+  }
   const fixedChips = /^Fixed \d+ findings/i.test(event.title)
     ? ([
         { label: 'Tests pass', tone: 'success' as const },
@@ -158,7 +184,8 @@ function toolStepFromCall(
     kind: 'tool',
     id: event.id,
     icon: iconForTool(event.kind, event.title),
-    title: event.title,
+    // Claude titles these by tool name (`TodoWrite`); show it as words.
+    title: humanizeIdentifier(event.title),
     detail: (event.detail ?? event.locations.join(', ')) || undefined,
     chips: chips ?? fixedChips ?? openedPrChips,
     tone:
@@ -171,6 +198,28 @@ function toolStepFromCall(
     seq,
     atMs,
     rawDetail: event.detail ?? undefined,
+  }
+}
+
+// MCP tools arrive as `mcp__<server>__<tool>`, and ToolSearch is Claude loading tool
+// schemas; both read better as a quiet line than as a raw-name card.
+function namedToolStep(
+  event: Extract<AgentEvent, { type: 'toolCall' }>,
+): { icon: ToolStepIcon; title: string; detail: string | undefined } | null {
+  const name = event.name ?? event.title
+  if (name === 'ToolSearch') {
+    return {
+      icon: 'search',
+      title: 'Looked up tools',
+      detail: event.detail ?? undefined,
+    }
+  }
+  const mcp = parseMcpToolName(name)
+  if (!mcp) return null
+  return {
+    icon: 'tool',
+    title: `Used ${mcp.server}`,
+    detail: event.detail ? `${mcp.action} · ${event.detail}` : mcp.action,
   }
 }
 

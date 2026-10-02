@@ -145,6 +145,15 @@ pub struct RepoBranchesResult {
     pub branches: Vec<String>,
 }
 
+/// How far a repo's local default branch is from `origin`, as of the last fetch.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoGitRuntime {
+    pub repo_id: String,
+    pub behind: u32,
+    pub ahead: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceGitRuntime {

@@ -36,7 +36,7 @@
   }
 </script>
 
-<div class="view-todos flex min-h-0 flex-1 flex-col overflow-y-auto">
+<div class="view-todos relative flex min-h-0 flex-1 flex-col overflow-y-auto">
   <div class="mx-auto flex w-full max-w-[760px] flex-col gap-6 p-6">
     <header class="flex items-center gap-3">
       <h1

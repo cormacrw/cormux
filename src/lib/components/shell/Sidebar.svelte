@@ -4,7 +4,15 @@
   import { Button } from '$lib/components/ui/button'
   import * as ScrollArea from '$lib/components/ui/scroll-area'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import { app, memory, repos, threads, todos, workspaces } from '$lib/state'
+  import {
+    app,
+    memory,
+    repos,
+    scratches,
+    threads,
+    todos,
+    workspaces,
+  } from '$lib/state'
   import { isActiveThread } from '$lib/sidebar/status'
   import Cpu from '@lucide/svelte/icons/cpu'
   import Layers from '@lucide/svelte/icons/layers'
@@ -14,6 +22,7 @@
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import SidebarAgentRow from './SidebarAgentRow.svelte'
   import SidebarRepoRow from './SidebarRepoRow.svelte'
+  import SidebarScratchRow from './SidebarScratchRow.svelte'
   import SidebarWorkspaceRow from './SidebarWorkspaceRow.svelte'
 
   const workingAgents = $derived(
@@ -156,6 +165,26 @@
           {/each}
         {/if}
       </ul>
+
+      {#if scratches.items.length > 0}
+        <div
+          class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+          id="side-scratch-label"
+        >
+          <span>Scratches</span>
+          <span class="font-mono normal-case tracking-normal"
+            >{scratches.items.length}</span
+          >
+        </div>
+        <ul
+          class="grid list-none gap-px p-0"
+          aria-labelledby="side-scratch-label"
+        >
+          {#each scratches.items as scratch (scratch.id)}
+            <SidebarScratchRow {scratch} />
+          {/each}
+        </ul>
+      {/if}
 
       <div
         class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"

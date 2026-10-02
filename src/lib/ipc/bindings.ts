@@ -444,7 +444,7 @@ async teardownWorkspace(input: TeardownInput) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Open a Terminal window in the workspace's worktree.
+ * Open the worktree in the terminal app picked in Settings (Terminal by default).
  */
 async openWorkspaceTerminal(workspaceId: string) : Promise<Result<null, Error>> {
     try {
@@ -486,12 +486,22 @@ async setRepoDefaultBranch(input: SetRepoDefaultBranchInput) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Fast-forward the repo checkout's default branch from origin.
- */
 async pullRepoDefaultBranch(repoId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("pull_repo_default_branch", { repoId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Fast-forward the repo checkout's default branch from origin.
+ * Commits each repo's default branch is behind and ahead of `origin`, against the last
+ * fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
+ */
+async getRepoGit() : Promise<Result<RepoGitRuntime[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_repo_git") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -657,6 +667,10 @@ export type GitConflictOperation = "merge" | "rebase"
 export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
 export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; engine: string }
 export type JoinWorkspaceThreadResult = { threadId: string }
+/**
+ * Lines added and deleted across a set of files.
+ */
+export type LineCounts = { added: number; deleted: number }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
 export type MessageRole = "user" | "agent" | "thought"
 /**
@@ -682,6 +696,10 @@ export type PtyChunk = { workspaceId: string; line: string }
 export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
+/**
+ * How far a repo's local default branch is from `origin`, as of the last fetch.
+ */
+export type RepoGitRuntime = { repoId: string; behind: number; ahead: number }
 export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null }
 export type ResolveApprovalResult = { focusComposer: boolean }
 /**
@@ -772,7 +790,11 @@ export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
  */
 export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other"
 export type WorkspaceAppControlAction = "run" | "restart" | "stop" | "clear"
-export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; exitCode: number | null }
+export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; 
+/**
+ * The server announced an `https://` URL, so links to it use that scheme.
+ */
+https: boolean; exitCode: number | null }
 export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
 export type WorkspaceGitRuntime = { workspaceId: string; behind: number; ahead: number; conflict: GitConflictState | null }
 /**
@@ -803,7 +825,11 @@ export type WorktreeDiff = { workspaceId: string;
 /**
  * What the diff shows; `None` means uncommitted changes vs `HEAD`.
  */
-target: DiffTarget | null; files: DiffFile[] }
+target: DiffTarget | null; files: DiffFile[]; 
+/**
+ * Uncommitted changes vs `HEAD`, whatever `target` is.
+ */
+uncommitted: LineCounts }
 
 /** tauri-specta globals **/
 

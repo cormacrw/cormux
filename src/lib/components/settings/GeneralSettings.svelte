@@ -17,6 +17,7 @@
   let reloadingEnv = $state(false)
   // Follows the saved setting, and holds edits until they're committed.
   let worktreeDraft = $derived(settings.worktreeRoot)
+  let terminalDraft = $derived(settings.terminalApp)
 
   const defaultRepoId = $derived(
     resolveDefaultRepoId(repos.items, settings.defaultRepo),
@@ -112,6 +113,26 @@
           </Alert>
         {/if}
       </div>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    title="Terminal app"
+    description="What Open in Terminal launches, by its name in Applications (e.g. iTerm, Ghostty, Warp)"
+    controlId="settings-terminal-app"
+  >
+    {#snippet control()}
+      <Input
+        id="settings-terminal-app"
+        class="w-[180px]"
+        placeholder="Terminal"
+        bind:value={terminalDraft}
+        spellcheck={false}
+        onchange={() => {
+          if (terminalDraft.trim() !== settings.terminalApp)
+            void settings.setTerminalApp(terminalDraft)
+        }}
+      />
     {/snippet}
   </SettingsRow>
 

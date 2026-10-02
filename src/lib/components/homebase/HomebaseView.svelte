@@ -49,10 +49,10 @@
   const exitingCards = $derived(homebaseUi.exitingCards)
 </script>
 
-<div class="view-home flex min-h-0 flex-1 flex-col overflow-y-auto">
+<div class="view-home relative flex min-h-0 flex-1 flex-col overflow-y-auto">
   <div class="mx-auto flex w-full max-w-[1200px] flex-col gap-10 p-6">
     <header
-      class="flex flex-wrap items-center justify-between gap-4"
+      class="sticky top-0 z-10 -mx-6 -mt-6 -mb-4 flex flex-wrap items-center justify-between gap-4 bg-background px-6 pt-6 pb-4"
       aria-labelledby="home-title"
     >
       <h1

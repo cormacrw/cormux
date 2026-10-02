@@ -300,7 +300,7 @@
         <div class="space-y-1.5">
           {#each segmentSteps(item.steps) as segment (segment.id)}
             {#if segment.quiet}
-              <ul class="space-y-0.5">
+              <ul class="space-y-1.5">
                 {#each segment.steps as step, index (step.id)}
                   {@const Icon = stepIcon(step)}
                   {@const chips = newChips(step, segment.steps[index - 1])}

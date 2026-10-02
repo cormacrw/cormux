@@ -24,3 +24,20 @@ export function splitPath(path: string): { dir: string; name: string } {
   if (cut === -1) return { dir: '', name: path }
   return { dir: `${path.slice(0, cut + 1)}`, name: path.slice(cut + 1) }
 }
+
+const TEST_DIR = /(^|\/)(__tests__|tests?|spec|e2e)\//
+const TEST_FILE =
+  /[._-](test|spec)\.[^/]+$|(^|\/)test_[^/]+\.py$|_test\.(go|py|rs)$/
+
+/** Test files start folded in Changes so the code under review comes first. */
+export function isTestPath(path: string): boolean {
+  return TEST_DIR.test(path) || TEST_FILE.test(path)
+}
+
+/** A file is folded if the user folded it, or by default when it's a test. */
+export function isDiffCollapsed(
+  collapsed: Record<string, boolean>,
+  path: string,
+): boolean {
+  return collapsed[path] ?? isTestPath(path)
+}

@@ -118,6 +118,8 @@ pub fn run() {
             let approval_notify = state.approval_notify.clone();
             let turn_end_notify = state.turn_end_notify.clone();
             app.manage(state);
+            // Reads AppState from the handle, so it starts once the state is managed.
+            crate::git_workspace::spawn_branch_watch(app.handle().clone());
 
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = env.write().await.load_or_inherit().await {

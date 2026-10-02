@@ -30,6 +30,25 @@ pub struct DiffFile {
     pub hunks: Vec<DiffHunk>,
 }
 
+/// Lines added and deleted across a set of files.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LineCounts {
+    pub added: u32,
+    pub deleted: u32,
+}
+
+impl LineCounts {
+    fn of(stats: &[(String, u32, u32)]) -> Self {
+        stats
+            .iter()
+            .fold(Self::default(), |counts, (_, added, deleted)| Self {
+                added: counts.added + added,
+                deleted: counts.deleted + deleted,
+            })
+    }
+}
+
 /// Committed changes on `head` since it left `base` (`base...head`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +74,8 @@ pub struct WorktreeDiff {
     /// What the diff shows; `None` means uncommitted changes vs `HEAD`.
     pub target: Option<DiffTarget>,
     pub files: Vec<DiffFile>,
+    /// Uncommitted changes vs `HEAD`, whatever `target` is.
+    pub uncommitted: LineCounts,
 }
 
 struct Watched {
@@ -273,10 +294,16 @@ async fn compute_diff(
         )),
         None => None,
     };
-    let stats = if let Some(range) = &range {
-        git.numstat_range(path, range).await?
+    let (stats, uncommitted) = if let Some(range) = &range {
+        let uncommitted = git.numstat(path).await.unwrap_or_default();
+        (
+            git.numstat_range(path, range).await?,
+            LineCounts::of(&uncommitted),
+        )
     } else {
-        git.numstat(path).await?
+        let stats = git.numstat(path).await?;
+        let uncommitted = LineCounts::of(&stats);
+        (stats, uncommitted)
     };
     let mut files = Vec::new();
     for (file_path, added, deleted) in stats {
@@ -298,6 +325,7 @@ async fn compute_diff(
         workspace_id: workspace_id.to_string(),
         target: target.cloned(),
         files,
+        uncommitted,
     })
 }
 

@@ -65,6 +65,7 @@ pub fn builder() -> Builder {
             commands::set_repo_setup_commands,
             commands::set_repo_default_branch,
             commands::pull_repo_default_branch,
+            commands::get_repo_git,
             commands::add_repo,
             commands::remove_repo,
             commands::test_repo_setup,

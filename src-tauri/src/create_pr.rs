@@ -279,6 +279,7 @@ async fn pr_diff(
         workspace_id: workspace_id.to_string(),
         target: None,
         files: vec![],
+        uncommitted: Default::default(),
     })
 }
 

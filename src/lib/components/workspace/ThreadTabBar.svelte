@@ -54,7 +54,7 @@
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runtime = $derived(workspaceRecords.runtime(workspace.id))
   const changeCountLabel = $derived(
-    formatChangeCounts(workspaceDiff.totals(workspace.id)),
+    formatChangeCounts(workspaceDiff.uncommitted(workspace.id)),
   )
 
   function isSelected(tab: ThreadBarTabKey): boolean {
