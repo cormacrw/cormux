@@ -198,15 +198,18 @@ impl LiveDiffEngine {
         let id = workspace_id.to_string();
         let root = path.to_path_buf();
         let gitignore = gitignore_for(&root);
+        // A commit only touches git's own files, which may live outside the
+        // worktree (a linked worktree's are under the main repo's `.git`).
+        let git_dirs = git_dirs(&root);
+        let state_dirs = git_dirs.clone();
         let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
             let Ok(event) = result else {
                 return;
             };
-            if event
-                .paths
-                .iter()
-                .any(|changed| should_refresh(&root, changed, &gitignore))
-            {
+            if event.paths.iter().any(|changed| {
+                should_refresh(&root, changed, &gitignore)
+                    || state_dirs.iter().any(|dir| is_git_state(dir, changed))
+            }) {
                 let _ = tx.send(id.clone());
             }
         })
@@ -214,6 +217,15 @@ impl LiveDiffEngine {
         watcher
             .watch(path, RecursiveMode::Recursive)
             .map_err(|error| Error::Git(error.to_string()))?;
+        let canonical_root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        for dir in git_dirs
+            .iter()
+            .filter(|dir| !dir.starts_with(&canonical_root))
+        {
+            if let Err(error) = watcher.watch(dir, RecursiveMode::Recursive) {
+                log::warn!("watching {} failed: {error}", dir.display());
+            }
+        }
         self.watched.lock().unwrap().insert(
             workspace_id.to_string(),
             Watched {
@@ -278,6 +290,42 @@ fn should_refresh(root: &Path, path: &Path, gitignore: &Gitignore) -> bool {
     let is_dir = path.is_dir();
     let relative = path.strip_prefix(root).unwrap_or(path);
     !gitignore.matched(relative, is_dir).is_ignore()
+}
+
+/// The worktree's git dir and, for a linked worktree, the shared one.
+fn git_dirs(root: &Path) -> Vec<PathBuf> {
+    let dot_git = root.join(".git");
+    let git_dir = if dot_git.is_dir() {
+        dot_git
+    } else {
+        let Some(dir) = std::fs::read_to_string(&dot_git).ok().and_then(|text| {
+            text.trim()
+                .strip_prefix("gitdir:")
+                .map(|dir| root.join(dir.trim()))
+        }) else {
+            return Vec::new();
+        };
+        dir
+    };
+    let git_dir = git_dir.canonicalize().unwrap_or(git_dir);
+    let mut dirs = vec![git_dir.clone()];
+    if let Ok(common) = std::fs::read_to_string(git_dir.join("commondir")) {
+        let common = git_dir.join(common.trim());
+        dirs.push(common.canonicalize().unwrap_or(common));
+    }
+    dirs
+}
+
+/// Files that move `HEAD` or the index: commits, resets, checkouts, staging.
+fn is_git_state(git_dir: &Path, path: &Path) -> bool {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let Ok(relative) = path.strip_prefix(git_dir) else {
+        return false;
+    };
+    relative == Path::new("HEAD")
+        || relative == Path::new("index")
+        || relative == Path::new("packed-refs")
+        || relative.starts_with("refs")
 }
 
 async fn compute_diff(
@@ -452,5 +500,92 @@ mod tests {
             Path::new("/repo/.git/HEAD"),
             &gitignore
         ));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_commit_in_a_linked_worktree_clears_the_counts() {
+        use crate::shell_env::ShellEnv;
+        use tokio::sync::RwLock;
+
+        let engine = LiveDiffEngine::new(Git::new(Arc::new(RwLock::new(ShellEnv::new()))));
+        engine.start();
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        let tree = dir.path().join("tree");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |cwd: &Path, args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(args)
+                .current_dir(cwd)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        };
+        git(&repo, &["init", "-q", "-b", "main"]);
+        commit_file(&repo, "a.txt");
+        git(&repo, &["worktree", "add", "-q", tree.to_str().unwrap()]);
+        engine.watch("ws", &tree).unwrap();
+
+        let added =
+            |engine: &LiveDiffEngine| engine.latest("ws").map(|diff| diff.uncommitted.added);
+        let wait_for = async |want: u32| {
+            for _ in 0..50 {
+                if added(&engine) == Some(want) {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            panic!(
+                "uncommitted added never became {want}: {:?}",
+                added(&engine)
+            );
+        };
+        wait_for(0).await;
+        std::fs::write(tree.join("b.txt"), "one\ntwo\n").unwrap();
+        wait_for(2).await;
+        git(&tree, &["add", "b.txt"]);
+        git(&tree, &["commit", "-q", "-m", "b"]);
+        wait_for(0).await;
+    }
+
+    #[test]
+    fn refreshes_on_head_index_and_ref_changes() {
+        let git_dir = Path::new("/repo/.git");
+        assert!(is_git_state(git_dir, Path::new("/repo/.git/HEAD")));
+        assert!(is_git_state(git_dir, Path::new("/repo/.git/index")));
+        assert!(is_git_state(git_dir, Path::new("/repo/.git/refs/heads/a")));
+        assert!(!is_git_state(
+            git_dir,
+            Path::new("/repo/.git/objects/ab/cd")
+        ));
+        assert!(!is_git_state(git_dir, Path::new("/repo/src/main.rs")));
+    }
+
+    #[test]
+    fn finds_a_linked_worktrees_git_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        let tree = dir.path().join("tree");
+        std::fs::create_dir(&repo).unwrap();
+        let run = |cwd: &Path, args: &[&str]| {
+            assert!(
+                std::process::Command::new("git")
+                    .args(args)
+                    .current_dir(cwd)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        };
+        run(&repo, &["init", "-q", "-b", "main"]);
+        commit_file(&repo, "a.txt");
+        run(&repo, &["worktree", "add", "-q", tree.to_str().unwrap()]);
+        let common = repo.join(".git").canonicalize().unwrap();
+        assert_eq!(
+            git_dirs(&tree),
+            vec![common.join("worktrees/tree"), common.clone()]
+        );
+        assert_eq!(git_dirs(&repo), vec![common]);
     }
 }

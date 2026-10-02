@@ -1,5 +1,6 @@
 <script lang="ts">
   import StatusDot from '$lib/components/shell/StatusDot.svelte'
+  import ChangeCounts from '$lib/components/workspace/ChangeCounts.svelte'
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
   import { requestNewThread } from '$lib/command-palette/actions'
@@ -267,14 +268,9 @@
     >
       <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
       <span class="truncate" aria-hidden="true">Git</span>
-      {#if changeCountLabel}
-        <span
-          class="font-mono text-[10px] text-muted-foreground"
-          aria-hidden="true"
-        >
-          {changeCountLabel}
-        </span>
-      {/if}
+      {#key workspace.id}
+        <ChangeCounts totals={workspaceDiff.uncommitted(workspace.id)} />
+      {/key}
     </Button>
     <Button
       id="thread-tab-output"

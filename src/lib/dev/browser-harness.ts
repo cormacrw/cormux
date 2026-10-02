@@ -281,6 +281,22 @@ export function installBrowserHarness() {
       message: { workspaceId: fixtureDiff.workspaceId, path: '', diff },
     })
   }
+  // Lets tests commit the uncommitted diff, as the watcher reports it.
+  ;(window as { __HARNESS_COMMIT__?: () => void }).__HARNESS_COMMIT__ = () => {
+    if (!diffChannel) return
+    callbacks.get(diffChannel.id)?.({
+      index: diffChannel.index++,
+      message: {
+        workspaceId: fixtureDiff.workspaceId,
+        path: '',
+        diff: {
+          ...fixtureDiff,
+          files: [],
+          uncommitted: { added: 0, deleted: 0 },
+        },
+      },
+    })
+  }
 
   // gh-stack stand-in: `?stack=none` starts unstacked, `?stack=unavailable` has no extension,
   // and `?stack=remote` fails to reach GitHub until a test sets `window.__stackRemoteUp`,
