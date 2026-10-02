@@ -6,10 +6,14 @@ import type {
 import { commands, type CoreError } from '$lib/ipc'
 import { coreErrorText } from '$lib/feedback/core-error'
 import { showToast } from '$lib/feedback/show-toast'
+import { settings } from './settings.svelte'
 import {
   CLICKUP_FOLDER_KEY,
+  CLICKUP_HIDDEN_STATUSES_KEY,
   inProgressTasks,
+  parseHiddenStatuses,
   sprintLanes,
+  statusKey,
   statusLabel,
   withTaskPoints,
   withTaskStatus,
@@ -35,6 +39,7 @@ export class ClickupStore {
   selectedTaskId = $state<string | null>(null)
   details = $state<Record<string, ClickupTaskDetail>>({})
   detailError = $state<string | null>(null)
+  hiddenStatuses = $state<string[]>([])
 
   /** Bumped by every write so a refresh that started earlier can't undo it. */
   private writes = 0
@@ -45,9 +50,14 @@ export class ClickupStore {
   private settleTimer: ReturnType<typeof setTimeout> | undefined
 
   readonly ready = $derived(this.configured && this.folderId !== '')
-  readonly lanes = $derived(
+  /** Every lane, hidden ones included, for the lanes menu. */
+  readonly allLanes = $derived(
     this.board ? sprintLanes(this.board.statuses, this.board.tasks) : [],
   )
+  readonly lanes = $derived(
+    this.allLanes.filter((lane) => !this.isHidden(lane.status.name)),
+  )
+  readonly hiddenLaneCount = $derived(this.allLanes.length - this.lanes.length)
   readonly inProgress = $derived(inProgressTasks(this.board))
   readonly selectedTask = $derived(
     this.board?.tasks.find((task) => task.id === this.selectedTaskId) ?? null,
@@ -56,6 +66,9 @@ export class ClickupStore {
   hydrate(configured: boolean, rows: SettingRow[]) {
     const folderId =
       rows.find((row) => row.key === CLICKUP_FOLDER_KEY)?.value ?? ''
+    this.hiddenStatuses = parseHiddenStatuses(
+      rows.find((row) => row.key === CLICKUP_HIDDEN_STATUSES_KEY)?.value,
+    )
     const changed = configured !== this.configured || folderId !== this.folderId
     this.configured = configured
     this.folderId = folderId
@@ -112,6 +125,25 @@ export class ClickupStore {
       clearTimeout(this.settleTimer)
       this.settleTimer = setTimeout(() => void this.refresh(), 800)
     }
+  }
+
+  isHidden(statusName: string) {
+    return this.hiddenStatuses.includes(statusKey(statusName))
+  }
+
+  setLaneHidden(statusName: string, hidden: boolean) {
+    const key = statusKey(statusName)
+    const rest = this.hiddenStatuses.filter((name) => name !== key)
+    this.persistHidden(hidden ? [...rest, key] : rest)
+  }
+
+  showAllLanes() {
+    this.persistHidden([])
+  }
+
+  private persistHidden(next: string[]) {
+    this.hiddenStatuses = next
+    void settings.persist(CLICKUP_HIDDEN_STATUSES_KEY, JSON.stringify(next))
   }
 
   select(taskId: string | null) {

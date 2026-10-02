@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { Button } from '$lib/components/ui/button'
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
   import * as Empty from '$lib/components/ui/empty'
   import * as Resizable from '$lib/components/ui/resizable'
   import {
@@ -14,6 +15,8 @@
   import { plural } from '$lib/workspace/plural'
   import { app, clickup, settings } from '$lib/state'
   import { cn } from '$lib/utils'
+  import Columns3 from '@lucide/svelte/icons/columns-3'
+  import EyeOff from '@lucide/svelte/icons/eye-off'
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import SprintTaskCard from './SprintTaskCard.svelte'
@@ -225,6 +228,59 @@
           </span>
         {/if}
       {/if}
+      {#if clickup.board}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="outline"
+                size="sm"
+                class="gap-1.5"
+                data-od-id="sprint-lanes-menu"
+              >
+                <Columns3 class="size-3.5" aria-hidden="true" />
+                Lanes
+                {#if clickup.hiddenLaneCount > 0}
+                  <span class="font-mono text-muted-foreground"
+                    >{clickup.hiddenLaneCount} hidden</span
+                  >
+                {/if}
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content align="end" class="w-56">
+            <DropdownMenu.Label class="text-xs text-muted-foreground">
+              Show lanes
+            </DropdownMenu.Label>
+            {#each clickup.allLanes as lane (lane.status.name)}
+              <DropdownMenu.CheckboxItem
+                checked={!clickup.isHidden(lane.status.name)}
+                closeOnSelect={false}
+                class="data-[state=unchecked]:text-muted-foreground"
+                onCheckedChange={(checked) =>
+                  clickup.setLaneHidden(lane.status.name, !checked)}
+              >
+                <span
+                  class="size-2 shrink-0 rounded-full"
+                  style:background-color={lane.status.color ?? 'currentColor'}
+                  aria-hidden="true"
+                ></span>
+                <span class="truncate">{statusLabel(lane.status.name)}</span>
+                <span class="ml-auto font-mono text-xs text-muted-foreground"
+                  >{lane.tasks.length}</span
+                >
+              </DropdownMenu.CheckboxItem>
+            {/each}
+            {#if clickup.hiddenLaneCount > 0}
+              <DropdownMenu.Separator />
+              <DropdownMenu.Item onSelect={() => clickup.showAllLanes()}>
+                Show all lanes
+              </DropdownMenu.Item>
+            {/if}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      {/if}
       <Button
         variant="outline"
         size="sm"
@@ -307,7 +363,7 @@
               drag.task.status.toLowerCase() !== lane.status.name.toLowerCase()}
             <section
               class={cn(
-                'flex max-h-full w-[272px] shrink-0 flex-col rounded-xl border border-transparent bg-muted/40 transition-colors',
+                'group/lane flex max-h-full w-[272px] shrink-0 flex-col rounded-xl border border-transparent bg-muted/40 transition-colors',
                 isTarget && 'border-primary/60 bg-primary/[0.07]',
               )}
               role="listitem"
@@ -338,6 +394,18 @@
                     >{formatPoints(sprintTotals(lane.tasks).points)} pts</span
                   >
                 {/if}
+                <button
+                  type="button"
+                  class={cn(
+                    'flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 outline-none transition-opacity group-hover/lane:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50',
+                    lane.tasks.length === 0 && 'ml-auto',
+                  )}
+                  aria-label="Hide {statusLabel(lane.status.name)}"
+                  title="Hide lane"
+                  onclick={() => clickup.setLaneHidden(lane.status.name, true)}
+                >
+                  <EyeOff class="size-3.5" aria-hidden="true" />
+                </button>
               </header>
               <div
                 class="flex min-h-16 flex-col gap-2 overflow-y-auto px-2 pt-1 pb-2"
@@ -354,9 +422,25 @@
               </div>
             </section>
           {:else}
-            <p class="p-2 text-sm text-muted-foreground">
-              This sprint has no tasks yet.
-            </p>
+            {#if clickup.hiddenLaneCount > 0}
+              <p
+                class="flex items-center gap-2 p-2 text-sm text-muted-foreground"
+              >
+                Every lane is hidden.
+                <Button
+                  variant="link"
+                  size="sm"
+                  class="h-auto p-0"
+                  onclick={() => clickup.showAllLanes()}
+                >
+                  Show all lanes
+                </Button>
+              </p>
+            {:else}
+              <p class="p-2 text-sm text-muted-foreground">
+                This sprint has no tasks yet.
+              </p>
+            {/if}
           {/each}
         </div>
       </Resizable.Pane>

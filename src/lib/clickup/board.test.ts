@@ -7,6 +7,7 @@ import type {
 import {
   daysLeft,
   inProgressTasks,
+  parseHiddenStatuses,
   taskRef,
   sprintLanes,
   sprintRange,
@@ -109,5 +110,18 @@ describe('taskRef', () => {
   it('falls back to the ClickUp ID without a custom one', () => {
     expect(taskRef({ id: '86abc', customId: 'ENG-1' })).toBe('ENG-1')
     expect(taskRef({ id: '86abc', customId: null })).toBe('86abc')
+  })
+})
+
+describe('parseHiddenStatuses', () => {
+  it('reads a JSON array of names and drops anything else', () => {
+    expect(parseHiddenStatuses('["complete","in review"]')).toEqual([
+      'complete',
+      'in review',
+    ])
+    expect(parseHiddenStatuses('["complete",3]')).toEqual(['complete'])
+    expect(parseHiddenStatuses(undefined)).toEqual([])
+    expect(parseHiddenStatuses('{')).toEqual([])
+    expect(parseHiddenStatuses('"complete"')).toEqual([])
   })
 })

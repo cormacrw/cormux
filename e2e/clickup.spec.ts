@@ -156,4 +156,34 @@ test.describe('clickup', () => {
 
     expect(errors).toEqual([])
   })
+
+  test('hides and shows lanes', async ({ page }) => {
+    await enableClickup(page)
+    await page.goto('/')
+    await page
+      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('button', { name: /Sprint/ })
+      .click()
+    const lanes = page.locator('[data-lane]')
+    await expect(lanes).toHaveCount(4)
+
+    // The lane's own button hides it, and the menu counts it.
+    const complete = page.locator('[data-lane="complete"]')
+    await complete.hover()
+    await complete.getByRole('button', { name: 'Hide Complete' }).click()
+    await expect(complete).toHaveCount(0)
+    const menu = page.locator('[data-od-id="sprint-lanes-menu"]')
+    await expect(menu).toContainText('1 hidden')
+
+    // The menu toggles lanes and stays open between toggles.
+    await menu.click()
+    await page.getByRole('menuitemcheckbox', { name: /In review/ }).click()
+    await expect(page.locator('[data-lane="in review"]')).toHaveCount(0)
+    await expect(menu).toContainText('2 hidden')
+    await page.getByRole('menuitemcheckbox', { name: /Complete/ }).click()
+    await expect(complete).toBeVisible()
+    await page.getByRole('menuitem', { name: 'Show all lanes' }).click()
+    await expect(lanes).toHaveCount(4)
+    await expect(menu).not.toContainText('hidden')
+  })
 })
