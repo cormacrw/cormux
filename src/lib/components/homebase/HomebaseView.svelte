@@ -11,6 +11,7 @@
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
   import Plus from '@lucide/svelte/icons/plus'
+  import InProgressTasksSection from './InProgressTasksSection.svelte'
   import OpenPrsSection from './OpenPrsSection.svelte'
   import PinnedTodosSection from './PinnedTodosSection.svelte'
   import ScratchesSection from './ScratchesSection.svelte'
@@ -203,6 +204,8 @@
     </section>
 
     <OpenPrsSection />
+
+    <InProgressTasksSection />
   </div>
 </div>
 

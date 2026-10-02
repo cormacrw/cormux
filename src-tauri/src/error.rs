@@ -41,6 +41,9 @@ pub enum Error {
     #[error("github: {0}")]
     Github(String),
 
+    #[error("clickup: {0}")]
+    Clickup(String),
+
     #[error("llm: {0}")]
     Llm(String),
 

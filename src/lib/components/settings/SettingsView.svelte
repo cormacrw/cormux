@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import AgentsSettings from '$lib/components/settings/AgentsSettings.svelte'
+  import ClickupSettings from '$lib/components/settings/ClickupSettings.svelte'
   import AppearanceSettings from '$lib/components/settings/AppearanceSettings.svelte'
   import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte'
   import GithubSettings from '$lib/components/settings/GithubSettings.svelte'
@@ -161,6 +162,24 @@
           <div class="mt-4">
             <GithubSettings />
             <PrPromptSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'clickup'}
+          id={settingsSectionDomId('clickup')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-clickup-h"
+          data-od-id="settings-clickup-section"
+        >
+          <SettingsSectionHead
+            id="settings-clickup-h"
+            title="ClickUp"
+            description="Your team's current sprint as a board, and your in-progress tasks on Homebase."
+          />
+          <div class="mt-4">
+            <ClickupSettings />
           </div>
         </section>
 

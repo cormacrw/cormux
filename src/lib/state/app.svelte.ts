@@ -4,6 +4,7 @@ import { workspaceUi } from './workspace-ui.svelte'
 import { workspaces } from './workspaces.svelte'
 import { threads } from './threads.svelte'
 import { scratches } from './scratches.svelte'
+import { clickup } from './clickup.svelte'
 import { appName } from '$lib/build-mode'
 import { resolveWindowTitle, type ViewId } from './window-title'
 
@@ -11,7 +12,7 @@ export type { ViewId } from './window-title'
 export { resolveWindowTitle } from './window-title'
 
 export type FocusTarget =
-  'homebase' | 'settings' | 'workspace' | 'scratch' | 'todos'
+  'homebase' | 'settings' | 'workspace' | 'scratch' | 'todos' | 'sprint'
 
 export class AppStore {
   version = $state(0)
@@ -85,6 +86,16 @@ export class AppStore {
     this.threadId = null
     this.scratchId = null
     this.requestFocus('todos')
+  }
+
+  /** The ClickUp sprint board, optionally with one task open in the side pane. */
+  openSprint(taskId?: string) {
+    this.view = 'sprint'
+    this.workspaceId = null
+    this.threadId = null
+    this.scratchId = null
+    if (taskId) clickup.select(taskId)
+    this.requestFocus('sprint')
   }
 
   openSettings() {

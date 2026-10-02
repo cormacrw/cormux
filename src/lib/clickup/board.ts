@@ -1,0 +1,123 @@
+import type {
+  ClickupBoard,
+  ClickupStatus,
+  ClickupTask,
+} from '$lib/ipc/bindings'
+
+export type SprintLane = { status: ClickupStatus; tasks: ClickupTask[] }
+
+/** Settings keys for the picked workspace, space and sprint folder. */
+export const CLICKUP_WORKSPACE_KEY = 'clickupWorkspaceId'
+export const CLICKUP_SPACE_KEY = 'clickupSpaceId'
+export const CLICKUP_FOLDER_KEY = 'clickupFolderId'
+
+/** The Fibonacci values most teams estimate in, offered as one-click choices. */
+export const POINT_PRESETS = [1, 2, 3, 5, 8, 13] as const
+
+function sameStatus(a: string, b: string) {
+  return a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0
+}
+
+/** One lane per status, in ClickUp's order. Tasks keep the API's order within a lane. */
+export function sprintLanes(
+  statuses: ClickupStatus[],
+  tasks: ClickupTask[],
+): SprintLane[] {
+  return statuses.map((status) => ({
+    status,
+    tasks: tasks.filter((task) => sameStatus(task.status, status.name)),
+  }))
+}
+
+export function hasPoints(task: Pick<ClickupTask, 'points'>) {
+  return task.points != null
+}
+
+export function formatPoints(points: number) {
+  return Number.isInteger(points) ? String(points) : points.toFixed(1)
+}
+
+/** `in progress` → `In progress`; ClickUp stores status names in lower case. */
+export function statusLabel(name: string) {
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+export function sprintTotals(tasks: ClickupTask[]) {
+  let points = 0
+  let unpointed = 0
+  for (const task of tasks) {
+    if (task.points == null) unpointed += 1
+    else points += task.points
+  }
+  return { points, unpointed }
+}
+
+/**
+ * The key owner's tasks in a status between to do and done (ClickUp's `custom` type),
+ * for Homebase.
+ */
+export function inProgressTasks(board: ClickupBoard | null): ClickupTask[] {
+  if (!board) return []
+  const active = board.statuses
+    .filter((status) => status.kind === 'custom')
+    .map((status) => status.name)
+  return board.tasks.filter(
+    (task) =>
+      active.some((name) => sameStatus(name, task.status)) &&
+      task.assignees.some((user) => user.id === board.userId),
+  )
+}
+
+/** A copy of the board with one task in a new lane, for optimistic moves. */
+export function withTaskStatus(
+  board: ClickupBoard,
+  taskId: string,
+  status: ClickupStatus,
+): ClickupBoard {
+  return {
+    ...board,
+    tasks: board.tasks.map((task) =>
+      task.id === taskId
+        ? { ...task, status: status.name, statusColor: status.color }
+        : task,
+    ),
+  }
+}
+
+export function withTaskPoints(
+  board: ClickupBoard,
+  taskId: string,
+  points: number,
+): ClickupBoard {
+  return {
+    ...board,
+    tasks: board.tasks.map((task) =>
+      task.id === taskId ? { ...task, points } : task,
+    ),
+  }
+}
+
+const DATE = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+})
+
+/** `Sep 22 – Oct 5`, or nothing when the sprint has no dates. */
+export function sprintRange(startMs: number | null, dueMs: number | null) {
+  if (startMs == null || dueMs == null) return null
+  return `${DATE.format(startMs)} – ${DATE.format(dueMs)}`
+}
+
+/** Whole days left in the sprint, counting today. */
+export function daysLeft(dueMs: number | null, nowMs: number) {
+  if (dueMs == null) return null
+  return Math.max(0, Math.ceil((dueMs - nowMs) / 86_400_000))
+}
+
+/** Parses a typed points value. Blank, negative or non-numeric input is null. */
+export function parsePoints(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const value = Number(trimmed)
+  return Number.isFinite(value) && value >= 0 ? value : null
+}

@@ -21,6 +21,7 @@ export type PaletteRegistryActions = {
   runScratchMacro: (macroId: string, extra?: string) => void
   openHomebase: () => void
   openTodos: () => void
+  openSprint: () => void
   openSettings: () => void
   openWorkspace: (workspaceId: string, threadId?: string) => void
   toggleReduceMotion: () => void
@@ -37,6 +38,8 @@ export type PaletteRegistryActions = {
 
 export type PaletteRegistryState = {
   reduceMotion: boolean
+  /** The Sprint page only exists once a ClickUp API key is stored. */
+  clickupConfigured: boolean
   workspaces: Workspace[]
   scratches: Scratch[]
   scratchMacros: ScratchMacro[]
@@ -87,6 +90,17 @@ export function buildPaletteCommandsFromState(
       label: 'Go to TODOs',
       run: () => actions.openTodos(),
     },
+    ...(state.clickupConfigured
+      ? [
+          {
+            id: 'action-sprint',
+            group: 'Actions',
+            label: 'Go to sprint',
+            meta: 'clickup',
+            run: () => actions.openSprint(),
+          },
+        ]
+      : []),
     {
       id: ADD_TODO_COMMAND_ID,
       group: 'Actions',

@@ -3,6 +3,7 @@ import {
   fixtureEngines,
   fixtureSnapshot,
 } from './fixture-snapshot'
+import { fixtureClickupBoard, fixtureClickupDetail } from './fixture-clickup'
 
 type InvokeArgs = Record<string, unknown> | undefined
 
@@ -166,6 +167,21 @@ export function installBrowserHarness() {
     fixtureSnapshot.persisted.pullRequests = injectedPrs
     fixtureSnapshot.githubAuthConfigured = true
     fixtureSnapshot.prSyncedAt = String(Math.floor(Date.now() / 1000))
+  }
+
+  // Tests opt into ClickUp: a stored key and a picked sprint folder.
+  const clickupBoard = fixtureClickupBoard()
+  const clickupCalls: { cmd: string; args: InvokeArgs }[] = []
+  ;(
+    window as { __HARNESS_CLICKUP_CALLS__?: typeof clickupCalls }
+  ).__HARNESS_CLICKUP_CALLS__ = clickupCalls
+  if ((window as { __HARNESS_CLICKUP__?: boolean }).__HARNESS_CLICKUP__) {
+    fixtureSnapshot.clickupConfigured = true
+    fixtureSnapshot.persisted.settings.push(
+      { key: 'clickupWorkspaceId', value: 'team-1' },
+      { key: 'clickupSpaceId', value: 'space-1' },
+      { key: 'clickupFolderId', value: 'folder-sprints' },
+    )
   }
 
   // Lets tests raise a toast of any tone without driving a flow that produces it.
@@ -444,6 +460,52 @@ export function installBrowserHarness() {
         (row) => row.id === args.todoId,
       )
       if (todo) todo.pinned = Boolean(args.pinned)
+      return null
+    }
+    if (cmd === 'set_clickup_api_key') {
+      if (!String(args.key).startsWith('pk_')) {
+        throw { kind: 'Clickup', message: 'ClickUp rejected the API key' }
+      }
+      fixtureSnapshot.clickupConfigured = true
+      emitStateChanged()
+      return null
+    }
+    if (cmd === 'clear_clickup_api_key') {
+      fixtureSnapshot.clickupConfigured = false
+      emitStateChanged()
+      return null
+    }
+    if (cmd === 'clickup_workspaces') return [{ id: 'team-1', name: 'Acme' }]
+    if (cmd === 'clickup_spaces')
+      return [{ id: 'space-1', name: 'Engineering' }]
+    if (cmd === 'clickup_folders') {
+      return [
+        { id: 'folder-sprints', name: 'Sprints' },
+        { id: 'folder-roadmap', name: 'Roadmap' },
+      ]
+    }
+    if (cmd === 'clickup_board') return structuredClone(clickupBoard)
+    if (cmd === 'clickup_task') {
+      const found = clickupBoard.tasks.find((row) => row.id === args.taskId)
+      if (!found) throw { kind: 'Clickup', message: 'ClickUp: Task not found' }
+      return fixtureClickupDetail(structuredClone(found))
+    }
+    if (
+      cmd === 'set_clickup_task_status' ||
+      cmd === 'set_clickup_task_points'
+    ) {
+      clickupCalls.push({ cmd, args })
+      const found = clickupBoard.tasks.find((row) => row.id === args.taskId)
+      if (found && cmd === 'set_clickup_task_status') {
+        const status = clickupBoard.statuses.find(
+          (row) => row.name === args.status,
+        )
+        found.status = String(args.status)
+        found.statusColor = status?.color ?? null
+      }
+      if (found && cmd === 'set_clickup_task_points') {
+        found.points = Number(args.points)
+      }
       return null
     }
     if (cmd === 'detect_engines') return fixtureEngines

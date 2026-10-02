@@ -71,6 +71,9 @@ Every spec follows the same outline:
 - [21 · Settings page](21-settings.md)
 - [22 · Repos and repo config](22-repos.md)
 
+### Integrations
+- [26 · ClickUp sprint](26-clickup-sprint.md)
+
 ## Cross-cutting rules
 
 These apply to every feature and are not repeated in each spec.

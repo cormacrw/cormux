@@ -1,0 +1,135 @@
+import { expect, test, type Page } from '@playwright/test'
+import { mkdirSync } from 'node:fs'
+
+type Call = { cmd: string; args: Record<string, unknown> }
+
+async function enableClickup(page: Page) {
+  await page.addInitScript(() => {
+    ;(window as { __HARNESS_CLICKUP__?: boolean }).__HARNESS_CLICKUP__ = true
+  })
+}
+
+function calls(page: Page) {
+  return page.evaluate(
+    () =>
+      (window as { __HARNESS_CLICKUP_CALLS__?: Call[] })
+        .__HARNESS_CLICKUP_CALLS__ ?? [],
+  )
+}
+
+test.describe('clickup', () => {
+  test('stays hidden without an API key', async ({ page }) => {
+    await page.goto('/')
+    const nav = page.getByRole('navigation', { name: 'Harness' })
+    await expect(nav.getByRole('button', { name: /TODOs/ })).toBeVisible()
+    await expect(nav.getByRole('button', { name: /Sprint/ })).toHaveCount(0)
+    await expect(page.locator('[data-od-id="home-in-progress"]')).toHaveCount(0)
+  })
+
+  test('saving a key in Settings reveals the Sprint page', async ({ page }) => {
+    await page.goto('/')
+    const nav = page.getByRole('navigation', { name: 'Harness' })
+    await nav.getByRole('button', { name: /Settings/ }).click()
+    await page
+      .getByRole('navigation', { name: 'Settings sections' })
+      .getByRole('button', { name: 'ClickUp' })
+      .click()
+    const key = page.locator('#settings-clickup-key')
+
+    await key.fill('not-a-key')
+    await page.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByRole('alert')).toHaveText(
+      'ClickUp rejected the API key',
+    )
+
+    await key.fill('pk_123')
+    await page.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByText('Connected', { exact: true })).toBeVisible()
+    await expect(nav.getByRole('button', { name: /Sprint/ })).toBeVisible()
+    // One workspace and space pick themselves; the folder named Sprints wins over Roadmap.
+    await expect(
+      page.locator('[data-od-id="settings-clickup-folder"]'),
+    ).toHaveText('Sprints')
+  })
+
+  test('board, drag between lanes, points and Homebase', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    mkdirSync('e2e/output', { recursive: true })
+    await enableClickup(page)
+    await page.goto('/')
+
+    // Homebase lists the key owner's in-progress tasks under the PRs.
+    const inProgress = page.locator('[data-od-id="home-in-progress"]')
+    await expect(inProgress.locator('li')).toHaveCount(2)
+    const prs = page.locator('[data-od-id="open-prs"]')
+    expect((await prs.boundingBox())!.y).toBeLessThan(
+      (await inProgress.boundingBox())!.y,
+    )
+    await inProgress.scrollIntoViewIfNeeded()
+    await inProgress.screenshot({ path: 'e2e/output/clickup-home.png' })
+
+    // Opening one lands on the board with its details open.
+    await inProgress.getByRole('button', { name: /ENG-198/ }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Sprint 14', level: 1 }),
+    ).toBeVisible()
+    const panel = page.locator('[data-od-id="sprint-task-panel"]')
+    await expect(
+      panel.getByRole('heading', {
+        name: 'Session expires mid checkout on Safari',
+      }),
+    ).toBeVisible()
+    await expect(panel.getByText('Customers lose their cart')).toBeVisible()
+
+    // Unpointed tasks stand out on the board and in the header.
+    const unpointed = page.locator('[data-unpointed]')
+    await expect(unpointed).toHaveCount(2)
+    await expect(
+      page.locator('[data-od-id="sprint-unpointed-count"]'),
+    ).toHaveText(/2 tasks without points/)
+    await page.screenshot({ path: 'e2e/output/clickup-board.png' })
+
+    // Estimating from the pane clears the highlight.
+    await panel.getByRole('button', { name: '3 points', exact: true }).click()
+    await expect(unpointed).toHaveCount(1)
+    await expect(
+      panel.getByRole('button', { name: '3 points', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    // Drag ENG-201 from To do into In progress.
+    const card = page.locator('[data-task-id="t1"]')
+    const target = page.locator('[data-lane="in progress"]')
+    const from = (await card.boundingBox())!
+    const to = (await target.boundingBox())!
+    await page.mouse.move(from.x + 20, from.y + 20)
+    await page.mouse.down()
+    await page.mouse.move(from.x + 40, from.y + 30, { steps: 4 })
+    await page.mouse.move(to.x + to.width / 2, to.y + 120, { steps: 10 })
+    await page.mouse.up()
+    await expect(target.locator('[data-task-id="t1"]')).toBeVisible()
+
+    expect(await calls(page)).toEqual([
+      {
+        cmd: 'set_clickup_task_points',
+        args: { taskId: 't2', points: 3 },
+      },
+      {
+        cmd: 'set_clickup_task_status',
+        args: { taskId: 't1', status: 'in progress' },
+      },
+    ])
+
+    // A drag doesn't open the dragged card; Escape closes the pane.
+    await expect(
+      panel.getByRole('heading', {
+        name: 'Session expires mid checkout on Safari',
+      }),
+    ).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+    await expect(page.locator('[data-task-id="t2"]')).toBeFocused()
+
+    expect(errors).toEqual([])
+  })
+})
