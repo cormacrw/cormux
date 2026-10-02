@@ -138,3 +138,29 @@ test('PRs that build on each other are grouped into a stack', async ({
   mkdirSync('e2e/output', { recursive: true })
   await section.screenshot({ path: 'e2e/output/open-prs-stack.png' })
 })
+
+test('a long PR list scrolls inside Homebase, not the whole window', async ({
+  page,
+}) => {
+  await page.addInitScript(
+    (prs) => {
+      ;(window as { __HARNESS_PRS__?: unknown }).__HARNESS_PRS__ = prs
+    },
+    Array.from({ length: 40 }, (_, i) =>
+      pr(500 + i, `PR ${500 + i}`, { checks: 'pass' }),
+    ),
+  )
+  await page.goto('/')
+  await expect(page.locator('[data-od-id="pr-row-539"]')).toBeAttached()
+
+  await page.mouse.move(700, 400)
+  await page.mouse.wheel(0, 10_000)
+
+  const docHeight = await page.evaluate(
+    () => document.documentElement.scrollHeight,
+  )
+  expect(docHeight).toBe(page.viewportSize()!.height)
+  expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(
+    0,
+  )
+})
