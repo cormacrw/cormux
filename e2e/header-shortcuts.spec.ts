@@ -5,6 +5,7 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   mkdirSync('e2e/output', { recursive: true })
+  await page.setViewportSize({ width: 1600, height: 800 })
   await page.goto('/')
   await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
 

@@ -15,7 +15,6 @@
   } from '$lib/workspace/worktree-actions'
   import Ellipsis from '@lucide/svelte/icons/ellipsis'
   import Play from '@lucide/svelte/icons/play'
-  import RotateCw from '@lucide/svelte/icons/rotate-cw'
   import ScanSearch from '@lucide/svelte/icons/scan-search'
   import Square from '@lucide/svelte/icons/square'
   import SquareTerminal from '@lucide/svelte/icons/square-terminal'
@@ -123,18 +122,10 @@
             )}
         >
           <Play class="size-4" aria-hidden="true" />
-          {appStatus === 'crashed' ? 'Restart app' : 'Run'}
+          Run
           <DropdownMenu.Shortcut>⌘R</DropdownMenu.Shortcut>
         </DropdownMenu.Item>
       {:else}
-        <DropdownMenu.Item
-          disabled={appStatus === 'starting'}
-          onclick={() => runWorkspaceApp(workspaceId, 'restart')}
-        >
-          <RotateCw class="size-4" aria-hidden="true" />
-          Restart app
-          <DropdownMenu.Shortcut>⌘R</DropdownMenu.Shortcut>
-        </DropdownMenu.Item>
         <DropdownMenu.Item onclick={() => runWorkspaceApp(workspaceId, 'stop')}>
           <Square class="size-4" aria-hidden="true" />
           Stop app
@@ -157,6 +148,7 @@
       >
         <ScanSearch class="size-4" aria-hidden="true" />
         Review changes
+        <DropdownMenu.Shortcut>⌘I</DropdownMenu.Shortcut>
       </DropdownMenu.Item>
     {/if}
     <DropdownMenu.Item

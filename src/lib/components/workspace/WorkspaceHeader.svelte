@@ -45,6 +45,7 @@
   } = $props()
 
   let narrow = $state(false)
+  let headerEl: HTMLElement | undefined = $state()
 
   const record = $derived(workspaceRecords.getRecord(workspace.id))
   const repo = $derived(record ? repos.getById(record.repoId) : undefined)
@@ -82,14 +83,16 @@
     void restoreHeaderFocus()
   })
 
+  // The secondary buttons fold into ⋯ once the header can't fit them beside the title.
+  // Measured on the header, not the window, since the sidebar takes a varying share.
+  const NARROW_HEADER_PX = 1240
   onMount(() => {
-    const media = window.matchMedia('(max-width: 768px)')
-    const sync = () => {
-      narrow = media.matches
-    }
-    sync()
-    media.addEventListener('change', sync)
-    return () => media.removeEventListener('change', sync)
+    if (!headerEl) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) narrow = entry.contentRect.width < NARROW_HEADER_PX
+    })
+    observer.observe(headerEl)
+    return () => observer.disconnect()
   })
 
   // Handled here rather than on the buttons, which narrow windows fold into ⋯.
@@ -97,7 +100,7 @@
     const status = runtime.appStatus
     if (isHeaderShortcut(event, 'r')) {
       event.preventDefault()
-      if (status === 'crashed' || status === 'running') {
+      if (status === 'crashed') {
         runWorkspaceApp(workspace.id, 'restart')
       } else if (
         status === 'stopped' &&
@@ -105,6 +108,11 @@
         repo?.runCommand?.trim()
       ) {
         runWorkspaceApp(workspace.id, 'run')
+      }
+    } else if (isHeaderShortcut(event, 'i')) {
+      event.preventDefault()
+      if (workspace.kind !== 'review' && !runDisabled && !reviewing) {
+        void startBranchReview(workspace.id)
       }
     } else if (isHeaderShortcut(event, '.')) {
       event.preventDefault()
@@ -137,6 +145,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <header
+  bind:this={headerEl}
   class="flex flex-col"
   data-tauri-drag-region
   data-od-id="ws-header"
@@ -148,7 +157,7 @@
         bind:this={titleRef}
         tabindex="-1"
         data-ws-focus="title"
-        class="min-w-0 truncate text-[15px] font-medium tracking-tight outline-none"
+        class="min-w-24 truncate text-[15px] font-medium tracking-tight outline-none"
         onfocus={onTitleFocus}
       >
         {workspace.name}
@@ -207,20 +216,20 @@
           <Button
             variant="secondary"
             size="xl"
-            class="w-12 px-0"
             disabled={runDisabled || reviewing}
-            aria-label={reviewing ? 'Reviewing changes' : 'Review changes'}
-            title={reviewing
-              ? 'The Reviewer is reading the changes'
-              : "Review this branch's changes, uncommitted work included"}
+            aria-keyshortcuts="Meta+I"
+            title="Review this branch's changes, uncommitted work included"
             data-ws-focus="review"
             data-od-id="ws-review"
             onclick={() => void startBranchReview(workspace.id)}
           >
             {#if reviewing}
               <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
+              Reviewing…
             {:else}
               <ScanSearch class="size-4" aria-hidden="true" />
+              Review
+              <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />I</Kbd>
             {/if}
           </Button>
         {/if}
