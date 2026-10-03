@@ -510,6 +510,13 @@
   margin-left: 1px;
   color: var(--muted-foreground);
   line-height: 1;
+  animation: type-cursor-blink 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes type-cursor-blink {
+  to {
+    opacity: 0;
+  }
 }
 
 /*

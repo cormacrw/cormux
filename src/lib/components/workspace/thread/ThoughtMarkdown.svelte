@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { gsap } from 'gsap'
-  import { mount, onDestroy, unmount } from 'svelte'
-  import { prefersReducedMotion } from '$lib/thread/entering'
+  import { mount, unmount } from 'svelte'
   import {
     renderRichMarkdown,
     renderSanitizedMarkdown,
@@ -17,7 +15,7 @@
     text: string
     /** Documents (task descriptions) rather than chat: headings, tables and checklists too. */
     rich?: boolean
-    /** TextType's ▎ cursor, blinking at the end of the last line while a reply types. */
+    /** A ▎ cursor, blinking at the end of the last line while a reply types. */
     cursor?: boolean
   } = $props()
 
@@ -27,7 +25,6 @@
 
   let root: HTMLDivElement | undefined = $state()
   let cursorEl: HTMLSpanElement | null = null
-  let blink: gsap.core.Tween | null = null
 
   // The markdown is re-rendered on every character, so one cursor node is moved to the end of
   // the newest line each time. Restarting the blink keeps it solid while typing, like an editor.
@@ -47,18 +44,7 @@
     }
     const blocks = container.querySelectorAll('p, li, pre code, blockquote')
     ;(blocks[blocks.length - 1] ?? container).append(cursorEl)
-    if (prefersReducedMotion()) return
-    if (!blink) {
-      blink = gsap.to(cursorEl, {
-        opacity: 0,
-        duration: 0.5,
-        repeat: -1,
-        yoyo: true,
-        ease: 'power2.inOut',
-      })
-    } else {
-      blink.restart()
-    }
+    for (const animation of cursorEl.getAnimations()) animation.currentTime = 0
   })
 
   // {@html} replaces every node when the text changes, so each render gets fresh copy buttons.
@@ -80,8 +66,6 @@
     code.querySelector('.type-cursor')?.remove()
     return code.textContent ?? ''
   }
-
-  onDestroy(() => blink?.kill())
 
   function handleClick(event: MouseEvent) {
     // Links can wrap <code>/<strong>, so find the anchor from whatever was clicked.

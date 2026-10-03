@@ -1,4 +1,5 @@
 import type { Action } from 'svelte/action'
+import { prefersReducedMotion } from '$lib/motion'
 import type { TimelineItem, TimelineRow } from './timeline-types'
 
 /**
@@ -36,13 +37,6 @@ export function liveReplyId(items: TimelineItem[]): string | null {
   if (items.at(-1)?.kind !== 'live') return null
   const last = items.at(-2)
   return last?.kind === 'thought' && last.role === 'agent' ? last.id : null
-}
-
-export function prefersReducedMotion() {
-  return (
-    document.documentElement.classList.contains('reduce-motion') ||
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  )
 }
 
 export type PopInParams = {
