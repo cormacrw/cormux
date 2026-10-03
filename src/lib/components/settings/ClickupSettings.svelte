@@ -173,8 +173,8 @@
     title="API key"
     controlId={clickup.configured ? undefined : 'settings-clickup-key'}
     description={clickup.configured
-      ? 'Stored in the macOS Keychain. Remove it to hide the Sprint page.'
-      : 'A personal token from ClickUp › Settings › Apps (starts with pk_). Kept in the Keychain.'}
+      ? 'Stored in ~/.cormux/credentials.json. Remove it to hide the Sprint page.'
+      : 'A personal token from ClickUp › Settings › Apps (starts with pk_). Saved to ~/.cormux/credentials.json.'}
   >
     {#snippet control()}
       {#if clickup.configured}

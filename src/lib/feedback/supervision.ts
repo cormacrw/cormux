@@ -8,6 +8,7 @@ import {
   reviewFinishedToast,
 } from './toast-payload'
 import { showToast } from './show-toast'
+import type { ToastTarget } from './toast-target'
 
 type ReviewSignature = Map<string, number>
 
@@ -29,12 +30,26 @@ function openFindingsByWorkspace(snapshot: Snapshot): ReviewSignature {
 }
 
 function prNumberForWorkspace(snapshot: Snapshot, workspaceId: string) {
-  const workspace = snapshot.workspaces.find((row) => row.id === workspaceId)
-  if (!workspace) return null
-  const pr = snapshot.persisted.pullRequests.find(
-    (row) => row.repoId === workspace.repoId,
+  return (
+    snapshot.persisted.workspaces.find((row) => row.id === workspaceId)
+      ?.prNumber ?? null
   )
-  return pr?.number ?? null
+}
+
+/** The thread behind the newest pending approval, to open from its notification. */
+function newestApprovalTarget(snapshot: Snapshot): ToastTarget | undefined {
+  const approval = snapshot.persisted.approvals
+    .filter((row) => row.status === 'pending')
+    .at(-1)
+  const thread = snapshot.persisted.threads.find(
+    (row) => row.id === approval?.threadId,
+  )
+  if (!thread) return undefined
+  const scratch = snapshot.persisted.scratches.find(
+    (row) => row.threadId === thread.id,
+  )
+  if (scratch) return { scratchId: scratch.id }
+  return { workspaceId: thread.workspaceId, threadId: thread.id }
 }
 
 export async function onSnapshotSupervision(snapshot: Snapshot) {
@@ -50,7 +65,11 @@ export async function onSnapshotSupervision(snapshot: Snapshot) {
     true,
   )
   if (pending > lastPending && !windowFocused && notifyApprovals) {
-    await notifyHarness('Cormux', approvalNeededNotificationBody(pending))
+    await notifyHarness(
+      'Cormux',
+      approvalNeededNotificationBody(pending),
+      newestApprovalTarget(snapshot),
+    )
   }
   lastPending = pending
 
@@ -75,7 +94,7 @@ export async function onSnapshotSupervision(snapshot: Snapshot) {
           prNumberForWorkspace(snapshot, workspaceId) != null
             ? `Review of #${prNumberForWorkspace(snapshot, workspaceId)} finished · ${count} findings`
             : `Review finished · ${count} findings`
-        await notifyHarness('Cormux', label)
+        await notifyHarness('Cormux', label, { workspaceId, findings: true })
       }
     }
   }

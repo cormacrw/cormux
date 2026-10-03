@@ -50,18 +50,6 @@ impl FetchScheduler {
         *self.repos.write().await = repos;
     }
 
-    pub async fn upsert_repo(&self, target: RepoFetchTarget) {
-        let mut repos = self.repos.write().await;
-        if let Some(existing) = repos
-            .iter_mut()
-            .find(|repo| repo.repo_path == target.repo_path)
-        {
-            *existing = target;
-        } else {
-            repos.push(target);
-        }
-    }
-
     pub async fn remove_workspace(&self, workspace_id: &str) {
         let mut repos = self.repos.write().await;
         for repo in repos.iter_mut() {

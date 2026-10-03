@@ -121,29 +121,20 @@ enum View {
     Unavailable(String),
 }
 
-async fn gh_stack(
-    state: &AppState,
-    worktree: &Path,
-    args: &[&str],
-    token: Option<&str>,
-) -> Result<Output> {
-    gh_stack_with_env(state, worktree, args, token, &[]).await
+async fn gh_stack(state: &AppState, worktree: &Path, args: &[&str]) -> Result<Output> {
+    gh_stack_with_env(state, worktree, args, &[]).await
 }
 
 async fn gh_stack_with_env(
     state: &AppState,
     worktree: &Path,
     args: &[&str],
-    token: Option<&str>,
     extra_env: &[(&str, &str)],
 ) -> Result<Output> {
     let mut full = vec!["stack"];
     full.extend_from_slice(args);
     // Never let gh or gh-stack wait on a prompt; there's no terminal to answer it.
     let mut env = vec![("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1")];
-    if let Some(token) = token {
-        env.push(("GH_TOKEN", token));
-    }
     env.extend_from_slice(extra_env);
     state
         .git
@@ -204,7 +195,7 @@ fn failure_message(output: &Output, action: &str) -> String {
 }
 
 async fn view(state: &AppState, worktree: &Path) -> Result<View> {
-    let output = match gh_stack(state, worktree, &["view", "--json"], None).await {
+    let output = match gh_stack(state, worktree, &["view", "--json"]).await {
         Ok(output) => output,
         Err(Error::Git(message)) => return Ok(View::Unavailable(message)),
         Err(error) => return Err(error),
@@ -413,7 +404,7 @@ async fn adopt_local_stack(state: &AppState, worktree: &Path, branch: &str) -> b
     args.extend(present.iter().map(String::as_str));
     // `init` saves the stack, then checks out its top branch. That fails when the branch
     // is checked out in the worktree the stack came from, so judge by `view`, not the exit code.
-    if let Err(error) = gh_stack(state, worktree, &args, None).await {
+    if let Err(error) = gh_stack(state, worktree, &args).await {
         log::warn!("adopting the stack for {branch}: {error}");
         return false;
     }
@@ -497,20 +488,12 @@ async fn checkout_remote_stack(
         ]
     };
 
-    let token = fallback_token(state).await;
-    let output = match gh_stack_with_env(
-        state,
-        worktree,
-        &["checkout", branch],
-        token.as_deref(),
-        origin_default,
-    )
-    .await
-    {
-        Ok(output) => output,
-        Err(Error::Git(message)) => return RemoteStack::Failed(message),
-        Err(error) => return RemoteStack::Failed(error.to_string()),
-    };
+    let output =
+        match gh_stack_with_env(state, worktree, &["checkout", branch], origin_default).await {
+            Ok(output) => output,
+            Err(Error::Git(message)) => return RemoteStack::Failed(message),
+            Err(error) => return RemoteStack::Failed(error.to_string()),
+        };
     match output.status.code() {
         Some(0) => {}
         Some(EXIT_STACK_NOT_FOUND) => return RemoteStack::None,
@@ -602,7 +585,7 @@ pub async fn add_branch(
 pub async fn push(app: &AppHandle, state: &AppState, workspace_id: &str) -> Result<()> {
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
-    let output = gh_stack(state, &worktree, &["push", "--remote", "origin"], None).await?;
+    let output = gh_stack(state, &worktree, &["push", "--remote", "origin"]).await?;
     if !output.status.success() {
         return Err(failure(&output, "Push"));
     }
@@ -617,14 +600,7 @@ pub async fn sync(app: &AppHandle, state: &AppState, workspace_id: &str) -> Resu
     state.workspace.remember(record.clone()).await;
     state.workspace.can_switch_branch(workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
-    let token = fallback_token(state).await;
-    let output = gh_stack(
-        state,
-        &worktree,
-        &["sync", "--remote", "origin"],
-        token.as_deref(),
-    )
-    .await?;
+    let output = gh_stack(state, &worktree, &["sync", "--remote", "origin"]).await?;
     let result = if !output.status.success() {
         Err(failure(&output, "Sync"))
     } else if sync_aborted(&output) {
@@ -642,22 +618,6 @@ pub async fn sync(app: &AppHandle, state: &AppState, workspace_id: &str) -> Resu
     Ok(())
 }
 
-/// Cormux's own token, but only when `gh` isn't signed in; a working `gh` login wins.
-async fn fallback_token(state: &AppState) -> Option<String> {
-    let signed_in = state
-        .shell_env
-        .read()
-        .await
-        .run("gh", &["auth", "token"], None)
-        .await
-        .is_ok_and(|token| !token.trim().is_empty());
-    if signed_in {
-        None
-    } else {
-        crate::github::auth::read_stored_token()
-    }
-}
-
 fn sync_aborted(output: &Output) -> bool {
     let text = format!(
         "{}{}",
@@ -668,7 +628,7 @@ fn sync_aborted(output: &Output) -> bool {
 }
 
 async fn run(state: &AppState, worktree: &Path, args: &[&str], action: &str) -> Result<()> {
-    let output = gh_stack(state, worktree, args, None).await?;
+    let output = gh_stack(state, worktree, args).await?;
     if output.status.success() {
         Ok(())
     } else {
@@ -702,6 +662,7 @@ fn toast(app: &AppHandle, workspace_id: &str, text: &str) {
             tone: ToastTone::Ok,
             parts: vec![ToastPart::Text { value: text.into() }],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
 }

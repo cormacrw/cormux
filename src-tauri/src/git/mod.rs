@@ -6,8 +6,6 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
-use specta::Type;
 use tokio::process::Command;
 use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
@@ -29,7 +27,8 @@ struct GitInner {
     queues: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[cfg(test)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchRef {
     pub name: String,
@@ -146,12 +145,6 @@ impl Git {
         Ok(PathBuf::from(Self::stdout(&output).trim()))
     }
 
-    pub async fn validate_repo(&self, path: &str) -> Result<String> {
-        self.show_toplevel(Path::new(path))
-            .await
-            .map(|path| path.to_string_lossy().to_string())
-    }
-
     pub async fn remote_origin_url(&self, repo: &Path) -> Result<Option<String>> {
         let output = self.run(repo, &["remote", "get-url", "origin"]).await?;
         if !output.status.success() {
@@ -180,6 +173,7 @@ impl Git {
         Ok("main".into())
     }
 
+    #[cfg(test)]
     pub async fn list_branches(&self, repo: &Path) -> Result<Vec<BranchRef>> {
         let output = self
             .run(
@@ -300,17 +294,6 @@ impl Git {
             .then(|| Self::stdout(&output).trim().to_string()))
     }
 
-    pub async fn merge_base(&self, worktree: &Path, base: &str) -> Result<String> {
-        let other = format!("origin/{base}");
-        let output = self.run(worktree, &["merge-base", "HEAD", &other]).await?;
-        if output.status.success() {
-            return Ok(Self::stdout(&output).trim().to_string());
-        }
-        let output = self.run(worktree, &["merge-base", "HEAD", base]).await?;
-        Self::require_success(&output, "merge-base")?;
-        Ok(Self::stdout(&output).trim().to_string())
-    }
-
     pub async fn numstat(&self, worktree: &Path) -> Result<Vec<(String, u32, u32)>> {
         let output = self.run(worktree, &["diff", "--numstat", "HEAD"]).await?;
         Self::diff_ok(&output, "diff --numstat")?;
@@ -347,41 +330,6 @@ impl Git {
             files.push((path, added, 0));
         }
         Ok(files)
-    }
-
-    pub async fn diff_text(&self, worktree: &Path, merge_base: Option<&str>) -> Result<String> {
-        let output = if let Some(base) = merge_base {
-            self.run(worktree, &["diff", base]).await?
-        } else {
-            self.run(worktree, &["diff", "HEAD"]).await?
-        };
-        Self::diff_ok(&output, "diff")?;
-        let mut text = Self::stdout(&output);
-        let untracked = self
-            .run(
-                worktree,
-                &["ls-files", "-z", "--others", "--exclude-standard"],
-            )
-            .await?;
-        Self::require_success(&untracked, "ls-files")?;
-        for path in parse_z(&untracked.stdout) {
-            if path.is_empty() {
-                continue;
-            }
-            let file = worktree.join(&path);
-            let empty = PathBuf::from("/dev/null");
-            let empty_str = empty.to_string_lossy().to_string();
-            let file_str = file.to_string_lossy().to_string();
-            let file_diff = self
-                .run_unlocked(
-                    Some(worktree),
-                    &["diff", "--no-index", "--", &empty_str, &file_str],
-                )
-                .await?;
-            Self::diff_ok(&file_diff, "diff --no-index")?;
-            text.push_str(&Self::stdout(&file_diff));
-        }
-        Ok(text)
     }
 
     pub async fn diff_file(&self, worktree: &Path, path: &str) -> Result<String> {
@@ -501,22 +449,6 @@ impl Git {
     pub async fn abort_rebase(&self, worktree: &Path) -> Result<()> {
         let output = self.run(worktree, &["rebase", "--abort"]).await?;
         Self::require_success(&output, "rebase --abort")
-    }
-
-    pub async fn branches_in_worktrees(&self, repo: &Path) -> Result<Vec<String>> {
-        let output = self.run(repo, &["worktree", "list", "--porcelain"]).await?;
-        Self::require_success(&output, "worktree list")?;
-        let mut branches = Vec::new();
-        for line in Self::stdout(&output).lines() {
-            let Some(rest) = line.strip_prefix("branch ") else {
-                continue;
-            };
-            let name = rest.strip_prefix("refs/heads/").unwrap_or(rest).to_string();
-            if !name.is_empty() {
-                branches.push(name);
-            }
-        }
-        Ok(branches)
     }
 
     pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
@@ -674,6 +606,7 @@ fn parse_shortstat(text: &str) -> ShortStat {
     stat
 }
 
+#[cfg(test)]
 fn short_ref(refname: &str) -> String {
     refname
         .strip_prefix("refs/heads/")

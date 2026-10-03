@@ -11,8 +11,6 @@ use crate::error::{Error, Result};
 use crate::shell_env::ShellEnv;
 
 const DEBOUNCE: Duration = Duration::from_secs(60);
-const KEYRING_SERVICE: &str = "cormux";
-const KEYRING_USER: &str = "anthropic-api-key";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -51,20 +49,12 @@ impl LlmClient {
         if !self.allow(workspace_id) {
             return Ok(None);
         }
-        self.complete(prompt, 256).await.map(Some)
+        self.complete(prompt).await.map(Some)
     }
 
-    pub async fn complete(&self, prompt: &str, max_tokens: u32) -> Result<LlmResult> {
-        if let Some(key) = read_api_key() {
-            return complete_via_api(&key, prompt, max_tokens).await;
-        }
+    pub async fn complete(&self, prompt: &str) -> Result<LlmResult> {
         complete_via_claude(&self.env, prompt).await
     }
-}
-
-fn read_api_key() -> Option<String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()?;
-    entry.get_password().ok().filter(|key| !key.is_empty())
 }
 
 async fn complete_via_claude(env: &Arc<RwLock<ShellEnv>>, prompt: &str) -> Result<LlmResult> {
@@ -81,39 +71,6 @@ async fn complete_via_claude(env: &Arc<RwLock<ShellEnv>>, prompt: &str) -> Resul
     Ok(LlmResult {
         text: extract_text(&stdout),
         source: "claude-cli".into(),
-    })
-}
-
-async fn complete_via_api(api_key: &str, prompt: &str, max_tokens: u32) -> Result<LlmResult> {
-    let client = reqwest::Client::new();
-    let body = serde_json::json!({
-        "model": "claude-haiku-4-5",
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}]
-    });
-    let response = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| Error::Llm(error.to_string()))?;
-    if !response.status().is_success() {
-        return Err(Error::Llm(format!("anthropic http {}", response.status())));
-    }
-    let value: Value = response
-        .json()
-        .await
-        .map_err(|error| Error::Llm(error.to_string()))?;
-    let text = value
-        .pointer("/content/0/text")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    Ok(LlmResult {
-        text,
-        source: "anthropic-api".into(),
     })
 }
 

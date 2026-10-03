@@ -5,6 +5,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::RwLock;
+#[cfg(test)]
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
@@ -272,6 +273,7 @@ impl WorkspaceManager {
         Ok(workspace.clone())
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
         &self,

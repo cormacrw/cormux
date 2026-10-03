@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
+#[cfg(test)]
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -161,6 +162,7 @@ impl ClaudeSession {
         }
     }
 
+    #[cfg(test)]
     pub fn session_id(&self) -> Option<&str> {
         self.session_id.as_deref()
     }
@@ -222,6 +224,7 @@ impl ClaudeSession {
         }
     }
 
+    #[cfg(test)]
     /// Drive until a turn ends (`result`) or a tool needs a decision.
     pub async fn wait_for_turn_or_tool(&mut self) -> Result<Event> {
         loop {
@@ -266,6 +269,7 @@ impl ClaudeSession {
     }
 }
 
+#[cfg(test)]
 /// In-process NDJSON peer used by the spike tests (no real CLI).
 pub struct NdjsonPeer<R, W> {
     writer: W,
@@ -274,6 +278,7 @@ pub struct NdjsonPeer<R, W> {
     next_request_id: u64,
 }
 
+#[cfg(test)]
 impl<R, W> NdjsonPeer<R, W>
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -350,6 +355,7 @@ where
     }
 }
 
+#[cfg(test)]
 pub fn allow_input(input: Value) -> PermissionDecision {
     PermissionDecision::Allow {
         updated_input: input,

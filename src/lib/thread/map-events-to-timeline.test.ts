@@ -462,6 +462,27 @@ describe('named tool steps', () => {
     expect(stepFor('TodoWrite', null)).toMatchObject({ title: 'Todo write' })
   })
 
+  it('shows a web fetch as a quiet line with a short URL', () => {
+    expect(
+      stepFor('WebFetch', 'https://www.example.com/docs/page/'),
+    ).toMatchObject({
+      icon: 'globe',
+      title: 'Fetched',
+      detail: 'example.com/docs/page',
+      rawDetail: 'https://www.example.com/docs/page/',
+      quiet: true,
+    })
+  })
+
+  it('shows a skill by name as a quiet line', () => {
+    expect(stepFor('Skill', 'code-review')).toMatchObject({
+      icon: 'skill',
+      title: 'Used skill',
+      detail: 'code-review',
+      quiet: true,
+    })
+  })
+
   it('shows ToolSearch as a quiet lookup', () => {
     expect(stepFor('ToolSearch', 'select:Read')).toMatchObject({
       icon: 'search',

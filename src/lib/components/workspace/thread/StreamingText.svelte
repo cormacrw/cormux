@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
-  import { prefersReducedMotion, type EntryScope } from '$lib/thread/entering'
+  import { prefersReducedMotion } from '$lib/motion'
+  import type { EntryScope } from '$lib/thread/entering'
   import ThoughtMarkdown from './ThoughtMarkdown.svelte'
 
   let {
@@ -16,7 +17,7 @@
     live?: boolean
   } = $props()
 
-  // TextType's pacing: one character per tick at a jittered speed so it reads as typed
+  // Typewriter pacing: one character per tick at a jittered speed so it reads as typed
   // (~60 chars/s). A reply far ahead speeds it up, but never past MAX_CHARS_PER_SEC, so long
   // replies trail the agent rather than racing to keep up with it.
   const SPEED_MS = { min: 10, max: 23 }

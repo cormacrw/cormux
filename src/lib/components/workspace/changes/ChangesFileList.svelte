@@ -9,7 +9,7 @@
   } from '$lib/changes/file-status'
   import { workspaceUi } from '$lib/state'
   import { cn } from '$lib/utils'
-  import ChangesDiffView from './ChangesDiffView.svelte'
+  import LazyDiff from './LazyDiff.svelte'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import MessageSquare from '@lucide/svelte/icons/message-square'
 
@@ -42,7 +42,10 @@
       file.path,
     ).length}
     {@const bodyId = `changes-file-${file.path.replace(/[^\w-]/g, '_')}`}
-    <li class="border-b border-border/60" data-diff-path={file.path}>
+    <li
+      class="border-b border-border/60 [content-visibility:auto] [contain-intrinsic-size:auto_480px]"
+      data-diff-path={file.path}
+    >
       <button
         type="button"
         class="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border/40 bg-background px-3 py-2 text-left text-sm hover:bg-[color-mix(in_oklch,var(--muted)_40%,var(--background))]"
@@ -96,7 +99,7 @@
       {#if open}
         <div id={bodyId}>
           {#if file.hunks.length}
-            <ChangesDiffView {workspaceId} {branch} {file} />
+            <LazyDiff {workspaceId} {branch} {file} />
           {:else}
             <p class="px-3 py-2 text-xs text-muted-foreground">
               No text changes to show.

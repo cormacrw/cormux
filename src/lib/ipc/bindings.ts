@@ -237,22 +237,6 @@ async summariseWorkspace(workspaceId: string) : Promise<Result<WorkspaceSummaryR
     else return { status: "error", error: e  as any };
 }
 },
-async setGithubToken(token: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_github_token", { token }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async clearGithubToken() : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("clear_github_token") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async syncPullRequests() : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("sync_pull_requests") };
@@ -262,7 +246,7 @@ async syncPullRequests() : Promise<Result<null, Error>> {
 }
 },
 /**
- * Checks the key with ClickUp, then stores it in the Keychain.
+ * Checks the key with ClickUp, then saves it to `~/.cormux/credentials.json`.
  */
 async setClickupApiKey(key: string) : Promise<Result<null, Error>> {
     try {
@@ -366,6 +350,28 @@ async createReviewWorkspace(input: CreateReviewWorkspaceInput) : Promise<Result<
 async submitWorkspaceReview(input: SubmitWorkspaceReviewInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("submit_workspace_review", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Start a Reviewer on a regular workspace's own branch. Returns its thread id.
+ */
+async startBranchReview(workspaceId: string) : Promise<Result<string, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_branch_review", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Skills the `/` picker offers for this thread's agent.
+ */
+async listThreadSkills(threadId: string) : Promise<Result<Skill[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_thread_skills", { threadId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -769,7 +775,7 @@ export type EngineStatus = { kind: EngineKind; installed: boolean; binary: strin
  * Shared error type for the Rust core. Serialised as a tagged union so the
  * generated TypeScript bindings stay in lockstep with Rust.
  */
-export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: string; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string } | { kind: "NotImplemented"; message: string }
+export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: string; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
 export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null; sentToThreadId: string | null }
 export type GitConflictOperation = "merge" | "rebase"
 export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
@@ -829,6 +835,11 @@ export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string 
 export type SetRepoSingleInstanceInput = { repoId: string; singleInstance: boolean }
 export type SetSettingInput = { key: string; value: string }
 export type SettingRow = { key: string; value: string }
+export type Skill = { name: string; description: string; 
+/**
+ * `project` for the repo's own skills, `user` for `~/.claude/skills`.
+ */
+source: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
 /**
  * In-memory broker queue (may exceed persisted pending rows).
@@ -843,7 +854,7 @@ githubAuthConfigured: boolean;
  */
 prSyncedAt: string | null; 
 /**
- * True when a ClickUp API key is in the Keychain. Every ClickUp surface hides without one.
+ * True when a ClickUp API key is saved. Every ClickUp surface hides without one.
  */
 clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[] }
 export type StackBranch = { name: string; 
@@ -895,7 +906,11 @@ export type ThreadModels = { current: string | null; options: ModelOption[] }
 export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
-export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null }
+export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null; 
+/**
+ * With `workspace_id`, clicking the toast opens this thread's tab.
+ */
+threadId: string | null }
 export type ToastTone = "ok" | "bad" | "default"
 /**
  * A title-only task from the TODOs page.

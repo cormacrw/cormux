@@ -28,12 +28,14 @@
   import Copy from '@lucide/svelte/icons/copy'
   import FileText from '@lucide/svelte/icons/file-text'
   import GitBranch from '@lucide/svelte/icons/git-branch'
+  import Globe from '@lucide/svelte/icons/globe'
   import List from '@lucide/svelte/icons/list'
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
   import Pencil from '@lucide/svelte/icons/pencil'
   import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus'
   import Search from '@lucide/svelte/icons/search'
+  import Sparkles from '@lucide/svelte/icons/sparkles'
   import Square from '@lucide/svelte/icons/square'
   import Terminal from '@lucide/svelte/icons/terminal'
   import Trash2 from '@lucide/svelte/icons/trash-2'
@@ -139,6 +141,8 @@
       play: Play,
       stop: Square,
       session: MessageSquarePlus,
+      globe: Globe,
+      skill: Sparkles,
     } as const
     return map[icon] ?? Terminal
   }

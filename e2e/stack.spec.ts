@@ -119,7 +119,7 @@ test('Create PR targets the branch below, and the header links an existing PR', 
   const panel = await openStack(page)
   // feat/oauth-login has no PR yet; its PR goes against the branch below it.
   await page.getByRole('button', { name: 'Create PR' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create pull request' })
+  const dialog = page.getByRole('dialog', { name: 'Create draft pull request' })
   await expect(dialog.locator('[data-od-id="pr-route"]')).toHaveText(
     'feat/oauth-login → feat/oauth-api · 3 files +96 −12',
   )

@@ -5,6 +5,7 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   mkdirSync('e2e/output', { recursive: true })
+  await page.setViewportSize({ width: 1600, height: 800 })
   await page.goto('/')
   await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
 
@@ -40,7 +41,7 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
   await expect(page.getByRole('menu')).toHaveCount(0)
 
   await page.keyboard.press('ControlOrMeta+p')
-  const dialog = page.getByRole('dialog', { name: 'Create pull request' })
+  const dialog = page.getByRole('dialog', { name: 'Create draft pull request' })
   await expect(dialog).toBeVisible()
   // Header shortcuts stay off while a dialog is open.
   await page.keyboard.press('ControlOrMeta+d')

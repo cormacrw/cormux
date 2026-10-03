@@ -201,12 +201,39 @@ function toolStepFromCall(
   }
 }
 
-// MCP tools arrive as `mcp__<server>__<tool>`, and ToolSearch is Claude loading tool
-// schemas; both read better as a quiet line than as a raw-name card.
+/** `https://www.example.com/a/b` → `example.com/a/b`; the full URL stays in the tooltip. */
+function shortUrl(url: string | null): string | undefined {
+  if (!url) return undefined
+  return url
+    .replace(/^[a-z]+:\/\//i, '')
+    .replace(/^www\./, '')
+    .replace(/\/$/, '')
+}
+
+// MCP tools arrive as `mcp__<server>__<tool>`, ToolSearch is Claude loading tool schemas,
+// and web and skill calls carry their point in the detail; all read better as a quiet
+// line than as a raw-name card.
 function namedToolStep(
   event: Extract<AgentEvent, { type: 'toolCall' }>,
 ): { icon: ToolStepIcon; title: string; detail: string | undefined } | null {
   const name = event.name ?? event.title
+  if (name === 'WebFetch') {
+    return { icon: 'globe', title: 'Fetched', detail: shortUrl(event.detail) }
+  }
+  if (name === 'WebSearch') {
+    return {
+      icon: 'globe',
+      title: 'Searched the web',
+      detail: event.detail ?? undefined,
+    }
+  }
+  if (name === 'Skill') {
+    return {
+      icon: 'skill',
+      title: 'Used skill',
+      detail: event.detail ?? undefined,
+    }
+  }
   if (name === 'ToolSearch') {
     return {
       icon: 'search',

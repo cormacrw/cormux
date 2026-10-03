@@ -10,7 +10,6 @@ use crate::composer::{persist_control_step, persist_user_message};
 use crate::engines::{EngineKind, ThreadModels};
 use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
-use crate::github::{clear_token, save_token};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
@@ -292,6 +291,7 @@ pub async fn pull_repo_default_branch(
                 crate::ipc::types::ToastPart::Text { value: summary },
             ],
             workspace_id: None,
+            thread_id: None,
         },
     );
     Ok(())
@@ -363,6 +363,7 @@ pub async fn add_repo(
                 ),
             }],
             workspace_id: None,
+            thread_id: None,
         },
     );
     resync_prs(&app);
@@ -415,6 +416,7 @@ pub async fn remove_repo(
                 value: format!("Removed {}. The folder on disk wasn't touched.", repo.name),
             }],
             workspace_id: None,
+            thread_id: None,
         },
     );
     resync_prs(&app);
@@ -561,18 +563,6 @@ pub fn get_metrics(state: State<'_, AppState>) -> Result<crate::metrics::MemoryS
     state.metrics.sample(&process_trees(&state))
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn set_github_token(token: String) -> Result<()> {
-    save_token(&token)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn clear_github_token() -> Result<()> {
-    clear_token()
-}
-
 fn emit_settings_changed(app: &AppHandle, state: &AppState) {
     let version = state.bump_event_version();
     let _ = StateChanged {
@@ -582,7 +572,7 @@ fn emit_settings_changed(app: &AppHandle, state: &AppState) {
     .emit(app);
 }
 
-/// Checks the key with ClickUp, then stores it in the Keychain.
+/// Checks the key with ClickUp, then saves it to `~/.cormux/credentials.json`.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_clickup_api_key(
@@ -966,6 +956,19 @@ pub async fn submit_workspace_review(
     crate::review::submit_workspace_review(&app, input).await
 }
 
+/// Start a Reviewer on a regular workspace's own branch. Returns its thread id.
+#[tauri::command]
+#[specta::specta]
+pub async fn start_branch_review(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    let thread_id = crate::review::start_branch_review(&app, &state, &workspace_id).await?;
+    emit_composer_snapshot(&app, &state);
+    Ok(thread_id)
+}
+
 /// Generate or return a cached workspace card summary (debounced LLM + local fallback).
 #[tauri::command]
 #[specta::specta]
@@ -1159,7 +1162,6 @@ pub async fn create_workspace(
 
     let app_handle = app.clone();
     let name = input.name.clone();
-    let repo_id_bg = input.repo_id.clone();
     let workspace_id_bg = workspace_id.clone();
     let thread_id_bg = thread_id.clone();
     let engine = input.engine.clone();
@@ -1185,6 +1187,7 @@ pub async fn create_workspace(
                 },
             ],
             workspace_id: Some(workspace_id.clone()),
+            thread_id: Some(thread_id.clone()),
         },
     );
 
@@ -1194,7 +1197,6 @@ pub async fn create_workspace(
             crate::provisioning::LeadProvisionJob {
                 workspace_id: workspace_id_bg,
                 thread_id: thread_id_bg,
-                repo_id: repo_id_bg,
                 repo_name,
                 setup_commands_raw: setup_commands,
                 engine,
@@ -1526,6 +1528,16 @@ pub async fn close_workspace_thread(
         .await;
     emit_composer_snapshot(&app, &state);
     Ok(())
+}
+
+/// Skills the `/` picker offers for this thread's agent.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_thread_skills(
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::skills::Skill>> {
+    crate::skills::for_thread(&state, &thread_id)
 }
 
 #[tauri::command]

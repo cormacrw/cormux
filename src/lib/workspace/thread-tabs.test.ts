@@ -60,14 +60,36 @@ describe('thread bar order', () => {
 
   it('shows findings tab when review is ready', () => {
     expect(
-      showFindingsTab({ workspaceKind: 'review', reviewReady: true }),
+      showFindingsTab({
+        workspaceKind: 'review',
+        reviewReady: true,
+        hasFindings: false,
+      }),
     ).toBe(true)
     expect(
-      showFindingsTab({ workspaceKind: 'review', reviewReady: false }),
+      showFindingsTab({
+        workspaceKind: 'review',
+        reviewReady: false,
+        hasFindings: true,
+      }),
     ).toBe(false)
-    expect(showFindingsTab({ workspaceKind: null, reviewReady: true })).toBe(
-      false,
-    )
+  })
+
+  it('shows findings tab on a regular workspace once a review found something', () => {
+    expect(
+      showFindingsTab({
+        workspaceKind: null,
+        reviewReady: true,
+        hasFindings: false,
+      }),
+    ).toBe(false)
+    expect(
+      showFindingsTab({
+        workspaceKind: null,
+        reviewReady: false,
+        hasFindings: true,
+      }),
+    ).toBe(true)
   })
 })
 

@@ -171,8 +171,7 @@ pub async fn switch_workspace_branch(
         );
     }
 
-    let app_running = state.process.workspace_has_session(workspace_id);
-    emit_switch_toast(app, &record.name, branch, workspace_id, app_running);
+    emit_switch_toast(app, &record.name, branch, workspace_id);
 
     emit_workspace_refresh(app, state);
     Ok(())
@@ -337,6 +336,7 @@ pub async fn push_workspace_branch(
                 },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
     emit_git_state(app, state).await;
@@ -418,13 +418,7 @@ pub async fn create_workspace_branch(
             ),
         );
     }
-    emit_switch_toast(
-        app,
-        &record.name,
-        name,
-        workspace_id,
-        state.process.workspace_has_session(workspace_id),
-    );
+    emit_switch_toast(app, &record.name, name, workspace_id);
     emit_workspace_refresh(app, state);
     Ok(())
 }
@@ -463,13 +457,7 @@ pub async fn adopt_checked_out_branch(
                 detail,
             );
         }
-        emit_switch_toast(
-            app,
-            &record.name,
-            &branch,
-            workspace_id,
-            state.process.workspace_has_session(workspace_id),
-        );
+        emit_switch_toast(app, &record.name, &branch, workspace_id);
     }
     let current = if branch.is_empty() {
         &record.branch
@@ -609,13 +597,7 @@ fn append_git_step(
     Ok(())
 }
 
-fn emit_switch_toast(
-    app: &AppHandle,
-    workspace_name: &str,
-    branch: &str,
-    workspace_id: &str,
-    app_running: bool,
-) {
+fn emit_switch_toast(app: &AppHandle, workspace_name: &str, branch: &str, workspace_id: &str) {
     emit_toast(
         app,
         ToastRaisedPayload {
@@ -635,20 +617,9 @@ fn emit_switch_toast(
                 },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
-    if app_running {
-        emit_toast(
-            app,
-            ToastRaisedPayload {
-                tone: ToastTone::Default,
-                parts: vec![ToastPart::Text {
-                    value: "Restart the app to run code from the new branch.".into(),
-                }],
-                workspace_id: Some(workspace_id.to_string()),
-            },
-        );
-    }
 }
 
 fn emit_pull_toast(
@@ -677,6 +648,7 @@ fn emit_pull_toast(
                 },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
 }
@@ -701,6 +673,7 @@ fn emit_rebase_toast(app: &AppHandle, branch: &str, base: &str, workspace_id: &s
                 },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
 }

@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::app::WorkspaceAppRuntime;
-use crate::git::{BehindUpdate, WorktreeDiff};
+use crate::git::WorktreeDiff;
 use crate::metrics::MemorySample;
 use crate::store::types::PersistedSnapshot;
-use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
+use crate::workspace::WorkspaceRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -22,7 +22,7 @@ pub struct Snapshot {
     pub github_auth_configured: bool,
     /// Unix seconds string from the last successful PR sync, if any.
     pub pr_synced_at: Option<String>,
-    /// True when a ClickUp API key is in the Keychain. Every ClickUp surface hides without one.
+    /// True when a ClickUp API key is saved. Every ClickUp surface hides without one.
     pub clickup_configured: bool,
     pub workspace_apps: Vec<WorkspaceAppRuntime>,
 }
@@ -97,21 +97,8 @@ pub struct ToastRaisedPayload {
     pub tone: ToastTone,
     pub parts: Vec<ToastPart>,
     pub workspace_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceStatusPayload {
-    pub version: u64,
-    pub workspace: WorkspaceRecord,
-    pub status: WorkspaceLifecycle,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct BehindCountsPayload {
-    pub version: u64,
-    pub updates: Vec<BehindUpdate>,
+    /// With `workspace_id`, clicking the toast opens this thread's tab.
+    pub thread_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

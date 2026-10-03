@@ -43,10 +43,7 @@
     const { scratchId, fromHome: deleting } = request
     const { title } = scratch
     const index = scratches.items.findIndex((item) => item.id === scratchId)
-    const [result] = await Promise.all([
-      commands.endScratch(scratchId),
-      new Promise((resolve) => setTimeout(resolve, 900)),
-    ])
+    const result = await commands.endScratch(scratchId)
     busy = false
     shellDialogs.closeEndScratch()
     if (result.status === 'error') {
@@ -67,12 +64,13 @@
         { type: 'text', value: `${deleting ? 'Deleted' : 'Ended'} ${title}` },
       ],
     })
-    const wasOpen = app.scratchId === scratchId
-    hydrateFromSnapshot(await fetchSnapshot())
-    if (wasOpen) {
+    // Leave the page before refetching, so it never sits on a scratch that's gone.
+    if (app.scratchId === scratchId) {
       app.openHomebase()
+      hydrateFromSnapshot(await fetchSnapshot())
       return
     }
+    hydrateFromSnapshot(await fetchSnapshot())
     // Homebase stays put: focus the card that slid into this slot, or New scratch.
     await tick()
     const next = scratches.items[Math.min(index, scratches.items.length - 1)]

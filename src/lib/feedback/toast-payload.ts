@@ -9,6 +9,10 @@ export type ToastPayload = {
   parts: ToastPart[]
   /** When set, clicking the toast opens this workspace (COR-81). */
   workspaceId?: string
+  /** With `workspaceId`, opens this thread's tab rather than the workspace's first. */
+  threadId?: string
+  /** With `workspaceId`, opens the Findings tab. */
+  findings?: boolean
   /** When set, clicking the toast opens this scratch. */
   scratchId?: string
 }
@@ -128,6 +132,7 @@ export function reviewFinishedToast(
   return {
     tone: 'ok',
     workspaceId,
+    findings: true,
     parts: [
       { type: 'text', value: head },
       { type: 'code', value: String(findings) },

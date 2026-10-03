@@ -229,7 +229,7 @@
     >
       <div
         bind:this={contentEl}
-        class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-6"
+        class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-6 select-text"
       >
         <ol class="space-y-2" aria-label="Conversation">
           <TimelineMessages

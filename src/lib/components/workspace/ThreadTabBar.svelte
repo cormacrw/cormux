@@ -48,6 +48,7 @@
     showFindingsTab({
       workspaceKind: workspace.kind,
       reviewReady: reviewReady(settings.rows, workspace.id),
+      hasFindings: findings.hasReviewFindings(workspace.id),
     }),
   )
   const openFindings = $derived(findings.openCount(workspace.id))

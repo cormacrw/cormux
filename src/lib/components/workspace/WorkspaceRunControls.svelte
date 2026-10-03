@@ -5,7 +5,6 @@
   import { runWorkspaceApp } from '$lib/command-palette/actions'
   import { repos, workspaceRecords } from '$lib/state'
   import Play from '@lucide/svelte/icons/play'
-  import RotateCw from '@lucide/svelte/icons/rotate-cw'
   import Square from '@lucide/svelte/icons/square'
 
   let {
@@ -37,40 +36,22 @@
   class="flex shrink-0 items-center gap-2"
 >
   {#if appStatus === 'stopped' || appStatus === 'crashed'}
+    <!-- A crashed app runs again from scratch, so it's Run either way. -->
     <Button
       variant="secondary"
       size="xl"
       disabled={appStatus === 'stopped' && runBlocked}
-      aria-label={appStatus === 'crashed' ? 'Restart app' : 'Run app'}
+      aria-label="Run app"
       aria-keyshortcuts="Meta+R"
-      data-ws-focus={appStatus === 'crashed' ? 'restart' : 'run'}
-      data-od-id={appStatus === 'crashed' ? 'ws-restart' : 'ws-run'}
+      data-ws-focus="run"
+      data-od-id="ws-run"
       onclick={() => run(appStatus === 'crashed' ? 'restart' : 'run')}
     >
-      {#if appStatus === 'crashed'}
-        <RotateCw class="size-4" aria-hidden="true" />
-        Restart
-      {:else}
-        <Play class="size-4" aria-hidden="true" />
-        Run
-      {/if}
+      <Play class="size-4" aria-hidden="true" />
+      Run
       <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />R</Kbd>
     </Button>
   {:else}
-    <Button
-      variant="secondary"
-      size="xl"
-      aria-label="Restart app"
-      aria-keyshortcuts="Meta+R"
-      disabled={appStatus === 'starting'}
-      data-ws-focus="restart"
-      data-od-id="ws-restart"
-      onclick={() => run('restart')}
-    >
-      <RotateCw class="size-4" aria-hidden="true" />
-      Restart
-      <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />R</Kbd>
-    </Button>
     <Button
       variant="secondary"
       size="xl"

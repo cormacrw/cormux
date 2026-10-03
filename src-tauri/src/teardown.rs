@@ -350,6 +350,7 @@ fn emit_teardown_toast(app: &AppHandle, name: &str, branch: &str, deleted_branch
                 value: format!("Tore down {name}"),
             }],
             workspace_id: None,
+            thread_id: None,
         },
     );
 }

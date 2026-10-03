@@ -1,4 +1,4 @@
-//! ClickUp sprint board. The API key lives in the Keychain and never reaches the webview.
+//! ClickUp sprint board. The API key lives in `~/.cormux/credentials.json` and never reaches the webview.
 
 mod sprint;
 pub mod types;
@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::credentials;
 use crate::error::{Error, Result};
 use sprint::{current_sprint, parse_ms};
 use types::{
@@ -18,25 +19,18 @@ use types::{
     ClickupTaskDetail, ClickupUser,
 };
 
-const KEYRING_SERVICE: &str = "cormux";
-const KEYRING_USER: &str = "clickup-api-key";
 const API: &str = "https://api.clickup.com/api/v2";
 /// Get Tasks returns 100 a page; a sprint past 1,000 tasks isn't a sprint.
 const MAX_PAGES: u32 = 10;
 
 fn read_stored_key() -> Option<String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()?;
-    entry.get_password().ok().filter(|key| !key.is_empty())
-}
-
-fn keyring_error(error: keyring::Error) -> Error {
-    Error::Clickup(error.to_string())
+    credentials::get(credentials::CLICKUP_API_KEY)
 }
 
 #[derive(Clone)]
 pub struct ClickupClient {
     http: reqwest::Client,
-    /// Outer `None` until the Keychain is first read, so every snapshot doesn't hit it.
+    /// Outer `None` until the config file is first read, so every snapshot doesn't hit disk.
     key: Arc<Mutex<Option<Option<String>>>>,
     user_id: Arc<Mutex<Option<i64>>>,
 }
@@ -78,20 +72,16 @@ impl ClickupClient {
             return Err(Error::Clickup("API key must not be empty".into()));
         }
         let user = self.fetch_user(key).await?;
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-            .and_then(|entry| entry.set_password(key))
-            .map_err(keyring_error)?;
+        credentials::set(credentials::CLICKUP_API_KEY, key)
+            .map_err(|error| Error::Clickup(format!("couldn't save the API key: {error}")))?;
         *self.key.lock().unwrap() = Some(Some(key.to_string()));
         *self.user_id.lock().unwrap() = Some(user);
         Ok(())
     }
 
     pub fn clear_key(&self) -> Result<()> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(keyring_error)?;
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => {}
-            Err(error) => return Err(keyring_error(error)),
-        }
+        credentials::remove(credentials::CLICKUP_API_KEY)
+            .map_err(|error| Error::Clickup(format!("couldn't remove the API key: {error}")))?;
         *self.key.lock().unwrap() = Some(None);
         *self.user_id.lock().unwrap() = None;
         Ok(())
@@ -564,11 +554,5 @@ mod tests {
             "ClickUp: Status does not exist"
         );
         assert_eq!(api_error_message(500, "oops"), "ClickUp returned HTTP 500");
-    }
-
-    #[test]
-    fn keyring_constants_are_stable() {
-        assert_eq!(KEYRING_SERVICE, "cormux");
-        assert_eq!(KEYRING_USER, "clickup-api-key");
     }
 }

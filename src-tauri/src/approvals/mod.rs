@@ -37,13 +37,6 @@ impl ApprovalBroker {
         rx
     }
 
-    pub async fn wait(&self, id: impl Into<String>) -> Result<ApprovalDecision> {
-        let id = id.into();
-        let rx = self.register(id);
-        rx.await
-            .map_err(|_| Error::Approval("approval dropped".into()))
-    }
-
     pub async fn resolve(
         &self,
         id: &str,
@@ -82,14 +75,6 @@ impl ApprovalBroker {
 
 pub fn run_everything_from_store(store: &crate::store::Store) -> bool {
     store.get_setting("runEverything").ok().flatten().as_deref() == Some("true")
-}
-
-pub fn auto_approve_readonly_from_store(store: &crate::store::Store) -> bool {
-    store
-        .get_setting("autoApproveReadOnly")
-        .ok()
-        .flatten()
-        .is_none_or(|value| value != "false")
 }
 
 #[cfg(test)]

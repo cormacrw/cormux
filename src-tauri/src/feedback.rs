@@ -27,6 +27,7 @@ pub fn emit_toast_parts(
             tone,
             parts,
             workspace_id,
+            thread_id: None,
         },
     );
 }
@@ -94,6 +95,7 @@ pub fn toast_for_approval(tool: &str, approved: bool) -> Option<ToastRaisedPaylo
         tone,
         parts,
         workspace_id: None,
+        thread_id: None,
     })
 }
 

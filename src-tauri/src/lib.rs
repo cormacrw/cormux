@@ -1,10 +1,9 @@
-#![allow(dead_code)] // domain APIs fill in as features land
-
 mod app;
 mod approvals;
 mod clickup;
 mod composer;
 mod create_pr;
+mod credentials;
 mod engines;
 mod error;
 mod feedback;
@@ -16,6 +15,8 @@ mod github;
 mod harness_config;
 mod ipc;
 mod llm;
+// Not given to any engine yet, so none of its tools are called.
+#[allow(dead_code)]
 mod mcp;
 mod menu;
 mod metrics;
@@ -26,6 +27,7 @@ mod provisioning;
 mod review;
 mod scratch;
 mod shell_env;
+mod skills;
 mod stack;
 mod state;
 mod store;

@@ -79,6 +79,7 @@ fn tool_call(id: &str, name: &str, input: &Value) -> AgentEvent {
                 .or_else(|| field("pattern"))
                 .or_else(|| field("url"))
                 .or_else(|| field("query"))
+                .or_else(|| field("skill"))
                 .or_else(|| field("description")),
         ),
     };

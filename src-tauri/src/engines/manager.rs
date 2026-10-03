@@ -340,20 +340,6 @@ impl EngineRegistry {
         Ok(())
     }
 
-    pub async fn stop_all(&self) -> Result<()> {
-        let ids: Vec<String> = self
-            .threads
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?
-            .keys()
-            .cloned()
-            .collect();
-        for id in ids {
-            let _ = self.stop(&id).await;
-        }
-        Ok(())
-    }
-
     pub async fn stop_threads(&self, thread_ids: &[String]) -> Result<()> {
         for id in thread_ids {
             let _ = self.stop(id).await;

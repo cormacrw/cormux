@@ -10,6 +10,8 @@
     stepPromptHistory,
   } from '$lib/composer/prompt-history'
   import { commands } from '$lib/ipc'
+  import type { Skill } from '$lib/ipc/bindings'
+  import { filterSkills, skillQuery } from '$lib/composer/skill-picker'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
@@ -27,6 +29,7 @@
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
+  import Sparkles from '@lucide/svelte/icons/sparkles'
   import Square from '@lucide/svelte/icons/square'
 
   let {
@@ -65,11 +68,70 @@
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
 
+  // Typing `/` opens the skill picker. Skills are Claude Code's, so other engines skip it.
+  let skills = $state<Skill[] | null>(null)
+  let skillsThreadId: string | null = null
+  let skillIndex = $state(0)
+  /** Esc hides the picker until the draft changes. */
+  let skillPickerDismissed = $state(false)
+  const query = $derived(thread.engine === 'claude' ? skillQuery(draft) : null)
+  const skillMatches = $derived(
+    query !== null && skills ? filterSkills(skills, query) : [],
+  )
+  const pickerOpen = $derived(
+    query !== null && !skillPickerDismissed && skillMatches.length > 0,
+  )
+
   $effect(() => {
     void thread.id
     historyIndex = null
+    skills = null
+    skillsThreadId = null
     queueMicrotask(() => fitHeight())
   })
+
+  // Read the skill folders when the picker is first wanted, once per thread.
+  $effect(() => {
+    if (query === null || skillsThreadId === thread.id) return
+    const threadId = thread.id
+    skillsThreadId = threadId
+    void commands.listThreadSkills(threadId).then((result) => {
+      if (thread.id !== threadId) return
+      skills = result.status === 'ok' ? result.data : []
+    })
+  })
+
+  function chooseSkill(skill: Skill) {
+    const text = `/${skill.name} `
+    composerDrafts.setFor(thread.id, text)
+    skillIndex = 0
+    queueMicrotask(() => {
+      fitHeight()
+      inputEl?.focus()
+      inputEl?.setSelectionRange(text.length, text.length)
+    })
+  }
+
+  // Arrows move through the picker, ↵ or ⇥ picks, Esc closes it. Returns whether it handled the key.
+  function onPickerKeydown(event: KeyboardEvent): boolean {
+    const count = skillMatches.length
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      skillIndex = (skillIndex + step + count) % count
+    } else if (
+      (event.key === 'Enter' && !event.shiftKey) ||
+      event.key === 'Tab'
+    ) {
+      const skill = skillMatches[skillIndex]
+      if (skill) chooseSkill(skill)
+    } else if (event.key === 'Escape') {
+      skillPickerDismissed = true
+    } else {
+      return false
+    }
+    event.preventDefault()
+    return true
+  }
 
   $effect(() => {
     focusComposer = () => {
@@ -87,6 +149,8 @@
     const target = event.currentTarget as HTMLTextAreaElement
     composerDrafts.setFor(thread.id, target.value)
     historyIndex = null
+    skillPickerDismissed = false
+    skillIndex = 0
     fitHeight()
   }
 
@@ -140,6 +204,7 @@
     // WebKit fires compositionend before the IME's confirming Enter keydown,
     // so `composing` alone misses it; isComposing / keyCode 229 catch it.
     const imeConfirm = composing || event.isComposing || event.keyCode === 229
+    if (pickerOpen && !imeConfirm && onPickerKeydown(event)) return
     if (event.key === 'Enter' && !event.shiftKey && !imeConfirm) {
       event.preventDefault()
       void sendMessage()
@@ -234,6 +299,47 @@
   class="composer-wrap sticky bottom-0 z-10 bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
   data-od-id="composer-wrap"
 >
+  {#if pickerOpen}
+    <ul
+      id="skill-picker"
+      role="listbox"
+      aria-label="Skills"
+      class="absolute inset-x-1 bottom-full mx-auto -mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg"
+      data-od-id="skill-picker"
+    >
+      {#each skillMatches as skill, index (skill.name)}
+        <li
+          id="skill-option-{index}"
+          role="option"
+          aria-selected={index === skillIndex}
+          class="flex min-w-0 cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm aria-selected:bg-muted"
+          onmousedown={(event) => {
+            // Keep focus in the composer.
+            event.preventDefault()
+            chooseSkill(skill)
+          }}
+          onmouseenter={() => (skillIndex = index)}
+        >
+          <Sparkles
+            class="size-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <span class="shrink-0 font-mono text-xs">/{skill.name}</span>
+          {#if skill.description}
+            <span class="min-w-0 truncate text-xs text-muted-foreground"
+              >{skill.description}</span
+            >
+          {/if}
+          {#if skill.source === 'project'}
+            <span
+              class="ml-auto shrink-0 rounded border border-border/60 px-1 text-[10px] text-muted-foreground"
+              >repo</span
+            >
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
   <form
     class="composer mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-[0_-12px_32px_-8px_var(--background)] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
     id="composer"
@@ -253,6 +359,11 @@
       placeholder={placeholder ?? `Message ${thread.role}…`}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
+      aria-controls={pickerOpen ? 'skill-picker' : undefined}
+      aria-activedescendant={pickerOpen
+        ? `skill-option-${skillIndex}`
+        : undefined}
+      aria-autocomplete={thread.engine === 'claude' ? 'list' : undefined}
       oninput={onInput}
       onkeydown={onKeydown}
       oncompositionstart={onCompositionStart}
@@ -318,6 +429,9 @@
       >
         <kbd class="rounded border border-border/60 px-1">↵</kbd> send
         <kbd class="rounded border border-border/60 px-1">⇧↵</kbd> new line
+        {#if thread.engine === 'claude'}
+          <kbd class="rounded border border-border/60 px-1">/</kbd> skills
+        {/if}
       </span>
 
       {#if thread.status === 'running'}

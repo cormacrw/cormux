@@ -53,6 +53,7 @@ export function showCoreToast(event: ToastRaised) {
   showToast({
     tone: mapTone(payload.tone),
     workspaceId: payload.workspaceId ?? undefined,
+    threadId: payload.threadId ?? undefined,
     parts: payload.parts.map((part) =>
       part.type === 'code'
         ? { type: 'code', value: part.value }

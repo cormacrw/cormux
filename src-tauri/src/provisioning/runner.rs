@@ -19,7 +19,6 @@ use crate::workspace::{ThreadActivity, WorkspaceLifecycle, WorkspaceManager, Wor
 pub struct LeadProvisionJob {
     pub workspace_id: String,
     pub thread_id: String,
-    pub repo_id: String,
     pub repo_name: String,
     pub setup_commands_raw: String,
     pub engine: String,
@@ -96,7 +95,6 @@ pub async fn retry_provisioning(app: AppHandle, workspace_id: String) {
     let job = LeadProvisionJob {
         workspace_id,
         thread_id: thread.id,
-        repo_id: workspace.repo_id,
         repo_name: repo.name,
         setup_commands_raw: crate::harness_config::effective_setup(
             &repo.setup_commands,
@@ -164,7 +162,6 @@ pub async fn skip_provisioning_setup(app: AppHandle, workspace_id: String) {
     let job = LeadProvisionJob {
         workspace_id: workspace_id.clone(),
         thread_id: thread.id,
-        repo_id: workspace.repo_id,
         repo_name: repo.name,
         setup_commands_raw: String::new(),
         engine: thread.engine,
@@ -505,7 +502,7 @@ async fn finish_after_setup(
         persist_workspace_row(state, &job.workspace_id, "running", &record)?;
         emit_workspace_status(app, state, &job.workspace_id, WorkspaceLifecycle::Running);
         if job.review {
-            emit_review_started_toast(app, state, &job.workspace_id);
+            emit_review_started_toast(app, state, &job.workspace_id, &job.thread_id);
         }
     } else {
         let record = state
@@ -712,12 +709,18 @@ async fn mark_failed(
                 value: message.to_string(),
             }],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
 }
 
 /// The worktree is checked out, setup has run, and the Reviewer has its prompt.
-fn emit_review_started_toast(app: &AppHandle, state: &AppState, workspace_id: &str) {
+fn emit_review_started_toast(
+    app: &AppHandle,
+    state: &AppState,
+    workspace_id: &str,
+    thread_id: &str,
+) {
     let pr_label = state
         .store
         .snapshot()
@@ -742,6 +745,7 @@ fn emit_review_started_toast(app: &AppHandle, state: &AppState, workspace_id: &s
                 crate::ipc::types::ToastPart::Code { value: pr_label },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: Some(thread_id.to_string()),
         },
     );
 }
@@ -807,6 +811,7 @@ async fn poll_session(
     }
 }
 
+#[cfg(test)]
 async fn wait_session(
     process: &ProcessSupervisor,
     session_id: &str,

@@ -53,3 +53,29 @@ test('toasts are filled green, red or yellow by tone', async ({ page }) => {
   await page.screenshot({ path: 'e2e/output/toasts.png' })
   expect(errors).toEqual([])
 })
+
+test('clicking a toast opens its workspace thread', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.goto('/')
+  await page.waitForFunction(
+    () => '__HARNESS_SHOW_TOAST__' in (window as object),
+  )
+  await page.evaluate(() => {
+    ;(
+      window as unknown as {
+        __HARNESS_SHOW_TOAST__: (payload: unknown) => void
+      }
+    ).__HARNESS_SHOW_TOAST__({
+      tone: 'ok',
+      workspaceId: 'ws-auth',
+      threadId: 'th-lead',
+      parts: [{ type: 'text', value: 'Opened draft PR #12' }],
+    })
+  })
+
+  await page.getByRole('button', { name: 'Opened draft PR #12' }).click()
+  await expect(page.getByRole('heading', { name: 'OAuth login' })).toBeVisible()
+  await expect(page.locator('#thread-panel')).toBeVisible()
+  expect(errors).toEqual([])
+})
