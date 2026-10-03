@@ -30,6 +30,7 @@
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
   import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
   import { setHarnessWindowFocused } from '$lib/feedback/supervision'
+  import { openNotifiedTarget } from '$lib/feedback/os-notifications'
   import * as Tooltip from '$lib/components/ui/tooltip'
   import Homebase from './routes/Homebase.svelte'
   import Settings from './routes/Settings.svelte'
@@ -52,7 +53,10 @@
       const win = getCurrentWindow()
       const unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
         setHarnessWindowFocused(focused)
-        if (focused) void clickup.refresh()
+        if (focused) {
+          openNotifiedTarget()
+          void clickup.refresh()
+        }
       })
       setHarnessWindowFocused(await win.isFocused())
       const unlistenState = await listenForStateChanges({

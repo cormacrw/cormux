@@ -336,6 +336,7 @@ pub async fn push_workspace_branch(
                 },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
     emit_git_state(app, state).await;
@@ -616,6 +617,7 @@ fn emit_switch_toast(app: &AppHandle, workspace_name: &str, branch: &str, worksp
                 },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
 }
@@ -646,6 +648,7 @@ fn emit_pull_toast(
                 },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
 }
@@ -670,6 +673,7 @@ fn emit_rebase_toast(app: &AppHandle, branch: &str, base: &str, workspace_id: &s
                 },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
 }

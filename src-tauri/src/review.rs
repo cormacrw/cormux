@@ -311,6 +311,7 @@ pub async fn create_review_workspace(
                 },
             ],
             workspace_id: Some(workspace_id.clone()),
+            thread_id: Some(thread_id.clone()),
         },
     );
 
@@ -484,9 +485,9 @@ pub async fn on_reviewer_turn_end(app: &AppHandle, thread_id: &str) -> Result<()
         })?;
     }
     if branch_review {
-        complete_branch_review(app, &workspace)
+        complete_branch_review(app, &workspace, thread_id)
     } else {
-        complete_review(app, &workspace).await
+        complete_review(app, &workspace, thread_id).await
     }
 }
 
@@ -572,7 +573,11 @@ pub async fn start_branch_review(
 }
 
 /// The turn-end handler has already replaced any earlier findings with this review's.
-fn complete_branch_review(app: &AppHandle, workspace: &WorkspaceRow) -> Result<()> {
+fn complete_branch_review(
+    app: &AppHandle,
+    workspace: &WorkspaceRow,
+    thread_id: &str,
+) -> Result<()> {
     let state = app.state::<AppState>();
     state
         .store
@@ -600,6 +605,7 @@ fn complete_branch_review(app: &AppHandle, workspace: &WorkspaceRow) -> Result<(
                     },
                 ],
                 workspace_id: Some(workspace.id.clone()),
+                thread_id: Some(thread_id.to_string()),
             },
         );
     }
@@ -607,7 +613,7 @@ fn complete_branch_review(app: &AppHandle, workspace: &WorkspaceRow) -> Result<(
     Ok(())
 }
 
-async fn complete_review(app: &AppHandle, workspace: &WorkspaceRow) -> Result<()> {
+async fn complete_review(app: &AppHandle, workspace: &WorkspaceRow, thread_id: &str) -> Result<()> {
     let state = app.state::<AppState>();
     let findings: Vec<FindingRow> = state
         .store
@@ -663,6 +669,7 @@ async fn complete_review(app: &AppHandle, workspace: &WorkspaceRow) -> Result<()
                     },
                 ],
                 workspace_id: Some(workspace.id.clone()),
+                thread_id: Some(thread_id.to_string()),
             },
         );
     }
@@ -844,6 +851,7 @@ pub async fn submit_workspace_review(
                 },
             ],
             workspace_id: Some(input.workspace_id.clone()),
+            thread_id: None,
         },
     );
 

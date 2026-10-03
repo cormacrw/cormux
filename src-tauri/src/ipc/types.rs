@@ -97,6 +97,8 @@ pub struct ToastRaisedPayload {
     pub tone: ToastTone,
     pub parts: Vec<ToastPart>,
     pub workspace_id: Option<String>,
+    /// With `workspace_id`, clicking the toast opens this thread's tab.
+    pub thread_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

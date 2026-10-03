@@ -662,6 +662,7 @@ fn toast(app: &AppHandle, workspace_id: &str, text: &str) {
             tone: ToastTone::Ok,
             parts: vec![ToastPart::Text { value: text.into() }],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: None,
         },
     );
 }

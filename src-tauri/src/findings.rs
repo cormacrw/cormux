@@ -176,6 +176,7 @@ pub async fn send_workspace_findings(
                 },
             ],
             workspace_id: Some(workspace_id.to_string()),
+            thread_id: Some(thread_id.to_string()),
         },
     );
 

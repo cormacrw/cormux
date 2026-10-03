@@ -906,7 +906,11 @@ export type ThreadModels = { current: string | null; options: ModelOption[] }
 export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
-export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null }
+export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null; 
+/**
+ * With `workspace_id`, clicking the toast opens this thread's tab.
+ */
+threadId: string | null }
 export type ToastTone = "ok" | "bad" | "default"
 /**
  * A title-only task from the TODOs page.

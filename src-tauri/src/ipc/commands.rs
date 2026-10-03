@@ -291,6 +291,7 @@ pub async fn pull_repo_default_branch(
                 crate::ipc::types::ToastPart::Text { value: summary },
             ],
             workspace_id: None,
+            thread_id: None,
         },
     );
     Ok(())
@@ -362,6 +363,7 @@ pub async fn add_repo(
                 ),
             }],
             workspace_id: None,
+            thread_id: None,
         },
     );
     resync_prs(&app);
@@ -414,6 +416,7 @@ pub async fn remove_repo(
                 value: format!("Removed {}. The folder on disk wasn't touched.", repo.name),
             }],
             workspace_id: None,
+            thread_id: None,
         },
     );
     resync_prs(&app);
@@ -1184,6 +1187,7 @@ pub async fn create_workspace(
                 },
             ],
             workspace_id: Some(workspace_id.clone()),
+            thread_id: Some(thread_id.clone()),
         },
     );
 
