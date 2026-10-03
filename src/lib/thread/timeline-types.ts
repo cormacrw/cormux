@@ -24,6 +24,8 @@ export type ToolStepIcon =
   | 'play'
   | 'stop'
   | 'session'
+  | 'globe'
+  | 'skill'
 
 export type ToolRunStep =
   | {
