@@ -233,18 +233,13 @@
   }
 
   /* Paneforge forces ew-resize/ns-resize on everything mid-drag, which WKWebView
-     draws as the arrow. Layered !important beats its unlayered !important. */
-  body:has(
-      [data-pane-resizer][data-active='pointer'][data-direction='horizontal']
-    )
-    * {
+     draws as the arrow. Layered !important beats its unlayered !important. The
+     resizable handle sets data-pane-drag on <html> while dragging. */
+  html[data-pane-drag='horizontal'] * {
     cursor: col-resize !important;
   }
 
-  body:has(
-      [data-pane-resizer][data-active='pointer'][data-direction='vertical']
-    )
-    * {
+  html[data-pane-drag='vertical'] * {
     cursor: row-resize !important;
   }
 
@@ -559,4 +554,26 @@
   .app-shell {
     --sidebar-w: 216px;
   }
+}
+
+/* Loading placeholders: a soft highlight sweeping across muted bars. */
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-bar {
+  border-radius: 0.25rem;
+  background: linear-gradient(
+      90deg,
+      var(--muted) 0%,
+      color-mix(in oklch, var(--muted-foreground) 18%, var(--muted)) 50%,
+      var(--muted) 100%
+    )
+    0 0 / 200% 100%;
+  animation: skeleton-shimmer 1.4s linear infinite;
 }
