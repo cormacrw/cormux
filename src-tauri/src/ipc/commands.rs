@@ -1526,6 +1526,16 @@ pub async fn close_workspace_thread(
     Ok(())
 }
 
+/// Skills the `/` picker offers for this thread's agent.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_thread_skills(
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::skills::Skill>> {
+    crate::skills::for_thread(&state, &thread_id)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn send_thread_prompt(

@@ -27,6 +27,7 @@ mod provisioning;
 mod review;
 mod scratch;
 mod shell_env;
+mod skills;
 mod stack;
 mod state;
 mod store;

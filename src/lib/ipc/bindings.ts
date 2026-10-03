@@ -366,6 +366,17 @@ async startBranchReview(workspaceId: string) : Promise<Result<string, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Skills the `/` picker offers for this thread's agent.
+ */
+async listThreadSkills(threadId: string) : Promise<Result<Skill[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_thread_skills", { threadId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async retryWorkspaceProvisioning(workspaceId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("retry_workspace_provisioning", { workspaceId }) };
@@ -824,6 +835,11 @@ export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string 
 export type SetRepoSingleInstanceInput = { repoId: string; singleInstance: boolean }
 export type SetSettingInput = { key: string; value: string }
 export type SettingRow = { key: string; value: string }
+export type Skill = { name: string; description: string; 
+/**
+ * `project` for the repo's own skills, `user` for `~/.claude/skills`.
+ */
+source: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
 /**
  * In-memory broker queue (may exceed persisted pending rows).

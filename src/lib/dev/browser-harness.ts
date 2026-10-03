@@ -593,6 +593,25 @@ export function installBrowserHarness() {
       streamReply('th-lead', String(args.text))
       return null
     }
+    if (cmd === 'list_thread_skills') {
+      return [
+        {
+          name: 'deploy',
+          description: 'Build and ship the app to staging',
+          source: 'project',
+        },
+        {
+          name: 'code-review',
+          description: 'Review the current diff for bugs',
+          source: 'user',
+        },
+        {
+          name: 'release-notes',
+          description: 'Draft release notes from merged PRs',
+          source: 'user',
+        },
+      ]
+    }
     if (cmd === 'thread_models') {
       const engine = [
         ...fixtureSnapshot.persisted.threads.map((row) => ({
