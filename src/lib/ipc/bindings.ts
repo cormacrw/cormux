@@ -355,6 +355,17 @@ async submitWorkspaceReview(input: SubmitWorkspaceReviewInput) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Start a Reviewer on a regular workspace's own branch. Returns its thread id.
+ */
+async startBranchReview(workspaceId: string) : Promise<Result<string, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_branch_review", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async retryWorkspaceProvisioning(workspaceId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("retry_workspace_provisioning", { workspaceId }) };

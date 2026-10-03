@@ -47,6 +47,7 @@ pub fn builder() -> Builder {
             commands::create_workspace,
             commands::create_review_workspace,
             commands::submit_workspace_review,
+            commands::start_branch_review,
             commands::retry_workspace_provisioning,
             commands::skip_workspace_provisioning_setup,
             commands::join_workspace_thread,

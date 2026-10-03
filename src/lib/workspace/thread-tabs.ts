@@ -105,9 +105,12 @@ export function moveTabFocusIndex(
   return (current - 1 + length) % length
 }
 
+/** Review workspaces show it once the review is in; others once a branch review found something. */
 export function showFindingsTab(input: {
   workspaceKind: 'review' | null
   reviewReady: boolean
+  hasFindings: boolean
 }): boolean {
-  return input.workspaceKind === 'review' && input.reviewReady
+  if (input.workspaceKind === 'review') return input.reviewReady
+  return input.hasFindings
 }

@@ -85,10 +85,30 @@ pub fn user_review_message(
 /// Sent to the engine after the user's message but never shown in the thread. The
 /// findings block it asks for is parsed at the end of the turn and hidden in the UI.
 pub fn reviewer_rubric() -> String {
-    format!(
+    rubric_with_intro(
         "You are the Reviewer for this pull request. Its branch is checked out in your working directory; \
          use `gh pr diff` or git against the base branch to see what changed, and read the surrounding code. \
-         Look for bugs, risky changes and missing tests. Do not edit files, push commits or post to GitHub.
+         Look for bugs, risky changes and missing tests. Do not edit files, push commits or post to GitHub.",
+        "line number in the PR's version of the file, or null.",
+    )
+}
+
+/// The rubric for reviewing a regular workspace's own branch, uncommitted work included.
+pub fn branch_reviewer_rubric(base: &str) -> String {
+    rubric_with_intro(
+        &format!(
+            "You are the Reviewer for the work in this worktree. Review everything that differs from `{base}`: \
+             the commits on this branch (`git diff {base}...HEAD`) and any uncommitted changes (`git diff HEAD`, \
+             plus untracked files from `git status`). Read the surrounding code. Look for bugs, risky changes \
+             and missing tests. Do not edit files, commit, push or post to GitHub."
+        ),
+        "line number in the working tree's version of the file, or null.",
+    )
+}
+
+fn rubric_with_intro(intro: &str, line_hint: &str) -> String {
+    format!(
+        "{intro}
 
 Write your review for the user in plain prose. Then end your final message with every finding as a JSON \
 array inside {open} tags. The user never sees this block; Cormux turns it into the Findings list. Format:
@@ -101,7 +121,7 @@ array inside {open} tags. The user never sees this block; Cormux turns it into t
 
 - severity: \"blocking\" (must be fixed before merging), \"suggestion\" (worth doing in this PR) or \"nit\" (optional polish).
 - file: path relative to the repository root, or null if the finding isn't about one file.
-- line: line number in the PR's version of the file, or null.
+- line: {line_hint}
 - Output raw JSON with no code fence. Use [] if you found nothing. Emit the block exactly once, at the very end.",
         open = crate::findings_block::OPEN_TAG,
         close = crate::findings_block::CLOSE_TAG,
@@ -125,6 +145,8 @@ pub fn find_existing_review_workspace(
             && row.pr_number == Some(pr_number)
     })
 }
+
+pub const REVIEWER_TITLE: &str = "Reviewer";
 
 fn default_engine(store: &Store) -> String {
     store
@@ -225,7 +247,7 @@ pub async fn create_review_workspace(
     state.store.upsert_thread(&ThreadRow {
         id: thread_id.clone(),
         workspace_id: workspace_id.clone(),
-        title: "Reviewer".into(),
+        title: REVIEWER_TITLE.into(),
         engine: engine.clone(),
         session_id: None,
         status: "provisioning".into(),
@@ -407,11 +429,13 @@ pub async fn on_reviewer_turn_end(app: &AppHandle, thread_id: &str) -> Result<()
     let Some(workspace) = state.store.workspace_by_id(&thread.workspace_id)? else {
         return Ok(());
     };
-    if workspace.kind.as_deref() != Some("review")
-        || workspace.archived_at.is_some()
-        || thread.title != "Reviewer"
-        || review_is_ready(&state.store, &workspace.id)
-    {
+    let branch_review = workspace.kind.as_deref() != Some("review");
+    let pending = if branch_review {
+        branch_review_running(&state.store, &workspace.id)
+    } else {
+        !review_is_ready(&state.store, &workspace.id)
+    };
+    if workspace.archived_at.is_some() || thread.title != REVIEWER_TITLE || !pending {
         return Ok(());
     }
 
@@ -459,7 +483,128 @@ pub async fn on_reviewer_turn_end(app: &AppHandle, thread_id: &str) -> Result<()
             sent_to_thread_id: None,
         })?;
     }
-    complete_review(app, &workspace).await
+    if branch_review {
+        complete_branch_review(app, &workspace)
+    } else {
+        complete_review(app, &workspace).await
+    }
+}
+
+fn branch_review_running(store: &Store, workspace_id: &str) -> bool {
+    store
+        .get_setting(&review_status_key(workspace_id))
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("running")
+}
+
+/// Review a regular workspace's own branch. A Reviewer thread (reused if one is open)
+/// reads the changes against the base, and its findings fill the workspace's Findings
+/// tab, from where they can be sent to the Lead. Returns the Reviewer's thread id.
+pub async fn start_branch_review(
+    app: &AppHandle,
+    state: &AppState,
+    workspace_id: &str,
+) -> Result<String> {
+    let workspace = state
+        .store
+        .workspace_by_id(workspace_id)?
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    if workspace.kind.as_deref() == Some("review") {
+        return Err(Error::Workspace(
+            "this is a review workspace; its Reviewer already reviews the PR".into(),
+        ));
+    }
+    let record = crate::git_workspace::resolve_record(state, workspace_id, &workspace).await?;
+
+    let existing = state
+        .store
+        .snapshot()?
+        .threads
+        .into_iter()
+        .find(|row| row.workspace_id == workspace_id && row.title == REVIEWER_TITLE);
+    let thread = match existing {
+        Some(row) if row.status == "running" => {
+            return Err(Error::Workspace(
+                "the Reviewer is still working on the last review".into(),
+            ));
+        }
+        Some(row) => row,
+        None => {
+            let row = ThreadRow {
+                id: Uuid::new_v4().to_string(),
+                workspace_id: workspace_id.to_string(),
+                title: REVIEWER_TITLE.into(),
+                engine: default_engine(&state.store),
+                session_id: None,
+                status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+            };
+            state.store.upsert_thread(&row)?;
+            row
+        }
+    };
+
+    crate::provisioning::ensure_thread_engine(state, &thread.id, &thread.engine, workspace_id)
+        .await?;
+    let message = format!(
+        "Review the changes on `{}` against `{}`. Flag bugs, risky changes and missing tests. Don’t edit anything; list findings for me to send back.",
+        record.branch, record.base
+    );
+    crate::composer::persist_user_message(&state.store, &thread.id, &message)?;
+    let prompt = format!("{message}\n\n{}", branch_reviewer_rubric(&record.base));
+    state.engines.submit_prompt(&thread.id, prompt, false)?;
+    state
+        .store
+        .set_setting(&review_status_key(workspace_id), "running")?;
+    state.store.set_thread_status(&thread.id, "running")?;
+    state
+        .workspace
+        .set_thread(&thread.id, workspace_id, ThreadActivity::Running)
+        .await;
+    state.store.set_workspace_status(workspace_id, "running")?;
+    emit_state_changed(app, state);
+    Ok(thread.id)
+}
+
+/// The turn-end handler has already replaced any earlier findings with this review's.
+fn complete_branch_review(app: &AppHandle, workspace: &WorkspaceRow) -> Result<()> {
+    let state = app.state::<AppState>();
+    state
+        .store
+        .set_setting(&review_status_key(&workspace.id), "ready")?;
+    let found = state
+        .store
+        .snapshot()?
+        .findings
+        .iter()
+        .any(|row| row.workspace_id == workspace.id && row.status == "open");
+    if !found {
+        emit_toast(
+            app,
+            ToastRaisedPayload {
+                tone: ToastTone::Ok,
+                parts: vec![
+                    ToastPart::Text {
+                        value: "Review of ".into(),
+                    },
+                    ToastPart::Code {
+                        value: workspace.branch.clone(),
+                    },
+                    ToastPart::Text {
+                        value: " finished · no findings".into(),
+                    },
+                ],
+                workspace_id: Some(workspace.id.clone()),
+            },
+        );
+    }
+    emit_state_changed(app, &state);
+    Ok(())
 }
 
 async fn complete_review(app: &AppHandle, workspace: &WorkspaceRow) -> Result<()> {
@@ -758,5 +903,13 @@ mod tests {
         assert!(rubric.contains("<cormux-findings>"));
         assert!(rubric.contains("</cormux-findings>"));
         assert!(!rubric.contains("report_finding"));
+    }
+
+    #[test]
+    fn branch_rubric_covers_uncommitted_work_against_the_base() {
+        let rubric = branch_reviewer_rubric("develop");
+        assert!(rubric.contains("git diff develop...HEAD"));
+        assert!(rubric.contains("git diff HEAD"));
+        assert!(rubric.contains("<cormux-findings>"));
     }
 }

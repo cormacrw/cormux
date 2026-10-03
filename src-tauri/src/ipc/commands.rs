@@ -953,6 +953,19 @@ pub async fn submit_workspace_review(
     crate::review::submit_workspace_review(&app, input).await
 }
 
+/// Start a Reviewer on a regular workspace's own branch. Returns its thread id.
+#[tauri::command]
+#[specta::specta]
+pub async fn start_branch_review(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    let thread_id = crate::review::start_branch_review(&app, &state, &workspace_id).await?;
+    emit_composer_snapshot(&app, &state);
+    Ok(thread_id)
+}
+
 /// Generate or return a cached workspace card summary (debounced LLM + local fallback).
 #[tauri::command]
 #[specta::specta]

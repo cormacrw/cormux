@@ -9,10 +9,14 @@
   import { registerPopoverCloser } from '$lib/keyboard/global-shortcuts'
   import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import { shellDialogs, workspaceRecords, workspaceUi } from '$lib/state'
-  import { openWorkspaceTerminal } from '$lib/workspace/worktree-actions'
+  import {
+    openWorkspaceTerminal,
+    startBranchReview,
+  } from '$lib/workspace/worktree-actions'
   import Ellipsis from '@lucide/svelte/icons/ellipsis'
   import Play from '@lucide/svelte/icons/play'
   import RotateCw from '@lucide/svelte/icons/rotate-cw'
+  import ScanSearch from '@lucide/svelte/icons/scan-search'
   import Square from '@lucide/svelte/icons/square'
   import SquareTerminal from '@lucide/svelte/icons/square-terminal'
   import Terminal from '@lucide/svelte/icons/terminal'
@@ -23,9 +27,13 @@
   let {
     workspaceId,
     runDisabled = false,
+    canReview = false,
+    reviewDisabled = false,
   }: {
     workspaceId: string
     runDisabled?: boolean
+    canReview?: boolean
+    reviewDisabled?: boolean
   } = $props()
 
   let open = $state(false)
@@ -142,6 +150,15 @@
       Open in Terminal
       <DropdownMenu.Shortcut>⌘T</DropdownMenu.Shortcut>
     </DropdownMenu.Item>
+    {#if canReview}
+      <DropdownMenu.Item
+        disabled={reviewDisabled}
+        onclick={() => closeAndRun(() => void startBranchReview(workspaceId))}
+      >
+        <ScanSearch class="size-4" aria-hidden="true" />
+        Review changes
+      </DropdownMenu.Item>
+    {/if}
     <DropdownMenu.Item
       variant="destructive"
       onclick={() => closeAndRun(() => shellDialogs.openTeardown(workspaceId))}

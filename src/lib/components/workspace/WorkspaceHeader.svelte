@@ -23,9 +23,13 @@
   import WorkspacePrimaryAction from './WorkspacePrimaryAction.svelte'
   import WorkspaceRunControls from './WorkspaceRunControls.svelte'
   import { Kbd } from '$lib/components/ui/kbd'
-  import { openWorkspaceTerminal } from '$lib/workspace/worktree-actions'
+  import {
+    openWorkspaceTerminal,
+    startBranchReview,
+  } from '$lib/workspace/worktree-actions'
   import CommandIcon from '@lucide/svelte/icons/command'
   import Pencil from '@lucide/svelte/icons/pencil'
+  import ScanSearch from '@lucide/svelte/icons/scan-search'
   import SquareTerminal from '@lucide/svelte/icons/square-terminal'
   import Trash2 from '@lucide/svelte/icons/trash-2'
 
@@ -48,6 +52,11 @@
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runDisabled = $derived(
     provisioning || workspace.lifecycle === 'provisioningFailed',
+  )
+  const reviewing = $derived(
+    wsThreads.some(
+      (thread) => thread.role === 'Reviewer' && thread.status === 'running',
+    ),
   )
 
   const headerSignature = $derived(
@@ -169,7 +178,12 @@
       data-od-id="ws-actions"
     >
       {#if narrow}
-        <WorkspaceMoreMenu workspaceId={workspace.id} {runDisabled} />
+        <WorkspaceMoreMenu
+          workspaceId={workspace.id}
+          {runDisabled}
+          canReview={workspace.kind !== 'review'}
+          reviewDisabled={runDisabled || reviewing}
+        />
       {:else}
         <WorkspaceRunControls
           workspaceId={workspace.id}
@@ -188,6 +202,20 @@
           Terminal
           <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />T</Kbd>
         </Button>
+        {#if workspace.kind !== 'review'}
+          <Button
+            variant="secondary"
+            size="xl"
+            disabled={runDisabled || reviewing}
+            title="Review this branch's changes, uncommitted work included"
+            data-ws-focus="review"
+            data-od-id="ws-review"
+            onclick={() => void startBranchReview(workspace.id)}
+          >
+            <ScanSearch class="size-4" aria-hidden="true" />
+            {reviewing ? 'Reviewing…' : 'Review'}
+          </Button>
+        {/if}
         <Button
           variant="destructive"
           size="xl"
