@@ -28,6 +28,7 @@
     startBranchReview,
   } from '$lib/workspace/worktree-actions'
   import CommandIcon from '@lucide/svelte/icons/command'
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Pencil from '@lucide/svelte/icons/pencil'
   import ScanSearch from '@lucide/svelte/icons/scan-search'
   import SquareTerminal from '@lucide/svelte/icons/square-terminal'
@@ -206,14 +207,21 @@
           <Button
             variant="secondary"
             size="xl"
+            class="w-12 px-0"
             disabled={runDisabled || reviewing}
-            title="Review this branch's changes, uncommitted work included"
+            aria-label={reviewing ? 'Reviewing changes' : 'Review changes'}
+            title={reviewing
+              ? 'The Reviewer is reading the changes'
+              : "Review this branch's changes, uncommitted work included"}
             data-ws-focus="review"
             data-od-id="ws-review"
             onclick={() => void startBranchReview(workspace.id)}
           >
-            <ScanSearch class="size-4" aria-hidden="true" />
-            {reviewing ? 'Reviewing…' : 'Review'}
+            {#if reviewing}
+              <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
+            {:else}
+              <ScanSearch class="size-4" aria-hidden="true" />
+            {/if}
           </Button>
         {/if}
         <Button
