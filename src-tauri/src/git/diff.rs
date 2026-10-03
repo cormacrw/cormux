@@ -79,7 +79,6 @@ pub struct WorktreeDiff {
 }
 
 struct Watched {
-    workspace_id: String,
     path: PathBuf,
     _watcher: RecommendedWatcher,
 }
@@ -229,7 +228,6 @@ impl LiveDiffEngine {
         self.watched.lock().unwrap().insert(
             workspace_id.to_string(),
             Watched {
-                workspace_id: workspace_id.to_string(),
                 path: path.to_path_buf(),
                 _watcher: watcher,
             },

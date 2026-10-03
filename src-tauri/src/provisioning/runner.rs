@@ -19,7 +19,6 @@ use crate::workspace::{ThreadActivity, WorkspaceLifecycle, WorkspaceManager, Wor
 pub struct LeadProvisionJob {
     pub workspace_id: String,
     pub thread_id: String,
-    pub repo_id: String,
     pub repo_name: String,
     pub setup_commands_raw: String,
     pub engine: String,
@@ -96,7 +95,6 @@ pub async fn retry_provisioning(app: AppHandle, workspace_id: String) {
     let job = LeadProvisionJob {
         workspace_id,
         thread_id: thread.id,
-        repo_id: workspace.repo_id,
         repo_name: repo.name,
         setup_commands_raw: crate::harness_config::effective_setup(
             &repo.setup_commands,
@@ -164,7 +162,6 @@ pub async fn skip_provisioning_setup(app: AppHandle, workspace_id: String) {
     let job = LeadProvisionJob {
         workspace_id: workspace_id.clone(),
         thread_id: thread.id,
-        repo_id: workspace.repo_id,
         repo_name: repo.name,
         setup_commands_raw: String::new(),
         engine: thread.engine,
@@ -807,6 +804,7 @@ async fn poll_session(
     }
 }
 
+#[cfg(test)]
 async fn wait_session(
     process: &ProcessSupervisor,
     session_id: &str,

@@ -19,6 +19,7 @@ impl ShellEnv {
         Self::default()
     }
 
+    #[cfg(test)]
     pub fn from_vars(vars: impl IntoIterator<Item = (String, String)>) -> Self {
         Self {
             vars: vars.into_iter().collect(),

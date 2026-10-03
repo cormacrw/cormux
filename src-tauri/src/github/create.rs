@@ -16,7 +16,6 @@ pub struct CreatePullRequestInput {
 pub struct CreatedPullRequest {
     pub number: i64,
     pub html_url: String,
-    pub title: String,
 }
 
 #[derive(Clone)]
@@ -92,7 +91,6 @@ impl RestGithubClient {
         Ok(CreatedPullRequest {
             number: payload.number,
             html_url: payload.html_url,
-            title: payload.title,
         })
     }
 }
@@ -101,5 +99,4 @@ impl RestGithubClient {
 struct CreateResponse {
     number: i64,
     html_url: String,
-    title: String,
 }

@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::app::WorkspaceAppRuntime;
-use crate::git::{BehindUpdate, WorktreeDiff};
+use crate::git::WorktreeDiff;
 use crate::metrics::MemorySample;
 use crate::store::types::PersistedSnapshot;
-use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
+use crate::workspace::WorkspaceRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -97,21 +97,6 @@ pub struct ToastRaisedPayload {
     pub tone: ToastTone,
     pub parts: Vec<ToastPart>,
     pub workspace_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceStatusPayload {
-    pub version: u64,
-    pub workspace: WorkspaceRecord,
-    pub status: WorkspaceLifecycle,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct BehindCountsPayload {
-    pub version: u64,
-    pub updates: Vec<BehindUpdate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

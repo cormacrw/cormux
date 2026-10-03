@@ -33,6 +33,7 @@ impl Store {
         self.configure(conn)
     }
 
+    #[cfg(test)]
     pub fn open_in_memory(&self) -> Result<()> {
         self.configure(Connection::open_in_memory()?)
     }

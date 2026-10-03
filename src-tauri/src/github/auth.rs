@@ -32,10 +32,6 @@ pub fn clear_token() -> Result<()> {
     }
 }
 
-pub fn is_configured() -> bool {
-    read_stored_token().is_some()
-}
-
 pub async fn resolve_token(env: &Arc<RwLock<ShellEnv>>) -> Option<String> {
     if let Some(token) = read_stored_token() {
         return Some(token);

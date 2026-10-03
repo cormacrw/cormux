@@ -52,9 +52,6 @@ pub enum Error {
 
     #[error("metrics: {0}")]
     Metrics(String),
-
-    #[error("{0} is not implemented yet")]
-    NotImplemented(String),
 }
 
 impl From<std::io::Error> for Error {

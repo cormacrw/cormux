@@ -8,9 +8,9 @@ use crate::clickup::ClickupClient;
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::ipc::subscriptions::Subscriptions;
 use crate::{
-    approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::GithubClient,
-    github::PrSyncScheduler, llm::LlmClient, mcp::CormuxMcp, metrics::Metrics,
-    process::ProcessSupervisor, shell_env::ShellEnv, store::Store, workspace::WorkspaceManager,
+    approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::PrSyncScheduler,
+    llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
+    shell_env::ShellEnv, store::Store, workspace::WorkspaceManager,
 };
 
 /// Process-wide core state. The webview never holds this; IPC commands borrow it.
@@ -24,7 +24,6 @@ pub struct AppState {
     pub mcp: CormuxMcp,
     pub process: ProcessSupervisor,
     pub apps: WorkspaceAppService,
-    pub github: GithubClient,
     pub clickup: ClickupClient,
     pub llm: LlmClient,
     pub store: Store,
@@ -74,7 +73,6 @@ impl AppState {
             mcp,
             process,
             apps,
-            github: GithubClient::new(),
             clickup: ClickupClient::new(),
             llm: LlmClient::new(shell_env),
             store,

@@ -56,7 +56,6 @@ struct WorkspaceAppRecord {
     https: bool,
     exit_code: Option<i32>,
     kind: AppKind,
-    quiet_stop: bool,
     /// Bumped on every run so a monitor from an earlier run knows to exit.
     generation: u64,
 }
@@ -330,7 +329,6 @@ impl WorkspaceAppService {
                 https: false,
                 exit_code: None,
                 kind,
-                quiet_stop: false,
                 generation: 0,
             });
         record.kind = kind;
@@ -483,7 +481,6 @@ impl WorkspaceAppService {
                 https: false,
                 exit_code: None,
                 kind: AppKind::Vite,
-                quiet_stop: false,
                 generation: 0,
             });
         record.status = status;

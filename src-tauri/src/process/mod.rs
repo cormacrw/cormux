@@ -35,6 +35,8 @@ struct SessionShared {
 struct RunningApp {
     pid: u32,
     shared: Arc<SessionShared>,
+    // Only tests write input, but dropping the writer sends EOF to the app.
+    #[cfg_attr(not(test), allow(dead_code))]
     writer: Mutex<Box<dyn Write + Send>>,
     _master: Box<dyn MasterPty + Send>,
 }
@@ -80,6 +82,7 @@ impl ProcessSupervisor {
         shared.push_line(line);
     }
 
+    #[cfg(test)]
     pub fn spawn(&self, program: &str, args: &[&str]) -> Result<u32> {
         self.spawn_session("default", program, args, None, &[])
     }
@@ -194,6 +197,7 @@ impl ProcessSupervisor {
         Ok(pid)
     }
 
+    #[cfg(test)]
     pub fn output(&self) -> String {
         self.output_session("default")
     }
@@ -247,6 +251,7 @@ impl ProcessSupervisor {
         lines.iter().cloned().collect()
     }
 
+    #[cfg(test)]
     pub fn write_input(&self, id: &str, data: &[u8]) -> Result<()> {
         let sessions = self.sessions.lock().unwrap();
         let app = sessions
@@ -260,10 +265,12 @@ impl ProcessSupervisor {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn detected_port(&self) -> Option<u16> {
         detect_port(&self.output())
     }
 
+    #[cfg(test)]
     pub fn current_pid(&self) -> Option<u32> {
         self.sessions
             .lock()
@@ -312,6 +319,7 @@ impl ProcessSupervisor {
             .collect()
     }
 
+    #[cfg(test)]
     pub fn stop(&self) -> Result<()> {
         self.stop_session("default")
     }
@@ -333,10 +341,12 @@ impl ProcessSupervisor {
         kill_group(app.pid, libc::SIGKILL)
     }
 
+    #[cfg(test)]
     pub fn wait_exit(&self, timeout: Duration) -> Result<i32> {
         self.wait_exit_session("default", timeout)
     }
 
+    #[cfg(test)]
     pub fn wait_exit_session(&self, id: &str, timeout: Duration) -> Result<i32> {
         let started = std::time::Instant::now();
         loop {

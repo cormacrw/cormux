@@ -1159,7 +1159,6 @@ pub async fn create_workspace(
 
     let app_handle = app.clone();
     let name = input.name.clone();
-    let repo_id_bg = input.repo_id.clone();
     let workspace_id_bg = workspace_id.clone();
     let thread_id_bg = thread_id.clone();
     let engine = input.engine.clone();
@@ -1194,7 +1193,6 @@ pub async fn create_workspace(
             crate::provisioning::LeadProvisionJob {
                 workspace_id: workspace_id_bg,
                 thread_id: thread_id_bg,
-                repo_id: repo_id_bg,
                 repo_name,
                 setup_commands_raw: setup_commands,
                 engine,

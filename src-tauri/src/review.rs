@@ -296,7 +296,6 @@ pub async fn create_review_workspace(
     let goal = user_message.clone();
     let pr_number = input.pr_number as u64;
     let base_branch = input.base.clone();
-    let repo_id_bg = input.repo_id.clone();
     let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
     let worktree_path_bg = worktree_path.clone();
     let workspace_id_bg = workspace_id.clone();
@@ -325,7 +324,6 @@ pub async fn create_review_workspace(
             LeadProvisionJob {
                 workspace_id: workspace_id_bg.clone(),
                 thread_id: thread_id.clone(),
-                repo_id: repo_id_bg,
                 repo_name,
                 setup_commands_raw: setup_commands,
                 engine,
