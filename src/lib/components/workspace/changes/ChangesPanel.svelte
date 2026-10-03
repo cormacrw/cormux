@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
+  import { afterPaint } from '$lib/changes/mount-queue'
   import { commands } from '$lib/ipc'
   import {
     commentBranch,
@@ -17,8 +18,8 @@
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
   import { diffTargetLabel } from '$lib/stack/stack'
   import ChangesFileList from './ChangesFileList.svelte'
+  import ChangesSkeleton from './ChangesSkeleton.svelte'
   import StackRail from './StackRail.svelte'
-  import AgentSpinner from '../thread/AgentSpinner.svelte'
   import ChevronsDownUp from '@lucide/svelte/icons/chevrons-down-up'
   import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down'
   import GitCompare from '@lucide/svelte/icons/git-compare'
@@ -59,6 +60,11 @@
   )
 
   let scrollEl: HTMLDivElement | undefined = $state()
+
+  // The tab switches the moment it's clicked: the skeleton paints first and the file
+  // list, which can be long, mounts in the frame after.
+  let listReady = $state(false)
+  onMount(() => afterPaint(() => (listReady = true)))
 
   // Snapshots rebuild the workspace object, so key the refresh on its id and branch alone.
   const workspaceId = $derived(workspace.id)
@@ -243,12 +249,14 @@
     </div>
 
     <div class="relative flex min-h-0 flex-1 flex-col">
-      {#if files.length}
+      {#if !listReady || (loading && !files.length)}
+        <ChangesSkeleton />
+      {:else if files.length}
         <!-- Focusable so the diff can be scrolled from the keyboard. -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div
           bind:this={scrollEl}
-          class="min-h-0 flex-1 overflow-y-auto"
+          class="min-h-0 flex-1 overflow-y-auto [contain:strict]"
           tabindex="0"
           role="region"
           aria-label="Proposed changes"
@@ -278,19 +286,15 @@
         </div>
       {/if}
       <!-- Covers the list rather than replacing it, so the diff views stay mounted. -->
-      {#if loading}
-        <div
-          class="changes-splash absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center"
-          role="status"
-        >
-          <AgentSpinner />
-          <p class="text-sm text-muted-foreground">
-            {pending?.retarget
+      {#if loading && files.length}
+        <div class="changes-splash absolute inset-0 z-20 flex bg-background">
+          <ChangesSkeleton
+            label={pending?.retarget
               ? pending.target
                 ? `Loading ${diffTargetLabel(pending.target)}…`
                 : 'Loading uncommitted changes…'
               : 'Loading changes…'}
-          </p>
+          />
         </div>
       {/if}
     </div>

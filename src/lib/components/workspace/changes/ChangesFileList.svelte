@@ -42,7 +42,10 @@
       file.path,
     ).length}
     {@const bodyId = `changes-file-${file.path.replace(/[^\w-]/g, '_')}`}
-    <li class="border-b border-border/60" data-diff-path={file.path}>
+    <li
+      class="border-b border-border/60 [content-visibility:auto] [contain-intrinsic-size:auto_480px]"
+      data-diff-path={file.path}
+    >
       <button
         type="button"
         class="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border/40 bg-background px-3 py-2 text-left text-sm hover:bg-[color-mix(in_oklch,var(--muted)_40%,var(--background))]"

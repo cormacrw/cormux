@@ -288,10 +288,36 @@ export function installBrowserHarness() {
     )
   }
 
+  // `?bigDiff=40` swaps in 40 long TypeScript files, to see how Changes copes with a big diff.
+  const harnessDiffFiles = () => {
+    const count = Number(
+      new URLSearchParams(window.location.search).get('bigDiff') ?? 0,
+    )
+    if (!count) return fixtureDiff.files
+    return Array.from({ length: count }, (_, file) => {
+      const lines = Array.from(
+        { length: 240 },
+        (_, line) =>
+          `+export const value${line} = computeSomething(${line}, '${'x'.repeat(line % 40)}') // ${file}`,
+      )
+      return {
+        path: `src/generated/module-${file}.ts`,
+        added: lines.length,
+        deleted: 0,
+        hunks: [
+          {
+            header: `@@ -0,0 +1,${lines.length} @@`,
+            body: `${lines.join('\n')}\n`,
+          },
+        ],
+      }
+    })
+  }
+
   let diffChannel: { id: number; index: number } | null = null
   const sendDiff = (target: { head: string; base: string } | null) => {
     if (!diffChannel) return
-    const diff = { ...fixtureDiff, target }
+    const diff = { ...fixtureDiff, target, files: harnessDiffFiles() }
     callbacks.get(diffChannel.id)?.({
       index: diffChannel.index++,
       message: { workspaceId: fixtureDiff.workspaceId, path: '', diff },
