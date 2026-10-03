@@ -33,8 +33,6 @@ pub fn builder() -> Builder {
             commands::set_workspace_diff_target,
             commands::start_streaming_spike,
             commands::summarise_workspace,
-            commands::set_github_token,
-            commands::clear_github_token,
             commands::sync_pull_requests,
             commands::set_clickup_api_key,
             commands::clear_clickup_api_key,

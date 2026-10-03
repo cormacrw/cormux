@@ -10,7 +10,6 @@ use crate::composer::{persist_control_step, persist_user_message};
 use crate::engines::{EngineKind, ThreadModels};
 use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
-use crate::github::{clear_token, save_token};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
@@ -561,18 +560,6 @@ pub fn get_metrics(state: State<'_, AppState>) -> Result<crate::metrics::MemoryS
     state.metrics.sample(&process_trees(&state))
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn set_github_token(token: String) -> Result<()> {
-    save_token(&token)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn clear_github_token() -> Result<()> {
-    clear_token()
-}
-
 fn emit_settings_changed(app: &AppHandle, state: &AppState) {
     let version = state.bump_event_version();
     let _ = StateChanged {
@@ -582,7 +569,7 @@ fn emit_settings_changed(app: &AppHandle, state: &AppState) {
     .emit(app);
 }
 
-/// Checks the key with ClickUp, then stores it in the Keychain.
+/// Checks the key with ClickUp, then saves it to `~/.cormux/credentials.json`.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_clickup_api_key(

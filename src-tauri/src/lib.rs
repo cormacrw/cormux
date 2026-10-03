@@ -3,6 +3,7 @@ mod approvals;
 mod clickup;
 mod composer;
 mod create_pr;
+mod credentials;
 mod engines;
 mod error;
 mod feedback;

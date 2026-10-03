@@ -6,6 +6,5 @@ pub mod review;
 mod sync;
 pub mod types;
 
-pub use auth::{clear_token, save_token};
 pub use r#match::parse_origin_url;
 pub use sync::PrSyncScheduler;

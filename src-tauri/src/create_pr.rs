@@ -116,7 +116,7 @@ pub async fn create_workspace_pull_request(
 
     let token = auth::resolve_token(&state.shell_env)
         .await
-        .ok_or_else(|| Error::Github("GitHub is not signed in — add a token in Settings".into()))?;
+        .ok_or_else(|| Error::Github("GitHub is not signed in — run `gh auth login`".into()))?;
 
     state
         .git

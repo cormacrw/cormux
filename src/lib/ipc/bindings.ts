@@ -237,22 +237,6 @@ async summariseWorkspace(workspaceId: string) : Promise<Result<WorkspaceSummaryR
     else return { status: "error", error: e  as any };
 }
 },
-async setGithubToken(token: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_github_token", { token }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async clearGithubToken() : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("clear_github_token") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async syncPullRequests() : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("sync_pull_requests") };
@@ -262,7 +246,7 @@ async syncPullRequests() : Promise<Result<null, Error>> {
 }
 },
 /**
- * Checks the key with ClickUp, then stores it in the Keychain.
+ * Checks the key with ClickUp, then saves it to `~/.cormux/credentials.json`.
  */
 async setClickupApiKey(key: string) : Promise<Result<null, Error>> {
     try {
@@ -843,7 +827,7 @@ githubAuthConfigured: boolean;
  */
 prSyncedAt: string | null; 
 /**
- * True when a ClickUp API key is in the Keychain. Every ClickUp surface hides without one.
+ * True when a ClickUp API key is saved. Every ClickUp surface hides without one.
  */
 clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[] }
 export type StackBranch = { name: string; 

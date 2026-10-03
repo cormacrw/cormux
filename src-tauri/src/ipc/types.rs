@@ -22,7 +22,7 @@ pub struct Snapshot {
     pub github_auth_configured: bool,
     /// Unix seconds string from the last successful PR sync, if any.
     pub pr_synced_at: Option<String>,
-    /// True when a ClickUp API key is in the Keychain. Every ClickUp surface hides without one.
+    /// True when a ClickUp API key is saved. Every ClickUp surface hides without one.
     pub clickup_configured: bool,
     pub workspace_apps: Vec<WorkspaceAppRuntime>,
 }

@@ -592,7 +592,7 @@ pub async fn submit_workspace_review(
 
     let token = auth::resolve_token(&state.shell_env)
         .await
-        .ok_or_else(|| Error::Github("GitHub token not configured".into()))?;
+        .ok_or_else(|| Error::Github("GitHub is not signed in — run `gh auth login`".into()))?;
 
     let open_findings: Vec<FindingRow> = snapshot
         .findings
