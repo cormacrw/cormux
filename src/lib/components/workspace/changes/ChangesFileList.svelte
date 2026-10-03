@@ -9,7 +9,7 @@
   } from '$lib/changes/file-status'
   import { workspaceUi } from '$lib/state'
   import { cn } from '$lib/utils'
-  import ChangesDiffView from './ChangesDiffView.svelte'
+  import LazyDiff from './LazyDiff.svelte'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import MessageSquare from '@lucide/svelte/icons/message-square'
 
@@ -96,7 +96,7 @@
       {#if open}
         <div id={bodyId}>
           {#if file.hunks.length}
-            <ChangesDiffView {workspaceId} {branch} {file} />
+            <LazyDiff {workspaceId} {branch} {file} />
           {:else}
             <p class="px-3 py-2 text-xs text-muted-foreground">
               No text changes to show.

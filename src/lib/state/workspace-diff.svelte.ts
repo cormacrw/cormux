@@ -1,6 +1,7 @@
 import type { DiffFile, DiffTarget, LineCounts } from '$lib/ipc/bindings'
 import { subscribeDiffs } from '$lib/ipc'
 import { sameDiffTarget } from '$lib/stack/stack'
+import { reuseUnchangedFiles } from '$lib/changes/reuse-files'
 import {
   totalsFromDiffFiles,
   type DiffLineTotals,
@@ -13,7 +14,8 @@ type PendingDiff =
 const emptyTotals = (): DiffLineTotals => ({ added: 0, deleted: 0 })
 
 export class WorkspaceDiffStore {
-  filesByWorkspace = $state<Record<string, DiffFile[]>>({})
+  // Raw: diffs can be large, and unchanged files keep their identity across refreshes.
+  filesByWorkspace = $state.raw<Record<string, DiffFile[]>>({})
   /** What each diff shows; `null` means uncommitted changes. */
   targetByWorkspace = $state<Record<string, DiffTarget | null>>({})
   /** Uncommitted lines, whichever diff is showing. */
@@ -86,7 +88,10 @@ export class WorkspaceDiffStore {
       this.clearPending(workspaceId)
     this.filesByWorkspace = {
       ...this.filesByWorkspace,
-      [workspaceId]: files,
+      [workspaceId]: reuseUnchangedFiles(
+        this.filesByWorkspace[workspaceId],
+        files,
+      ),
     }
     this.targetByWorkspace = {
       ...this.targetByWorkspace,
