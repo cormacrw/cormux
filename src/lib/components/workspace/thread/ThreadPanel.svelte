@@ -306,7 +306,7 @@
   >
     <div
       bind:this={contentEl}
-      class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-3"
+      class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-3 select-text"
     >
       <ThreadIntro {thread} {workspace} {otherThreadCount} {nowMs} />
 
