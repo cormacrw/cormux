@@ -208,7 +208,7 @@
       onkeydown={onFormKeydown}
     >
       <Dialog.Header class="px-5 pt-5 gap-1">
-        <Dialog.Title>Create pull request</Dialog.Title>
+        <Dialog.Title>Create draft pull request</Dialog.Title>
         {#if routeLine}
           <p
             class="text-sm text-muted-foreground font-mono"

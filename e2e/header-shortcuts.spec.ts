@@ -40,7 +40,7 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
   await expect(page.getByRole('menu')).toHaveCount(0)
 
   await page.keyboard.press('ControlOrMeta+p')
-  const dialog = page.getByRole('dialog', { name: 'Create pull request' })
+  const dialog = page.getByRole('dialog', { name: 'Create draft pull request' })
   await expect(dialog).toBeVisible()
   // Header shortcuts stay off while a dialog is open.
   await page.keyboard.press('ControlOrMeta+d')

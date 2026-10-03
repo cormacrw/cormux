@@ -170,7 +170,7 @@ pub async fn create_workspace_pull_request(
                 body: body.to_string(),
                 head: record.branch.clone(),
                 base: pr_base.clone(),
-                draft: false,
+                draft: true,
             },
         )
         .await?;
@@ -193,11 +193,11 @@ pub async fn create_workspace_pull_request(
         updated_at: updated_at.clone(),
         checks: PrChecksState::Running,
         failing: None,
-        review: PrReviewState::Required,
+        review: PrReviewState::Draft,
         additions: additions as i64,
         deletions: deletions as i64,
         files: files as i64,
-        is_draft: false,
+        is_draft: true,
         html_url: created.html_url.clone(),
         repo_full_name: slug.clone(),
         repo_id: Some(workspace.repo_id.clone()),
@@ -227,7 +227,7 @@ pub async fn create_workspace_pull_request(
             tone: ToastTone::Ok,
             parts: vec![
                 ToastPart::Text {
-                    value: format!("Opened PR #{} for ", created.number),
+                    value: format!("Opened draft PR #{} for ", created.number),
                 },
                 ToastPart::Code {
                     value: record.branch.clone(),
