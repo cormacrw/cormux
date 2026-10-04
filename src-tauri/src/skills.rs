@@ -1,6 +1,6 @@
 //! Claude Code skills the composer's `/` picker offers: the repo's `.claude/skills` first,
-//! then the user's `~/.claude/skills`. Each skill is a folder with a `SKILL.md` whose
-//! frontmatter names and describes it.
+//! then the user's `~/.claude/skills`, then the skills built into Claude Code. Each skill on
+//! disk is a folder with a `SKILL.md` whose frontmatter names and describes it.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -14,9 +14,51 @@ use crate::state::AppState;
 pub struct Skill {
     pub name: String,
     pub description: String,
-    /// `project` for the repo's own skills, `user` for `~/.claude/skills`.
+    /// `project` for the repo's own skills, `user` for `~/.claude/skills`, `builtin` for
+    /// those that ship with Claude Code.
     pub source: String,
 }
+
+/// Skills that ship inside the Claude Code CLI, so no folder holds them. Kept by hand; update
+/// it as Claude Code adds or drops skills.
+const BUILTIN: &[(&str, &str)] = &[
+    (
+        "claude-api",
+        "Reference for the Claude API and Anthropic SDK",
+    ),
+    ("code-review", "Review the current diff or a PR for bugs"),
+    (
+        "fewer-permission-prompts",
+        "Allowlist common read-only tool calls to cut permission prompts",
+    ),
+    ("init", "Write a CLAUDE.md documenting the codebase"),
+    (
+        "keybindings-help",
+        "Customize Claude Code keyboard shortcuts",
+    ),
+    (
+        "loop",
+        "Run a prompt or slash command on a recurring interval",
+    ),
+    (
+        "plugin-authoring",
+        "Write a Claude Code plugin of function hooks",
+    ),
+    ("run", "Launch the app to see a change working"),
+    ("schedule", "Create or run scheduled cloud agents"),
+    (
+        "security-review",
+        "Security review of the pending changes on the branch",
+    ),
+    (
+        "simplify",
+        "Clean up the changed code for reuse, simplicity and efficiency",
+    ),
+    (
+        "update-config",
+        "Configure Claude Code via settings.json: hooks, permissions, env",
+    ),
+];
 
 /// Skills available to a thread's agent, by the folder it runs in.
 pub fn for_thread(state: &AppState, thread_id: &str) -> Result<Vec<Skill>> {
@@ -62,6 +104,15 @@ fn list(cwd: &Path, home: Option<&Path>) -> Vec<Skill> {
             if seen.insert(skill.name.clone()) {
                 skills.push(skill);
             }
+        }
+    }
+    for (name, description) in BUILTIN {
+        if seen.insert(name.to_string()) {
+            skills.push(Skill {
+                name: name.to_string(),
+                description: description.to_string(),
+                source: "builtin".to_string(),
+            });
         }
     }
     skills
@@ -137,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn project_skills_come_first_and_shadow_user_skills() {
+    fn project_skills_shadow_user_skills_which_shadow_builtins() {
         let root = std::env::temp_dir().join(format!("cormux-skills-{}", uuid::Uuid::new_v4()));
         let write = |dir: &str, body: &str| {
             let path = root.join(dir);
@@ -154,10 +205,29 @@ mod tests {
         );
         write("home/.claude/skills/notes", "no frontmatter");
 
+        write(
+            "home/.claude/skills/simplify",
+            "---\nname: simplify\ndescription: My simplify\n---\n",
+        );
+
         let skills = list(&root.join("repo"), Some(&root.join("home")));
         let _ = std::fs::remove_dir_all(&root);
+        let simplify = skills
+            .iter()
+            .find(|skill| skill.name == "simplify")
+            .unwrap();
+        assert_eq!(simplify.source, "user");
+        assert!(
+            skills
+                .iter()
+                .any(|skill| skill.name == "init" && skill.source == "builtin")
+        );
+        let on_disk: Vec<_> = skills
+            .into_iter()
+            .filter(|skill| skill.source != "builtin" && skill.name != "simplify")
+            .collect();
         assert_eq!(
-            skills,
+            on_disk,
             vec![
                 Skill {
                     name: "deploy".into(),
