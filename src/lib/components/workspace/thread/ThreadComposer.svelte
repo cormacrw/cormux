@@ -161,7 +161,12 @@
     const threadId = thread.id
     composerDrafts.setFor(threadId, '')
     historyIndex = null
-    queueMicrotask(() => fitHeight())
+    // Clearing the draft disables Send. A click focuses that button first, and
+    // disabling a focused button drops focus, so put it back on the prompt.
+    queueMicrotask(() => {
+      fitHeight()
+      inputEl?.focus()
+    })
     onSent?.()
     if (!(await sendThreadMessage(threadId, text))) {
       composerDrafts.setFor(threadId, text)
@@ -456,6 +461,10 @@
         data-od-id="composer-send"
         aria-label={sendLabel}
         disabled={!canSend}
+        onmousedown={(event) => {
+          // Keep the prompt focused; the click still submits.
+          event.preventDefault()
+        }}
       >
         <ArrowUp class="size-4" aria-hidden="true" />
       </Button>
