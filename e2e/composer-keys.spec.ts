@@ -12,6 +12,8 @@ test('Esc stops the agent; ↑/↓ cycle past prompts from an empty composer', a
 
   await input.fill('First prompt')
   await page.keyboard.press('Enter')
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('')
   await expect(stop).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(stop).toHaveCount(0)
@@ -37,5 +39,11 @@ test('Esc stops the agent; ↑/↓ cycle past prompts from an empty composer', a
   await page.keyboard.type('!')
   await page.keyboard.press('ArrowUp')
   await expect(input).toHaveValue('Second prompt!')
+
+  await input.fill('Clicked send')
+  await page.locator('[data-od-id="composer-send"]').click()
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('')
+
   expect(errors).toEqual([])
 })

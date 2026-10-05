@@ -1,5 +1,11 @@
 export type ViewId =
-  'homebase' | 'workspace' | 'scratch' | 'settings' | 'todos' | 'sprint'
+  | 'homebase'
+  | 'workspace'
+  | 'scratch'
+  | 'settings'
+  | 'todos'
+  | 'sprint'
+  | 'repo'
 
 export function resolveWindowTitle(
   view: ViewId,
@@ -10,7 +16,10 @@ export function resolveWindowTitle(
   if (view === 'settings') return `${appName} · Settings`
   if (view === 'todos') return `${appName} · TODOs`
   if (view === 'sprint') return `${appName} · Sprint`
-  if ((view === 'workspace' || view === 'scratch') && openId) {
+  if (
+    (view === 'workspace' || view === 'scratch' || view === 'repo') &&
+    openId
+  ) {
     return `${appName} · ${openName ?? openId}`
   }
   return `${appName} · Homebase`

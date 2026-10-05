@@ -26,6 +26,7 @@
   import ScratchView from '$lib/components/scratch/ScratchView.svelte'
   import TodosView from '$lib/components/todos/TodosView.svelte'
   import SprintView from '$lib/components/sprint/SprintView.svelte'
+  import Repo from './routes/Repo.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
   import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
@@ -143,6 +144,8 @@
       <TodosView />
     {:else if app.view === 'sprint'}
       <SprintView />
+    {:else if app.view === 'repo'}
+      <Repo />
     {:else}
       <Homebase />
     {/if}

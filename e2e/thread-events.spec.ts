@@ -41,6 +41,7 @@ test('New session keeps the log and adds a marker; ⌘L does the same', async ({
   await expect(timeline.getByText(/done\.$/).last()).toBeVisible({
     timeout: 20_000,
   })
+  await expect(timeline.getByText(/^Worked for \d+s$/)).toHaveCount(3)
   await expect(button).toBeEnabled()
   await page.keyboard.press('ControlOrMeta+l')
   await expect(markers).toHaveCount(2)

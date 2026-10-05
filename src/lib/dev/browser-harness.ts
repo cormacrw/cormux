@@ -169,6 +169,24 @@ export function installBrowserHarness() {
     fixtureSnapshot.prSyncedAt = String(Math.floor(Date.now() / 1000))
   }
 
+  let localBranches = [
+    {
+      name: 'main',
+      subject: 'Initial commit',
+      committed: '3 days ago',
+    },
+    {
+      name: 'feat/oauth-login',
+      subject: 'Add the OAuth callback',
+      committed: '2 hours ago',
+    },
+    {
+      name: 'feat/colors',
+      subject: 'Tune the accent palette',
+      committed: 'yesterday',
+    },
+  ]
+
   // Tests opt into ClickUp: a stored key and a picked sprint folder.
   const clickupBoard = fixtureClickupBoard()
   const clickupCalls: { cmd: string; args: InvokeArgs }[] = []
@@ -225,7 +243,7 @@ export function installBrowserHarness() {
         seq,
         kind,
         payload: JSON.stringify(event),
-        createdAt: '2026-09-28 12:00:00',
+        createdAt: new Date().toISOString().replace('T', ' ').replace('Z', ''),
       })
     }
     const send = (event: object) => {
@@ -534,7 +552,12 @@ export function installBrowserHarness() {
       }
       return null
     }
-    if (cmd === 'detect_engines') return fixtureEngines
+    if (cmd === 'detect_engines') {
+      return (
+        (window as { __HARNESS_ENGINES__?: typeof fixtureEngines })
+          .__HARNESS_ENGINES__ ?? fixtureEngines
+      )
+    }
     if (cmd === 'set_repo_default_branch') {
       const input = args.input as { repoId: string; defaultBranch: string }
       const repo = fixtureSnapshot.persisted.repos.find(
@@ -578,6 +601,23 @@ export function installBrowserHarness() {
     }
     if (cmd === 'list_repo_branches') {
       return { branches: ['main', 'develop', 'feat/oauth-login'] }
+    }
+    if (cmd === 'list_repo_local_branches') {
+      return {
+        head: 'main',
+        branches: localBranches.map((row) => ({ ...row })),
+      }
+    }
+    if (cmd === 'delete_local_branch') {
+      const name = String(args.branch)
+      if (name === 'main' || name === 'feat/oauth-login') {
+        throw {
+          kind: 'Git',
+          message: `${name} is checked out`,
+        }
+      }
+      localBranches = localBranches.filter((row) => row.name !== name)
+      return null
     }
     if (
       cmd === 'subscribe_diffs' &&

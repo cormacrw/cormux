@@ -36,6 +36,8 @@ commands.allow = [
   "set_clickup_task_status",
   "set_clickup_task_points",
   "list_repo_branches",
+  "list_repo_local_branches",
+  "delete_local_branch",
   "create_workspace",
   "create_review_workspace",
   "submit_workspace_review",

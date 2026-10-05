@@ -19,12 +19,39 @@ export type AccentId = (typeof ACCENTS)[number]['id']
 export const UI_FONT_SIZES = [14, 15, 16, 17, 18] as const
 export const CODE_FONT_SIZES = [11, 12, 13, 14, 15, 16] as const
 
+export const CODE_FONTS = [
+  {
+    id: 'jetbrains',
+    label: 'JetBrains Mono',
+    stack:
+      "'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace",
+  },
+  {
+    id: 'system',
+    label: 'System',
+    stack: "ui-monospace, 'SF Mono', Menlo, monospace",
+  },
+  {
+    id: 'geist',
+    label: 'Geist Mono',
+    stack: "'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace",
+  },
+] as const
+
+export type CodeFontId = (typeof CODE_FONTS)[number]['id']
+
 export const DEFAULT_UI_FONT_SIZE = 16
 export const DEFAULT_CODE_FONT_SIZE = 12
+export const DEFAULT_CODE_FONT: CodeFontId = 'jetbrains'
 
 const ACCENT_KEY = 'cormux-accent'
 const UI_FONT_KEY = 'cormux-ui-font-size'
 const CODE_FONT_KEY = 'cormux-code-font-size'
+const CODE_FONT_FAMILY_KEY = 'cormux-code-font'
+
+export function codeFontStack(id: string | null) {
+  return CODE_FONTS.find((font) => font.id === id)?.stack
+}
 
 function read(key: string): string | null {
   try {
@@ -51,6 +78,7 @@ class AppearanceState {
   accent = $state<AccentId>('neutral')
   uiFontSize = $state(DEFAULT_UI_FONT_SIZE)
   codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
+  codeFont = $state<CodeFontId>(DEFAULT_CODE_FONT)
 
   constructor() {
     const accent = read(ACCENT_KEY)
@@ -63,6 +91,8 @@ class AppearanceState {
       CODE_FONT_SIZES,
       DEFAULT_CODE_FONT_SIZE,
     )
+    const codeFont = read(CODE_FONT_FAMILY_KEY)
+    if (codeFontStack(codeFont)) this.codeFont = codeFont as CodeFontId
     this.apply()
   }
 
@@ -86,6 +116,13 @@ class AppearanceState {
     this.apply()
   }
 
+  setCodeFont(next: CodeFontId) {
+    if (!codeFontStack(next)) return
+    this.codeFont = next
+    write(CODE_FONT_FAMILY_KEY, next)
+    this.apply()
+  }
+
   private apply() {
     if (typeof document === 'undefined') return
     const root = document.documentElement
@@ -95,6 +132,8 @@ class AppearanceState {
     root.style.fontSize =
       this.uiFontSize === DEFAULT_UI_FONT_SIZE ? '' : `${this.uiFontSize}px`
     root.style.setProperty('--code-font-size', `${this.codeFontSize}px`)
+    const stack = codeFontStack(this.codeFont)
+    if (stack) root.style.setProperty('--code-font-family', stack)
   }
 }
 

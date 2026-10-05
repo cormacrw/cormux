@@ -81,6 +81,8 @@ test.describe('browser harness UI', () => {
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('No repositories yet')).toHaveCount(0)
     await expect(dialog.locator('#nw-repo')).toBeVisible()
+    await expect(dialog.locator('#nw-engine')).toBeVisible()
+    await expect(dialog.getByText('The agent provider to use')).toBeVisible()
     await expect(
       dialog.getByText('Describe the task so the agent knows where to start.'),
     ).toHaveCount(0)
@@ -113,5 +115,38 @@ test.describe('browser harness UI', () => {
       path: 'e2e/output/new-workspace.png',
       fullPage: true,
     })
+  })
+
+  test('hides the engine select when only one agent is installed', async ({
+    page,
+  }) => {
+    await page.goto('/')
+    await page.evaluate(() => {
+      ;(window as { __HARNESS_ENGINES__?: unknown }).__HARNESS_ENGINES__ = [
+        {
+          kind: 'claude',
+          installed: true,
+          binary: '/usr/local/bin/claude',
+          version: '1.0.0',
+          signedIn: true,
+        },
+        {
+          kind: 'cursor',
+          installed: false,
+          binary: null,
+          version: null,
+          signedIn: null,
+        },
+      ]
+    })
+    await page
+      .getByRole('button', { name: 'New Workspace', exact: true })
+      .click()
+    const dialog = page.getByRole('dialog', { name: 'New workspace' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.locator('#nw-engine')).toHaveCount(0)
+    await expect(dialog.getByText('The agent provider to use')).toHaveCount(0)
+    await expect(dialog.locator('#nw-repo')).toBeVisible()
+    await page.screenshot({ path: 'e2e/output/new-workspace-one-engine.png' })
   })
 })

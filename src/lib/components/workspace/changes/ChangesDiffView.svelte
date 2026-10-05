@@ -216,6 +216,6 @@
   }
   .changes-diff :global(.diff-line-syntax-raw),
   .changes-diff :global(.diff-line-content-raw) {
-    font-family: var(--font-mono);
+    font-family: var(--code-font-family);
   }
 </style>

@@ -29,6 +29,12 @@ describe('resolveWindowTitle', () => {
     )
   })
 
+  it('titles an open repo by name', () => {
+    expect(resolveWindowTitle('repo', 'my-app', 'my-app')).toBe(
+      'Cormux · my-app',
+    )
+  })
+
   it('titles an open scratch by its title', () => {
     expect(
       resolveWindowTitle(

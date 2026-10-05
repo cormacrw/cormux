@@ -5,7 +5,7 @@
   import { commands } from '$lib/ipc'
   import type { RepoRecord } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { repos } from '$lib/state'
+  import { app, repos } from '$lib/state'
   import { plural } from '$lib/sidebar/status'
   import { cn } from '$lib/utils'
 
@@ -35,33 +35,43 @@
 </script>
 
 <li
-  class="grid grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 rounded-md py-1 pl-2 pr-1"
+  class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-0.5 rounded-md pr-1"
   data-od-id="side-repo-{repo.id}"
 >
-  <Folder class="size-3.5 text-muted-foreground" aria-hidden="true" />
-  <span class="min-w-0 grid">
-    <span class="truncate text-sm text-sidebar-foreground">{repo.name}</span>
-    <span
-      class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground"
-    >
-      <span class="truncate">{branch}</span>
-      {#if behind || ahead}
-        <span
-          class="shrink-0"
-          title={gitLabel}
-          aria-hidden="true"
-          data-od-id="side-repo-git-{repo.id}"
-        >
-          {#if behind}<span class="text-amber-600 dark:text-amber-400"
-              >↓{behind}</span
-            >{/if}{#if behind && ahead}&nbsp;{/if}{#if ahead}<span
-              class="text-sky-600 dark:text-sky-400">↑{ahead}</span
-            >{/if}
-        </span>
-        <span class="sr-only">{gitLabel}</span>
-      {/if}
+  <button
+    type="button"
+    class="grid min-w-0 grid-cols-[16px_minmax(0,1fr)] items-center gap-2 rounded-md py-1 pl-2 text-left hover:bg-sidebar-accent/80 aria-[current=page]:bg-sidebar-accent"
+    aria-current={app.view === 'repo' && app.repoId === repo.id
+      ? 'page'
+      : undefined}
+    aria-label="Open {repo.name}"
+    onclick={() => app.openRepo(repo.id)}
+  >
+    <Folder class="size-3.5 text-muted-foreground" aria-hidden="true" />
+    <span class="min-w-0 grid">
+      <span class="truncate text-sm text-sidebar-foreground">{repo.name}</span>
+      <span
+        class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground"
+      >
+        <span class="truncate">{branch}</span>
+        {#if behind || ahead}
+          <span
+            class="shrink-0"
+            title={gitLabel}
+            aria-hidden="true"
+            data-od-id="side-repo-git-{repo.id}"
+          >
+            {#if behind}<span class="text-amber-600 dark:text-amber-400"
+                >↓{behind}</span
+              >{/if}{#if behind && ahead}&nbsp;{/if}{#if ahead}<span
+                class="text-sky-600 dark:text-sky-400">↑{ahead}</span
+              >{/if}
+          </span>
+          <span class="sr-only">{gitLabel}</span>
+        {/if}
+      </span>
     </span>
-  </span>
+  </button>
   <Button
     variant="ghost"
     size="icon"

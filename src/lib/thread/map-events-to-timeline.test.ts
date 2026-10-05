@@ -273,6 +273,57 @@ describe('mapEventsToTimeline', () => {
     ).toEqual(['Sunday, September 27, 2026.', 'next'])
   })
 
+  it('logs how long each turn took', () => {
+    const start = 1_700_000_000_000
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          atMs: start,
+          event: { type: 'messageChunk', role: 'user', text: 'Hi' },
+        },
+        {
+          seq: 2,
+          atMs: start + 1_000,
+          event: { type: 'messageChunk', role: 'agent', text: 'Hey' },
+        },
+        {
+          seq: 3,
+          atMs: start + 125_000,
+          event: { type: 'turnEnd', stop_reason: 'end_turn', error: null },
+        },
+        {
+          seq: 4,
+          atMs: start + 126_000,
+          event: { type: 'engineExited', code: 0 },
+        },
+        {
+          seq: 5,
+          atMs: start + 200_000,
+          event: { type: 'messageChunk', role: 'user', text: 'Again' },
+        },
+        {
+          seq: 6,
+          atMs: start + 200_400,
+          event: { type: 'turnEnd', stop_reason: 'end_turn', error: null },
+        },
+      ],
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    expect(
+      items.flatMap((item) =>
+        item.kind === 'toolRun'
+          ? item.steps.flatMap((step) =>
+              step.kind === 'tool' && step.quiet ? [step.title] : [],
+            )
+          : [],
+      ),
+    ).toEqual(['Worked for 2m 5s', 'Worked for 1s'])
+  })
+
   it('groups consecutive tool calls into one run', () => {
     const items = mapEventsToTimeline({
       events: [

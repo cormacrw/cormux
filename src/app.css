@@ -1,7 +1,8 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn-svelte/tailwind.css';
-@import '@fontsource-variable/geist';
+@import '@fontsource-variable/outfit';
+@import '@fontsource-variable/jetbrains-mono';
 @import '@fontsource-variable/geist-mono';
 
 @custom-variant dark (&:is(.dark *));
@@ -129,6 +130,8 @@
  */
 :root {
   --code-font-size: 12px;
+  --code-font-family:
+    'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
 
   --swatch-blue: oklch(0.56 0.19 257);
   --swatch-violet: oklch(0.55 0.21 292);
@@ -169,8 +172,8 @@
 }
 
 @theme inline {
-  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', monospace;
+  --font-sans: 'Outfit Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--code-font-family);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -225,7 +228,6 @@
     /* WebKit reads the page's overscroll from html, not body: without it the
        whole window rubber-bands when a view scrolls past its top or bottom. */
     @apply font-sans antialiased overscroll-none;
-    font-feature-settings: 'ss01', 'cv11';
   }
 
   body {
@@ -332,6 +334,7 @@
   border-radius: calc(var(--radius) * 0.6);
   background: var(--muted);
   padding: 0.1em 0.3em;
+  font-family: var(--code-font-family);
   font-size: var(--code-font-size);
 }
 

@@ -27,6 +27,34 @@ struct GitInner {
     queues: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalBranchTip {
+    pub name: String,
+    pub committed: String,
+    pub subject: String,
+}
+
+pub fn parse_local_branch_tips(stdout: &str) -> Vec<LocalBranchTip> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            if line.is_empty() {
+                return None;
+            }
+            let mut parts = line.splitn(3, '\0');
+            let name = parts.next()?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            Some(LocalBranchTip {
+                name: name.to_string(),
+                committed: parts.next().unwrap_or("").to_string(),
+                subject: parts.next().unwrap_or("").to_string(),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -451,6 +479,29 @@ impl Git {
         Self::require_success(&output, "rebase --abort")
     }
 
+    /// Local branch tips, newest commit first. `committed` is git's relative date.
+    pub async fn list_local_branch_tips(&self, repo: &Path) -> Result<Vec<LocalBranchTip>> {
+        let output = self
+            .run(
+                repo,
+                &[
+                    "for-each-ref",
+                    "--sort=-committerdate",
+                    "--format=%(refname:short)%00%(committerdate:relative)%00%(subject)",
+                    "refs/heads",
+                ],
+            )
+            .await?;
+        Self::require_success(&output, "for-each-ref heads")?;
+        Ok(parse_local_branch_tips(&Self::stdout(&output)))
+    }
+
+    /// Deletes a branch that is fully merged. Refuses with git's own error otherwise.
+    pub async fn delete_merged_branch(&self, repo: &Path, branch: &str) -> Result<()> {
+        let output = self.run(repo, &["branch", "-d", "--", branch]).await?;
+        Self::require_success(&output, "branch -d")
+    }
+
     pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
         let output = self
             .run(repo, &["for-each-ref", "--format=%(refname)", "refs/heads"])
@@ -650,6 +701,27 @@ fn count_lines(path: &Path) -> u32 {
 mod tests {
     use super::*;
     use crate::shell_env::ShellEnv;
+
+    #[test]
+    fn parses_local_branch_tips() {
+        let raw = "feat/a\u{0}2 hours ago\u{0}Add auth\nmain\u{0}3 days ago\u{0}Initial\n";
+        let rows = parse_local_branch_tips(raw);
+        assert_eq!(
+            rows,
+            vec![
+                LocalBranchTip {
+                    name: "feat/a".into(),
+                    committed: "2 hours ago".into(),
+                    subject: "Add auth".into(),
+                },
+                LocalBranchTip {
+                    name: "main".into(),
+                    committed: "3 days ago".into(),
+                    subject: "Initial".into(),
+                },
+            ]
+        );
+    }
 
     async fn git_with_env() -> Git {
         let mut env = ShellEnv::new();

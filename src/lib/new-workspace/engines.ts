@@ -10,9 +10,15 @@ export const ENGINE_OPTIONS: EngineOption[] = [
   { kind: 'cursor', label: 'Cursor CLI' },
 ]
 
-/** Same for every engine. Permission mode lives in Settings. */
-export function engineHint(): string {
-  return 'Works in the worktree. Asks before each tool unless Run everything is on.'
+/** The one installed agent, when there is nothing to choose. */
+export function soleInstalledEngine(
+  statuses: EngineStatus[],
+): EngineKind | null {
+  const installed = ENGINE_OPTIONS.filter((option) =>
+    statuses.some((row) => row.kind === option.kind && row.installed),
+  )
+  const only = installed[0]
+  return installed.length === 1 && only ? only.kind : null
 }
 
 export function engineInstallLabel(

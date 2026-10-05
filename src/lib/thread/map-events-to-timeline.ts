@@ -28,6 +28,16 @@ const SCRATCH_CHIP: TimelineChip = {
   tone: 'muted',
 }
 
+/** Under a minute: `Worked for 12s`. Otherwise `Worked for 2m 5s`. */
+export function workedForLabel(startMs: number, endMs: number): string {
+  const elapsed = Math.max(0, endMs - startMs)
+  const total = elapsed === 0 ? 0 : Math.max(1, Math.round(elapsed / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  if (minutes === 0) return `Worked for ${seconds}s`
+  return `Worked for ${minutes}m ${seconds}s`
+}
+
 type NextId = (prefix: string) => string
 
 /**
@@ -347,12 +357,15 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
   let runSeq = 0
   let pendingAutoChip: TimelineChip | undefined
   let sealMessage = false
+  // Set when the user sends the prompt; cleared when that turn ends.
+  let runStartedAt = 0
 
   for (const { seq, atMs = 0, event } of mergeToolUpdates(input.events)) {
     switch (event.type) {
       case 'messageChunk': {
         flushRun(run, items, runSeq, nextId)
         if (event.role === 'user') {
+          if (!runStartedAt && atMs) runStartedAt = atMs
           const last = items[items.length - 1]
           if (!sealMessage && last?.kind === 'user') {
             last.text += event.text
@@ -439,9 +452,31 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
       case 'currentTool':
       case 'sessionStarted':
       case 'usage':
+        flushRun(run, items, runSeq, nextId)
+        sealMessage = true
+        break
       case 'turnEnd':
       case 'engineExited':
         flushRun(run, items, runSeq, nextId)
+        if (runStartedAt && atMs >= runStartedAt) {
+          items.push({
+            kind: 'toolRun',
+            id: nextId('run'),
+            seq,
+            steps: [
+              {
+                kind: 'tool',
+                id: nextId('worked'),
+                icon: 'clock',
+                title: workedForLabel(runStartedAt, atMs),
+                quiet: true,
+                seq,
+                atMs,
+              },
+            ],
+          })
+        }
+        runStartedAt = 0
         sealMessage = true
         break
     }

@@ -331,6 +331,22 @@ async listRepoBranches(repoId: string) : Promise<Result<RepoBranchesResult, Erro
     else return { status: "error", error: e  as any };
 }
 },
+async listRepoLocalBranches(repoId: string) : Promise<Result<LocalBranchesResult, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_repo_local_branches", { repoId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteLocalBranch(repoId: string, branch: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_local_branch", { repoId, branch }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createWorkspace(input: CreateWorkspaceInput) : Promise<Result<CreateWorkspaceResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_workspace", { input }) };
@@ -785,6 +801,15 @@ export type JoinWorkspaceThreadResult = { threadId: string }
  * Lines added and deleted across a set of files.
  */
 export type LineCounts = { added: number; deleted: number }
+/**
+ * A local branch tip. `committed` is git's relative date ("2 hours ago").
+ */
+export type LocalBranchRow = { name: string; committed: string; subject: string }
+export type LocalBranchesResult = { 
+/**
+ * Branch checked out in the repo itself. Empty when detached.
+ */
+head: string; branches: LocalBranchRow[] }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
 export type MessageRole = "user" | "agent" | "thought"
 /**
@@ -837,7 +862,8 @@ export type SetSettingInput = { key: string; value: string }
 export type SettingRow = { key: string; value: string }
 export type Skill = { name: string; description: string; 
 /**
- * `project` for the repo's own skills, `user` for `~/.claude/skills`.
+ * `project` for the repo's own skills, `user` for `~/.claude/skills`, `builtin` for
+ * those that ship with Claude Code.
  */
 source: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 

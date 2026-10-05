@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { agentName } from '../src/lib/agent-name'
+
+const leadName = agentName('th-lead')
 
 test('comment on a diff line and send it to the agent', async ({ page }) => {
   const errors: string[] = []
@@ -66,15 +69,16 @@ test('comment on a diff line and send it to the agent', async ({ page }) => {
   await page.waitForTimeout(300)
   await page.screenshot({ path: 'e2e/output/changes-comment.png' })
 
-  await panel.getByRole('button', { name: 'Send 1 comment to Lead' }).click()
+  await panel
+    .getByRole('button', { name: `Send 1 comment to ${leadName}` })
+    .click()
   await expect(page.locator('#timeline')).toContainText('src/auth/session.ts:4')
   await expect(page.locator('#timeline')).toContainText(
     'Use a map of providers instead of an if',
   )
-  await expect(page.getByRole('tab', { name: /^Lead/ })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  )
+  await expect(
+    page.getByRole('tab', { name: new RegExp(`^${leadName}`) }),
+  ).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('tab', { name: /^Git/ }).click()
   await expect(
     panel.getByRole('button', { name: /Send \d+ comment/ }),
@@ -121,7 +125,7 @@ test('comments on a branch that is not checked out cannot be sent yet', async ({
     .fill('Not on this branch')
   await panel.getByRole('button', { name: 'Add comment' }).click()
   await expect(
-    panel.getByRole('button', { name: 'Send 1 comment to Lead' }),
+    panel.getByRole('button', { name: `Send 1 comment to ${leadName}` }),
   ).toBeDisabled()
 
   // The checked-out branch's level sends as usual.
@@ -134,6 +138,6 @@ test('comments on a branch that is not checked out cannot be sent yet', async ({
     .fill('On this branch')
   await panel.getByRole('button', { name: 'Add comment' }).click()
   await expect(
-    panel.getByRole('button', { name: 'Send 1 comment to Lead' }),
+    panel.getByRole('button', { name: `Send 1 comment to ${leadName}` }),
   ).toBeEnabled()
 })

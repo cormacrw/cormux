@@ -2,7 +2,10 @@
   import { formatRelativeAge } from '$lib/homebase/relative-time'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { engineDisplayName, engineMark } from '$lib/sidebar/engine'
+  import Buddy from '$lib/components/buddy/Buddy.svelte'
+  import { agentName } from '$lib/agent-name'
+  import { buddyColor, buddyMoodForThread } from '$lib/buddy'
+  import { engineDisplayName } from '$lib/sidebar/engine'
   let {
     thread,
     workspace,
@@ -16,7 +19,9 @@
   } = $props()
 
   const isLead = $derived(thread.role === 'Lead')
-  const mark = $derived(engineMark(thread.engine))
+  const mood = $derived(buddyMoodForThread(thread))
+  const color = $derived(buddyColor(thread.id))
+  const name = $derived(agentName(thread.id))
   const engineName = $derived(engineDisplayName(thread.engine))
 
   const relationship = $derived.by(() => {
@@ -37,14 +42,11 @@
 
 <header class="thread-intro space-y-4 pb-2" data-od-id="thread-intro">
   <div class="flex items-start gap-3">
-    <span
-      class="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/40 font-mono text-xs font-semibold text-muted-foreground"
-      aria-hidden="true">{mark}</span
-    >
+    <Buddy {mood} {color} glasses={thread.role === 'Reviewer'} size={36} />
     <div class="min-w-0 space-y-1">
-      <h2 class="text-lg font-semibold tracking-tight">{thread.role}</h2>
+      <h2 class="text-lg font-semibold tracking-tight">{name}</h2>
       <p class="text-sm text-muted-foreground">
-        {engineName} · {relationship}
+        {engineName} · {thread.role} · {relationship}
       </p>
     </div>
   </div>

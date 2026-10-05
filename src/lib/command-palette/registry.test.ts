@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { agentName } from '$lib/agent-name'
 import { buildPaletteCommandsFromState } from './build-registry'
 
 const noop = () => {}
@@ -154,7 +155,7 @@ describe('buildPaletteCommandsFromState', () => {
     expect(labels).toContain('Open Auth')
     expect(labels).toContain('Run app in Auth')
     expect(labels).toContain('Pull 2 commits from main into Auth')
-    expect(labels).toContain('Open Lead in Auth')
+    expect(labels).toContain(`Open ${agentName('th-1')} in Auth`)
     expect(labels).toContain('New thread in Auth')
     expect(labels).toContain('Open Findings in Auth')
   })

@@ -3,7 +3,7 @@
   import { Badge } from '$lib/components/ui/badge'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
-  import { engineMark } from '$lib/sidebar/engine'
+  import Buddy from '$lib/components/buddy/Buddy.svelte'
   import ThoughtMarkdown from './ThoughtMarkdown.svelte'
   import {
     formatThreadTime,
@@ -24,6 +24,7 @@
   import ApprovalCard from './ApprovalCard.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import Check from '@lucide/svelte/icons/check'
+  import Clock from '@lucide/svelte/icons/clock'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import Copy from '@lucide/svelte/icons/copy'
   import FileText from '@lucide/svelte/icons/file-text'
@@ -48,6 +49,8 @@
     liveTitle,
     liveSubtitle,
     paused,
+    buddyColor,
+    glasses = false,
     entries,
     liveReplyId = null,
     onOpenFindings,
@@ -61,6 +64,8 @@
     liveTitle: string
     liveSubtitle: string
     paused: boolean
+    buddyColor: string
+    glasses?: boolean
     /** Rows new to this thread pop in and replies type out; omit to render without motion. */
     entries?: EntryScope
     /** The reply the agent is still writing keeps its typing cursor. */
@@ -69,7 +74,6 @@
     onFocusComposer?: () => void
   } = $props()
 
-  const mark = $derived(engineMark(engine))
   const diffFiles = $derived(workspaceDiff.filesByWorkspace[workspaceId] ?? [])
 
   // The newest thought is still being written while the live row trails it.
@@ -141,6 +145,7 @@
       play: Play,
       stop: Square,
       session: MessageSquarePlus,
+      clock: Clock,
       globe: Globe,
       skill: Sparkles,
     } as const
@@ -195,10 +200,13 @@
       aria-hidden="true"
       use:popIn={{ entries, key: row.id }}
     >
-      <span
-        class="flex size-5 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold"
-        >{mark}</span
-      >
+      <Buddy
+        mood="running"
+        color={buddyColor}
+        {glasses}
+        breathe={false}
+        size={20}
+      />
       {#if row.role}
         <span class="font-medium text-foreground">{row.role}</span>
         <span>{engine}</span>

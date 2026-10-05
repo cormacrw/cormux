@@ -20,11 +20,11 @@ use crate::workspace::ThreadActivity;
 use super::types::{
     AddRepoInput, AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
     CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
-    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, PtyChunk, RemoveRepoInput,
-    RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime, ResolveApprovalResult,
-    SendWorkspaceFindingsInput, SetRepoDefaultBranchInput, SetRepoRunCommandInput,
-    SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, SetSettingInput, Snapshot,
-    SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
+    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, LocalBranchRow, LocalBranchesResult,
+    PtyChunk, RemoveRepoInput, RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime,
+    ResolveApprovalResult, SendWorkspaceFindingsInput, SetRepoDefaultBranchInput,
+    SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, SetSettingInput,
+    Snapshot, SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
     TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
@@ -1049,6 +1049,80 @@ pub async fn list_repo_branches(
     names.sort();
     names.dedup();
     Ok(RepoBranchesResult { branches: names })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_repo_local_branches(
+    repo_id: String,
+    state: State<'_, AppState>,
+) -> Result<LocalBranchesResult> {
+    let snapshot = state.store.snapshot()?;
+    let repo = snapshot
+        .repos
+        .into_iter()
+        .find(|row| row.id == repo_id)
+        .ok_or_else(|| Error::Git(format!("unknown repo {repo_id}")))?;
+    let repo_path = expand_tilde(&repo.path);
+    let head = state
+        .git
+        .current_branch(&repo_path)
+        .await
+        .unwrap_or_default();
+    let branches = state
+        .git
+        .list_local_branch_tips(&repo_path)
+        .await?
+        .into_iter()
+        .map(|tip| LocalBranchRow {
+            name: tip.name,
+            committed: tip.committed,
+            subject: tip.subject,
+        })
+        .collect();
+    Ok(LocalBranchesResult { head, branches })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_local_branch(
+    repo_id: String,
+    branch: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return Err(Error::Git("missing branch name".into()));
+    }
+    let snapshot = state.store.snapshot()?;
+    let repo = snapshot
+        .repos
+        .iter()
+        .find(|row| row.id == repo_id)
+        .ok_or_else(|| Error::Git(format!("unknown repo {repo_id}")))?;
+    if branch == repo.default_branch_or_main() {
+        return Err(Error::Git(format!("{branch} is the default branch")));
+    }
+    if let Some(workspace) = snapshot
+        .workspaces
+        .iter()
+        .find(|row| row.repo_id == repo_id && row.branch == branch)
+    {
+        return Err(Error::Git(format!(
+            "{branch} is checked out by {}",
+            workspace.name
+        )));
+    }
+    let repo_path = expand_tilde(&repo.path);
+    let head = state
+        .git
+        .current_branch(&repo_path)
+        .await
+        .unwrap_or_default();
+    if !head.is_empty() && head == branch {
+        return Err(Error::Git(format!("{branch} is checked out in the repo")));
+    }
+    state.git.delete_merged_branch(&repo_path, branch).await
 }
 
 #[tauri::command]

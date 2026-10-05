@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { agentName } from '$lib/agent-name'
 import {
   buildThreadBarTabOrder,
   findingsTabAriaLabel,
@@ -22,9 +23,11 @@ const sampleThread = {
 
 describe('thread tab labels', () => {
   it('formats thread aria labels with approvals', () => {
-    expect(threadTabAriaLabel(sampleThread)).toBe('Lead, Editing files')
+    expect(threadTabAriaLabel(sampleThread)).toBe(
+      `${agentName('t1')}, Editing files`,
+    )
     expect(threadTabAriaLabel({ ...sampleThread, pendingApprovals: 2 })).toBe(
-      'Lead, Editing files, 2 approvals waiting',
+      `${agentName('t1')}, Editing files, 2 approvals waiting`,
     )
   })
 
