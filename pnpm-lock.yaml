@@ -10,10 +10,13 @@ patchedDependencies:
     path: patches/@git-diff-view__svelte@0.1.7.patch
 
 dependencies:
-  '@fontsource-variable/geist':
+  '@fontsource-variable/geist-mono':
     specifier: ^5.3.0
     version: 5.3.0
-  '@fontsource-variable/geist-mono':
+  '@fontsource-variable/jetbrains-mono':
+    specifier: ^5.3.0
+    version: 5.3.0
+  '@fontsource-variable/outfit':
     specifier: ^5.3.0
     version: 5.3.0
   '@git-diff-view/svelte':
@@ -246,8 +249,12 @@ packages:
     resolution: {integrity: sha512-vBbuwDEo9AkrqADMXOrlAR3DFcJi4/JxeuU43FoiQERnNwsfXNnvxvReZG02cQKmyk4DZkZdBZX3oTDvy2zBAw==}
     dev: false
 
-  /@fontsource-variable/geist@5.3.0:
-    resolution: {integrity: sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA==}
+  /@fontsource-variable/jetbrains-mono@5.3.0:
+    resolution: {integrity: sha512-F32xpS2NsGYoQi2ADSkKTgpJj7ozajsGgDJ8woTnqjmIB+dxDIqImjl4pXZVEExu8UFZ2ndhmX18EBS/hdz3Lw==}
+    dev: false
+
+  /@fontsource-variable/outfit@5.3.0:
+    resolution: {integrity: sha512-fPb5XnYK0k7SbR++HEmm4+ZqDszmLKQ+sPRUr8oQ/KNC0vy6r6hazJFe8iYozv4cqlHbvJ/JECkJWrfDodUMVQ==}
     dev: false
 
   /@git-diff-view/core@0.1.7:

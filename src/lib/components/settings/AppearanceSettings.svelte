@@ -8,16 +8,26 @@
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
   import {
     ACCENTS,
+    CODE_FONTS,
     CODE_FONT_SIZES,
+    DEFAULT_CODE_FONT,
     DEFAULT_CODE_FONT_SIZE,
     DEFAULT_UI_FONT_SIZE,
     UI_FONT_SIZES,
+    codeFontStack,
     type AccentId,
+    type CodeFontId,
   } from '$lib/state/appearance.svelte'
   import { appearance } from '$lib/state'
 
   function sizeLabel(size: number, fallback: number) {
     return size === fallback ? `${size}px (default)` : `${size}px`
+  }
+
+  function codeFontLabel(id: string) {
+    const font = CODE_FONTS.find((row) => row.id === id)
+    if (!font) return id
+    return id === DEFAULT_CODE_FONT ? `${font.label} (default)` : font.label
   }
 </script>
 
@@ -104,6 +114,35 @@
           {#each UI_FONT_SIZES as size (size)}
             <Select.Item value={String(size)}>
               {sizeLabel(size, DEFAULT_UI_FONT_SIZE)}
+            </Select.Item>
+          {/each}
+        </Select.Content>
+      </Select.Root>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    title="Code font"
+    description="Monospace for diffs, output, branches and code blocks"
+    controlId="settings-code-font"
+  >
+    {#snippet control()}
+      <Select.Root
+        type="single"
+        value={appearance.codeFont}
+        onValueChange={(next) => appearance.setCodeFont(next as CodeFontId)}
+      >
+        <Select.Trigger
+          id="settings-code-font"
+          class="w-52"
+          style="font-family: {codeFontStack(appearance.codeFont)}"
+        >
+          {codeFontLabel(appearance.codeFont)}
+        </Select.Trigger>
+        <Select.Content>
+          {#each CODE_FONTS as font (font.id)}
+            <Select.Item value={font.id} style="font-family: {font.stack}">
+              {codeFontLabel(font.id)}
             </Select.Item>
           {/each}
         </Select.Content>

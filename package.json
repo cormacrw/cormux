@@ -21,8 +21,9 @@
     "clean": "rm -rf dist e2e/output test-results playwright-report && cargo clean --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
-    "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/outfit": "^5.3.0",
     "@git-diff-view/svelte": "^0.1.7",
     "@tanstack/svelte-virtual": "^3.13.39",
     "@tauri-apps/api": "^2",

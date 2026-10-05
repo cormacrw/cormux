@@ -13,8 +13,8 @@
   import { draftBranchName, fallbackBranchName } from '$lib/new-workspace/draft'
   import {
     ENGINE_OPTIONS,
-    engineHint,
     engineInstallLabel,
+    soleInstalledEngine,
   } from '$lib/new-workspace/engines'
   import {
     branchErrorMessage,
@@ -72,7 +72,7 @@
     new Map(engineStatuses.map((row) => [row.kind, row])),
   )
 
-  const engineHintText = $derived(engineHint())
+  const soleEngine = $derived(soleInstalledEngine(engineStatuses))
 
   async function loadBranches(forRepoId: string) {
     if (!forRepoId) {
@@ -112,9 +112,11 @@
     window.dispatchEvent(new CustomEvent('cormux:close-palette'))
     if (open) return
     resetForm()
+    await loadEngines()
+    const only = soleInstalledEngine(engineStatuses)
+    if (only) engine = only
     open = true
     shellDialogs.newWorkspaceOpen = true
-    await loadEngines()
     await loadBranches(repoId)
     await tick()
     promptInput?.focus()
@@ -311,27 +313,33 @@
         </div>
 
         <div class="grid gap-4 min-[760px]:grid-cols-2">
-          <div class="grid gap-1.5">
-            <label class="text-sm font-medium" for="nw-engine">AI engine</label>
-            <select
-              id="nw-engine"
-              class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
-              bind:value={engine}
-              aria-describedby="nw-engine-hint"
-            >
-              {#each ENGINE_OPTIONS as option (option.kind)}
-                {@const status = engineStatusByKind.get(option.kind)}
-                {@const install = engineInstallLabel(status)}
-                <option value={option.kind}>
-                  {option.label}{install ? ` — ${install}` : ''}
-                </option>
-              {/each}
-            </select>
-            <p id="nw-engine-hint" class="text-xs text-muted-foreground">
-              {engineHintText}
-            </p>
-          </div>
-          <div class="grid gap-1.5">
+          {#if !soleEngine}
+            <div class="grid gap-1.5">
+              <label class="text-sm font-medium" for="nw-engine"
+                >AI engine</label
+              >
+              <select
+                id="nw-engine"
+                class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
+                bind:value={engine}
+                aria-describedby="nw-engine-hint"
+              >
+                {#each ENGINE_OPTIONS as option (option.kind)}
+                  {@const status = engineStatusByKind.get(option.kind)}
+                  {@const install = engineInstallLabel(status)}
+                  <option value={option.kind}>
+                    {option.label}{install ? ` — ${install}` : ''}
+                  </option>
+                {/each}
+              </select>
+              <p id="nw-engine-hint" class="text-xs text-muted-foreground">
+                The agent provider to use
+              </p>
+            </div>
+          {/if}
+          <div
+            class="grid gap-1.5 {soleEngine ? 'min-[760px]:col-span-2' : ''}"
+          >
             <label class="text-sm font-medium" for="nw-repo">Repository</label>
             {#if repos.items.length === 0}
               <div

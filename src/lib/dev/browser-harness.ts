@@ -534,7 +534,12 @@ export function installBrowserHarness() {
       }
       return null
     }
-    if (cmd === 'detect_engines') return fixtureEngines
+    if (cmd === 'detect_engines') {
+      return (
+        (window as { __HARNESS_ENGINES__?: typeof fixtureEngines })
+          .__HARNESS_ENGINES__ ?? fixtureEngines
+      )
+    }
     if (cmd === 'set_repo_default_branch') {
       const input = args.input as { repoId: string; defaultBranch: string }
       const repo = fixtureSnapshot.persisted.repos.find(

@@ -33,6 +33,18 @@
         if (codeSize >= 11 && codeSize <= 16) {
           root.style.setProperty('--code-font-size', codeSize + 'px')
         }
+        // Ids and stacks match CODE_FONTS in appearance.svelte.ts.
+        const codeFonts = {
+          jetbrains:
+            "'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace",
+          system: "ui-monospace, 'SF Mono', Menlo, monospace",
+          geist:
+            "'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace",
+        }
+        const codeFont = read('cormux-code-font')
+        if (codeFont && codeFonts[codeFont]) {
+          root.style.setProperty('--code-font-family', codeFonts[codeFont])
+        }
       }
     </script>
     <style>

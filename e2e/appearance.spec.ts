@@ -37,6 +37,15 @@ test('Theme setting overrides the system theme and persists', async ({
 test('primary color and font sizes apply and persist', async ({ page }) => {
   await page.goto('/')
   const html = page.locator('html')
+  const mono = page.locator('.font-mono').first()
+  await expect(mono).toHaveCSS('font-family', /JetBrains Mono Variable/)
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        document.fonts.check("16px 'JetBrains Mono Variable'"),
+      ),
+    )
+    .toBe(true)
   const newWorkspace = page.getByRole('button', { name: /New Workspace/ })
   const graphite = await newWorkspace.evaluate(
     (el) => getComputedStyle(el).backgroundColor,
@@ -55,6 +64,13 @@ test('primary color and font sizes apply and persist', async ({ page }) => {
   await panel.getByLabel('Code font size').click()
   await page.getByRole('option', { name: '14px' }).click()
 
+  await panel.getByLabel('Code font', { exact: true }).click()
+  const geist = page.getByRole('option', { name: 'Geist Mono' })
+  await expect(geist).toBeVisible()
+  await page.screenshot({ path: 'e2e/output/appearance-code-font.png' })
+  await geist.click()
+  await expect(mono).toHaveCSS('font-family', /Geist Mono Variable/)
+
   await page.reload()
   await expect(html).toHaveAttribute('data-accent', 'blue')
   await expect(html).toHaveCSS('font-size', '18px')
@@ -63,6 +79,10 @@ test('primary color and font sizes apply and persist', async ({ page }) => {
       getComputedStyle(el).getPropertyValue('--code-font-size').trim(),
     ),
   ).toBe('14px')
+  await expect(page.locator('.font-mono').first()).toHaveCSS(
+    'font-family',
+    /Geist Mono Variable/,
+  )
   await page.getByRole('button', { name: 'Homebase' }).click()
   await expect(newWorkspace).not.toHaveCSS('background-color', graphite)
 })
