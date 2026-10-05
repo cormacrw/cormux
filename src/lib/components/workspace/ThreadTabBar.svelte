@@ -16,6 +16,7 @@
   } from '$lib/state'
   import { formatChangeCounts } from '$lib/workspace/diff-totals'
   import type { Workspace } from '$lib/state/workspaces.svelte'
+  import { agentName } from '$lib/agent-name'
   import { statusDotVariantForThread } from '$lib/sidebar/status'
   import { cn } from '$lib/utils'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
@@ -139,6 +140,7 @@
     {#each wsThreads as thread (thread.id)}
       {@const selected =
         workspaceUi.activeTab === 'thread' && app.threadId === thread.id}
+      {@const name = agentName(thread.id)}
       {@const statusInput = {
         status: thread.status,
         paused: thread.paused,
@@ -168,7 +170,7 @@
           }}
         >
           <StatusDot variant={statusDotVariantForThread(statusInput)} />
-          <span class="truncate" aria-hidden="true">{thread.role}</span>
+          <span class="truncate" aria-hidden="true">{name}</span>
           {#if thread.pendingApprovals > 0}
             <Badge
               variant="outline"
@@ -183,8 +185,8 @@
           <button
             type="button"
             tabindex="-1"
-            aria-label="Close {thread.role}"
-            title="Close {thread.role} (stops its agent)"
+            aria-label="Close {name}"
+            title="Close {name} (stops its agent)"
             data-od-id="thread-close-{thread.id}"
             class={cn(
               'absolute top-1/2 right-1 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground',

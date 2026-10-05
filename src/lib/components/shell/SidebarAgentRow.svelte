@@ -2,7 +2,10 @@
   import { Badge } from '$lib/components/ui/badge'
   import { app, workspaces } from '$lib/state'
   import type { Thread } from '$lib/state/threads.svelte'
-  import { engineDisplayName, engineMark } from '$lib/sidebar/engine'
+  import Buddy from '$lib/components/buddy/Buddy.svelte'
+  import { agentName } from '$lib/agent-name'
+  import { buddyColor, buddyMoodForThread } from '$lib/buddy'
+  import { engineDisplayName } from '$lib/sidebar/engine'
   import {
     plural,
     statusDotVariantForThread,
@@ -24,11 +27,13 @@
 
   const activity = $derived(threadActivityLine(statusInput))
   const dotVariant = $derived(statusDotVariantForThread(statusInput))
-  const mark = $derived(engineMark(thread.engine))
+  const mood = $derived(buddyMoodForThread(thread))
+  const color = $derived(buddyColor(thread.id))
+  const name = $derived(agentName(thread.id))
 
   const ariaLabel = $derived.by(() => {
     const parts = [
-      thread.role,
+      name,
       engineDisplayName(thread.engine),
       `in ${workspaceName}: ${activity}`,
     ]
@@ -44,17 +49,14 @@
 <li>
   <button
     type="button"
-    class="grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent/80"
+    class="grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent/80"
     aria-label={ariaLabel}
     onclick={() => app.openWorkspace(thread.workspaceId, thread.id)}
   >
-    <span
-      class="flex size-4 items-center justify-center rounded bg-sidebar-accent font-mono text-[8px] font-semibold text-muted-foreground"
-      aria-hidden="true">{mark}</span
-    >
+    <Buddy {mood} {color} glasses={thread.role === 'Reviewer'} size={20} />
     <span class="min-w-0 grid" aria-hidden="true">
       <span class="truncate text-sm text-sidebar-foreground">
-        {thread.role}
+        {name}
         <span class="text-muted-foreground"> in {workspaceName}</span>
       </span>
       <span class="truncate text-xs text-muted-foreground">{activity}</span>

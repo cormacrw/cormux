@@ -24,7 +24,10 @@
   import { threads } from '$lib/state/threads.svelte'
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
-  import { engineDisplayName, engineMark } from '$lib/sidebar/engine'
+  import Buddy from '$lib/components/buddy/Buddy.svelte'
+  import { agentName } from '$lib/agent-name'
+  import { buddyColor, buddyMoodForThread } from '$lib/buddy'
+  import { engineDisplayName } from '$lib/sidebar/engine'
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import Pause from '@lucide/svelte/icons/pause'
@@ -57,7 +60,9 @@
   /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
   let historyIndex = $state<number | null>(null)
 
-  const mark = $derived(engineMark(thread.engine))
+  const mood = $derived(buddyMoodForThread(thread))
+  const color = $derived(buddyColor(thread.id))
+  const name = $derived(agentName(thread.id))
   const engineName = $derived(engineDisplayName(thread.engine))
   const draft = $derived(composerDrafts.textFor(thread.id))
   const canSend = $derived(draft.trim().length > 0)
@@ -361,7 +366,7 @@
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      placeholder={placeholder ?? `Message ${thread.role}…`}
+      placeholder={placeholder ?? `Message ${name}…`}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'skill-picker' : undefined}
@@ -384,12 +389,9 @@
         id="composer-meta"
         data-od-id="composer-meta"
       >
-        <span
-          class="engine-mark flex size-5 shrink-0 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold"
-          aria-hidden="true">{mark}</span
-        >
+        <Buddy {mood} {color} glasses={thread.role === 'Reviewer'} size={20} />
         <span class="lbl truncate"
-          >{thread.role ? `${engineName} · ${thread.role}` : engineName}</span
+          >{thread.role ? `${engineName} · ${name}` : engineName}</span
         >
         <ThreadModelPicker {thread} />
         {#if showPause}

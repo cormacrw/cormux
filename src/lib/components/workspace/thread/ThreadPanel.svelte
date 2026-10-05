@@ -9,6 +9,8 @@
   } from '$lib/state'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
+  import { agentName } from '$lib/agent-name'
+  import { buddyColor } from '$lib/buddy'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import { createEntryScope, liveReplyId } from '$lib/thread/entering'
@@ -67,7 +69,11 @@
   )
 
   const rows = $derived(
-    buildTimelineRows(items, thread.role, engineDisplayName(thread.engine)),
+    buildTimelineRows(
+      items,
+      agentName(thread.id),
+      engineDisplayName(thread.engine),
+    ),
   )
 
   const useVirtual = $derived(rows.length > 150)
@@ -146,7 +152,7 @@
   $effect(() => {
     const count = items.length
     if (count > prevItemCount && prevItemCount > 0) {
-      const text = newestAgentAnnouncement(items, thread.role)
+      const text = newestAgentAnnouncement(items, agentName(thread.id))
       if (text) announceText = text
       if (stillFollowing()) scrollToEndNext = true
     }
@@ -333,6 +339,8 @@
                     liveTitle={liveRowTitle}
                     liveSubtitle={liveRowSubtitle}
                     paused={thread.paused}
+                    buddyColor={buddyColor(thread.id)}
+                    glasses={thread.role === 'Reviewer'}
                     {entries}
                     liveReplyId={typingReplyId}
                     onOpenFindings={openFindingsTab}
@@ -352,6 +360,8 @@
             liveTitle={liveRowTitle}
             liveSubtitle={liveRowSubtitle}
             paused={thread.paused}
+            buddyColor={buddyColor(thread.id)}
+            glasses={thread.role === 'Reviewer'}
             {entries}
             liveReplyId={typingReplyId}
             onOpenFindings={openFindingsTab}

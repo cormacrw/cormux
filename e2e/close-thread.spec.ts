@@ -13,35 +13,28 @@ test('thread tabs close with ×, middle-click or Delete; the Lead stays', async 
 
   for (let i = 0; i < 3; i += 1)
     await page.getByRole('button', { name: 'New thread', exact: true }).click()
-  await expect(tabs.getByRole('tab')).toHaveCount(4)
-  await expect(tabs.getByRole('tab', { name: /^Agent 4/ })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  )
+  const threadTabs = tabs.getByRole('tab')
+  await expect(threadTabs).toHaveCount(4)
+  await expect(threadTabs.nth(3)).toHaveAttribute('aria-selected', 'true')
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/thread-tabs.png' })
 
   // Closing the open tab moves to its neighbour.
-  await tabs.getByRole('button', { name: 'Close Agent 4' }).click()
-  await expect(tabs.getByRole('tab')).toHaveCount(3)
-  await expect(tabs.getByRole('tab', { name: /^Agent 3/ })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  )
+  const openId = await threadTabs.nth(3).getAttribute('data-thread-id')
+  await page.locator(`[data-od-id="thread-close-${openId}"]`).click()
+  await expect(threadTabs).toHaveCount(3)
+  await expect(threadTabs.nth(2)).toHaveAttribute('aria-selected', 'true')
 
-  await tabs.getByRole('tab', { name: /^Agent 2/ }).click({ button: 'middle' })
-  await expect(tabs.getByRole('tab', { name: /^Agent 2/ })).toHaveCount(0)
+  await threadTabs.nth(1).click({ button: 'middle' })
+  await expect(threadTabs).toHaveCount(2)
 
-  await tabs.getByRole('tab', { name: /^Agent 3/ }).focus()
+  await threadTabs.nth(1).focus()
   await page.keyboard.press('Delete')
-  await expect(tabs.getByRole('tab')).toHaveCount(1)
-  await expect(tabs.getByRole('tab', { name: /^Lead/ })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  )
+  await expect(threadTabs).toHaveCount(1)
+  await expect(threadTabs.nth(0)).toHaveAttribute('aria-selected', 'true')
 
-  await tabs.getByRole('tab', { name: /^Lead/ }).focus()
+  await threadTabs.nth(0).focus()
   await page.keyboard.press('Delete')
-  await expect(tabs.getByRole('tab')).toHaveCount(1)
+  await expect(threadTabs).toHaveCount(1)
   expect(errors).toEqual([])
 })

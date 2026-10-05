@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
+  import { agentName } from '$lib/agent-name'
   import { afterPaint } from '$lib/changes/mount-queue'
   import { commands } from '$lib/ipc'
   import {
@@ -231,7 +232,7 @@
         <span
           class="shrink-0"
           title={offBranch
-            ? `These comments are on ${commentScope}. Check it out to send them to ${thread.role}.`
+            ? `These comments are on ${commentScope}. Check it out to send them to ${agentName(thread.id)}.`
             : undefined}
         >
           <Button
@@ -242,7 +243,9 @@
           >
             <Send class="size-3.5" aria-hidden="true" />
             Send {comments.length}
-            {comments.length === 1 ? 'comment' : 'comments'} to {thread.role}
+            {comments.length === 1 ? 'comment' : 'comments'} to {agentName(
+              thread.id,
+            )}
           </Button>
         </span>
       {/if}

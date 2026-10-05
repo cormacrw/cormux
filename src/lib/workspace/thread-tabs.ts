@@ -1,3 +1,4 @@
+import { agentName } from '$lib/agent-name'
 import type { Thread } from '$lib/state/threads.svelte'
 import type { WorkspacePanelTab } from '$lib/state/workspace-ui.svelte'
 import { plural, threadActivityLine } from '$lib/sidebar/status'
@@ -18,7 +19,7 @@ export type ThreadBarTabKey =
 
 export function threadTabAriaLabel(thread: Thread): string {
   const activity = threadActivityLine(thread)
-  const base = `${thread.role}, ${activity}`
+  const base = `${agentName(thread.id)}, ${activity}`
   if (thread.pendingApprovals <= 0) return base
   return `${base}, ${plural(thread.pendingApprovals, 'approval', 'approvals')} waiting`
 }

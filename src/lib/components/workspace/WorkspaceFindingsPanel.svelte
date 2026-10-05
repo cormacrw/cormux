@@ -6,6 +6,7 @@
   import { Button } from '$lib/components/ui/button'
   import { Checkbox } from '$lib/components/ui/checkbox'
   import { app, findings, threads, workspaceUi, workspaces } from '$lib/state'
+  import { agentName } from '$lib/agent-name'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { selectionSummaryText } from '$lib/findings/format'
   import {
@@ -142,7 +143,9 @@
             Review findings
           </h2>
           <p class="text-sm text-muted-foreground">
-            {prLabel} · reviewed by {reviewer?.role ?? 'Reviewer'} with {engineName}
+            {prLabel} · reviewed by {reviewer
+              ? agentName(reviewer.id)
+              : 'Reviewer'} with {engineName}
           </p>
         </div>
 
@@ -397,7 +400,7 @@
               }}
             >
               {#each wsThreads as thread (thread.id)}
-                <option value={thread.id}>{thread.role}</option>
+                <option value={thread.id}>{agentName(thread.id)}</option>
               {/each}
             </select>
           </label>
@@ -412,7 +415,7 @@
         >
           <ArrowRight class="size-4" aria-hidden="true" />
           {#if summary.total && targetThread}
-            Send {summary.total} to {targetThread.role}
+            Send {summary.total} to {agentName(targetThread.id)}
           {:else}
             Send to agent
           {/if}
