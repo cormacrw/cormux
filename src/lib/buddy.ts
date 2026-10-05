@@ -31,4 +31,3 @@ export function buddyMoodForThread(thread: {
   if (thread.status === 'running') return 'running'
   return 'idle'
 }
-
