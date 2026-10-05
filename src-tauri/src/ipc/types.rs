@@ -134,6 +134,23 @@ pub struct RepoBranchesResult {
     pub branches: Vec<String>,
 }
 
+/// A local branch tip. `committed` is git's relative date ("2 hours ago").
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBranchRow {
+    pub name: String,
+    pub committed: String,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBranchesResult {
+    /// Branch checked out in the repo itself. Empty when detached.
+    pub head: String,
+    pub branches: Vec<LocalBranchRow>,
+}
+
 /// How far a repo's local default branch is from `origin`, as of the last fetch.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

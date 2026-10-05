@@ -44,6 +44,8 @@ pub fn builder() -> Builder {
             commands::set_clickup_task_status,
             commands::set_clickup_task_points,
             commands::list_repo_branches,
+            commands::list_repo_local_branches,
+            commands::delete_local_branch,
             commands::create_workspace,
             commands::create_review_workspace,
             commands::submit_workspace_review,

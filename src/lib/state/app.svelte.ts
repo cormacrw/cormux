@@ -4,6 +4,7 @@ import { workspaceUi } from './workspace-ui.svelte'
 import { workspaces } from './workspaces.svelte'
 import { threads } from './threads.svelte'
 import { scratches } from './scratches.svelte'
+import { repos } from './repos.svelte'
 import { clickup } from './clickup.svelte'
 import { appName } from '$lib/build-mode'
 import { resolveWindowTitle, type ViewId } from './window-title'
@@ -12,7 +13,13 @@ export type { ViewId } from './window-title'
 export { resolveWindowTitle } from './window-title'
 
 export type FocusTarget =
-  'homebase' | 'settings' | 'workspace' | 'scratch' | 'todos' | 'sprint'
+  | 'homebase'
+  | 'settings'
+  | 'workspace'
+  | 'scratch'
+  | 'todos'
+  | 'sprint'
+  | 'repo'
 
 export class AppStore {
   version = $state(0)
@@ -21,6 +28,8 @@ export class AppStore {
   threadId = $state<string | null>(null)
   /** The open scratch, or null on every other view. */
   scratchId = $state<string | null>(null)
+  /** The repo page, or null on every other view. */
+  repoId = $state<string | null>(null)
   /** A scratch started without a prompt focuses its composer instead of its title. */
   scratchComposerFocus = $state(false)
 
@@ -52,6 +61,14 @@ export class AppStore {
         appName,
       )
     }
+    if (this.view === 'repo') {
+      return resolveWindowTitle(
+        this.view,
+        this.repoId,
+        this.repoId ? repos.getById(this.repoId)?.name : undefined,
+        appName,
+      )
+    }
     return resolveWindowTitle(
       this.view,
       this.workspaceId,
@@ -77,6 +94,7 @@ export class AppStore {
     this.workspaceId = null
     this.threadId = null
     this.scratchId = null
+    this.repoId = null
     this.requestFocus('homebase')
   }
 
@@ -85,6 +103,7 @@ export class AppStore {
     this.workspaceId = null
     this.threadId = null
     this.scratchId = null
+    this.repoId = null
     this.requestFocus('todos')
   }
 
@@ -94,6 +113,7 @@ export class AppStore {
     this.workspaceId = null
     this.threadId = null
     this.scratchId = null
+    this.repoId = null
     if (taskId) clickup.select(taskId)
     this.requestFocus('sprint')
   }
@@ -104,6 +124,7 @@ export class AppStore {
     this.workspaceId = null
     this.threadId = null
     this.scratchId = null
+    this.repoId = null
     this.requestFocus('settings')
   }
 
@@ -115,6 +136,7 @@ export class AppStore {
     const switching = this.workspaceId !== workspaceId
     this.view = 'workspace'
     this.scratchId = null
+    this.repoId = null
     this.workspaceId = workspaceId
     const list = threads.forWorkspace(workspaceId)
     this.threadId = threadId ?? list[0]?.id ?? null
@@ -128,9 +150,19 @@ export class AppStore {
     this.view = 'scratch'
     this.workspaceId = null
     this.threadId = null
+    this.repoId = null
     this.scratchId = scratchId
     this.scratchComposerFocus = focusComposer
     this.requestFocus('scratch')
+  }
+
+  openRepo(repoId: string) {
+    this.view = 'repo'
+    this.workspaceId = null
+    this.threadId = null
+    this.scratchId = null
+    this.repoId = repoId
+    this.requestFocus('repo')
   }
 
   requestNewScratch() {
@@ -163,6 +195,7 @@ export class AppStore {
 
   applyView(view: AppView) {
     this.scratchId = null
+    this.repoId = null
     if (view === 'homebase') {
       this.view = 'homebase'
       this.workspaceId = null
