@@ -106,21 +106,6 @@
         <dl
           class="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-sm"
         >
-          <dt class="text-xs text-muted-foreground">Status</dt>
-          <dd>
-            <span
-              class="inline-flex items-center gap-2 rounded-full border border-border px-2.5 py-0.5 text-xs font-medium"
-              data-od-id="sprint-task-status"
-            >
-              <span
-                class="size-2 shrink-0 rounded-full"
-                style:background-color={task.statusColor ?? 'currentColor'}
-                aria-hidden="true"
-              ></span>
-              {statusLabel(task.status)}
-            </span>
-          </dd>
-
           <dt class="flex items-center gap-1.5 text-xs text-muted-foreground">
             Sprint points
             {#if task.points == null}
