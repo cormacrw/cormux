@@ -17,7 +17,8 @@ export function soleInstalledEngine(
   const installed = ENGINE_OPTIONS.filter((option) =>
     statuses.some((row) => row.kind === option.kind && row.installed),
   )
-  return installed.length === 1 ? installed[0].kind : null
+  const only = installed[0]
+  return installed.length === 1 && only ? only.kind : null
 }
 
 export function engineInstallLabel(
