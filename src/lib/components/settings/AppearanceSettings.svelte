@@ -1,18 +1,17 @@
 <script lang="ts">
   import { RadioGroup } from 'bits-ui'
-  import CheckIcon from '@lucide/svelte/icons/check'
   import { setMode, userPrefersMode } from 'mode-watcher'
   import * as Select from '$lib/components/ui/select'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
   import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
   import {
-    ACCENTS,
     CODE_FONT_SIZES,
     DEFAULT_CODE_FONT_SIZE,
     DEFAULT_UI_FONT_SIZE,
+    FELTS,
     UI_FONT_SIZES,
-    type AccentId,
+    type FeltId,
   } from '$lib/state/appearance.svelte'
   import { appearance } from '$lib/state'
 
@@ -23,16 +22,45 @@
 
 <SettingsPanel data-od-id="settings-appearance-group">
   <SettingsRow
-    title="Theme"
+    title="Felt colour"
+    description="Re-dyes the background, sidebar, panels and primary buttons."
+  >
+    {#snippet control()}
+      <RadioGroup.Root
+        value={appearance.felt}
+        onValueChange={(next) => appearance.setFelt(next as FeltId)}
+        orientation="horizontal"
+        aria-label="Felt colour"
+        class="flex items-center gap-2.5"
+      >
+        {#each FELTS as felt (felt.id)}
+          <RadioGroup.Item
+            value={felt.id}
+            aria-label={felt.label}
+            title={felt.label}
+            class="squish relative size-11 overflow-hidden rounded-full clay-sm outline-none data-[state=checked]:shadow-[0_0_0_3px_var(--card),0_0_0_6px_var(--cocoa)]"
+            style="background: linear-gradient(90deg, {felt.sidebar} 0 42%, {felt.ground} 42% 100%)"
+          >
+            <span
+              class="bead absolute right-1.5 bottom-1.5 size-3.5"
+              style="background: {felt.primary}"
+              aria-hidden="true"
+            ></span>
+          </RadioGroup.Item>
+        {/each}
+      </RadioGroup.Root>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    title="Light or dark"
     description="Follow the system, or always use light or dark"
   >
     {#snippet control()}
       <ToggleGroup.Root
         type="single"
-        variant="outline"
         size="sm"
         aria-label="Theme"
-        class="data-[spacing=0]:rounded-lg"
         bind:value={
           () => userPrefersMode.current,
           (next) => {
@@ -49,44 +77,6 @@
   </SettingsRow>
 
   <SettingsRow
-    title="Primary color"
-    description="Used for primary buttons and highlights"
-  >
-    {#snippet control()}
-      <RadioGroup.Root
-        value={appearance.accent}
-        onValueChange={(next) => appearance.setAccent(next as AccentId)}
-        orientation="horizontal"
-        aria-label="Primary color"
-        class="flex items-center gap-2"
-      >
-        {#each ACCENTS as accent (accent.id)}
-          <RadioGroup.Item
-            value={accent.id}
-            aria-label={accent.label}
-            title={accent.label}
-            class="flex size-7 items-center justify-center rounded-full ring-offset-2 ring-offset-card outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:ring-2 data-[state=checked]:ring-foreground/40"
-            style="background: var(--swatch-{accent.id})"
-          >
-            {#snippet children({ checked })}
-              {#if checked}
-                <CheckIcon
-                  class="size-3.5 {accent.id === 'neutral'
-                    ? 'text-background'
-                    : accent.id === 'gold'
-                      ? 'text-black/80'
-                      : 'text-white'}"
-                  aria-hidden="true"
-                />
-              {/if}
-            {/snippet}
-          </RadioGroup.Item>
-        {/each}
-      </RadioGroup.Root>
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
     title="UI font size"
     description="Text size across the app"
     controlId="settings-ui-font-size"
@@ -97,7 +87,7 @@
         value={String(appearance.uiFontSize)}
         onValueChange={(next) => appearance.setUiFontSize(Number(next))}
       >
-        <Select.Trigger id="settings-ui-font-size" class="w-[150px]">
+        <Select.Trigger id="settings-ui-font-size" class="w-[180px]">
           {sizeLabel(appearance.uiFontSize, DEFAULT_UI_FONT_SIZE)}
         </Select.Trigger>
         <Select.Content>
@@ -122,7 +112,7 @@
         value={String(appearance.codeFontSize)}
         onValueChange={(next) => appearance.setCodeFontSize(Number(next))}
       >
-        <Select.Trigger id="settings-code-font-size" class="w-[150px]">
+        <Select.Trigger id="settings-code-font-size" class="w-[180px]">
           {sizeLabel(appearance.codeFontSize, DEFAULT_CODE_FONT_SIZE)}
         </Select.Trigger>
         <Select.Content>

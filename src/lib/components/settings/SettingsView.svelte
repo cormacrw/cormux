@@ -103,7 +103,7 @@
           <h1
             bind:this={settingsTitle}
             tabindex="-1"
-            class="text-xl font-semibold tracking-tight outline-none"
+            class="clay-title outline-none"
             data-od-id="settings-title"
           >
             Settings
@@ -226,7 +226,7 @@
           <SettingsSectionHead
             id="settings-appearance-h"
             title="Appearance"
-            description="Theme, primary color and text sizes on this Mac."
+            description="Felt colour, light or dark, and text sizes on this Mac."
           />
           <div class="mt-4">
             <AppearanceSettings />

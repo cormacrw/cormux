@@ -7,33 +7,37 @@
   } from 'svelte/elements'
 
   export const buttonVariants = tv({
-    base: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 rounded-lg border border-transparent bg-clip-padding text-sm font-medium focus-visible:ring-3 aria-invalid:ring-3 active:not-aria-[haspopup]:translate-y-px [&_svg:not([class*='size-'])]:size-4 group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all outline-none select-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+    base: "aria-invalid:ring-destructive/20 aria-invalid:ring-3 font-display font-extrabold tracking-[0.005em] rounded-[24px_28px_22px_26px] border-0 [&_svg:not([class*='size-'])]:size-4 group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap outline-none select-none squish focus-visible:shadow-[0_0_0_3px_var(--card),0_0_0_6px_var(--ring)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/80',
+        // Clay in the felt's primary colour.
+        default:
+          'clay bg-primary text-primary-foreground hover:brightness-[1.04] focus-visible:shadow-[var(--clay-shade),0_0_0_3px_var(--card),0_0_0_6px_var(--ring)]',
+        // White clay: the everyday secondary.
         outline:
-          'border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground',
+          'clay bg-secondary text-secondary-foreground aria-expanded:bg-custard aria-expanded:text-cocoa focus-visible:shadow-[var(--clay-shade),0_0_0_3px_var(--card),0_0_0_6px_var(--ring)]',
         secondary:
-          'bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground',
+          'clay bg-secondary text-secondary-foreground aria-expanded:bg-custard aria-expanded:text-cocoa focus-visible:shadow-[var(--clay-shade),0_0_0_3px_var(--card),0_0_0_6px_var(--ring)]',
+        // Bare text that picks up a soft felt patch on hover.
         ghost:
-          'hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground',
+          'hover:bg-foreground/[0.07] aria-expanded:bg-foreground/[0.07] [&:hover:not(:disabled)]:transform-none [&:active:not(:disabled)]:scale-[0.97]',
+        // Brick clay with dark brick text.
         destructive:
-          'bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30',
-        link: 'text-primary underline-offset-4 hover:underline',
+          'clay bg-brick text-[#8a1f14] focus-visible:shadow-[var(--clay-shade),0_0_0_3px_var(--card),0_0_0_6px_var(--ring)]',
+        link: 'font-sans font-bold text-foreground underline underline-offset-4 decoration-2 decoration-stitch hover:decoration-current [&:hover:not(:disabled)]:transform-none',
       },
       size: {
         default:
-          'h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: 'h-10 gap-2 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3',
-        xl: 'h-12 gap-2 px-5 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4',
-        icon: 'size-8',
+          'h-9 gap-1.5 px-4 text-[15px] has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3',
+        xs: "h-7 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 px-3.5 text-sm has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: 'h-11 gap-2 px-5 text-base has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4',
+        xl: 'h-12 gap-2 px-6 text-base has-data-[icon=inline-end]:pr-5 has-data-[icon=inline-start]:pl-5',
+        icon: 'size-9 rounded-full',
         'icon-xs':
-          "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
-        'icon-sm':
-          'size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg',
-        'icon-lg': 'size-9',
+          "size-7 rounded-full [&_svg:not([class*='size-'])]:size-3",
+        'icon-sm': 'size-8 rounded-full',
+        'icon-lg': 'size-11 rounded-full',
       },
     },
     defaultVariants: {

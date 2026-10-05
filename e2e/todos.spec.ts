@@ -8,15 +8,16 @@ test.describe('todos', () => {
     mkdirSync('e2e/output', { recursive: true })
     await page.goto('/')
 
-    // The fixture's pinned task sits above Scratches on Homebase.
+    // Pinned tasks sit beside Scratches on a wide Homebase, or above them when stacked.
     const pinned = page.locator('[data-od-id="home-pinned-todos"]')
     await expect(
       pinned.getByText('Rotate the Stripe webhook secret'),
     ).toBeVisible()
     const scratches = page.locator('[data-od-id="home-sessions"]')
-    expect((await pinned.boundingBox())!.y).toBeLessThan(
-      (await scratches.boundingBox())!.y,
-    )
+    const pinBox = (await pinned.boundingBox())!
+    const scratchBox = (await scratches.boundingBox())!
+    expect(pinBox.y).toBeLessThanOrEqual(scratchBox.y)
+    if (pinBox.y === scratchBox.y) expect(pinBox.x).toBeLessThan(scratchBox.x)
 
     const nav = page.getByRole('navigation', { name: 'Harness' })
     await nav.getByRole('button', { name: /TODOs/ }).click()
@@ -87,6 +88,7 @@ test.describe('todos', () => {
 
     // "todo" + Space turns into a chip and clears the field.
     await openPalette()
+    await page.screenshot({ path: 'e2e/output/command-palette.png' })
     await page.keyboard.type('todo ')
     await expect(chip).toBeVisible()
     await expect(field).toHaveValue('')

@@ -19,15 +19,14 @@
   {label}
   data-slot="select-item"
   class={cn(
-    "focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 relative flex w-full cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-    'data-highlighted:bg-accent data-highlighted:text-accent-foreground',
+    "data-highlighted:bg-custard data-highlighted:text-cocoa gap-2 rounded-[14px_12px_14px_11px] py-2 pr-9 pl-3 text-[15px] font-semibold [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 relative flex w-full cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
     className,
   )}
   {...restProps}
 >
   {#snippet children({ selected, highlighted })}
     <span
-      class="pointer-events-none absolute right-2 flex size-4 items-center justify-center"
+      class="pointer-events-none absolute right-3 flex size-4 items-center justify-center"
     >
       {#if selected}
         <CheckIcon class="pointer-events-none" />

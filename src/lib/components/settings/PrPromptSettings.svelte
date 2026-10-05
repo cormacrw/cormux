@@ -50,7 +50,7 @@
 </script>
 
 <div
-  class="mt-4 space-y-1.5 rounded-lg border border-border bg-card/40 px-4 py-3"
+  class="felt-sm mt-3 space-y-1.5 px-4 py-3"
   data-od-id="settings-pr-prompt"
 >
   <div class="flex items-center justify-between gap-2">

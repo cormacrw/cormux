@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import Check from '@lucide/svelte/icons/check'
   import { Switch } from '$lib/components/ui/switch'
   import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
@@ -47,15 +48,15 @@
   data-od-id="settings-default-engine"
 >
   <p id="settings-engine-label" class="sr-only">Default engine</p>
-  <SettingsPanel>
+  <SettingsPanel class="flex flex-col gap-2 p-3 sm:flex-row">
     {#each ENGINE_OPTIONS as option (option.kind)}
       {@const status = statusByKind.get(option.kind)}
       {@const selected = settings.defaultEngine === option.kind}
       {@const install = engineInstallLabel(status)}
       <label
         class={cn(
-          'flex cursor-pointer gap-3 border-b border-border px-4 py-3 last:border-b-0 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background',
-          selected && 'bg-muted/40',
+          'flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[18px_16px_18px_14px] px-3 py-3 outline-none focus-within:ring-2 focus-within:ring-ring',
+          selected ? 'bg-custard text-cocoa' : 'hover:bg-background/40',
         )}
       >
         <input
@@ -67,37 +68,31 @@
           onchange={() => void chooseEngine(option.kind)}
         />
         <span
-          class="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted font-mono text-[10px] font-semibold"
+          class="grid size-9 shrink-0 place-items-center rounded-full font-display text-xs font-extrabold text-cocoa"
+          style:background={selected ? 'var(--clay-leaf)' : 'var(--clay-pebble)'}
           aria-hidden="true"
         >
           {engineMark(option.kind)}
         </span>
         <span class="min-w-0 flex-1">
           <span class="flex flex-wrap items-center gap-2">
-            <span class="text-sm font-medium">{option.label}</span>
-            {#if selected}
-              <span
-                class="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                >Default</span
-              >
-            {/if}
+            <span class={cn('text-sm font-semibold', selected && 'text-cocoa')}
+              >{option.label}</span
+            >
             {#if install}
               <span class="text-[10px] text-destructive">{install}</span>
             {/if}
           </span>
-          <span class="mt-1 block font-mono text-[10px] text-muted-foreground"
-            >{engineStatusLine(status)}</span
+          <span
+            class={cn(
+              'mt-0.5 block font-mono text-[10px]',
+              selected ? 'text-cocoa/70' : 'text-muted-foreground',
+            )}>{engineStatusLine(status)}</span
           >
         </span>
-        <span
-          class={cn(
-            'mt-1 size-4 shrink-0 rounded-full border-2',
-            selected
-              ? 'border-primary bg-primary'
-              : 'border-muted-foreground/40',
-          )}
-          aria-hidden="true"
-        ></span>
+        {#if selected}
+          <Check class="size-4 shrink-0 text-cocoa" aria-hidden="true" />
+        {/if}
       </label>
     {/each}
   </SettingsPanel>

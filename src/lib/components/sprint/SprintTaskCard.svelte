@@ -2,7 +2,6 @@
   import type { ClickupTask } from '$lib/ipc/bindings'
   import { formatPoints, statusLabel, taskRef } from '$lib/clickup/board'
   import { cn } from '$lib/utils'
-  import CircleDashed from '@lucide/svelte/icons/circle-dashed'
   import Flag from '@lucide/svelte/icons/flag'
   import TaskActions from './TaskActions.svelte'
 
@@ -38,12 +37,10 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class={cn(
-    'group/card relative flex touch-none flex-col gap-3 rounded-xl border bg-card p-3 text-card-foreground select-none',
-    'shadow-[0_1px_2px_rgb(0_0_0/0.18)] transition-[border-color,background-color,box-shadow,opacity,transform] duration-150',
+    'group/card felt-sm relative flex touch-none flex-col gap-3.5 p-4 text-card-foreground select-none',
+    'transition-[box-shadow,opacity,transform] duration-150',
     'has-[[data-task-id]:focus-visible]:ring-3 has-[[data-task-id]:focus-visible]:ring-ring/50',
-    unpointed
-      ? 'border-dashed border-warning/70 bg-warning/[0.04]'
-      : 'border-border/70 [@media(hover:hover)_and_(pointer:fine)]:hover:border-foreground/25',
+    unpointed && '!bg-butter',
     !ghost && '[@media(hover:hover)_and_(pointer:fine)]:hover:-translate-y-px',
     selected && 'border-primary/80 ring-2 ring-primary/25',
     dragging && 'opacity-35',
@@ -71,7 +68,7 @@
   {/if}
 
   <p
-    class="pointer-events-none line-clamp-3 text-[13px] leading-snug font-medium"
+    class="pointer-events-none line-clamp-3 text-[15px] leading-snug font-semibold"
   >
     {task.name}
   </p>
@@ -109,9 +106,8 @@
 
       {#if unpointed}
         <span
-          class="inline-flex items-center gap-1 rounded-full border border-dashed border-warning/80 bg-warning/15 px-1.5 py-px text-[10px] font-semibold text-warning"
+          class="inline-flex items-center rounded-full border border-dashed border-cocoa/30 bg-custard px-2 py-0.5 text-[11px] font-bold text-cocoa"
         >
-          <CircleDashed class="size-3" aria-hidden="true" />
           No pts
         </span>
       {:else}

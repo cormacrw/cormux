@@ -17,15 +17,15 @@
   } = $props()
 </script>
 
-<div data-slot="command-input-wrapper" class="p-1 pb-0">
+<div data-slot="command-input-wrapper" class="px-1 pt-1">
   <InputGroup.Root
-    class="bg-input/30 border-input/30 h-8! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:pl-2!"
+    class="sunken !h-11 !rounded-[18px_16px_18px_14px] !border-0 !bg-sunken focus-within:!ring-0 focus-within:!shadow-[inset_0_4px_8px_var(--sunken-shade),0_0_0_4px_#f6c9d2] *:data-[slot=input-group-addon]:pl-3!"
   >
     <CommandPrimitive.Input
       {value}
       data-slot="command-input"
       class={cn(
-        'w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
+        'w-full !rounded-none !bg-transparent !shadow-none text-[15px] font-semibold outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...restProps}

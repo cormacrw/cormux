@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { Badge } from '$lib/components/ui/badge'
+  import { buddyFace } from '$lib/clay/identity'
+  import Buddy from '$lib/components/clay/Buddy.svelte'
+  import CountBead from '$lib/components/clay/CountBead.svelte'
   import { app, repos, threads } from '$lib/state'
   import {
     SCRATCH_STATUS_LABEL,
     scratchStatus,
     type Scratch,
   } from '$lib/state/scratches.svelte'
-  import { plural, type StatusDotVariant } from '$lib/sidebar/status'
-  import StatusDot from './StatusDot.svelte'
+  import { plural, statusDotVariantForThread } from '$lib/sidebar/status'
 
   let { scratch }: { scratch: Scratch } = $props()
 
@@ -16,9 +17,6 @@
   const statusWord = $derived(SCRATCH_STATUS_LABEL[status])
   const repoName = $derived(repos.getById(scratch.repoId)?.name ?? '')
   const pendingApprovals = $derived(thread?.pendingApprovals ?? 0)
-  const dotVariant = $derived<StatusDotVariant>(
-    status === 'working' ? 'running' : status === 'idle' ? 'idle' : 'paused',
-  )
   const isCurrent = $derived(
     app.view === 'scratch' && app.scratchId === scratch.id,
   )
@@ -36,29 +34,35 @@
 <li>
   <button
     type="button"
-    class="grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent/80 aria-[current=page]:bg-sidebar-accent"
+    class="side-row grid w-full grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-3 rounded-[20px_24px_18px_22px] px-3 py-2 text-left text-sidebar-foreground outline-none transition-[background-color,box-shadow] duration-150 hover:bg-white/10 focus-visible:shadow-[0_0_0_3px_var(--sidebar-ring)] aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:shadow-[inset_0_-4px_0_rgb(0_0_0/0.1),0_5px_10px_rgb(0_0_0/0.18)]"
     aria-current={isCurrent ? 'page' : undefined}
     aria-label={ariaLabel}
     onclick={() => app.openScratch(scratch.id)}
   >
-    <StatusDot variant={dotVariant} />
+    <Buddy
+      color="var(--clay-blush)"
+      face={buddyFace(
+        statusDotVariantForThread({
+          status: thread?.status ?? 'idle',
+          paused: thread?.paused ?? false,
+          activity: thread?.activity ?? '',
+        }),
+        pendingApprovals > 0,
+      )}
+      breathe={thread?.status === 'running'}
+      size={30}
+    />
     <span class="min-w-0 grid" aria-hidden="true">
-      <span class="truncate text-sm text-sidebar-foreground"
+      <span class="truncate text-[16px] leading-tight font-bold"
         >{scratch.title}</span
       >
-      <span class="truncate text-xs text-muted-foreground">
+      <span class="truncate text-[13.5px] leading-tight opacity-80">
         {statusWord}{#if repoName}
           · {repoName}{/if}
       </span>
     </span>
     {#if pendingApprovals > 0}
-      <Badge
-        variant="outline"
-        class="min-w-[18px] justify-center border-warning/40 bg-warning/15 px-1.5 font-mono text-[10px] text-warning"
-        aria-hidden="true"
-      >
-        {pendingApprovals}
-      </Badge>
+      <CountBead count={pendingApprovals} />
     {:else}
       <span aria-hidden="true"></span>
     {/if}

@@ -10,24 +10,20 @@
 >
   <h2
     id="sess-section-title"
-    class="flex items-center gap-2 text-sm font-medium tracking-tight"
+    class="clay-section"
   >
-    Scratches
-    <span
-      class="rounded-full border border-border bg-muted/50 px-2 py-0.5 font-mono text-xs text-muted-foreground"
-      >{scratches.items.length}</span
-    >
+    Scratches · {scratches.items.length}
   </h2>
 
   {#if scratches.items.length === 0}
     <p
-      class="rounded-xl border border-dashed border-border/80 px-4 py-4 text-sm text-muted-foreground"
+      class="rounded-[22px_18px_20px_16px] bg-card px-5 py-4 text-[15px] font-semibold text-card-foreground shadow-lift-1"
     >
       No scratches. Start one for a question that doesn’t need its own branch.
     </p>
   {:else}
     <div
-      class="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))]"
+      class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))]"
     >
       {#each scratches.items as scratch (scratch.id)}
         <ScratchCard {scratch} />

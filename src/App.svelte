@@ -118,7 +118,7 @@
 {#if isDevBuild}
   <!-- Dev builds get a stripe across the top so they can't pass for the installed app. -->
   <div
-    class="pointer-events-none fixed inset-x-0 top-0 z-[100] h-[3px] bg-warning"
+    class="pointer-events-none fixed inset-x-0 top-0 z-[100] h-[3px] bg-marigold"
     aria-hidden="true"
   ></div>
 {/if}

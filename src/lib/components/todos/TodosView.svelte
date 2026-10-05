@@ -2,11 +2,14 @@
   import { flip } from 'svelte/animate'
   import { cubicOut } from 'svelte/easing'
   import { fly, slide } from 'svelte/transition'
+  import { CLAY_COLORS } from '$lib/clay/identity'
+  import CountBead from '$lib/components/clay/CountBead.svelte'
   import { motionMs } from '$lib/motion'
   import { app, todos } from '$lib/state'
-  import Pin from '@lucide/svelte/icons/pin'
   import Plus from '@lucide/svelte/icons/plus'
   import Trash2 from '@lucide/svelte/icons/trash-2'
+
+  const rowFelts = ['bg-butter', 'bg-blush', 'bg-mint', 'bg-lavender']
 
   let input: HTMLInputElement | undefined = $state()
   let draft = $state('')
@@ -37,42 +40,27 @@
 </script>
 
 <div class="view-todos relative flex min-h-0 flex-1 flex-col overflow-y-auto">
-  <div class="mx-auto flex w-full max-w-[760px] flex-col gap-6 p-6">
+  <div class="mx-auto flex w-full max-w-[760px] flex-col gap-4 p-8">
     <header class="flex items-center gap-3">
       <h1
         id="todos-title"
         tabindex="-1"
-        class="text-2xl font-semibold tracking-tight outline-none"
+        class="clay-title outline-none"
       >
         TODOs
       </h1>
-      <span
-        class="rounded-full border border-border bg-muted/50 px-2 py-0.5 font-mono text-xs text-muted-foreground"
-        >{todos.items.length}</span
-      >
+      <CountBead count={todos.items.length} wiggle={false} />
     </header>
 
     <div
-      class="overflow-hidden rounded-xl border border-border bg-card text-card-foreground"
+      class="felt-sm flex flex-col gap-2 p-3"
       role="table"
       aria-labelledby="todos-title"
     >
-      <div
-        class="grid grid-cols-[44px_minmax(0,1fr)_44px] border-b border-border bg-muted/30 text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
-        role="row"
-      >
-        <span class="py-2 text-center" role="columnheader">
-          <span class="sr-only">Pinned</span>
-          <Pin class="mx-auto size-3" aria-hidden="true" />
-        </span>
-        <span class="py-2 pl-1" role="columnheader">Task</span>
-        <span class="sr-only" role="columnheader">Delete</span>
-      </div>
-
-      <div role="rowgroup">
-        {#each todos.items as todo (todo.id)}
+      <div role="rowgroup" class="flex flex-col gap-2">
+        {#each todos.items as todo, index (todo.id)}
           <div
-            class="todo-row group/todo grid grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-border/70 transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:bg-muted/40"
+            class="todo-row group/todo grid grid-cols-[44px_minmax(0,1fr)_auto_44px] items-center rounded-[16px_14px_16px_12px] px-2 py-1 {rowFelts[index % rowFelts.length]}"
             role="row"
             data-todo-id={todo.id}
             in:fly={{ y: 8, duration: motionMs(220), easing: cubicOut }}
@@ -82,9 +70,7 @@
             <span role="cell" class="flex justify-center">
               <button
                 type="button"
-                class="flex size-8 items-center justify-center rounded-md outline-none transition-[color,transform] duration-200 focus-visible:ring-3 focus-visible:ring-ring/50 {todo.pinned
-                  ? 'text-foreground'
-                  : 'text-muted-foreground/50 hover:text-foreground'}"
+                class="grid size-8 place-items-center rounded-full outline-none"
                 aria-pressed={todo.pinned}
                 aria-label={todo.pinned
                   ? `Unpin ${todo.title} from Homebase`
@@ -92,17 +78,21 @@
                 title={todo.pinned ? 'Unpin from Homebase' : 'Pin to Homebase'}
                 onclick={() => todos.togglePin(todo.id)}
               >
-                <Pin
-                  class="size-4 transition-transform duration-200 {todo.pinned
-                    ? 'rotate-0 fill-current'
-                    : '-rotate-45'}"
+                <span
+                  class="bead size-5 {todo.pinned ? '' : 'opacity-45'}"
+                  style="background: {CLAY_COLORS[index % CLAY_COLORS.length]}"
                   aria-hidden="true"
-                />
+                ></span>
               </button>
             </span>
-            <span role="cell" class="min-w-0 truncate py-2.5 pl-1 text-sm"
+            <span role="cell" class="min-w-0 truncate py-2.5 pl-1 text-[16px] font-bold"
               >{todo.title}</span
             >
+            {#if todo.pinned}
+              <span class="pr-2 text-[13px] font-semibold opacity-70" role="cell">Pinned</span>
+            {:else}
+              <span role="cell"></span>
+            {/if}
             <span role="cell" class="flex justify-center">
               <button
                 type="button"
@@ -118,7 +108,7 @@
         {/each}
 
         <div
-          class="grid grid-cols-[44px_minmax(0,1fr)_44px] items-center"
+          class="grid grid-cols-[44px_minmax(0,1fr)_44px] items-center rounded-[16px_14px_16px_12px] bg-card/70"
           role="row"
         >
           <span role="cell" class="flex justify-center text-muted-foreground">
@@ -141,13 +131,8 @@
       </div>
     </div>
 
-    {#if todos.items.length === 0}
-      <p
-        class="text-sm text-muted-foreground"
-        in:fly={{ y: 4, duration: motionMs(200) }}
-      >
-        Type a task and press Enter. Pin one to keep it at the top of Homebase.
-      </p>
-    {/if}
+    <p class="text-sm text-muted-foreground">
+      Press a clay ball to pin a task. Pinned tasks show up on Homebase.
+    </p>
   </div>
 </div>

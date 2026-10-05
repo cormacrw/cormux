@@ -64,11 +64,15 @@ test('PR rows: status icon colour, title opens GitHub, glasses starts a review',
   const row = (num: number) => section.locator(`[data-od-id="pr-row-${num}"]`)
   await expect(row(482)).toBeVisible()
 
-  const iconClass = (num: number) =>
-    row(num).locator('svg').first().getAttribute('class')
-  expect(await iconClass(482)).toContain('text-emerald-600')
-  expect(await iconClass(479)).toContain('text-amber-500')
-  expect(await iconClass(471)).toContain('text-muted-foreground')
+  const beadColor = (num: number) =>
+    row(num)
+      .locator('.bead')
+      .first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor)
+  // Leaf, marigold, pebble: passing, running, draft.
+  expect(await beadColor(482)).toBe('rgb(124, 200, 148)')
+  expect(await beadColor(479)).toBe('rgb(245, 179, 60)')
+  expect(await beadColor(471)).toBe('rgb(217, 211, 203)')
 
   await expect(section.getByText('Awaiting review')).toHaveCount(0)
   await expect(row(471).getByText(/Checks/)).toHaveCount(0)

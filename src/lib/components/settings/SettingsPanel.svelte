@@ -10,7 +10,7 @@
 </script>
 
 <div
-  class={cn('rounded-lg border border-border bg-card/40', className)}
+  class={cn('felt-sm overflow-hidden', className)}
   {...restProps}
 >
   {@render children()}

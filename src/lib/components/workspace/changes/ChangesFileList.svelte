@@ -31,7 +31,7 @@
   }
 </script>
 
-<ul class="flex flex-col" aria-label="Changed files">
+<ul class="flex flex-col gap-2 p-3" aria-label="Changed files">
   {#each files as file (file.path)}
     {@const status = inferFileStatus(file)}
     {@const parts = splitPath(file.path)}
@@ -43,12 +43,12 @@
     ).length}
     {@const bodyId = `changes-file-${file.path.replace(/[^\w-]/g, '_')}`}
     <li
-      class="border-b border-border/60 [content-visibility:auto] [contain-intrinsic-size:auto_480px]"
+      class="overflow-hidden rounded-[16px_14px_16px_12px] bg-secondary shadow-lift-1 [content-visibility:auto] [contain-intrinsic-size:auto_480px]"
       data-diff-path={file.path}
     >
       <button
         type="button"
-        class="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border/40 bg-background px-3 py-2 text-left text-sm hover:bg-[color-mix(in_oklch,var(--muted)_40%,var(--background))]"
+        class="sticky top-0 z-10 flex w-full items-center gap-2 bg-secondary px-3 py-2.5 text-left text-sm hover:bg-card"
         aria-expanded={open}
         aria-controls={bodyId}
         title={file.path}

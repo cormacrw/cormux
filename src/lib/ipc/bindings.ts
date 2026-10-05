@@ -837,7 +837,8 @@ export type SetSettingInput = { key: string; value: string }
 export type SettingRow = { key: string; value: string }
 export type Skill = { name: string; description: string; 
 /**
- * `project` for the repo's own skills, `user` for `~/.claude/skills`.
+ * `project` for the repo's own skills, `user` for `~/.claude/skills`, `builtin` for
+ * those that ship with Claude Code.
  */
 source: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 

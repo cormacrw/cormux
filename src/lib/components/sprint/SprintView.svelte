@@ -3,7 +3,6 @@
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
   import * as Empty from '$lib/components/ui/empty'
-  import * as Resizable from '$lib/components/ui/resizable'
   import {
     daysLeft,
     formatPoints,
@@ -18,7 +17,6 @@
   import Columns3 from '@lucide/svelte/icons/columns-3'
   import EyeOff from '@lucide/svelte/icons/eye-off'
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
-  import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import SprintTaskCard from './SprintTaskCard.svelte'
   import SprintTaskPanel from './SprintTaskPanel.svelte'
 
@@ -196,14 +194,14 @@
   data-od-id="sprint-view"
 >
   <header
-    class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-6 pt-6 pb-4"
+    class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 pt-6 pb-2"
   >
     <div class="grid min-w-0 gap-1">
       <h1
         bind:this={title}
         id="sprint-title"
         tabindex="-1"
-        class="text-2xl font-semibold tracking-tight outline-none"
+        class="clay-title outline-none"
       >
         {sprint?.name ?? 'Sprint'}
       </h1>
@@ -233,11 +231,11 @@
             / {formatPoints(totalPoints)} pts</span
           >
           <span
-            class="h-1.5 w-28 overflow-hidden rounded-full bg-muted"
+            class="h-2 w-28 overflow-hidden rounded-full bg-pebble"
             aria-hidden="true"
           >
             <span
-              class="block h-full rounded-full bg-success transition-[width] duration-500"
+              class="block h-full rounded-full bg-leaf transition-[width] duration-500"
               style:width="{totalPoints > 0
                 ? (donePoints / totalPoints) * 100
                 : 0}%"
@@ -246,10 +244,9 @@
         </div>
         {#if totals.unpointed > 0}
           <span
-            class="inline-flex items-center gap-1.5 rounded-md border border-warning/50 bg-warning/15 px-2 py-1 text-xs font-medium text-warning"
+            class="inline-flex items-center rounded-full border border-dashed border-cocoa/25 bg-custard px-3 py-1 text-xs font-bold text-cocoa"
             data-od-id="sprint-unpointed-count"
           >
-            <TriangleAlert class="size-3.5" aria-hidden="true" />
             {plural(totals.unpointed, 'task')} without points
           </span>
         {/if}
@@ -325,7 +322,7 @@
 
   {#if !clickup.ready}
     <div class="p-6">
-      <Empty.Root class="border border-dashed border-border/80">
+      <Empty.Root class="felt">
         <Empty.Header>
           <Empty.Title>Choose your sprint folder</Empty.Title>
           <Empty.Description>
@@ -343,7 +340,7 @@
   {:else if !clickup.board}
     <div class="p-6">
       {#if clickup.error}
-        <Empty.Root class="border border-dashed border-border/80">
+        <Empty.Root class="felt">
           <Empty.Header>
             <Empty.Title>Couldn't load the sprint</Empty.Title>
             <Empty.Description>{clickup.error}</Empty.Description>
@@ -369,15 +366,10 @@
         Showing the last loaded board. {clickup.error}
       </p>
     {/if}
-    <Resizable.PaneGroup
-      direction="horizontal"
-      autoSaveId="cormux-sprint-board"
-      class="min-h-0 flex-1"
-    >
-      <Resizable.Pane id="sprint-board" order={1} minSize={35}>
+    <div class="flex min-h-0 flex-1">
         <div
           bind:this={boardEl}
-          class="flex h-full min-h-0 items-start gap-3 overflow-x-auto overflow-y-hidden p-4"
+          class="flex h-full min-h-0 min-w-0 flex-1 items-start gap-3 overflow-x-auto overflow-y-hidden p-4"
           role="list"
           aria-label="Sprint lanes"
           data-od-id="sprint-board"
@@ -389,9 +381,11 @@
               drag.task.status.toLowerCase() !== lane.status.name.toLowerCase()}
             <section
               class={cn(
-                'group/lane flex max-h-full w-[272px] shrink-0 flex-col rounded-xl border border-transparent bg-muted/40 transition-colors',
-                isTarget && 'border-primary/60 bg-primary/[0.07]',
+                'group/lane flex max-h-full w-[312px] shrink-0 flex-col rounded-[22px_18px_20px_16px] transition-colors',
+                isTarget && 'ring-2 ring-cocoa',
               )}
+              style:background-color="color-mix(in oklab, {lane.status.color ??
+                'var(--clay-pebble)'} 22%, var(--card))"
               role="listitem"
               aria-label="{statusLabel(lane.status.name)}, {plural(
                 lane.tasks.length,
@@ -406,7 +400,7 @@
                   aria-hidden="true"
                 ></span>
                 <h2
-                  class="truncate text-xs font-semibold tracking-wide uppercase"
+                  class="truncate font-display text-sm font-extrabold tracking-wide uppercase"
                 >
                   {statusLabel(lane.status.name)}
                 </h2>
@@ -469,20 +463,12 @@
             {/if}
           {/each}
         </div>
-      </Resizable.Pane>
       {#if clickup.selectedTask}
-        <Resizable.Handle withHandle />
-        <Resizable.Pane
-          id="sprint-task"
-          order={2}
-          defaultSize={34}
-          minSize={22}
-          maxSize={60}
-        >
+        <div class="w-[min(24rem,42%)] shrink-0">
           <SprintTaskPanel />
-        </Resizable.Pane>
+        </div>
       {/if}
-    </Resizable.PaneGroup>
+    </div>
   {/if}
 </section>
 

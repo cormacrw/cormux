@@ -37,6 +37,7 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
   await page.keyboard.press('ControlOrMeta+b')
   await expect(page.getByRole('menu', { name: 'Switch branch' })).toBeVisible()
   await expect(page.getByPlaceholder('Search branches…')).toBeFocused()
+  await page.screenshot({ path: 'e2e/output/branch-picker.png' })
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menu')).toHaveCount(0)
 

@@ -24,10 +24,10 @@
     <button
       type="button"
       class={cn(
-        'rounded-md px-3 py-1.5 text-left text-sm transition-colors',
+        'rounded-[14px_12px_14px_11px] px-3 py-1.5 text-left text-sm font-semibold transition-colors',
         active === section.id
-          ? 'bg-muted font-medium text-foreground'
-          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+          ? 'bg-card font-extrabold text-foreground shadow-lift-1'
+          : 'text-muted-foreground hover:bg-card/60 hover:text-foreground',
       )}
       aria-current={active === section.id ? 'true' : undefined}
       onclick={() => onJump(section.id)}

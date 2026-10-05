@@ -114,18 +114,20 @@
   }
 </script>
 
-<section class="flex min-h-0 flex-1 flex-col gap-2" data-od-id="output">
+<section class="flex min-h-0 flex-1 flex-col p-3" data-od-id="output">
+  <div
+    class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px_22px_26px_20px] bg-slate text-[#fff1de] shadow-lift-2"
+  >
   <header
     id="term-head"
-    class="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2.5"
+    class="flex flex-wrap items-center gap-2 border-b border-white/15 px-4 py-3"
     data-od-id="output-head"
   >
     <Badge variant={runtime.appStatus === 'running' ? 'default' : 'secondary'}>
       {#if provisioning || runtime.appStatus === 'starting'}
         <LoaderCircle class="mr-1 size-3 animate-spin" aria-hidden="true" />
       {:else if runtime.appStatus === 'running'}
-        <span class="mr-1 size-2 rounded-full bg-emerald-500" aria-hidden="true"
-        ></span>
+        <span class="bead mr-1 size-2.5 bg-leaf" aria-hidden="true"></span>
       {/if}
       {chipLabel}
     </Badge>
@@ -140,7 +142,7 @@
     {#if runtime.appStatus === 'running' && runtime.port}
       <button
         type="button"
-        class="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
+        class="inline-flex items-center gap-1 font-mono text-xs text-pond underline-offset-2 hover:underline"
         onclick={openAppUrl}
       >
         localhost:{runtime.port}
@@ -166,8 +168,9 @@
       </Button>
     {:else}
       <Button
-        variant="ghost"
+        variant="secondary"
         size="sm"
+        class="!bg-custard !text-cocoa"
         disabled={runtime.appStatus === 'starting'}
         onclick={() => run('restart')}
       >
@@ -175,9 +178,8 @@
         {#if !narrow}Restart{/if}
       </Button>
       <Button
-        variant="ghost"
+        variant="destructive"
         size="sm"
-        class="text-destructive hover:text-destructive"
         onclick={() => run('stop')}
       >
         <Square class="size-3.5" aria-hidden="true" />
@@ -188,6 +190,7 @@
     <Button
       variant="ghost"
       size="sm"
+      class="!text-[#fff1de]"
       disabled={lines.length === 0}
       onclick={() => run('clear')}
     >
@@ -227,4 +230,5 @@
   {:else}
     <WorkspaceOutputLog {lines} onScroll={onLogScroll} bind:logEl />
   {/if}
+  </div>
 </section>

@@ -7,7 +7,6 @@
   import type { PullRequest } from '$lib/state/prs.svelte'
   import Check from '@lucide/svelte/icons/check'
   import Clock from '@lucide/svelte/icons/clock'
-  import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Glasses from '@lucide/svelte/icons/glasses'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import X from '@lucide/svelte/icons/x'
@@ -42,11 +41,21 @@
     }
   })
 
-  const iconTone = $derived.by(() => {
-    if (pr.isDraft) return 'text-muted-foreground'
-    if (pr.checks === 'running') return 'text-amber-500 dark:text-amber-400'
-    return 'text-emerald-600 dark:text-emerald-400'
+  // The bead says how the checks are doing; drafts stay pebble.
+  const beadColor = $derived.by(() => {
+    if (pr.isDraft) return 'var(--clay-pebble)'
+    if (pr.checks === 'running') return 'var(--clay-marigold)'
+    if (pr.checks === 'fail') return 'var(--clay-brick)'
+    return 'var(--clay-leaf)'
   })
+
+  const checksChip = $derived(
+    pr.checks === 'pass'
+      ? 'bg-mint'
+      : pr.checks === 'fail'
+        ? 'bg-felt-brick text-brick-ink'
+        : 'bg-butter',
+  )
 
   const checksLabel = $derived.by(() => {
     if (pr.checks === 'pass') return 'Checks passing'
@@ -86,29 +95,33 @@
 </script>
 
 <li
-  class="grid gap-3 px-4 py-3 min-[1181px]:grid-cols-[auto_1fr_auto_auto] min-[1181px]:items-center min-[721px]:max-[1180px]:grid-cols-[auto_1fr_auto]"
+  class="grid gap-x-3 gap-y-1.5 rounded-[16px_12px_14px_11px] px-3 py-2 transition-colors hover:bg-foreground/[0.04] min-[1181px]:grid-cols-[auto_1fr_auto_auto] min-[1181px]:items-center min-[721px]:max-[1180px]:grid-cols-[auto_1fr_auto]"
   data-od-id="pr-row-{pr.num}"
 >
   <div class="flex items-start min-[1181px]:self-center">
-    <GitPullRequest class="size-4 shrink-0 {iconTone}" aria-hidden="true" />
+    <span
+      class="bead mt-0.5 size-6 min-[1181px]:mt-0"
+      style="background: {beadColor}"
+      aria-hidden="true"
+    ></span>
     <span class="sr-only"
       >{pr.isDraft ? 'Draft pull request' : 'Open pull request'}</span
     >
   </div>
 
-  <div class="min-w-0 space-y-1.5">
-    <h3 class="text-sm font-medium leading-snug">
+  <div class="min-w-0 space-y-0.5">
+    <h3 class="font-sans text-[15px] leading-snug font-bold">
       <a
         href={pr.htmlUrl}
         class="rounded-sm hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         onclick={onTitleClick}
       >
         {pr.title}
-        <span class="font-normal text-muted-foreground"> #{pr.num}</span>
+        <span class="text-muted-foreground"> #{pr.num}</span>
       </a>
     </h3>
     <div
-      class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+      class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] font-semibold text-muted-foreground [&>span+span]:before:mr-1.5 [&>span+span]:before:content-['·']"
     >
       <span class={pr.rel === 'review' ? 'font-medium text-foreground' : ''}>
         {relationshipLabel}
@@ -117,20 +130,14 @@
         <span>@{pr.author}</span>
       {/if}
       <span>
-        <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]"
-          >{pr.head}</code
-        >
+        <code class="font-mono text-[12.5px]">{pr.head}</code>
         →
-        <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]"
-          >{pr.base}</code
-        >
+        <code class="font-mono text-[12.5px]">{pr.base}</code>
       </span>
       <span>
         {pr.files} files
-        <span class="text-emerald-600 dark:text-emerald-400"
-          >+{pr.additions}</span
-        >
-        <span class="text-red-600 dark:text-red-400"> −{pr.deletions}</span>
+        <span class="text-success">+{pr.additions}</span>
+        <span class="text-destructive"> −{pr.deletions}</span>
       </span>
       <span>Updated {formatRelativeAge(pr.updatedAtMs, nowMs)}</span>
       {#if pr.repoFullName}
@@ -143,12 +150,12 @@
         class="flex flex-wrap items-center gap-2 min-[1181px]:hidden min-[721px]:max-[1180px]:flex"
       >
         <span
-          class="inline-flex items-center gap-1 text-xs text-muted-foreground"
+          class="inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-[12px] font-bold text-cocoa shadow-[inset_0_-2px_0_rgb(0_0_0/0.08)] {checksChip}"
         >
           {#if pr.checks === 'pass'}
-            <Check class="size-3.5 text-emerald-600" aria-hidden="true" />
+            <Check class="size-3.5" strokeWidth={3} aria-hidden="true" />
           {:else if pr.checks === 'fail'}
-            <X class="size-3.5 text-red-600" aria-hidden="true" />
+            <X class="size-3.5" strokeWidth={3} aria-hidden="true" />
           {:else}
             <Clock class="size-3.5" aria-hidden="true" />
           {/if}
@@ -159,14 +166,16 @@
   </div>
 
   <div
-    class="hidden min-[1181px]:flex flex-col items-end gap-2 text-xs text-muted-foreground min-[721px]:max-[1180px]:hidden"
+    class="hidden min-[1181px]:flex flex-col items-end gap-2 min-[721px]:max-[1180px]:hidden"
   >
     {#if pr.checks !== 'none'}
-      <span class="inline-flex items-center gap-1">
+      <span
+        class="inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-[12px] font-bold text-cocoa shadow-[inset_0_-2px_0_rgb(0_0_0/0.08)] {checksChip}"
+      >
         {#if pr.checks === 'pass'}
-          <Check class="size-3.5 text-emerald-600" aria-hidden="true" />
+          <Check class="size-3.5" strokeWidth={3} aria-hidden="true" />
         {:else if pr.checks === 'fail'}
-          <X class="size-3.5 text-red-600" aria-hidden="true" />
+          <X class="size-3.5" strokeWidth={3} aria-hidden="true" />
         {:else}
           <Clock class="size-3.5" aria-hidden="true" />
         {/if}
@@ -183,8 +192,8 @@
         {#snippet child({ props })}
           <Button
             {...props}
-            variant="ghost"
-            size="icon-sm"
+            size="sm"
+            class="bg-plum text-cocoa"
             onclick={() => void onReview()}
             disabled={starting}
             aria-busy={starting}
@@ -193,8 +202,9 @@
             {#if starting}
               <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
             {:else}
-              <Glasses class="size-4" aria-hidden="true" />
+              <Glasses class="size-4" strokeWidth={2.5} aria-hidden="true" />
             {/if}
+            {reviewWorkspace ? 'Open' : 'Review'}
           </Button>
         {/snippet}
       </Tooltip.Trigger>

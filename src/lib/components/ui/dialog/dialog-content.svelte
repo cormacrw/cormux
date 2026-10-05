@@ -27,7 +27,7 @@
   <DialogPrimitive.Content
     data-slot="dialog-content"
     class={cn(
-      'bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/15 grid max-w-[calc(100%_-_2rem)] gap-5 rounded-xl p-5 text-sm ring-1 shadow-[0_24px_64px_rgba(0,0,0,.16)] dark:shadow-[0_32px_80px_rgba(0,0,0,.6)] duration-200 sm:max-w-sm fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none',
+      'bg-card text-card-foreground data-open:clay-pop data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 grid max-w-[calc(100%_-_2rem)] gap-5 rounded-[34px_28px_32px_26px/28px_34px_26px_32px] p-7 text-[15px] outline outline-dashed -outline-offset-6 outline-stitch shadow-lift-5 duration-200 sm:max-w-sm fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none',
       className,
     )}
     {...restProps}
@@ -38,8 +38,8 @@
       <DialogPrimitive.Close data-slot="dialog-close">
         {#snippet child({ props })}
           <Button
-            variant="ghost"
-            class="absolute top-4 right-4"
+            variant="secondary"
+            class="absolute top-6 right-6"
             size="icon-sm"
             {...props}
           >

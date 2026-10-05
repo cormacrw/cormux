@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
+  import { clayColor } from '$lib/clay/identity'
+  import Buddy from '$lib/components/clay/Buddy.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
@@ -184,32 +186,35 @@
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <header
-      class="ws-top flex items-center justify-between gap-4 border-b border-border/60 px-5 py-3"
+      class="felt-sm mx-4 mt-3 flex items-center justify-between gap-4 !bg-blush px-4 py-2.5"
       data-tauri-drag-region
       data-od-id="session-header"
       onmousedown={startHeaderDrag}
     >
-      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <h1
-          bind:this={headingEl}
-          id="sess-heading"
-          tabindex="-1"
-          class="text-[15px] font-medium tracking-tight outline-none [text-wrap:pretty]"
-        >
-          {scratch.title}
-        </h1>
-        <p
-          class="truncate font-mono text-xs text-muted-foreground"
-          title={repoPath}
-        >
-          {repoPath}
-        </p>
+      <div class="flex min-w-0 flex-1 items-center gap-3">
+        <Buddy color={clayColor(scratch.id)} face="sleepy" size={32} />
+        <div class="min-w-0">
+          <h1
+            bind:this={headingEl}
+            id="sess-heading"
+            tabindex="-1"
+            class="clay-title truncate outline-none"
+          >
+            {scratch.title}
+          </h1>
+          <p
+            class="truncate font-mono text-xs text-muted-foreground"
+            title={repoPath}
+          >
+            {repoPath}
+          </p>
+        </div>
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <ScratchStatusBadge {status} />
         <Button
           variant="secondary"
-          size="xl"
+          size="default"
           data-action="end-scratch"
           data-od-id="session-end"
           aria-keyshortcuts="Meta+E"

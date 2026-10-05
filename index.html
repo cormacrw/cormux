@@ -25,8 +25,15 @@
         ) {
           root.classList.add('dark')
         }
-        const accent = read('cormux-accent')
-        if (accent && accent !== 'neutral') root.dataset.accent = accent
+        const felt = read('cormux-felt')
+        if (
+          felt === 'strawberry' ||
+          felt === 'lemonade' ||
+          felt === 'grape' ||
+          felt === 'seaside'
+        ) {
+          root.dataset.felt = felt
+        }
         const uiSize = Number(read('cormux-ui-font-size'))
         if (uiSize >= 14 && uiSize <= 18) root.style.fontSize = uiSize + 'px'
         const codeSize = Number(read('cormux-code-font-size'))
@@ -38,11 +45,23 @@
     <style>
       html {
         color-scheme: light;
-        background: #f5f6f7;
+        background: #bfd8e6;
+      }
+      html[data-felt='strawberry'] {
+        background: #f6cbd3;
+      }
+      html[data-felt='lemonade'] {
+        background: #f6e39e;
+      }
+      html[data-felt='grape'] {
+        background: #d4caf1;
+      }
+      html[data-felt='seaside'] {
+        background: #bee6d6;
       }
       html.dark {
         color-scheme: dark;
-        background: #0b0c0e;
+        background: #1f2a28;
       }
     </style>
   </head>

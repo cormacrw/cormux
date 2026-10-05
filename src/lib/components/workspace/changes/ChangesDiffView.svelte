@@ -190,17 +190,31 @@
 
 <style>
   /* Match the app's surfaces instead of GitHub's palettes. */
-  .changes-diff :global(.diff-tailwindcss-wrapper .diff-style-root) {
-    --diff-plain-content--: var(--background);
-    --diff-plain-lineNumber--: var(--background);
-    --diff-expand-content--: var(--card);
-    --diff-expand-lineNumber--: var(--card);
-    --diff-empty-content--: var(--card);
+  /* Unchanged lines are plain paper: white in light, grey in dark. Felt ground is tinted. */
+  .changes-diff :global(.diff-tailwindcss-wrapper[data-theme] .diff-style-root) {
+    --diff-plain-content--: #fff;
+    --diff-plain-lineNumber--: #f3f3f1;
+    --diff-expand-content--: #f3f3f1;
+    --diff-expand-lineNumber--: #f3f3f1;
+    --diff-empty-content--: #f3f3f1;
+    --diff-hunk-content--: #eeeae6;
+    --diff-hunk-lineNumber--: #e6e2dc;
+    --diff-hunk-lineNumber-hover--: var(--cocoa);
     --diff-border--: var(--border);
-    --diff-hunk-content--: var(--muted);
-    --diff-hunk-lineNumber--: var(--muted);
     --diff-add-widget--: var(--primary);
     --diff-add-widget-color--: var(--primary-foreground);
+  }
+  :global(html.dark)
+    .changes-diff
+    :global(.diff-tailwindcss-wrapper[data-theme] .diff-style-root) {
+    --diff-plain-content--: #3a3a3a;
+    --diff-plain-lineNumber--: #333;
+    --diff-expand-content--: #333;
+    --diff-expand-lineNumber--: #333;
+    --diff-empty-content--: #333;
+    --diff-hunk-content--: #444;
+    --diff-hunk-lineNumber--: #4a4a4a;
+    --diff-hunk-lineNumber-hover--: #fff1de;
   }
   /* Comments sit in the diff as cards with an accent outline, so they read as notes rather than code. */
   .diff-comment-row {

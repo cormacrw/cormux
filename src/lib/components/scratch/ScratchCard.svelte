@@ -21,7 +21,7 @@
 </script>
 
 <article
-  class="sess-card group/sess flex min-h-[52px] min-w-0 items-stretch rounded-xl border border-border bg-card text-card-foreground transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:border-foreground/25 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-muted/40 has-[.sess-open:active]:bg-muted/70 {entering &&
+  class="sess-card group/sess flex min-h-[60px] min-w-0 items-stretch rounded-[999px_999px_999px_999px] bg-card text-card-foreground shadow-lift-1 transition-transform duration-200 ease-[var(--squish)] hover:-translate-y-0.5 {entering &&
   !settings.reduceMotion
     ? 'animate-in fade-in slide-in-from-bottom-1 duration-300'
     : ''}"
@@ -30,7 +30,7 @@
 >
   <button
     type="button"
-    class="sess-open flex min-w-0 flex-1 items-center gap-3 rounded-l-xl py-2 pl-4 pr-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+    class="sess-open flex min-w-0 flex-1 items-center gap-3 rounded-l-full py-2.5 pr-2 pl-6 text-left outline-none"
     data-action="open-scratch"
     data-arg={scratch.id}
     aria-label="{scratch.title}, {scratch.repoId}, {SCRATCH_STATUS_LABEL[
@@ -39,8 +39,8 @@
     onclick={() => app.openScratch(scratch.id)}
   >
     <span class="flex min-w-0 flex-1 flex-col">
-      <span class="truncate text-sm font-medium">{scratch.title}</span>
-      <span class="truncate font-mono text-xs text-muted-foreground"
+      <span class="truncate text-[16px] font-bold">{scratch.title}</span>
+      <span class="truncate text-[13px] font-semibold text-muted-foreground"
         >{scratch.repoId}</span
       >
     </span>
@@ -48,7 +48,7 @@
   </button>
   <button
     type="button"
-    class="flex size-11 shrink-0 items-center justify-center self-center rounded-lg text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset mr-1"
+    class="mr-3 flex size-9 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground opacity-0 outline-none transition-opacity group-hover/sess:opacity-100 focus-visible:opacity-100 hover:bg-foreground/[0.07] hover:text-brick-ink"
     data-action="delete-scratch"
     data-arg={scratch.id}
     title="Delete scratch"

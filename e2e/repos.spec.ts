@@ -41,6 +41,14 @@ test.describe('repos', () => {
     await expect(single).not.toBeChecked()
     await single.click()
     await expect(single).toBeChecked()
+    const pathField = page.locator('#settings-repo-path')
+    await pathField.scrollIntoViewIfNeeded()
+    await pathField.focus()
+    await expect(pathField).toHaveCSS('outline-style', 'none')
+    await expect(pathField).toHaveCSS(
+      'box-shadow',
+      /rgb\(246,\s*201,\s*210\)/,
+    )
     await page.screenshot({ path: 'e2e/output/repos-settings.png' })
 
     expect(errors).toEqual([])

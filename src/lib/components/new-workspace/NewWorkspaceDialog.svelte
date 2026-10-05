@@ -4,6 +4,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
+  import * as Select from '$lib/components/ui/select/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
@@ -138,12 +139,18 @@
     if (branchError) branchError = null
   }
 
-  async function onRepoChange(event: Event) {
-    const select = event.currentTarget as HTMLSelectElement
-    repoId = select.value
+  function engineLabel(kind: EngineKind) {
+    const option = ENGINE_OPTIONS.find((row) => row.kind === kind)
+    const install = engineInstallLabel(engineStatusByKind.get(kind))
+    return `${option?.label ?? kind}${install ? ` — ${install}` : ''}`
+  }
+
+  function onRepoChange(next: string) {
+    if (!next || next === repoId) return
+    repoId = next
     baseBranch = repoDefaultBranch(repoId)
     baseError = null
-    await loadBranches(repoId)
+    void loadBranches(repoId)
   }
 
   function branchValidationContext() {
@@ -313,20 +320,28 @@
         <div class="grid gap-4 min-[760px]:grid-cols-2">
           <div class="grid gap-1.5">
             <label class="text-sm font-medium" for="nw-engine">AI engine</label>
-            <select
-              id="nw-engine"
-              class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
-              bind:value={engine}
-              aria-describedby="nw-engine-hint"
+            <Select.Root
+              type="single"
+              value={engine}
+              onValueChange={(next) => {
+                if (next) engine = next as EngineKind
+              }}
             >
-              {#each ENGINE_OPTIONS as option (option.kind)}
-                {@const status = engineStatusByKind.get(option.kind)}
-                {@const install = engineInstallLabel(status)}
-                <option value={option.kind}>
-                  {option.label}{install ? ` — ${install}` : ''}
-                </option>
-              {/each}
-            </select>
+              <Select.Trigger
+                id="nw-engine"
+                class="w-full"
+                aria-describedby="nw-engine-hint"
+              >
+                {engineLabel(engine)}
+              </Select.Trigger>
+              <Select.Content>
+                {#each ENGINE_OPTIONS as option (option.kind)}
+                  <Select.Item value={option.kind} label={engineLabel(option.kind)}>
+                    {engineLabel(option.kind)}
+                  </Select.Item>
+                {/each}
+              </Select.Content>
+            </Select.Root>
             <p id="nw-engine-hint" class="text-xs text-muted-foreground">
               {engineHintText}
             </p>
@@ -336,7 +351,7 @@
             {#if repos.items.length === 0}
               <div
                 id="nw-repo"
-                class="border-input bg-input/30 text-muted-foreground flex h-8 items-center rounded-lg border px-2.5 text-sm"
+                class="sunken text-muted-foreground flex h-10 items-center px-3.5 text-sm"
               >
                 No repositories yet
               </div>
@@ -344,17 +359,26 @@
                 Add a repo in Settings before creating a workspace.
               </p>
             {:else}
-              <select
-                id="nw-repo"
-                class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
+              <Select.Root
+                type="single"
                 value={repoId}
-                onchange={onRepoChange}
-                aria-describedby="nw-repo-hint"
+                onValueChange={onRepoChange}
               >
-                {#each repos.items as repo (repo.id)}
-                  <option value={repo.id}>{repo.name}</option>
-                {/each}
-              </select>
+                <Select.Trigger
+                  id="nw-repo"
+                  class="w-full"
+                  aria-describedby="nw-repo-hint"
+                >
+                  {repos.items.find((repo) => repo.id === repoId)?.name}
+                </Select.Trigger>
+                <Select.Content>
+                  {#each repos.items as repo (repo.id)}
+                    <Select.Item value={repo.id} label={repo.name}
+                      >{repo.name}</Select.Item
+                    >
+                  {/each}
+                </Select.Content>
+              </Select.Root>
               <p id="nw-repo-hint" class="text-xs text-muted-foreground">
                 The worktree is created from this repo
               </p>

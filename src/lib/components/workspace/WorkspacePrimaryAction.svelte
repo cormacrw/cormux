@@ -87,7 +87,7 @@
 {#if workspace.kind === 'review'}
   <Button
     variant="default"
-    size="xl"
+    size="default"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={reviewSubmitted}
     aria-keyshortcuts="Meta+P"
@@ -102,7 +102,7 @@
 {:else if branchPr}
   <Button
     variant="default"
-    size="xl"
+    size="default"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={!prUrl}
     aria-keyshortcuts="Meta+P"
@@ -117,7 +117,7 @@
 {:else}
   <Button
     variant="default"
-    size="xl"
+    size="default"
     class="gap-2 shrink-0 max-md:flex-1"
     aria-keyshortcuts="Meta+P"
     data-ws-focus="primary"

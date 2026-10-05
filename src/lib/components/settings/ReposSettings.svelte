@@ -10,6 +10,7 @@
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
   import RepoDefaultBranchField from '$lib/components/settings/RepoDefaultBranchField.svelte'
+  import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { showToast } from '$lib/feedback/show-toast'
@@ -244,8 +245,9 @@
   }
 </script>
 
+<SettingsPanel class="mt-4">
 <ul
-  class="set-group repo-list mt-4 space-y-2"
+  class="set-group repo-list"
   aria-labelledby="settings-repos-h"
   data-od-id="settings-repo-list"
 >
@@ -258,7 +260,7 @@
     )}
     {@const panelOpen = isExpanded(repo.id)}
     <li
-      class="repo-item rounded-lg border border-border"
+      class="repo-item border-b border-border"
       data-od-id="settings-repo-{key}"
     >
       <div class="set-row flex flex-wrap items-center gap-2 px-3 py-2">
@@ -282,7 +284,7 @@
         {/if}
         {#if !run}
           <span
-            class="repo-flag text-xs font-medium text-amber-500"
+            class="repo-flag text-xs font-semibold text-marigold"
             id="repo-flag-{key}"
           >
             No run command
@@ -420,7 +422,7 @@
 </ul>
 
 <form
-  class="repo-add mt-4 grid gap-2"
+  class="repo-add grid gap-2 px-4 py-3"
   data-od-id="settings-repo-add"
   novalidate
   onsubmit={(event) => void submitAdd(event)}
@@ -472,3 +474,4 @@
     </p>
   {/if}
 </form>
+</SettingsPanel>

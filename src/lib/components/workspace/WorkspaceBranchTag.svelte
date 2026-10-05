@@ -130,7 +130,7 @@
     aria-disabled="true"
     data-ws-focus="branch"
     data-od-id="ws-branch"
-    class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
+    class="h-8 max-w-[min(100%,16rem)] shrink-0 gap-1.5 !rounded-full !bg-custard px-3 font-display text-sm font-extrabold !text-cocoa"
   >
     <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
     <span class="sr-only">Branch</span>
@@ -154,7 +154,7 @@
           aria-keyshortcuts="Meta+B"
           data-ws-focus="branch"
           data-od-id="ws-branch"
-          class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
+          class="h-8 max-w-[min(100%,16rem)] shrink-0 gap-1.5 !rounded-full !bg-custard px-3 font-display text-sm font-extrabold !text-cocoa"
         >
           <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
           <span class="sr-only">Branch</span>
@@ -173,18 +173,17 @@
     <DropdownMenu.Content
       id="ws-branch-menu"
       align="start"
-      class="w-[min(100vw-2rem,20rem)] p-0"
+      class="w-[min(100vw-2rem,22rem)] p-2"
       role="menu"
       aria-label="Switch branch"
     >
-      <DropdownMenu.Label class="px-3 py-2 text-xs font-medium">
+      <DropdownMenu.Label class="eyebrow px-3 pt-1 pb-1 text-muted-foreground">
         Switch branch
       </DropdownMenu.Label>
-      <Command.Root shouldFilter={false} class="border-0 shadow-none">
+      <Command.Root shouldFilter={false} class="bg-transparent p-0 shadow-none">
         <Command.Input
           bind:value={query}
           placeholder="Search branches…"
-          class="h-9"
         />
         <Command.List class="max-h-[280px] min-w-[280px]">
           {#if loadingBranches}
@@ -204,7 +203,7 @@
                   onSelect={() => {
                     if (!item.disabled) void pickBranch(item.name)
                   }}
-                  class="flex gap-2 font-mono text-xs"
+                  class="font-mono text-[13px] font-semibold"
                 >
                   <span class="flex w-4 shrink-0 justify-center">
                     {#if item.checked}
@@ -225,12 +224,12 @@
           {/if}
         </Command.List>
       </Command.Root>
-      <div class="flex gap-2 border-t border-border/60 p-2">
+      <div class="mt-1 flex gap-2 border-t border-border p-2 pt-3">
         <input
           type="text"
           bind:value={newBranchName}
           placeholder="New branch name"
-          class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+          class="sunken min-w-0 flex-1 px-3 py-1.5 font-mono text-[13px]"
           onkeydown={(event) => {
             if (event.key === 'Enter') void submitNewBranch()
           }}

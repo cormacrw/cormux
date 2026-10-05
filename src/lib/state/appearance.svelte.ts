@@ -4,17 +4,16 @@
  * storage keys in sync with the script there.
  */
 
-export const ACCENTS = [
-  { id: 'neutral', label: 'Graphite' },
-  { id: 'blue', label: 'Blue' },
-  { id: 'violet', label: 'Violet' },
-  { id: 'green', label: 'Green' },
-  { id: 'gold', label: 'Gold' },
-  { id: 'orange', label: 'Orange' },
-  { id: 'rose', label: 'Rose' },
+/** Felt colours: each re-dyes the ground, sidebar, panels and primary clay (app.css). */
+export const FELTS = [
+  { id: 'meadow', label: 'Meadow', sidebar: '#35615B', ground: '#BFD8E6', primary: '#F08A6C' },
+  { id: 'strawberry', label: 'Strawberry', sidebar: '#8A2F4E', ground: '#F6CBD3', primary: '#EF6F86' },
+  { id: 'lemonade', label: 'Lemonade', sidebar: '#A84A1C', ground: '#F6E39E', primary: '#F28A4B' },
+  { id: 'grape', label: 'Grape soda', sidebar: '#47398A', ground: '#D4CAF1', primary: '#E583B8' },
+  { id: 'seaside', label: 'Seaside', sidebar: '#1D586D', ground: '#BEE6D6', primary: '#FF9B5E' },
 ] as const
 
-export type AccentId = (typeof ACCENTS)[number]['id']
+export type FeltId = (typeof FELTS)[number]['id']
 
 export const UI_FONT_SIZES = [14, 15, 16, 17, 18] as const
 export const CODE_FONT_SIZES = [11, 12, 13, 14, 15, 16] as const
@@ -22,7 +21,7 @@ export const CODE_FONT_SIZES = [11, 12, 13, 14, 15, 16] as const
 export const DEFAULT_UI_FONT_SIZE = 16
 export const DEFAULT_CODE_FONT_SIZE = 12
 
-const ACCENT_KEY = 'cormux-accent'
+const FELT_KEY = 'cormux-felt'
 const UI_FONT_KEY = 'cormux-ui-font-size'
 const CODE_FONT_KEY = 'cormux-code-font-size'
 
@@ -48,14 +47,14 @@ function readSize(key: string, allowed: readonly number[], fallback: number) {
 }
 
 class AppearanceState {
-  accent = $state<AccentId>('neutral')
+  felt = $state<FeltId>('meadow')
   uiFontSize = $state(DEFAULT_UI_FONT_SIZE)
   codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
 
   constructor() {
-    const accent = read(ACCENT_KEY)
-    if (ACCENTS.some((row) => row.id === accent)) {
-      this.accent = accent as AccentId
+    const felt = read(FELT_KEY)
+    if (FELTS.some((row) => row.id === felt)) {
+      this.felt = felt as FeltId
     }
     this.uiFontSize = readSize(UI_FONT_KEY, UI_FONT_SIZES, DEFAULT_UI_FONT_SIZE)
     this.codeFontSize = readSize(
@@ -66,9 +65,9 @@ class AppearanceState {
     this.apply()
   }
 
-  setAccent(next: AccentId) {
-    this.accent = next
-    write(ACCENT_KEY, next)
+  setFelt(next: FeltId) {
+    this.felt = next
+    write(FELT_KEY, next)
     this.apply()
   }
 
@@ -89,8 +88,8 @@ class AppearanceState {
   private apply() {
     if (typeof document === 'undefined') return
     const root = document.documentElement
-    if (this.accent === 'neutral') delete root.dataset.accent
-    else root.dataset.accent = this.accent
+    if (this.felt === 'meadow') delete root.dataset.felt
+    else root.dataset.felt = this.felt
     // Tailwind sizes are rem, so the root size scales text across the UI.
     root.style.fontSize =
       this.uiFontSize === DEFAULT_UI_FONT_SIZE ? '' : `${this.uiFontSize}px`

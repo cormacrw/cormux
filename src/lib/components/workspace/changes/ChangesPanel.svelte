@@ -149,15 +149,15 @@
   role="tabpanel"
   aria-labelledby="thread-tab-changes"
   data-od-id="changes-panel"
-  class="flex min-h-0 flex-1 bg-background"
+  class="flex min-h-0 flex-1"
 >
   <StackRail {workspace} {repoId} {provisioning} />
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+  <div class="felt-sm m-3 ml-1.5 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
     <div
-      class="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2"
+      class="flex shrink-0 flex-wrap items-center gap-2 px-4 py-3"
     >
       <span
-        class="flex h-6 min-w-0 items-center gap-1.5 font-mono text-xs"
+        class="flex h-8 min-w-0 items-center gap-1.5 font-display text-lg font-extrabold"
         data-od-id="changes-target"
         title={shownTarget
           ? `Committed changes on ${shownTarget.head} since it left ${shownTarget.base}`

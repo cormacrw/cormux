@@ -37,7 +37,7 @@
   </Dialog.Header>
   <Dialog.Content
     class={cn(
-      'rounded-xl! top-1/3 translate-y-0 overflow-hidden p-0',
+      'top-[18%] !max-w-[560px] !translate-y-0 !gap-0 overflow-hidden !rounded-[28px_22px_26px_20px] !p-3 !outline-none sm:!max-w-[560px]',
       className,
     )}
     {showCloseButton}

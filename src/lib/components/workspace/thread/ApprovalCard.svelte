@@ -89,10 +89,7 @@
 <div bind:this={cardEl} tabindex="-1" class="outline-none">
   <Card.Root
     data-od-id="approval-{item.id}"
-    class={cn(
-      'border-warning/30 bg-warning/5',
-      quiet && 'border-border/60 bg-muted/20 opacity-90',
-    )}
+    class={cn('!bg-butter', quiet && '!bg-muted opacity-90')}
   >
     <Card.Header class="flex-row items-start gap-2 space-y-0 pb-2">
       {#if item.state === 'approved'}
@@ -104,9 +101,9 @@
       {/if}
       <div class="min-w-0 flex-1 space-y-1">
         <div class="flex flex-wrap items-center gap-2">
-          <Card.Title class="text-sm font-medium">{item.title}</Card.Title>
+          <Card.Title class="font-display text-lg font-extrabold">{item.title}</Card.Title>
           {#if item.state === 'pending'}
-            <Badge variant="outline" class="border-warning/40 text-warning"
+            <Badge class="!bg-card font-display font-extrabold text-cocoa"
               >Needs approval</Badge
             >
           {/if}
@@ -152,7 +149,7 @@
           <div class="flex flex-wrap gap-2">
             <Button
               size="sm"
-              class="rounded-full bg-emerald-600 text-white hover:bg-emerald-600/90"
+              class="!bg-leaf !text-cocoa"
               disabled={resolving}
               onclick={() => decide(true)}
             >

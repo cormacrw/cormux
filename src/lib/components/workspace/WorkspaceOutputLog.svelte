@@ -24,7 +24,7 @@
   aria-label="App output"
   tabindex="0"
   aria-live="off"
-  class="min-h-[12rem] flex-1 overflow-auto rounded-md border border-border bg-muted/20 p-3 font-mono text-(length:--code-font-size) leading-[1.6]"
+  class="min-h-[12rem] flex-1 overflow-auto bg-transparent p-4 font-mono text-(length:--code-font-size) leading-[1.6] text-[#fff1de]"
   data-od-id="output-log"
   onscroll={onScroll}
 >

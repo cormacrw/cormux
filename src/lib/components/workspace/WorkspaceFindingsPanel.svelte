@@ -137,7 +137,7 @@
             bind:this={headingRef}
             id="fnd-heading"
             tabindex="-1"
-            class="text-xl font-semibold tracking-tight outline-none"
+            class="clay-title outline-none"
           >
             Review findings
           </h2>

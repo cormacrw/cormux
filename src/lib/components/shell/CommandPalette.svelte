@@ -30,6 +30,7 @@
   import { showToast } from '$lib/feedback/show-toast'
   import { cubicOut } from 'svelte/easing'
   import { scale } from 'svelte/transition'
+  import { clayColor } from '$lib/clay/identity'
   import Plus from '@lucide/svelte/icons/plus'
   import Zap from '@lucide/svelte/icons/zap'
 
@@ -201,19 +202,20 @@
         : undefined}
     aria-controls="pal-list"
     aria-expanded={open}
+    class="pr-14"
     onkeydown={onInputKeydown}
   >
     {#snippet leading()}
       {#if todoMode}
         <span
-          class="rounded-md bg-foreground/10 px-1.5 py-0.5 text-xs font-medium text-foreground"
+          class="rounded-full bg-marigold px-2 py-0.5 font-display text-[12px] font-extrabold text-cocoa"
           data-od-id="palette-todo-chip"
           in:scale={{ start: 0.8, duration: motionMs(160), easing: cubicOut }}
           >TODO</span
         >
       {:else if macroMode}
         <span
-          class="inline-flex max-w-[200px] items-center gap-1 rounded-md bg-foreground/10 px-1.5 py-0.5 text-xs font-medium text-foreground"
+          class="inline-flex max-w-[200px] items-center gap-1 rounded-full bg-plum px-2 py-0.5 font-display text-[12px] font-extrabold text-cocoa"
           data-od-id="palette-macro-chip"
           in:scale={{ start: 0.8, duration: motionMs(160), easing: cubicOut }}
         >
@@ -223,7 +225,7 @@
       {/if}
     {/snippet}
   </Command.Input>
-  <Command.List id="pal-list" class="max-h-[min(360px,50vh)]">
+  <Command.List id="pal-list" class="max-h-[min(480px,62vh)] pb-1">
     {#if todoMode}
       <Command.Group heading="TODOs">
         <Command.Item
@@ -231,7 +233,12 @@
           disabled={!chipText}
           onSelect={() => void addTodo(query)}
         >
-          <Plus class="text-muted-foreground" aria-hidden="true" />
+          <span
+            class="inline-flex size-6 shrink-0 items-center justify-center rounded-[50%_46%_52%_48%] text-cocoa shadow-[inset_0_-2px_0_rgb(0_0_0/0.2),inset_1px_2px_2px_rgb(255_255_255/0.6)]"
+            style:background={clayColor('todo')}
+          >
+            <Plus class="size-3.5" aria-hidden="true" />
+          </span>
           <span class="min-w-0 flex-1 truncate">
             {chipText ? `Add “${chipText}”` : 'Type a task, then press Enter'}
           </span>
@@ -244,7 +251,12 @@
           value="macro-start"
           onSelect={() => startMacro(macro, query)}
         >
-          <Zap class="text-muted-foreground" aria-hidden="true" />
+          <span
+            class="inline-flex size-6 shrink-0 items-center justify-center rounded-[50%_46%_52%_48%] text-cocoa shadow-[inset_0_-2px_0_rgb(0_0_0/0.2),inset_1px_2px_2px_rgb(255_255_255/0.6)]"
+            style:background={clayColor(macro.id)}
+          >
+            <Zap class="size-3.5" aria-hidden="true" />
+          </span>
           <span class="flex min-w-0 flex-1 flex-col">
             <span class="truncate">Start {macro.name}</span>
             <span class="truncate text-xs text-muted-foreground">
@@ -269,12 +281,19 @@
             {@const Icon = command.icon}
             <Command.Item value={command.id} onSelect={() => onSelect(command)}>
               {#if Icon}
-                <Icon class="text-muted-foreground" aria-hidden="true" />
+                <span
+                  class="inline-flex size-6 shrink-0 items-center justify-center rounded-[50%_46%_52%_48%] text-cocoa shadow-[inset_0_-2px_0_rgb(0_0_0/0.2),inset_1px_2px_2px_rgb(255_255_255/0.6)]"
+                  style:background={clayColor(command.id)}
+                >
+                  <Icon class="size-3.5" aria-hidden="true" />
+                </span>
               {/if}
               {#if command.subtitle}
                 <span class="flex min-w-0 flex-1 flex-col">
                   <span class="truncate">{command.label}</span>
-                  <span class="truncate text-xs text-muted-foreground/80">
+                  <span
+                    class="truncate text-xs text-muted-foreground/80 group-data-selected/command-item:text-cocoa/70"
+                  >
                     {command.subtitle}
                   </span>
                 </span>
@@ -283,7 +302,7 @@
               {/if}
               {#if command.meta}
                 <span
-                  class="ml-auto max-w-[45%] truncate text-xs text-muted-foreground"
+                  class="ml-auto max-w-[45%] truncate text-xs text-muted-foreground group-data-selected/command-item:text-cocoa/70"
                 >
                   {command.meta}
                 </span>
@@ -298,7 +317,7 @@
     {/if}
   </Command.List>
   <div
-    class="flex items-center justify-between border-t border-border/60 px-3 py-2 text-xs text-muted-foreground"
+    class="mt-1 flex items-center justify-between border-t border-border px-3 pt-3 pb-1 text-[13px] font-semibold text-muted-foreground"
   >
     <span class="inline-flex items-center gap-1">
       <Kbd>↑</Kbd>
@@ -310,7 +329,7 @@
       {todoMode ? 'add task' : macroMode ? 'start scratch' : 'run'}
     </span>
   </div>
-  <div class="absolute top-3 right-3 hidden sm:flex">
+  <div class="absolute top-5 right-5 hidden sm:flex">
     <Kbd>Esc</Kbd>
   </div>
 </Command.Dialog>

@@ -8,7 +8,6 @@
   import Check from '@lucide/svelte/icons/check'
   import Copy from '@lucide/svelte/icons/copy'
   import ExternalLink from '@lucide/svelte/icons/external-link'
-  import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import X from '@lucide/svelte/icons/x'
   import { openUrl } from '@tauri-apps/plugin-opener'
 
@@ -48,16 +47,17 @@
 
 {#if task}
   <aside
-    class="flex h-full min-h-0 flex-col bg-background"
+    class="flex h-full min-h-0 flex-col p-3 pl-1.5"
     aria-labelledby="sprint-task-title"
     data-od-id="sprint-task-panel"
   >
+    <div class="felt-sm flex min-h-0 flex-1 flex-col overflow-hidden">
     <header
-      class="flex items-center gap-2 border-b border-border px-4 py-2.5 text-xs text-muted-foreground"
+      class="flex items-center gap-2 px-4 pt-3.5 pb-1 text-xs text-muted-foreground"
     >
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 font-mono text-[11px] text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+        class="inline-flex items-center gap-1.5 rounded-full bg-plum/30 px-2.5 py-1 font-mono text-[11px] font-semibold text-foreground outline-none transition-colors hover:bg-plum/45 focus-visible:ring-3 focus-visible:ring-ring/50"
         aria-label={copied ? `Copied ${ref}` : `Copy ${ref}`}
         title="Copy ID"
         data-od-id="sprint-task-copy-id"
@@ -98,7 +98,7 @@
           bind:this={titleEl}
           id="sprint-task-title"
           tabindex="-1"
-          class="text-lg leading-snug font-semibold tracking-tight outline-none"
+          class="font-display text-xl leading-snug font-extrabold outline-none"
         >
           {task.name}
         </h2>
@@ -125,12 +125,11 @@
             Sprint points
             {#if task.points == null}
               <span
-                class="text-warning"
+                class="rounded-full border border-dashed border-cocoa/30 bg-custard px-1.5 py-px text-[10px] font-bold text-cocoa"
                 title="Not estimated yet"
                 data-od-id="sprint-task-unpointed"
               >
-                <TriangleAlert class="size-3.5" aria-hidden="true" />
-                <span class="sr-only">Not estimated yet</span>
+                No pts
               </span>
             {/if}
           </dt>
@@ -144,10 +143,10 @@
                 <button
                   type="button"
                   class={cn(
-                    'h-8 min-w-8 rounded-md border px-2 font-mono text-xs outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50',
+                    'grid h-8 min-w-8 place-items-center rounded-full px-2 font-mono text-xs outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50',
                     task.points === value
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border hover:bg-muted',
+                      ? 'bg-cocoa text-[#fff1de]'
+                      : 'bg-background/70 hover:bg-muted',
                   )}
                   aria-pressed={task.points === value}
                   aria-label="{value} points"
@@ -247,6 +246,7 @@
           </p>
         {/if}
       </div>
+    </div>
     </div>
   </aside>
 {/if}

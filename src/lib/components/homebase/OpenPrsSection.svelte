@@ -26,14 +26,11 @@
   data-od-id="open-prs"
 >
   <div class="flex flex-wrap items-end justify-between gap-3">
-    <h2 id="open-prs-title" class="text-sm font-medium tracking-tight">
-      Open pull requests
-      <span class="font-mono text-muted-foreground">{prs.count}</span>
-    </h2>
+    <h2 id="open-prs-title" class="clay-section">Open pull requests</h2>
     <div class="flex flex-wrap items-center gap-3">
       {#if syncLabel}
         <p
-          class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+          class="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ground-ink"
           data-od-id="pr-sync"
         >
           <GitPullRequest class="size-3.5" aria-hidden="true" />
@@ -46,27 +43,25 @@
         onValueChange={(value) => {
           if (value) prs.setFilter(value as PrFilter)
         }}
-        variant="outline"
-        size="sm"
         role="group"
         aria-label="Filter pull requests"
         data-od-id="pr-filter"
       >
         <ToggleGroup.Item value="all" aria-pressed={prs.filter === 'all'}>
           All
-          <span class="ml-1 font-mono text-muted-foreground"
+          <span class="ml-0.5"
             >{prs.filterCounts.all}</span
           >
         </ToggleGroup.Item>
         <ToggleGroup.Item value="review" aria-pressed={prs.filter === 'review'}>
           Review requested
-          <span class="ml-1 font-mono text-muted-foreground"
+          <span class="ml-0.5"
             >{prs.filterCounts.review}</span
           >
         </ToggleGroup.Item>
         <ToggleGroup.Item value="author" aria-pressed={prs.filter === 'author'}>
           Yours
-          <span class="ml-1 font-mono text-muted-foreground"
+          <span class="ml-0.5"
             >{prs.filterCounts.author}</span
           >
         </ToggleGroup.Item>
@@ -75,10 +70,7 @@
   </div>
 
   {#if prs.isEmpty}
-    <Empty.Root
-      class="border border-dashed border-border/80"
-      data-od-id="pr-list"
-    >
+    <Empty.Root class="felt" data-od-id="pr-list">
       <Empty.Header>
         <Empty.Title>No open pull requests</Empty.Title>
         <Empty.Description>
@@ -87,10 +79,7 @@
       </Empty.Header>
     </Empty.Root>
   {:else if prs.filterEmpty}
-    <Empty.Root
-      class="border border-dashed border-border/80"
-      data-od-id="pr-list"
-    >
+    <Empty.Root class="felt" data-od-id="pr-list">
       <Empty.Header>
         <Empty.Title>Nothing in this filter</Empty.Title>
         <Empty.Description>Switch the filter to see the rest.</Empty.Description
@@ -101,40 +90,40 @@
     <div class="grid gap-3" data-od-id="pr-list">
       {#each cards as card (`${card.kind}-${card.id}`)}
         {#if card.kind === 'list'}
-          <ul class="divide-y rounded-xl border border-border text-sm">
+          <ul class="felt grid gap-0.5 px-3 py-3 text-sm">
             {#each card.prs as pr (pr.id)}
               <PrRow {pr} {nowMs} />
             {/each}
           </ul>
         {:else}
           <section
-            class="overflow-hidden rounded-xl border border-border text-sm"
+            class="felt overflow-hidden px-3 py-3 text-sm"
             aria-labelledby="pr-stack-label-{card.id}"
             data-od-id="pr-stack-{card.id}"
           >
             <header
-              class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground"
+              class="mx-1 mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[14px_12px_14px_11px] bg-butter px-3 py-2 text-[12px] font-semibold text-cocoa"
             >
-              <Layers class="size-3.5 text-foreground/80" aria-hidden="true" />
+              <Layers class="size-4" strokeWidth={2.5} aria-hidden="true" />
               <h3
                 id="pr-stack-label-{card.id}"
-                class="font-medium text-foreground"
+                class="font-display text-[14px] font-extrabold"
               >
                 Stack of {card.prs.length}
               </h3>
               <span>
                 onto
-                <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]"
+                <code class="font-mono text-[12.5px] font-semibold"
                   >{card.trunk}</code
                 >
               </span>
               {#if card.prs[0]?.repoFullName}
-                <span class="ml-auto text-muted-foreground/80"
+                <span class="ml-auto opacity-75"
                   >{card.prs[0].repoFullName}</span
                 >
               {/if}
             </header>
-            <ul class="divide-y" aria-labelledby="pr-stack-label-{card.id}">
+            <ul class="grid gap-1" aria-labelledby="pr-stack-label-{card.id}">
               {#each card.prs as pr (pr.id)}
                 <PrRow {pr} {nowMs} />
               {/each}

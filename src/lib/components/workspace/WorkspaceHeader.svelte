@@ -146,18 +146,18 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <header
   bind:this={headerEl}
-  class="flex flex-col"
+  class="flex flex-col gap-2 px-4 pt-3"
   data-tauri-drag-region
   data-od-id="ws-header"
   onmousedown={startHeaderDrag}
 >
-  <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+  <div class="felt-sm flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
     <div class="flex min-w-0 flex-1 items-center gap-2">
       <h1
         bind:this={titleRef}
         tabindex="-1"
         data-ws-focus="title"
-        class="min-w-24 truncate text-[15px] font-medium tracking-tight outline-none"
+        class="clay-title min-w-24 truncate outline-none"
         onfocus={onTitleFocus}
       >
         {workspace.name}
@@ -179,7 +179,7 @@
         {provisioning}
       />
       {#if repo?.name}
-        <p class="truncate text-xs text-muted-foreground">{repo.name}</p>
+        <p class="truncate text-sm font-bold text-muted-foreground">{repo.name}</p>
       {/if}
     </div>
 
@@ -202,7 +202,7 @@
         />
         <Button
           variant="secondary"
-          size="xl"
+          size="default"
           aria-keyshortcuts="Meta+T"
           data-ws-focus="terminal"
           data-od-id="ws-terminal"
@@ -215,7 +215,7 @@
         {#if workspace.kind !== 'review'}
           <Button
             variant="secondary"
-            size="xl"
+            size="default"
             disabled={runDisabled || reviewing}
             aria-keyshortcuts="Meta+I"
             title="Review this branch's changes, uncommitted work included"
@@ -235,7 +235,7 @@
         {/if}
         <Button
           variant="destructive"
-          size="xl"
+          size="default"
           aria-label="Delete workspace"
           aria-keyshortcuts="Meta+D"
           data-ws-focus="delete"

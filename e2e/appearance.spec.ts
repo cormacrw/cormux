@@ -34,35 +34,36 @@ test('Theme setting overrides the system theme and persists', async ({
   await expect(html).toHaveClass(/\bdark\b/)
 })
 
-test('primary color and font sizes apply and persist', async ({ page }) => {
+test('felt colour and font sizes apply and persist', async ({ page }) => {
   await page.goto('/')
   const html = page.locator('html')
   const newWorkspace = page.getByRole('button', { name: /New Workspace/ })
-  const graphite = await newWorkspace.evaluate(
+  const meadow = await newWorkspace.evaluate(
     (el) => getComputedStyle(el).backgroundColor,
   )
 
   const panel = await openAppearance(page)
-  const colors = panel.getByRole('radiogroup', { name: 'Primary color' })
-  await expect(colors.getByRole('radio', { name: 'Graphite' })).toBeChecked()
-  await colors.getByRole('radio', { name: 'Blue' }).click()
-  await expect(html).toHaveAttribute('data-accent', 'blue')
+  const colors = panel.getByRole('radiogroup', { name: 'Felt colour' })
+  await expect(colors.getByRole('radio', { name: 'Meadow' })).toBeChecked()
+  await colors.getByRole('radio', { name: 'Strawberry' }).click()
+  await expect(html).toHaveAttribute('data-felt', 'strawberry')
 
   await panel.getByLabel('UI font size').click()
   await page.getByRole('option', { name: '18px' }).click()
   await expect(html).toHaveCSS('font-size', '18px')
 
   await panel.getByLabel('Code font size').click()
-  await page.getByRole('option', { name: '14px' }).click()
+  // 13px is only in the code sizes; 14px is also a UI size.
+  await page.getByRole('option', { name: '13px' }).click()
 
   await page.reload()
-  await expect(html).toHaveAttribute('data-accent', 'blue')
+  await expect(html).toHaveAttribute('data-felt', 'strawberry')
   await expect(html).toHaveCSS('font-size', '18px')
   expect(
     await html.evaluate((el) =>
       getComputedStyle(el).getPropertyValue('--code-font-size').trim(),
     ),
-  ).toBe('14px')
+  ).toBe('13px')
   await page.getByRole('button', { name: 'Homebase' }).click()
-  await expect(newWorkspace).not.toHaveCSS('background-color', graphite)
+  await expect(newWorkspace).not.toHaveCSS('background-color', meadow)
 })

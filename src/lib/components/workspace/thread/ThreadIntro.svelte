@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { buddyFace, clayColor } from '$lib/clay/identity'
+  import Buddy from '$lib/components/clay/Buddy.svelte'
   import { formatRelativeAge } from '$lib/homebase/relative-time'
+  import { statusDotVariantForThread } from '$lib/sidebar/status'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { engineDisplayName, engineMark } from '$lib/sidebar/engine'
+  import { engineDisplayName } from '$lib/sidebar/engine'
   let {
     thread,
     workspace,
@@ -16,8 +19,17 @@
   } = $props()
 
   const isLead = $derived(thread.role === 'Lead')
-  const mark = $derived(engineMark(thread.engine))
   const engineName = $derived(engineDisplayName(thread.engine))
+  const face = $derived(
+    buddyFace(
+      statusDotVariantForThread({
+        status: thread.status,
+        paused: thread.paused,
+        activity: thread.activity,
+      }),
+      thread.pendingApprovals > 0,
+    ),
+  )
 
   const relationship = $derived.by(() => {
     if (isLead) {
@@ -35,23 +47,23 @@
   })
 </script>
 
-<header class="thread-intro space-y-4 pb-2" data-od-id="thread-intro">
-  <div class="flex items-start gap-3">
-    <span
-      class="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/40 font-mono text-xs font-semibold text-muted-foreground"
-      aria-hidden="true">{mark}</span
-    >
-    <div class="min-w-0 space-y-1">
-      <h2 class="text-lg font-semibold tracking-tight">{thread.role}</h2>
-      <p class="text-sm text-muted-foreground">
-        {engineName} · {relationship}
-      </p>
-    </div>
+<header class="thread-intro flex flex-col items-center gap-3 pb-2 text-center" data-od-id="thread-intro">
+  <div class="flex flex-col items-center gap-1">
+    <Buddy
+      color={clayColor(workspace.id)}
+      {face}
+      size={40}
+      breathe={thread.status === 'running'}
+    />
+    <h2 class="font-display text-xl leading-none font-extrabold">{thread.role}</h2>
+    <p class="text-sm text-muted-foreground">
+      {engineName} · {relationship}
+    </p>
   </div>
 
   {#if isLead && workspace.summary?.trim()}
     <div
-      class="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground"
+      class="felt-sm w-full px-4 py-3 text-left text-sm text-muted-foreground"
     >
       <p class="text-foreground/90">{workspace.summary}</p>
       {#if summaryAge}

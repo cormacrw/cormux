@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Folder from '@lucide/svelte/icons/folder'
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
@@ -8,6 +7,8 @@
   import { repos } from '$lib/state'
   import { plural } from '$lib/sidebar/status'
   import { cn } from '$lib/utils'
+  import { clayColor } from '$lib/clay/identity'
+  import Buddy from '$lib/components/clay/Buddy.svelte'
 
   let { repo }: { repo: RepoRecord } = $props()
 
@@ -35,27 +36,26 @@
 </script>
 
 <li
-  class="grid grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 rounded-md py-1 pl-2 pr-1"
+  class="group grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-3 rounded-[20px_24px_18px_22px] py-2 pr-1 pl-3 text-sidebar-foreground"
   data-od-id="side-repo-{repo.id}"
 >
-  <Folder class="size-3.5 text-muted-foreground" aria-hidden="true" />
+  <Buddy color={clayColor(repo.id)} face="none" size={30} />
   <span class="min-w-0 grid">
-    <span class="truncate text-sm text-sidebar-foreground">{repo.name}</span>
+    <span class="truncate text-[16px] leading-tight font-bold">{repo.name}</span>
     <span
-      class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground"
+      class="flex min-w-0 items-center gap-1.5 text-[13.5px] leading-tight opacity-80"
     >
       <span class="truncate">{branch}</span>
       {#if behind || ahead}
         <span
-          class="shrink-0"
+          class="shrink-0 font-mono text-[12px] font-semibold"
           title={gitLabel}
           aria-hidden="true"
           data-od-id="side-repo-git-{repo.id}"
         >
-          {#if behind}<span class="text-amber-600 dark:text-amber-400"
-              >↓{behind}</span
+          {#if behind}<span class="text-custard">↓{behind}</span
             >{/if}{#if behind && ahead}&nbsp;{/if}{#if ahead}<span
-              class="text-sky-600 dark:text-sky-400">↑{ahead}</span
+              class="text-[#a9cdeb]">↑{ahead}</span
             >{/if}
         </span>
         <span class="sr-only">{gitLabel}</span>
@@ -65,7 +65,9 @@
   <Button
     variant="ghost"
     size="icon"
-    class="size-6 text-muted-foreground hover:text-foreground"
+    class="size-8 text-sidebar-foreground/80 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-white/10 hover:text-sidebar-foreground {behind
+      ? 'opacity-100'
+      : ''}"
     aria-label="Pull {branch} for {repo.name}"
     title={behind
       ? `Pull ${plural(behind, 'commit')} into ${branch}`
@@ -75,6 +77,7 @@
   >
     <RefreshCw
       class={cn('size-3.5', pulling && 'animate-spin')}
+      strokeWidth={2.5}
       aria-hidden="true"
     />
   </Button>

@@ -1,7 +1,7 @@
 <script lang="ts">
+  import CountBead from '$lib/components/clay/CountBead.svelte'
   import StatusDot from '$lib/components/shell/StatusDot.svelte'
   import ChangeCounts from '$lib/components/workspace/ChangeCounts.svelte'
-  import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
   import { requestNewThread } from '$lib/command-palette/actions'
   import { reviewReady } from '$lib/review/workspace-settings'
@@ -113,10 +113,10 @@
 
   function threadTabClass(selected: boolean) {
     return cn(
-      'h-8 max-w-[11rem] shrink-0 gap-1.5 rounded-t-md rounded-b-none border border-transparent px-2.5 font-normal shadow-none',
+      'h-9 max-w-[14rem] shrink-0 gap-1.5 rounded-full px-3.5 font-display font-extrabold shadow-none',
       selected
-        ? '-mb-px border-border/70 border-b-background bg-background text-foreground'
-        : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+        ? 'bg-card text-foreground shadow-lift-1'
+        : 'bg-card/45 text-muted-foreground hover:bg-card/70 hover:text-foreground',
     )
   }
 </script>
@@ -125,12 +125,12 @@
   bind:this={barEl}
   role="group"
   aria-label="Thread tabs"
-  class="thread-bar flex h-9 shrink-0 items-end gap-1 overflow-x-auto border-b border-border/60 px-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+  class="thread-bar flex shrink-0 items-center gap-2 overflow-x-auto px-4 pt-2.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
   data-od-id="thread-tabs"
 >
   <div
     id="thread-tabs"
-    class="flex min-w-0 items-end gap-0.5"
+    class="flex min-w-0 items-center gap-1.5"
     role="tablist"
     tabindex="-1"
     onkeydown={onBarKeydown}
@@ -147,7 +147,7 @@
       {@const closable = canCloseThread(workspace.id, thread.id)}
       <span
         role="presentation"
-        class="group/tab relative flex shrink-0 items-end"
+        class="group/tab relative flex shrink-0 items-center"
       >
         <Button
           id="thread-tab-{thread.id}"
@@ -170,13 +170,7 @@
           <StatusDot variant={statusDotVariantForThread(statusInput)} />
           <span class="truncate" aria-hidden="true">{thread.role}</span>
           {#if thread.pendingApprovals > 0}
-            <Badge
-              variant="outline"
-              class="min-w-[18px] justify-center border-warning/40 bg-warning/15 px-1 font-mono text-[10px] text-warning"
-              aria-hidden="true"
-            >
-              {thread.pendingApprovals}
-            </Badge>
+            <CountBead count={thread.pendingApprovals} class="size-5 text-[11px]" />
           {/if}
         </Button>
         {#if closable}
@@ -218,13 +212,7 @@
         <List class="size-3.5 shrink-0" aria-hidden="true" />
         <span class="truncate" aria-hidden="true">Findings</span>
         {#if openFindings > 0}
-          <Badge
-            variant="secondary"
-            class="min-w-[18px] justify-center px-1 font-mono text-[10px]"
-            aria-hidden="true"
-          >
-            {openFindings}
-          </Badge>
+          <CountBead count={openFindings} class="size-5 text-[11px]" />
         {/if}
       </Button>
     {/if}
@@ -233,7 +221,7 @@
       id="thread-add"
       variant="ghost"
       size="icon-sm"
-      class="mb-px size-7 shrink-0 text-muted-foreground"
+      class="size-9 shrink-0 rounded-full bg-card/45 text-muted-foreground hover:bg-card/70"
       aria-label="New thread"
       data-od-id="thread-add"
       onclick={() => requestNewThread(workspace.id)}
@@ -250,7 +238,7 @@
     tabindex="-1"
     onkeydown={onBarKeydown}
     aria-label="Git and app"
-    class="flex shrink-0 items-end gap-0.5"
+    class="flex shrink-0 items-center gap-1.5"
   >
     <Button
       id="thread-tab-changes"
@@ -296,8 +284,8 @@
         <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />
       {:else if runtime.appStatus === 'running' && runtime.port}
         <span class="flex items-center gap-1" aria-hidden="true">
-          <span class="size-2 rounded-full bg-emerald-500"></span>
-          <span class="font-mono text-[10px] text-muted-foreground"
+          <span class="bead clay-glow size-2.5 bg-leaf"></span>
+          <span class="font-mono text-[11px] font-semibold text-muted-foreground"
             >:{runtime.port}</span
           >
         </span>

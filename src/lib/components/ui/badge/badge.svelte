@@ -2,19 +2,19 @@
   import { type VariantProps, tv } from 'tailwind-variants'
 
   export const badgeVariants = tv({
-    base: 'h-5 gap-1 rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium transition-all has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&>svg]:size-3! group/badge inline-flex w-fit shrink-0 items-center justify-center overflow-hidden whitespace-nowrap focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none',
+    base: 'h-6 gap-1 rounded-full border-0 px-2.5 text-[12.5px] font-bold transition-all has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&>svg]:size-3! group/badge inline-flex w-fit shrink-0 items-center justify-center overflow-hidden whitespace-nowrap focus-visible:shadow-[0_0_0_3px_var(--card),0_0_0_6px_var(--ring)] aria-invalid:ring-destructive/20 [&>svg]:pointer-events-none',
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground [a]:hover:bg-primary/80',
+        default:
+          'bg-primary text-primary-foreground shadow-[inset_0_-2px_0_rgb(0_0_0/0.12)]',
         secondary:
-          'bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80',
+          'bg-pebble text-cocoa shadow-[inset_0_-2px_0_rgb(0_0_0/0.1)]',
         destructive:
-          'bg-destructive/10 [a]:hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 text-destructive dark:bg-destructive/20',
+          'bg-felt-brick text-brick-ink shadow-[inset_0_-2px_0_rgb(0_0_0/0.08)]',
         outline:
-          'border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground',
-        ghost:
-          'hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50',
-        link: 'text-primary underline-offset-4 hover:underline',
+          'bg-transparent text-foreground outline outline-1 outline-border',
+        ghost: 'hover:bg-foreground/[0.07]',
+        link: 'text-foreground underline underline-offset-4 hover:no-underline',
       },
     },
     defaultVariants: {

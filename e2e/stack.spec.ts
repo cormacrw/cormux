@@ -62,9 +62,6 @@ test('Changes shows the gh-stack stack beside the diff, checks out, pushes and a
 test('Stack starts from an unstacked branch', async ({ page }) => {
   const panel = await openStack(page, '?stack=none')
   await expect(panel).toContainText("feat/oauth-login isn't in a stack")
-  await expect(panel.locator('[data-stack-branch]')).toContainText(
-    'not stacked',
-  )
   await expect(page.getByRole('button', { name: 'Create PR' })).toBeVisible()
   await panel.getByRole('button', { name: 'Add branch' }).click()
   const input = panel.getByLabel(/New branch on top of/)
@@ -192,7 +189,6 @@ test('Stack shows when a branch needs rebasing, stacked or not', async ({
 
   const solo = await openStack(page, '?stack=behind')
   const branch = solo.locator('[data-stack-branch="feat/oauth-login"]')
-  await expect(branch).toContainText('not stacked')
   await expect(branch).toContainText('needs rebase')
   await page.waitForTimeout(200)
   await page.screenshot({ path: 'e2e/output/stack-needs-rebase.png' })

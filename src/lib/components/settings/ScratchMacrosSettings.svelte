@@ -4,6 +4,7 @@
   import Plus from '@lucide/svelte/icons/plus'
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import Zap from '@lucide/svelte/icons/zap'
+  import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -117,16 +118,17 @@
   }
 </script>
 
+<SettingsPanel class="mt-4">
 {#if settings.scratchMacros.length > 0}
   <ul
-    class="set-group mt-4 space-y-2"
+    class="set-group border-b border-border"
     aria-labelledby="settings-macros-h"
     data-od-id="settings-macro-list"
   >
     {#each settings.scratchMacros as macro (macro.id)}
       {@const panelOpen = isExpanded(macro.id)}
       <li
-        class="rounded-lg border border-border"
+        class="border-b border-border last:border-b-0"
         data-od-id="settings-macro-{macro.id}"
       >
         <div class="flex flex-wrap items-center gap-2 px-3 py-2">
@@ -144,7 +146,7 @@
             </span>
           </span>
           {#if !macro.prompt.trim()}
-            <span class="text-xs font-medium text-amber-500">
+            <span class="text-xs font-semibold text-marigold">
               Not in the palette
             </span>
           {/if}
@@ -231,7 +233,7 @@
 {/if}
 
 <form
-  class="mt-4 grid gap-2"
+  class="grid gap-2 px-4 py-3"
   data-od-id="settings-macro-add"
   novalidate
   onsubmit={(event) => void submitAdd(event)}
@@ -268,3 +270,4 @@
     </p>
   {/if}
 </form>
+</SettingsPanel>

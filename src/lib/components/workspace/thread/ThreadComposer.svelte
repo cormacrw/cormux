@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { clayColor } from '$lib/clay/identity'
+  import Buddy from '$lib/components/clay/Buddy.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Textarea } from '$lib/components/ui/textarea'
   import {
@@ -24,7 +26,7 @@
   import { threads } from '$lib/state/threads.svelte'
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
-  import { engineDisplayName, engineMark } from '$lib/sidebar/engine'
+  import { engineDisplayName } from '$lib/sidebar/engine'
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import Pause from '@lucide/svelte/icons/pause'
@@ -57,7 +59,6 @@
   /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
   let historyIndex = $state<number | null>(null)
 
-  const mark = $derived(engineMark(thread.engine))
   const engineName = $derived(engineDisplayName(thread.engine))
   const draft = $derived(composerDrafts.textFor(thread.id))
   const canSend = $derived(draft.trim().length > 0)
@@ -296,7 +297,7 @@
 <svelte:window onkeydown={onWindowKeydown} />
 
 <div
-  class="composer-wrap sticky bottom-0 z-10 bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+  class="composer-wrap sticky bottom-0 z-10 px-4 pt-2 pb-4"
   data-od-id="composer-wrap"
 >
   {#if pickerOpen}
@@ -304,7 +305,7 @@
       id="skill-picker"
       role="listbox"
       aria-label="Skills"
-      class="absolute inset-x-1 bottom-full mx-auto -mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg"
+      class="felt-sm absolute inset-x-4 bottom-full mx-auto mb-2 flex max-w-[760px] flex-col gap-0.5 p-1.5 text-card-foreground"
       data-od-id="skill-picker"
     >
       {#each skillMatches as skill, index (skill.name)}
@@ -341,7 +342,7 @@
     </ul>
   {/if}
   <form
-    class="composer mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-[0_-12px_32px_-8px_var(--background)] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
+    class="composer felt-sm mx-auto flex max-w-[760px] flex-col overflow-hidden focus-within:outline-none focus-within:shadow-[var(--lift-1),0_0_0_4px_#f6c9d2]"
     id="composer"
     data-od-id="composer"
     onsubmit={(event) => {
@@ -357,7 +358,7 @@
       rows={1}
       autocomplete="off"
       placeholder={placeholder ?? `Message ${thread.role}…`}
-      class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
+      class="max-h-[200px] min-h-[48px] resize-none !rounded-none border-0 !bg-transparent px-4 pt-3 pb-1 !shadow-none focus-visible:outline-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'skill-picker' : undefined}
       aria-activedescendant={pickerOpen
@@ -379,10 +380,7 @@
         id="composer-meta"
         data-od-id="composer-meta"
       >
-        <span
-          class="engine-mark flex size-5 shrink-0 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold"
-          aria-hidden="true">{mark}</span
-        >
+        <Buddy color={clayColor(thread.workspaceId)} face="happy" size={22} />
         <span class="lbl truncate"
           >{thread.role ? `${engineName} · ${thread.role}` : engineName}</span
         >

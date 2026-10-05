@@ -9,7 +9,6 @@
   } from '$lib/homebase/filter'
   import { app, homebaseUi, workspaces } from '$lib/state'
   import { Kbd } from '$lib/components/ui/kbd'
-  import CommandIcon from '@lucide/svelte/icons/command'
   import Plus from '@lucide/svelte/icons/plus'
   import OpenPrsSection from './OpenPrsSection.svelte'
   import PinnedTodosSection from './PinnedTodosSection.svelte'
@@ -50,9 +49,9 @@
 </script>
 
 <div class="view-home relative flex min-h-0 flex-1 flex-col overflow-y-auto">
-  <div class="mx-auto flex w-full max-w-[1200px] flex-col gap-10 p-6">
+  <div class="mx-auto flex w-full max-w-[1200px] flex-col gap-10 p-8">
     <header
-      class="sticky top-0 z-10 -mx-6 -mt-6 -mb-4 flex flex-wrap items-center justify-between gap-4 bg-background px-6 pt-6 pb-4"
+      class="sticky top-0 z-10 -mx-8 -mt-8 -mb-4 flex flex-wrap items-center justify-between gap-4 bg-background px-8 pt-8 pb-4"
       aria-labelledby="home-title"
     >
       <h1
@@ -60,51 +59,46 @@
         id="home-title"
         tabindex="-1"
         data-od-id="home-title"
-        class="text-2xl font-semibold tracking-tight outline-none"
+        class="clay-title outline-none"
       >
         Homebase
       </h1>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-4">
         <Button
           variant="secondary"
-          size="xl"
+          size="default"
           class="gap-2"
           data-od-id="new-session"
           onclick={() => app.requestNewScratch()}
         >
-          <Plus class="size-4" aria-hidden="true" />
+          <Plus class="size-4" strokeWidth={3.5} aria-hidden="true" />
           New scratch
-          <Kbd class="gap-0.5" aria-hidden="true">
-            <CommandIcon />S
-          </Kbd>
+          <Kbd aria-hidden="true">⌘S</Kbd>
         </Button>
         <Button
           variant="default"
-          size="xl"
+          size="default"
           class="gap-2"
           onclick={() => app.requestNewWorkspace()}
         >
-          <Plus class="size-4" aria-hidden="true" />
+          <Plus class="size-4" strokeWidth={3.5} aria-hidden="true" />
           New Workspace
-          <Kbd class="gap-0.5" aria-hidden="true">
-            <CommandIcon />N
-          </Kbd>
+          <Kbd aria-hidden="true">⌘N</Kbd>
         </Button>
       </div>
     </header>
 
-    <PinnedTodosSection />
+    <div
+      class="grid items-start gap-10 [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]"
+    >
+      <PinnedTodosSection />
 
-    <ScratchesSection />
+      <ScratchesSection />
+    </div>
 
     <section class="grid gap-4" aria-labelledby="ws-section-title">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="ws-section-title" class="text-sm font-medium tracking-tight">
-          Workspaces
-          <span class="font-mono text-muted-foreground"
-            >{workspaces.items.length}</span
-          >
-        </h2>
+        <h2 id="ws-section-title" class="clay-section">Workspaces</h2>
         <ToggleGroup.Root
           type="single"
           bind:value={
@@ -114,11 +108,8 @@
               if (next) homebaseUi.filter = next as HomebaseFilter
             }
           }
-          variant="outline"
-          size="sm"
           role="group"
           aria-label="Filter workspaces"
-          class="data-[spacing=0]:rounded-lg"
         >
           <ToggleGroup.Item
             value="all"
@@ -142,7 +133,7 @@
       </div>
 
       {#if workspaces.items.length === 0}
-        <Empty.Root class="border border-dashed border-border/80">
+        <Empty.Root class="felt">
           <Empty.Header>
             <Empty.Title>No workspaces running</Empty.Title>
             <Empty.Description>
@@ -160,7 +151,7 @@
           </Empty.Content>
         </Empty.Root>
       {:else if visibleWorkspaces.length === 0 && exitingCards.length === 0}
-        <Empty.Root class="border border-dashed border-border/80">
+        <Empty.Root class="felt">
           <Empty.Header>
             <Empty.Title>Nothing in this filter</Empty.Title>
             <Empty.Description>
@@ -178,7 +169,7 @@
         </Empty.Root>
       {:else}
         <div
-          class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr))]"
+          class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,315px),1fr))]"
         >
           {#each visibleWorkspaces as workspace (workspace.id)}
             <WorkspaceCard

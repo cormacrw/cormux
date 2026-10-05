@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { Badge } from '$lib/components/ui/badge'
+  import { clayColor } from '$lib/clay/identity'
+  import Buddy from '$lib/components/clay/Buddy.svelte'
+  import CountBead from '$lib/components/clay/CountBead.svelte'
   import { app, workspaceRecords } from '$lib/state'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
     plural,
-    statusDotVariantForWorkspace,
     workspaceStatusWord,
   } from '$lib/sidebar/status'
-  import StatusDot from './StatusDot.svelte'
 
   let { workspace, agentCount }: { workspace: Workspace; agentCount: number } =
     $props()
@@ -19,7 +19,6 @@
   })
 
   const statusWord = $derived(workspaceStatusWord(statusInput))
-  const dotVariant = $derived(statusDotVariantForWorkspace(statusInput))
   const isCurrent = $derived(
     app.view === 'workspace' && app.workspaceId === workspace.id,
   )
@@ -50,37 +49,31 @@
 <li>
   <button
     type="button"
-    class="grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent/80 aria-[current=page]:bg-sidebar-accent"
+    class="side-row grid w-full grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-3 rounded-[20px_24px_18px_22px] px-3 py-2 text-left text-sidebar-foreground outline-none transition-[background-color,box-shadow] duration-150 hover:bg-white/10 focus-visible:shadow-[0_0_0_3px_var(--sidebar-ring)] aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:shadow-[inset_0_-4px_0_rgb(0_0_0/0.1),0_5px_10px_rgb(0_0_0/0.18)]"
     aria-current={isCurrent ? 'page' : undefined}
     aria-label={ariaLabel}
     onclick={() => app.openWorkspace(workspace.id)}
   >
-    <StatusDot variant={dotVariant} />
+    <Buddy color={clayColor(workspace.id)} face="none" size={30} />
     <span class="min-w-0 grid" aria-hidden="true">
-      <span class="truncate text-sm text-sidebar-foreground"
+      <span class="truncate text-[16px] leading-tight font-bold"
         >{workspace.name}</span
       >
-      <span class="truncate text-xs text-muted-foreground">
+      <span class="truncate text-[13.5px] leading-tight opacity-80">
         {statusWord} · {plural(agentCount, 'agent')}
       </span>
     </span>
     {#if workspace.pendingApprovals > 0}
-      <Badge
-        variant="outline"
-        class="min-w-[18px] justify-center border-warning/40 bg-warning/15 px-1.5 font-mono text-[10px] text-warning"
-        aria-hidden="true"
-      >
-        {workspace.pendingApprovals}
-      </Badge>
+      <CountBead count={workspace.pendingApprovals} />
     {:else if appRunning}
       <span
-        class="flex items-center gap-1 font-mono text-[10px] text-emerald-600"
+        class="flex items-center gap-1 font-mono text-[11px] font-semibold"
         title={appRuntime.port
           ? `App running on localhost:${appRuntime.port}`
           : 'App running'}
         aria-hidden="true"
       >
-        <span class="size-1.5 rounded-full bg-emerald-500"></span>
+        <span class="bead clay-glow size-2.5 bg-leaf"></span>
         {#if appRuntime.port}:{appRuntime.port}{/if}
       </span>
     {:else}

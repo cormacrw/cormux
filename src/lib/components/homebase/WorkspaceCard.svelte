@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Badge } from '$lib/components/ui/badge'
-  import * as Card from '$lib/components/ui/card'
+  import { clayColor } from '$lib/clay/identity'
+  import Buddy from '$lib/components/clay/Buddy.svelte'
   import {
     buildCardDetailParts,
     formatCreatedAge,
@@ -46,6 +47,17 @@
     }),
   )
 
+  const isReview = $derived(workspace.kind === 'review')
+  const face = $derived(
+    badgeKind === 'needsAttention'
+      ? 'gasp'
+      : badgeKind === 'working'
+        ? 'happy'
+        : isReview
+          ? 'happy'
+          : 'sleepy',
+  )
+
   onMount(() => {
     if (exiting) {
       const ms = settings.reduceMotion ? 0 : 150
@@ -84,26 +96,29 @@
     if (entering) homebaseUi.markCardSeen(workspace.id)
   }}
 >
-  <Card.Root
-    class="transition-[box-shadow,ring-color,opacity] {exiting
+  <div
+    class="flex items-center gap-4 py-4 pr-4 pl-5 felt transition-[box-shadow,transform,opacity] duration-200 ease-[var(--squish)] {exiting
       ? 'pointer-events-none opacity-0'
       : deleting
         ? 'opacity-60'
-        : 'hover:ring-foreground/20'}"
+        : 'group-hover/ws:-translate-y-0.5 group-hover/ws:shadow-lift-3'}"
   >
-    <Card.Header class="gap-3">
+    <Buddy
+      color={isReview ? 'var(--clay-plum)' : clayColor(workspace.id)}
+      face={face as 'gasp' | 'happy' | 'sleepy'}
+      size={45}
+      breathe={badgeKind === 'working' && !settings.reduceMotion}
+    />
+    <div class="grid min-w-0 flex-1 gap-1.5">
       <div class="flex items-start justify-between gap-3">
-        <Card.Title
+        <h3
           id="ws-title-{workspace.id}"
-          class="min-w-0 truncate text-base font-medium leading-snug"
+          class="min-w-0 truncate font-display text-[16px] leading-[1.15] font-extrabold"
         >
           {workspace.name}
-        </Card.Title>
+        </h3>
         {#if deleting}
-          <Badge
-            variant="outline"
-            class="shrink-0 border-destructive/30 bg-destructive/5 text-destructive"
-          >
+          <Badge variant="destructive" class="shrink-0">
             <LoaderCircle
               class="size-3 {settings.reduceMotion ? '' : 'animate-spin'}"
               aria-hidden="true"
@@ -112,36 +127,27 @@
           </Badge>
         {:else}
           <Badge
-            variant="outline"
-            class={badgeKind === 'needsAttention'
-              ? 'shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+            variant="secondary"
+            class="shrink-0 {badgeKind === 'needsAttention'
+              ? 'bg-marigold'
               : badgeKind === 'working'
-                ? 'shrink-0 border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-                : 'shrink-0 text-muted-foreground'}
+                ? 'bg-leaf'
+                : 'bg-secondary text-secondary-foreground'}"
           >
-            {#if badgeKind === 'working'}
-              <span
-                class="size-1.5 rounded-full bg-emerald-500 {settings.reduceMotion
-                  ? ''
-                  : 'animate-pulse'}"
-                aria-hidden="true"
-              ></span>
-            {/if}
             {badgeText}
           </Badge>
         {/if}
       </div>
-      <p class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <p
+        class="flex flex-wrap gap-x-3 gap-y-0.5 text-[13px] font-semibold text-foreground/85"
+      >
         {#each detailParts as part, index (part.kind + index)}
           {#if part.kind === 'review'}
-            <span
-              >Reviewing <code class="font-mono text-[11px]"
-                >#{part.number}</code
-              ></span
-            >
+            <span>Reviewing <span class="font-bold">#{part.number}</span></span>
           {:else if part.kind === 'branch'}
             <span
-              >Branch: <code class="font-mono text-[11px]">{part.name}</code
+              >Branch: <code class="font-mono text-[14px] font-semibold"
+                >{part.name}</code
               ></span
             >
           {:else if part.kind === 'agents'}
@@ -149,10 +155,10 @@
           {:else if part.kind === 'files'}
             <span>{formatModifiedFiles(part.count)}</span>
           {:else if part.kind === 'created'}
-            <span>{formatCreatedAge(part.fromMs, nowMs)}</span>
+            <span class="basis-full">{formatCreatedAge(part.fromMs, nowMs)}</span>
           {/if}
         {/each}
       </p>
-    </Card.Header>
-  </Card.Root>
+    </div>
+  </div>
 </button>

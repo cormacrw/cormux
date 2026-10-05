@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { clayColor } from '$lib/clay/identity'
+  import Buddy from '$lib/components/clay/Buddy.svelte'
   import { hideFindingsBlock } from '$lib/findings/findings-block'
   import { Badge } from '$lib/components/ui/badge'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
-  import { engineMark } from '$lib/sidebar/engine'
   import ThoughtMarkdown from './ThoughtMarkdown.svelte'
   import {
     formatThreadTime,
@@ -69,7 +70,6 @@
     onFocusComposer?: () => void
   } = $props()
 
-  const mark = $derived(engineMark(engine))
   const diffFiles = $derived(workspaceDiff.filesByWorkspace[workspaceId] ?? [])
 
   // The newest thought is still being written while the live row trails it.
@@ -114,6 +114,26 @@
   function timeTitle(atMs: number) {
     if (!atMs) return ''
     return formatThreadTimeTitle(atMs)
+  }
+
+  function beadClass(icon: ToolStepIcon) {
+    switch (icon) {
+      case 'search':
+      case 'skill':
+        return 'bg-plum'
+      case 'pencil':
+      case 'file':
+        return 'bg-leaf'
+      case 'terminal':
+      case 'tool':
+        return 'bg-leaf'
+      case 'trash':
+        return 'bg-brick'
+      case 'globe':
+        return 'bg-pond'
+      default:
+        return 'bg-pond'
+    }
   }
 
   function stepIcon(step: ToolRunStep) {
@@ -195,10 +215,7 @@
       aria-hidden="true"
       use:popIn={{ entries, key: row.id }}
     >
-      <span
-        class="flex size-5 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold"
-        >{mark}</span
-      >
+      <Buddy color={clayColor(workspaceId)} face="happy" size={22} />
       {#if row.role}
         <span class="font-medium text-foreground">{row.role}</span>
         <span>{engine}</span>
@@ -227,7 +244,7 @@
       {#if item.kind === 'user'}
         <div class="group relative max-w-[min(100%,34rem)]">
           <div
-            class="rounded-2xl bg-foreground/10 px-3 py-1.5 text-sm leading-5 text-foreground"
+            class="rounded-[22px_18px_8px_20px] bg-card px-4 py-2.5 text-[15px] leading-6 text-foreground"
           >
             <p class="whitespace-pre-wrap">{item.text}</p>
           </div>
@@ -306,14 +323,18 @@
             {#if segment.quiet}
               <ul class="space-y-1.5">
                 {#each segment.steps as step, index (step.id)}
-                  {@const Icon = stepIcon(step)}
                   {@const chips = newChips(step, segment.steps[index - 1])}
                   <li
                     class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
                     title={timeTitle(step.atMs)}
                     use:popIn={{ entries, key: step.id }}
                   >
-                    <Icon class="size-3 shrink-0" aria-hidden="true" />
+                    <span
+                      class="bead size-2.5 shrink-0 {step.kind === 'tool'
+                        ? beadClass(step.icon)
+                        : 'bg-leaf'}"
+                      aria-hidden="true"
+                    ></span>
                     {#if step.kind === 'tool'}
                       <span class="shrink-0">{step.title}</span>
                       {#if step.detail && step.detail !== step.title}

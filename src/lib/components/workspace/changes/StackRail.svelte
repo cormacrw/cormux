@@ -44,6 +44,7 @@
     switchWorkspaceBranch,
     syncStack,
   } from '$lib/workspace/wire-git-workspace'
+  import { clayColor } from '$lib/clay/identity'
   import { cn } from '$lib/utils'
 
   let {
@@ -169,10 +170,8 @@
 
   const levelClass = (active: boolean) =>
     cn(
-      'flex min-w-0 flex-1 items-center gap-1 rounded-lg border transition-colors',
-      active
-        ? 'border-primary/50 bg-primary/10'
-        : 'border-border/70 hover:bg-muted/40',
+      'flex min-w-0 flex-1 items-center gap-1 rounded-[16px_14px_16px_12px] bg-card shadow-lift-1',
+      active && 'ring-2 ring-cocoa/30',
     )
   const levelButtonClass =
     'min-w-0 flex-1 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-default'
@@ -203,29 +202,20 @@
   {/if}
 {/snippet}
 
-{#snippet dot(kind: 'current' | 'merged' | 'open' | 'uncommitted')}
+{#snippet dot(color: string)}
   <div class="flex w-4 shrink-0 justify-center" aria-hidden="true">
-    <span
-      class={cn(
-        'mt-3.5 size-2.5 shrink-0 rounded-full',
-        kind === 'current' && 'bg-primary ring-4 ring-primary/20',
-        kind === 'merged' && 'bg-muted-foreground/50',
-        kind === 'open' && 'border-2 border-muted-foreground/50 bg-background',
-        kind === 'uncommitted' &&
-          'border-2 border-dashed border-muted-foreground/60 bg-background',
-      )}
-    ></span>
+    <span class="bead mt-3.5 size-3 shrink-0" style="background: {color}"></span>
   </div>
 {/snippet}
 
 <nav
   aria-label="Stack"
   data-od-id="stack"
-  class="flex min-h-0 w-72 shrink-0 flex-col border-r border-border/60"
+  class="felt-sm m-3 mr-1.5 flex min-h-0 w-72 shrink-0 flex-col overflow-hidden !bg-butter"
 >
-  <header class="shrink-0 space-y-2 border-b border-border/60 px-3 py-2.5">
+  <header class="shrink-0 space-y-2 px-3 py-3">
     <div class="min-w-0">
-      <h2 class="text-sm font-semibold">Stack</h2>
+      <h2 class="font-display text-xl font-extrabold">Stack</h2>
       <p class="text-xs text-muted-foreground">
         {stack ? stackSubtitle(stack) : 'Reading the stack…'}
       </p>
@@ -313,12 +303,12 @@
 
     <div class="relative">
       <span
-        class="absolute top-5 bottom-3 left-[7.5px] w-px bg-border"
+        class="absolute top-5 bottom-3 left-[7.5px] border-l border-cocoa/25"
         aria-hidden="true"
       ></span>
       <ol class="relative" aria-label="Stack levels, top first">
         <li class="relative flex gap-2 pb-2" data-stack-uncommitted>
-          {@render dot('uncommitted')}
+          {@render dot('var(--clay-marigold)')}
           <div class={levelClass(shownTarget === null)}>
             <button
               type="button"
@@ -339,9 +329,9 @@
 
         {#if adding}
           <li class="relative flex gap-2 pb-2">
-            {@render dot('uncommitted')}
+            {@render dot('var(--clay-marigold)')}
             <form
-              class="min-w-0 flex-1 rounded-lg border border-dashed border-border bg-muted/20 p-2.5"
+              class="felt-sm min-w-0 flex-1 p-2.5"
               data-od-id="stack-add-form"
               onsubmit={(event) => {
                 event.preventDefault()
@@ -414,7 +404,7 @@
             class="relative flex gap-2 pb-2"
             data-stack-branch={workspace.branch}
           >
-            {@render dot('current')}
+            {@render dot('var(--clay-leaf)')}
             <div class={levelClass(active)}>
               <button
                 type="button"
@@ -429,12 +419,6 @@
                     >{workspace.branch}</span
                   >
                   {@render commentCount(workspace.branch)}
-                  {#if stack?.status === 'notStacked'}
-                    <Badge
-                      variant="secondary"
-                      class="shrink-0 px-1.5 text-[10px]">not stacked</Badge
-                    >
-                  {/if}
                   {#if stack?.currentNeedsRebase}
                     {@render needsRebase(
                       `${trunk} moved on since ${workspace.branch} left it. Rebase branch from the ⋯ menu to catch up.`,
@@ -456,7 +440,11 @@
           {@const active = selected(card.name, card.parent)}
           <li class="relative flex gap-2 pb-2" data-stack-branch={card.name}>
             {@render dot(
-              card.current ? 'current' : card.merged ? 'merged' : 'open',
+              card.merged
+                ? 'var(--clay-pebble)'
+                : card.current
+                  ? 'var(--clay-leaf)'
+                  : clayColor(card.name),
             )}
             <div
               class={cn(levelClass(active), card.merged && 'opacity-60')}

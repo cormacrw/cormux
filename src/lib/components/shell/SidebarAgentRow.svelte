@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { Badge } from '$lib/components/ui/badge'
+  import { buddyFace } from '$lib/clay/identity'
+  import Buddy from '$lib/components/clay/Buddy.svelte'
+  import CountBead from '$lib/components/clay/CountBead.svelte'
   import { app, workspaces } from '$lib/state'
   import type { Thread } from '$lib/state/threads.svelte'
-  import { engineDisplayName, engineMark } from '$lib/sidebar/engine'
+  import { engineDisplayName } from '$lib/sidebar/engine'
   import {
     plural,
     statusDotVariantForThread,
     threadActivityLine,
   } from '$lib/sidebar/status'
-  import StatusDot from './StatusDot.svelte'
 
   let { thread }: { thread: Thread } = $props()
 
@@ -24,7 +25,16 @@
 
   const activity = $derived(threadActivityLine(statusInput))
   const dotVariant = $derived(statusDotVariantForThread(statusInput))
-  const mark = $derived(engineMark(thread.engine))
+  // Agents wear their status: coral while working, pond when waiting on you, pebble when idle.
+  const color = $derived(
+    thread.pendingApprovals > 0
+      ? 'var(--clay-pond)'
+      : dotVariant === 'running' || dotVariant === 'provisioning'
+        ? 'var(--clay-coral)'
+        : dotVariant === 'paused'
+          ? 'var(--clay-marigold)'
+          : 'var(--clay-pebble)',
+  )
 
   const ariaLabel = $derived.by(() => {
     const parts = [
@@ -44,31 +54,28 @@
 <li>
   <button
     type="button"
-    class="grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent/80"
+    class="side-row grid w-full grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-3 rounded-[20px_24px_18px_22px] px-3 py-2 text-left text-sidebar-foreground outline-none transition-[background-color,box-shadow] duration-150 hover:bg-white/10 focus-visible:shadow-[0_0_0_3px_var(--sidebar-ring)] aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:shadow-[inset_0_-4px_0_rgb(0_0_0/0.1),0_5px_10px_rgb(0_0_0/0.18)]"
     aria-label={ariaLabel}
     onclick={() => app.openWorkspace(thread.workspaceId, thread.id)}
   >
-    <span
-      class="flex size-4 items-center justify-center rounded bg-sidebar-accent font-mono text-[8px] font-semibold text-muted-foreground"
-      aria-hidden="true">{mark}</span
-    >
+    <Buddy
+      {color}
+      face={buddyFace(dotVariant, thread.pendingApprovals > 0)}
+      breathe={dotVariant === 'running'}
+      size={30}
+    />
     <span class="min-w-0 grid" aria-hidden="true">
-      <span class="truncate text-sm text-sidebar-foreground">
-        {thread.role}
-        <span class="text-muted-foreground"> in {workspaceName}</span>
+      <span class="truncate text-[16px] leading-tight font-bold">
+        {thread.role} in {workspaceName}
       </span>
-      <span class="truncate text-xs text-muted-foreground">{activity}</span>
+      <span class="truncate text-[13.5px] leading-tight opacity-80"
+        >{activity}</span
+      >
     </span>
     {#if thread.pendingApprovals > 0}
-      <Badge
-        variant="outline"
-        class="min-w-[18px] justify-center border-warning/40 bg-warning/15 px-1.5 font-mono text-[10px] text-warning"
-        aria-hidden="true"
-      >
-        {thread.pendingApprovals}
-      </Badge>
+      <CountBead count={thread.pendingApprovals} />
     {:else}
-      <StatusDot variant={dotVariant} class="justify-self-center" />
+      <span aria-hidden="true"></span>
     {/if}
   </button>
 </li>

@@ -23,6 +23,9 @@
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/quicksand": "^5.3.0",
+    "@fontsource/baloo-2": "^5.3.0",
     "@git-diff-view/svelte": "^0.1.7",
     "@tanstack/svelte-virtual": "^3.13.39",
     "@tauri-apps/api": "^2",
