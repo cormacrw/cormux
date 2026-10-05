@@ -5,6 +5,7 @@ import type {
   ClickupTask,
 } from '$lib/ipc/bindings'
 import {
+  assignedToMe,
   daysLeft,
   parseHiddenStatuses,
   taskRef,
@@ -61,6 +62,12 @@ const board: ClickupBoard = {
   ],
   userId: 1,
 }
+
+describe('assignedToMe', () => {
+  it('keeps only the tasks assigned to the current user', () => {
+    expect(assignedToMe(board).tasks.map((t) => t.id)).toEqual(['a', 'b', 'd'])
+  })
+})
 
 describe('sprintLanes', () => {
   it('groups tasks by status, ignoring case', () => {

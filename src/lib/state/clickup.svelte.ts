@@ -8,6 +8,7 @@ import { coreErrorText } from '$lib/feedback/core-error'
 import { showToast } from '$lib/feedback/show-toast'
 import { settings } from './settings.svelte'
 import {
+  assignedToMe,
   CLICKUP_FOLDER_KEY,
   CLICKUP_HIDDEN_STATUSES_KEY,
   parseHiddenStatuses,
@@ -50,17 +51,19 @@ export class ClickupStore {
   private settleTimer: ReturnType<typeof setTimeout> | undefined
 
   readonly ready = $derived(this.configured && this.folderId !== '')
+  /** The board narrowed to the current user's tasks; every surface reads this one. */
+  readonly mine = $derived(this.board && assignedToMe(this.board))
   /** Every lane, hidden ones included, for the lanes menu. */
   readonly allLanes = $derived(
-    this.board ? sprintLanes(this.board.statuses, this.board.tasks) : [],
+    this.mine ? sprintLanes(this.mine.statuses, this.mine.tasks) : [],
   )
   readonly lanes = $derived(
     this.allLanes.filter((lane) => !this.isHidden(lane.status.name)),
   )
   readonly hiddenLaneCount = $derived(this.allLanes.length - this.lanes.length)
-  readonly progress = $derived(sprintProgress(this.board))
+  readonly progress = $derived(sprintProgress(this.mine))
   readonly selectedTask = $derived(
-    this.board?.tasks.find((task) => task.id === this.selectedTaskId) ?? null,
+    this.mine?.tasks.find((task) => task.id === this.selectedTaskId) ?? null,
   )
 
   hydrate(configured: boolean, rows: SettingRow[]) {
