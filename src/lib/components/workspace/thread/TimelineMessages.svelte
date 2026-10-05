@@ -24,6 +24,7 @@
   import ApprovalCard from './ApprovalCard.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import Check from '@lucide/svelte/icons/check'
+  import Clock from '@lucide/svelte/icons/clock'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import Copy from '@lucide/svelte/icons/copy'
   import FileText from '@lucide/svelte/icons/file-text'
@@ -141,6 +142,7 @@
       play: Play,
       stop: Square,
       session: MessageSquarePlus,
+      clock: Clock,
       globe: Globe,
       skill: Sparkles,
     } as const

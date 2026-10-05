@@ -26,6 +26,7 @@ export type ToolStepIcon =
   | 'session'
   | 'globe'
   | 'skill'
+  | 'clock'
 
 export type ToolRunStep =
   | {

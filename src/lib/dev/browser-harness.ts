@@ -243,7 +243,7 @@ export function installBrowserHarness() {
         seq,
         kind,
         payload: JSON.stringify(event),
-        createdAt: '2026-09-28 12:00:00',
+        createdAt: new Date().toISOString().replace('T', ' ').replace('Z', ''),
       })
     }
     const send = (event: object) => {
