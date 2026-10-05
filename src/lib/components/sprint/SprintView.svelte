@@ -40,7 +40,7 @@
   })
 
   const sprint = $derived(clickup.board?.sprint ?? null)
-  const totals = $derived(sprintTotals(clickup.board?.tasks ?? []))
+  const totals = $derived(sprintTotals(clickup.mine?.tasks ?? []))
   const range = $derived(
     sprint ? sprintRange(sprint.startMs, sprint.dueMs) : null,
   )

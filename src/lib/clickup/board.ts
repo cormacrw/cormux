@@ -71,6 +71,16 @@ export function sprintTotals(tasks: ClickupTask[]) {
   return { points, unpointed }
 }
 
+/** The board with only the tasks assigned to the API key's owner. */
+export function assignedToMe(board: ClickupBoard): ClickupBoard {
+  return {
+    ...board,
+    tasks: board.tasks.filter((task) =>
+      task.assignees.some((user) => user.id === board.userId),
+    ),
+  }
+}
+
 /** ClickUp's `done` and `closed` status types both mean finished. */
 function isDoneKind(kind: string) {
   return kind === 'done' || kind === 'closed'
