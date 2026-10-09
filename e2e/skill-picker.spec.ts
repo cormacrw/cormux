@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
-test('typing / in a Claude composer offers skills and inserts the pick', async ({
+test('typing / anywhere in a Claude composer offers skills and inserts the pick', async ({
   page,
 }) => {
   const errors: string[] = []
@@ -25,6 +25,15 @@ test('typing / in a Claude composer offers skills and inserts the pick', async (
   await expect(picker.getByRole('option')).toHaveCount(1)
   await input.press('Enter')
   await expect(input).toHaveValue('/code-review ')
+  await expect(picker).toHaveCount(0)
+
+  // A slash after other text opens it too, and the pick replaces just that word.
+  await input.fill('please run ')
+  await input.pressSequentially('/rev')
+  await expect(picker.getByRole('option')).toHaveCount(1)
+  await input.press('Enter')
+  await expect(input).toHaveValue('please run /code-review ')
+  await input.pressSequentially('then src/app')
   await expect(picker).toHaveCount(0)
 
   // Esc closes the picker without stopping anything.

@@ -11,7 +11,11 @@
   } from '$lib/composer/prompt-history'
   import { commands } from '$lib/ipc'
   import type { Skill } from '$lib/ipc/bindings'
-  import { filterSkills, skillQuery } from '$lib/composer/skill-picker'
+  import {
+    filterSkills,
+    insertSkill,
+    skillToken,
+  } from '$lib/composer/skill-picker'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
@@ -73,13 +77,20 @@
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
 
-  // Typing `/` opens the skill picker. Skills are Claude Code's, so other engines skip it.
+  // Typing `/` anywhere opens the skill picker. Skills are Claude Code's, so other engines skip it.
   let skills = $state<Skill[] | null>(null)
   let skillsThreadId: string | null = null
   let skillIndex = $state(0)
   /** Esc hides the picker until the draft changes. */
   let skillPickerDismissed = $state(false)
-  const query = $derived(thread.engine === 'claude' ? skillQuery(draft) : null)
+  /** Where the caret is in the draft; the picker follows the `/` word it's in. */
+  let caret = $state(0)
+  const token = $derived(
+    thread.engine === 'claude'
+      ? skillToken(draft, Math.min(caret, draft.length))
+      : null,
+  )
+  const query = $derived(token?.query ?? null)
   const skillMatches = $derived(
     query !== null && skills ? filterSkills(skills, query) : [],
   )
@@ -107,14 +118,20 @@
   })
 
   function chooseSkill(skill: Skill) {
-    const text = `/${skill.name} `
-    composerDrafts.setFor(thread.id, text)
+    if (!token) return
+    const next = insertSkill(draft, token, skill.name)
+    composerDrafts.setFor(thread.id, next.text)
+    caret = next.caret
     skillIndex = 0
     queueMicrotask(() => {
       fitHeight()
       inputEl?.focus()
-      inputEl?.setSelectionRange(text.length, text.length)
+      inputEl?.setSelectionRange(next.caret, next.caret)
     })
+  }
+
+  function syncCaret() {
+    if (inputEl) caret = inputEl.selectionStart
   }
 
   // Arrows move through the picker, ↵ or ⇥ picks, Esc closes it. Returns whether it handled the key.
@@ -153,6 +170,7 @@
   function onInput(event: Event) {
     const target = event.currentTarget as HTMLTextAreaElement
     composerDrafts.setFor(thread.id, target.value)
+    caret = target.selectionStart
     historyIndex = null
     skillPickerDismissed = false
     skillIndex = 0
@@ -376,6 +394,9 @@
       aria-autocomplete={thread.engine === 'claude' ? 'list' : undefined}
       oninput={onInput}
       onkeydown={onKeydown}
+      onkeyup={syncCaret}
+      onclick={syncCaret}
+      onselect={syncCaret}
       oncompositionstart={onCompositionStart}
       oncompositionend={onCompositionEnd}
     />
