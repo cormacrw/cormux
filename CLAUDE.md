@@ -11,4 +11,6 @@ When merging `develop` into `main`, always bump the version first (patch by defa
 - `src-tauri/Cargo.lock` (the `cormux` package entry)
 - `package.json`
 
+Also add a `## <version>` section to `CHANGELOG.md`: a short bulleted summary of what changed for users since the last release (read `git log` from the previous `v*` tag), not a copy of the commit list. It becomes the GitHub release notes, and the release fails without it.
+
 `main` CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`, so run both (plus `pnpm lint` and `pnpm check`) before pushing to `main`.

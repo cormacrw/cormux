@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "cormux"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "agent-client-protocol",
  "ignore",
