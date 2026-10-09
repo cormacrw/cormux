@@ -2,6 +2,10 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.10
+
+- Release notes on GitHub now list what changed in each version.
+
 ## 0.1.9
 
 - The sprint board only shows tasks assigned to you.
