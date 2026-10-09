@@ -11,9 +11,14 @@ export function skillQuery(draft: string): string | null {
 /** Names starting with the query first, then names or descriptions containing it. */
 export function filterSkills(skills: Skill[], query: string): Skill[] {
   const needle = query.toLowerCase()
-  const starts = skills.filter((skill) =>
-    skill.name.toLowerCase().startsWith(needle),
-  )
+  // A plugin skill (`plugin:skill`) also starts where its own name does.
+  const starts = skills.filter((skill) => {
+    const name = skill.name.toLowerCase()
+    return (
+      name.startsWith(needle) ||
+      name.slice(name.indexOf(':') + 1).startsWith(needle)
+    )
+  })
   const contains = skills.filter(
     (skill) =>
       !starts.includes(skill) &&

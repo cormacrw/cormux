@@ -38,4 +38,12 @@ describe('filterSkills', () => {
     ])
     expect(filterSkills(skills, '')).toHaveLength(3)
   })
+
+  it('matches a plugin skill by its own name', () => {
+    const skills = [skill('pdf-tools-guide', 'about docx'), skill('acme:docx')]
+    expect(filterSkills(skills, 'docx').map((row) => row.name)).toEqual([
+      'acme:docx',
+      'pdf-tools-guide',
+    ])
+  })
 })

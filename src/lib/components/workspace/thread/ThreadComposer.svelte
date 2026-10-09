@@ -340,10 +340,10 @@
               >{skill.description}</span
             >
           {/if}
-          {#if skill.source === 'project'}
+          {#if skill.source === 'project' || skill.source === 'plugin'}
             <span
               class="ml-auto shrink-0 rounded border border-border/60 px-1 text-[10px] text-muted-foreground"
-              >repo</span
+              >{skill.source === 'project' ? 'repo' : 'plugin'}</span
             >
           {/if}
         </li>
