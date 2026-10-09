@@ -1,5 +1,7 @@
 <script lang="ts">
+  import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import { Badge } from '$lib/components/ui/badge'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
   import type { LocalBranchRow } from '$lib/ipc/bindings'
@@ -26,6 +28,13 @@
   let loading = $state(true)
   let loadError = $state<string | null>(null)
   let deleting = $state<string | null>(null)
+  /** A branch git wouldn't delete because it isn't merged, awaiting a forced delete. */
+  let unmerged = $state<string | null>(null)
+  // Held after close so the copy doesn't change while the dialog animates out.
+  let unmergedShown = $state('')
+  $effect(() => {
+    if (unmerged) unmergedShown = unmerged
+  })
 
   const repo = $derived(app.repoId ? repos.getById(app.repoId) : undefined)
   const defaultBranch = $derived(repo?.defaultBranch?.trim() || 'main')
@@ -88,17 +97,30 @@
     })
   }
 
-  async function removeBranch(name: string) {
+  async function removeBranch(name: string, force = false) {
     const id = app.repoId
     if (!id || deleting) return
     deleting = name
-    const result = await commands.deleteLocalBranch(id, name)
+    const result = await commands.deleteLocalBranch(id, name, force)
     deleting = null
+    unmerged = null
     if (result.status === 'error') {
       toastCoreError(result.error)
       return
     }
+    // Stacked branches are never merged into the repo's checkout, so ask before forcing.
+    if (result.data === 'notMerged') {
+      unmerged = name
+      return
+    }
     branches = branches.filter((row) => row.name !== name)
+  }
+
+  function onUnmergedKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && unmerged) {
+      event.preventDefault()
+      void removeBranch(unmerged, true)
+    }
   }
 </script>
 
@@ -331,3 +353,40 @@
     </div>
   {/if}
 </div>
+
+<AlertDialog.Root
+  open={unmerged != null}
+  onOpenChange={(next) => {
+    if (!next && !deleting) unmerged = null
+  }}
+>
+  <AlertDialog.Content
+    class="max-w-md sm:max-w-md"
+    onkeydown={onUnmergedKeydown}
+  >
+    <AlertDialog.Header>
+      <AlertDialog.Title>Delete an unmerged branch?</AlertDialog.Title>
+      <AlertDialog.Description>
+        <code class="font-mono text-xs break-all">{unmergedShown}</code> has commits
+        that aren't merged, as a branch lower in a stack does. Commits that are only
+        on this branch will be lost, unless they're pushed.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel disabled={deleting != null}
+        >Cancel <DialogShortcut keys="cancel" /></AlertDialog.Cancel
+      >
+      <AlertDialog.Action
+        variant="destructive"
+        disabled={deleting != null}
+        onclick={(event) => {
+          event.preventDefault()
+          if (unmerged) void removeBranch(unmerged, true)
+        }}
+      >
+        Delete anyway
+        <DialogShortcut keys="submit" />
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>

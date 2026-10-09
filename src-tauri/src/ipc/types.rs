@@ -143,6 +143,15 @@ pub struct LocalBranchRow {
     pub subject: String,
 }
 
+/// What happened to a local branch the user asked to delete.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BranchDeletion {
+    Deleted,
+    /// Not deleted: it has commits that aren't merged. Deleting with `force` drops them.
+    NotMerged,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalBranchesResult {

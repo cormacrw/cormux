@@ -114,6 +114,20 @@ test.describe('repos', () => {
     await page.screenshot({ path: 'e2e/output/repo-page.png' })
     await colors.getByRole('button', { name: 'Delete feat/colors' }).click()
     await expect(colors).toHaveCount(0)
+
+    // A stacked branch isn't merged, so deleting it asks first.
+    const api = pageRoot.locator('[data-od-id="repo-branch-feat/oauth-api"]')
+    await api.getByRole('button', { name: 'Delete feat/oauth-api' }).click()
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toContainText('Delete an unmerged branch?')
+    await confirm.getByRole('button', { name: 'Cancel' }).click()
+    await expect(api).toHaveCount(1)
+    await api.getByRole('button', { name: 'Delete feat/oauth-api' }).click()
+    await page
+      .getByRole('alertdialog')
+      .getByRole('button', { name: /^Delete anyway/ })
+      .click()
+    await expect(api).toHaveCount(0)
   })
 
   test('shows how far the default branch is from origin', async ({ page }) => {

@@ -592,9 +592,26 @@ impl Git {
     }
 
     /// Deletes a branch that is fully merged. Refuses with git's own error otherwise.
-    pub async fn delete_merged_branch(&self, repo: &Path, branch: &str) -> Result<()> {
-        let output = self.run(repo, &["branch", "-d", "--", branch]).await?;
-        Self::require_success(&output, "branch -d")
+    /// `git branch -d`: `Ok(false)` when git refuses because the branch isn't fully
+    /// merged (into its upstream, or `HEAD` without one), as a stacked branch never is.
+    pub async fn delete_merged_branch(&self, repo: &Path, branch: &str) -> Result<bool> {
+        let output = self
+            .with_queue(repo, || async {
+                self.run_with_env(
+                    Some(repo),
+                    &["branch", "-d", "--", branch],
+                    &[("LC_ALL", "C")],
+                )
+                .await
+            })
+            .await?;
+        if output.status.success() {
+            return Ok(true);
+        }
+        if String::from_utf8_lossy(&output.stderr).contains("not fully merged") {
+            return Ok(false);
+        }
+        Err(Self::fail(&output, "branch -d"))
     }
 
     pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
@@ -990,6 +1007,33 @@ mod tests {
         git.discard(&repo, &[]).await.unwrap();
         assert_eq!(git.status_porcelain(&repo).await.unwrap(), "");
         assert!(!repo.join("dir").exists());
+    }
+
+    #[tokio::test]
+    async fn an_unmerged_branch_is_kept_until_forced() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        run_ok(&repo, &["git", "switch", "-q", "-c", "feat/a"]);
+        std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+        run_ok(&repo, &["git", "add", "a.txt"]);
+        run_ok(&repo, &["git", "commit", "-q", "-m", "a"]);
+        run_ok(&repo, &["git", "switch", "-q", "main"]);
+        run_ok(&repo, &["git", "branch", "feat/merged"]);
+
+        assert!(
+            git.delete_merged_branch(&repo, "feat/merged")
+                .await
+                .unwrap()
+        );
+        assert!(!git.delete_merged_branch(&repo, "feat/a").await.unwrap());
+        assert!(git.ref_exists(&repo, "feat/a").await.unwrap());
+        git.branch_delete(&repo, "feat/a").await.unwrap();
+        assert!(!git.ref_exists(&repo, "feat/a").await.unwrap());
+        assert!(
+            git.delete_merged_branch(&repo, "feat/missing")
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

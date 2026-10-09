@@ -18,14 +18,15 @@ use crate::store::types::{ThreadRow, TodoRow, WorkspaceRow};
 use crate::workspace::ThreadActivity;
 
 use super::types::{
-    AddRepoInput, AgentChunk, AgentEvent, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
-    CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
-    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, LocalBranchRow, LocalBranchesResult,
-    PtyChunk, RemoveRepoInput, RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime,
-    ResolveApprovalResult, SendWorkspaceFindingsInput, SetRepoDefaultBranchInput,
-    SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, SetSettingInput,
-    Snapshot, SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
-    TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
+    AddRepoInput, AgentChunk, AgentEvent, BranchDeletion, ControlWorkspaceAppInput,
+    CreateWorkspaceBranchInput, CreateWorkspaceInput, CreateWorkspacePullRequestInput,
+    CreateWorkspacePullRequestResult, CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult,
+    LocalBranchRow, LocalBranchesResult, PtyChunk, RemoveRepoInput, RenameWorkspaceInput,
+    RepoBranchesResult, RepoGitRuntime, ResolveApprovalResult, SendWorkspaceFindingsInput,
+    SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput,
+    SetRepoSingleInstanceInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
+    TeardownInput, TeardownPreview, TestRepoSetupInput, TestRepoSetupResult,
+    WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
 use crate::store::types::RepoRecord;
@@ -1105,8 +1106,9 @@ pub async fn list_repo_local_branches(
 pub async fn delete_local_branch(
     repo_id: String,
     branch: String,
+    force: bool,
     state: State<'_, AppState>,
-) -> Result<()> {
+) -> Result<BranchDeletion> {
     let branch = branch.trim();
     if branch.is_empty() {
         return Err(Error::Git("missing branch name".into()));
@@ -1139,7 +1141,17 @@ pub async fn delete_local_branch(
     if !head.is_empty() && head == branch {
         return Err(Error::Git(format!("{branch} is checked out in the repo")));
     }
-    state.git.delete_merged_branch(&repo_path, branch).await
+    if force {
+        state.git.branch_delete(&repo_path, branch).await?;
+        return Ok(BranchDeletion::Deleted);
+    }
+    Ok(
+        if state.git.delete_merged_branch(&repo_path, branch).await? {
+            BranchDeletion::Deleted
+        } else {
+            BranchDeletion::NotMerged
+        },
+    )
 }
 
 #[tauri::command]

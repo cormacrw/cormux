@@ -185,7 +185,14 @@ export function installBrowserHarness() {
       subject: 'Tune the accent palette',
       committed: 'yesterday',
     },
+    {
+      name: 'feat/oauth-api',
+      subject: 'Add the token endpoint',
+      committed: '3 hours ago',
+    },
   ]
+  // Stack branches sit on each other, so git won't delete them without force.
+  const unmergedBranches = ['feat/oauth-api']
 
   // Tests opt into ClickUp: a stored key and a picked sprint folder.
   const clickupBoard = fixtureClickupBoard()
@@ -626,8 +633,9 @@ export function installBrowserHarness() {
           message: `${name} is checked out`,
         }
       }
+      if (unmergedBranches.includes(name) && !args.force) return 'notMerged'
       localBranches = localBranches.filter((row) => row.name !== name)
-      return null
+      return 'deleted'
     }
     if (
       cmd === 'subscribe_diffs' &&

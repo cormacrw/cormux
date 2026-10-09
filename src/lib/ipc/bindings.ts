@@ -350,9 +350,9 @@ async listRepoLocalBranches(repoId: string) : Promise<Result<LocalBranchesResult
     else return { status: "error", error: e  as any };
 }
 },
-async deleteLocalBranch(repoId: string, branch: string) : Promise<Result<null, Error>> {
+async deleteLocalBranch(repoId: string, branch: string, force: boolean) : Promise<Result<BranchDeletion, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_local_branch", { repoId, branch }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_local_branch", { repoId, branch, force }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -745,6 +745,14 @@ export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type
 { type: "toolCallUpdate"; id: string; title: string | null; kind: ToolKind | null; status: ToolCallStatus | null; locations: string[] } | { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
+/**
+ * What happened to a local branch the user asked to delete.
+ */
+export type BranchDeletion = "deleted" | 
+/**
+ * Not deleted: it has commits that aren't merged. Deleting with `force` drops them.
+ */
+"notMerged"
 /**
  * Everything the sprint board renders: the current sprint, its lanes and its tasks.
  */
