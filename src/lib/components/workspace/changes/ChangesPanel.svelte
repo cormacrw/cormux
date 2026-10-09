@@ -21,12 +21,16 @@
   import ChangesFileList from './ChangesFileList.svelte'
   import ChangesSkeleton from './ChangesSkeleton.svelte'
   import StackRail from './StackRail.svelte'
+  import DiscardChangesDialog, {
+    type DiscardRequest,
+  } from './DiscardChangesDialog.svelte'
   import ChevronsDownUp from '@lucide/svelte/icons/chevrons-down-up'
   import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down'
   import GitCompare from '@lucide/svelte/icons/git-compare'
   import MopSparkles from '@lucide/svelte/icons/mop-sparkles'
   import Send from '@lucide/svelte/icons/send'
   import Trash2 from '@lucide/svelte/icons/trash-2'
+  import Undo2 from '@lucide/svelte/icons/undo-2'
 
   let {
     workspace,
@@ -61,6 +65,14 @@
   )
 
   let scrollEl: HTMLDivElement | undefined = $state()
+
+  // Only uncommitted work can be thrown away; a branch's commits stay put.
+  const canDiscard = $derived(
+    !pending?.retarget &&
+      workspaceDiff.target(workspace.id) === null &&
+      files.length > 0,
+  )
+  let discardRequest = $state<DiscardRequest | null>(null)
 
   // The tab switches the moment it's clicked: the skeleton paints first and the file
   // list, which can be long, mounts in the frame after.
@@ -216,6 +228,17 @@
           {/if}
         </Button>
       {/if}
+      {#if canDiscard}
+        <Button
+          variant="ghost"
+          size="sm"
+          class="gap-1.5 text-muted-foreground hover:text-destructive"
+          data-od-id="changes-discard-all"
+          onclick={() => (discardRequest = { file: null, count: files.length })}
+        >
+          <Undo2 class="size-3.5" aria-hidden="true" /> Discard all
+        </Button>
+      {/if}
       {#if comments.length}
         <Button
           variant="ghost"
@@ -268,6 +291,9 @@
             workspaceId={workspace.id}
             branch={commentScope}
             {files}
+            onDiscard={canDiscard
+              ? (file) => (discardRequest = { file, count: 1 })
+              : undefined}
           />
         </div>
       {:else if !loading}
@@ -303,6 +329,12 @@
     </div>
   </div>
 </div>
+
+<DiscardChangesDialog
+  workspaceId={workspace.id}
+  request={discardRequest}
+  onClose={() => (discardRequest = null)}
+/>
 
 <style>
   /* Fast fetches finish before the splash shows, so it never flickers. */

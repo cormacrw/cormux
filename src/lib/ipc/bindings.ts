@@ -216,6 +216,17 @@ async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : P
 }
 },
 /**
+ * Throw away uncommitted changes to `paths` (all of them when empty), then refresh Changes.
+ */
+async discardWorkspaceChanges(workspaceId: string, paths: string[]) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("discard_workspace_changes", { workspaceId, paths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.
  */
 async startStreamingSpike(agent: TAURI_CHANNEL<AgentChunk>, pty: TAURI_CHANNEL<PtyChunk>) : Promise<Result<null, Error>> {

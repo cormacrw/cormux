@@ -409,6 +409,62 @@ impl Git {
         Ok(changes)
     }
 
+    /// Throws away uncommitted changes to `paths`, or every uncommitted change when
+    /// `paths` is empty: tracked files go back to `HEAD`, index included, and
+    /// untracked files are deleted. Ignored files are left alone.
+    pub async fn discard(&self, worktree: &Path, paths: &[String]) -> Result<()> {
+        self.with_queue(worktree, || async {
+            if paths.is_empty() {
+                let restored = self
+                    .run_unlocked(
+                        Some(worktree),
+                        &[
+                            "restore",
+                            "--source=HEAD",
+                            "--staged",
+                            "--worktree",
+                            "--",
+                            ":/",
+                        ],
+                    )
+                    .await?;
+                Self::require_success(&restored, "restore")?;
+                let cleaned = self
+                    .run_unlocked(Some(worktree), &["clean", "-f", "-d", "--", ":/"])
+                    .await?;
+                return Self::require_success(&cleaned, "clean");
+            }
+            let mut args = vec!["ls-files", "-z", "--others", "--exclude-standard", "--"];
+            args.extend(paths.iter().map(String::as_str));
+            let listed = self.run_unlocked(Some(worktree), &args).await?;
+            Self::require_success(&listed, "ls-files")?;
+            let untracked: Vec<String> = Self::stdout(&listed)
+                .split('\0')
+                .filter(|path| !path.is_empty())
+                .map(str::to_string)
+                .collect();
+            let tracked: Vec<&str> = paths
+                .iter()
+                .filter(|path| !untracked.contains(path))
+                .map(String::as_str)
+                .collect();
+            if !tracked.is_empty() {
+                let mut args = vec!["restore", "--source=HEAD", "--staged", "--worktree", "--"];
+                args.extend(tracked);
+                let restored = self.run_unlocked(Some(worktree), &args).await?;
+                Self::require_success(&restored, "restore")?;
+            }
+            if !untracked.is_empty() {
+                let mut args = vec!["clean", "-f", "--"];
+                args.extend(untracked.iter().map(String::as_str));
+                let cleaned = self.run_unlocked(Some(worktree), &args).await?;
+                Self::require_success(&cleaned, "clean")?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
     /// A copy of the worktree's index in the temp dir, for `uncommitted_changes`.
     async fn scratch_index(&self, worktree: &Path) -> Result<PathBuf> {
         let output = self
@@ -904,6 +960,36 @@ mod tests {
             git.status_porcelain(&repo).await.unwrap(),
             " D README.md\n?? docs/\n?? new.txt\n"
         );
+    }
+
+    #[tokio::test]
+    async fn discards_some_or_all_uncommitted_changes() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        std::fs::write(repo.join("README.md"), "changed\n").unwrap();
+        std::fs::write(repo.join("new.txt"), "new\n").unwrap();
+        std::fs::write(repo.join("staged.txt"), "staged\n").unwrap();
+        std::fs::write(repo.join("other.txt"), "other\n").unwrap();
+        run_ok(&repo, &["git", "add", "staged.txt"]);
+
+        git.discard(
+            &repo,
+            &["README.md".into(), "new.txt".into(), "staged.txt".into()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(repo.join("README.md")).unwrap(),
+            "hello\n"
+        );
+        assert_eq!(git.status_porcelain(&repo).await.unwrap(), "?? other.txt\n");
+
+        std::fs::create_dir(repo.join("dir")).unwrap();
+        std::fs::write(repo.join("dir/file.txt"), "x\n").unwrap();
+        std::fs::remove_file(repo.join("README.md")).unwrap();
+        git.discard(&repo, &[]).await.unwrap();
+        assert_eq!(git.status_porcelain(&repo).await.unwrap(), "");
+        assert!(!repo.join("dir").exists());
     }
 
     #[tokio::test]

@@ -31,6 +31,7 @@ pub fn builder() -> Builder {
             commands::unsubscribe,
             commands::refresh_workspace_diff,
             commands::set_workspace_diff_target,
+            commands::discard_workspace_changes,
             commands::start_streaming_spike,
             commands::summarise_workspace,
             commands::sync_pull_requests,

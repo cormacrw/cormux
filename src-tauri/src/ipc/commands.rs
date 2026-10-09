@@ -937,6 +937,23 @@ pub async fn set_workspace_diff_target(
     Ok(())
 }
 
+/// Throw away uncommitted changes to `paths` (all of them when empty), then refresh Changes.
+#[tauri::command]
+#[specta::specta]
+pub async fn discard_workspace_changes(
+    workspace_id: String,
+    paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    use std::path::Path;
+
+    let workspace = crate::git_workspace::load_workspace(&state, &workspace_id).await?;
+    let worktree = Path::new(&workspace.worktree_path);
+    state.git.discard(worktree, &paths).await?;
+    state.diffs.compute(&workspace_id, worktree).await?;
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn create_review_workspace(

@@ -333,10 +333,19 @@ export function installBrowserHarness() {
     })
   }
 
+  // Paths thrown away from Changes; `null` once everything has been.
+  let discarded: Set<string> | null = new Set()
+  const uncommittedFiles = () =>
+    harnessDiffFiles().filter((file) => discarded && !discarded.has(file.path))
+
   let diffChannel: { id: number; index: number } | null = null
   const sendDiff = (target: { head: string; base: string } | null) => {
     if (!diffChannel) return
-    const diff = { ...fixtureDiff, target, files: harnessDiffFiles() }
+    const diff = {
+      ...fixtureDiff,
+      target,
+      files: target ? harnessDiffFiles() : uncommittedFiles(),
+    }
     callbacks.get(diffChannel.id)?.({
       index: diffChannel.index++,
       message: { workspaceId: fixtureDiff.workspaceId, path: '', diff },
@@ -645,6 +654,16 @@ export function installBrowserHarness() {
           (args.target as { head: string; base: string } | null) ?? null
         setTimeout(() => sendDiff(target), 100)
       }
+      return null
+    }
+    if (
+      cmd === 'discard_workspace_changes' &&
+      args.workspaceId === fixtureDiff.workspaceId
+    ) {
+      const paths = args.paths as string[]
+      if (!paths.length) discarded = null
+      else for (const path of paths) discarded?.add(path)
+      sendDiff(null)
       return null
     }
     if (cmd === 'subscribe_agent_events') {

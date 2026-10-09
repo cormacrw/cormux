@@ -11,6 +11,7 @@ commands.allow = [
   "subscribe_pty",
   "subscribe_diffs",
   "set_workspace_diff_target",
+  "discard_workspace_changes",
   "detect_engines",
   "send_thread_prompt",
   "close_workspace_thread",
