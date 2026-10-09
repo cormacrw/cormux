@@ -770,7 +770,11 @@ export type CreateWorkspaceInput = { repoId: string; name: string; branch: strin
 export type CreateWorkspacePullRequestInput = { workspaceId: string; body: string; title: string | null }
 export type CreateWorkspacePullRequestResult = { workspaceId: string; number: number; htmlUrl: string; title: string }
 export type CreateWorkspaceResult = { workspaceId: string }
-export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
+export type DiffFile = { path: string; 
+/**
+ * Where a renamed or moved file came from.
+ */
+oldPath: string | null; added: number; deleted: number; hunks: DiffHunk[] }
 export type DiffHunk = { header: string; body: string }
 /**
  * Committed changes on `head` since it left `base` (`base...head`).

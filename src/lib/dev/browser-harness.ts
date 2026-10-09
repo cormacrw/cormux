@@ -320,6 +320,7 @@ export function installBrowserHarness() {
       )
       return {
         path: `src/generated/module-${file}.ts`,
+        oldPath: null,
         added: lines.length,
         deleted: 0,
         hunks: [

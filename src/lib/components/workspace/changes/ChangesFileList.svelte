@@ -51,7 +51,7 @@
         class="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border/40 bg-background px-3 py-2 text-left text-sm hover:bg-[color-mix(in_oklch,var(--muted)_40%,var(--background))]"
         aria-expanded={open}
         aria-controls={bodyId}
-        title={file.path}
+        title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
         onclick={() => toggle(file.path)}
       >
         <ChevronRight
@@ -62,6 +62,9 @@
           aria-hidden="true"
         />
         <span class="min-w-0 flex-1 truncate">
+          {#if file.oldPath}
+            <span class="text-muted-foreground">{file.oldPath} → </span>
+          {/if}
           {#if parts.dir}
             <span class="text-muted-foreground">{parts.dir}</span>
           {/if}
@@ -90,6 +93,7 @@
             status === 'A' && 'text-[var(--success)]',
             status === 'D' && 'text-destructive',
             status === 'M' && 'text-[var(--warning)]',
+            status === 'R' && 'text-info',
           )}
         >
           <span aria-hidden="true">{status}</span>
@@ -102,7 +106,9 @@
             <LazyDiff {workspaceId} {branch} {file} />
           {:else}
             <p class="px-3 py-2 text-xs text-muted-foreground">
-              No text changes to show.
+              {file.oldPath
+                ? 'Moved without other changes.'
+                : 'No text changes to show.'}
             </p>
           {/if}
         </div>

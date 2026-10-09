@@ -10,7 +10,7 @@ use specta::Type;
 use tokio::sync::mpsc;
 
 use crate::error::{Error, Result};
-use crate::git::Git;
+use crate::git::{FileStat, Git};
 
 const DEBOUNCE: Duration = Duration::from_millis(300);
 
@@ -25,6 +25,8 @@ pub struct DiffHunk {
 #[serde(rename_all = "camelCase")]
 pub struct DiffFile {
     pub path: String,
+    /// Where a renamed or moved file came from.
+    pub old_path: Option<String>,
     pub added: u32,
     pub deleted: u32,
     pub hunks: Vec<DiffHunk>,
@@ -39,12 +41,12 @@ pub struct LineCounts {
 }
 
 impl LineCounts {
-    fn of(stats: &[(String, u32, u32)]) -> Self {
+    fn of<'a>(stats: impl IntoIterator<Item = &'a FileStat>) -> Self {
         stats
-            .iter()
-            .fold(Self::default(), |counts, (_, added, deleted)| Self {
-                added: counts.added + added,
-                deleted: counts.deleted + deleted,
+            .into_iter()
+            .fold(Self::default(), |counts, stat| Self {
+                added: counts.added + stat.added,
+                deleted: counts.deleted + stat.deleted,
             })
     }
 }
@@ -340,33 +342,32 @@ async fn compute_diff(
         )),
         None => None,
     };
-    let (stats, uncommitted) = if let Some(range) = &range {
+    let (changes, uncommitted) = if let Some(range) = &range {
         let uncommitted = git.numstat(path).await.unwrap_or_default();
-        (
-            git.numstat_range(path, range).await?,
-            LineCounts::of(&uncommitted),
-        )
-    } else {
-        let stats = git.numstat(path).await?;
-        let uncommitted = LineCounts::of(&stats);
-        (stats, uncommitted)
-    };
-    let mut files = Vec::new();
-    for (file_path, added, deleted) in stats {
-        let text = if let Some(range) = &range {
-            git.diff_file_range(path, range, &file_path)
+        let mut changes = Vec::new();
+        for stat in git.numstat_range(path, range).await? {
+            let patch = git
+                .diff_file_range(path, range, &stat)
                 .await
-                .unwrap_or_default()
-        } else {
-            git.diff_file(path, &file_path).await.unwrap_or_default()
-        };
-        files.push(DiffFile {
-            path: file_path,
-            added,
-            deleted,
-            hunks: parse_hunks(&text),
-        });
-    }
+                .unwrap_or_default();
+            changes.push((stat, patch));
+        }
+        (changes, LineCounts::of(&uncommitted))
+    } else {
+        let changes = git.uncommitted_changes(path, true).await?;
+        let uncommitted = LineCounts::of(changes.iter().map(|(stat, _)| stat));
+        (changes, uncommitted)
+    };
+    let files = changes
+        .into_iter()
+        .map(|(stat, patch)| DiffFile {
+            path: stat.path,
+            old_path: stat.old_path,
+            added: stat.added,
+            deleted: stat.deleted,
+            hunks: parse_hunks(&patch),
+        })
+        .collect();
     Ok(WorktreeDiff {
         workspace_id: workspace_id.to_string(),
         target: target.cloned(),

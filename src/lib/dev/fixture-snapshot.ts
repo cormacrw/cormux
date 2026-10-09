@@ -228,6 +228,7 @@ export const fixtureDiff = {
   files: [
     {
       path: 'src/auth/session.ts',
+      oldPath: null,
       added: 4,
       deleted: 1,
       hunks: [
@@ -250,6 +251,7 @@ export const fixtureDiff = {
     },
     {
       path: 'src/auth/providers.ts',
+      oldPath: null,
       added: 60,
       deleted: 0,
       hunks: [

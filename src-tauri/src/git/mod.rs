@@ -128,10 +128,21 @@ impl Git {
     }
 
     async fn run_unlocked(&self, cwd: Option<&Path>, args: &[&str]) -> Result<Output> {
+        self.run_with_env(cwd, args, &[]).await
+    }
+
+    /// Like `run_unlocked`, with extra environment variables.
+    async fn run_with_env(
+        &self,
+        cwd: Option<&Path>,
+        args: &[&str],
+        extra_env: &[(&str, &str)],
+    ) -> Result<Output> {
         let env = self.inner.env.read().await;
         let mut command = Command::new("git");
         command.args(args);
         env.apply(&mut command);
+        command.envs(extra_env.iter().copied());
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
         }
@@ -322,75 +333,103 @@ impl Git {
             .then(|| Self::stdout(&output).trim().to_string()))
     }
 
-    pub async fn numstat(&self, worktree: &Path) -> Result<Vec<(String, u32, u32)>> {
-        let output = self.run(worktree, &["diff", "--numstat", "HEAD"]).await?;
-        Self::diff_ok(&output, "diff --numstat")?;
-        let mut files = parse_numstat(&Self::stdout(&output));
-        files.extend(self.untracked_numstat(worktree).await?);
-        Ok(files)
+    /// Uncommitted changes vs `HEAD`, untracked files included and renames paired.
+    pub async fn numstat(&self, worktree: &Path) -> Result<Vec<FileStat>> {
+        Ok(self
+            .uncommitted_changes(worktree, false)
+            .await?
+            .into_iter()
+            .map(|(stat, _)| stat)
+            .collect())
     }
 
     /// Files changed by `range`, e.g. `main...feature`.
-    pub async fn numstat_range(
+    pub async fn numstat_range(&self, worktree: &Path, range: &str) -> Result<Vec<FileStat>> {
+        let output = self
+            .run(worktree, &["diff", "--numstat", "-z", "-M", range])
+            .await?;
+        Self::diff_ok(&output, "diff --numstat")?;
+        Ok(parse_numstat_z(&output.stdout))
+    }
+
+    /// Each uncommitted change with its patch when `with_patches` is set.
+    ///
+    /// `git diff HEAD` can't see untracked files, so a moved file would show as a
+    /// deletion and a separate addition. They are marked intent-to-add in a copy of
+    /// the index, which leaves the real one alone and lets git pair renames.
+    pub async fn uncommitted_changes(
         &self,
         worktree: &Path,
-        range: &str,
-    ) -> Result<Vec<(String, u32, u32)>> {
-        let output = self.run(worktree, &["diff", "--numstat", range]).await?;
-        Self::diff_ok(&output, "diff --numstat")?;
-        Ok(parse_numstat(&Self::stdout(&output)))
+        with_patches: bool,
+    ) -> Result<Vec<(FileStat, String)>> {
+        self.with_queue(worktree, || async {
+            let index = self.scratch_index(worktree).await?;
+            let result = self
+                .uncommitted_changes_in(worktree, &index, with_patches)
+                .await;
+            let _ = std::fs::remove_file(&index);
+            result
+        })
+        .await
     }
 
-    async fn untracked_numstat(&self, worktree: &Path) -> Result<Vec<(String, u32, u32)>> {
+    async fn uncommitted_changes_in(
+        &self,
+        worktree: &Path,
+        index: &Path,
+        with_patches: bool,
+    ) -> Result<Vec<(FileStat, String)>> {
+        let index = index.to_string_lossy().to_string();
+        let env = [("GIT_INDEX_FILE", index.as_str())];
+        let added = self
+            .run_with_env(Some(worktree), &["add", "--intent-to-add", "--", "."], &env)
+            .await?;
+        Self::require_success(&added, "add --intent-to-add")?;
         let output = self
-            .run(
-                worktree,
-                &["ls-files", "-z", "--others", "--exclude-standard"],
+            .run_with_env(
+                Some(worktree),
+                &["diff", "--numstat", "-z", "-M", "HEAD"],
+                &env,
             )
             .await?;
-        Self::require_success(&output, "ls-files")?;
-        let mut files = Vec::new();
-        for path in parse_z(&output.stdout) {
-            if path.is_empty() {
-                continue;
-            }
-            let added = count_lines(&worktree.join(&path));
-            files.push((path, added, 0));
+        Self::diff_ok(&output, "diff --numstat")?;
+        let mut changes = Vec::new();
+        for stat in parse_numstat_z(&output.stdout) {
+            let patch = if with_patches {
+                let mut args = vec!["diff", "-M", "HEAD", "--"];
+                args.extend(stat.paths());
+                let output = self.run_with_env(Some(worktree), &args, &env).await?;
+                Self::diff_ok(&output, "diff file")?;
+                Self::stdout(&output)
+            } else {
+                String::new()
+            };
+            changes.push((stat, patch));
         }
-        Ok(files)
+        Ok(changes)
     }
 
-    pub async fn diff_file(&self, worktree: &Path, path: &str) -> Result<String> {
-        let tracked = self.run(worktree, &["diff", "HEAD", "--", path]).await?;
-        Self::diff_ok(&tracked, "diff file")?;
-        let text = Self::stdout(&tracked);
-        if !text.trim().is_empty() {
-            return Ok(text);
-        }
-        let file = worktree.join(path);
-        if file.exists() {
-            let empty = PathBuf::from("/dev/null");
-            let empty_str = empty.to_string_lossy().to_string();
-            let file_str = file.to_string_lossy().to_string();
-            let file_diff = self
-                .run_unlocked(
-                    Some(worktree),
-                    &["diff", "--no-index", "--", &empty_str, &file_str],
-                )
-                .await?;
-            Self::diff_ok(&file_diff, "diff --no-index")?;
-            return Ok(Self::stdout(&file_diff));
-        }
-        Ok(text)
+    /// A copy of the worktree's index in the temp dir, for `uncommitted_changes`.
+    async fn scratch_index(&self, worktree: &Path) -> Result<PathBuf> {
+        let output = self
+            .run_unlocked(Some(worktree), &["rev-parse", "--git-path", "index"])
+            .await?;
+        Self::require_success(&output, "rev-parse --git-path index")?;
+        let index = worktree.join(Self::stdout(&output).trim());
+        let scratch = std::env::temp_dir().join(format!("cormux-index-{}", uuid::Uuid::new_v4()));
+        std::fs::copy(&index, &scratch).map_err(|error| Error::Git(error.to_string()))?;
+        Ok(scratch)
     }
 
     pub async fn diff_file_range(
         &self,
         worktree: &Path,
         range: &str,
-        path: &str,
+        file: &FileStat,
     ) -> Result<String> {
-        let output = self.run(worktree, &["diff", range, "--", path]).await?;
+        let mut args = vec!["diff", "-M", range, "--"];
+        args.extend(file.paths());
+        let output = self.run(worktree, &args).await?;
         Self::diff_ok(&output, "diff file in range")?;
         Ok(Self::stdout(&output))
     }
@@ -666,35 +705,54 @@ fn short_ref(refname: &str) -> String {
         .to_string()
 }
 
-fn parse_numstat(text: &str) -> Vec<(String, u32, u32)> {
+/// One changed file from `git diff --numstat`. A rename keeps the path it came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileStat {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub added: u32,
+    pub deleted: u32,
+}
+
+impl FileStat {
+    /// Pathspecs for this file's diff; a rename needs both sides to be paired.
+    fn paths(&self) -> Vec<&str> {
+        self.old_path
+            .iter()
+            .map(String::as_str)
+            .chain([self.path.as_str()])
+            .collect()
+    }
+}
+
+/// `git diff --numstat -z`: `added\tdeleted\tpath\0`, or for a rename
+/// `added\tdeleted\t\0old\0new\0`. Binary files count as no lines.
+fn parse_numstat_z(bytes: &[u8]) -> Vec<FileStat> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut fields = text.split('\0');
     let mut files = Vec::new();
-    for line in text.lines() {
-        let mut parts = line.splitn(3, '\t');
-        let added = parts.next().unwrap_or("-");
-        let deleted = parts.next().unwrap_or("-");
-        let path = parts.next().unwrap_or("");
-        if path.is_empty() {
+    while let Some(record) = fields.next() {
+        let mut parts = record.splitn(3, '\t');
+        let (Some(added), Some(deleted), Some(path)) = (parts.next(), parts.next(), parts.next())
+        else {
             continue;
-        }
-        let added = added.parse().unwrap_or(0);
-        let deleted = deleted.parse().unwrap_or(0);
-        files.push((path.to_string(), added, deleted));
+        };
+        let (path, old_path) = if path.is_empty() {
+            let (Some(old), Some(new)) = (fields.next(), fields.next()) else {
+                break;
+            };
+            (new.to_string(), Some(old.to_string()))
+        } else {
+            (path.to_string(), None)
+        };
+        files.push(FileStat {
+            path,
+            old_path,
+            added: added.parse().unwrap_or(0),
+            deleted: deleted.parse().unwrap_or(0),
+        });
     }
     files
-}
-
-fn parse_z(bytes: &[u8]) -> Vec<String> {
-    bytes
-        .split(|b| *b == 0)
-        .filter(|chunk| !chunk.is_empty())
-        .map(|chunk| String::from_utf8_lossy(chunk).to_string())
-        .collect()
-}
-
-fn count_lines(path: &Path) -> u32 {
-    std::fs::read_to_string(path)
-        .map(|text| text.lines().count() as u32)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -784,6 +842,70 @@ mod tests {
         assert_eq!(parse_shortstat(""), ShortStat::default());
     }
 
+    #[test]
+    fn parses_renames_in_numstat() {
+        let raw = b"1\t0\tkeep.txt\x000\t0\t\x00src/one.txt\x00src/two.txt\x00-\t-\tlogo.png\x00";
+        assert_eq!(
+            parse_numstat_z(raw),
+            vec![
+                FileStat {
+                    path: "keep.txt".into(),
+                    old_path: None,
+                    added: 1,
+                    deleted: 0,
+                },
+                FileStat {
+                    path: "src/two.txt".into(),
+                    old_path: Some("src/one.txt".into()),
+                    added: 0,
+                    deleted: 0,
+                },
+                FileStat {
+                    path: "logo.png".into(),
+                    old_path: None,
+                    added: 0,
+                    deleted: 0,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_moved_file_is_one_change_and_the_index_is_left_alone() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        std::fs::create_dir(repo.join("docs")).unwrap();
+        std::fs::rename(repo.join("README.md"), repo.join("docs/README.md")).unwrap();
+        std::fs::write(repo.join("new.txt"), "one\ntwo\n").unwrap();
+
+        let changes = git.uncommitted_changes(&repo, true).await.unwrap();
+        let stats: Vec<_> = changes.iter().map(|(stat, _)| stat.clone()).collect();
+        assert_eq!(
+            stats,
+            vec![
+                FileStat {
+                    path: "docs/README.md".into(),
+                    old_path: Some("README.md".into()),
+                    added: 0,
+                    deleted: 0,
+                },
+                FileStat {
+                    path: "new.txt".into(),
+                    old_path: None,
+                    added: 2,
+                    deleted: 0,
+                },
+            ]
+        );
+        assert!(changes[0].1.contains("rename to docs/README.md"));
+        assert!(changes[1].1.contains("+two"));
+        // Nothing was staged in the real index.
+        assert_eq!(
+            git.status_porcelain(&repo).await.unwrap(),
+            " D README.md\n?? docs/\n?? new.txt\n"
+        );
+    }
+
     #[tokio::test]
     async fn lists_and_switches_to_remote_only_branches() {
         let git = git_with_env().await;
@@ -865,9 +987,9 @@ mod tests {
         assert!(
             stats
                 .iter()
-                .any(|(path, added, _)| path == "README.md" && *added > 0)
+                .any(|stat| stat.path == "README.md" && stat.added > 0)
         );
-        assert!(stats.iter().any(|(path, _, _)| path == "extra.txt"));
+        assert!(stats.iter().any(|stat| stat.path == "extra.txt"));
 
         let dirty = git.switch(&worktree, "main").await;
         assert!(dirty.is_err());

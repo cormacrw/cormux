@@ -31,12 +31,13 @@ export function languageForPath(path: string): string {
 /** git-diff-view wants the `---`/`+++` header the backend strips; without it no lines parse. */
 export function toDiffViewData(file: DiffFile) {
   const lang = languageForPath(file.path)
+  const oldPath = file.oldPath ?? file.path
   const hunks = file.hunks
     .map((hunk) => `${hunk.header}\n${hunk.body}`)
     .join('')
   return {
-    oldFile: { fileName: file.path, fileLang: lang },
+    oldFile: { fileName: oldPath, fileLang: languageForPath(oldPath) },
     newFile: { fileName: file.path, fileLang: lang },
-    hunks: [`--- a/${file.path}\n+++ b/${file.path}\n${hunks}`],
+    hunks: [`--- a/${oldPath}\n+++ b/${file.path}\n${hunks}`],
   }
 }
