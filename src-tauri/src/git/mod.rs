@@ -592,26 +592,27 @@ impl Git {
     }
 
     /// Deletes a branch that is fully merged. Refuses with git's own error otherwise.
-    /// `git branch -d`: `Ok(false)` when git refuses because the branch isn't fully
-    /// merged (into its upstream, or `HEAD` without one), as a stacked branch never is.
-    pub async fn delete_merged_branch(&self, repo: &Path, branch: &str) -> Result<bool> {
-        let output = self
-            .with_queue(repo, || async {
-                self.run_with_env(
-                    Some(repo),
-                    &["branch", "-d", "--", branch],
-                    &[("LC_ALL", "C")],
-                )
-                .await
-            })
+    /// Whether `origin/<branch>` exists and points where the local branch does, as of the
+    /// last fetch, so deleting the local branch loses nothing.
+    pub async fn in_sync_with_origin(&self, repo: &Path, branch: &str) -> Result<bool> {
+        let local = self
+            .rev_parse(repo, &format!("refs/heads/{branch}"))
             .await?;
-        if output.status.success() {
-            return Ok(true);
-        }
-        if String::from_utf8_lossy(&output.stderr).contains("not fully merged") {
-            return Ok(false);
-        }
-        Err(Self::fail(&output, "branch -d"))
+        let remote = self
+            .rev_parse(repo, &format!("refs/remotes/origin/{branch}"))
+            .await?;
+        Ok(local.is_some() && local == remote)
+    }
+
+    /// The commit `reference` points at, or `None` when it doesn't exist.
+    async fn rev_parse(&self, repo: &Path, reference: &str) -> Result<Option<String>> {
+        let output = self
+            .run(repo, &["rev-parse", "--verify", "--quiet", reference])
+            .await?;
+        Ok(output
+            .status
+            .success()
+            .then(|| Self::stdout(&output).trim().to_string()))
     }
 
     pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
@@ -1010,29 +1011,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unmerged_branch_is_kept_until_forced() {
+    async fn a_branch_is_in_sync_only_when_origin_has_the_same_tip() {
         let git = git_with_env().await;
-        let (_dir, repo) = init_repo();
-        run_ok(&repo, &["git", "switch", "-q", "-c", "feat/a"]);
-        std::fs::write(repo.join("a.txt"), "a\n").unwrap();
-        run_ok(&repo, &["git", "add", "a.txt"]);
-        run_ok(&repo, &["git", "commit", "-q", "-m", "a"]);
-        run_ok(&repo, &["git", "switch", "-q", "main"]);
-        run_ok(&repo, &["git", "branch", "feat/merged"]);
-
+        let (_origin_dir, origin) = init_repo();
+        run_ok(&origin, &["git", "branch", "feat/pushed"]);
+        let clone_dir = tempfile::tempdir().unwrap();
+        let clone = clone_dir.path().join("clone");
+        run_ok(
+            clone_dir.path(),
+            &["git", "clone", "-q", &origin.to_string_lossy(), "clone"],
+        );
+        run_ok(&clone, &["git", "config", "user.email", "cormux@test"]);
+        run_ok(&clone, &["git", "config", "user.name", "Cormux"]);
+        run_ok(
+            &clone,
+            &["git", "branch", "feat/pushed", "origin/feat/pushed"],
+        );
+        run_ok(&clone, &["git", "branch", "feat/local"]);
         assert!(
-            git.delete_merged_branch(&repo, "feat/merged")
+            git.in_sync_with_origin(&clone, "feat/pushed")
                 .await
                 .unwrap()
         );
-        assert!(!git.delete_merged_branch(&repo, "feat/a").await.unwrap());
-        assert!(git.ref_exists(&repo, "feat/a").await.unwrap());
-        git.branch_delete(&repo, "feat/a").await.unwrap();
-        assert!(!git.ref_exists(&repo, "feat/a").await.unwrap());
+        assert!(!git.in_sync_with_origin(&clone, "feat/local").await.unwrap());
+
+        run_ok(&clone, &["git", "switch", "-q", "feat/pushed"]);
+        std::fs::write(clone.join("more.txt"), "more\n").unwrap();
+        run_ok(&clone, &["git", "add", "more.txt"]);
+        run_ok(&clone, &["git", "commit", "-q", "-m", "more"]);
         assert!(
-            git.delete_merged_branch(&repo, "feat/missing")
+            !git.in_sync_with_origin(&clone, "feat/pushed")
                 .await
-                .is_err()
+                .unwrap()
         );
     }
 

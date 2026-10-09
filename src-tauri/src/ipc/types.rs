@@ -148,8 +148,9 @@ pub struct LocalBranchRow {
 #[serde(rename_all = "camelCase")]
 pub enum BranchDeletion {
     Deleted,
-    /// Not deleted: it has commits that aren't merged. Deleting with `force` drops them.
-    NotMerged,
+    /// Not deleted: origin doesn't have the branch as it is locally, so deleting it
+    /// (with `force`) can lose commits.
+    Unpushed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

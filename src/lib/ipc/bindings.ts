@@ -750,9 +750,10 @@ export type ApprovalRow = { id: string; threadId: string; status: string; tool: 
  */
 export type BranchDeletion = "deleted" | 
 /**
- * Not deleted: it has commits that aren't merged. Deleting with `force` drops them.
+ * Not deleted: origin doesn't have the branch as it is locally, so deleting it
+ * (with `force`) can lose commits.
  */
-"notMerged"
+"unpushed"
 /**
  * Everything the sprint board renders: the current sprint, its lanes and its tasks.
  */

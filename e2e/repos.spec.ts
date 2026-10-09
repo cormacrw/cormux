@@ -115,11 +115,11 @@ test.describe('repos', () => {
     await colors.getByRole('button', { name: 'Delete feat/colors' }).click()
     await expect(colors).toHaveCount(0)
 
-    // A stacked branch isn't merged, so deleting it asks first.
+    // A branch that isn't pushed to origin, or is out of sync, asks first.
     const api = pageRoot.locator('[data-od-id="repo-branch-feat/oauth-api"]')
     await api.getByRole('button', { name: 'Delete feat/oauth-api' }).click()
     const confirm = page.getByRole('alertdialog')
-    await expect(confirm).toContainText('Delete an unmerged branch?')
+    await expect(confirm).toContainText("Delete a branch that isn't on origin?")
     await confirm.getByRole('button', { name: 'Cancel' }).click()
     await expect(api).toHaveCount(1)
     await api.getByRole('button', { name: 'Delete feat/oauth-api' }).click()

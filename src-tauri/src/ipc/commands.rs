@@ -1141,17 +1141,11 @@ pub async fn delete_local_branch(
     if !head.is_empty() && head == branch {
         return Err(Error::Git(format!("{branch} is checked out in the repo")));
     }
-    if force {
-        state.git.branch_delete(&repo_path, branch).await?;
-        return Ok(BranchDeletion::Deleted);
+    if !force && !state.git.in_sync_with_origin(&repo_path, branch).await? {
+        return Ok(BranchDeletion::Unpushed);
     }
-    Ok(
-        if state.git.delete_merged_branch(&repo_path, branch).await? {
-            BranchDeletion::Deleted
-        } else {
-            BranchDeletion::NotMerged
-        },
-    )
+    state.git.branch_delete(&repo_path, branch).await?;
+    Ok(BranchDeletion::Deleted)
 }
 
 #[tauri::command]

@@ -191,8 +191,8 @@ export function installBrowserHarness() {
       committed: '3 hours ago',
     },
   ]
-  // Stack branches sit on each other, so git won't delete them without force.
-  const unmergedBranches = ['feat/oauth-api']
+  // Branches origin doesn't have at the same commit, so deleting them asks first.
+  const unpushedBranches = ['feat/oauth-api']
 
   // Tests opt into ClickUp: a stored key and a picked sprint folder.
   const clickupBoard = fixtureClickupBoard()
@@ -633,7 +633,7 @@ export function installBrowserHarness() {
           message: `${name} is checked out`,
         }
       }
-      if (unmergedBranches.includes(name) && !args.force) return 'notMerged'
+      if (unpushedBranches.includes(name) && !args.force) return 'unpushed'
       localBranches = localBranches.filter((row) => row.name !== name)
       return 'deleted'
     }
