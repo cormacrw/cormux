@@ -21,6 +21,7 @@ mod mcp;
 mod menu;
 mod metrics;
 mod naming;
+mod plan_mode;
 mod pr_draft;
 mod process;
 mod provisioning;
@@ -144,6 +145,10 @@ pub fn run() {
                         break;
                     }
                     let state = approval_app.state::<AppState>();
+                    if let Err(error) = crate::plan_mode::hold_threads_awaiting_review(&state).await
+                    {
+                        log::warn!("plan review status: {error}");
+                    }
                     crate::feedback::emit_approval_counts(&approval_app, &state);
                 }
             });

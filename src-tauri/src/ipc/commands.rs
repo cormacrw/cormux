@@ -783,7 +783,15 @@ pub async fn resolve_approval(
         .resolve(&id, approved, deny_message.clone())
         .await?;
     let hints = crate::approvals::apply_harness_effects(&state, &row, &payload, approved)?;
-    if !approved && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
+    // Plan feedback already reaches Claude with the denial, which keeps it planning.
+    let is_plan = payload.effect.as_deref() == Some("execute_plan");
+    if is_plan {
+        crate::plan_mode::resume_after_review(&state, &row.thread_id).await?;
+    }
+    if !approved
+        && !is_plan
+        && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty())
+    {
         let _ = state
             .engines
             .prompt(&row.thread_id, format!("Approval denied: {reason}"));
@@ -1758,6 +1766,39 @@ pub async fn set_thread_model(
 ) -> Result<()> {
     snapshot_thread(&state, &thread_id)?;
     state.engines.set_thread_model(&thread_id, model)
+}
+
+/// Plan mode: the agent plans without editing until the user approves. A live Claude session
+/// switches now; the setting also applies the next time the thread's agent starts.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_thread_plan_mode(
+    app: AppHandle,
+    thread_id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let thread = snapshot_thread(&state, &thread_id)?;
+    if EngineKind::from_name(&thread.engine) != EngineKind::Claude {
+        return Err(Error::Workspace(
+            "only Claude threads have plan mode".into(),
+        ));
+    }
+    state.engines.set_thread_plan_mode(&thread_id, enabled)?;
+    if !enabled && crate::plan_mode::dismiss_waiting_plan(&state, &thread_id).await? {
+        emit_approval_counts(&app, &state);
+    }
+    persist_control_step(
+        &state.store,
+        &thread_id,
+        if enabled {
+            "Switched to plan mode"
+        } else {
+            "Left plan mode"
+        },
+    )?;
+    emit_composer_snapshot(&app, &state);
+    Ok(())
 }
 
 /// Like `/clear`: the agent forgets the conversation, but the thread keeps showing it.

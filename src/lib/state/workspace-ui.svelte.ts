@@ -1,4 +1,5 @@
-export type WorkspacePanelTab = 'thread' | 'findings' | 'changes' | 'output'
+export type WorkspacePanelTab =
+  'thread' | 'plan' | 'findings' | 'changes' | 'output'
 
 export class WorkspaceUiStore {
   activeTab = $state<WorkspacePanelTab>('thread')
@@ -13,6 +14,8 @@ export class WorkspaceUiStore {
   diffMode = $state<'unified' | 'split'>('unified')
   /** When true, opening Findings focuses the panel heading (card entry). */
   findingsFocusPending = $state(false)
+  /** The thread whose plan the Plan tab shows; null shows the first one waiting. */
+  planThreadId = $state<string | null>(null)
 
   openTab(tab: WorkspacePanelTab) {
     if (tab === 'output') {
@@ -23,6 +26,12 @@ export class WorkspaceUiStore {
       return
     }
     this.activeTab = tab
+  }
+
+  /** Opens the Plan tab on a thread's newest plan. */
+  openPlan(threadId: string) {
+    this.planThreadId = threadId
+    this.openTab('plan')
   }
 
   /** Opens Changes at a file, and at a line of it when given. */
@@ -47,6 +56,7 @@ export class WorkspaceUiStore {
     this.revealDiffPath = null
     this.revealDiffLine = null
     this.collapsedDiffPaths = {}
+    this.planThreadId = null
   }
 }
 

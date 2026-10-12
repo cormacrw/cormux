@@ -117,6 +117,78 @@ function seedLongThread(turns: number) {
   }
 }
 
+/** A pending plan approval on the Lead thread, with the permission event the thread shows. */
+function addHarnessPlan(id: string, plan: string) {
+  const persisted = fixtureSnapshot.persisted
+  // The Lead's turn is on hold while the plan waits, and it's in plan mode, as the core marks it.
+  persisted.threads.find((thread) => thread.id === 'th-lead')!.status =
+    'waiting'
+  persisted.settings = [
+    ...persisted.settings.filter(
+      (row) => row.key !== 'thread:th-lead/planMode',
+    ),
+    { key: 'thread:th-lead/planMode', value: 'true' },
+  ]
+  const title = plan.match(/^#+\s*(?:Plan:)?\s*(.+)$/m)?.[1] ?? 'Plan'
+  persisted.approvals.push({
+    id,
+    threadId: 'th-lead',
+    status: 'pending',
+    tool: 'execute_plan',
+    payload: JSON.stringify({
+      title: 'Review plan',
+      what: title,
+      why: 'Nothing is edited until you approve.',
+      okLabel: 'Approve plan',
+      noLabel: 'Sent feedback',
+      effect: 'execute_plan',
+      plan,
+    }),
+  })
+  const seq =
+    Math.max(
+      0,
+      ...persisted.timeline
+        .filter((row) => row.threadId === 'th-lead')
+        .map((row) => row.seq),
+    ) + 1
+  // Claude announces the ExitPlanMode tool call before asking to run it.
+  persisted.timeline.push({
+    id: 700_000 + seq,
+    threadId: 'th-lead',
+    seq,
+    kind: 'tool',
+    payload: JSON.stringify({
+      type: 'toolCall',
+      id: `toolu-${id}`,
+      title: 'ExitPlanMode',
+      name: 'ExitPlanMode',
+      kind: 'other',
+      status: 'inProgress',
+      locations: [],
+      detail: null,
+    }),
+    createdAt: '2026-10-09 12:00:00',
+  })
+  persisted.timeline.push({
+    id: 700_000 + seq + 1,
+    threadId: 'th-lead',
+    seq: seq + 1,
+    kind: 'permission',
+    payload: JSON.stringify({
+      type: 'permission',
+      id,
+      tool_call_id: null,
+      title: 'Use ExitPlanMode',
+      tool_name: 'ExitPlanMode',
+      kind: 'other',
+      detail: null,
+      auto_approved: false,
+    }),
+    createdAt: '2026-10-09 12:00:00',
+  })
+}
+
 export function installBrowserHarness() {
   if (typeof window === 'undefined' || isRealTauri()) return
   const longThread = Number(
@@ -157,6 +229,24 @@ export function installBrowserHarness() {
       { key: 'review:ws-auth/status', value: 'ready' },
     ]
   }
+  // Tests can run the Lead on another engine (the fixture's is Cursor).
+  const leadEngine = (window as { __HARNESS_LEAD_ENGINE__?: string })
+    .__HARNESS_LEAD_ENGINE__
+  if (leadEngine) {
+    fixtureSnapshot.persisted.threads.find(
+      (thread) => thread.id === 'th-lead',
+    )!.engine = leadEngine
+  }
+  // Tests can inject a plan the Lead thread is waiting on, as Claude hands one over in plan mode.
+  const injectedPlan = (window as { __HARNESS_PLAN__?: string })
+    .__HARNESS_PLAN__
+  if (injectedPlan) {
+    fixtureSnapshot.persisted.threads.find(
+      (thread) => thread.id === 'th-lead',
+    )!.engine = 'claude'
+    addHarnessPlan('plan-1', injectedPlan)
+  }
+
   // Tests can inject synced PRs; this also flips GitHub to connected.
   const injectedPrs = (
     window as {
@@ -231,6 +321,22 @@ export function installBrowserHarness() {
       })
     }
   }
+
+  // Lets tests have the Lead hand over a (revised) plan while the app is open.
+  ;(
+    window as { __HARNESS_ADD_PLAN__?: (id: string, plan: string) => void }
+  ).__HARNESS_ADD_PLAN__ = (id, plan) => {
+    addHarnessPlan(id, plan)
+    emitStateChanged()
+  }
+  const resolvedApprovals: {
+    id: string
+    approved: boolean
+    denyReason: string | null
+  }[] = []
+  ;(
+    window as { __HARNESS_RESOLVED__?: typeof resolvedApprovals }
+  ).__HARNESS_RESOLVED__ = resolvedApprovals
 
   // Stream a reply the way a real engine does: many small chunks, then a turn end that
   // the backend follows with a state-changed refetch.
@@ -836,6 +942,53 @@ export function installBrowserHarness() {
         window as { __HARNESS_OPENED__?: string[] }
       ).__HARNESS_OPENED__ ??= [])
       opened.push(String(args.url))
+      return null
+    }
+    if (cmd === 'resolve_approval') {
+      const id = String(args.id)
+      const approved = Boolean(args.approved)
+      const denyReason = (args.denyReason as string | null) ?? null
+      resolvedApprovals.push({ id, approved, denyReason })
+      const row = fixtureSnapshot.persisted.approvals.find(
+        (entry) => entry.id === id,
+      )
+      if (row) {
+        const thread = fixtureSnapshot.persisted.threads.find(
+          (entry) => entry.id === row.threadId,
+        )
+        if (thread?.status === 'waiting') thread.status = 'running'
+        row.status = approved ? 'approved' : 'denied'
+        row.payload = JSON.stringify({
+          ...JSON.parse(row.payload),
+          resolvedAtMs: Date.now(),
+          ...(denyReason ? { denyReason } : {}),
+        })
+      }
+      emitStateChanged()
+      return { focusComposer: false }
+    }
+    if (cmd === 'set_thread_plan_mode') {
+      const threadId = String(args.threadId)
+      const enabled = Boolean(args.enabled)
+      const key = `thread:${threadId}/planMode`
+      const persisted = fixtureSnapshot.persisted
+      persisted.settings = [
+        ...persisted.settings.filter((row) => row.key !== key),
+        { key, value: String(enabled) },
+      ]
+      // Leaving plan mode drops a waiting plan, as the core does.
+      const waiting = persisted.approvals.filter(
+        (row) =>
+          row.threadId === threadId &&
+          row.status === 'pending' &&
+          row.tool === 'execute_plan',
+      )
+      if (!enabled && waiting.length) {
+        for (const row of waiting) row.status = 'dismissed'
+        const thread = persisted.threads.find((entry) => entry.id === threadId)
+        if (thread?.status === 'waiting') thread.status = 'running'
+        emitStateChanged()
+      }
       return null
     }
     if (cmd.startsWith('plugin:')) return null

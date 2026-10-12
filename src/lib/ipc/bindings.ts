@@ -144,6 +144,18 @@ async setThreadModel(threadId: string, model: string | null) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Plan mode: the agent plans without editing until the user approves. A live Claude session
+ * switches now; the setting also applies the next time the thread's agent starts.
+ */
+async setThreadPlanMode(threadId: string, enabled: boolean) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_thread_plan_mode", { threadId, enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved, denyReason }) };

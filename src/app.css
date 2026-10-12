@@ -580,3 +580,11 @@
     0 0 / 200% 100%;
   animation: skeleton-shimmer 1.4s linear infinite;
 }
+
+/* Text the user commented on in a plan (PlanPanel), via the CSS Custom Highlight API. */
+::highlight(plan-comment) {
+  background-color: color-mix(in oklch, var(--info) 22%, transparent);
+}
+::highlight(plan-comment-active) {
+  background-color: color-mix(in oklch, var(--info) 45%, transparent);
+}

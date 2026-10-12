@@ -21,6 +21,7 @@
       variant === 'provisioning' &&
         'bg-info motion-safe:animate-[status-blink_1.2s_ease-in-out_infinite]',
       variant === 'paused' && 'bg-warning',
+      variant === 'waiting' && 'bg-warning ring-2 ring-warning/30',
     )}
   ></span>
 </span>

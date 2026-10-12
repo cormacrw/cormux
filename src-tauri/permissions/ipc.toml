@@ -21,6 +21,7 @@ commands.allow = [
   "new_thread_session",
   "thread_models",
   "set_thread_model",
+  "set_thread_plan_mode",
   "resolve_approval",
   "resolve_all_approvals",
   "summarise_workspace",

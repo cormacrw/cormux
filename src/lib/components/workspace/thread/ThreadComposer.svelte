@@ -18,6 +18,12 @@
   } from '$lib/composer/skill-picker'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
+  import { settings } from '$lib/state/settings.svelte'
+  import { cn } from '$lib/utils'
+  import { threadPlanMode } from '$lib/plans/plans'
+  import { setThreadPlanMode } from '$lib/plans/leave-plan-mode'
+  import { formatPlanFeedback } from '$lib/plans/feedback'
+  import { plans } from '$lib/state/plans.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { sendThreadMessage } from '$lib/thread/send-message'
   import {
@@ -34,6 +40,7 @@
   import { engineDisplayName } from '$lib/sidebar/engine'
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
+  import ClipboardList from '@lucide/svelte/icons/clipboard-list'
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
   import Sparkles from '@lucide/svelte/icons/sparkles'
@@ -76,6 +83,52 @@
   const canStartNewSession = $derived(
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
+  // Plan mode is Claude's, and a scratch is always read-only anyway.
+  const canPlan = $derived(newSession && thread.engine === 'claude')
+  const planMode = $derived(canPlan && threadPlanMode(settings.rows, thread.id))
+
+  // The agent's turn is on hold until its plan is answered, so a message now is feedback on it.
+  const waitingPlan = $derived(
+    plans.latestFor([thread.id]).find((plan) => plan.state === 'pending'),
+  )
+
+  async function sendPlanFeedback(
+    planId: string,
+    threadId: string,
+    text: string,
+  ) {
+    try {
+      await plans.resolve(planId, formatPlanFeedback([], text))
+      showToast({
+        tone: 'ok',
+        parts: [
+          {
+            type: 'text',
+            value: `Sent your feedback on the plan to ${agentName(threadId)}`,
+          },
+        ],
+      })
+      return true
+    } catch (error) {
+      showToast({
+        tone: 'bad',
+        parts: [
+          {
+            type: 'text',
+            value:
+              error instanceof Error
+                ? error.message
+                : 'Could not reach the agent',
+          },
+        ],
+      })
+      return false
+    }
+  }
+
+  function togglePlanMode() {
+    void setThreadPlanMode(thread.id, !planMode)
+  }
 
   // Typing `/` anywhere opens the skill picker. Skills are Claude Code's, so other engines skip it.
   let skills = $state<Skill[] | null>(null)
@@ -191,7 +244,10 @@
       inputEl?.focus()
     })
     onSent?.()
-    if (!(await sendThreadMessage(threadId, text))) {
+    const sent = waitingPlan
+      ? await sendPlanFeedback(waitingPlan.id, threadId, text)
+      : await sendThreadMessage(threadId, text)
+    if (!sent) {
       composerDrafts.setFor(threadId, text)
     }
   }
@@ -384,7 +440,12 @@
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      placeholder={placeholder ?? `Message ${name}…`}
+      placeholder={placeholder ??
+        (waitingPlan
+          ? `Reply to ${name}’s plan, or review it in the Plan tab…`
+          : planMode
+            ? `Ask ${name} to plan something…`
+            : `Message ${name}…`)}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'skill-picker' : undefined}
@@ -415,6 +476,23 @@
           >{thread.role ? `${engineName} · ${name}` : engineName}</span
         >
         <ThreadModelPicker {thread} />
+        {#if canPlan}
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            data-od-id="composer-plan-mode"
+            aria-pressed={planMode}
+            title={planMode
+              ? `Leave plan mode; ${name} goes back to working normally`
+              : `Have ${name} write a plan for you to review before it edits anything`}
+            class={cn(planMode && 'bg-info/15 text-info hover:bg-info/20')}
+            onclick={() => void togglePlanMode()}
+          >
+            <ClipboardList class="size-3.5" aria-hidden="true" />
+            Plan
+          </Button>
+        {/if}
         {#if showPause}
           <Button
             type="button"

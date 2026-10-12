@@ -8,6 +8,7 @@
   import {
     app,
     findings,
+    plans,
     settings,
     threads,
     workspaceDiff,
@@ -27,11 +28,13 @@
     findingsTabAriaLabel,
     moveTabFocusIndex,
     outputTabAriaLabel,
+    planTabAriaLabel,
     showFindingsTab,
     tabKeyId,
     threadTabAriaLabel,
     type ThreadBarTabKey,
   } from '$lib/workspace/thread-tabs'
+  import ClipboardList from '@lucide/svelte/icons/clipboard-list'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import List from '@lucide/svelte/icons/list'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -39,6 +42,7 @@
   import Terminal from '@lucide/svelte/icons/terminal'
   import X from '@lucide/svelte/icons/x'
   import { canCloseThread, closeThreadTab } from '$lib/workspace/close-thread'
+  import { closePlanTab } from '$lib/plans/leave-plan-mode'
 
   let { workspace }: { workspace: Workspace } = $props()
 
@@ -53,7 +57,14 @@
     }),
   )
   const openFindings = $derived(findings.openCount(workspace.id))
-  const tabOrder = $derived(buildThreadBarTabOrder(wsThreads, showFindings))
+  const threadIds = $derived(wsThreads.map((thread) => thread.id))
+  const showPlan = $derived(
+    plans.visibleFor(workspace.id, threadIds).length > 0,
+  )
+  const pendingPlans = $derived(plans.pendingCount(workspace.id, threadIds))
+  const tabOrder = $derived(
+    buildThreadBarTabOrder(wsThreads, showFindings, showPlan),
+  )
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runtime = $derived(workspaceRecords.runtime(workspace.id))
   const changeCountLabel = $derived(
@@ -201,6 +212,56 @@
         {/if}
       </span>
     {/each}
+
+    {#if showPlan}
+      {@const selected = workspaceUi.activeTab === 'plan'}
+      <span
+        role="presentation"
+        class="group/tab relative flex shrink-0 items-end"
+      >
+        <Button
+          id="thread-tab-plan"
+          role="tab"
+          variant="ghost"
+          size="sm"
+          class={cn(threadTabClass(selected), 'pr-6')}
+          aria-selected={selected}
+          aria-controls="plan-panel"
+          tabindex={tabIndex({ kind: 'plan' })}
+          aria-label={planTabAriaLabel(pendingPlans)}
+          data-od-id="thread-tab-plan"
+          onclick={() => selectTab({ kind: 'plan' })}
+        >
+          <ClipboardList class="size-3.5 shrink-0" aria-hidden="true" />
+          <span class="truncate" aria-hidden="true">Plan</span>
+          {#if pendingPlans > 0}
+            <Badge
+              variant="outline"
+              class="border-warning/40 bg-warning/15 px-1.5 text-[10px] text-warning"
+              aria-hidden="true"
+            >
+              Review
+            </Badge>
+          {/if}
+        </Button>
+        <button
+          type="button"
+          tabindex="-1"
+          aria-label="Close plan and leave plan mode"
+          title="Close the plan and leave plan mode"
+          data-od-id="thread-close-plan"
+          class={cn(
+            'absolute top-1/2 right-1 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground',
+            selected
+              ? 'opacity-100'
+              : 'opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100',
+          )}
+          onclick={() => void closePlanTab(workspace.id)}
+        >
+          <X class="size-3" aria-hidden="true" />
+        </button>
+      </span>
+    {/if}
 
     {#if showFindings}
       {@const selected = workspaceUi.activeTab === 'findings'}

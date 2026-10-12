@@ -7,6 +7,8 @@ export type ApprovalPayload = {
   effect?: string
   resolvedAtMs?: number
   denyReason?: string
+  /** The markdown plan an agent handed over for approval. */
+  plan?: string
 }
 
 export function parseApprovalPayload(raw: string): ApprovalPayload | null {

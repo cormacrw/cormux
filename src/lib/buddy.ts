@@ -23,7 +23,9 @@ export function buddyMoodForThread(thread: {
   paused: boolean
   pendingApprovals: number
 }): BuddyMood {
-  if (thread.pendingApprovals > 0) return 'needsYou'
+  if (thread.pendingApprovals > 0 || thread.status === 'waiting') {
+    return 'needsYou'
+  }
   if (thread.status === 'provisioning' || thread.status === 'creating') {
     return 'starting'
   }
