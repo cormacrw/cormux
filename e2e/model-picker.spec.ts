@@ -26,6 +26,7 @@ test('the composer picks a model per thread when the engine lists some', async (
   const menu = page.getByRole('menu')
   await expect(menu.getByRole('menuitemradio')).toHaveText([
     'Default',
+    'Fable',
     'Opus',
     'Sonnet',
     'Haiku',

@@ -825,6 +825,7 @@ export function installBrowserHarness() {
         options:
           engine === 'claude'
             ? [
+                { id: 'fable', label: 'Fable' },
                 { id: 'opus', label: 'Opus' },
                 { id: 'sonnet', label: 'Sonnet' },
                 { id: 'haiku', label: 'Haiku' },
