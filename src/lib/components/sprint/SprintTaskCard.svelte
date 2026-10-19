@@ -26,8 +26,6 @@
 
   const unpointed = $derived(task.points == null)
   const ref = $derived(taskRef(task))
-  const shownAssignees = $derived(task.assignees.slice(0, 3))
-  const extraAssignees = $derived(task.assignees.length - shownAssignees.length)
 
   function pointerDown(event: PointerEvent) {
     if ((event.target as Element).closest('[data-card-action]')) return
@@ -88,25 +86,7 @@
       />
     {/if}
 
-    <div class="ml-auto flex shrink-0 items-center gap-2">
-      {#if shownAssignees.length > 0}
-        <div class="flex -space-x-1.5" aria-hidden="true">
-          {#each shownAssignees as user (user.id)}
-            <span
-              class="flex size-5 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-2 ring-card"
-              style:background-color={user.color ?? 'var(--muted-foreground)'}
-              title={user.username}>{user.initials}</span
-            >
-          {/each}
-          {#if extraAssignees > 0}
-            <span
-              class="flex size-5 items-center justify-center rounded-full bg-muted text-[8px] font-semibold ring-2 ring-card"
-              >+{extraAssignees}</span
-            >
-          {/if}
-        </div>
-      {/if}
-
+    <div class="ml-auto shrink-0">
       {#if unpointed}
         <span
           class="inline-flex items-center gap-1 rounded-full border border-dashed border-warning/80 bg-warning/15 px-1.5 py-px text-[10px] font-semibold text-warning"

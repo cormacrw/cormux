@@ -47,6 +47,9 @@ pub enum ControlRequest {
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<String>,
     },
+    /// `default`, `plan`, `acceptEdits` or `bypassPermissions`.
+    #[serde(rename = "set_permission_mode")]
+    SetPermissionMode { mode: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -63,6 +66,9 @@ pub enum PermissionDecision {
     Allow {
         #[serde(rename = "updatedInput")]
         updated_input: Value,
+        /// Rule or mode changes that come with the allow, such as leaving plan mode.
+        #[serde(rename = "updatedPermissions", skip_serializing_if = "Option::is_none")]
+        updated_permissions: Option<Value>,
     },
     #[serde(rename = "deny")]
     Deny { message: String },
@@ -81,6 +87,8 @@ pub struct CanUseTool {
 pub enum Event {
     Init {
         session_id: String,
+        /// The mode the session started in, such as `default`, `auto` or `plan`.
+        permission_mode: Option<String>,
     },
     /// One assistant message, its content blocks in order.
     Assistant {
@@ -165,6 +173,16 @@ pub fn set_model_request(request_id: impl Into<String>, model: Option<String>) -
     }
 }
 
+pub fn set_permission_mode_request(
+    request_id: impl Into<String>,
+    mode: impl Into<String>,
+) -> StdinMessage {
+    StdinMessage::ControlRequest {
+        request_id: request_id.into(),
+        request: ControlRequest::SetPermissionMode { mode: mode.into() },
+    }
+}
+
 pub fn permission_response(
     request_id: impl Into<String>,
     decision: PermissionDecision,
@@ -195,6 +213,10 @@ pub fn decode_event(line: &str) -> Result<Event> {
                 .ok_or_else(|| Error::Engine("system init missing session_id".into()))?;
             Ok(Event::Init {
                 session_id: session_id.to_string(),
+                permission_mode: value
+                    .get("permissionMode")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             })
         }
         "assistant" => Ok(Event::Assistant {
@@ -389,16 +411,33 @@ mod tests {
             "req_1",
             PermissionDecision::Allow {
                 updated_input: json!({"command": "echo ok"}),
+                updated_permissions: None,
             },
         ))
         .unwrap();
         let value: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert!(
+            value["response"]["response"]
+                .get("updatedPermissions")
+                .is_none()
+        );
         assert_eq!(value["type"], "control_response");
         assert_eq!(value["response"]["request_id"], "req_1");
         assert_eq!(value["response"]["response"]["behavior"], "allow");
         assert_eq!(
             value["response"]["response"]["updatedInput"]["command"],
             "echo ok"
+        );
+    }
+
+    #[test]
+    fn encodes_set_permission_mode() {
+        let line = encode_line(&set_permission_mode_request("mode-1", "plan")).unwrap();
+        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(value["type"], "control_request");
+        assert_eq!(
+            value["request"],
+            json!({"subtype": "set_permission_mode", "mode": "plan"})
         );
     }
 
@@ -440,7 +479,8 @@ mod tests {
         assert_eq!(
             init,
             Event::Init {
-                session_id: "sess-9".into()
+                session_id: "sess-9".into(),
+                permission_mode: None,
             }
         );
         let result = decode_event(

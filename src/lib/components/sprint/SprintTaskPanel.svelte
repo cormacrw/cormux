@@ -144,25 +144,6 @@
             </div>
           </dd>
 
-          {#if task.assignees.length > 0}
-            <dt class="text-xs text-muted-foreground">Assignees</dt>
-            <dd class="flex flex-wrap gap-1.5">
-              {#each task.assignees as user (user.id)}
-                <span
-                  class="inline-flex items-center gap-1.5 rounded-full border border-border py-0.5 pr-2 pl-0.5 text-xs"
-                >
-                  <span
-                    class="flex size-5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
-                    style:background-color={user.color ??
-                      'var(--muted-foreground)'}
-                    aria-hidden="true">{user.initials}</span
-                  >
-                  {user.username}
-                </span>
-              {/each}
-            </dd>
-          {/if}
-
           {#if task.priority}
             <dt class="text-xs text-muted-foreground">Priority</dt>
             <dd class="flex items-center gap-2 text-sm">

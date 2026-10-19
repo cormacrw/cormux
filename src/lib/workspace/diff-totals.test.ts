@@ -5,8 +5,8 @@ describe('diff totals', () => {
   it('sums added and deleted lines', () => {
     expect(
       totalsFromDiffFiles([
-        { path: 'a.ts', added: 3, deleted: 1, hunks: [] },
-        { path: 'b.ts', added: 2, deleted: 0, hunks: [] },
+        { path: 'a.ts', oldPath: null, added: 3, deleted: 1, hunks: [] },
+        { path: 'b.ts', oldPath: null, added: 2, deleted: 0, hunks: [] },
       ]),
     ).toEqual({ added: 5, deleted: 1 })
   })

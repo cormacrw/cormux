@@ -11,9 +11,19 @@
   } from '$lib/composer/prompt-history'
   import { commands } from '$lib/ipc'
   import type { Skill } from '$lib/ipc/bindings'
-  import { filterSkills, skillQuery } from '$lib/composer/skill-picker'
+  import {
+    filterSkills,
+    insertSkill,
+    skillToken,
+  } from '$lib/composer/skill-picker'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
+  import { settings } from '$lib/state/settings.svelte'
+  import { cn } from '$lib/utils'
+  import { threadPlanMode } from '$lib/plans/plans'
+  import { setThreadPlanMode } from '$lib/plans/leave-plan-mode'
+  import { formatPlanFeedback } from '$lib/plans/feedback'
+  import { plans } from '$lib/state/plans.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { sendThreadMessage } from '$lib/thread/send-message'
   import {
@@ -30,6 +40,7 @@
   import { engineDisplayName } from '$lib/sidebar/engine'
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
+  import ClipboardList from '@lucide/svelte/icons/clipboard-list'
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
   import Sparkles from '@lucide/svelte/icons/sparkles'
@@ -72,14 +83,67 @@
   const canStartNewSession = $derived(
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
+  // Plan mode is Claude's, and a scratch is always read-only anyway.
+  const canPlan = $derived(newSession && thread.engine === 'claude')
+  const planMode = $derived(canPlan && threadPlanMode(settings.rows, thread.id))
 
-  // Typing `/` opens the skill picker. Skills are Claude Code's, so other engines skip it.
+  // The agent's turn is on hold until its plan is answered, so a message now is feedback on it.
+  const waitingPlan = $derived(
+    plans.latestFor([thread.id]).find((plan) => plan.state === 'pending'),
+  )
+
+  async function sendPlanFeedback(
+    planId: string,
+    threadId: string,
+    text: string,
+  ) {
+    try {
+      await plans.resolve(planId, formatPlanFeedback([], text))
+      showToast({
+        tone: 'ok',
+        parts: [
+          {
+            type: 'text',
+            value: `Sent your feedback on the plan to ${agentName(threadId)}`,
+          },
+        ],
+      })
+      return true
+    } catch (error) {
+      showToast({
+        tone: 'bad',
+        parts: [
+          {
+            type: 'text',
+            value:
+              error instanceof Error
+                ? error.message
+                : 'Could not reach the agent',
+          },
+        ],
+      })
+      return false
+    }
+  }
+
+  function togglePlanMode() {
+    void setThreadPlanMode(thread.id, !planMode)
+  }
+
+  // Typing `/` anywhere opens the skill picker. Skills are Claude Code's, so other engines skip it.
   let skills = $state<Skill[] | null>(null)
   let skillsThreadId: string | null = null
   let skillIndex = $state(0)
   /** Esc hides the picker until the draft changes. */
   let skillPickerDismissed = $state(false)
-  const query = $derived(thread.engine === 'claude' ? skillQuery(draft) : null)
+  /** Where the caret is in the draft; the picker follows the `/` word it's in. */
+  let caret = $state(0)
+  const token = $derived(
+    thread.engine === 'claude'
+      ? skillToken(draft, Math.min(caret, draft.length))
+      : null,
+  )
+  const query = $derived(token?.query ?? null)
   const skillMatches = $derived(
     query !== null && skills ? filterSkills(skills, query) : [],
   )
@@ -107,14 +171,20 @@
   })
 
   function chooseSkill(skill: Skill) {
-    const text = `/${skill.name} `
-    composerDrafts.setFor(thread.id, text)
+    if (!token) return
+    const next = insertSkill(draft, token, skill.name)
+    composerDrafts.setFor(thread.id, next.text)
+    caret = next.caret
     skillIndex = 0
     queueMicrotask(() => {
       fitHeight()
       inputEl?.focus()
-      inputEl?.setSelectionRange(text.length, text.length)
+      inputEl?.setSelectionRange(next.caret, next.caret)
     })
+  }
+
+  function syncCaret() {
+    if (inputEl) caret = inputEl.selectionStart
   }
 
   // Arrows move through the picker, ↵ or ⇥ picks, Esc closes it. Returns whether it handled the key.
@@ -153,6 +223,7 @@
   function onInput(event: Event) {
     const target = event.currentTarget as HTMLTextAreaElement
     composerDrafts.setFor(thread.id, target.value)
+    caret = target.selectionStart
     historyIndex = null
     skillPickerDismissed = false
     skillIndex = 0
@@ -173,7 +244,10 @@
       inputEl?.focus()
     })
     onSent?.()
-    if (!(await sendThreadMessage(threadId, text))) {
+    const sent = waitingPlan
+      ? await sendPlanFeedback(waitingPlan.id, threadId, text)
+      : await sendThreadMessage(threadId, text)
+    if (!sent) {
       composerDrafts.setFor(threadId, text)
     }
   }
@@ -340,10 +414,10 @@
               >{skill.description}</span
             >
           {/if}
-          {#if skill.source === 'project'}
+          {#if skill.source === 'project' || skill.source === 'plugin'}
             <span
               class="ml-auto shrink-0 rounded border border-border/60 px-1 text-[10px] text-muted-foreground"
-              >repo</span
+              >{skill.source === 'project' ? 'repo' : 'plugin'}</span
             >
           {/if}
         </li>
@@ -366,7 +440,12 @@
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      placeholder={placeholder ?? `Message ${name}…`}
+      placeholder={placeholder ??
+        (waitingPlan
+          ? `Reply to ${name}’s plan, or review it in the Plan tab…`
+          : planMode
+            ? `Ask ${name} to plan something…`
+            : `Message ${name}…`)}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'skill-picker' : undefined}
@@ -376,6 +455,9 @@
       aria-autocomplete={thread.engine === 'claude' ? 'list' : undefined}
       oninput={onInput}
       onkeydown={onKeydown}
+      onkeyup={syncCaret}
+      onclick={syncCaret}
+      onselect={syncCaret}
       oncompositionstart={onCompositionStart}
       oncompositionend={onCompositionEnd}
     />
@@ -394,6 +476,23 @@
           >{thread.role ? `${engineName} · ${name}` : engineName}</span
         >
         <ThreadModelPicker {thread} />
+        {#if canPlan}
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            data-od-id="composer-plan-mode"
+            aria-pressed={planMode}
+            title={planMode
+              ? `Leave plan mode; ${name} goes back to working normally`
+              : `Have ${name} write a plan for you to review before it edits anything`}
+            class={cn(planMode && 'bg-info/15 text-info hover:bg-info/20')}
+            onclick={() => void togglePlanMode()}
+          >
+            <ClipboardList class="size-3.5" aria-hidden="true" />
+            Plan
+          </Button>
+        {/if}
         {#if showPause}
           <Button
             type="button"

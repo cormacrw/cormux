@@ -278,7 +278,10 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                                             Some(EngineCommand::SetModel(model)) => {
                                                 picked_model = Some(model);
                                             }
-                                            Some(EngineCommand::Prompt(_)) => {}
+                                            Some(
+                                                EngineCommand::Prompt(_)
+                                                | EngineCommand::SetPlanMode(_),
+                                            ) => {}
                                         }
                                     }
                                 }
@@ -314,6 +317,8 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                                 set_model(&connection, &session_id, config, model).await;
                             }
                         }
+                        // The composer only offers plan mode on Claude.
+                        EngineCommand::SetPlanMode(_) => {}
                         EngineCommand::Shutdown => break,
                     }
                 }

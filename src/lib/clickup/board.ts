@@ -14,7 +14,7 @@ export const CLICKUP_FOLDER_KEY = 'clickupFolderId'
 export const CLICKUP_HIDDEN_STATUSES_KEY = 'clickupHiddenStatuses'
 
 /** The Fibonacci values most teams estimate in, offered as one-click choices. */
-export const POINT_PRESETS = [1, 2, 3, 5, 8] as const
+export const POINT_PRESETS = [0.5, 1, 2, 3, 5, 8] as const
 
 function sameStatus(a: string, b: string) {
   return a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0

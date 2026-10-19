@@ -22,7 +22,9 @@ test('comment on a diff line and send it to the agent', async ({ page }) => {
 
   // Both files start expanded, can fold independently, and the list scrolls.
   const files = panel.getByRole('list', { name: 'Changed files' })
-  const providers = files.getByRole('button', { name: /providers\.ts/ })
+  const providers = files.getByRole('button', {
+    name: /^src\/auth\/ providers\.ts/,
+  })
   await expect(providers).toHaveAttribute('aria-expanded', 'true')
   const scroll = await diff.evaluate((el) => {
     el.scrollTop = 400
@@ -36,7 +38,7 @@ test('comment on a diff line and send it to the agent', async ({ page }) => {
   await expect(providers).toHaveAttribute('aria-expanded', 'false')
   await expect(diff.getByText("provider60 = 'p60'")).toHaveCount(0)
   await expect(
-    files.getByRole('button', { name: /session\.ts/ }),
+    files.getByRole('button', { name: /^src\/auth\/ session\.ts/ }),
   ).toHaveAttribute('aria-expanded', 'true')
   await panel.getByRole('button', { name: 'Collapse all' }).click()
   await expect(diff.getByText('provider?: string')).toHaveCount(0)
@@ -56,7 +58,7 @@ test('comment on a diff line and send it to the agent', async ({ page }) => {
     diff.getByText('Use a map of providers instead of an if'),
   ).toBeVisible()
   await expect(
-    files.getByRole('button', { name: /session\.ts/ }),
+    files.getByRole('button', { name: /^src\/auth\/ session\.ts/ }),
   ).toContainText('1')
 
   // The counter sits on the stack level the comment was written on.

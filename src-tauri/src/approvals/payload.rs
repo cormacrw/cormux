@@ -16,6 +16,9 @@ pub struct ApprovalPayload {
     pub resolved_at_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deny_reason: Option<String>,
+    /// The markdown plan an `ExitPlanMode` call hands over; the Plan tab shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
 }
 
 impl Default for ApprovalPayload {
@@ -29,6 +32,7 @@ impl Default for ApprovalPayload {
             effect: None,
             resolved_at_ms: None,
             deny_reason: None,
+            plan: None,
         }
     }
 }
@@ -154,6 +158,18 @@ fn harness_tool_meta(
             effect: None,
         },
     )
+}
+
+/// A plan to review in the Plan tab. Denying it sends the user's comments back.
+pub fn payload_with_plan(mut payload: ApprovalPayload, plan: String) -> ApprovalPayload {
+    payload.title = "Review plan".into();
+    payload.what = crate::plan_mode::plan_title(&plan);
+    payload.why = "Nothing is edited until you approve.".into();
+    payload.ok_label = "Approve plan".into();
+    payload.no_label = "Sent feedback".into();
+    payload.effect = Some("execute_plan".into());
+    payload.plan = Some(plan);
+    payload
 }
 
 pub fn payload_with_option_labels(

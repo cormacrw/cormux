@@ -30,6 +30,8 @@ Agents should move fast on safe work and stop on anything destructive or irrever
   - Denied: `<deny label> · just now`, for example `Keep file · just now` (neutral).
 - The card is visually quietened.
 
+A plan an agent hands over in plan mode (see [27](27-plan-mode.md)) is an approval too, but it's reviewed in the Plan tab, so instead of a card the conversation shows a slim row: `Plan ready for review · <plan title>` and a **Review plan** link (later `Plan approved` or `Plan sent back`, with **Open plan**).
+
 ## Sample approvals and their effects
 
 | ID | Thread | Title | What | Why | Approve | Deny |

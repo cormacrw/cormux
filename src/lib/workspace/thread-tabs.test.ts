@@ -61,6 +61,17 @@ describe('thread bar order', () => {
     ])
   })
 
+  it('puts the plan right after the threads, before findings', () => {
+    const tabs = buildThreadBarTabOrder([sampleThread], true, true)
+    expect(tabs.map((tab) => tab.kind)).toEqual([
+      'thread',
+      'plan',
+      'findings',
+      'changes',
+      'output',
+    ])
+  })
+
   it('shows findings tab when review is ready', () => {
     expect(
       showFindingsTab({

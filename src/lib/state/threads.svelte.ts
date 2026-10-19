@@ -1,3 +1,5 @@
+import { workspaces } from './workspaces.svelte'
+
 export type Thread = {
   id: string
   workspaceId: string
@@ -14,8 +16,17 @@ export type Thread = {
 export class ThreadsStore {
   items = $state<Thread[]>([])
 
-  /** Workspace threads only. Scratches stay out of the sidebar and agent counts. */
-  readonly agents = $derived(this.items.filter((thread) => !thread.scratchId))
+  /**
+   * Workspace threads only. Scratches stay out of the sidebar and agent counts,
+   * and so do the agents of a workspace being deleted, like the workspace itself.
+   */
+  readonly agents = $derived(
+    this.items.filter((thread) => {
+      if (thread.scratchId) return false
+      const workspace = workspaces.getById(thread.workspaceId)
+      return !workspace || !workspaces.isDeleting(workspace)
+    }),
+  )
 
   readonly runningCount = $derived(
     this.agents.filter((thread) => thread.status === 'running').length,

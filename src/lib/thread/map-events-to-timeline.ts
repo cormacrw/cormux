@@ -112,7 +112,7 @@ function approvalState(
   const row = approvals.find((entry) => entry.id === id)
   if (!row) return 'pending'
   if (row.status === 'approved') return 'approved'
-  if (row.status === 'denied') return 'denied'
+  if (row.status === 'denied' || row.status === 'dismissed') return 'denied'
   return 'pending'
 }
 
@@ -243,6 +243,9 @@ function namedToolStep(
       title: 'Used skill',
       detail: event.detail ?? undefined,
     }
+  }
+  if (name === 'EnterPlanMode') {
+    return { icon: 'tool', title: 'Switched to plan mode', detail: undefined }
   }
   if (name === 'ToolSearch') {
     return {
@@ -414,6 +417,8 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
           })
           break
         }
+        // The plan's own row stands for the request to leave plan mode.
+        if ((event.name ?? event.title) === 'ExitPlanMode') break
         if (!toolKindIsRunStep(event.kind)) break
         if (!run.length) runSeq = seq
         const scratchRead =

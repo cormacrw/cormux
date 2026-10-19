@@ -56,6 +56,7 @@ Every spec follows the same outline:
 - [11 · Agent conversation](11-agent-conversation.md)
 - [12 · Composer](12-composer.md)
 - [13 · Approvals](13-approvals.md)
+- [27 · Plan mode](27-plan-mode.md)
 - [14 · Changes panel and diff review](14-changes-panel.md)
 - [15 · Run app and Output tab](15-run-app-and-output.md)
 - [16 · Branch switching](16-branch-switching.md)

@@ -1,6 +1,8 @@
 import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 
-export type StatusDotVariant = 'provisioning' | 'running' | 'paused' | 'idle'
+/** Waiting: the agent is on hold until the user answers it, such as reviewing its plan. */
+export type StatusDotVariant =
+  'provisioning' | 'running' | 'waiting' | 'paused' | 'idle'
 
 export type WorkspaceSidebarInput = {
   lifecycle: WorkspaceLifecycle
@@ -26,6 +28,7 @@ export function statusDotVariantForWorkspace(
   if (workspace.lifecycle === 'running') {
     return workspace.paused ? 'paused' : 'running'
   }
+  if (workspace.lifecycle === 'waiting') return 'waiting'
   return 'idle'
 }
 
@@ -35,6 +38,7 @@ export function statusDotVariantForThread(
   if (thread.status === 'provisioning') return 'provisioning'
   if (thread.status === 'paused' || thread.paused) return 'paused'
   if (thread.status === 'running') return 'running'
+  if (thread.status === 'waiting') return 'waiting'
   return 'idle'
 }
 

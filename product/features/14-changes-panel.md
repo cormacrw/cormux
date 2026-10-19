@@ -23,12 +23,12 @@ Two panes: the stack (25) on the left and the diff on the right. The stack picks
 - **Uncommitted changes** (the top level, and the default): worktree vs `HEAD`, including untracked files.
 - **A branch**: its committed changes since it left its base, the branch below it in the stack or the trunk (`git diff <base>...<branch>`). The base is `origin/<base>` when that has everything the local branch has, else the local branch, so a rebased but unpushed stack still diffs cleanly. Review workspaces start on `HEAD` against their PR base.
 
-The diff's toolbar is one row: what it shows (`Uncommitted changes` or `feat/b vs feat/a`), then (when there are files) the **Unified** / **Split** toggle and total `+N −N`; on the right, **Collapse all** / **Expand all** and **Send N comments to <thread>** (when there are draft comments).
+The diff's toolbar is one row: what it shows (`Uncommitted changes` or `feat/b vs feat/a`), then (when there are files) the **Unified** / **Split** toggle and total `+N −N`; on the right, **Collapse all** / **Expand all**, **Discard all** (uncommitted changes only) and **Send N comments to <thread>** (when there are draft comments).
 
 ### Files (accordion)
 One scrolling list with a section per changed file, in the order files were changed. Every file starts expanded; any number can be open at once.
 
-- **Header** (sticky while its diff scrolls past; a button with `aria-expanded`): chevron, path with the directory in a subtler colour and the file name emphasised (full path in the tooltip), comment count (speech-bubble icon, if any), `+N` / `−N` (zero counts omitted), and the status letter `M` / `A` / `D`, colour-coded (screen readers hear the word).
+- **Header** (sticky while its diff scrolls past; a button with `aria-expanded`): chevron, path with the directory in a subtler colour and the file name emphasised (full path in the tooltip), comment count (speech-bubble icon, if any), `+N` / `−N` (zero counts omitted), and the status letter `M` / `A` / `D` / `R`, colour-coded (screen readers hear the word). A moved or renamed file is one entry, `old → new`, not a deletion plus an addition. On uncommitted changes, a discard button (shown on hover or focus) sits at the end of the header.
 - **Body**: the file's diff, when expanded.
 
 ### Diff body
@@ -47,6 +47,7 @@ Rendered by [`@git-diff-view/svelte`](https://github.com/MrWangJustToDo/git-diff
 - **A file link in the conversation** opens the tab, expands that file and scrolls it to the top.
 - **Switching layout** keeps the vertical scroll position.
 - **Send N comments** posts every draft comment in the workspace to the open thread's agent as one message (each as `path:line`, the quoted line and the note; removed lines are marked), clears them and switches to that thread so its reply is in view. If sending fails the comments are restored. Drafts live in memory only.
+- **Discard** (a file, or **Discard all**) asks first, since it can't be undone, then puts tracked files back to `HEAD` (index included) and deletes new files; ignored files are left alone. A branch level has no discard: its changes are commits.
 - Opening a different workspace expands every file again and returns to the thread tab.
 - New files added by agents (for example after approving a plan or a delete) appear in the list and update the header counts.
 
@@ -67,7 +68,7 @@ Rendered by [`@git-diff-view/svelte`](https://github.com/MrWangJustToDo/git-diff
 Per workspace, `files[]`:
 
 ```
-{ path, added, deleted, hunks: [{ header, body }] }
+{ path, oldPath, added, deleted, hunks: [{ header, body }] }
 ```
 
 Draft comments, per workspace: `{ id, path, side: 'old' | 'new', line, code, body }`.

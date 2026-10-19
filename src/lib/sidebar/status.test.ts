@@ -96,6 +96,16 @@ describe('thread sidebar helpers', () => {
       }),
     ).toBe('running')
   })
+
+  it('shows a thread on hold for the user as waiting, not running', () => {
+    expect(
+      statusDotVariantForThread({
+        status: 'waiting',
+        paused: false,
+        activity: 'Plan ready for review',
+      }),
+    ).toBe('waiting')
+  })
 })
 
 describe('formatMemoryGb', () => {

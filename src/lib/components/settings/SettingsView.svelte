@@ -111,6 +111,24 @@
         </header>
 
         <section
+          use:bindSection={'appearance'}
+          id={settingsSectionDomId('appearance')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-appearance-h"
+          data-od-id="settings-appearance"
+        >
+          <SettingsSectionHead
+            id="settings-appearance-h"
+            title="Appearance"
+            description="Theme, primary color and text sizes on this Mac."
+          />
+          <div class="mt-4">
+            <AppearanceSettings />
+          </div>
+        </section>
+
+        <section
           use:bindSection={'general'}
           id={settingsSectionDomId('general')}
           class="set-sec scroll-mt-6 outline-none"
@@ -213,24 +231,6 @@
             description="Saved prompts you can start as a scratch from the command palette."
           />
           <ScratchMacrosSettings />
-        </section>
-
-        <section
-          use:bindSection={'appearance'}
-          id={settingsSectionDomId('appearance')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-appearance-h"
-          data-od-id="settings-appearance"
-        >
-          <SettingsSectionHead
-            id="settings-appearance-h"
-            title="Appearance"
-            description="Theme, primary color and text sizes on this Mac."
-          />
-          <div class="mt-4">
-            <AppearanceSettings />
-          </div>
         </section>
 
         <section

@@ -3,6 +3,7 @@
   import {
     app,
     findings,
+    plans,
     stacks,
     threads,
     workspaceRecords,
@@ -18,6 +19,7 @@
   import WorkspaceOutputPanel from './WorkspaceOutputPanel.svelte'
   import ThreadTabBar from './ThreadTabBar.svelte'
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
+  import PlanPanel from './PlanPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
   import ChangesPanel from './changes/ChangesPanel.svelte'
 
@@ -62,6 +64,7 @@
   )
   const outputTabActive = $derived(workspaceUi.activeTab === 'output')
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
+  const planTabActive = $derived(workspaceUi.activeTab === 'plan')
   const threadTabActive = $derived(workspaceUi.activeTab === 'thread')
   const changesTabActive = $derived(workspaceUi.activeTab === 'changes')
 
@@ -110,6 +113,24 @@
     ) {
       workspaceUi.openTab('thread')
     }
+  })
+
+  // A plan an agent hands over in this workspace opens in the Plan tab, ready to review.
+  $effect(() => {
+    const plan = plans.arrived
+    if (!plan || !workspaceId) return
+    untrack(() => {
+      if (threads.getById(plan.threadId)?.workspaceId !== workspaceId) return
+      plans.arrived = null
+      workspaceUi.openPlan(plan.threadId)
+    })
+  })
+
+  $effect(() => {
+    if (!planTabActive || !workspaceId) return
+    const ids = workspaceThreads.map((thread) => thread.id)
+    if (!plans.visibleFor(workspaceId, ids).length)
+      workspaceUi.openTab('thread')
   })
 
   onMount(() => {
@@ -198,6 +219,8 @@
             repoId={workspaceRepoId}
             {provisioning}
           />
+        {:else if planTabActive}
+          <PlanPanel workspaceId={workspace.id} />
         {:else if findingsTabActive}
           <WorkspaceFindingsPanel
             workspaceId={workspace.id}

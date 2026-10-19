@@ -1,8 +1,9 @@
 import type { DiffFile } from '$lib/ipc/bindings'
 
-export type FileChangeStatus = 'M' | 'A' | 'D'
+export type FileChangeStatus = 'M' | 'A' | 'D' | 'R'
 
 export function inferFileStatus(file: DiffFile): FileChangeStatus {
+  if (file.oldPath) return 'R'
   if (file.deleted > 0 && file.added === 0) return 'D'
   if (file.added > 0 && file.deleted === 0) {
     const onlyAdds = file.hunks.every((hunk) =>
@@ -17,6 +18,7 @@ export const statusLabel: Record<FileChangeStatus, string> = {
   M: 'Modified',
   A: 'Added',
   D: 'Deleted',
+  R: 'Renamed',
 }
 
 export function splitPath(path: string): { dir: string; name: string } {

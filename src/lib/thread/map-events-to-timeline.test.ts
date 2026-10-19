@@ -442,6 +442,60 @@ describe('mapEventsToTimeline', () => {
     })
   })
 
+  it('shows a plan only as its approval, not as an ExitPlanMode step', () => {
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          event: {
+            type: 'toolCall',
+            id: 'toolu_enter',
+            title: 'EnterPlanMode',
+            name: 'EnterPlanMode',
+            kind: 'other',
+            status: 'completed',
+            locations: [],
+            detail: null,
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: 'toolCall',
+            id: 'toolu_plan',
+            title: 'ExitPlanMode',
+            name: 'ExitPlanMode',
+            kind: 'other',
+            status: 'inProgress',
+            locations: [],
+            detail: null,
+          },
+        },
+        {
+          seq: 3,
+          event: {
+            type: 'permission',
+            id: 'plan-1',
+            tool_call_id: 'toolu_plan',
+            title: 'Use ExitPlanMode',
+            tool_name: 'ExitPlanMode',
+            kind: 'other',
+            detail: null,
+            auto_approved: false,
+          },
+        },
+      ],
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    expect(items.map((item) => item.kind)).toEqual(['toolRun', 'approval'])
+    expect(items[0]).toMatchObject({
+      steps: [{ title: 'Switched to plan mode' }],
+    })
+  })
+
   it('inserts items before live row', () => {
     const items = mapEventsToTimeline({
       events: [

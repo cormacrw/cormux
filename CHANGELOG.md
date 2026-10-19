@@ -2,6 +2,18 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.11
+
+- Plan mode for Claude threads: switch it on in the composer and the agent writes a plan before touching anything. The plan opens in its own tab, where you can highlight any part of it and comment, send the comments back for a revision, or approve it so the agent carries it out. While a plan waits, the agent shows as waiting for you instead of working.
+- The skill picker opens for a `/` typed anywhere in the composer, and lists Claude Code plugin skills too.
+- Discard uncommitted changes from the Changes panel, one file or all of them.
+- Moved or renamed files show once in Changes, as a rename.
+- The sidebar can be resized by dragging its edge.
+- Deleting an unmerged local branch, such as a stacked one, asks first instead of failing, and only asks when the branch isn't safely pushed.
+- A workspace's agents leave the sidebar as soon as it starts deleting.
+- Appearance comes first in Settings.
+- Sprint points include a half point, and the sprint board no longer lists assignees.
+
 ## 0.1.10
 
 - Release notes on GitHub now list what changed in each version.

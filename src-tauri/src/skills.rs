@@ -1,6 +1,7 @@
 //! Claude Code skills the composer's `/` picker offers: the repo's `.claude/skills` first,
-//! then the user's `~/.claude/skills`, then the skills built into Claude Code. Each skill on
-//! disk is a folder with a `SKILL.md` whose frontmatter names and describes it.
+//! then the user's `~/.claude/skills`, then plugin skills, then the skills built into Claude
+//! Code. Each skill on disk is a folder with a `SKILL.md` whose frontmatter names and
+//! describes it. Plugin skills are namespaced by their plugin, as `plugin:skill`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -14,10 +15,13 @@ use crate::state::AppState;
 pub struct Skill {
     pub name: String,
     pub description: String,
-    /// `project` for the repo's own skills, `user` for `~/.claude/skills`, `builtin` for
-    /// those that ship with Claude Code.
+    /// `project` for the repo's own skills, `user` for `~/.claude/skills`, `plugin` for
+    /// those from Claude Code plugins, `builtin` for those that ship with Claude Code.
     pub source: String,
 }
+
+/// Plugin namespace Claude Code gives the skills claude.ai syncs into `~/.claude/skills/synced`.
+const SYNCED_PLUGIN: &str = "anthropic-skills";
 
 /// Skills that ship inside the Claude Code CLI, so no folder holds them. Kept by hand; update
 /// it as Claude Code adds or drops skills.
@@ -106,6 +110,15 @@ fn list(cwd: &Path, home: Option<&Path>) -> Vec<Skill> {
             }
         }
     }
+    if let Some(home) = home {
+        let mut found = plugin_skills(cwd, home);
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        for skill in found {
+            if seen.insert(skill.name.clone()) {
+                skills.push(skill);
+            }
+        }
+    }
     for (name, description) in BUILTIN {
         if seen.insert(name.to_string()) {
             skills.push(Skill {
@@ -136,6 +149,82 @@ fn read_root(root: &Path, source: &str) -> Vec<Skill> {
             })
         })
         .collect()
+}
+
+/// Skills from claude.ai's synced plugin and from enabled, installed Claude Code plugins.
+fn plugin_skills(cwd: &Path, home: &Path) -> Vec<Skill> {
+    let mut skills = Vec::new();
+    // Synced skills sit in the folder itself, or one level down in a per-account folder.
+    let synced = home.join(".claude/skills/synced");
+    let mut synced_roots = vec![synced.clone()];
+    if let Ok(entries) = std::fs::read_dir(&synced) {
+        synced_roots.extend(
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|dir| dir.is_dir() && !dir.join("SKILL.md").exists()),
+        );
+    }
+    for root in synced_roots {
+        skills.extend(namespaced(SYNCED_PLUGIN, read_root(&root, "plugin")));
+    }
+    for (plugin, install_path) in enabled_plugins(cwd, home) {
+        skills.extend(namespaced(
+            &plugin,
+            read_root(&install_path.join("skills"), "plugin"),
+        ));
+    }
+    skills
+}
+
+fn namespaced(plugin: &str, skills: Vec<Skill>) -> Vec<Skill> {
+    skills
+        .into_iter()
+        .map(|skill| Skill {
+            name: format!("{plugin}:{}", skill.name),
+            ..skill
+        })
+        .collect()
+}
+
+/// Installed plugins (`name@marketplace`) that a user or project settings file enables,
+/// with where each is installed.
+fn enabled_plugins(cwd: &Path, home: &Path) -> Vec<(String, PathBuf)> {
+    let read_json = |path: PathBuf| -> Option<serde_json::Value> {
+        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    };
+    let mut enabled = std::collections::HashMap::new();
+    for settings in [
+        home.join(".claude/settings.json"),
+        cwd.join(".claude/settings.json"),
+        cwd.join(".claude/settings.local.json"),
+    ] {
+        let Some(map) =
+            read_json(settings).and_then(|json| json.get("enabledPlugins")?.as_object().cloned())
+        else {
+            continue;
+        };
+        // Later files override earlier ones, as in Claude Code.
+        for (key, value) in map {
+            enabled.insert(key, value.as_bool().unwrap_or(false));
+        }
+    }
+    let Some(installed) = read_json(home.join(".claude/plugins/installed_plugins.json"))
+        .and_then(|json| json.get("plugins")?.as_object().cloned())
+    else {
+        return Vec::new();
+    };
+    let mut plugins: Vec<(String, PathBuf)> = installed
+        .into_iter()
+        .filter(|(key, _)| enabled.get(key).copied().unwrap_or(false))
+        .filter_map(|(key, installs)| {
+            let path = installs.as_array()?.first()?.get("installPath")?.as_str()?;
+            let name = key.split('@').next().unwrap_or(&key).to_string();
+            Some((name, PathBuf::from(path)))
+        })
+        .collect();
+    plugins.sort();
+    plugins
 }
 
 /// `name` and `description` from a `---` block. Handles plain, quoted and folded
@@ -185,6 +274,72 @@ mod tests {
             )
         );
         assert_eq!(parse_frontmatter("# No frontmatter"), (None, None));
+    }
+
+    #[test]
+    fn lists_synced_and_enabled_plugin_skills_under_their_plugin() {
+        let root = std::env::temp_dir().join(format!("cormux-skills-{}", uuid::Uuid::new_v4()));
+        let home = root.join("home");
+        let write = |path: PathBuf, body: &str| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        };
+        let skill = |name: &str| format!("---\nname: {name}\ndescription: About {name}\n---\n");
+        write(
+            home.join(".claude/skills/synced/pdf/SKILL.md"),
+            &skill("pdf"),
+        );
+        write(
+            home.join(".claude/skills/synced/account-1/meals/SKILL.md"),
+            &skill("meals"),
+        );
+        write(home.join(".claude/skills/synced/manifest.json"), "{}");
+        let installs = root.join("plugins");
+        write(
+            installs.join("hooks/skills/rules/SKILL.md"),
+            &skill("rules"),
+        );
+        write(
+            installs.join("off/skills/hidden/SKILL.md"),
+            &skill("hidden"),
+        );
+        write(
+            home.join(".claude/plugins/installed_plugins.json"),
+            &serde_json::json!({
+                "version": 2,
+                "plugins": {
+                    "hooks@market": [{ "installPath": installs.join("hooks") }],
+                    "off@market": [{ "installPath": installs.join("off") }],
+                }
+            })
+            .to_string(),
+        );
+        write(
+            home.join(".claude/settings.json"),
+            r#"{"enabledPlugins":{"hooks@market":true,"off@market":true}}"#,
+        );
+        write(
+            root.join("repo/.claude/settings.local.json"),
+            r#"{"enabledPlugins":{"off@market":false}}"#,
+        );
+
+        let skills = list(&root.join("repo"), Some(&home));
+        let _ = std::fs::remove_dir_all(&root);
+        let plugin: Vec<_> = skills
+            .iter()
+            .filter(|skill| skill.source == "plugin")
+            .map(|skill| skill.name.as_str())
+            .collect();
+        assert_eq!(
+            plugin,
+            [
+                "anthropic-skills:meals",
+                "anthropic-skills:pdf",
+                "hooks:rules"
+            ]
+        );
+        // The synced folder itself isn't a skill.
+        assert!(!skills.iter().any(|skill| skill.name == "synced"));
     }
 
     #[test]

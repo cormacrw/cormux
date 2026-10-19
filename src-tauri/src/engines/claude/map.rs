@@ -7,7 +7,7 @@ use crate::engines::events::{AgentEvent, MessageRole, PlanStep, ToolCallStatus, 
 /// several tool calls, so this returns them all in order.
 pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
     match event {
-        Event::Init { session_id } => vec![AgentEvent::SessionStarted {
+        Event::Init { session_id, .. } => vec![AgentEvent::SessionStarted {
             session_id: session_id.clone(),
         }],
         Event::Assistant { blocks } => blocks.iter().filter_map(map_block).collect(),

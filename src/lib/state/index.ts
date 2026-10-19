@@ -16,6 +16,7 @@ import { prs } from './prs.svelte'
 import { repos } from './repos.svelte'
 import { settings } from './settings.svelte'
 import { findings } from './findings.svelte'
+import { plans } from './plans.svelte'
 import { threadTimeline } from './thread-timeline.svelte'
 import { threads, type Thread } from './threads.svelte'
 import { scratches, scratchFromRow } from './scratches.svelte'
@@ -49,6 +50,7 @@ export { workspaceUi } from './workspace-ui.svelte'
 export { workspaceDiff } from './workspace-diff.svelte'
 export { workspaces } from './workspaces.svelte'
 export { findings } from './findings.svelte'
+export { plans } from './plans.svelte'
 export { threadTimeline } from './thread-timeline.svelte'
 
 function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {
@@ -63,10 +65,11 @@ function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {
   return 'idle'
 }
 
+// A waiting plan has its own status and Plan tab badge, so it isn't counted in the pills.
 function pendingByThread(approvals: Snapshot['persisted']['approvals']) {
   const map = new Map<string, number>()
   for (const row of approvals) {
-    if (row.status !== 'pending') continue
+    if (row.status !== 'pending' || row.tool === 'execute_plan') continue
     map.set(row.threadId, (map.get(row.threadId) ?? 0) + 1)
   }
   return map
@@ -146,6 +149,7 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
 
   const rows = persistedById(snapshot)
   const records = workspaceRecordsFromSnapshot(snapshot)
+  const planThreads = threadsWithPendingPlan(snapshot.persisted.approvals)
 
   return records.map((workspace) => {
     const persisted = rows.get(workspace.id)
@@ -163,11 +167,11 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
 
     const kind = persisted?.kind === 'review' ? ('review' as const) : null
 
-    const activityText = workspaceActivityFromRecord(
-      workspace.status,
-      workspace,
-      kind,
-    )
+    const activityText =
+      workspace.status === 'waiting' &&
+      wsThreads.some((thread) => planThreads.has(thread.id))
+        ? PLAN_READY
+        : workspaceActivityFromRecord(workspace.status, workspace, kind)
 
     return {
       id: workspace.id,
@@ -193,12 +197,23 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
   })
 }
 
-function threadActivityLine(status: string): string {
+/** Threads whose plan is waiting for the user's review. */
+function threadsWithPendingPlan(approvals: Snapshot['persisted']['approvals']) {
+  return new Set(
+    approvals
+      .filter((row) => row.status === 'pending' && row.tool === 'execute_plan')
+      .map((row) => row.threadId),
+  )
+}
+
+const PLAN_READY = 'Plan ready for review'
+
+function threadActivityLine(status: string, planPending = false): string {
   switch (status) {
     case 'running':
       return 'Working'
     case 'waiting':
-      return 'Waiting for approval'
+      return planPending ? PLAN_READY : 'Waiting for approval'
     case 'paused':
       return 'Paused'
     default:
@@ -208,6 +223,7 @@ function threadActivityLine(status: string): string {
 
 function buildThreadModels(snapshot: Snapshot) {
   const pendingThreads = pendingByThread(snapshot.persisted.approvals)
+  const planThreads = threadsWithPendingPlan(snapshot.persisted.approvals)
   const workspaceOrder = workspaceRecordsFromSnapshot(snapshot).map((w) => w.id)
   const orderIndex = new Map(workspaceOrder.map((id, i) => [id, i]))
 
@@ -232,7 +248,7 @@ function buildThreadModels(snapshot: Snapshot) {
       activity:
         thread.status === 'provisioning'
           ? threadActivityForProvisioning(thread.status, wsActivity, provStep)
-          : threadActivityLine(thread.status),
+          : threadActivityLine(thread.status, planThreads.has(thread.id)),
       pendingApprovals: pendingThreads.get(thread.id) ?? 0,
     }
   })
@@ -334,6 +350,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     findingCountByWorkspace,
   })
   findings.hydrate(snapshot.persisted.findings)
+  plans.hydrate(snapshot.persisted.approvals)
   repos.hydrate(snapshot.persisted.repos)
   workspaceRecords.hydrate(recordList)
   workspaceRecords.applyGitStats(snapshot.workspaceGit ?? [])

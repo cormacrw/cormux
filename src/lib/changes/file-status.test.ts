@@ -6,6 +6,7 @@ describe('inferFileStatus', () => {
     expect(
       inferFileStatus({
         path: 'gone.ts',
+        oldPath: null,
         added: 0,
         deleted: 4,
         hunks: [{ header: '', body: '-x\n' }],
@@ -17,11 +18,24 @@ describe('inferFileStatus', () => {
     expect(
       inferFileStatus({
         path: 'new.ts',
+        oldPath: null,
         added: 3,
         deleted: 0,
         hunks: [{ header: '', body: '+x\n' }],
       }),
     ).toBe('A')
+  })
+
+  it('marks renames, even with edits', () => {
+    expect(
+      inferFileStatus({
+        path: 'lib/moved.ts',
+        oldPath: 'moved.ts',
+        added: 1,
+        deleted: 1,
+        hunks: [{ header: '', body: '-x\n+y\n' }],
+      }),
+    ).toBe('R')
   })
 })
 

@@ -293,12 +293,19 @@ impl Store {
         let Some(thread) = snapshot.threads.iter().find(|row| row.id == thread_id) else {
             return Ok(());
         };
-        let busy = snapshot
-            .threads
-            .iter()
-            .any(|row| row.workspace_id == thread.workspace_id && row.status == "running");
-        if !busy {
-            self.set_workspace_status(&thread.workspace_id, "idle")?;
+        let siblings = || {
+            snapshot
+                .threads
+                .iter()
+                .filter(|row| row.workspace_id == thread.workspace_id)
+        };
+        if !siblings().any(|row| row.status == "running") {
+            // Another thread's plan still waiting on the user keeps the workspace waiting.
+            let waiting = siblings().any(|row| row.status == "waiting");
+            self.set_workspace_status(
+                &thread.workspace_id,
+                if waiting { "waiting" } else { "idle" },
+            )?;
         }
         Ok(())
     }
@@ -867,7 +874,7 @@ impl Store {
                 )?,
                 approvals: query_all(
                     conn,
-                    "SELECT id, thread_id, status, tool, payload FROM approvals",
+                    "SELECT id, thread_id, status, tool, payload FROM approvals ORDER BY rowid",
                     |row| {
                         Ok(ApprovalRow {
                             id: row.get(0)?,

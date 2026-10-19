@@ -13,6 +13,7 @@ export const THREAD_TAB_KNOWN_GAPS = [
 
 export type ThreadBarTabKey =
   | { kind: 'thread'; threadId: string }
+  | { kind: 'plan' }
   | { kind: 'findings' }
   | { kind: 'changes' }
   | { kind: 'output' }
@@ -22,6 +23,11 @@ export function threadTabAriaLabel(thread: Thread): string {
   const base = `${agentName(thread.id)}, ${activity}`
   if (thread.pendingApprovals <= 0) return base
   return `${base}, ${plural(thread.pendingApprovals, 'approval', 'approvals')} waiting`
+}
+
+export function planTabAriaLabel(pendingCount: number): string {
+  if (pendingCount <= 0) return 'Plan'
+  return `Plan, ${plural(pendingCount, 'plan', 'plans')} waiting for review`
 }
 
 export function findingsTabAriaLabel(openCount: number): string {
@@ -59,11 +65,13 @@ export function outputTabAriaLabel(input: {
 export function buildThreadBarTabOrder(
   threads: Thread[],
   showFindings: boolean,
+  showPlan = false,
 ): ThreadBarTabKey[] {
   const keys: ThreadBarTabKey[] = threads.map((thread) => ({
     kind: 'thread',
     threadId: thread.id,
   }))
+  if (showPlan) keys.push({ kind: 'plan' })
   if (showFindings) keys.push({ kind: 'findings' })
   keys.push({ kind: 'changes' }, { kind: 'output' })
   return keys
@@ -89,6 +97,7 @@ export function activeThreadBarTabKey(input: {
 
 export function tabKeyId(tab: ThreadBarTabKey): string {
   if (tab.kind === 'thread') return `thread-tab-${tab.threadId}`
+  if (tab.kind === 'plan') return 'thread-tab-plan'
   if (tab.kind === 'findings') return 'thread-tab-findings'
   if (tab.kind === 'changes') return 'thread-tab-changes'
   return 'thread-tab-output'

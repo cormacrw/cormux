@@ -87,7 +87,8 @@ export class SettingsStore {
     }
   }
 
-  private applyLocal(key: string, value: string) {
+  /** Updates a row here only, for settings the core writes itself. */
+  applyLocal(key: string, value: string) {
     this.rows = upsertRow(this.rows, key, value)
   }
 

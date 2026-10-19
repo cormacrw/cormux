@@ -144,6 +144,18 @@ async setThreadModel(threadId: string, model: string | null) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Plan mode: the agent plans without editing until the user approves. A live Claude session
+ * switches now; the setting also applies the next time the thread's agent starts.
+ */
+async setThreadPlanMode(threadId: string, enabled: boolean) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_thread_plan_mode", { threadId, enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved, denyReason }) };
@@ -210,6 +222,17 @@ async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
 async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_workspace_diff_target", { workspaceId, target }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Throw away uncommitted changes to `paths` (all of them when empty), then refresh Changes.
+ */
+async discardWorkspaceChanges(workspaceId: string, paths: string[]) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("discard_workspace_changes", { workspaceId, paths }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -339,9 +362,9 @@ async listRepoLocalBranches(repoId: string) : Promise<Result<LocalBranchesResult
     else return { status: "error", error: e  as any };
 }
 },
-async deleteLocalBranch(repoId: string, branch: string) : Promise<Result<null, Error>> {
+async deleteLocalBranch(repoId: string, branch: string, force: boolean) : Promise<Result<BranchDeletion, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_local_branch", { repoId, branch }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_local_branch", { repoId, branch, force }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -735,6 +758,15 @@ export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
 /**
+ * What happened to a local branch the user asked to delete.
+ */
+export type BranchDeletion = "deleted" | 
+/**
+ * Not deleted: origin doesn't have the branch as it is locally, so deleting it
+ * (with `force`) can lose commits.
+ */
+"unpushed"
+/**
  * Everything the sprint board renders: the current sprint, its lanes and its tasks.
  */
 export type ClickupBoard = { sprint: ClickupSprint; statuses: ClickupStatus[]; tasks: ClickupTask[]; 
@@ -770,7 +802,11 @@ export type CreateWorkspaceInput = { repoId: string; name: string; branch: strin
 export type CreateWorkspacePullRequestInput = { workspaceId: string; body: string; title: string | null }
 export type CreateWorkspacePullRequestResult = { workspaceId: string; number: number; htmlUrl: string; title: string }
 export type CreateWorkspaceResult = { workspaceId: string }
-export type DiffFile = { path: string; added: number; deleted: number; hunks: DiffHunk[] }
+export type DiffFile = { path: string; 
+/**
+ * Where a renamed or moved file came from.
+ */
+oldPath: string | null; added: number; deleted: number; hunks: DiffHunk[] }
 export type DiffHunk = { header: string; body: string }
 /**
  * Committed changes on `head` since it left `base` (`base...head`).
@@ -862,8 +898,8 @@ export type SetSettingInput = { key: string; value: string }
 export type SettingRow = { key: string; value: string }
 export type Skill = { name: string; description: string; 
 /**
- * `project` for the repo's own skills, `user` for `~/.claude/skills`, `builtin` for
- * those that ship with Claude Code.
+ * `project` for the repo's own skills, `user` for `~/.claude/skills`, `plugin` for
+ * those from Claude Code plugins, `builtin` for those that ship with Claude Code.
  */
 source: string }
 export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 

@@ -143,6 +143,16 @@ pub struct LocalBranchRow {
     pub subject: String,
 }
 
+/// What happened to a local branch the user asked to delete.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BranchDeletion {
+    Deleted,
+    /// Not deleted: origin doesn't have the branch as it is locally, so deleting it
+    /// (with `force`) can lose commits.
+    Unpushed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalBranchesResult {

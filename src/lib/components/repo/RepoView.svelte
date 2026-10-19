@@ -1,5 +1,7 @@
 <script lang="ts">
+  import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import { Badge } from '$lib/components/ui/badge'
+  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
   import type { LocalBranchRow } from '$lib/ipc/bindings'
@@ -26,6 +28,13 @@
   let loading = $state(true)
   let loadError = $state<string | null>(null)
   let deleting = $state<string | null>(null)
+  /** A branch origin doesn't have as it is locally, awaiting a confirmed delete. */
+  let unpushed = $state<string | null>(null)
+  // Held after close so the copy doesn't change while the dialog animates out.
+  let unpushedShown = $state('')
+  $effect(() => {
+    if (unpushed) unpushedShown = unpushed
+  })
 
   const repo = $derived(app.repoId ? repos.getById(app.repoId) : undefined)
   const defaultBranch = $derived(repo?.defaultBranch?.trim() || 'main')
@@ -88,17 +97,30 @@
     })
   }
 
-  async function removeBranch(name: string) {
+  async function removeBranch(name: string, force = false) {
     const id = app.repoId
     if (!id || deleting) return
     deleting = name
-    const result = await commands.deleteLocalBranch(id, name)
+    const result = await commands.deleteLocalBranch(id, name, force)
     deleting = null
+    unpushed = null
     if (result.status === 'error') {
       toastCoreError(result.error)
       return
     }
+    // Only a branch origin already has, at the same commit, goes without asking.
+    if (result.data === 'unpushed') {
+      unpushed = name
+      return
+    }
     branches = branches.filter((row) => row.name !== name)
+  }
+
+  function onUnpushedKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && unpushed) {
+      event.preventDefault()
+      void removeBranch(unpushed, true)
+    }
   }
 </script>
 
@@ -331,3 +353,42 @@
     </div>
   {/if}
 </div>
+
+<AlertDialog.Root
+  open={unpushed != null}
+  onOpenChange={(next) => {
+    if (!next && !deleting) unpushed = null
+  }}
+>
+  <AlertDialog.Content
+    class="max-w-md sm:max-w-md"
+    onkeydown={onUnpushedKeydown}
+  >
+    <AlertDialog.Header>
+      <AlertDialog.Title
+        >Delete a branch that isn't on origin?</AlertDialog.Title
+      >
+      <AlertDialog.Description>
+        <code class="font-mono text-xs break-all">{unpushedShown}</code> isn't pushed
+        to origin, or is out of sync with it. Commits that are only on this local
+        branch will be lost.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel disabled={deleting != null}
+        >Cancel <DialogShortcut keys="cancel" /></AlertDialog.Cancel
+      >
+      <AlertDialog.Action
+        variant="destructive"
+        disabled={deleting != null}
+        onclick={(event) => {
+          event.preventDefault()
+          if (unpushed) void removeBranch(unpushed, true)
+        }}
+      >
+        Delete anyway
+        <DialogShortcut keys="submit" />
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
