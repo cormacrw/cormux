@@ -4,6 +4,7 @@
   import { Button } from '$lib/components/ui/button/index.js'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { Input } from '$lib/components/ui/input/index.js'
+  import * as Select from '$lib/components/ui/select/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
   import { commands, fetchSnapshot } from '$lib/ipc'
   import { coreErrorText } from '$lib/feedback/core-error'
@@ -133,16 +134,31 @@
 
         <div class="grid gap-1.5">
           <label class="text-sm font-medium" for="sess-repo">Repository</label>
-          <select
-            id="sess-repo"
-            class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
-            bind:value={repoId}
-            aria-describedby="sess-repo-hint"
+          <Select.Root
+            type="single"
+            value={repoId}
+            onValueChange={(value) => {
+              if (value) repoId = value
+            }}
           >
-            {#each repos.items as repo (repo.id)}
-              <option value={repo.id}>{repo.id}</option>
-            {/each}
-          </select>
+            <Select.Trigger
+              id="sess-repo"
+              class="w-full"
+              aria-describedby="sess-repo-hint"
+            >
+              <span class="truncate"
+                >{repos.items.find((repo) => repo.id === repoId)?.name ??
+                  'Pick a repository'}</span
+              >
+            </Select.Trigger>
+            <Select.Content>
+              {#each repos.items as repo (repo.id)}
+                <Select.Item value={repo.id} label={repo.name}
+                  >{repo.name}</Select.Item
+                >
+              {/each}
+            </Select.Content>
+          </Select.Root>
           <p id="sess-repo-hint" class="text-xs text-muted-foreground">
             The agent reads this repo. No worktree or branch is created.
           </p>

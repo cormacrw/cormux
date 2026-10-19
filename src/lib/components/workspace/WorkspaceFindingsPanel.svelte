@@ -5,6 +5,7 @@
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import { Button } from '$lib/components/ui/button'
   import { Checkbox } from '$lib/components/ui/checkbox'
+  import * as Select from '$lib/components/ui/select'
   import { app, findings, threads, workspaceUi, workspaces } from '$lib/state'
   import { agentName } from '$lib/agent-name'
   import { engineDisplayName } from '$lib/sidebar/engine'
@@ -390,19 +391,24 @@
         {#if wsThreads.length > 1}
           <label class="flex items-center gap-2 text-sm">
             <span class="text-muted-foreground">Send to</span>
-            <select
-              class="h-8 rounded-md border border-input bg-background px-2 text-sm"
-              data-od-id="findings-target"
+            <Select.Root
+              type="single"
               value={targetThreadId}
-              onchange={(event) => {
-                const value = (event.currentTarget as HTMLSelectElement).value
-                findings.setTargetThread(workspaceId, value)
+              onValueChange={(value) => {
+                if (value) findings.setTargetThread(workspaceId, value)
               }}
             >
-              {#each wsThreads as thread (thread.id)}
-                <option value={thread.id}>{agentName(thread.id)}</option>
-              {/each}
-            </select>
+              <Select.Trigger data-od-id="findings-target">
+                {targetThread ? agentName(targetThread.id) : 'Pick an agent'}
+              </Select.Trigger>
+              <Select.Content>
+                {#each wsThreads as thread (thread.id)}
+                  <Select.Item value={thread.id} label={agentName(thread.id)}
+                    >{agentName(thread.id)}</Select.Item
+                  >
+                {/each}
+              </Select.Content>
+            </Select.Root>
           </label>
         {/if}
         {#if sendError}

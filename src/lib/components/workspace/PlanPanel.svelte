@@ -10,6 +10,7 @@
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import { Button } from '$lib/components/ui/button'
   import { Kbd } from '$lib/components/ui/kbd'
+  import * as Select from '$lib/components/ui/select'
   import { Textarea } from '$lib/components/ui/textarea'
   import ThoughtMarkdown from './thread/ThoughtMarkdown.svelte'
   import { agentName } from '$lib/agent-name'
@@ -267,22 +268,36 @@
               {#if latest.length > 1}
                 <label class="ml-auto flex items-center gap-2">
                   <span>Showing</span>
-                  <select
-                    class="h-7 rounded-md border border-input bg-background px-2 text-xs text-foreground"
-                    data-od-id="plan-thread"
+                  <Select.Root
+                    type="single"
                     value={plan.threadId}
-                    onchange={(event) => {
-                      workspaceUi.planThreadId = event.currentTarget.value
+                    onValueChange={(value) => {
+                      if (value) workspaceUi.planThreadId = value
                     }}
                   >
-                    {#each latest as entry (entry.id)}
-                      <option value={entry.threadId}
-                        >{agentName(entry.threadId)}{entry.state === 'pending'
-                          ? ' · waiting'
-                          : ''}</option
-                      >
-                    {/each}
-                  </select>
+                    <Select.Trigger
+                      size="sm"
+                      class="text-xs text-foreground"
+                      data-od-id="plan-thread"
+                    >
+                      {name}
+                    </Select.Trigger>
+                    <Select.Content>
+                      {#each latest as entry (entry.id)}
+                        <Select.Item
+                          value={entry.threadId}
+                          label={agentName(entry.threadId)}
+                        >
+                          {agentName(entry.threadId)}
+                          {#if entry.state === 'pending'}
+                            <span class="ml-auto text-xs text-muted-foreground"
+                              >waiting</span
+                            >
+                          {/if}
+                        </Select.Item>
+                      {/each}
+                    </Select.Content>
+                  </Select.Root>
                 </label>
               {/if}
             </div>

@@ -4,6 +4,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
+  import * as Select from '$lib/components/ui/select/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
@@ -140,9 +141,9 @@
     if (branchError) branchError = null
   }
 
-  async function onRepoChange(event: Event) {
-    const select = event.currentTarget as HTMLSelectElement
-    repoId = select.value
+  async function onRepoChange(value: string) {
+    if (!value || value === repoId) return
+    repoId = value
     baseBranch = repoDefaultBranch(repoId)
     baseError = null
     await loadBranches(repoId)
@@ -319,20 +320,39 @@
               <label class="text-sm font-medium" for="nw-engine"
                 >AI engine</label
               >
-              <select
-                id="nw-engine"
-                class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
-                bind:value={engine}
-                aria-describedby="nw-engine-hint"
+              <Select.Root
+                type="single"
+                value={engine}
+                onValueChange={(value) => {
+                  if (value) engine = value as EngineKind
+                }}
               >
-                {#each ENGINE_OPTIONS as option (option.kind)}
-                  {@const status = engineStatusByKind.get(option.kind)}
-                  {@const install = engineInstallLabel(status)}
-                  <option value={option.kind}>
-                    {option.label}{install ? ` — ${install}` : ''}
-                  </option>
-                {/each}
-              </select>
+                <Select.Trigger
+                  id="nw-engine"
+                  class="w-full"
+                  aria-describedby="nw-engine-hint"
+                >
+                  <span class="truncate"
+                    >{ENGINE_OPTIONS.find((option) => option.kind === engine)
+                      ?.label ?? engine}</span
+                  >
+                </Select.Trigger>
+                <Select.Content>
+                  {#each ENGINE_OPTIONS as option (option.kind)}
+                    {@const install = engineInstallLabel(
+                      engineStatusByKind.get(option.kind),
+                    )}
+                    <Select.Item value={option.kind} label={option.label}>
+                      {option.label}
+                      {#if install}
+                        <span class="ml-auto text-xs text-muted-foreground"
+                          >{install}</span
+                        >
+                      {/if}
+                    </Select.Item>
+                  {/each}
+                </Select.Content>
+              </Select.Root>
               <p id="nw-engine-hint" class="text-xs text-muted-foreground">
                 The agent provider to use
               </p>
@@ -353,17 +373,29 @@
                 Add a repo in Settings before creating a workspace.
               </p>
             {:else}
-              <select
-                id="nw-repo"
-                class="border-input bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm text-foreground"
+              <Select.Root
+                type="single"
                 value={repoId}
-                onchange={onRepoChange}
-                aria-describedby="nw-repo-hint"
+                onValueChange={(value) => void onRepoChange(value)}
               >
-                {#each repos.items as repo (repo.id)}
-                  <option value={repo.id}>{repo.name}</option>
-                {/each}
-              </select>
+                <Select.Trigger
+                  id="nw-repo"
+                  class="w-full"
+                  aria-describedby="nw-repo-hint"
+                >
+                  <span class="truncate"
+                    >{repos.items.find((repo) => repo.id === repoId)?.name ??
+                      'Pick a repository'}</span
+                  >
+                </Select.Trigger>
+                <Select.Content>
+                  {#each repos.items as repo (repo.id)}
+                    <Select.Item value={repo.id} label={repo.name}
+                      >{repo.name}</Select.Item
+                    >
+                  {/each}
+                </Select.Content>
+              </Select.Root>
               <p id="nw-repo-hint" class="text-xs text-muted-foreground">
                 The worktree is created from this repo
               </p>
