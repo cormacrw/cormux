@@ -3,7 +3,23 @@ import {
   branchErrorMessage,
   validateBaseBranch,
   validateBranchName,
+  workspaceBranchesForRepo,
 } from './validation'
+
+describe('workspaceBranchesForRepo', () => {
+  it('only counts branches of the repo the workspace is for', () => {
+    const records = [
+      { repoId: 'web', branch: 'feat/login' },
+      { repoId: 'api', branch: 'feat/billing' },
+      { repoId: 'web', branch: 'fix/nav' },
+    ]
+    expect(workspaceBranchesForRepo(records, 'web')).toEqual([
+      'feat/login',
+      'fix/nav',
+    ])
+    expect(workspaceBranchesForRepo(records, 'docs')).toEqual([])
+  })
+})
 
 describe('validateBranchName', () => {
   const ctx = {

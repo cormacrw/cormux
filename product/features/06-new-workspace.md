@@ -111,7 +111,7 @@ As the user types in Initial Prompt:
 | Branch name | Blur (if not empty); submit | Required | `Add a branch name, e.g. feat/oauth-login.` |
 | | | Only letters, numbers, `.`, `_`, `/`, `-`; no `//`, no leading or trailing `/`, no `..` | `Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.` |
 | | | Must not already exist | `<branch> already exists. Pick a new branch name.` |
-| | | Must not be used by another workspace | `Another workspace already uses this branch.` |
+| | | Must not be used by another workspace of the same repo | `Another workspace already uses this branch.` |
 | Base branch | Blur; submit | Must be in the branch list | `No branch called “<value>”. Pick one from the list.` |
 
 Errors clear as soon as the user edits the field.

@@ -20,6 +20,7 @@
     branchErrorMessage,
     validateBaseBranch,
     validateBranchName,
+    workspaceBranchesForRepo,
   } from '$lib/new-workspace/validation'
   import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
   import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
@@ -31,7 +32,6 @@
     settings,
     shellDialogs,
     workspaceRecords,
-    workspaces,
   } from '$lib/state'
   import BaseBranchCombobox from './BaseBranchCombobox.svelte'
 
@@ -148,11 +148,15 @@
     await loadBranches(repoId)
   }
 
+  const repoWorkspaceBranches = $derived(
+    workspaceBranchesForRepo(workspaceRecords.records, repoId),
+  )
+
   function branchValidationContext() {
     return {
       existingBranches: repoBranches,
       defaultBranch: repoDefaultBranch(repoId),
-      workspaceBranches: workspaceRecords.records.map((row) => row.branch),
+      workspaceBranches: repoWorkspaceBranches,
     }
   }
 
@@ -171,10 +175,7 @@
   }
 
   function takenBranches() {
-    return [
-      ...repoBranches,
-      ...workspaceRecords.records.map((row) => row.branch),
-    ]
+    return [...repoBranches, ...repoWorkspaceBranches]
   }
 
   function resolvedBranch() {
@@ -380,7 +381,7 @@
               errorId="nw-base-error"
               bind:value={baseBranch}
               branches={branchList}
-              workspaceBranches={workspaces.items.map((row) => row.branch)}
+              workspaceBranches={repoWorkspaceBranches}
               bind:error={baseError}
             />
             {#if baseError}
