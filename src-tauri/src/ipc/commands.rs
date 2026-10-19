@@ -1842,6 +1842,21 @@ pub async fn send_workspace_findings(
     Ok(())
 }
 
+/// Dismissed findings stay listed but aren't sent to an agent or posted with the review.
+#[tauri::command]
+#[specta::specta]
+pub async fn dismiss_workspace_findings(
+    app: AppHandle,
+    input: super::types::DismissWorkspaceFindingsInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    state
+        .store
+        .set_findings_dismissed(&input.workspace_id, &input.finding_ids, input.dismissed)?;
+    emit_composer_snapshot(&app, &state);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn create_scratch(

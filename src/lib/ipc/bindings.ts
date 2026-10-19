@@ -678,6 +678,17 @@ async sendWorkspaceFindings(input: SendWorkspaceFindingsInput) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Dismissed findings stay listed but aren't sent to an agent or posted with the review.
+ */
+async dismissWorkspaceFindings(input: DismissWorkspaceFindingsInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("dismiss_workspace_findings", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createScratch(input: CreateScratchInput) : Promise<Result<CreateScratchResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_scratch", { input }) };
@@ -817,6 +828,10 @@ export type DiffTarget = {
  */
 head: string; base: string }
 export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff | null }
+/**
+ * Findings to dismiss, or (with `dismissed: false`) to restore.
+ */
+export type DismissWorkspaceFindingsInput = { workspaceId: string; findingIds: string[]; dismissed: boolean }
 export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean }
 /**
  * Engines Harness can spawn. Launch is Claude and Cursor; Codex and Gemini share ACP.

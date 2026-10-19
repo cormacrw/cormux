@@ -4,6 +4,7 @@ import {
   applyQuickSelect,
   defaultSelectedIds,
   groupCheckboxState,
+  rowCheckboxState,
   selectedSummary,
   setGroupSelection,
   toggleFinding,
@@ -23,6 +24,17 @@ function row(
     ...partial,
   }
 }
+
+describe('dismissed findings', () => {
+  it('can’t be selected', () => {
+    expect(
+      rowCheckboxState(
+        row({ id: 'd1', severity: 'nit', status: 'dismissed' }),
+        new Set(['d1']),
+      ),
+    ).toEqual({ checked: false, disabled: true })
+  })
+})
 
 describe('findings selection', () => {
   const rows = [

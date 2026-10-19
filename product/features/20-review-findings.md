@@ -49,11 +49,14 @@ A bordered card. Only the checkbox toggles selection; the rest is plain, selecta
   - Open: none.
   - Sent: `Sent to <thread>` with a spinner (accent).
   - Fixed: `Fixed by <thread>` with a check (green).
+  - Dismissed: a neutral `Dismissed` chip and a **Restore** button.
+- **Dismiss** (ghost button, x icon) on open findings, labelled `Dismiss “<title>”`.
 - Selected rows are tinted with the accent's soft background. Sent and fixed rows are dimmed, their checkbox checked and disabled.
 
 ### Send bar (pinned to the bottom, like the composer)
 - **Selection summary** (live region): `3 findings selected · 2 blocking`, or `Select the findings you want fixed`.
 - **Send to** select, only when the workspace has more than one thread, listing thread roles.
+- **Dismiss 3** (outline, x icon) dismisses the selected findings; disabled when nothing is selected.
 - Primary button: `Send 3 to Reviewer` (arrow icon), or disabled `Send to agent` when nothing is selected.
 - When every finding has been sent: `Every finding has been sent. Follow the fixes in the Reviewer thread.` and a secondary **Go to Reviewer** button.
 - When the review found nothing: `No findings to send.`
@@ -84,6 +87,12 @@ A bordered card. Only the checkbox toggles selection; the rest is plain, selecta
    - Thread idle, activity `Fixes ready`.
 
 The user can send in several batches, to different threads.
+
+### Dismissing
+- Dismissing marks a finding as not worth acting on. It stays in its group, dimmed, with its checkbox unchecked and disabled, and no longer counts toward the tab badge or the selection.
+- Dismissed findings are never sent to a thread, and **Submit review** leaves them out of the review it posts.
+- **Restore** puts a dismissed finding back to open.
+- When every finding is dismissed, the bar reads `Every finding was dismissed.`; when some were sent, `Every finding has been sent or dismissed.`
 
 ### Navigation
 - Opening Findings from the tab keeps focus on the tab; from the card's button, focus moves to the `Review findings` heading. The panel scrolls to the top either way.
@@ -132,7 +141,7 @@ workspace.findings = {
 
 ## Known gaps and open questions
 
-- Findings can't be dismissed, edited, re-classified or commented on.
+- Findings can't be edited, re-classified or commented on.
 - **Findings don't flow into Submit review.** Unsent findings should become draft review comments.
 - "Fixed" is asserted by the agent. There's no verification step or view of the fix's diff.
 - No way to add your own finding.

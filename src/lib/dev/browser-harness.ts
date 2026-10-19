@@ -968,6 +968,27 @@ export function installBrowserHarness() {
       emitStateChanged()
       return { focusComposer: false }
     }
+    if (cmd === 'dismiss_workspace_findings') {
+      const input = args.input as {
+        workspaceId: string
+        findingIds: string[]
+        dismissed: boolean
+      }
+      const [from, to] = input.dismissed
+        ? ['open', 'dismissed']
+        : ['dismissed', 'open']
+      for (const row of fixtureSnapshot.persisted.findings) {
+        if (
+          row.workspaceId === input.workspaceId &&
+          input.findingIds.includes(row.id) &&
+          row.status === from
+        ) {
+          row.status = to
+        }
+      }
+      emitStateChanged()
+      return null
+    }
     if (cmd === 'set_thread_plan_mode') {
       const threadId = String(args.threadId)
       const enabled = Boolean(args.enabled)

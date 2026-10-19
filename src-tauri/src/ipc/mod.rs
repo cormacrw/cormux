@@ -85,6 +85,7 @@ pub fn builder() -> Builder {
             commands::test_repo_setup,
             commands::set_setting,
             commands::send_workspace_findings,
+            commands::dismiss_workspace_findings,
             commands::create_scratch,
             commands::end_scratch,
             commands::create_todo,
