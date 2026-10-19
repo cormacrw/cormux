@@ -7,6 +7,7 @@
   import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
   import TimelineMessages from '$lib/components/workspace/thread/TimelineMessages.svelte'
+  import ThreadFind from '$lib/components/workspace/thread/ThreadFind.svelte'
   import {
     app,
     repos,
@@ -222,33 +223,42 @@
       </div>
     </header>
 
-    <div
-      bind:this={scrollEl}
-      class="min-h-0 flex-1 overflow-y-auto"
-      data-od-id="session-thread"
-      onscroll={onThreadScroll}
-    >
+    <div class="relative flex min-h-0 flex-1 flex-col">
+      <ThreadFind
+        {rows}
+        {contentEl}
+        onScrollAway={() => {
+          pinnedToBottom = false
+        }}
+      />
       <div
-        bind:this={contentEl}
-        class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-6 select-text"
+        bind:this={scrollEl}
+        class="min-h-0 flex-1 overflow-y-auto"
+        data-od-id="session-thread"
+        onscroll={onThreadScroll}
       >
-        <ol class="space-y-2" aria-label="Conversation">
-          <TimelineMessages
-            {rows}
-            engine={engineName}
-            workspaceId={scratch.id}
-            findings={[]}
-            {nowMs}
-            {liveTitle}
-            {liveSubtitle}
-            paused={thread.paused}
-            buddyColor={buddyColor(thread.id)}
-            {entries}
-            liveReplyId={liveReplyId(items)}
-            onOpenFindings={() => {}}
-            onFocusComposer={() => focusComposer?.()}
-          />
-        </ol>
+        <div
+          bind:this={contentEl}
+          class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-6 select-text"
+        >
+          <ol class="space-y-2" aria-label="Conversation">
+            <TimelineMessages
+              {rows}
+              engine={engineName}
+              workspaceId={scratch.id}
+              findings={[]}
+              {nowMs}
+              {liveTitle}
+              {liveSubtitle}
+              paused={thread.paused}
+              buddyColor={buddyColor(thread.id)}
+              {entries}
+              liveReplyId={liveReplyId(items)}
+              onOpenFindings={() => {}}
+              onFocusComposer={() => focusComposer?.()}
+            />
+          </ol>
+        </div>
       </div>
     </div>
 

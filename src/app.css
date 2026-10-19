@@ -588,3 +588,12 @@
 ::highlight(plan-comment-active) {
   background-color: color-mix(in oklch, var(--info) 45%, transparent);
 }
+
+/* Find in conversation (ThreadFind): every match, and the one it's on. */
+::highlight(thread-find) {
+  background-color: color-mix(in oklch, var(--warning) 30%, transparent);
+}
+::highlight(thread-find-current) {
+  background-color: color-mix(in oklch, var(--warning) 70%, transparent);
+  color: var(--background);
+}
