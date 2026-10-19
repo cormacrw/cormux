@@ -20,6 +20,7 @@
   import { agentName } from '$lib/agent-name'
   import { statusDotVariantForThread } from '$lib/sidebar/status'
   import { cn } from '$lib/utils'
+  import { usageSummary } from '$lib/usage/usage'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
   import {
     activeThreadBarTabKey,
@@ -172,6 +173,7 @@
           aria-controls="thread-panel"
           tabindex={tabIndex({ kind: 'thread', threadId: thread.id })}
           aria-label={threadTabAriaLabel(thread)}
+          title={usageSummary(thread.usage).detail}
           data-od-id="thread-tab-{thread.id}"
           data-thread-id={thread.id}
           onclick={() => selectTab({ kind: 'thread', threadId: thread.id })}

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { NO_USAGE } from '$lib/usage/usage'
 import { agentName } from '$lib/agent-name'
 import {
   buildThreadBarTabOrder,
@@ -19,6 +20,7 @@ const sampleThread = {
   paused: false,
   activity: 'Editing files',
   pendingApprovals: 0,
+  usage: NO_USAGE,
 }
 
 describe('thread tab labels', () => {

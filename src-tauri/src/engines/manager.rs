@@ -510,6 +510,8 @@ async fn run_claude(
     mut normal_mode: String,
 ) {
     let (answer_tx, mut answer_rx) = mpsc::unbounded_channel::<ClaudeAnswer>();
+    // Claude's running cost for this process, so each turn adds only what it cost.
+    let mut process_cost = 0.0_f64;
     loop {
         tokio::select! {
             command = commands.recv() => {
@@ -552,22 +554,42 @@ async fn run_claude(
                                 plan_mode::remember_normal_mode(&store, &thread_id, mode);
                             }
                         }
-                        if let Some(usage) = claude_map::usage_from_result(&raw) {
-                            persist_event(&store, &thread_id, &usage);
-                            let _ = events.send(usage.clone());
-                            if let AgentEvent::Usage {
+                        if let Some(AgentEvent::Usage {
+                            used_tokens,
+                            context_size,
+                            cost_usd,
+                        }) = claude_map::usage_from_result(&raw)
+                        {
+                            let saved = store
+                                .thread_by_id(&thread_id)
+                                .ok()
+                                .flatten()
+                                .and_then(|thread| thread.cost_usd);
+                            let cost_usd = match cost_usd {
+                                Some(process_total) => {
+                                    let (thread_total, seen) = claude_map::add_turn_cost(
+                                        saved.unwrap_or(0.0),
+                                        process_cost,
+                                        process_total,
+                                    );
+                                    process_cost = seen;
+                                    Some(thread_total)
+                                }
+                                None => saved,
+                            };
+                            let usage = AgentEvent::Usage {
                                 used_tokens,
                                 context_size,
                                 cost_usd,
-                            } = usage
-                            {
-                                let _ = store.set_thread_usage(
-                                    &thread_id,
-                                    used_tokens,
-                                    context_size,
-                                    cost_usd,
-                                );
-                            }
+                            };
+                            persist_event(&store, &thread_id, &usage);
+                            let _ = events.send(usage);
+                            let _ = store.set_thread_usage(
+                                &thread_id,
+                                used_tokens,
+                                context_size,
+                                cost_usd,
+                            );
                         }
                         if let Event::CanUseTool(req) = &raw {
                             handle_claude_permission(

@@ -23,6 +23,7 @@
   import WorkspacePrimaryAction from './WorkspacePrimaryAction.svelte'
   import WorkspaceRunControls from './WorkspaceRunControls.svelte'
   import { Kbd } from '$lib/components/ui/kbd'
+  import { formatCost, totalCost } from '$lib/usage/usage'
   import {
     openWorkspaceTerminal,
     startBranchReview,
@@ -51,6 +52,7 @@
   const repo = $derived(record ? repos.getById(record.repoId) : undefined)
   const runtime = $derived(workspaceRecords.runtime(workspace.id))
   const wsThreads = $derived(threads.forWorkspace(workspace.id))
+  const cost = $derived(totalCost(wsThreads.map((thread) => thread.usage)))
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runDisabled = $derived(
     provisioning || workspace.lifecycle === 'provisioningFailed',
@@ -180,6 +182,15 @@
       />
       {#if repo?.name}
         <p class="truncate text-xs text-muted-foreground">{repo.name}</p>
+      {/if}
+      {#if cost != null}
+        <p
+          class="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
+          data-od-id="ws-cost"
+          title="What this workspace's agents have cost so far"
+        >
+          {formatCost(cost)}
+        </p>
       {/if}
     </div>
 

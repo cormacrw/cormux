@@ -22,6 +22,7 @@ import { threads, type Thread } from './threads.svelte'
 import { scratches, scratchFromRow } from './scratches.svelte'
 import { todos } from './todos.svelte'
 import { workspaceRecords } from './workspace-records.svelte'
+import { NO_USAGE } from '$lib/usage/usage'
 import {
   workspaces,
   type Workspace,
@@ -250,6 +251,11 @@ function buildThreadModels(snapshot: Snapshot) {
           ? threadActivityForProvisioning(thread.status, wsActivity, provStep)
           : threadActivityLine(thread.status, planThreads.has(thread.id)),
       pendingApprovals: pendingThreads.get(thread.id) ?? 0,
+      usage: {
+        usedTokens: thread.usedTokens,
+        contextSize: thread.contextSize,
+        costUsd: thread.costUsd,
+      },
     }
   })
 
@@ -276,6 +282,7 @@ function buildScratchThreads(snapshot: Snapshot): Thread[] {
     paused: row.status === 'paused',
     activity: threadActivityLine(row.status),
     pendingApprovals: pendingThreads.get(row.threadId) ?? 0,
+    usage: NO_USAGE,
     scratchId: row.id,
   }))
 }

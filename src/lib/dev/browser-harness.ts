@@ -237,6 +237,24 @@ export function installBrowserHarness() {
       (thread) => thread.id === 'th-lead',
     )!.engine = leadEngine
   }
+  // Tests can give the Lead the usage its engine reported.
+  const leadUsage = (
+    window as {
+      __HARNESS_LEAD_USAGE__?: {
+        usedTokens: number | null
+        contextSize: number | null
+        costUsd: number | null
+      }
+    }
+  ).__HARNESS_LEAD_USAGE__
+  if (leadUsage) {
+    Object.assign(
+      fixtureSnapshot.persisted.threads.find(
+        (thread) => thread.id === 'th-lead',
+      )!,
+      leadUsage,
+    )
+  }
   // Tests can inject a plan the Lead thread is waiting on, as Claude hands one over in plan mode.
   const injectedPlan = (window as { __HARNESS_PLAN__?: string })
     .__HARNESS_PLAN__

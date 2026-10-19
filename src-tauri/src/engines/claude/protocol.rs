@@ -102,8 +102,11 @@ pub enum Event {
         is_error: bool,
         subtype: Option<String>,
         result: Option<String>,
+        /// Tokens the turn's context held, cached ones included.
         used_tokens: Option<u64>,
+        /// The model's context window.
         context_size: Option<u64>,
+        /// What this CLI process has cost so far; it starts over when a session is resumed.
         cost_usd: Option<String>,
     },
     ControlResponse {
@@ -244,15 +247,8 @@ pub fn decode_event(line: &str) -> Result<Event> {
                 .get("result")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            used_tokens: usage_tokens(&value),
-            context_size: value
-                .pointer("/usage/input_tokens")
-                .and_then(Value::as_u64)
-                .or_else(|| {
-                    value
-                        .pointer("/usage/context_window")
-                        .and_then(Value::as_u64)
-                }),
+            used_tokens: context_tokens(&value),
+            context_size: context_window(&value),
             cost_usd: value
                 .pointer("/usage/cost_usd")
                 .and_then(Value::as_f64)
@@ -279,18 +275,27 @@ pub fn decode_event(line: &str) -> Result<Event> {
     }
 }
 
-fn usage_tokens(value: &Value) -> Option<u64> {
+/// Most of a turn's input is read from or written to the prompt cache, so the context it held
+/// is all of those plus what it wrote back.
+fn context_tokens(value: &Value) -> Option<u64> {
     let usage = value.get("usage")?;
-    let input = usage
-        .get("input_tokens")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let output = usage
-        .get("output_tokens")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let total = usage.get("total_tokens").and_then(Value::as_u64);
-    Some(total.unwrap_or(input + output))
+    let count = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+    Some(
+        count("input_tokens")
+            + count("cache_read_input_tokens")
+            + count("cache_creation_input_tokens")
+            + count("output_tokens"),
+    )
+}
+
+/// The largest context window among the models the turn used.
+fn context_window(value: &Value) -> Option<u64> {
+    value
+        .get("modelUsage")?
+        .as_object()?
+        .values()
+        .filter_map(|model| model.get("contextWindow").and_then(Value::as_u64))
+        .max()
 }
 
 fn decode_control_request(value: &Value) -> Result<Event> {
@@ -428,6 +433,36 @@ mod tests {
             value["response"]["response"]["updatedInput"]["command"],
             "echo ok"
         );
+    }
+
+    #[test]
+    fn decodes_context_and_running_cost_from_a_result() {
+        let event = decode_event(
+            &json!({
+                "type": "result", "subtype": "success", "is_error": false,
+                "total_cost_usd": 0.0045,
+                "usage": {"input_tokens": 2, "output_tokens": 3,
+                          "cache_read_input_tokens": 11691, "cache_creation_input_tokens": 10578},
+                "modelUsage": {
+                    "claude-haiku-5-5": {"contextWindow": 1_000_000},
+                    "claude-opus-5-5": {"contextWindow": 200_000}
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let Event::Result {
+            used_tokens,
+            context_size,
+            cost_usd,
+            ..
+        } = event
+        else {
+            panic!("expected a result");
+        };
+        assert_eq!(used_tokens, Some(22_274));
+        assert_eq!(context_size, Some(1_000_000));
+        assert_eq!(cost_usd.as_deref(), Some("0.0045"));
     }
 
     #[test]

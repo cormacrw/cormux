@@ -1,3 +1,4 @@
+import type { ThreadUsage } from '$lib/usage/usage'
 import { workspaces } from './workspaces.svelte'
 
 export type Thread = {
@@ -9,6 +10,7 @@ export type Thread = {
   paused: boolean
   activity: string
   pendingApprovals: number
+  usage: ThreadUsage
   /** Set on a scratch's thread, which lives outside any workspace. */
   scratchId?: string
 }

@@ -20,6 +20,7 @@
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { settings } from '$lib/state/settings.svelte'
   import { cn } from '$lib/utils'
+  import { usageSummary } from '$lib/usage/usage'
   import { threadPlanMode } from '$lib/plans/plans'
   import { setThreadPlanMode } from '$lib/plans/leave-plan-mode'
   import { formatPlanFeedback } from '$lib/plans/feedback'
@@ -80,6 +81,7 @@
   const showPause = $derived(composerShowsPauseControl(thread.status))
   const pauseLabel = $derived(composerPauseLabel(thread.status, thread.paused))
   const isPaused = $derived(thread.status === 'paused' || thread.paused)
+  const usage = $derived(usageSummary(thread.usage))
   const canStartNewSession = $derived(
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
@@ -492,6 +494,14 @@
             <ClipboardList class="size-3.5" aria-hidden="true" />
             Plan
           </Button>
+        {/if}
+        {#if usage.meter}
+          <span
+            class="shrink-0 font-mono text-[10px] text-muted-foreground/80 tabular-nums"
+            data-od-id="composer-usage"
+            title={usage.detail}
+            aria-label={usage.detail}>{usage.meter}</span
+          >
         {/if}
         {#if showPause}
           <Button
