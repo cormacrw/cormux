@@ -741,9 +741,10 @@
             size="xs"
             data-od-id="composer-plan-mode"
             aria-pressed={planMode}
+            aria-keyshortcuts="Meta+Shift+P"
             title={planMode
-              ? `Leave plan mode; ${name} goes back to working normally`
-              : `Have ${name} write a plan for you to review before it edits anything`}
+              ? `Leave plan mode; ${name} goes back to working normally (⇧⌘P)`
+              : `Have ${name} write a plan for you to review before it edits anything (⇧⌘P)`}
             class={cn(planMode && 'bg-info/15 text-info hover:bg-info/20')}
             onclick={() => void togglePlanMode()}
           >

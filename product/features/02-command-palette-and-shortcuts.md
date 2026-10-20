@@ -72,6 +72,10 @@ Run and Restart first open the workspace, then perform the action. Stop acts wit
 | --- | --- | --- |
 | `⌘K` / `Ctrl+K` | Anywhere | Open or close the command palette. |
 | `⌘N` / `Ctrl+N` | Anywhere | Open the New workspace dialog. |
+| `⌘S` / `Ctrl+S` | Anywhere | Open the New scratch dialog. |
+| `⇧⌘N` / `Ctrl+Shift+N` | Workspace view, no dialog open | Start a new thread in the workspace. |
+| `⇧⌘]` / `⇧⌘[` | Workspace view, no dialog open | Go to the next or previous tab (threads, Plan, Findings, Git, Output), wrapping around. |
+| `⇧⌘P` / `Ctrl+Shift+P` | A Claude thread on screen, no dialog open | Switch plan mode on or off (see [27](27-plan-mode.md)). |
 | `⌘H` / `Ctrl+H` | Anywhere but a dialog | Go to Homebase. Replaces the macOS Hide shortcut; **Hide Cormux** stays in the app menu without one. |
 | `⌘1`–`⌘9` / `Ctrl+1`–`Ctrl+9` | Anywhere but a dialog | Open the Nth workspace in sidebar order. No-op if there isn't one. |
 | `⌘G` / `Ctrl+G` | Workspace view, no dialog open | Open the Git tab (stack and diff). |
@@ -80,6 +84,8 @@ Run and Restart first open the workspace, then perform the action. Stop acts wit
 | `Esc` | A popover is open | Close the popover and return focus to its trigger. |
 | `←` `→` `Home` `End` | Focus on a workspace tab | Move between thread, Findings and Output tabs. |
 | `↵` / `⇧↵` | Composer | Send / new line. |
+| `⌘↵` / `Ctrl+↵` | A thread on screen | Jump to the composer. |
+| `Esc` | A thread whose agent is working, nothing else open | Stop the agent. |
 | `⌘↵` / `Ctrl+↵` | New workspace Initial Prompt, Create PR reason | Submit the form. |
 
 ## Keyboard and accessibility

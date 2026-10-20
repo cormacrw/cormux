@@ -43,3 +43,42 @@ test.describe('navigation shortcuts', () => {
     await expect(page.getByRole('tabpanel', { name: /^Git/ })).toBeVisible()
   })
 })
+
+test('⇧⌘] and ⇧⌘[ move through the workspace tabs, and ⇧⌘N starts a thread', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  const selected = page.locator('[role="tab"][aria-selected="true"]')
+  await expect(selected).toHaveId('thread-tab-th-lead')
+
+  await page.keyboard.press('ControlOrMeta+Shift+BracketRight')
+  await expect(selected).toHaveId('thread-tab-changes')
+  await page.keyboard.press('ControlOrMeta+Shift+BracketRight')
+  await expect(selected).toHaveId('thread-tab-output')
+  // It wraps around both ends.
+  await page.keyboard.press('ControlOrMeta+Shift+BracketRight')
+  await expect(selected).toHaveId('thread-tab-th-lead')
+  await page.keyboard.press('ControlOrMeta+Shift+BracketLeft')
+  await expect(selected).toHaveId('thread-tab-output')
+
+  const threadTabs = page.locator('#thread-tabs [role="tab"][data-thread-id]')
+  await expect(threadTabs).toHaveCount(1)
+  await page.keyboard.press('ControlOrMeta+Shift+n')
+  await expect(threadTabs).toHaveCount(2)
+})
+
+test('⇧⌘P switches plan mode on a Claude thread', async ({ page }) => {
+  await page.addInitScript(() => {
+    ;(window as { __HARNESS_LEAD_ENGINE__?: string }).__HARNESS_LEAD_ENGINE__ =
+      'claude'
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  const toggle = page.locator('[data-od-id="composer-plan-mode"]')
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await page.keyboard.press('ControlOrMeta+Shift+p')
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('ControlOrMeta+Shift+p')
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+})
