@@ -23,6 +23,15 @@
     insertSkill,
     skillToken,
   } from '$lib/composer/skill-picker'
+  import {
+    expandRepoAliases,
+    filterRepos,
+    insertRepoAlias,
+    repoAlias,
+    repoToken,
+  } from '$lib/composer/repo-aliases'
+  import { repos } from '$lib/state/repos.svelte'
+  import type { RepoRecord } from '$lib/ipc/bindings'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { settings } from '$lib/state/settings.svelte'
@@ -49,6 +58,7 @@
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import FileText from '@lucide/svelte/icons/file-text'
+  import Folder from '@lucide/svelte/icons/folder'
   import Paperclip from '@lucide/svelte/icons/paperclip'
   import X from '@lucide/svelte/icons/x'
   import ClipboardList from '@lucide/svelte/icons/clipboard-list'
@@ -151,10 +161,10 @@
   // Typing `/` anywhere opens the skill picker. Skills are Claude Code's, so other engines skip it.
   let skills = $state<Skill[] | null>(null)
   let skillsThreadId: string | null = null
-  let skillIndex = $state(0)
+  let pickerIndex = $state(0)
   /** Esc hides the picker until the draft changes. */
-  let skillPickerDismissed = $state(false)
-  /** Where the caret is in the draft; the picker follows the `/` word it's in. */
+  let pickerDismissed = $state(false)
+  /** Where the caret is in the draft; the picker follows the `/` or `@` word it's in. */
   let caret = $state(0)
   const token = $derived(
     thread.engine === 'claude'
@@ -165,9 +175,46 @@
   const skillMatches = $derived(
     query !== null && skills ? filterSkills(skills, query) : [],
   )
-  const pickerOpen = $derived(
-    query !== null && !skillPickerDismissed && skillMatches.length > 0,
+  // Typing `@` offers the repos set up in Cormux; `@alias` becomes the repo's folder on send.
+  const repoWord = $derived(
+    token ? null : repoToken(draft, Math.min(caret, draft.length)),
   )
+  const repoMatches = $derived(
+    repoWord ? filterRepos(repos.items, repoWord.query) : [],
+  )
+  type PickerOption = {
+    key: string
+    label: string
+    detail: string
+    badge: string | null
+    repo: boolean
+    choose: () => void
+  }
+  const pickerOptions = $derived.by((): PickerOption[] => {
+    if (query !== null)
+      return skillMatches.map((skill) => ({
+        key: skill.name,
+        label: `/${skill.name}`,
+        detail: skill.description,
+        badge:
+          skill.source === 'project'
+            ? 'repo'
+            : skill.source === 'plugin'
+              ? 'plugin'
+              : null,
+        repo: false,
+        choose: () => chooseSkill(skill),
+      }))
+    return repoMatches.map((repo) => ({
+      key: repo.id,
+      label: `@${repoAlias(repo)}`,
+      detail: repo.path,
+      badge: null,
+      repo: true,
+      choose: () => chooseRepo(repo),
+    }))
+  })
+  const pickerOpen = $derived(!pickerDismissed && pickerOptions.length > 0)
 
   $effect(() => {
     void thread.id
@@ -190,10 +237,18 @@
 
   function chooseSkill(skill: Skill) {
     if (!token) return
-    const next = insertSkill(draft, token, skill.name)
+    applyPick(insertSkill(draft, token, skill.name))
+  }
+
+  function chooseRepo(repo: RepoRecord) {
+    if (!repoWord) return
+    applyPick(insertRepoAlias(draft, repoWord, repoAlias(repo)))
+  }
+
+  function applyPick(next: { text: string; caret: number }) {
     composerDrafts.setFor(thread.id, next.text)
     caret = next.caret
-    skillIndex = 0
+    pickerIndex = 0
     queueMicrotask(() => {
       fitHeight()
       inputEl?.focus()
@@ -207,18 +262,17 @@
 
   // Arrows move through the picker, ↵ or ⇥ picks, Esc closes it. Returns whether it handled the key.
   function onPickerKeydown(event: KeyboardEvent): boolean {
-    const count = skillMatches.length
+    const count = pickerOptions.length
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       const step = event.key === 'ArrowDown' ? 1 : -1
-      skillIndex = (skillIndex + step + count) % count
+      pickerIndex = (pickerIndex + step + count) % count
     } else if (
       (event.key === 'Enter' && !event.shiftKey) ||
       event.key === 'Tab'
     ) {
-      const skill = skillMatches[skillIndex]
-      if (skill) chooseSkill(skill)
+      pickerOptions[pickerIndex]?.choose()
     } else if (event.key === 'Escape') {
-      skillPickerDismissed = true
+      pickerDismissed = true
     } else {
       return false
     }
@@ -243,8 +297,8 @@
     composerDrafts.setFor(thread.id, target.value)
     caret = target.selectionStart
     historyIndex = null
-    skillPickerDismissed = false
-    skillIndex = 0
+    pickerDismissed = false
+    pickerIndex = 0
     fitHeight()
   }
 
@@ -264,9 +318,10 @@
       inputEl?.focus()
     })
     onSent?.()
+    const outgoing = expandRepoAliases(text, repos.items)
     const sent = waitingPlan
-      ? await sendPlanFeedback(waitingPlan.id, threadId, text)
-      : await sendThreadMessage(threadId, text, sending)
+      ? await sendPlanFeedback(waitingPlan.id, threadId, outgoing)
+      : await sendThreadMessage(threadId, outgoing, sending)
     if (!sent) {
       composerDrafts.setFor(threadId, text)
       if (sending.length) composerDrafts.addAttachments(threadId, sending)
@@ -478,40 +533,48 @@
   data-od-id="composer-wrap"
 >
   {#if pickerOpen}
+    {@const reposShown = pickerOptions[0]?.repo ?? false}
     <ul
-      id="skill-picker"
+      id="composer-picker"
       role="listbox"
-      aria-label="Skills"
+      aria-label={reposShown ? 'Repositories' : 'Skills'}
       class="absolute inset-x-1 bottom-full mx-auto -mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg"
-      data-od-id="skill-picker"
+      data-od-id={reposShown ? 'repo-picker' : 'skill-picker'}
     >
-      {#each skillMatches as skill, index (skill.name)}
+      {#each pickerOptions as option, index (option.key)}
         <li
-          id="skill-option-{index}"
+          id="composer-option-{index}"
           role="option"
-          aria-selected={index === skillIndex}
+          aria-selected={index === pickerIndex}
           class="flex min-w-0 cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm aria-selected:bg-muted"
           onmousedown={(event) => {
             // Keep focus in the composer.
             event.preventDefault()
-            chooseSkill(skill)
+            option.choose()
           }}
-          onmouseenter={() => (skillIndex = index)}
+          onmouseenter={() => (pickerIndex = index)}
         >
-          <Sparkles
-            class="size-3.5 shrink-0 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <span class="shrink-0 font-mono text-xs">/{skill.name}</span>
-          {#if skill.description}
+          {#if option.repo}
+            <Folder
+              class="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          {:else}
+            <Sparkles
+              class="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          {/if}
+          <span class="shrink-0 font-mono text-xs">{option.label}</span>
+          {#if option.detail}
             <span class="min-w-0 truncate text-xs text-muted-foreground"
-              >{skill.description}</span
+              >{option.detail}</span
             >
           {/if}
-          {#if skill.source === 'project' || skill.source === 'plugin'}
+          {#if option.badge}
             <span
               class="ml-auto shrink-0 rounded border border-border/60 px-1 text-[10px] text-muted-foreground"
-              >{skill.source === 'project' ? 'repo' : 'plugin'}</span
+              >{option.badge}</span
             >
           {/if}
         </li>
@@ -603,11 +666,11 @@
             : `Message ${name}…`)}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
-      aria-controls={pickerOpen ? 'skill-picker' : undefined}
+      aria-controls={pickerOpen ? 'composer-picker' : undefined}
       aria-activedescendant={pickerOpen
-        ? `skill-option-${skillIndex}`
+        ? `composer-option-${pickerIndex}`
         : undefined}
-      aria-autocomplete={thread.engine === 'claude' ? 'list' : undefined}
+      aria-autocomplete="list"
       oninput={onInput}
       onkeydown={onKeydown}
       onkeyup={syncCaret}
@@ -714,6 +777,9 @@
         <kbd class="rounded border border-border/60 px-1">⇧↵</kbd> new line
         {#if thread.engine === 'claude'}
           <kbd class="rounded border border-border/60 px-1">/</kbd> skills
+        {/if}
+        {#if repos.items.length}
+          <kbd class="rounded border border-border/60 px-1">@</kbd> repos
         {/if}
       </span>
 
