@@ -4,11 +4,13 @@
   import { Button } from '$lib/components/ui/button'
   import {
     repos,
+    settings,
     shellDialogs,
     threads,
     workspaceRecords,
     workspaceUi,
   } from '$lib/state'
+  import { workspaceRunCommand } from '$lib/run-app/run-command'
   import {
     rememberHeaderFocusKey,
     restoreHeaderFocus,
@@ -107,7 +109,7 @@
       } else if (
         status === 'stopped' &&
         !runDisabled &&
-        repo?.runCommand?.trim()
+        workspaceRunCommand(settings.rows, workspace.id, repo?.runCommand)
       ) {
         runWorkspaceApp(workspace.id, 'run')
       }

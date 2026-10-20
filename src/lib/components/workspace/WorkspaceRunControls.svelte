@@ -3,7 +3,8 @@
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
   import { runWorkspaceApp } from '$lib/command-palette/actions'
-  import { repos, workspaceRecords } from '$lib/state'
+  import { repos, settings, workspaceRecords } from '$lib/state'
+  import { workspaceRunCommand } from '$lib/run-app/run-command'
   import Play from '@lucide/svelte/icons/play'
   import Square from '@lucide/svelte/icons/square'
 
@@ -20,7 +21,9 @@
   const runtime = $derived(workspaceRecords.runtime(workspaceId))
   const appStatus = $derived(runtime.appStatus)
   const repo = $derived(repos.getById(repoId))
-  const hasRunCommand = $derived(!!repo?.runCommand?.trim())
+  const hasRunCommand = $derived(
+    !!workspaceRunCommand(settings.rows, workspaceId, repo?.runCommand),
+  )
 
   const runBlocked = $derived(runDisabled || !hasRunCommand)
 

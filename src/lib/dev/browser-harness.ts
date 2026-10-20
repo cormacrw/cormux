@@ -237,6 +237,12 @@ export function installBrowserHarness() {
       (thread) => thread.id === 'th-lead',
     )!.engine = leadEngine
   }
+  // Tests can give the fixture repo a run command.
+  const repoRunCommand = (window as { __HARNESS_RUN_COMMAND__?: string })
+    .__HARNESS_RUN_COMMAND__
+  if (repoRunCommand) {
+    fixtureSnapshot.persisted.repos[0]!.runCommand = repoRunCommand
+  }
   // Tests can give the Lead the usage its engine reported.
   const leadUsage = (
     window as {
