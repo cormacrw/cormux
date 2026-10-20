@@ -1,6 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,14 +25,22 @@ pub enum StdinMessage {
 #[derive(Debug, Clone, Serialize)]
 pub struct UserPayload {
     pub role: &'static str,
-    pub content: Vec<TextBlock>,
+    pub content: Vec<UserContent>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct TextBlock {
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum UserContent {
+    Text { text: String },
+    Image { source: ImageSource },
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageSource {
     #[serde(rename = "type")]
     pub kind: &'static str,
-    pub text: String,
+    pub media_type: String,
+    pub data: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,8 +111,11 @@ pub enum Event {
         is_error: bool,
         subtype: Option<String>,
         result: Option<String>,
+        /// Tokens the turn's context held, cached ones included.
         used_tokens: Option<u64>,
+        /// The model's context window.
         context_size: Option<u64>,
+        /// What this CLI process has cost so far; it starts over when a session is resumed.
         cost_usd: Option<String>,
     },
     ControlResponse {
@@ -139,14 +151,27 @@ pub fn encode_line(message: &StdinMessage) -> Result<String> {
     Ok(line)
 }
 
+#[cfg(test)]
 pub fn user_message(text: impl Into<String>) -> StdinMessage {
+    user_prompt_message(&Prompt::from(text.into()))
+}
+
+/// A user turn: its text, then any images for the model to see.
+pub fn user_prompt_message(prompt: &Prompt) -> StdinMessage {
+    let mut content = vec![UserContent::Text {
+        text: prompt.text.clone(),
+    }];
+    content.extend(prompt.images.iter().map(|image| UserContent::Image {
+        source: ImageSource {
+            kind: "base64",
+            media_type: image.media_type.clone(),
+            data: image.data_base64.clone(),
+        },
+    }));
     StdinMessage::User {
         message: UserPayload {
             role: "user",
-            content: vec![TextBlock {
-                kind: "text",
-                text: text.into(),
-            }],
+            content,
         },
         parent_tool_use_id: None,
     }
@@ -244,15 +269,8 @@ pub fn decode_event(line: &str) -> Result<Event> {
                 .get("result")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            used_tokens: usage_tokens(&value),
-            context_size: value
-                .pointer("/usage/input_tokens")
-                .and_then(Value::as_u64)
-                .or_else(|| {
-                    value
-                        .pointer("/usage/context_window")
-                        .and_then(Value::as_u64)
-                }),
+            used_tokens: context_tokens(&value),
+            context_size: context_window(&value),
             cost_usd: value
                 .pointer("/usage/cost_usd")
                 .and_then(Value::as_f64)
@@ -279,18 +297,27 @@ pub fn decode_event(line: &str) -> Result<Event> {
     }
 }
 
-fn usage_tokens(value: &Value) -> Option<u64> {
+/// Most of a turn's input is read from or written to the prompt cache, so the context it held
+/// is all of those plus what it wrote back.
+fn context_tokens(value: &Value) -> Option<u64> {
     let usage = value.get("usage")?;
-    let input = usage
-        .get("input_tokens")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let output = usage
-        .get("output_tokens")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let total = usage.get("total_tokens").and_then(Value::as_u64);
-    Some(total.unwrap_or(input + output))
+    let count = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+    Some(
+        count("input_tokens")
+            + count("cache_read_input_tokens")
+            + count("cache_creation_input_tokens")
+            + count("output_tokens"),
+    )
+}
+
+/// The largest context window among the models the turn used.
+fn context_window(value: &Value) -> Option<u64> {
+    value
+        .get("modelUsage")?
+        .as_object()?
+        .values()
+        .filter_map(|model| model.get("contextWindow").and_then(Value::as_u64))
+        .max()
 }
 
 fn decode_control_request(value: &Value) -> Result<Event> {
@@ -390,6 +417,26 @@ mod tests {
     }
 
     #[test]
+    fn encodes_images_after_the_text() {
+        let prompt = Prompt {
+            text: "What's wrong here?".into(),
+            images: vec![crate::engines::prompt::PromptImage {
+                media_type: "image/png".into(),
+                data_base64: "aGk=".into(),
+            }],
+        };
+        let line = encode_line(&user_prompt_message(&prompt)).unwrap();
+        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(
+            value["message"]["content"],
+            json!([
+                {"type": "text", "text": "What's wrong here?"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}}
+            ])
+        );
+    }
+
+    #[test]
     fn encodes_set_model_and_omits_a_default_model() {
         let line = encode_line(&set_model_request("model-1", Some("opus".into()))).unwrap();
         let value: Value = serde_json::from_str(line.trim_end()).unwrap();
@@ -428,6 +475,36 @@ mod tests {
             value["response"]["response"]["updatedInput"]["command"],
             "echo ok"
         );
+    }
+
+    #[test]
+    fn decodes_context_and_running_cost_from_a_result() {
+        let event = decode_event(
+            &json!({
+                "type": "result", "subtype": "success", "is_error": false,
+                "total_cost_usd": 0.0045,
+                "usage": {"input_tokens": 2, "output_tokens": 3,
+                          "cache_read_input_tokens": 11691, "cache_creation_input_tokens": 10578},
+                "modelUsage": {
+                    "claude-haiku-5-5": {"contextWindow": 1_000_000},
+                    "claude-opus-5-5": {"contextWindow": 200_000}
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let Event::Result {
+            used_tokens,
+            context_size,
+            cost_usd,
+            ..
+        } = event
+        else {
+            panic!("expected a result");
+        };
+        assert_eq!(used_tokens, Some(22_274));
+        assert_eq!(context_size, Some(1_000_000));
+        assert_eq!(cost_usd.as_deref(), Some("0.0045"));
     }
 
     #[test]

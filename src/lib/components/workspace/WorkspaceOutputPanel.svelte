@@ -6,7 +6,8 @@
     runWorkspaceApp,
   } from '$lib/command-palette/actions'
   import { subscribePty } from '$lib/ipc'
-  import { repos, workspaceRecords } from '$lib/state'
+  import { repos, settings, workspaceRecords } from '$lib/state'
+  import { runCommandOverride } from '$lib/run-app/run-command'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -14,6 +15,7 @@
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import Square from '@lucide/svelte/icons/square'
   import WorkspaceOutputLog from './WorkspaceOutputLog.svelte'
+  import RunCommandField from './RunCommandField.svelte'
 
   let {
     workspaceId,
@@ -34,7 +36,12 @@
   // A primitive, so status or git updates to `runtime` don't wipe the log.
   const logVersion = $derived(runtime.logVersion)
   const repo = $derived(repos.getById(repoId))
-  const runCommand = $derived(repo?.runCommand?.trim() ?? '')
+  const repoCommand = $derived(repo?.runCommand?.trim() ?? '')
+  // This workspace's own command from the field below, else the repo's.
+  const runCommand = $derived(
+    runCommandOverride(settings.rows, workspaceId) || repoCommand,
+  )
+  let commandField: RunCommandField | undefined = $state()
 
   const chipLabel = $derived(
     provisioning
@@ -130,12 +137,13 @@
       {chipLabel}
     </Badge>
 
-    {#if runCommand}
-      <span
-        class="max-w-[12rem] truncate font-mono text-xs text-muted-foreground"
-        title={runCommand}>{runCommand}</span
-      >
-    {/if}
+    <RunCommandField
+      bind:this={commandField}
+      {workspaceId}
+      {repoCommand}
+      running={runtime.appStatus === 'running' ||
+        runtime.appStatus === 'starting'}
+    />
 
     {#if runtime.appStatus === 'running' && runtime.port}
       <button
@@ -206,14 +214,24 @@
         Add the command that starts this project, like pnpm dev. Every workspace
         on {repo?.name ?? repoId} will use it.
       </p>
-      <Button
-        variant="secondary"
-        size="sm"
-        onclick={() => openRepoRunCommand(repoId)}
-      >
-        <SlidersHorizontal class="size-3.5" aria-hidden="true" />
-        Add run command
-      </Button>
+      <div class="flex flex-wrap justify-center gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          onclick={() => openRepoRunCommand(repoId)}
+        >
+          <SlidersHorizontal class="size-3.5" aria-hidden="true" />
+          Add run command
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          data-od-id="run-command-set-here"
+          onclick={() => void commandField?.startEditing()}
+        >
+          Just for this workspace
+        </Button>
+      </div>
     </div>
   {:else if showEmptyIdle}
     <div

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { NO_USAGE } from '$lib/usage/usage'
 import { branchPickerLocked, runningAgentCount } from './running-agents'
 import type { Thread } from '$lib/state/threads.svelte'
 
@@ -11,6 +12,7 @@ const thread = (patch: Partial<Thread>): Thread => ({
   paused: false,
   activity: 'Idle',
   pendingApprovals: 0,
+  usage: NO_USAGE,
   ...patch,
 })
 

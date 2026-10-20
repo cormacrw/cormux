@@ -1,5 +1,12 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
+  import { getCurrentWebview } from '@tauri-apps/api/webview'
+  import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
   import { Button } from '$lib/components/ui/button'
+  import {
+    attachmentFromFile,
+    attachmentFromPath,
+  } from '$lib/composer/attachments'
   import { Textarea } from '$lib/components/ui/textarea'
   import {
     composerPauseLabel,
@@ -16,10 +23,20 @@
     insertSkill,
     skillToken,
   } from '$lib/composer/skill-picker'
+  import {
+    expandRepoAliases,
+    filterRepos,
+    insertRepoAlias,
+    repoAlias,
+    repoToken,
+  } from '$lib/composer/repo-aliases'
+  import { repos } from '$lib/state/repos.svelte'
+  import type { RepoRecord } from '$lib/ipc/bindings'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { settings } from '$lib/state/settings.svelte'
   import { cn } from '$lib/utils'
+  import { usageSummary } from '$lib/usage/usage'
   import { threadPlanMode } from '$lib/plans/plans'
   import { setThreadPlanMode } from '$lib/plans/leave-plan-mode'
   import { formatPlanFeedback } from '$lib/plans/feedback'
@@ -40,6 +57,10 @@
   import { engineDisplayName } from '$lib/sidebar/engine'
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
+  import FileText from '@lucide/svelte/icons/file-text'
+  import Folder from '@lucide/svelte/icons/folder'
+  import Paperclip from '@lucide/svelte/icons/paperclip'
+  import X from '@lucide/svelte/icons/x'
   import ClipboardList from '@lucide/svelte/icons/clipboard-list'
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
@@ -76,10 +97,10 @@
   const name = $derived(agentName(thread.id))
   const engineName = $derived(engineDisplayName(thread.engine))
   const draft = $derived(composerDrafts.textFor(thread.id))
-  const canSend = $derived(draft.trim().length > 0)
   const showPause = $derived(composerShowsPauseControl(thread.status))
   const pauseLabel = $derived(composerPauseLabel(thread.status, thread.paused))
   const isPaused = $derived(thread.status === 'paused' || thread.paused)
+  const usage = $derived(usageSummary(thread.usage))
   const canStartNewSession = $derived(
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
@@ -91,6 +112,13 @@
   const waitingPlan = $derived(
     plans.latestFor([thread.id]).find((plan) => plan.state === 'pending'),
   )
+
+  const attachments = $derived(composerDrafts.attachmentsFor(thread.id))
+  // Plan feedback is text only, so attachments wait while a plan does.
+  const canSend = $derived(
+    draft.trim().length > 0 || (attachments.length > 0 && !waitingPlan),
+  )
+  let draggingFiles = $state(false)
 
   async function sendPlanFeedback(
     planId: string,
@@ -133,10 +161,10 @@
   // Typing `/` anywhere opens the skill picker. Skills are Claude Code's, so other engines skip it.
   let skills = $state<Skill[] | null>(null)
   let skillsThreadId: string | null = null
-  let skillIndex = $state(0)
+  let pickerIndex = $state(0)
   /** Esc hides the picker until the draft changes. */
-  let skillPickerDismissed = $state(false)
-  /** Where the caret is in the draft; the picker follows the `/` word it's in. */
+  let pickerDismissed = $state(false)
+  /** Where the caret is in the draft; the picker follows the `/` or `@` word it's in. */
   let caret = $state(0)
   const token = $derived(
     thread.engine === 'claude'
@@ -147,9 +175,46 @@
   const skillMatches = $derived(
     query !== null && skills ? filterSkills(skills, query) : [],
   )
-  const pickerOpen = $derived(
-    query !== null && !skillPickerDismissed && skillMatches.length > 0,
+  // Typing `@` offers the repos set up in Cormux; `@alias` becomes the repo's folder on send.
+  const repoWord = $derived(
+    token ? null : repoToken(draft, Math.min(caret, draft.length)),
   )
+  const repoMatches = $derived(
+    repoWord ? filterRepos(repos.items, repoWord.query) : [],
+  )
+  type PickerOption = {
+    key: string
+    label: string
+    detail: string
+    badge: string | null
+    repo: boolean
+    choose: () => void
+  }
+  const pickerOptions = $derived.by((): PickerOption[] => {
+    if (query !== null)
+      return skillMatches.map((skill) => ({
+        key: skill.name,
+        label: `/${skill.name}`,
+        detail: skill.description,
+        badge:
+          skill.source === 'project'
+            ? 'repo'
+            : skill.source === 'plugin'
+              ? 'plugin'
+              : null,
+        repo: false,
+        choose: () => chooseSkill(skill),
+      }))
+    return repoMatches.map((repo) => ({
+      key: repo.id,
+      label: `@${repoAlias(repo)}`,
+      detail: repo.path,
+      badge: null,
+      repo: true,
+      choose: () => chooseRepo(repo),
+    }))
+  })
+  const pickerOpen = $derived(!pickerDismissed && pickerOptions.length > 0)
 
   $effect(() => {
     void thread.id
@@ -172,10 +237,18 @@
 
   function chooseSkill(skill: Skill) {
     if (!token) return
-    const next = insertSkill(draft, token, skill.name)
+    applyPick(insertSkill(draft, token, skill.name))
+  }
+
+  function chooseRepo(repo: RepoRecord) {
+    if (!repoWord) return
+    applyPick(insertRepoAlias(draft, repoWord, repoAlias(repo)))
+  }
+
+  function applyPick(next: { text: string; caret: number }) {
     composerDrafts.setFor(thread.id, next.text)
     caret = next.caret
-    skillIndex = 0
+    pickerIndex = 0
     queueMicrotask(() => {
       fitHeight()
       inputEl?.focus()
@@ -189,18 +262,17 @@
 
   // Arrows move through the picker, ↵ or ⇥ picks, Esc closes it. Returns whether it handled the key.
   function onPickerKeydown(event: KeyboardEvent): boolean {
-    const count = skillMatches.length
+    const count = pickerOptions.length
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       const step = event.key === 'ArrowDown' ? 1 : -1
-      skillIndex = (skillIndex + step + count) % count
+      pickerIndex = (pickerIndex + step + count) % count
     } else if (
       (event.key === 'Enter' && !event.shiftKey) ||
       event.key === 'Tab'
     ) {
-      const skill = skillMatches[skillIndex]
-      if (skill) chooseSkill(skill)
+      pickerOptions[pickerIndex]?.choose()
     } else if (event.key === 'Escape') {
-      skillPickerDismissed = true
+      pickerDismissed = true
     } else {
       return false
     }
@@ -225,17 +297,19 @@
     composerDrafts.setFor(thread.id, target.value)
     caret = target.selectionStart
     historyIndex = null
-    skillPickerDismissed = false
-    skillIndex = 0
+    pickerDismissed = false
+    pickerIndex = 0
     fitHeight()
   }
 
   async function sendMessage() {
     const text = draft.trim()
-    if (!text) return
+    if (!canSend) return
     // The composer is reused across thread tabs, so pin the id before awaiting.
     const threadId = thread.id
+    const sending = waitingPlan ? [] : attachments
     composerDrafts.setFor(threadId, '')
+    if (sending.length) composerDrafts.setAttachments(threadId, [])
     historyIndex = null
     // Clearing the draft disables Send. A click focuses that button first, and
     // disabling a focused button drops focus, so put it back on the prompt.
@@ -244,13 +318,88 @@
       inputEl?.focus()
     })
     onSent?.()
+    const outgoing = expandRepoAliases(text, repos.items)
     const sent = waitingPlan
-      ? await sendPlanFeedback(waitingPlan.id, threadId, text)
-      : await sendThreadMessage(threadId, text)
+      ? await sendPlanFeedback(waitingPlan.id, threadId, outgoing)
+      : await sendThreadMessage(threadId, outgoing, sending)
     if (!sent) {
       composerDrafts.setFor(threadId, text)
+      if (sending.length) composerDrafts.addAttachments(threadId, sending)
     }
   }
+
+  async function attachFiles(files: File[]) {
+    const threadId = thread.id
+    for (const file of files) {
+      try {
+        composerDrafts.addAttachments(threadId, [
+          await attachmentFromFile(file),
+        ])
+      } catch (error) {
+        showToast({
+          tone: 'bad',
+          parts: [
+            {
+              type: 'text',
+              value:
+                error instanceof Error ? error.message : 'Could not attach',
+            },
+          ],
+        })
+      }
+    }
+  }
+
+  function onPaste(event: ClipboardEvent) {
+    const files = [...(event.clipboardData?.files ?? [])]
+    if (!files.length || waitingPlan) return
+    event.preventDefault()
+    void attachFiles(files)
+  }
+
+  function hasFiles(event: DragEvent) {
+    return event.dataTransfer?.types.includes('Files') ?? false
+  }
+
+  async function pickFiles() {
+    const picked = await openFilePicker({ multiple: true, directory: false })
+    const paths =
+      picked == null ? [] : Array.isArray(picked) ? picked : [picked]
+    if (paths.length)
+      composerDrafts.addAttachments(thread.id, paths.map(attachmentFromPath))
+    inputEl?.focus()
+  }
+
+  // In the app, files dropped from Finder arrive as paths through Tauri, not as a browser drop.
+  onMount(() => {
+    if (document.documentElement.dataset.cormuxHarness === 'browser') return
+    let unlisten: (() => void) | undefined
+    let gone = false
+    void getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (event.payload.type === 'over' || event.payload.type === 'enter') {
+          draggingFiles = !waitingPlan
+        } else if (event.payload.type === 'leave') {
+          draggingFiles = false
+        } else if (event.payload.type === 'drop') {
+          draggingFiles = false
+          if (waitingPlan || !event.payload.paths.length) return
+          composerDrafts.addAttachments(
+            thread.id,
+            event.payload.paths.map(attachmentFromPath),
+          )
+        }
+      })
+      .then((stop) => {
+        if (gone) stop()
+        else unlisten = stop
+      })
+      .catch(() => {})
+    return () => {
+      gone = true
+      unlisten?.()
+    }
+  })
 
   async function stopTurn() {
     threads.setStatus(thread.id, 'idle')
@@ -384,40 +533,48 @@
   data-od-id="composer-wrap"
 >
   {#if pickerOpen}
+    {@const reposShown = pickerOptions[0]?.repo ?? false}
     <ul
-      id="skill-picker"
+      id="composer-picker"
       role="listbox"
-      aria-label="Skills"
+      aria-label={reposShown ? 'Repositories' : 'Skills'}
       class="absolute inset-x-1 bottom-full mx-auto -mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg"
-      data-od-id="skill-picker"
+      data-od-id={reposShown ? 'repo-picker' : 'skill-picker'}
     >
-      {#each skillMatches as skill, index (skill.name)}
+      {#each pickerOptions as option, index (option.key)}
         <li
-          id="skill-option-{index}"
+          id="composer-option-{index}"
           role="option"
-          aria-selected={index === skillIndex}
+          aria-selected={index === pickerIndex}
           class="flex min-w-0 cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm aria-selected:bg-muted"
           onmousedown={(event) => {
             // Keep focus in the composer.
             event.preventDefault()
-            chooseSkill(skill)
+            option.choose()
           }}
-          onmouseenter={() => (skillIndex = index)}
+          onmouseenter={() => (pickerIndex = index)}
         >
-          <Sparkles
-            class="size-3.5 shrink-0 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <span class="shrink-0 font-mono text-xs">/{skill.name}</span>
-          {#if skill.description}
+          {#if option.repo}
+            <Folder
+              class="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          {:else}
+            <Sparkles
+              class="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          {/if}
+          <span class="shrink-0 font-mono text-xs">{option.label}</span>
+          {#if option.detail}
             <span class="min-w-0 truncate text-xs text-muted-foreground"
-              >{skill.description}</span
+              >{option.detail}</span
             >
           {/if}
-          {#if skill.source === 'project' || skill.source === 'plugin'}
+          {#if option.badge}
             <span
               class="ml-auto shrink-0 rounded border border-border/60 px-1 text-[10px] text-muted-foreground"
-              >{skill.source === 'project' ? 'repo' : 'plugin'}</span
+              >{option.badge}</span
             >
           {/if}
         </li>
@@ -428,11 +585,72 @@
     class="composer mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-[0_-12px_32px_-8px_var(--background)] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
     id="composer"
     data-od-id="composer"
+    class:composer-dropping={draggingFiles}
     onsubmit={(event) => {
       event.preventDefault()
       void sendMessage()
     }}
+    ondragover={(event) => {
+      if (!hasFiles(event) || waitingPlan) return
+      event.preventDefault()
+      draggingFiles = true
+    }}
+    ondragleave={() => (draggingFiles = false)}
+    ondrop={(event) => {
+      if (!hasFiles(event) || waitingPlan) return
+      event.preventDefault()
+      draggingFiles = false
+      void attachFiles([...(event.dataTransfer?.files ?? [])])
+    }}
   >
+    {#if attachments.length}
+      <ul
+        class="flex flex-wrap gap-2 px-3 pt-3"
+        aria-label="Attachments"
+        data-od-id="composer-attachments"
+      >
+        {#each attachments as attachment (attachment.id)}
+          <li
+            class="flex max-w-56 items-center gap-2 rounded-md border border-border bg-muted/40 p-1 pr-1.5 text-xs"
+            data-od-id="composer-attachment"
+          >
+            {#if attachment.previewUrl}
+              <img
+                src={attachment.previewUrl}
+                alt=""
+                class="size-9 shrink-0 rounded object-cover"
+              />
+            {:else}
+              <span
+                class="flex size-9 shrink-0 items-center justify-center rounded bg-muted"
+              >
+                <FileText
+                  class="size-4 text-muted-foreground"
+                  aria-hidden="true"
+                />
+              </span>
+            {/if}
+            <span class="truncate" title={attachment.path ?? attachment.name}
+              >{attachment.name}</span
+            >
+            <button
+              type="button"
+              class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Remove {attachment.name}"
+              onclick={() =>
+                composerDrafts.removeAttachment(thread.id, attachment.id)}
+            >
+              <X class="size-3" aria-hidden="true" />
+            </button>
+          </li>
+        {/each}
+      </ul>
+      {#if waitingPlan}
+        <p class="px-4 pt-1 text-xs text-muted-foreground">
+          Attachments go with your next message once the plan is answered.
+        </p>
+      {/if}
+    {/if}
     <label class="sr-only" for="composer-input">{inputLabel}</label>
     <Textarea
       bind:ref={inputEl}
@@ -448,11 +666,11 @@
             : `Message ${name}…`)}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
-      aria-controls={pickerOpen ? 'skill-picker' : undefined}
+      aria-controls={pickerOpen ? 'composer-picker' : undefined}
       aria-activedescendant={pickerOpen
-        ? `skill-option-${skillIndex}`
+        ? `composer-option-${pickerIndex}`
         : undefined}
-      aria-autocomplete={thread.engine === 'claude' ? 'list' : undefined}
+      aria-autocomplete="list"
       oninput={onInput}
       onkeydown={onKeydown}
       onkeyup={syncCaret}
@@ -460,6 +678,7 @@
       onselect={syncCaret}
       oncompositionstart={onCompositionStart}
       oncompositionend={onCompositionEnd}
+      onpaste={onPaste}
     />
 
     <div
@@ -476,6 +695,19 @@
           >{thread.role ? `${engineName} · ${name}` : engineName}</span
         >
         <ThreadModelPicker {thread} />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          class="text-muted-foreground"
+          data-od-id="composer-attach"
+          aria-label="Attach images or files"
+          title="Attach images or files (you can also paste or drop them)"
+          disabled={!!waitingPlan}
+          onclick={() => void pickFiles()}
+        >
+          <Paperclip class="size-3.5" aria-hidden="true" />
+        </Button>
         {#if canPlan}
           <Button
             type="button"
@@ -492,6 +724,14 @@
             <ClipboardList class="size-3.5" aria-hidden="true" />
             Plan
           </Button>
+        {/if}
+        {#if usage.meter}
+          <span
+            class="shrink-0 font-mono text-[10px] text-muted-foreground/80 tabular-nums"
+            data-od-id="composer-usage"
+            title={usage.detail}
+            aria-label={usage.detail}>{usage.meter}</span
+          >
         {/if}
         {#if showPause}
           <Button
@@ -537,6 +777,9 @@
         <kbd class="rounded border border-border/60 px-1">⇧↵</kbd> new line
         {#if thread.engine === 'claude'}
           <kbd class="rounded border border-border/60 px-1">/</kbd> skills
+        {/if}
+        {#if repos.items.length}
+          <kbd class="rounded border border-border/60 px-1">@</kbd> repos
         {/if}
       </span>
 

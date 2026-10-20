@@ -223,6 +223,15 @@ pub struct SendWorkspaceFindingsInput {
     pub finding_ids: Vec<String>,
 }
 
+/// Findings to dismiss, or (with `dismissed: false`) to restore.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DismissWorkspaceFindingsInput {
+    pub workspace_id: String,
+    pub finding_ids: Vec<String>,
+    pub dismissed: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct JoinWorkspaceThreadResult {

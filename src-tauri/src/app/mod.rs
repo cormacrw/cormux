@@ -151,9 +151,13 @@ impl WorkspaceAppService {
             .find(|repo| repo.id == workspace.repo_id)
             .ok_or_else(|| Error::Workspace(format!("unknown repo {}", workspace.repo_id)))?;
         let repo_path = crate::ipc::commands::expand_tilde(&repo.path);
-        let run_command =
-            crate::harness_config::effective_run_command(&repo.run_command, &repo_path)
-                .ok_or_else(|| Error::Process("no run command configured".into()))?;
+        let run_command = crate::harness_config::workspace_run_command(
+            store,
+            workspace_id,
+            &repo.run_command,
+            &repo_path,
+        )
+        .ok_or_else(|| Error::Process("no run command configured".into()))?;
         let repo_for_env = repo.clone();
 
         let session_id = run_session_id(workspace_id);
@@ -581,8 +585,13 @@ async fn run_context(
         .find(|repo| repo.id == workspace.repo_id)
         .ok_or_else(|| Error::Workspace(format!("unknown repo {}", workspace.repo_id)))?;
     let repo_path = crate::ipc::commands::expand_tilde(&repo.path);
-    let run_command = crate::harness_config::effective_run_command(&repo.run_command, &repo_path)
-        .ok_or_else(|| Error::Process("no run command configured".into()))?;
+    let run_command = crate::harness_config::workspace_run_command(
+        &state.store,
+        workspace_id,
+        &repo.run_command,
+        &repo_path,
+    )
+    .ok_or_else(|| Error::Process("no run command configured".into()))?;
     let kind = AppKind::detect(&run_command);
     Ok((workspace.worktree_path, run_command, kind, workspace.name))
 }

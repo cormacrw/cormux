@@ -9,12 +9,15 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::time::timeout;
 
+#[cfg(test)]
+use super::protocol::user_message;
 use super::protocol::{
     Event, PermissionDecision, StdinMessage, decode_event, encode_line, initialize_request,
     interrupt_request, permission_response, set_model_request, set_permission_mode_request,
-    user_message,
+    user_prompt_message,
 };
 use crate::engines::claude_argv;
+use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 
 /// How long the CLI gets to answer the initialize handshake. Once a session is up there is
@@ -168,8 +171,13 @@ impl ClaudeSession {
         self.session_id.as_deref()
     }
 
+    #[cfg(test)]
     pub async fn send_user(&mut self, text: impl Into<String>) -> Result<()> {
         self.write_message(&user_message(text.into())).await
+    }
+
+    pub async fn send_prompt(&mut self, prompt: &Prompt) -> Result<()> {
+        self.write_message(&user_prompt_message(prompt)).await
     }
 
     pub async fn answer_tool(

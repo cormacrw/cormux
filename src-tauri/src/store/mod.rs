@@ -451,6 +451,31 @@ impl Store {
         })
     }
 
+    /// Dismisses open findings in a workspace, or restores dismissed ones to open. Findings
+    /// already sent or fixed are left alone. Returns how many changed.
+    pub fn set_findings_dismissed(
+        &self,
+        workspace_id: &str,
+        finding_ids: &[String],
+        dismissed: bool,
+    ) -> Result<usize> {
+        let (from, to) = if dismissed {
+            ("open", "dismissed")
+        } else {
+            ("dismissed", "open")
+        };
+        self.with_conn(|conn| {
+            let mut changed = 0;
+            for id in finding_ids {
+                changed += conn.execute(
+                    "UPDATE findings SET status = ?1 WHERE id = ?2 AND workspace_id = ?3 AND status = ?4",
+                    rusqlite::params![to, id, workspace_id, from],
+                )?;
+            }
+            Ok(changed)
+        })
+    }
+
     pub fn finding_by_id(&self, finding_id: &str) -> Result<Option<FindingRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -1418,6 +1443,18 @@ mod tests {
         assert_eq!(snap.approvals[0].tool, "edit");
         assert_eq!(snap.findings[0].title, "Leak");
         assert_eq!(snap.pull_requests[0].number, 12);
+
+        // Dismissing only touches open findings of that workspace, and restoring undoes it.
+        let ids = vec!["f1".to_string()];
+        assert_eq!(store.set_findings_dismissed("w2", &ids, true).unwrap(), 0);
+        assert_eq!(store.set_findings_dismissed("w1", &ids, true).unwrap(), 1);
+        assert_eq!(store.set_findings_dismissed("w1", &ids, true).unwrap(), 0);
+        assert_eq!(
+            store.finding_by_id("f1").unwrap().unwrap().status,
+            "dismissed"
+        );
+        assert_eq!(store.set_findings_dismissed("w1", &ids, false).unwrap(), 1);
+        assert_eq!(store.finding_by_id("f1").unwrap().unwrap().status, "open");
 
         store
             .set_workspace_summary("w1", "Working on login.", "Haiku 4.5")

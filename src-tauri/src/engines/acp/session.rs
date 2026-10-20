@@ -4,10 +4,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, InitializeRequest, LoadSessionRequest, NewSessionRequest,
-    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionConfigValueId, SessionId, SessionNotification,
-    SetSessionConfigOptionRequest, SetSessionModeRequest, TextContent,
+    CancelNotification, ContentBlock, ImageContent, InitializeRequest, LoadSessionRequest,
+    NewSessionRequest, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigValueId, SessionId,
+    SessionNotification, SetSessionConfigOptionRequest, SetSessionModeRequest, TextContent,
 };
 use agent_client_protocol::{AcpAgent, AcpAgentConfig, Agent, ConnectionTo};
 use tokio::sync::{broadcast, mpsc};
@@ -181,10 +181,14 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
         .connect_with(agent, {
             let events = events.clone();
             move |connection: ConnectionTo<Agent>| async move {
-                connection
+                // Agents that don't take images in a prompt still get each attachment's path.
+                let takes_images = connection
                     .send_request(InitializeRequest::new(ProtocolVersion::V1))
                     .block_task()
-                    .await?;
+                    .await?
+                    .agent_capabilities
+                    .prompt_capabilities
+                    .image;
                 let (session_id, config_options) = if let Some(existing) = resume {
                     let id = SessionId::new(existing.clone());
                     replaying.store(true, Ordering::SeqCst);
@@ -243,17 +247,23 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
 
                 while let Some(command) = commands.recv().await {
                     match command {
-                        EngineCommand::Prompt(text) => {
+                        EngineCommand::Prompt(prompt) => {
                             let text = if prefix_read_only {
-                                format!("{READ_ONLY_DENIAL}\n\n{text}")
+                                format!("{READ_ONLY_DENIAL}\n\n{}", prompt.text)
                             } else {
-                                text
+                                prompt.text
                             };
+                            let mut content = vec![ContentBlock::Text(TextContent::new(text))];
+                            if takes_images {
+                                content.extend(prompt.images.into_iter().map(|image| {
+                                    ContentBlock::Image(ImageContent::new(
+                                        image.data_base64,
+                                        image.media_type,
+                                    ))
+                                }));
+                            }
                             let wait = connection
-                                .send_request(PromptRequest::new(
-                                    session_id.clone(),
-                                    vec![ContentBlock::Text(TextContent::new(text))],
-                                ))
+                                .send_request(PromptRequest::new(session_id.clone(), content))
                                 .block_task();
                             tokio::pin!(wait);
                             // A model picked mid-turn applies once the turn ends.

@@ -1651,14 +1651,22 @@ pub async fn send_thread_prompt(
     app: AppHandle,
     thread_id: String,
     text: String,
+    attachments: Vec<crate::attachments::PromptAttachment>,
     state: State<'_, AppState>,
 ) -> Result<()> {
     let text = text.trim().to_string();
-    if text.is_empty() {
+    if text.is_empty() && attachments.is_empty() {
         return Ok(());
     }
+    use tauri::Manager;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| Error::Workspace(error.to_string()))?;
+    let folder = crate::data_dir(app_data).join("attachments");
+    let (prompt, text) = crate::attachments::build_prompt(&folder, &text, &attachments)?;
     if let Some(scratch) = state.store.scratch_for_thread(&thread_id)? {
-        return crate::scratch::send(&app, &state, &scratch, text).await;
+        return crate::scratch::send(&app, &state, &scratch, prompt, text).await;
     }
     let thread = snapshot_thread(&state, &thread_id)?;
     let held = thread.status == "paused";
@@ -1673,7 +1681,7 @@ pub async fn send_thread_prompt(
     }
     persist_user_message(&state.store, &thread_id, &text)?;
     // A failed send must not mark the thread running: nothing would ever end that turn.
-    state.engines.submit_prompt(&thread_id, text, held)?;
+    state.engines.submit_prompt(&thread_id, prompt, held)?;
     if !held {
         state.store.set_thread_status(&thread_id, "running")?;
         state
@@ -1838,6 +1846,21 @@ pub async fn send_workspace_findings(
         input.finding_ids,
     )
     .await?;
+    emit_composer_snapshot(&app, &state);
+    Ok(())
+}
+
+/// Dismissed findings stay listed but aren't sent to an agent or posted with the review.
+#[tauri::command]
+#[specta::specta]
+pub async fn dismiss_workspace_findings(
+    app: AppHandle,
+    input: super::types::DismissWorkspaceFindingsInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    state
+        .store
+        .set_findings_dismissed(&input.workspace_id, &input.finding_ids, input.dismissed)?;
     emit_composer_snapshot(&app, &state);
     Ok(())
 }

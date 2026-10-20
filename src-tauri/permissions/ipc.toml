@@ -78,6 +78,7 @@ commands.allow = [
   "test_repo_setup",
   "set_setting",
   "send_workspace_findings",
+  "dismiss_workspace_findings",
   "create_scratch",
   "end_scratch",
   "refresh_workspace_diff",

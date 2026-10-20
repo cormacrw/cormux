@@ -116,6 +116,27 @@ export class FindingsStore {
     this.quickSelect(workspaceId, 'none')
   }
 
+  /** Dismisses findings (or restores them to open) and drops them from the selection. */
+  async setDismissed(workspaceId: string, ids: string[], dismissed: boolean) {
+    if (!ids.length) return
+    const result = await commands.dismissWorkspaceFindings({
+      workspaceId,
+      findingIds: ids,
+      dismissed,
+    })
+    if (result.status === 'error') {
+      throw new Error(
+        typeof result.error.message === 'string'
+          ? result.error.message
+          : 'Could not update the findings',
+      )
+    }
+    const next = new SvelteSet(this.selectedIds(workspaceId))
+    for (const id of ids) next.delete(id)
+    this.selection = { ...this.selection, [workspaceId]: next }
+    this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
+  }
+
   seedDefaults(workspaceId: string) {
     if (this.selectionTouched[workspaceId]) return
     const rows = this.forWorkspace(workspaceId)

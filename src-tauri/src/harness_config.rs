@@ -29,6 +29,27 @@ pub fn effective_setup(stored: &str, repo_path: &Path) -> String {
         .unwrap_or_default()
 }
 
+fn workspace_run_command_key(workspace_id: &str) -> String {
+    format!("workspace:{workspace_id}/runCommand")
+}
+
+/// The command Run starts for a workspace: its own override from the Output tab when set,
+/// else the repo's (see `effective_run_command`).
+pub fn workspace_run_command(
+    store: &crate::store::Store,
+    workspace_id: &str,
+    stored: &Option<String>,
+    repo_path: &Path,
+) -> Option<String> {
+    store
+        .get_setting(&workspace_run_command_key(workspace_id))
+        .ok()
+        .flatten()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| effective_run_command(stored, repo_path))
+}
+
 pub fn effective_run_command(stored: &Option<String>, repo_path: &Path) -> Option<String> {
     if let Some(value) = stored.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
         return Some(value.to_string());
@@ -160,6 +181,35 @@ pub fn validate_add_path(path: &str) -> Result<(String, String)> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn a_workspace_override_wins_over_the_repo_command() {
+        let store = crate::store::Store::new();
+        store.open_in_memory().unwrap();
+        let repo = std::env::temp_dir();
+        let stored = Some("pnpm dev".to_string());
+        assert_eq!(
+            workspace_run_command(&store, "w1", &stored, &repo).as_deref(),
+            Some("pnpm dev")
+        );
+        store
+            .set_setting("workspace:w1/runCommand", " pnpm dev --port 4000 ")
+            .unwrap();
+        assert_eq!(
+            workspace_run_command(&store, "w1", &stored, &repo).as_deref(),
+            Some("pnpm dev --port 4000")
+        );
+        assert_eq!(
+            workspace_run_command(&store, "w2", &stored, &repo).as_deref(),
+            Some("pnpm dev")
+        );
+        // Clearing it goes back to the repo's.
+        store.set_setting("workspace:w1/runCommand", "").unwrap();
+        assert_eq!(
+            workspace_run_command(&store, "w1", &stored, &repo).as_deref(),
+            Some("pnpm dev")
+        );
+    }
 
     #[test]
     fn validate_path_rules() {

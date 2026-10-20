@@ -87,6 +87,14 @@ A hidden polite live region (`#thread-announce`) announces only the newest agent
 
 User messages are not announced.
 
+### Find in conversation
+
+- `⌘F` opens a small find bar at the top right of the thread (or scratch), focused; `⌘F` again selects its text.
+- It matches case-insensitively across user messages, agent replies, thoughts, tool steps (titles, details and commands), plan steps, approvals and app events, including rows a long thread hasn't rendered yet.
+- The counter reads `3 of 12` (or `No matches`). A new search starts at the newest match. `↵` and the down arrow go to the next match, `⇧↵` and the up arrow to the previous one, wrapping around.
+- Every visible match is highlighted, the current one more strongly. Going to a match scrolls it to the middle and opens a collapsed thought or step **Details** that holds it, and stops following the newest message.
+- `Esc` or the x closes it, clears the highlights and puts focus back where it was.
+
 ## Sample conversations
 
 - **Auth session timeout, Lead** (Claude Code): created worktree → reasoning about idle timeouts → read 6 files → parsed AST → edited three files → ran 12 passing tests → reasoning about the legacy cookie helper → two approvals (Delete file, Run database migration) → live.

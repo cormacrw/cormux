@@ -100,5 +100,6 @@ export function rowCheckboxState(
   if (row.status === 'sent' || row.status === 'fixed') {
     return { checked: true, disabled: true }
   }
+  if (row.status === 'dismissed') return { checked: false, disabled: true }
   return { checked: selected.has(row.id), disabled: false }
 }

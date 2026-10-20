@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { NO_USAGE } from '$lib/usage/usage'
 import { workspaceCardBadgeKind, workspaceCardMetaText } from './card-status'
 
 const baseWorkspace = {
@@ -9,6 +10,7 @@ const baseWorkspace = {
   paused: false,
   activityText: 'Idle',
   pendingApprovals: 0,
+  usage: NO_USAGE,
   cardStatus: 'idle' as const,
   createdAtMs: null,
   summary: null,
@@ -35,6 +37,7 @@ describe('workspaceCardMetaText', () => {
         paused: false,
         activity: 'Working',
         pendingApprovals: 1,
+        usage: NO_USAGE,
       },
     ])
     expect(text).toBe('Needs Attention')
@@ -51,6 +54,7 @@ describe('workspaceCardMetaText', () => {
         paused: false,
         activity: 'Working',
         pendingApprovals: 0,
+        usage: NO_USAGE,
       },
       {
         id: 't2',
@@ -61,6 +65,7 @@ describe('workspaceCardMetaText', () => {
         paused: false,
         activity: 'Working',
         pendingApprovals: 0,
+        usage: NO_USAGE,
       },
     ])
     expect(text).toBe('2 agents working')
@@ -82,6 +87,7 @@ describe('workspaceCardMetaText', () => {
           paused: false,
           activity: 'Working',
           pendingApprovals: 1,
+          usage: NO_USAGE,
         },
       ]),
     ).toBe('needsAttention')

@@ -10,6 +10,16 @@ export type BranchFieldError =
 
 const BRANCH_FORMAT = /^[A-Za-z0-9._/-]+$/
 
+/** Branches the repo's own workspaces have checked out; other repos' branches don't clash. */
+export function workspaceBranchesForRepo(
+  records: { repoId: string; branch: string }[],
+  repoId: string,
+): string[] {
+  return records
+    .filter((record) => record.repoId === repoId)
+    .map((record) => record.branch)
+}
+
 export function validateBranchName(
   branch: string,
   ctx: BranchValidationContext,

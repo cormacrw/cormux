@@ -147,9 +147,18 @@ pub fn usage_from_result(event: &Event) -> Option<AgentEvent> {
     let used = (*used_tokens)?;
     Some(AgentEvent::Usage {
         used_tokens: used,
-        context_size: context_size.unwrap_or(used),
+        // 0 is "not reported": an unknown window shouldn't read as a full context.
+        context_size: context_size.unwrap_or(0),
         cost_usd: cost_usd.as_ref().and_then(|value| value.parse().ok()),
     })
+}
+
+/// Claude reports cost as a running total for its process, which starts over when a session is
+/// resumed in a new one. Given the thread's saved total, the process total last seen and the new
+/// one, returns the thread's new total and the process total to remember.
+pub fn add_turn_cost(thread_total: f64, process_seen: f64, process_total: f64) -> (f64, f64) {
+    let added = (process_total - process_seen).max(0.0);
+    (thread_total + added, process_total)
 }
 
 #[allow(dead_code)]
@@ -278,6 +287,17 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn a_threads_cost_adds_up_each_turn_across_processes() {
+        // Two turns in one process, then a resumed process that starts from zero.
+        let (total, seen) = add_turn_cost(0.0, 0.0, 0.002);
+        let (total, seen) = add_turn_cost(total, seen, 0.005);
+        assert!((total - 0.005).abs() < 1e-9);
+        let (total, _) = add_turn_cost(total, 0.0, 0.001);
+        assert!((total - 0.006).abs() < 1e-9);
+        assert_eq!(seen, 0.005);
     }
 
     #[test]

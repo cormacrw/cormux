@@ -1,3 +1,4 @@
+import { workspaceRunCommand } from '$lib/run-app/run-command'
 import Zap from '@lucide/svelte/icons/zap'
 import Download from '@lucide/svelte/icons/download'
 import GitBranch from '@lucide/svelte/icons/git-branch'
@@ -110,6 +111,13 @@ export function buildPaletteCommands(): PaletteCommand[] {
       runtimeFor: (id) => workspaceRecords.runtime(id),
       repoFor: (id) => repos.getById(id),
       recordFor: (id) => workspaceRecords.getRecord(id),
+      runCommandFor: (id) =>
+        workspaceRunCommand(
+          settings.rows,
+          id,
+          repos.getById(workspaceRecords.getRecord(id)?.repoId ?? '')
+            ?.runCommand,
+        ),
     },
     {
       requestNewWorkspace: () => app.requestNewWorkspace(),

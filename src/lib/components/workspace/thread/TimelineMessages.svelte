@@ -198,6 +198,7 @@
     <li
       class="flex items-center gap-2 py-1 text-xs text-muted-foreground"
       aria-hidden="true"
+      data-row-key={row.id}
       use:popIn={{ entries, key: row.id }}
     >
       <Buddy
@@ -222,6 +223,7 @@
   {:else}
     {@const item = row.item}
     <li
+      data-row-key={item.id}
       class={cn(
         'py-1',
         item.kind === 'user' && 'flex flex-col items-end gap-1',

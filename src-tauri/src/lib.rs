@@ -1,5 +1,6 @@
 mod app;
 mod approvals;
+mod attachments;
 mod clickup;
 mod composer;
 mod create_pr;
@@ -46,7 +47,7 @@ use tauri_specta::Event;
 
 /// Dev builds keep their own data, so running Cormux from inside Cormux can't touch the
 /// installed app's workspaces.
-fn data_dir(app_data: std::path::PathBuf) -> std::path::PathBuf {
+pub(crate) fn data_dir(app_data: std::path::PathBuf) -> std::path::PathBuf {
     if cfg!(debug_assertions) {
         app_data.join("dev")
     } else {

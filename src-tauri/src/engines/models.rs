@@ -24,13 +24,18 @@ pub struct ThreadModels {
 /// ACP engines list their own models once a session starts.
 pub fn static_models(kind: EngineKind) -> Vec<ModelOption> {
     match kind {
-        EngineKind::Claude => [("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")]
-            .into_iter()
-            .map(|(id, label)| ModelOption {
-                id: id.into(),
-                label: label.into(),
-            })
-            .collect(),
+        EngineKind::Claude => [
+            ("fable", "Fable"),
+            ("opus", "Opus"),
+            ("sonnet", "Sonnet"),
+            ("haiku", "Haiku"),
+        ]
+        .into_iter()
+        .map(|(id, label)| ModelOption {
+            id: id.into(),
+            label: label.into(),
+        })
+        .collect(),
         EngineKind::Cursor | EngineKind::Codex | EngineKind::Gemini => Vec::new(),
     }
 }

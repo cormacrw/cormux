@@ -1,5 +1,6 @@
 import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
 import { app } from '$lib/state/app.svelte'
+import { threadFind } from '$lib/state/thread-find.svelte'
 import { threadTimeline } from '$lib/state/thread-timeline.svelte'
 import {
   hasSessionToClear,
@@ -41,6 +42,18 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   if (mod && key === 's' && !event.shiftKey && !event.altKey) {
     event.preventDefault()
     app.requestNewScratch()
+    return
+  }
+
+  // Find in the conversation on screen: a workspace thread or a scratch.
+  if (mod && key === 'f' && !event.shiftKey && !event.altKey) {
+    const conversation =
+      (app.view === 'workspace' && workspaceUi.activeTab === 'thread') ||
+      app.view === 'scratch'
+    if (conversation && !dialogBlocksShortcuts()) {
+      event.preventDefault()
+      threadFind.request()
+    }
     return
   }
 

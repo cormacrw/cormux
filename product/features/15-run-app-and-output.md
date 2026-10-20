@@ -37,7 +37,7 @@ Terminal icon, `Output`, and a status mark: spinner while setting up or starting
 Left to right:
 
 1. **Status chip**: `Setting up` (spinner), `Starting` (spinner), `Running` (green dot, success chip), or `Stopped` (neutral).
-2. **Command** in monospace (if the repo has one), truncated with a tooltip.
+2. **Command** in monospace, truncated with a tooltip: this workspace's own command if it has one (with a small `this workspace` tag), else the repo's. A pencil (`Edit the run command for this workspace`) turns it into an inline field holding the current command: `↵` or clicking away saves it for this workspace only, `Esc` cancels. Saving the repo's own command, or nothing, removes the override. While overridden, an undo button (`Use the repo's run command`) goes back to the repo's. A change applies the next time the app runs or restarts. Run, the header's Run and `⌘R`, and the palette all use the workspace's command.
 3. **URL link** while running: `localhost:5173` with an external-link icon, opening `http://localhost:5173/` in a new window.
 4. Flexible space.
 5. **Actions:**
@@ -66,7 +66,7 @@ Monospace, 12.5px on 20px lines, wrapping long lines. Line styles:
 
 | Situation | Heading | Body | Action |
 | --- | --- | --- | --- |
-| Repo has no run command (and not provisioning) | `No run command for <repo>` | `Add the command that starts this project, like pnpm dev. Every workspace on <repo> will use it.` | Secondary **Add run command** (sliders icon). Opens Settings with that repo's config expanded and the cursor in its Run command field. |
+| Neither the repo nor this workspace has a run command (and not provisioning) | `No run command for <repo>` | `Add the command that starts this project, like pnpm dev. Every workspace on <repo> will use it.` | Secondary **Add run command** (sliders icon) opens Settings with that repo's config expanded and the cursor in its Run command field. Ghost **Just for this workspace** opens the header's inline field instead. |
 | Has a run command but nothing logged | `Nothing running` | `Run starts <command> in this worktree. Its output shows up here.` | |
 
 If there's setup output but the app is stopped, the setup log is shown with no empty state.

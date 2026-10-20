@@ -3,8 +3,11 @@
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import Check from '@lucide/svelte/icons/check'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
+  import RotateCcw from '@lucide/svelte/icons/rotate-ccw'
+  import X from '@lucide/svelte/icons/x'
   import { Button } from '$lib/components/ui/button'
   import { Checkbox } from '$lib/components/ui/checkbox'
+  import * as Select from '$lib/components/ui/select'
   import { app, findings, threads, workspaceUi, workspaces } from '$lib/state'
   import { agentName } from '$lib/agent-name'
   import { engineDisplayName } from '$lib/sidebar/engine'
@@ -90,6 +93,22 @@
     if (!row.file) return
     workspaceUi.revealInChanges(row.file, row.line)
   }
+
+  async function setDismissed(ids: string[], dismissed: boolean) {
+    sendError = null
+    try {
+      await preserveScroll(() =>
+        findings.setDismissed(workspaceId, ids, dismissed),
+      )
+    } catch (error) {
+      sendError =
+        error instanceof Error ? error.message : 'Could not update the findings'
+    }
+  }
+
+  const dismissedCount = $derived(
+    rows.filter((row) => row.status === 'dismissed').length,
+  )
 
   async function sendFindings() {
     if (!targetThread || sending) return
@@ -323,6 +342,37 @@
                               />
                               Sent to {threadRoleForFinding(row)}
                             </span>
+                          {:else if row.status === 'dismissed'}
+                            <span class="flex shrink-0 items-center gap-1">
+                              <span
+                                class="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground select-none"
+                                >Dismissed</span
+                              >
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                data-od-id="finding-restore"
+                                aria-label="Restore “{row.title}”"
+                                onclick={() =>
+                                  void setDismissed([row.id], false)}
+                              >
+                                <RotateCcw class="size-3" aria-hidden="true" />
+                                Restore
+                              </Button>
+                            </span>
+                          {:else}
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              class="shrink-0 text-muted-foreground"
+                              data-od-id="finding-dismiss"
+                              aria-label="Dismiss “{row.title}”"
+                              title="Dismiss: don't fix it or post it with the review"
+                              onclick={() => void setDismissed([row.id], true)}
+                            >
+                              <X class="size-3" aria-hidden="true" />
+                              Dismiss
+                            </Button>
                           {/if}
                         </div>
                         {#if row.file}
@@ -366,8 +416,12 @@
     >
       {#if !openRows.length}
         <p class="text-sm text-muted-foreground">
-          {#if rows.length}
-            Every finding has been sent.
+          {#if rows.length && dismissedCount === rows.length}
+            Every finding was dismissed.
+          {:else if rows.length}
+            Every finding has been {dismissedCount
+              ? 'sent or dismissed'
+              : 'sent'}.
             <span class="text-foreground/80"
               >Follow the fixes in the {targetThread?.role ?? 'agent'} thread.</span
             >
@@ -375,7 +429,7 @@
             No findings to send.
           {/if}
         </p>
-        {#if rows.length && targetThread}
+        {#if rows.length && dismissedCount < rows.length && targetThread}
           <span class="grow"></span>
           <Button variant="secondary" onclick={goToTargetThread}>
             Go to {targetThread.role}
@@ -390,24 +444,38 @@
         {#if wsThreads.length > 1}
           <label class="flex items-center gap-2 text-sm">
             <span class="text-muted-foreground">Send to</span>
-            <select
-              class="h-8 rounded-md border border-input bg-background px-2 text-sm"
-              data-od-id="findings-target"
+            <Select.Root
+              type="single"
               value={targetThreadId}
-              onchange={(event) => {
-                const value = (event.currentTarget as HTMLSelectElement).value
-                findings.setTargetThread(workspaceId, value)
+              onValueChange={(value) => {
+                if (value) findings.setTargetThread(workspaceId, value)
               }}
             >
-              {#each wsThreads as thread (thread.id)}
-                <option value={thread.id}>{agentName(thread.id)}</option>
-              {/each}
-            </select>
+              <Select.Trigger data-od-id="findings-target">
+                {targetThread ? agentName(targetThread.id) : 'Pick an agent'}
+              </Select.Trigger>
+              <Select.Content>
+                {#each wsThreads as thread (thread.id)}
+                  <Select.Item value={thread.id} label={agentName(thread.id)}
+                    >{agentName(thread.id)}</Select.Item
+                  >
+                {/each}
+              </Select.Content>
+            </Select.Root>
           </label>
         {/if}
         {#if sendError}
           <p class="text-xs text-destructive">{sendError}</p>
         {/if}
+        <Button
+          variant="outline"
+          data-od-id="findings-dismiss-selected"
+          disabled={!summary.total || sending}
+          onclick={() => void setDismissed([...selected], true)}
+        >
+          <X class="size-4" aria-hidden="true" />
+          {summary.total ? `Dismiss ${summary.total}` : 'Dismiss'}
+        </Button>
         <Button
           data-od-id="findings-send"
           disabled={!summary.total || sending || !targetThread}

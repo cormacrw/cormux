@@ -7,7 +7,8 @@
     matchesHomebaseFilter,
     type HomebaseFilter,
   } from '$lib/homebase/filter'
-  import { app, homebaseUi, workspaces } from '$lib/state'
+  import { app, homebaseUi, threads, workspaces } from '$lib/state'
+  import { formatCost, totalCost } from '$lib/usage/usage'
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
   import Plus from '@lucide/svelte/icons/plus'
@@ -36,6 +37,7 @@
     return () => window.clearInterval(id)
   })
 
+  const cost = $derived(totalCost(threads.agents.map((thread) => thread.usage)))
   const filterCounts = $derived(
     homebaseFilterCounts(workspaces.items.map((item) => item.lifecycle)),
   )
@@ -55,15 +57,27 @@
       class="sticky top-0 z-10 -mx-6 -mt-6 -mb-4 flex flex-wrap items-center justify-between gap-4 bg-background px-6 pt-6 pb-4"
       aria-labelledby="home-title"
     >
-      <h1
-        bind:this={homeTitle}
-        id="home-title"
-        tabindex="-1"
-        data-od-id="home-title"
-        class="text-2xl font-semibold tracking-tight outline-none"
-      >
-        Homebase
-      </h1>
+      <!-- The cost reads as a caption of the title, so it shares the title's baseline. -->
+      <div class="flex min-w-0 items-baseline gap-3">
+        <h1
+          bind:this={homeTitle}
+          id="home-title"
+          tabindex="-1"
+          data-od-id="home-title"
+          class="text-2xl font-semibold tracking-tight outline-none"
+        >
+          Homebase
+        </h1>
+        {#if cost != null}
+          <p
+            class="truncate font-mono text-xs text-muted-foreground tabular-nums"
+            data-od-id="home-cost"
+            title="What your workspaces' agents have cost so far"
+          >
+            {formatCost(cost)} spent by agents
+          </p>
+        {/if}
+      </div>
       <div class="flex items-center gap-2">
         <Button
           variant="secondary"

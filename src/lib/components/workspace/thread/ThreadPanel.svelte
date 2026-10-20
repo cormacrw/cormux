@@ -19,6 +19,7 @@
   import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
   import { createVirtualizer } from '@tanstack/svelte-virtual'
   import ThreadComposer from './ThreadComposer.svelte'
+  import ThreadFind from './ThreadFind.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
   import TimelineMessages from './TimelineMessages.svelte'
 
@@ -303,8 +304,18 @@
   role="tabpanel"
   aria-labelledby={panelLabelId}
   data-od-id="thread-panel"
-  class="flex min-h-0 flex-1 flex-col"
+  class="relative flex min-h-0 flex-1 flex-col"
 >
+  <ThreadFind
+    {rows}
+    {contentEl}
+    scrollToRow={useVirtual
+      ? (index) => $virtualizer.scrollToIndex(index, { align: 'center' })
+      : undefined}
+    onScrollAway={() => {
+      pinnedToBottom = false
+    }}
+  />
   <div
     id="thread-scroll"
     bind:this={scrollEl}

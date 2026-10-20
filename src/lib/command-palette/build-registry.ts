@@ -54,6 +54,8 @@ export type PaletteRegistryState = {
   }
   repoFor: (repoId: string) => RepoRecord | undefined
   recordFor: (workspaceId: string) => WorkspaceRecord | undefined
+  /** The command Run starts in a workspace, its own override included; '' for none. */
+  runCommandFor?: (workspaceId: string) => string
 }
 
 function isProvisioning(lifecycle: string) {
@@ -206,13 +208,15 @@ export function buildPaletteCommandsFromState(
     const repo = record ? state.repoFor(record.repoId) : undefined
     const runtime = state.runtimeFor(workspace.id)
     const { appStatus } = runtime
+    const runCommand =
+      state.runCommandFor?.(workspace.id) ?? repo?.runCommand ?? ''
 
     if (appStatus === 'stopped') {
       cmds.push({
         id: `app-run-${workspace.id}`,
         group: 'App',
         label: `Run app in ${workspace.name}`,
-        meta: repo?.runCommand ?? 'No run command',
+        meta: runCommand || 'No run command',
         run: () => {
           actions.openWorkspace(workspace.id)
           actions.runWorkspaceApp(workspace.id, 'run')
@@ -226,7 +230,7 @@ export function buildPaletteCommandsFromState(
         id: `app-restart-${workspace.id}`,
         group: 'App',
         label: `Restart app in ${workspace.name}`,
-        meta: repo?.runCommand ?? 'No run command',
+        meta: runCommand || 'No run command',
         run: () => {
           actions.openWorkspace(workspace.id)
           actions.runWorkspaceApp(workspace.id, 'restart')

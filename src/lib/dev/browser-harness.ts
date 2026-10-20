@@ -237,6 +237,30 @@ export function installBrowserHarness() {
       (thread) => thread.id === 'th-lead',
     )!.engine = leadEngine
   }
+  // Tests can give the fixture repo a run command.
+  const repoRunCommand = (window as { __HARNESS_RUN_COMMAND__?: string })
+    .__HARNESS_RUN_COMMAND__
+  if (repoRunCommand) {
+    fixtureSnapshot.persisted.repos[0]!.runCommand = repoRunCommand
+  }
+  // Tests can give the Lead the usage its engine reported.
+  const leadUsage = (
+    window as {
+      __HARNESS_LEAD_USAGE__?: {
+        usedTokens: number | null
+        contextSize: number | null
+        costUsd: number | null
+      }
+    }
+  ).__HARNESS_LEAD_USAGE__
+  if (leadUsage) {
+    Object.assign(
+      fixtureSnapshot.persisted.threads.find(
+        (thread) => thread.id === 'th-lead',
+      )!,
+      leadUsage,
+    )
+  }
   // Tests can inject a plan the Lead thread is waiting on, as Claude hands one over in plan mode.
   const injectedPlan = (window as { __HARNESS_PLAN__?: string })
     .__HARNESS_PLAN__
@@ -785,6 +809,11 @@ export function installBrowserHarness() {
       agentChannels.set(args.threadId as string, { id: channel.id, index: 0 })
       return nextEventId++
     }
+    if (cmd === 'send_thread_prompt') {
+      ;((
+        window as { __HARNESS_PROMPTS__?: InvokeArgs[] }
+      ).__HARNESS_PROMPTS__ ??= []).push(args)
+    }
     if (cmd === 'send_thread_prompt' && args.threadId === 'th-lead') {
       const lead = fixtureSnapshot.persisted.threads.find(
         (row) => row.id === 'th-lead',
@@ -825,6 +854,7 @@ export function installBrowserHarness() {
         options:
           engine === 'claude'
             ? [
+                { id: 'fable', label: 'Fable' },
                 { id: 'opus', label: 'Opus' },
                 { id: 'sonnet', label: 'Sonnet' },
                 { id: 'haiku', label: 'Haiku' },
@@ -966,6 +996,27 @@ export function installBrowserHarness() {
       }
       emitStateChanged()
       return { focusComposer: false }
+    }
+    if (cmd === 'dismiss_workspace_findings') {
+      const input = args.input as {
+        workspaceId: string
+        findingIds: string[]
+        dismissed: boolean
+      }
+      const [from, to] = input.dismissed
+        ? ['open', 'dismissed']
+        : ['dismissed', 'open']
+      for (const row of fixtureSnapshot.persisted.findings) {
+        if (
+          row.workspaceId === input.workspaceId &&
+          input.findingIds.includes(row.id) &&
+          row.status === from
+        ) {
+          row.status = to
+        }
+      }
+      emitStateChanged()
+      return null
     }
     if (cmd === 'set_thread_plan_mode') {
       const threadId = String(args.threadId)

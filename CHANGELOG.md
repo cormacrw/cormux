@@ -2,6 +2,18 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.12
+
+- Attach images and files in the composer: paste a screenshot, drop files on it, or pick them with the paperclip. The agent gets each file by path, and the model sees images.
+- Type `@` in the composer to pick one of your repos; `@cormux` is sent as that repo's folder, so an agent can work across repos.
+- Find in a thread or scratch with ⌘F, with highlighted matches you can step through, even in long threads and collapsed steps.
+- Each thread shows its tokens, how full its context is and what it has cost, with totals in the workspace header and on Homebase. Claude's usage is now read correctly, cached tokens included.
+- Override the run command for one workspace, inline in its Output tab.
+- Dismiss review findings you won't act on, and restore them; dismissed ones aren't sent to an agent or posted with the review.
+- Fable is in the model picker for Claude threads.
+- Menus in New workspace, New scratch, Findings and Plan match the rest of the app instead of using the system's.
+- A new workspace's branch name is only checked against workspaces of the same repo.
+
 ## 0.1.11
 
 - Plan mode for Claude threads: switch it on in the composer and the agent writes a plan before touching anything. The plan opens in its own tab, where you can highlight any part of it and comment, send the comments back for a revision, or approve it so the agent carries it out. While a plan waits, the agent shows as waiting for you instead of working.

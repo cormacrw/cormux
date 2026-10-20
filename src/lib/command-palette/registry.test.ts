@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { NO_USAGE } from '$lib/usage/usage'
 import { agentName } from '$lib/agent-name'
 import { buildPaletteCommandsFromState } from './build-registry'
 
@@ -57,6 +58,7 @@ describe('buildPaletteCommandsFromState', () => {
             paused: false,
             activity: 'Idle',
             pendingApprovals: 0,
+            usage: NO_USAGE,
           },
         ],
         repos: [

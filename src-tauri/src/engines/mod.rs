@@ -5,6 +5,7 @@ mod detect;
 mod events;
 mod manager;
 mod models;
+pub mod prompt;
 
 pub use detect::EngineStatus;
 pub use events::{AgentEvent, EngineKind, MessageRole, ToolCallStatus, ToolKind};

@@ -44,3 +44,30 @@ test('typing / anywhere in a Claude composer offers skills and inserts the pick'
 
   expect(errors).toEqual([])
 })
+
+test('@ offers the repos set up in Cormux and sends the alias as the repo’s folder', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  const input = page.locator('#composer-input')
+  await input.click()
+  await input.pressSequentially('Copy the toast from @my')
+  const picker = page.getByRole('listbox', { name: 'Repositories' })
+  await expect(picker.getByRole('option')).toHaveText([/@my-app/])
+  await input.press('Enter')
+  await expect(input).toHaveValue('Copy the toast from @my-app ')
+
+  await input.pressSequentially('and mail me@my-app.dev')
+  await expect(picker).toHaveCount(0)
+  await input.press('Enter')
+  const prompts = await page.evaluate(
+    () =>
+      (window as { __HARNESS_PROMPTS__?: { text: string }[] })
+        .__HARNESS_PROMPTS__,
+  )
+  // The fixture repo's folder; the email stays as typed.
+  expect(prompts!.at(-1)!.text).toBe(
+    'Copy the toast from /tmp/cormux-fixture/my-app and mail me@my-app.dev',
+  )
+})
