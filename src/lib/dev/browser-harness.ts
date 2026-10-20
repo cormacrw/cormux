@@ -364,6 +364,36 @@ export function installBrowserHarness() {
 
   // Stream a reply the way a real engine does: many small chunks, then a turn end that
   // the backend follows with a state-changed refetch.
+  // Lets tests deliver agent events to the open Lead thread as an engine would, such as a
+  // whole Claude reply in one chunk.
+  ;(
+    window as { __HARNESS_AGENT_EVENTS__?: (events: object[]) => void }
+  ).__HARNESS_AGENT_EVENTS__ = (events) => {
+    const timeline = fixtureSnapshot.persisted.timeline
+    for (const event of events) {
+      const seq =
+        Math.max(
+          0,
+          ...timeline
+            .filter((row) => row.threadId === 'th-lead')
+            .map((row) => row.seq),
+        ) + 1
+      const kind =
+        (event as { type: string }).type === 'toolCall' ? 'tool' : 'message'
+      timeline.push({
+        id: 950_000 + seq,
+        threadId: 'th-lead',
+        seq,
+        kind,
+        payload: JSON.stringify(event),
+        createdAt: new Date().toISOString().replace('T', ' ').replace('Z', ''),
+      })
+      const channel = agentChannels.get('th-lead')
+      if (channel)
+        callbacks.get(channel.id)?.({ index: channel.index++, message: event })
+    }
+  }
+
   const streamReply = (threadId: string, text: string) => {
     const timeline = fixtureSnapshot.persisted.timeline
     let seq = Math.max(

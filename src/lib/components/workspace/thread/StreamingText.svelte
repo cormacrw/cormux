@@ -1,7 +1,38 @@
+<script lang="ts" module>
+  // Only one reply types at a time. Each one gets an order as it mounts; when a newer reply
+  // starts typing, older ones show in full, and an older one that gets more text while a
+  // newer one types just shows it, so two replies never type side by side.
+  // Plain module state, not reactive: nothing renders it.
+  let lastOrder = 0
+  const typing: Record<number, () => void> = {}
+
+  function takeOrder(): number {
+    lastOrder += 1
+    return lastOrder
+  }
+
+  function startTyping(order: number, finish: () => void): boolean {
+    const others = Object.keys(typing).map(Number)
+    if (others.some((other) => other > order)) return false
+    for (const other of others) {
+      const finishOther = typing[other]
+      delete typing[other]
+      finishOther?.()
+    }
+    typing[order] = finish
+    return true
+  }
+
+  function stopTyping(order: number) {
+    delete typing[order]
+  }
+</script>
+
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
   import { prefersReducedMotion } from '$lib/motion'
   import type { EntryScope } from '$lib/thread/entering'
+  import { revealEnd, revealRate, stableMarkdown } from '$lib/thread/typing'
   import ThoughtMarkdown from './ThoughtMarkdown.svelte'
 
   let {
@@ -17,12 +48,7 @@
     live?: boolean
   } = $props()
 
-  // Typewriter pacing: one character per tick at a jittered speed so it reads as typed
-  // (~60 chars/s). A reply far ahead speeds it up, but never past MAX_CHARS_PER_SEC, so long
-  // replies trail the agent rather than racing to keep up with it.
-  const SPEED_MS = { min: 10, max: 23 }
-  const MAX_CHARS_PER_SEC = 100
-  const MAX_LAG_SEC = 3
+  const order = takeOrder()
 
   // Replies that were already in the thread when it opened show in full.
   let shown = $state(
@@ -30,53 +56,62 @@
       entries?.claim(key) && !prefersReducedMotion() ? 0 : text.length,
     ),
   )
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let lastTickAt = 0
-  // Fractional characters earned but not yet shown, so the pace holds between ticks.
+  let frame = 0
+  let lastFrameAt = 0
+  // Characters earned but not yet shown, so the pace holds between frames.
   let owed = 0
 
-  const typing = $derived(shown < text.length)
+  const isTyping = $derived(shown < text.length)
+  const markdown = $derived(
+    isTyping ? stableMarkdown(text.slice(0, shown)) : text,
+  )
 
-  function nextDelay() {
-    return Math.random() * (SPEED_MS.max - SPEED_MS.min) + SPEED_MS.min
+  function finish() {
+    cancelAnimationFrame(frame)
+    frame = 0
+    shown = text.length
   }
 
-  function tick() {
-    timer = undefined
+  function step(now: number) {
+    frame = 0
     const remaining = text.length - shown
     if (remaining <= 0 || prefersReducedMotion()) {
       shown = text.length
+      stopTyping(order)
       return
     }
-    // Measured, not assumed: a timer that fires late (a busy or backgrounded page) reveals
-    // what it owes, so the reply still keeps pace.
-    const now = performance.now()
-    const elapsedMs = Math.min(now - lastTickAt, 1000)
-    lastTickAt = now
-    const averageMs = (SPEED_MS.min + SPEED_MS.max) / 2
-    const pace = 1000 / averageMs
-    const perSec = Math.min(
-      MAX_CHARS_PER_SEC,
-      Math.max(pace, remaining / MAX_LAG_SEC),
-    )
-    owed += (perSec * elapsedMs) / 1000
-    const step = Math.floor(owed)
-    owed -= step
-    shown = Math.min(text.length, shown + step)
-    timer = setTimeout(tick, nextDelay())
+    // A frame that comes late (a busy or hidden page) reveals what it owes, capped so a
+    // long pause doesn't dump the whole reply at once.
+    const elapsedMs = Math.min(now - lastFrameAt, 250)
+    lastFrameAt = now
+    owed += (revealRate(remaining, live) * elapsedMs) / 1000
+    const chars = Math.floor(owed)
+    if (chars > 0) {
+      const next = revealEnd(text, shown, chars)
+      owed = Math.max(0, owed - (next - shown))
+      shown = next
+    }
+    frame = requestAnimationFrame(step)
   }
 
   $effect(() => {
     const length = text.length
     untrack(() => {
-      if (length <= shown || timer) return
-      lastTickAt = performance.now()
-      owed = 1
-      timer = setTimeout(tick, nextDelay())
+      if (length <= shown || frame) return
+      if (!startTyping(order, finish)) {
+        shown = length
+        return
+      }
+      lastFrameAt = performance.now()
+      owed = 0
+      frame = requestAnimationFrame(step)
     })
   })
 
-  onDestroy(() => clearTimeout(timer))
+  onDestroy(() => {
+    cancelAnimationFrame(frame)
+    stopTyping(order)
+  })
 </script>
 
-<ThoughtMarkdown text={text.slice(0, shown)} cursor={typing || live} />
+<ThoughtMarkdown text={markdown} cursor={isTyping || live} />
