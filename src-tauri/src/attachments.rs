@@ -37,6 +37,20 @@ pub fn image_media_type(name: &str) -> Option<&'static str> {
     }
 }
 
+/// A thumbnail for an image picked or dropped by path, as a data URL; None for anything that
+/// isn't a readable image of a size the model is shown.
+pub fn image_preview(path: &Path) -> Option<String> {
+    let media_type = image_media_type(path.to_str()?)?;
+    if std::fs::metadata(path).ok()?.len() > IMAGE_LIMIT_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    Some(format!(
+        "data:{media_type};base64,{}",
+        STANDARD.encode(bytes)
+    ))
+}
+
 /// Keeps a pasted file's name readable but safe as one path segment.
 fn safe_file_name(name: &str) -> String {
     let cleaned: String = name
@@ -141,6 +155,23 @@ mod tests {
         assert_eq!(image_media_type("a.jpeg"), Some("image/jpeg"));
         assert_eq!(image_media_type("notes.pdf"), None);
         assert_eq!(image_media_type("README"), None);
+    }
+
+    #[test]
+    fn previews_only_images() {
+        let root = std::env::temp_dir().join(format!("cormux-preview-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let image = root.join("shot.png");
+        std::fs::write(&image, b"png").unwrap();
+        let notes = root.join("notes.txt");
+        std::fs::write(&notes, b"hi").unwrap();
+        assert_eq!(
+            image_preview(&image).as_deref(),
+            Some("data:image/png;base64,cG5n")
+        );
+        assert_eq!(image_preview(&notes), None);
+        assert_eq!(image_preview(&root.join("gone.png")), None);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

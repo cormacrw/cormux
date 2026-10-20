@@ -6,6 +6,7 @@
   import {
     attachmentFromFile,
     attachmentFromPath,
+    isImageName,
   } from '$lib/composer/attachments'
   import { Textarea } from '$lib/components/ui/textarea'
   import {
@@ -361,12 +362,25 @@
     return event.dataTransfer?.types.includes('Files') ?? false
   }
 
+  /** Files from the picker or a Finder drop; images get their thumbnail from the core. */
+  function attachPaths(paths: string[]) {
+    const threadId = thread.id
+    const added = paths.map(attachmentFromPath)
+    composerDrafts.addAttachments(threadId, added)
+    for (const attachment of added) {
+      if (!attachment.path || !isImageName(attachment.name)) continue
+      void commands.imagePreview(attachment.path).then((result) => {
+        if (result.status === 'ok' && result.data)
+          composerDrafts.setPreview(threadId, attachment.id, result.data)
+      })
+    }
+  }
+
   async function pickFiles() {
     const picked = await openFilePicker({ multiple: true, directory: false })
     const paths =
       picked == null ? [] : Array.isArray(picked) ? picked : [picked]
-    if (paths.length)
-      composerDrafts.addAttachments(thread.id, paths.map(attachmentFromPath))
+    if (paths.length) attachPaths(paths)
     inputEl?.focus()
   }
 
@@ -384,10 +398,7 @@
         } else if (event.payload.type === 'drop') {
           draggingFiles = false
           if (waitingPlan || !event.payload.paths.length) return
-          composerDrafts.addAttachments(
-            thread.id,
-            event.payload.paths.map(attachmentFromPath),
-          )
+          attachPaths(event.payload.paths)
         }
       })
       .then((stop) => {
@@ -610,17 +621,34 @@
         data-od-id="composer-attachments"
       >
         {#each attachments as attachment (attachment.id)}
-          <li
-            class="flex max-w-56 items-center gap-2 rounded-md border border-border bg-muted/40 p-1 pr-1.5 text-xs"
-            data-od-id="composer-attachment"
-          >
-            {#if attachment.previewUrl}
+          {#if attachment.previewUrl}
+            <!-- An image is its thumbnail; the name is in the tooltip. -->
+            <li
+              class="group relative"
+              title={attachment.path ?? attachment.name}
+              data-od-id="composer-attachment"
+            >
               <img
                 src={attachment.previewUrl}
-                alt=""
-                class="size-9 shrink-0 rounded object-cover"
+                alt={attachment.name}
+                class="size-16 rounded-md border border-border object-cover"
               />
-            {:else}
+              <button
+                type="button"
+                class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground"
+                aria-label="Remove {attachment.name}"
+                onclick={() =>
+                  composerDrafts.removeAttachment(thread.id, attachment.id)}
+              >
+                <X class="size-3" aria-hidden="true" />
+              </button>
+            </li>
+          {:else}
+            <li
+              class="flex h-16 max-w-56 items-center gap-2 self-end rounded-md border border-border bg-muted/40 p-1 pr-1.5 text-xs"
+              title={attachment.path ?? attachment.name}
+              data-od-id="composer-attachment"
+            >
               <span
                 class="flex size-9 shrink-0 items-center justify-center rounded bg-muted"
               >
@@ -629,20 +657,18 @@
                   aria-hidden="true"
                 />
               </span>
-            {/if}
-            <span class="truncate" title={attachment.path ?? attachment.name}
-              >{attachment.name}</span
-            >
-            <button
-              type="button"
-              class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-              aria-label="Remove {attachment.name}"
-              onclick={() =>
-                composerDrafts.removeAttachment(thread.id, attachment.id)}
-            >
-              <X class="size-3" aria-hidden="true" />
-            </button>
-          </li>
+              <span class="truncate">{attachment.name}</span>
+              <button
+                type="button"
+                class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Remove {attachment.name}"
+                onclick={() =>
+                  composerDrafts.removeAttachment(thread.id, attachment.id)}
+              >
+                <X class="size-3" aria-hidden="true" />
+              </button>
+            </li>
+          {/if}
         {/each}
       </ul>
       {#if waitingPlan}

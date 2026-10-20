@@ -24,6 +24,16 @@ export class ComposerDraftsStore {
     ])
   }
 
+  /** A thumbnail that arrived after the attachment did (images attached by path). */
+  setPreview(threadId: string, id: string, previewUrl: string) {
+    this.setAttachments(
+      threadId,
+      this.attachmentsFor(threadId).map((attachment) =>
+        attachment.id === id ? { ...attachment, previewUrl } : attachment,
+      ),
+    )
+  }
+
   removeAttachment(threadId: string, id: string) {
     this.setAttachments(
       threadId,

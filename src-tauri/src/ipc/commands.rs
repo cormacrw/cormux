@@ -1850,6 +1850,15 @@ pub async fn send_workspace_findings(
     Ok(())
 }
 
+/// A thumbnail for an image attached by path, for the composer.
+#[tauri::command]
+#[specta::specta]
+pub async fn image_preview(path: String) -> Result<Option<String>> {
+    Ok(crate::attachments::image_preview(std::path::Path::new(
+        &path,
+    )))
+}
+
 /// Dismissed findings stay listed but aren't sent to an agent or posted with the review.
 #[tauri::command]
 #[specta::specta]
