@@ -1,6 +1,7 @@
 import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
 import { app } from '$lib/state/app.svelte'
 import { threadFind } from '$lib/state/thread-find.svelte'
+import { handleSwitcherKeydown } from '$lib/switcher/navigate'
 import { requestNewThread } from '$lib/command-palette/actions'
 import { setThreadPlanMode } from '$lib/plans/leave-plan-mode'
 import { threadPlanMode } from '$lib/plans/plans'
@@ -34,6 +35,7 @@ function dialogBlocksShortcuts() {
 }
 
 export function handleGlobalKeydown(event: KeyboardEvent) {
+  if (handleSwitcherKeydown(event)) return
   const mod = event.metaKey || event.ctrlKey
   const key = event.key.toLowerCase()
 

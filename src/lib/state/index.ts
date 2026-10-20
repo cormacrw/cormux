@@ -52,6 +52,7 @@ export { workspaceDiff } from './workspace-diff.svelte'
 export { workspaces } from './workspaces.svelte'
 export { findings } from './findings.svelte'
 export { plans } from './plans.svelte'
+export { switcher } from './switcher.svelte'
 export { threadTimeline } from './thread-timeline.svelte'
 
 function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {

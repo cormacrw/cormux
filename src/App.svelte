@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
+  import PlaceSwitcher from '$lib/components/shell/PlaceSwitcher.svelte'
+  import { switcher } from '$lib/state/switcher.svelte'
+  import { currentPlace, handleSwitcherKeyup } from '$lib/switcher/navigate'
   import { isDevBuild } from '$lib/build-mode'
   import { ModeWatcher } from 'mode-watcher'
   import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -93,8 +96,27 @@
   })
 
   onMount(() => {
+    const cancelSwitcher = () => switcher.cancel()
     window.addEventListener('keydown', handleGlobalKeydown)
-    return () => window.removeEventListener('keydown', handleGlobalKeydown)
+    window.addEventListener('keyup', handleSwitcherKeyup)
+    // Ctrl can be let go in another app; don't jump somewhere on return.
+    window.addEventListener('blur', cancelSwitcher)
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeydown)
+      window.removeEventListener('keyup', handleSwitcherKeyup)
+      window.removeEventListener('blur', cancelSwitcher)
+    }
+  })
+
+  // Ctrl+Tab goes back through these, most recent first.
+  $effect(() => {
+    const place = currentPlace()
+    if (place) untrack(() => switcher.visit(place))
+  })
+
+  $effect(() => {
+    if (app.view === 'workspace' && app.workspaceId && app.threadId)
+      switcher.rememberThread(app.workspaceId, app.threadId)
   })
 
   $effect(() => {
@@ -115,6 +137,7 @@
 </script>
 
 <ModeWatcher />
+<PlaceSwitcher />
 
 {#if isDevBuild}
   <!-- Dev builds get a stripe across the top so they can't pass for the installed app. -->

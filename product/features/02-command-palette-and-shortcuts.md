@@ -78,6 +78,7 @@ Run and Restart first open the workspace, then perform the action. Stop acts wit
 | `⇧⌘P` / `Ctrl+Shift+P` | A Claude thread on screen, no dialog open | Switch plan mode on or off (see [27](27-plan-mode.md)). |
 | `⌘H` / `Ctrl+H` | Anywhere but a dialog | Go to Homebase. Replaces the macOS Hide shortcut; **Hide Cormux** stays in the app menu without one. |
 | `⌘1`–`⌘9` / `Ctrl+1`–`Ctrl+9` | Anywhere but a dialog | Open the Nth workspace in sidebar order. No-op if there isn't one. |
+| `Ctrl+Tab` / `Ctrl+⇧Tab` | Anywhere but a dialog | Switch between workspaces and the main pages, most recent first (see below). |
 | `⌘G` / `Ctrl+G` | Workspace view, no dialog open | Open the Git tab (stack and diff). |
 | `⌘F` / `Ctrl+F` | A workspace thread or scratch on screen, no dialog open | Find in the conversation (see [11](11-agent-conversation.md#find-in-conversation)). |
 | `Ctrl+\`` | Workspace view, no dialog open | Toggle between the Output tab and the tab you came from. |
@@ -87,6 +88,16 @@ Run and Restart first open the workspace, then perform the action. Stop acts wit
 | `⌘↵` / `Ctrl+↵` | A thread on screen | Jump to the composer. |
 | `Esc` | A thread whose agent is working, nothing else open | Stop the agent. |
 | `⌘↵` / `Ctrl+↵` | New workspace Initial Prompt, Create PR reason | Submit the form. |
+
+## Switching places (Ctrl+Tab)
+
+Works like the macOS app switcher, over workspaces and the main pages (Homebase, TODOs, and Sprint once ClickUp is set up).
+
+- A quick `Ctrl+Tab` goes straight back to the previous place; another flips back again.
+- Holding `Ctrl` shows a list (`place-switcher`) after a moment: places visited, most recent first, then any not visited yet (workspaces in sidebar order, then pages). A workspace shows its status dot, name, branch and repo; a page its sidebar icon. Each `Tab` moves down, `⇧Tab` up, wrapping around. Letting go of `Ctrl`, or `↵`, goes to the highlighted place; clicking one goes there too. `Esc`, or switching to another app, closes it without moving.
+- From a page it doesn't list (Settings, a scratch, a repo), the first press highlights the most recent place.
+- Coming back to a workspace opens the thread that was showing when you left.
+- The highlighted place is announced to screen readers as it changes.
 
 ## Keyboard and accessibility
 

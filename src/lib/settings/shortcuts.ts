@@ -9,6 +9,11 @@ export const SETTINGS_SHORTCUTS: ShortcutReference[] = [
   { keys: '⌘S', description: 'New scratch' },
   { keys: '⌘H', description: 'Go to Homebase' },
   { keys: '⌘1–⌘9', description: 'Open a workspace, in sidebar order' },
+  {
+    keys: 'Ctrl+Tab',
+    description:
+      'Switch between workspaces and pages, most recent first (hold Ctrl to pick)',
+  },
   { keys: '⌘,', description: 'Open settings' },
   { keys: '⌘L', description: 'Start a new session in the open thread' },
   { keys: '⇧⌘N', description: 'New thread (workspace)' },
