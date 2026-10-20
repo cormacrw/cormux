@@ -133,6 +133,7 @@ pub async fn send(
     app: &AppHandle,
     state: &AppState,
     scratch: &ScratchRow,
+    prompt: crate::engines::prompt::Prompt,
     text: String,
 ) -> Result<()> {
     let held = scratch.status == "paused";
@@ -142,7 +143,7 @@ pub async fn send(
     persist_user_message(&state.store, &scratch.thread_id, &text)?;
     state
         .engines
-        .submit_prompt(&scratch.thread_id, text, held)?;
+        .submit_prompt(&scratch.thread_id, prompt, held)?;
     if !held {
         state
             .store

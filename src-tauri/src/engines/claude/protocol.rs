@@ -1,6 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,14 +25,22 @@ pub enum StdinMessage {
 #[derive(Debug, Clone, Serialize)]
 pub struct UserPayload {
     pub role: &'static str,
-    pub content: Vec<TextBlock>,
+    pub content: Vec<UserContent>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct TextBlock {
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum UserContent {
+    Text { text: String },
+    Image { source: ImageSource },
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageSource {
     #[serde(rename = "type")]
     pub kind: &'static str,
-    pub text: String,
+    pub media_type: String,
+    pub data: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -142,14 +151,27 @@ pub fn encode_line(message: &StdinMessage) -> Result<String> {
     Ok(line)
 }
 
+#[cfg(test)]
 pub fn user_message(text: impl Into<String>) -> StdinMessage {
+    user_prompt_message(&Prompt::from(text.into()))
+}
+
+/// A user turn: its text, then any images for the model to see.
+pub fn user_prompt_message(prompt: &Prompt) -> StdinMessage {
+    let mut content = vec![UserContent::Text {
+        text: prompt.text.clone(),
+    }];
+    content.extend(prompt.images.iter().map(|image| UserContent::Image {
+        source: ImageSource {
+            kind: "base64",
+            media_type: image.media_type.clone(),
+            data: image.data_base64.clone(),
+        },
+    }));
     StdinMessage::User {
         message: UserPayload {
             role: "user",
-            content: vec![TextBlock {
-                kind: "text",
-                text: text.into(),
-            }],
+            content,
         },
         parent_tool_use_id: None,
     }
@@ -392,6 +414,26 @@ mod tests {
         let value: Value = serde_json::from_str(line.trim_end()).unwrap();
         assert_eq!(value["type"], "user");
         assert_eq!(value["message"]["content"][0]["text"], "hello");
+    }
+
+    #[test]
+    fn encodes_images_after_the_text() {
+        let prompt = Prompt {
+            text: "What's wrong here?".into(),
+            images: vec![crate::engines::prompt::PromptImage {
+                media_type: "image/png".into(),
+                data_base64: "aGk=".into(),
+            }],
+        };
+        let line = encode_line(&user_prompt_message(&prompt)).unwrap();
+        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(
+            value["message"]["content"],
+            json!([
+                {"type": "text", "text": "What's wrong here?"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}}
+            ])
+        );
     }
 
     #[test]

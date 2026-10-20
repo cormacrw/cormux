@@ -597,3 +597,9 @@
   background-color: color-mix(in oklch, var(--warning) 70%, transparent);
   color: var(--background);
 }
+
+/* Files dragged over the composer (ThreadComposer). */
+.composer.composer-dropping {
+  border-color: var(--ring);
+  background-color: color-mix(in oklch, var(--ring) 8%, var(--background));
+}

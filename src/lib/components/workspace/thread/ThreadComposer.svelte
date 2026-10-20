@@ -1,5 +1,12 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
+  import { getCurrentWebview } from '@tauri-apps/api/webview'
+  import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
   import { Button } from '$lib/components/ui/button'
+  import {
+    attachmentFromFile,
+    attachmentFromPath,
+  } from '$lib/composer/attachments'
   import { Textarea } from '$lib/components/ui/textarea'
   import {
     composerPauseLabel,
@@ -41,6 +48,9 @@
   import { engineDisplayName } from '$lib/sidebar/engine'
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
+  import FileText from '@lucide/svelte/icons/file-text'
+  import Paperclip from '@lucide/svelte/icons/paperclip'
+  import X from '@lucide/svelte/icons/x'
   import ClipboardList from '@lucide/svelte/icons/clipboard-list'
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
@@ -77,7 +87,6 @@
   const name = $derived(agentName(thread.id))
   const engineName = $derived(engineDisplayName(thread.engine))
   const draft = $derived(composerDrafts.textFor(thread.id))
-  const canSend = $derived(draft.trim().length > 0)
   const showPause = $derived(composerShowsPauseControl(thread.status))
   const pauseLabel = $derived(composerPauseLabel(thread.status, thread.paused))
   const isPaused = $derived(thread.status === 'paused' || thread.paused)
@@ -93,6 +102,13 @@
   const waitingPlan = $derived(
     plans.latestFor([thread.id]).find((plan) => plan.state === 'pending'),
   )
+
+  const attachments = $derived(composerDrafts.attachmentsFor(thread.id))
+  // Plan feedback is text only, so attachments wait while a plan does.
+  const canSend = $derived(
+    draft.trim().length > 0 || (attachments.length > 0 && !waitingPlan),
+  )
+  let draggingFiles = $state(false)
 
   async function sendPlanFeedback(
     planId: string,
@@ -234,10 +250,12 @@
 
   async function sendMessage() {
     const text = draft.trim()
-    if (!text) return
+    if (!canSend) return
     // The composer is reused across thread tabs, so pin the id before awaiting.
     const threadId = thread.id
+    const sending = waitingPlan ? [] : attachments
     composerDrafts.setFor(threadId, '')
+    if (sending.length) composerDrafts.setAttachments(threadId, [])
     historyIndex = null
     // Clearing the draft disables Send. A click focuses that button first, and
     // disabling a focused button drops focus, so put it back on the prompt.
@@ -248,11 +266,85 @@
     onSent?.()
     const sent = waitingPlan
       ? await sendPlanFeedback(waitingPlan.id, threadId, text)
-      : await sendThreadMessage(threadId, text)
+      : await sendThreadMessage(threadId, text, sending)
     if (!sent) {
       composerDrafts.setFor(threadId, text)
+      if (sending.length) composerDrafts.addAttachments(threadId, sending)
     }
   }
+
+  async function attachFiles(files: File[]) {
+    const threadId = thread.id
+    for (const file of files) {
+      try {
+        composerDrafts.addAttachments(threadId, [
+          await attachmentFromFile(file),
+        ])
+      } catch (error) {
+        showToast({
+          tone: 'bad',
+          parts: [
+            {
+              type: 'text',
+              value:
+                error instanceof Error ? error.message : 'Could not attach',
+            },
+          ],
+        })
+      }
+    }
+  }
+
+  function onPaste(event: ClipboardEvent) {
+    const files = [...(event.clipboardData?.files ?? [])]
+    if (!files.length || waitingPlan) return
+    event.preventDefault()
+    void attachFiles(files)
+  }
+
+  function hasFiles(event: DragEvent) {
+    return event.dataTransfer?.types.includes('Files') ?? false
+  }
+
+  async function pickFiles() {
+    const picked = await openFilePicker({ multiple: true, directory: false })
+    const paths =
+      picked == null ? [] : Array.isArray(picked) ? picked : [picked]
+    if (paths.length)
+      composerDrafts.addAttachments(thread.id, paths.map(attachmentFromPath))
+    inputEl?.focus()
+  }
+
+  // In the app, files dropped from Finder arrive as paths through Tauri, not as a browser drop.
+  onMount(() => {
+    if (document.documentElement.dataset.cormuxHarness === 'browser') return
+    let unlisten: (() => void) | undefined
+    let gone = false
+    void getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (event.payload.type === 'over' || event.payload.type === 'enter') {
+          draggingFiles = !waitingPlan
+        } else if (event.payload.type === 'leave') {
+          draggingFiles = false
+        } else if (event.payload.type === 'drop') {
+          draggingFiles = false
+          if (waitingPlan || !event.payload.paths.length) return
+          composerDrafts.addAttachments(
+            thread.id,
+            event.payload.paths.map(attachmentFromPath),
+          )
+        }
+      })
+      .then((stop) => {
+        if (gone) stop()
+        else unlisten = stop
+      })
+      .catch(() => {})
+    return () => {
+      gone = true
+      unlisten?.()
+    }
+  })
 
   async function stopTurn() {
     threads.setStatus(thread.id, 'idle')
@@ -430,11 +522,72 @@
     class="composer mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-[0_-12px_32px_-8px_var(--background)] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
     id="composer"
     data-od-id="composer"
+    class:composer-dropping={draggingFiles}
     onsubmit={(event) => {
       event.preventDefault()
       void sendMessage()
     }}
+    ondragover={(event) => {
+      if (!hasFiles(event) || waitingPlan) return
+      event.preventDefault()
+      draggingFiles = true
+    }}
+    ondragleave={() => (draggingFiles = false)}
+    ondrop={(event) => {
+      if (!hasFiles(event) || waitingPlan) return
+      event.preventDefault()
+      draggingFiles = false
+      void attachFiles([...(event.dataTransfer?.files ?? [])])
+    }}
   >
+    {#if attachments.length}
+      <ul
+        class="flex flex-wrap gap-2 px-3 pt-3"
+        aria-label="Attachments"
+        data-od-id="composer-attachments"
+      >
+        {#each attachments as attachment (attachment.id)}
+          <li
+            class="flex max-w-56 items-center gap-2 rounded-md border border-border bg-muted/40 p-1 pr-1.5 text-xs"
+            data-od-id="composer-attachment"
+          >
+            {#if attachment.previewUrl}
+              <img
+                src={attachment.previewUrl}
+                alt=""
+                class="size-9 shrink-0 rounded object-cover"
+              />
+            {:else}
+              <span
+                class="flex size-9 shrink-0 items-center justify-center rounded bg-muted"
+              >
+                <FileText
+                  class="size-4 text-muted-foreground"
+                  aria-hidden="true"
+                />
+              </span>
+            {/if}
+            <span class="truncate" title={attachment.path ?? attachment.name}
+              >{attachment.name}</span
+            >
+            <button
+              type="button"
+              class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Remove {attachment.name}"
+              onclick={() =>
+                composerDrafts.removeAttachment(thread.id, attachment.id)}
+            >
+              <X class="size-3" aria-hidden="true" />
+            </button>
+          </li>
+        {/each}
+      </ul>
+      {#if waitingPlan}
+        <p class="px-4 pt-1 text-xs text-muted-foreground">
+          Attachments go with your next message once the plan is answered.
+        </p>
+      {/if}
+    {/if}
     <label class="sr-only" for="composer-input">{inputLabel}</label>
     <Textarea
       bind:ref={inputEl}
@@ -462,6 +615,7 @@
       onselect={syncCaret}
       oncompositionstart={onCompositionStart}
       oncompositionend={onCompositionEnd}
+      onpaste={onPaste}
     />
 
     <div
@@ -478,6 +632,19 @@
           >{thread.role ? `${engineName} · ${name}` : engineName}</span
         >
         <ThreadModelPicker {thread} />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          class="text-muted-foreground"
+          data-od-id="composer-attach"
+          aria-label="Attach images or files"
+          title="Attach images or files (you can also paste or drop them)"
+          disabled={!!waitingPlan}
+          onclick={() => void pickFiles()}
+        >
+          <Paperclip class="size-3.5" aria-hidden="true" />
+        </Button>
         {#if canPlan}
           <Button
             type="button"

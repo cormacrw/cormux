@@ -673,6 +673,7 @@ name = "cormux"
 version = "0.1.11"
 dependencies = [
  "agent-client-protocol",
+ "base64 0.22.1",
  "ignore",
  "libc",
  "log",

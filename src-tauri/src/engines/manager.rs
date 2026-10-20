@@ -12,6 +12,7 @@ use super::command::EngineCommand;
 use super::detect::{self, EngineStatus};
 use super::events::{AgentEvent, EngineKind, ToolCallStatus, ToolKind};
 use super::models::{ModelOption, ThreadModels, static_models};
+use super::prompt::Prompt;
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::error::{Error, Result};
 use crate::plan_mode;
@@ -24,7 +25,7 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 #[derive(Default)]
 struct HoldState {
     paused: bool,
-    queued: Vec<String>,
+    queued: Vec<Prompt>,
 }
 
 #[derive(Clone)]
@@ -236,14 +237,15 @@ impl EngineRegistry {
         });
     }
 
-    pub fn prompt(&self, thread_id: &str, text: impl Into<String>) -> Result<()> {
-        let mut text = text.into();
+    pub fn prompt(&self, thread_id: &str, prompt: impl Into<Prompt>) -> Result<()> {
+        let mut prompt = prompt.into();
         if let Some(seed) = self.take_seed(thread_id)? {
-            text = format!(
-                "Previous session could not be resumed. Summary of the earlier transcript:\n{seed}\n\n---\n{text}"
+            prompt.text = format!(
+                "Previous session could not be resumed. Summary of the earlier transcript:\n{seed}\n\n---\n{}",
+                prompt.text
             );
         }
-        self.send(thread_id, EngineCommand::Prompt(text))
+        self.send(thread_id, EngineCommand::Prompt(prompt))
     }
 
     fn take_seed(&self, thread_id: &str) -> Result<Option<String>> {
@@ -283,7 +285,7 @@ impl EngineRegistry {
         Ok(())
     }
 
-    pub fn release_thread(&self, thread_id: &str) -> Result<Option<String>> {
+    pub fn release_thread(&self, thread_id: &str) -> Result<Option<Prompt>> {
         let mut holds = self
             .holds
             .lock()
@@ -294,10 +296,10 @@ impl EngineRegistry {
         if queued.is_empty() {
             return Ok(Some("continue".into()));
         }
-        Ok(Some(queued.join("\n\n")))
+        Ok(Some(Prompt::merge(queued)))
     }
 
-    pub fn enqueue_while_held(&self, thread_id: &str, text: String) -> Result<()> {
+    pub fn enqueue_while_held(&self, thread_id: &str, prompt: Prompt) -> Result<()> {
         let mut holds = self
             .holds
             .lock()
@@ -306,15 +308,21 @@ impl EngineRegistry {
             .entry(thread_id.to_string())
             .or_default()
             .queued
-            .push(text);
+            .push(prompt);
         Ok(())
     }
 
-    pub fn submit_prompt(&self, thread_id: &str, text: String, held: bool) -> Result<()> {
+    pub fn submit_prompt(
+        &self,
+        thread_id: &str,
+        prompt: impl Into<Prompt>,
+        held: bool,
+    ) -> Result<()> {
+        let prompt = prompt.into();
         if held || self.thread_is_held(thread_id) {
-            return self.enqueue_while_held(thread_id, text);
+            return self.enqueue_while_held(thread_id, prompt);
         }
-        self.prompt(thread_id, text)
+        self.prompt(thread_id, prompt)
     }
 
     pub async fn stop(&self, thread_id: &str) -> Result<()> {
@@ -516,8 +524,8 @@ async fn run_claude(
         tokio::select! {
             command = commands.recv() => {
                 match command {
-                    Some(EngineCommand::Prompt(text)) => {
-                        if let Err(error) = session.send_user(text).await {
+                    Some(EngineCommand::Prompt(prompt)) => {
+                        if let Err(error) = session.send_prompt(&prompt).await {
                             log::warn!("claude prompt: {error}");
                         }
                     }

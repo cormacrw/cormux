@@ -68,9 +68,9 @@ async detectEngines() : Promise<Result<EngineStatus[], Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async sendThreadPrompt(threadId: string, text: string) : Promise<Result<null, Error>> {
+async sendThreadPrompt(threadId: string, text: string, attachments: PromptAttachment[]) : Promise<Result<null, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("send_thread_prompt", { threadId, text }) };
+    return { status: "ok", data: await TAURI_INVOKE("send_thread_prompt", { threadId, text, attachments }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -882,6 +882,15 @@ scratches: ScratchRow[];
 todos: TodoRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PlanStep = { content: string; status: string }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
+export type PromptAttachment = { name: string; 
+/**
+ * A file on disk, from the file picker or a drop.
+ */
+path: string | null; 
+/**
+ * The contents of a pasted file, which has no path.
+ */
+dataBase64: string | null }
 export type PtyChunk = { workspaceId: string; line: string }
 export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }

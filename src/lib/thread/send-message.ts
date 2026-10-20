@@ -1,4 +1,9 @@
 import { commands } from '$lib/ipc'
+import {
+  shownMessage,
+  toPromptAttachment,
+  type ComposerAttachment,
+} from '$lib/composer/attachments'
 import { showToast } from '$lib/feedback/show-toast'
 import { threads } from '$lib/state/threads.svelte'
 import { threadTimeline } from '$lib/state/thread-timeline.svelte'
@@ -7,12 +12,24 @@ import { threadTimeline } from '$lib/state/thread-timeline.svelte'
 export async function sendThreadMessage(
   threadId: string,
   text: string,
+  attachments: ComposerAttachment[] = [],
 ): Promise<boolean> {
-  threadTimeline.appendStreamChunk(threadId, text, 'user')
+  threadTimeline.appendStreamChunk(
+    threadId,
+    shownMessage(
+      text,
+      attachments.map((attachment) => attachment.name),
+    ),
+    'user',
+  )
   threads.setStatus(threadId, 'running')
   let message: string | null = null
   try {
-    const result = await commands.sendThreadPrompt(threadId, text)
+    const result = await commands.sendThreadPrompt(
+      threadId,
+      text,
+      attachments.map(toPromptAttachment),
+    )
     if (result.status === 'error') {
       message =
         typeof result.error.message === 'string'

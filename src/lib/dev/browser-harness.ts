@@ -803,6 +803,11 @@ export function installBrowserHarness() {
       agentChannels.set(args.threadId as string, { id: channel.id, index: 0 })
       return nextEventId++
     }
+    if (cmd === 'send_thread_prompt') {
+      ;((
+        window as { __HARNESS_PROMPTS__?: InvokeArgs[] }
+      ).__HARNESS_PROMPTS__ ??= []).push(args)
+    }
     if (cmd === 'send_thread_prompt' && args.threadId === 'th-lead') {
       const lead = fixtureSnapshot.persisted.threads.find(
         (row) => row.id === 'th-lead',
