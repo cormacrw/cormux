@@ -1,6 +1,12 @@
 import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
 import { app } from '$lib/state/app.svelte'
 import { threadFind } from '$lib/state/thread-find.svelte'
+import { handleSwitcherKeydown } from '$lib/switcher/navigate'
+import { requestNewThread } from '$lib/command-palette/actions'
+import { setThreadPlanMode } from '$lib/plans/leave-plan-mode'
+import { threadPlanMode } from '$lib/plans/plans'
+import { settings } from '$lib/state/settings.svelte'
+import { threads } from '$lib/state/threads.svelte'
 import { threadTimeline } from '$lib/state/thread-timeline.svelte'
 import {
   hasSessionToClear,
@@ -29,6 +35,7 @@ function dialogBlocksShortcuts() {
 }
 
 export function handleGlobalKeydown(event: KeyboardEvent) {
+  if (handleSwitcherKeydown(event)) return
   const mod = event.metaKey || event.ctrlKey
   const key = event.key.toLowerCase()
 
@@ -53,6 +60,37 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
     if (conversation && !dialogBlocksShortcuts()) {
       event.preventDefault()
       threadFind.request()
+    }
+    return
+  }
+
+  // A new thread in the open workspace. Checked before ⌘N, which ignores Shift.
+  if (mod && event.shiftKey && !event.altKey && key === 'n') {
+    event.preventDefault()
+    if (
+      app.view === 'workspace' &&
+      app.workspaceId &&
+      !dialogBlocksShortcuts()
+    ) {
+      requestNewThread(app.workspaceId)
+    }
+    return
+  }
+
+  // Plan mode on or off for the open Claude thread (⌘P without Shift is the PR shortcut).
+  if (mod && event.shiftKey && !event.altKey && key === 'p') {
+    const thread = app.threadId ? threads.getById(app.threadId) : undefined
+    if (
+      app.view === 'workspace' &&
+      workspaceUi.activeTab === 'thread' &&
+      thread?.engine === 'claude' &&
+      !dialogBlocksShortcuts()
+    ) {
+      event.preventDefault()
+      void setThreadPlanMode(
+        thread.id,
+        !threadPlanMode(settings.rows, thread.id),
+      )
     }
     return
   }

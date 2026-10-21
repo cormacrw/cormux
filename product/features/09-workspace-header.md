@@ -17,7 +17,7 @@ The header was deliberately stripped back. It previously held a back button, a s
 
 ### Left: identity
 
-1. **Workspace name** (`h1`, regular sans font, not monospace). Truncates with an ellipsis; the full name is in its tooltip. Receives focus when the workspace opens.
+1. **Workspace name** (`h1`, regular sans font, not monospace). Truncates with an ellipsis; the full name is in its tooltip. Receives focus when the workspace opens on a tab other than a thread; on a thread the composer takes focus instead.
 2. **Branch tag / picker**: a small bordered tag with a branch icon, the branch in monospace, and a chevron. Clicking it opens the branch picker. Locked while agents are running. Full detail in [16](16-branch-switching.md).
    - Tooltip always includes `Branched from <base>[, <N commits> behind].`
 3. **Cost** (`ws-cost`): once any of the workspace's agents has reported a cost, what they've cost together, in muted mono, such as `$1.23`.

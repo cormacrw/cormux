@@ -689,6 +689,17 @@ async dismissWorkspaceFindings(input: DismissWorkspaceFindingsInput) : Promise<R
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * A thumbnail for an image attached by path, for the composer.
+ */
+async imagePreview(path: string) : Promise<Result<string | null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("image_preview", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createScratch(input: CreateScratchInput) : Promise<Result<CreateScratchResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_scratch", { input }) };

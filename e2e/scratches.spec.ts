@@ -37,7 +37,9 @@ test.describe('scratches', () => {
     const view = page.locator('#view-session')
     await expect(
       view.getByRole('heading', { name: 'Why the webhook signature fails' }),
-    ).toBeFocused()
+    ).toBeVisible()
+    // Opening a scratch is ready to type in.
+    await expect(view.locator('#composer-input')).toBeFocused()
     await expect(view.getByText('/tmp/cormux-fixture/my-app')).toBeVisible()
     await expect(view.getByText('Read-only, no worktree')).toBeVisible()
     await expect(view.getByText('Searched for constructEvent')).toBeVisible()

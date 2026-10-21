@@ -79,6 +79,7 @@ commands.allow = [
   "set_setting",
   "send_workspace_findings",
   "dismiss_workspace_findings",
+  "image_preview",
   "create_scratch",
   "end_scratch",
   "refresh_workspace_diff",

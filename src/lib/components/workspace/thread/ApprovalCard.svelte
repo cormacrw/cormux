@@ -86,8 +86,10 @@
       resolving = false
       denying = false
       denyReason = ''
+      // Back to the prompt once it's answered; the card itself if there's no composer.
       queueMicrotask(() => {
-        cardEl?.focus({ preventScroll: true })
+        if (onFocusComposer) onFocusComposer()
+        else cardEl?.focus({ preventScroll: true })
       })
     }
   }

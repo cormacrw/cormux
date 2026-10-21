@@ -2,6 +2,15 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.13
+
+- Ctrl+Tab switches between workspaces and the main pages (Homebase, TODOs, Sprint), most recent first. Tap it to jump back to where you were, or hold Ctrl to pick from a list.
+- Type `#` in the composer to pick a task from your sprint board. It's sent as the task's ID, name and link, with its description for the agent.
+- Agent replies type out quickly instead of falling far behind, one reply at a time, and formatting no longer flickers as it types.
+- The composer keeps focus: opening or returning to a conversation, using its controls, or just starting to type puts you back in the prompt.
+- New shortcuts: ⇧⌘] and ⇧⌘[ move between a workspace's tabs, ⇧⌘N starts a thread, and ⇧⌘P switches plan mode. Settings now lists every shortcut.
+- Attached images show as large thumbnails, including ones picked or dropped from Finder.
+
 ## 0.1.12
 
 - Attach images and files in the composer: paste a screenshot, drop files on it, or pick them with the paperclip. The agent gets each file by path, and the model sees images.

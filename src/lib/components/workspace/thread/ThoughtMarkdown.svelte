@@ -48,10 +48,11 @@
   })
 
   // {@html} replaces every node when the text changes, so each render gets fresh copy buttons.
+  // While a reply types out that's every frame, so they wait until it's done.
   $effect(() => {
     void html
     const container = root
-    if (!container) return
+    if (!container || cursor) return
     const buttons = Array.from(container.querySelectorAll('pre'), (pre) =>
       mount(CodeCopyButton, {
         target: pre,

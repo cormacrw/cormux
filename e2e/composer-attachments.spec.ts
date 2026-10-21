@@ -54,9 +54,16 @@ test('composer: paste and drop files, remove one, and send them with the message
   await dropFile(page, 'spare.log', 'unused')
   const chips = page.locator('[data-od-id="composer-attachment"]')
   await expect(chips).toHaveCount(3)
-  // A pasted screenshot gets a thumbnail and a name that says when it was pasted.
-  await expect(chips.first().locator('img')).toBeVisible()
-  await expect(chips.first()).toContainText(/pasted-.*\.png/)
+  // A pasted screenshot is just a large thumbnail; its name, saying when it was pasted, is
+  // in the tooltip. Other files keep their name.
+  const image = chips.first()
+  await expect(image.locator('img')).toBeVisible()
+  await expect(image).toHaveText('')
+  await expect(image).toHaveAttribute('title', /^pasted-.*\.png$/)
+  expect(
+    (await image.locator('img').boundingBox())!.width,
+  ).toBeGreaterThanOrEqual(60)
+  await expect(chips.nth(1)).toHaveText('notes.txt')
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/composer-attachments.png' })
 

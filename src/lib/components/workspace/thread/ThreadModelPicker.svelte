@@ -91,7 +91,16 @@
         </Button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content align="start" side="top" class="w-44">
+    <DropdownMenu.Content
+      align="start"
+      side="top"
+      class="w-44"
+      onCloseAutoFocus={(event) => {
+        // Back to the prompt rather than the picker's button.
+        event.preventDefault()
+        document.getElementById('composer-input')?.focus()
+      }}
+    >
       <DropdownMenu.Label class="text-xs text-muted-foreground">
         Model
       </DropdownMenu.Label>

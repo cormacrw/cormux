@@ -10,6 +10,7 @@
     findings,
     plans,
     settings,
+    shellDialogs,
     threads,
     workspaceDiff,
     workspaceRecords,
@@ -95,6 +96,26 @@
     workspaceUi.openTab(tab.kind)
   }
 
+  // ⇧⌘] and ⇧⌘[ move to the next and previous tab, wrapping around, like other Mac apps.
+  function onWindowKeydown(event: KeyboardEvent) {
+    if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey)
+      return
+    const by =
+      event.code === 'BracketRight' ? 1 : event.code === 'BracketLeft' ? -1 : 0
+    if (!by || shellDialogs.blocksCommandPalette() || !tabOrder.length) return
+    event.preventDefault()
+    const active = activeThreadBarTabKey({
+      tabs: tabOrder,
+      panelTab: workspaceUi.activeTab,
+      threadId: app.threadId,
+    })
+    const current = active
+      ? tabOrder.findIndex((tab) => tabKeyId(tab) === tabKeyId(active))
+      : 0
+    const next = tabOrder[(current + by + tabOrder.length) % tabOrder.length]
+    if (next) selectTab(next)
+  }
+
   function onBarKeydown(event: KeyboardEvent) {
     if (event.key === 'Delete' || event.key === 'Backspace') {
       const threadId = (document.activeElement as HTMLElement | null)?.dataset
@@ -133,6 +154,8 @@
     )
   }
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <div
   bind:this={barEl}
@@ -300,6 +323,8 @@
       size="icon-sm"
       class="mb-px size-7 shrink-0 text-muted-foreground"
       aria-label="New thread"
+      title="New thread (⇧⌘N)"
+      aria-keyshortcuts="Meta+Shift+N"
       data-od-id="thread-add"
       onclick={() => requestNewThread(workspace.id)}
     >

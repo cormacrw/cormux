@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
+  import { composerMayTakeFocus, isEditable } from '$lib/keyboard/focus-home'
+  import { app } from '$lib/state/app.svelte'
   import { getCurrentWebview } from '@tauri-apps/api/webview'
   import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
   import { Button } from '$lib/components/ui/button'
   import {
     attachmentFromFile,
     attachmentFromPath,
+    isImageName,
   } from '$lib/composer/attachments'
   import { Textarea } from '$lib/components/ui/textarea'
   import {
@@ -24,12 +27,20 @@
     skillToken,
   } from '$lib/composer/skill-picker'
   import {
-    expandRepoAliases,
     filterRepos,
     insertRepoAlias,
     repoAlias,
     repoToken,
   } from '$lib/composer/repo-aliases'
+  import {
+    filterTasks,
+    insertTaskAlias,
+    taskToken,
+  } from '$lib/composer/task-aliases'
+  import { expandMessage } from '$lib/composer/expand-message'
+  import { taskRef } from '$lib/clickup/board'
+  import { clickup } from '$lib/state/clickup.svelte'
+  import type { ClickupTask } from '$lib/ipc/bindings'
   import { repos } from '$lib/state/repos.svelte'
   import type { RepoRecord } from '$lib/ipc/bindings'
   import { showToast } from '$lib/feedback/show-toast'
@@ -59,6 +70,7 @@
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import FileText from '@lucide/svelte/icons/file-text'
   import Folder from '@lucide/svelte/icons/folder'
+  import Kanban from '@lucide/svelte/icons/square-kanban'
   import Paperclip from '@lucide/svelte/icons/paperclip'
   import X from '@lucide/svelte/icons/x'
   import ClipboardList from '@lucide/svelte/icons/clipboard-list'
@@ -182,12 +194,22 @@
   const repoMatches = $derived(
     repoWord ? filterRepos(repos.items, repoWord.query) : [],
   )
+  // Typing `#` offers the tasks on your sprint board; `#ref` becomes the task on send.
+  const sprintTasks = $derived(clickup.mine?.tasks ?? [])
+  const taskWord = $derived(
+    token || repoWord || !sprintTasks.length
+      ? null
+      : taskToken(draft, Math.min(caret, draft.length)),
+  )
+  const taskMatches = $derived(
+    taskWord ? filterTasks(sprintTasks, taskWord.query) : [],
+  )
   type PickerOption = {
     key: string
     label: string
     detail: string
     badge: string | null
-    repo: boolean
+    kind: 'skill' | 'repo' | 'task'
     choose: () => void
   }
   const pickerOptions = $derived.by((): PickerOption[] => {
@@ -202,15 +224,24 @@
             : skill.source === 'plugin'
               ? 'plugin'
               : null,
-        repo: false,
+        kind: 'skill' as const,
         choose: () => chooseSkill(skill),
+      }))
+    if (taskWord)
+      return taskMatches.map((task) => ({
+        key: task.id,
+        label: `#${taskRef(task)}`,
+        detail: task.name,
+        badge: task.status,
+        kind: 'task' as const,
+        choose: () => chooseTask(task),
       }))
     return repoMatches.map((repo) => ({
       key: repo.id,
       label: `@${repoAlias(repo)}`,
       detail: repo.path,
       badge: null,
-      repo: true,
+      kind: 'repo' as const,
       choose: () => chooseRepo(repo),
     }))
   })
@@ -243,6 +274,11 @@
   function chooseRepo(repo: RepoRecord) {
     if (!repoWord) return
     applyPick(insertRepoAlias(draft, repoWord, repoAlias(repo)))
+  }
+
+  function chooseTask(task: ClickupTask) {
+    if (!taskWord) return
+    applyPick(insertTaskAlias(draft, taskWord, taskRef(task)))
   }
 
   function applyPick(next: { text: string; caret: number }) {
@@ -286,6 +322,49 @@
     }
   })
 
+  /** Puts focus back in the prompt, unless the user is busy somewhere else. */
+  function takeFocus() {
+    if (inputEl && composerMayTakeFocus(inputEl))
+      inputEl.focus({ preventScroll: true })
+  }
+
+  // Opening a conversation, switching threads, or coming back to one (from Plan, say) puts
+  // focus in the prompt, ready to type.
+  $effect(() => {
+    void thread.id
+    void app.focusGeneration
+    void tick().then(takeFocus)
+  })
+
+  // Coming back to the app with nothing focused lands in the prompt too.
+  function onWindowFocus() {
+    if (document.activeElement === document.body) void tick().then(takeFocus)
+  }
+
+  // A click on a control in the composer's footer (Plan, attach, New session, pause) leaves
+  // the prompt focused; a menu that opens keeps focus until it closes.
+  function onFootClick(event: MouseEvent) {
+    if ((event.target as Element).closest('button')) setTimeout(takeFocus, 0)
+  }
+
+  /** Typing while focus has drifted (after a click in the conversation) goes to the prompt. */
+  function typeToFocus(event: KeyboardEvent) {
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.key.length !== 1 ||
+      shellDialogs.blocksCommandPalette()
+    )
+      return
+    const active = document.activeElement
+    if (active === inputEl || isEditable(active)) return
+    // Space presses a focused button; only redirect it from nowhere.
+    if (event.key === ' ' && active !== document.body) return
+    if (inputEl && composerMayTakeFocus(inputEl)) inputEl.focus()
+  }
+
   function fitHeight() {
     if (!inputEl) return
     inputEl.style.height = 'auto'
@@ -318,7 +397,7 @@
       inputEl?.focus()
     })
     onSent?.()
-    const outgoing = expandRepoAliases(text, repos.items)
+    const outgoing = await expandMessage(text)
     const sent = waitingPlan
       ? await sendPlanFeedback(waitingPlan.id, threadId, outgoing)
       : await sendThreadMessage(threadId, outgoing, sending)
@@ -361,12 +440,25 @@
     return event.dataTransfer?.types.includes('Files') ?? false
   }
 
+  /** Files from the picker or a Finder drop; images get their thumbnail from the core. */
+  function attachPaths(paths: string[]) {
+    const threadId = thread.id
+    const added = paths.map(attachmentFromPath)
+    composerDrafts.addAttachments(threadId, added)
+    for (const attachment of added) {
+      if (!attachment.path || !isImageName(attachment.name)) continue
+      void commands.imagePreview(attachment.path).then((result) => {
+        if (result.status === 'ok' && result.data)
+          composerDrafts.setPreview(threadId, attachment.id, result.data)
+      })
+    }
+  }
+
   async function pickFiles() {
     const picked = await openFilePicker({ multiple: true, directory: false })
     const paths =
       picked == null ? [] : Array.isArray(picked) ? picked : [picked]
-    if (paths.length)
-      composerDrafts.addAttachments(thread.id, paths.map(attachmentFromPath))
+    if (paths.length) attachPaths(paths)
     inputEl?.focus()
   }
 
@@ -384,10 +476,7 @@
         } else if (event.payload.type === 'drop') {
           draggingFiles = false
           if (waitingPlan || !event.payload.paths.length) return
-          composerDrafts.addAttachments(
-            thread.id,
-            event.payload.paths.map(attachmentFromPath),
-          )
+          attachPaths(event.payload.paths)
         }
       })
       .then((stop) => {
@@ -403,6 +492,7 @@
 
   async function stopTurn() {
     threads.setStatus(thread.id, 'idle')
+    void tick().then(takeFocus)
     threadTimeline.applyEvent(thread.id, {
       type: 'turnEnd',
       stop_reason: 'cancelled',
@@ -488,6 +578,7 @@
 
   // ⌘↵ anywhere jumps to the composer; dialogs and the diff comment box handle it first.
   function onWindowKeydown(event: KeyboardEvent) {
+    typeToFocus(event)
     // Esc stops the agent, unless a dialog, popover or inline editor took it first.
     if (
       event.key === 'Escape' &&
@@ -526,20 +617,24 @@
   }
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} />
+<svelte:window onkeydown={onWindowKeydown} onfocus={onWindowFocus} />
 
 <div
   class="composer-wrap sticky bottom-0 z-10 bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
   data-od-id="composer-wrap"
 >
   {#if pickerOpen}
-    {@const reposShown = pickerOptions[0]?.repo ?? false}
+    {@const shownKind = pickerOptions[0]?.kind ?? 'skill'}
     <ul
       id="composer-picker"
       role="listbox"
-      aria-label={reposShown ? 'Repositories' : 'Skills'}
+      aria-label={shownKind === 'repo'
+        ? 'Repositories'
+        : shownKind === 'task'
+          ? 'Sprint tasks'
+          : 'Skills'}
       class="absolute inset-x-1 bottom-full mx-auto -mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg"
-      data-od-id={reposShown ? 'repo-picker' : 'skill-picker'}
+      data-od-id="{shownKind}-picker"
     >
       {#each pickerOptions as option, index (option.key)}
         <li
@@ -554,7 +649,12 @@
           }}
           onmouseenter={() => (pickerIndex = index)}
         >
-          {#if option.repo}
+          {#if option.kind === 'task'}
+            <Kanban
+              class="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          {:else if option.kind === 'repo'}
             <Folder
               class="size-3.5 shrink-0 text-muted-foreground"
               aria-hidden="true"
@@ -610,17 +710,34 @@
         data-od-id="composer-attachments"
       >
         {#each attachments as attachment (attachment.id)}
-          <li
-            class="flex max-w-56 items-center gap-2 rounded-md border border-border bg-muted/40 p-1 pr-1.5 text-xs"
-            data-od-id="composer-attachment"
-          >
-            {#if attachment.previewUrl}
+          {#if attachment.previewUrl}
+            <!-- An image is its thumbnail; the name is in the tooltip. -->
+            <li
+              class="group relative"
+              title={attachment.path ?? attachment.name}
+              data-od-id="composer-attachment"
+            >
               <img
                 src={attachment.previewUrl}
-                alt=""
-                class="size-9 shrink-0 rounded object-cover"
+                alt={attachment.name}
+                class="size-16 rounded-md border border-border object-cover"
               />
-            {:else}
+              <button
+                type="button"
+                class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground"
+                aria-label="Remove {attachment.name}"
+                onclick={() =>
+                  composerDrafts.removeAttachment(thread.id, attachment.id)}
+              >
+                <X class="size-3" aria-hidden="true" />
+              </button>
+            </li>
+          {:else}
+            <li
+              class="flex h-16 max-w-56 items-center gap-2 self-end rounded-md border border-border bg-muted/40 p-1 pr-1.5 text-xs"
+              title={attachment.path ?? attachment.name}
+              data-od-id="composer-attachment"
+            >
               <span
                 class="flex size-9 shrink-0 items-center justify-center rounded bg-muted"
               >
@@ -629,20 +746,18 @@
                   aria-hidden="true"
                 />
               </span>
-            {/if}
-            <span class="truncate" title={attachment.path ?? attachment.name}
-              >{attachment.name}</span
-            >
-            <button
-              type="button"
-              class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-              aria-label="Remove {attachment.name}"
-              onclick={() =>
-                composerDrafts.removeAttachment(thread.id, attachment.id)}
-            >
-              <X class="size-3" aria-hidden="true" />
-            </button>
-          </li>
+              <span class="truncate">{attachment.name}</span>
+              <button
+                type="button"
+                class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Remove {attachment.name}"
+                onclick={() =>
+                  composerDrafts.removeAttachment(thread.id, attachment.id)}
+              >
+                <X class="size-3" aria-hidden="true" />
+              </button>
+            </li>
+          {/if}
         {/each}
       </ul>
       {#if waitingPlan}
@@ -684,6 +799,8 @@
     <div
       class="composer-foot flex items-center gap-2 px-2 py-2 pl-3"
       data-od-id="composer-foot"
+      role="presentation"
+      onclick={onFootClick}
     >
       <div
         class="composer-meta flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground"
@@ -715,9 +832,10 @@
             size="xs"
             data-od-id="composer-plan-mode"
             aria-pressed={planMode}
+            aria-keyshortcuts="Meta+Shift+P"
             title={planMode
-              ? `Leave plan mode; ${name} goes back to working normally`
-              : `Have ${name} write a plan for you to review before it edits anything`}
+              ? `Leave plan mode; ${name} goes back to working normally (⇧⌘P)`
+              : `Have ${name} write a plan for you to review before it edits anything (⇧⌘P)`}
             class={cn(planMode && 'bg-info/15 text-info hover:bg-info/20')}
             onclick={() => void togglePlanMode()}
           >
@@ -780,6 +898,9 @@
         {/if}
         {#if repos.items.length}
           <kbd class="rounded border border-border/60 px-1">@</kbd> repos
+        {/if}
+        {#if sprintTasks.length}
+          <kbd class="rounded border border-border/60 px-1">#</kbd> tasks
         {/if}
       </span>
 
