@@ -71,3 +71,40 @@ test('@ offers the repos set up in Cormux and sends the alias as the repo’s fo
     'Copy the toast from /tmp/cormux-fixture/my-app and mail me@my-app.dev',
   )
 })
+
+test('# offers the sprint’s tasks and sends one as its name, link and description', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    ;(window as { __HARNESS_CLICKUP__?: boolean }).__HARNESS_CLICKUP__ = true
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  const input = page.locator('#composer-input')
+  await input.click()
+  await input.pressSequentially('Fix #eng-19')
+  const picker = page.getByRole('listbox', { name: 'Sprint tasks' })
+  await expect(picker.getByRole('option')).toHaveText([
+    /#ENG-198\s*Session expires mid checkout on Safari\s*in progress/,
+    /#ENG-190\s*Move invoice PDFs/,
+  ])
+  await input.press('Enter')
+  await expect(input).toHaveValue('Fix #ENG-198 ')
+
+  // A heading isn't a task.
+  await input.pressSequentially('and keep # notes')
+  await expect(picker).toHaveCount(0)
+  await input.press('Enter')
+  await expect
+    .poll(async () => {
+      const prompts = await page.evaluate(
+        () =>
+          (window as { __HARNESS_PROMPTS__?: { text: string }[] })
+            .__HARNESS_PROMPTS__,
+      )
+      return prompts?.at(-1)?.text ?? ''
+    })
+    .toMatch(
+      /^Fix ENG-198 “Session expires mid checkout on Safari” \(https:\/\/[^)]+\) and keep # notes\n\nClickUp tasks:\n\n### ENG-198 Session expires mid checkout on Safari\n## Problem/,
+    )
+})

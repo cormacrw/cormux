@@ -27,12 +27,20 @@
     skillToken,
   } from '$lib/composer/skill-picker'
   import {
-    expandRepoAliases,
     filterRepos,
     insertRepoAlias,
     repoAlias,
     repoToken,
   } from '$lib/composer/repo-aliases'
+  import {
+    filterTasks,
+    insertTaskAlias,
+    taskToken,
+  } from '$lib/composer/task-aliases'
+  import { expandMessage } from '$lib/composer/expand-message'
+  import { taskRef } from '$lib/clickup/board'
+  import { clickup } from '$lib/state/clickup.svelte'
+  import type { ClickupTask } from '$lib/ipc/bindings'
   import { repos } from '$lib/state/repos.svelte'
   import type { RepoRecord } from '$lib/ipc/bindings'
   import { showToast } from '$lib/feedback/show-toast'
@@ -62,6 +70,7 @@
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import FileText from '@lucide/svelte/icons/file-text'
   import Folder from '@lucide/svelte/icons/folder'
+  import Kanban from '@lucide/svelte/icons/square-kanban'
   import Paperclip from '@lucide/svelte/icons/paperclip'
   import X from '@lucide/svelte/icons/x'
   import ClipboardList from '@lucide/svelte/icons/clipboard-list'
@@ -185,12 +194,22 @@
   const repoMatches = $derived(
     repoWord ? filterRepos(repos.items, repoWord.query) : [],
   )
+  // Typing `#` offers the tasks on your sprint board; `#ref` becomes the task on send.
+  const sprintTasks = $derived(clickup.mine?.tasks ?? [])
+  const taskWord = $derived(
+    token || repoWord || !sprintTasks.length
+      ? null
+      : taskToken(draft, Math.min(caret, draft.length)),
+  )
+  const taskMatches = $derived(
+    taskWord ? filterTasks(sprintTasks, taskWord.query) : [],
+  )
   type PickerOption = {
     key: string
     label: string
     detail: string
     badge: string | null
-    repo: boolean
+    kind: 'skill' | 'repo' | 'task'
     choose: () => void
   }
   const pickerOptions = $derived.by((): PickerOption[] => {
@@ -205,15 +224,24 @@
             : skill.source === 'plugin'
               ? 'plugin'
               : null,
-        repo: false,
+        kind: 'skill' as const,
         choose: () => chooseSkill(skill),
+      }))
+    if (taskWord)
+      return taskMatches.map((task) => ({
+        key: task.id,
+        label: `#${taskRef(task)}`,
+        detail: task.name,
+        badge: task.status,
+        kind: 'task' as const,
+        choose: () => chooseTask(task),
       }))
     return repoMatches.map((repo) => ({
       key: repo.id,
       label: `@${repoAlias(repo)}`,
       detail: repo.path,
       badge: null,
-      repo: true,
+      kind: 'repo' as const,
       choose: () => chooseRepo(repo),
     }))
   })
@@ -246,6 +274,11 @@
   function chooseRepo(repo: RepoRecord) {
     if (!repoWord) return
     applyPick(insertRepoAlias(draft, repoWord, repoAlias(repo)))
+  }
+
+  function chooseTask(task: ClickupTask) {
+    if (!taskWord) return
+    applyPick(insertTaskAlias(draft, taskWord, taskRef(task)))
   }
 
   function applyPick(next: { text: string; caret: number }) {
@@ -364,7 +397,7 @@
       inputEl?.focus()
     })
     onSent?.()
-    const outgoing = expandRepoAliases(text, repos.items)
+    const outgoing = await expandMessage(text)
     const sent = waitingPlan
       ? await sendPlanFeedback(waitingPlan.id, threadId, outgoing)
       : await sendThreadMessage(threadId, outgoing, sending)
@@ -591,13 +624,17 @@
   data-od-id="composer-wrap"
 >
   {#if pickerOpen}
-    {@const reposShown = pickerOptions[0]?.repo ?? false}
+    {@const shownKind = pickerOptions[0]?.kind ?? 'skill'}
     <ul
       id="composer-picker"
       role="listbox"
-      aria-label={reposShown ? 'Repositories' : 'Skills'}
+      aria-label={shownKind === 'repo'
+        ? 'Repositories'
+        : shownKind === 'task'
+          ? 'Sprint tasks'
+          : 'Skills'}
       class="absolute inset-x-1 bottom-full mx-auto -mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg"
-      data-od-id={reposShown ? 'repo-picker' : 'skill-picker'}
+      data-od-id="{shownKind}-picker"
     >
       {#each pickerOptions as option, index (option.key)}
         <li
@@ -612,7 +649,12 @@
           }}
           onmouseenter={() => (pickerIndex = index)}
         >
-          {#if option.repo}
+          {#if option.kind === 'task'}
+            <Kanban
+              class="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          {:else if option.kind === 'repo'}
             <Folder
               class="size-3.5 shrink-0 text-muted-foreground"
               aria-hidden="true"
@@ -856,6 +898,9 @@
         {/if}
         {#if repos.items.length}
           <kbd class="rounded border border-border/60 px-1">@</kbd> repos
+        {/if}
+        {#if sprintTasks.length}
+          <kbd class="rounded border border-border/60 px-1">#</kbd> tasks
         {/if}
       </span>
 
