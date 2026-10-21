@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import PlaceSwitcher from '$lib/components/shell/PlaceSwitcher.svelte'
+  import { trackKeyboardInput } from '$lib/keyboard/focus-home'
   import { switcher } from '$lib/state/switcher.svelte'
   import { currentPlace, handleSwitcherKeyup } from '$lib/switcher/navigate'
   import { isDevBuild } from '$lib/build-mode'
@@ -97,6 +98,7 @@
 
   onMount(() => {
     const cancelSwitcher = () => switcher.cancel()
+    const stopTracking = trackKeyboardInput(window)
     window.addEventListener('keydown', handleGlobalKeydown)
     window.addEventListener('keyup', handleSwitcherKeyup)
     // Ctrl can be let go in another app; don't jump somewhere on return.
@@ -105,6 +107,7 @@
       window.removeEventListener('keydown', handleGlobalKeydown)
       window.removeEventListener('keyup', handleSwitcherKeyup)
       window.removeEventListener('blur', cancelSwitcher)
+      stopTracking()
     }
   })
 

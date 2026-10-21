@@ -87,3 +87,13 @@ Messages go to the *selected thread only*, never to the whole workspace.
 - ~~Drafts aren't kept per thread~~ **Fixed:** each thread has its own composer draft when switching tabs.
 - No "Stop" (end the task) distinct from Pause.
 - Should the composer be available in idle threads that have finished? It is today, and that's probably right, but the reply copy assumes active work.
+
+## Focus
+
+The composer is where focus lives in a conversation, so typing always has somewhere to go.
+
+- Opening a workspace on a thread, switching threads, opening a scratch, coming back from another tab (Plan, Git) or with `Ctrl+Tab`, and returning to the app with nothing focused all put focus in the input.
+- Clicking a footer control (Plan, attach, New session, pause), picking a model, stopping the agent, and answering an approval card all leave focus in the input.
+- Typing a character while focus has drifted somewhere that isn't a field (after clicking in the conversation, say) moves focus to the input and types it there.
+- It never takes focus from another field, an open dialog, menu or list, or from tabs the user is moving through with the arrow keys.
+

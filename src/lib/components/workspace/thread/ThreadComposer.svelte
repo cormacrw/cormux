@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
+  import { composerMayTakeFocus, isEditable } from '$lib/keyboard/focus-home'
+  import { app } from '$lib/state/app.svelte'
   import { getCurrentWebview } from '@tauri-apps/api/webview'
   import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
   import { Button } from '$lib/components/ui/button'
@@ -287,6 +289,49 @@
     }
   })
 
+  /** Puts focus back in the prompt, unless the user is busy somewhere else. */
+  function takeFocus() {
+    if (inputEl && composerMayTakeFocus(inputEl))
+      inputEl.focus({ preventScroll: true })
+  }
+
+  // Opening a conversation, switching threads, or coming back to one (from Plan, say) puts
+  // focus in the prompt, ready to type.
+  $effect(() => {
+    void thread.id
+    void app.focusGeneration
+    void tick().then(takeFocus)
+  })
+
+  // Coming back to the app with nothing focused lands in the prompt too.
+  function onWindowFocus() {
+    if (document.activeElement === document.body) void tick().then(takeFocus)
+  }
+
+  // A click on a control in the composer's footer (Plan, attach, New session, pause) leaves
+  // the prompt focused; a menu that opens keeps focus until it closes.
+  function onFootClick(event: MouseEvent) {
+    if ((event.target as Element).closest('button')) setTimeout(takeFocus, 0)
+  }
+
+  /** Typing while focus has drifted (after a click in the conversation) goes to the prompt. */
+  function typeToFocus(event: KeyboardEvent) {
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.key.length !== 1 ||
+      shellDialogs.blocksCommandPalette()
+    )
+      return
+    const active = document.activeElement
+    if (active === inputEl || isEditable(active)) return
+    // Space presses a focused button; only redirect it from nowhere.
+    if (event.key === ' ' && active !== document.body) return
+    if (inputEl && composerMayTakeFocus(inputEl)) inputEl.focus()
+  }
+
   function fitHeight() {
     if (!inputEl) return
     inputEl.style.height = 'auto'
@@ -414,6 +459,7 @@
 
   async function stopTurn() {
     threads.setStatus(thread.id, 'idle')
+    void tick().then(takeFocus)
     threadTimeline.applyEvent(thread.id, {
       type: 'turnEnd',
       stop_reason: 'cancelled',
@@ -499,6 +545,7 @@
 
   // ⌘↵ anywhere jumps to the composer; dialogs and the diff comment box handle it first.
   function onWindowKeydown(event: KeyboardEvent) {
+    typeToFocus(event)
     // Esc stops the agent, unless a dialog, popover or inline editor took it first.
     if (
       event.key === 'Escape' &&
@@ -537,7 +584,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} />
+<svelte:window onkeydown={onWindowKeydown} onfocus={onWindowFocus} />
 
 <div
   class="composer-wrap sticky bottom-0 z-10 bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
@@ -710,6 +757,8 @@
     <div
       class="composer-foot flex items-center gap-2 px-2 py-2 pl-3"
       data-od-id="composer-foot"
+      role="presentation"
+      onclick={onFootClick}
     >
       <div
         class="composer-meta flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground"

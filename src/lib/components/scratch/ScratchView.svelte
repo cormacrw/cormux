@@ -77,16 +77,15 @@
   let prevThreadId: string | null = null
   let scrollToEnd = $state(true)
 
-  // Opening a scratch: title first, then the composer for a blank start.
+  // Opening a scratch puts focus in its composer, ready to type; an ended one has none, so
+  // its title takes it.
   $effect(() => {
     if (app.focusTarget !== 'scratch') return
     void app.focusGeneration
     void tick().then(() => {
-      headingEl?.focus()
-      if (app.scratchComposerFocus) {
-        app.scratchComposerFocus = false
-        focusComposer?.()
-      }
+      app.scratchComposerFocus = false
+      if (focusComposer) focusComposer()
+      else headingEl?.focus()
     })
   })
 

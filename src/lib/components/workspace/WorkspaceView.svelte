@@ -38,10 +38,13 @@
   let renameWorkspaceId = $state<string | null>(null)
   let findingsHeading: HTMLHeadingElement | undefined = $state()
 
+  // Opening a workspace on a thread leaves focus to its composer, ready to type; other
+  // tabs focus the title.
   $effect(() => {
     if (app.focusTarget !== 'workspace') return
     void app.focusGeneration
-    workspaceTitle?.focus()
+    if (untrack(() => workspaceUi.activeTab) !== 'thread')
+      workspaceTitle?.focus()
   })
 
   const isLoadSpike = $derived(app.workspaceId === 'spike-load')
