@@ -5,6 +5,7 @@ export type ViewId =
   | 'settings'
   | 'todos'
   | 'sprint'
+  | 'week'
   | 'repo'
 
 export function resolveWindowTitle(
@@ -16,6 +17,7 @@ export function resolveWindowTitle(
   if (view === 'settings') return `${appName} · Settings`
   if (view === 'todos') return `${appName} · TODOs`
   if (view === 'sprint') return `${appName} · Sprint`
+  if (view === 'week') return `${appName} · Week`
   if (
     (view === 'workspace' || view === 'scratch' || view === 'repo') &&
     openId

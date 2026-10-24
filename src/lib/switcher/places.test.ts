@@ -39,6 +39,7 @@ describe('switcherPlaces', () => {
       'workspace:a',
       'workspace:c',
       'homebase',
+      'week',
       'sprint',
     ])
   })
@@ -50,7 +51,7 @@ describe('switcherPlaces', () => {
         workspaceIds: ['a'],
         sprintAvailable: false,
       }).map(placeKey),
-    ).toEqual(['workspace:a', 'homebase', 'todos'])
+    ).toEqual(['workspace:a', 'homebase', 'todos', 'week'])
   })
 })
 

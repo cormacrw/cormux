@@ -91,13 +91,29 @@ pub struct ScratchRow {
     pub created_at: String,
 }
 
-/// A title-only task from the TODOs page.
+/// A task from the TODOs page, which the Week page can plan onto a day.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoRow {
     pub id: String,
     pub title: String,
     pub pinned: bool,
+    pub description: String,
+    /// `YYYY-MM-DD`, the local day it's planned for; `None` sits in the Week page's loading area.
+    pub planned_on: Option<String>,
+    /// SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`; `None` while open.
+    pub done_at: Option<String>,
+}
+
+/// The Week page's local plan for a ClickUp task. Never written back to ClickUp.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SprintPlanRow {
+    pub task_id: String,
+    /// `YYYY-MM-DD`; `None` is back in the loading area.
+    pub planned_on: Option<String>,
+    /// SQLite `datetime('now')`, UTC; `None` while open. Local to the plan only.
+    pub done_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -158,6 +174,7 @@ pub struct PersistedSnapshot {
     pub scratches: Vec<ScratchRow>,
     /// Oldest first.
     pub todos: Vec<TodoRow>,
+    pub sprint_plan: Vec<SprintPlanRow>,
     pub timeline: Vec<ThreadEventRow>,
     pub approvals: Vec<ApprovalRow>,
     pub findings: Vec<FindingRow>,

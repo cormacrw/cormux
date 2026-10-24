@@ -10,7 +10,12 @@ import type { Place } from './places'
 export function currentPlace(): Place | null {
   if (app.view === 'workspace' && app.workspaceId)
     return { kind: 'workspace', id: app.workspaceId }
-  if (app.view === 'homebase' || app.view === 'todos' || app.view === 'sprint')
+  if (
+    app.view === 'homebase' ||
+    app.view === 'todos' ||
+    app.view === 'week' ||
+    app.view === 'sprint'
+  )
     return { kind: app.view }
   return null
 }
@@ -23,6 +28,7 @@ export function openPlace(place: Place) {
     app.openWorkspace(place.id, stillThere ? thread : undefined)
   } else if (place.kind === 'homebase') app.openHomebase()
   else if (place.kind === 'todos') app.openTodos()
+  else if (place.kind === 'week') app.openWeek()
   else app.openSprint()
 }
 

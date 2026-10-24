@@ -87,7 +87,7 @@
 {#if workspace.kind === 'review'}
   <Button
     variant="default"
-    size="xl"
+    size="default"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={reviewSubmitted}
     aria-keyshortcuts="Meta+P"
@@ -101,8 +101,8 @@
   </Button>
 {:else if branchPr}
   <Button
-    variant="default"
-    size="xl"
+    variant="secondary"
+    size="default"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={!prUrl}
     aria-keyshortcuts="Meta+P"
@@ -112,20 +112,6 @@
   >
     <GitPullRequest class="size-4" aria-hidden="true" />
     {prLabel}
-    <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />P</Kbd>
-  </Button>
-{:else}
-  <Button
-    variant="default"
-    size="xl"
-    class="gap-2 shrink-0 max-md:flex-1"
-    aria-keyshortcuts="Meta+P"
-    data-ws-focus="primary"
-    data-od-id="ws-create-pr"
-    onclick={onPrimaryClick}
-  >
-    <GitPullRequest class="size-4" aria-hidden="true" />
-    Create PR
     <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />P</Kbd>
   </Button>
 {/if}

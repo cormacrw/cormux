@@ -61,6 +61,7 @@
   import { startNewSession } from '$lib/thread/start-new-session'
   import { threads } from '$lib/state/threads.svelte'
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
+  import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import Buddy from '$lib/components/buddy/Buddy.svelte'
   import { agentName } from '$lib/agent-name'
@@ -333,6 +334,13 @@
   $effect(() => {
     void thread.id
     void app.focusGeneration
+    void tick().then(takeFocus)
+  })
+
+  // The conversation stays mounted under Git and Output, so closing them (or picking the
+  // thread tab again) brings focus back here rather than to a fresh composer.
+  $effect(() => {
+    if (workspaceUi.activeTab !== 'thread') return
     void tick().then(takeFocus)
   })
 
@@ -620,7 +628,7 @@
 <svelte:window onkeydown={onWindowKeydown} onfocus={onWindowFocus} />
 
 <div
-  class="composer-wrap sticky bottom-0 z-10 bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+  class="composer-wrap sticky bottom-0 z-10 px-1 pt-2 pb-4"
   data-od-id="composer-wrap"
 >
   {#if pickerOpen}
@@ -682,7 +690,7 @@
     </ul>
   {/if}
   <form
-    class="composer mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-[0_-12px_32px_-8px_var(--background)] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
+    class="composer glass-pane mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-[18px] transition-[border-color,box-shadow] duration-(--dur-fast) focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25"
     id="composer"
     data-od-id="composer"
     class:composer-dropping={draggingFiles}

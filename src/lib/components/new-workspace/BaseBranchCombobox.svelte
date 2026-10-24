@@ -185,12 +185,12 @@
   {#if open}
     <div
       id={listId}
-      class="bg-popover text-popover-foreground absolute z-50 mt-1 max-h-56 w-full overflow-hidden rounded-lg border shadow-md"
+      class="glass-pop text-popover-foreground absolute z-50 mt-1.5 max-h-64 w-full min-w-[300px] overflow-hidden rounded-[14px] p-1"
       role="listbox"
     >
       <Command.Root
         shouldFilter={false}
-        class="rounded-none border-0 shadow-none"
+        class="rounded-none border-0 bg-transparent shadow-none"
       >
         <Command.List class="max-h-56">
           {#if filtered.length === 0}

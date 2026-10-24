@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SlideOutClose from '../SlideOutClose.svelte'
   import { onMount, tick, untrack } from 'svelte'
   import { agentName } from '$lib/agent-name'
   import { afterPaint } from '$lib/changes/mount-queue'
@@ -162,7 +163,7 @@
   role="tabpanel"
   aria-labelledby="thread-tab-changes"
   data-od-id="changes-panel"
-  class="flex min-h-0 flex-1 bg-background"
+  class="flex min-h-0 flex-1"
 >
   <StackRail {workspace} {repoId} {provisioning} />
   <div class="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -272,6 +273,7 @@
           </Button>
         </span>
       {/if}
+      <SlideOutClose label="Close changes" />
     </div>
 
     <div class="relative flex min-h-0 flex-1 flex-col">
@@ -316,7 +318,7 @@
       {/if}
       <!-- Covers the list rather than replacing it, so the diff views stay mounted. -->
       {#if loading && files.length}
-        <div class="changes-splash absolute inset-0 z-20 flex bg-background">
+        <div class="changes-splash absolute inset-0 z-20 flex bg-popover">
           <ChangesSkeleton
             label={pending?.retarget
               ? pending.target

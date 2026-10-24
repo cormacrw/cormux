@@ -2,6 +2,7 @@ import type { TodoRow } from '$lib/ipc/bindings'
 import { commands, type CoreError } from '$lib/ipc'
 import { coreErrorText } from '$lib/feedback/core-error'
 import { showToast } from '$lib/feedback/show-toast'
+import { sqliteNow } from '$lib/week/dates'
 
 export type Todo = TodoRow
 
@@ -42,6 +43,53 @@ export class TodosStore {
       this.items = before
       failed('Could not delete the task', result.error)
     }
+  }
+
+  private patch(id: string, patch: Partial<Todo>) {
+    this.items = this.items.map((item) =>
+      item.id === id ? { ...item, ...patch } : item,
+    )
+  }
+
+  /** The Week page's details pane. A blank title is refused and leaves the task as it was. */
+  async update(id: string, title: string, description: string) {
+    const todo = this.items.find((item) => item.id === id)
+    const trimmed = title.trim()
+    if (!todo || !trimmed) return false
+    if (todo.title === trimmed && todo.description === description) return true
+    this.patch(id, { title: trimmed, description })
+    const result = await commands.updateTodo(id, trimmed, description)
+    if (result.status === 'error') {
+      this.patch(id, { title: todo.title, description: todo.description })
+      failed('Could not save the task', result.error)
+      return false
+    }
+    return true
+  }
+
+  /** `plannedOn` is a local `YYYY-MM-DD` day, or null for the Week page's loading area. */
+  async plan(id: string, plannedOn: string | null) {
+    const todo = this.items.find((item) => item.id === id)
+    if (!todo || todo.plannedOn === plannedOn) return
+    this.patch(id, { plannedOn })
+    const result = await commands.planTodo(id, plannedOn)
+    if (result.status === 'error') {
+      this.patch(id, { plannedOn: todo.plannedOn })
+      failed('Could not plan the task', result.error)
+    }
+  }
+
+  async setDone(id: string, done: boolean) {
+    const todo = this.items.find((item) => item.id === id)
+    if (!todo || (todo.doneAt != null) === done) return
+    this.patch(id, { doneAt: done ? sqliteNow() : null })
+    const result = await commands.setTodoDone(id, done)
+    if (result.status === 'error') {
+      this.patch(id, { doneAt: todo.doneAt })
+      failed('Could not update the task', result.error)
+      return
+    }
+    this.patch(id, { doneAt: result.data })
   }
 
   async togglePin(id: string) {

@@ -68,8 +68,45 @@
   const outputTabActive = $derived(workspaceUi.activeTab === 'output')
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
   const planTabActive = $derived(workspaceUi.activeTab === 'plan')
-  const threadTabActive = $derived(workspaceUi.activeTab === 'thread')
   const changesTabActive = $derived(workspaceUi.activeTab === 'changes')
+  // Git and Output slide over the panel underneath, which stays mounted so
+  // closing them is instant and the conversation keeps its scroll.
+  const baseTab = $derived(workspaceUi.baseTab)
+  const slideOut = $derived(workspaceUi.slideOut)
+  // Mounted on first open, then kept so reopening doesn't rebuild the diff or log.
+  let changesMounted = $state(false)
+  let outputMounted = $state(false)
+  $effect(() => {
+    if (changesTabActive) changesMounted = true
+    if (outputTabActive) outputMounted = true
+  })
+  $effect(() => {
+    void workspaceId
+    untrack(() => {
+      changesMounted = changesTabActive
+      outputMounted = outputTabActive
+    })
+  })
+
+  // Esc slides Git or Output away from anywhere in the workspace, unless a dialog,
+  // menu or popover is open and wants the key for itself.
+  function onWindowKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || event.defaultPrevented || !slideOut) return
+    if (
+      document.querySelector(
+        '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"][data-state="open"]',
+      )
+    )
+      return
+    event.preventDefault()
+    workspaceUi.closeSlideOut()
+  }
+
+  function onSlideOutKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || event.defaultPrevented) return
+    event.preventDefault()
+    workspaceUi.closeSlideOut()
+  }
 
   const threadPanelLabelId = $derived(
     activeThread ? `thread-tab-${activeThread.id}` : undefined,
@@ -165,6 +202,8 @@
   })
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} />
+
 <section class="flex min-h-0 flex-1 flex-col">
   {#if isLoadSpike}
     <header>
@@ -208,33 +247,62 @@
     <ThreadTabBar {workspace} />
 
     {#if activeThread}
-      <div class="relative flex min-h-0 flex-1 flex-col">
-        {#if threadTabActive}
-          <ThreadPanel
-            {workspace}
-            thread={activeThread}
-            panelLabelId={threadPanelLabelId}
-          />
-        {:else if changesTabActive}
-          <ChangesPanel
-            {workspace}
-            thread={activeThread}
-            repoId={workspaceRepoId}
-            {provisioning}
-          />
-        {:else if planTabActive}
-          <PlanPanel workspaceId={workspace.id} />
-        {:else if findingsTabActive}
-          <WorkspaceFindingsPanel
-            workspaceId={workspace.id}
-            bind:headingRef={findingsHeading}
-          />
-        {:else if outputTabActive}
+      <div class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div class="flex min-h-0 flex-1 flex-col" inert={slideOut != null}>
+          {#if baseTab === 'thread'}
+            <ThreadPanel
+              {workspace}
+              thread={activeThread}
+              panelLabelId={threadPanelLabelId}
+            />
+          {:else if baseTab === 'plan'}
+            <PlanPanel workspaceId={workspace.id} />
+          {:else if baseTab === 'findings'}
+            <WorkspaceFindingsPanel
+              workspaceId={workspace.id}
+              bind:headingRef={findingsHeading}
+            />
+          {/if}
+        </div>
+
+        <!-- Clicking the dimmed conversation slides Git or Output away. -->
+        <button
+          type="button"
+          tabindex="-1"
+          aria-hidden="true"
+          class="slide-scrim absolute inset-0 z-20 cursor-default bg-black/10 dark:bg-black/25"
+          data-open={slideOut != null}
+          onclick={() => workspaceUi.closeSlideOut()}
+        ></button>
+
+        {#if changesMounted}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="slide-out glass-pane absolute inset-y-0 right-0 z-30 flex w-[min(960px,94%)] flex-col overflow-hidden rounded-tl-[18px]"
+            data-open={changesTabActive}
+            data-od-id="git-slide-out"
+            inert={!changesTabActive}
+            onkeydown={onSlideOutKeydown}
+          >
+            <ChangesPanel
+              {workspace}
+              thread={activeThread}
+              repoId={workspaceRepoId}
+              {provisioning}
+            />
+          </div>
+        {/if}
+        {#if outputMounted}
           <div
             id="output-panel"
             role="tabpanel"
             aria-labelledby="thread-tab-output"
-            class="flex min-h-0 flex-1 flex-col"
+            tabindex="-1"
+            class="slide-out glass-pane absolute inset-y-0 right-0 z-30 flex w-[min(720px,94%)] flex-col overflow-hidden rounded-tl-[18px]"
+            data-open={outputTabActive}
+            data-od-id="output-slide-out"
+            inert={!outputTabActive}
+            onkeydown={onSlideOutKeydown}
           >
             <WorkspaceOutputPanel
               workspaceId={workspace.id}

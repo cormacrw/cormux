@@ -19,6 +19,7 @@ export type FocusTarget =
   | 'scratch'
   | 'todos'
   | 'sprint'
+  | 'week'
   | 'repo'
 
 export class AppStore {
@@ -116,6 +117,16 @@ export class AppStore {
     this.repoId = null
     if (taskId) clickup.select(taskId)
     this.requestFocus('sprint')
+  }
+
+  /** The Week planner: TODOs and sprint tasks planned onto the days of a week. */
+  openWeek() {
+    this.view = 'week'
+    this.workspaceId = null
+    this.threadId = null
+    this.scratchId = null
+    this.repoId = null
+    this.requestFocus('week')
   }
 
   openSettings() {

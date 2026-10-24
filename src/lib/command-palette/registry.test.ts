@@ -133,6 +133,7 @@ describe('buildPaletteCommandsFromState', () => {
         openHomebase: noop,
         openTodos: noop,
         openSprint: noop,
+        openWeek: noop,
         openSettings: noop,
         openWorkspace: noop,
         toggleReduceMotion: noop,
@@ -148,6 +149,7 @@ describe('buildPaletteCommandsFromState', () => {
     expect(labels).toContain('New workspace')
     expect(labels).toContain('New scratch')
     expect(labels).toContain('Go to TODOs')
+    expect(labels).toContain('Go to week')
     expect(labels).toContain('Add a task')
     // No ClickUp key, no sprint page.
     expect(labels).not.toContain('Go to sprint')

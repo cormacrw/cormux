@@ -1,8 +1,21 @@
 export type WorkspacePanelTab =
   'thread' | 'plan' | 'findings' | 'changes' | 'output'
 
+/** Git and Output slide out over the panel underneath instead of replacing it. */
+export type WorkspaceSlideOut = 'changes' | 'output'
+export type WorkspaceBaseTab = Exclude<WorkspacePanelTab, WorkspaceSlideOut>
+
+export function isSlideOut(tab: WorkspacePanelTab): tab is WorkspaceSlideOut {
+  return tab === 'changes' || tab === 'output'
+}
+
 export class WorkspaceUiStore {
   activeTab = $state<WorkspacePanelTab>('thread')
+  /** The panel under a slide-out: the last thread, plan or findings tab. */
+  baseTab = $state<WorkspaceBaseTab>('thread')
+  readonly slideOut = $derived<WorkspaceSlideOut | null>(
+    isSlideOut(this.activeTab) ? this.activeTab : null,
+  )
   /** Tab before switching to Output (for Ctrl+` toggle). */
   tabBeforeOutput = $state<WorkspacePanelTab>('thread')
   /** File to expand and scroll to in Changes (set by links in the conversation). */
@@ -18,6 +31,7 @@ export class WorkspaceUiStore {
   planThreadId = $state<string | null>(null)
 
   openTab(tab: WorkspacePanelTab) {
+    if (!isSlideOut(tab)) this.baseTab = tab
     if (tab === 'output') {
       if (this.activeTab !== 'output') {
         this.tabBeforeOutput = this.activeTab
@@ -41,6 +55,11 @@ export class WorkspaceUiStore {
     this.openTab('changes')
   }
 
+  /** Slides Git or Output away, back to the panel underneath. */
+  closeSlideOut() {
+    if (isSlideOut(this.activeTab)) this.activeTab = this.baseTab
+  }
+
   toggleOutputTab() {
     if (this.activeTab === 'output') {
       this.activeTab = this.tabBeforeOutput
@@ -52,6 +71,7 @@ export class WorkspaceUiStore {
 
   resetForWorkspace() {
     this.activeTab = 'thread'
+    this.baseTab = 'thread'
     this.tabBeforeOutput = 'thread'
     this.revealDiffPath = null
     this.revealDiffLine = null

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { hideFindingsBlock } from '$lib/findings/findings-block'
-  import { Badge } from '$lib/components/ui/badge'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
   import Buddy from '$lib/components/buddy/Buddy.svelte'
@@ -237,7 +236,7 @@
       {#if item.kind === 'user'}
         <div class="group relative max-w-[min(100%,34rem)]">
           <div
-            class="rounded-2xl bg-foreground/10 px-3 py-1.5 text-sm leading-5 text-foreground"
+            class="rounded-[18px] rounded-br-md border border-[color-mix(in_oklch,var(--primary)_40%,transparent)] bg-[color-mix(in_oklch,var(--primary)_24%,transparent)] px-3.5 py-2 text-sm leading-5 text-foreground"
           >
             <p class="whitespace-pre-wrap">{item.text}</p>
           </div>
@@ -323,7 +322,15 @@
                     title={timeTitle(step.atMs)}
                     use:popIn={{ entries, key: step.id }}
                   >
-                    <Icon class="size-3 shrink-0" aria-hidden="true" />
+                    <Icon
+                      class={cn(
+                        'size-3 shrink-0',
+                        step.kind === 'edit'
+                          ? 'text-primary'
+                          : 'text-muted-foreground/80',
+                      )}
+                      aria-hidden="true"
+                    />
                     {#if step.kind === 'tool'}
                       <span class="shrink-0">{step.title}</span>
                       {#if step.detail && step.detail !== step.title}
@@ -344,7 +351,7 @@
                       <span class="shrink-0">{step.verb}</span>
                       <button
                         type="button"
-                        class="truncate font-mono text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
+                        class="truncate font-mono text-primary underline-offset-2 hover:underline"
                         title={step.path}
                         aria-label="View diff for {step.path}"
                         onclick={() => openDiffForPath(step.path)}
@@ -353,8 +360,8 @@
                       </button>
                       {#if file}
                         <span class="shrink-0 font-mono"
-                          ><span class="text-emerald-600">+{file.added}</span>
-                          <span class="text-red-500">−{file.deleted}</span
+                          ><span class="text-success">+{file.added}</span>
+                          <span class="text-destructive">−{file.deleted}</span
                           ></span
                         >
                       {/if}
@@ -365,65 +372,65 @@
                 {/each}
               </ul>
             {:else}
-              <Card.Root class="overflow-hidden py-0">
-                <Card.Content class="p-0">
-                  <ul class="divide-y divide-border/60">
-                    {#each segment.steps as step (step.id)}
-                      {@const Icon = stepIcon(step)}
-                      <li
-                        class="flex items-start gap-3 px-3 py-2 text-sm"
-                        use:popIn={{ entries, key: step.id }}
-                      >
-                        <span
-                          class={cn(
-                            'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-muted/60',
-                            step.kind === 'tool' &&
-                              step.tone === 'success' &&
-                              'text-emerald-600',
-                          )}
+              <!-- Notable steps: still a quiet line, set apart by weight and a tinted icon. -->
+              <ul class="space-y-1.5">
+                {#each segment.steps as step (step.id)}
+                  {@const Icon = stepIcon(step)}
+                  <li
+                    class="tool-step flex min-w-0 items-start gap-2 text-[0.8rem] text-muted-foreground"
+                    title={timeTitle(step.atMs)}
+                    use:popIn={{ entries, key: step.id }}
+                  >
+                    <Icon
+                      class={cn(
+                        'mt-[3px] size-3.5 shrink-0',
+                        step.kind === 'tool' && step.tone === 'success'
+                          ? 'text-success'
+                          : 'text-primary',
+                      )}
+                      aria-hidden="true"
+                    />
+                    <div class="min-w-0 flex-1">
+                      {#if step.kind === 'tool'}
+                        <p
+                          class="flex min-w-0 flex-wrap items-baseline gap-x-1.5"
                         >
-                          <Icon class="size-3.5" aria-hidden="true" />
-                        </span>
-                        <div class="min-w-0 flex-1 space-y-1">
-                          {#if step.kind === 'tool'}
-                            <p class="font-medium">{step.title}</p>
-                            {#if step.detail}
-                              <p class="truncate text-xs text-muted-foreground">
-                                {step.detail}
-                              </p>
-                            {/if}
-                            {#if step.chips?.length}
-                              <div class="flex flex-wrap gap-1">
-                                {#each step.chips as chip (chip.label)}
-                                  <Badge variant="outline" class="text-[10px]"
-                                    >{chip.label}</Badge
-                                  >
-                                {/each}
-                              </div>
-                            {/if}
-                            {#if step.rawDetail}
-                              <details class="text-xs text-muted-foreground">
-                                <summary class="cursor-pointer select-none"
-                                  >Details</summary
-                                >
-                                <pre
-                                  class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-(length:--code-font-size)">{step.rawDetail}</pre>
-                              </details>
-                            {/if}
-                          {/if}
-                        </div>
-                        {#if timeLabel(step.atMs)}
-                          <span
-                            class="shrink-0 text-xs text-muted-foreground"
-                            title={timeTitle(step.atMs)}
-                            >{timeLabel(step.atMs)}</span
+                          <span class="font-medium text-foreground/90"
+                            >{step.title}</span
                           >
+                          {#if step.detail}
+                            <span
+                              class="min-w-0 truncate font-mono text-[11px] text-muted-foreground/80"
+                              >{step.detail}</span
+                            >
+                          {/if}
+                          {#each step.chips ?? [] as chip (chip.label)}
+                            <span class="text-[11px] text-muted-foreground/75"
+                              >· {chip.label}</span
+                            >
+                          {/each}
+                        </p>
+                        {#if step.rawDetail}
+                          <details class="mt-0.5 text-xs text-muted-foreground">
+                            <summary
+                              class="cursor-pointer select-none hover:text-foreground"
+                              >Details</summary
+                            >
+                            <pre
+                              class="mt-1 max-h-40 overflow-auto rounded-lg bg-muted p-2 font-mono text-(length:--code-font-size) whitespace-pre-wrap">{step.rawDetail}</pre>
+                          </details>
                         {/if}
-                      </li>
-                    {/each}
-                  </ul>
-                </Card.Content>
-              </Card.Root>
+                      {/if}
+                    </div>
+                    {#if timeLabel(step.atMs)}
+                      <span
+                        class="shrink-0 text-[11px] text-muted-foreground/70"
+                        >{timeLabel(step.atMs)}</span
+                      >
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
             {/if}
           {/each}
         </div>

@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn-svelte/tailwind.css';
-@import '@fontsource-variable/outfit';
+@import '@fontsource-variable/dm-sans';
 @import '@fontsource-variable/jetbrains-mono';
 @import '@fontsource-variable/geist-mono';
 
@@ -12,33 +12,40 @@
  * `dark` class (set before first paint in index.html, then kept in sync by
  * ModeWatcher) swaps in the dark ones, so shadcn-svelte `dark:` variants
  * apply as well.
+ *
+ * The UI is frosted glass over the live background (BackgroundCanvas), so
+ * surfaces are translucent: --backdrop is the solid colour under everything,
+ * --background is the window tint over the scene, and cards, popovers and the
+ * sidebar blur what's behind them (see "Glass" below).
  */
 :root {
   color-scheme: light;
 
-  --background: oklch(0.972 0.002 265);
-  --foreground: oklch(0.205 0.006 265);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.205 0.006 265);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.205 0.006 265);
+  --backdrop: oklch(0.93 0.01 265);
+  --background: oklch(0.985 0.004 265 / 52%);
+  --background-solid: oklch(0.975 0.003 265);
+  --foreground: oklch(0.2 0.008 265);
+  --card: oklch(1 0 0 / 58%);
+  --card-foreground: oklch(0.2 0.008 265);
+  --popover: oklch(0.995 0.002 265 / 82%);
+  --popover-foreground: oklch(0.2 0.008 265);
   --swatch-neutral: oklch(0.215 0.006 265);
   --primary: var(--swatch-neutral);
   --primary-foreground: oklch(0.985 0.002 265);
-  --secondary: oklch(0.94 0.003 265);
-  --secondary-foreground: oklch(0.205 0.006 265);
-  --muted: oklch(0.94 0.003 265);
-  --muted-foreground: oklch(0.5 0.01 265);
-  --accent: oklch(0.925 0.004 265);
-  --accent-foreground: oklch(0.205 0.006 265);
-  --destructive: oklch(0.577 0.215 27);
+  --secondary: oklch(0.2 0.01 265 / 6%);
+  --secondary-foreground: oklch(0.2 0.008 265);
+  --muted: oklch(0.2 0.01 265 / 6%);
+  --muted-foreground: oklch(0.45 0.012 265);
+  --accent: oklch(0.2 0.01 265 / 8%);
+  --accent-foreground: oklch(0.2 0.008 265);
+  --destructive: oklch(0.56 0.215 27);
   --border: oklch(0 0 0 / 9%);
-  --input: oklch(0 0 0 / 14%);
+  --input: oklch(0 0 0 / 13%);
   --ring: oklch(0.6 0.16 250);
 
-  --success: oklch(0.58 0.15 155);
+  --success: oklch(0.55 0.15 155);
   --warning: oklch(0.6 0.14 65);
-  --info: oklch(0.6 0.16 250);
+  --info: oklch(0.58 0.16 250);
 
   --chart-1: oklch(0.6 0.16 250);
   --chart-2: oklch(0.58 0.15 155);
@@ -46,16 +53,28 @@
   --chart-4: oklch(0.577 0.215 27);
   --chart-5: oklch(0.5 0.01 265);
 
-  --radius: 0.5rem;
+  --radius: 0.625rem;
 
-  --sidebar: oklch(0.952 0.003 265);
-  --sidebar-foreground: oklch(0.205 0.006 265);
+  --sidebar: oklch(0.99 0.003 265 / 52%);
+  --sidebar-foreground: oklch(0.2 0.008 265);
   --sidebar-primary: oklch(0.6 0.16 250);
   --sidebar-primary-foreground: oklch(0.985 0.002 265);
-  --sidebar-accent: oklch(0.912 0.004 265);
-  --sidebar-accent-foreground: oklch(0.205 0.006 265);
-  --sidebar-border: oklch(0 0 0 / 7%);
+  --sidebar-accent: oklch(0.2 0.01 265 / 8%);
+  --sidebar-accent-foreground: oklch(0.2 0.008 265);
+  --sidebar-border: oklch(1 0 0 / 70%);
   --sidebar-ring: oklch(0.6 0.16 250);
+
+  /* A light edge along the top of glass, and the blur behind it. */
+  --glass-highlight: oklch(1 0 0 / 75%);
+  --glass-shadow: 0 1px 2px oklch(0 0 0 / 6%), 0 8px 24px oklch(0 0 0 / 7%);
+  --glass-blur: blur(24px) saturate(170%);
+  --glass-blur-strong: blur(40px) saturate(190%);
+
+  /* Motion: short and eased so the UI keeps up with the keyboard. */
+  --ease-out-snappy: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-med: 180ms;
+  --dur-slide: 260ms;
 
   /* Code block syntax colours: highlight.js's GitHub theme, as in the Changes diff. */
   --syntax-keyword: #d73a49;
@@ -72,29 +91,31 @@
 .dark {
   color-scheme: dark;
 
-  --background: oklch(0.155 0.004 265);
-  --foreground: oklch(0.955 0.003 265);
-  --card: oklch(0.185 0.005 265);
-  --card-foreground: oklch(0.955 0.003 265);
-  --popover: oklch(0.205 0.006 265);
-  --popover-foreground: oklch(0.955 0.003 265);
+  --backdrop: oklch(0.13 0.012 265);
+  --background: oklch(0.15 0.012 265 / 50%);
+  --background-solid: oklch(0.17 0.01 265);
+  --foreground: oklch(0.965 0.003 265);
+  --card: oklch(1 0 0 / 6.5%);
+  --card-foreground: oklch(0.965 0.003 265);
+  --popover: oklch(0.24 0.012 265 / 84%);
+  --popover-foreground: oklch(0.965 0.003 265);
   --swatch-neutral: oklch(0.945 0.003 265);
   --primary: var(--swatch-neutral);
   --primary-foreground: oklch(0.185 0.005 265);
-  --secondary: oklch(0.235 0.006 265);
-  --secondary-foreground: oklch(0.955 0.003 265);
-  --muted: oklch(0.235 0.006 265);
-  --muted-foreground: oklch(0.68 0.01 265);
-  --accent: oklch(0.255 0.007 265);
-  --accent-foreground: oklch(0.955 0.003 265);
-  --destructive: oklch(0.66 0.2 25);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 12%);
+  --secondary: oklch(1 0 0 / 8%);
+  --secondary-foreground: oklch(0.965 0.003 265);
+  --muted: oklch(1 0 0 / 7%);
+  --muted-foreground: oklch(0.76 0.012 265);
+  --accent: oklch(1 0 0 / 10%);
+  --accent-foreground: oklch(0.965 0.003 265);
+  --destructive: oklch(0.68 0.19 25);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 13%);
   --ring: oklch(0.72 0.14 250);
 
-  --success: oklch(0.74 0.15 155);
-  --warning: oklch(0.8 0.14 75);
-  --info: oklch(0.72 0.14 250);
+  --success: oklch(0.78 0.15 155);
+  --warning: oklch(0.84 0.14 85);
+  --info: oklch(0.74 0.14 250);
 
   --chart-1: oklch(0.72 0.14 250);
   --chart-2: oklch(0.74 0.15 155);
@@ -102,14 +123,17 @@
   --chart-4: oklch(0.66 0.2 25);
   --chart-5: oklch(0.68 0.01 265);
 
-  --sidebar: oklch(0.135 0.004 265);
-  --sidebar-foreground: oklch(0.955 0.003 265);
+  --sidebar: oklch(0.3 0.014 265 / 42%);
+  --sidebar-foreground: oklch(0.965 0.003 265);
   --sidebar-primary: oklch(0.72 0.14 250);
   --sidebar-primary-foreground: oklch(0.155 0.004 265);
-  --sidebar-accent: oklch(0.215 0.006 265);
-  --sidebar-accent-foreground: oklch(0.955 0.003 265);
-  --sidebar-border: oklch(1 0 0 / 6%);
+  --sidebar-accent: oklch(1 0 0 / 11%);
+  --sidebar-accent-foreground: oklch(0.965 0.003 265);
+  --sidebar-border: oklch(1 0 0 / 11%);
   --sidebar-ring: oklch(0.72 0.14 250);
+
+  --glass-highlight: oklch(1 0 0 / 10%);
+  --glass-shadow: 0 1px 2px oklch(0 0 0 / 20%), 0 10px 30px oklch(0 0 0 / 22%);
 
   --syntax-keyword: #ff7b72;
   --syntax-entity: #d2a8ff;
@@ -124,9 +148,13 @@
 
 /*
  * Primary colour picked in Settings > Appearance (data-accent on <html>).
- * Graphite is the default and follows the theme via --swatch-neutral; the
- * others keep white text readable in both themes, except gold, which takes dark text. Swatches in the picker
- * read these same variables.
+ * Blue is the default. Graphite (no data-accent) follows the theme via
+ * --swatch-neutral; the others keep white text readable in both themes,
+ * except gold, which takes dark text. Swatches in the picker read these same
+ * variables. data-accent='custom' gets --primary and --primary-foreground as
+ * inline styles on <html> (see appearance.svelte.ts and index.html), so it
+ * needs no rule here. ACCENTS in appearance.svelte.ts holds hex equivalents
+ * of these swatches for the background scenes; keep them in sync.
  */
 :root {
   --code-font-size: 12px;
@@ -172,10 +200,14 @@
 }
 
 @theme inline {
-  --font-sans: 'Outfit Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans:
+    'DM Sans Variable', -apple-system, BlinkMacSystemFont, ui-sans-serif,
+    system-ui, sans-serif;
   --font-mono: var(--code-font-family);
 
   --color-background: var(--background);
+  --color-background-solid: var(--background-solid);
+  --color-backdrop: var(--backdrop);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -231,7 +263,7 @@
   }
 
   body {
-    @apply bg-background text-foreground min-h-screen overscroll-none select-none;
+    @apply bg-backdrop text-foreground min-h-screen overscroll-none select-none;
   }
 
   /* Paneforge forces ew-resize/ns-resize on everything mid-drag, which WKWebView
@@ -545,17 +577,19 @@
 }
 
 .app-shell {
-  --sidebar-w: 248px;
+  --sidebar-w: 256px;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
 }
 
+/* The sidebar floats inside the window as its own pane of glass. */
 .app-shell > aside {
-  width: var(--sidebar-w);
+  width: calc(var(--sidebar-w) - 10px);
+  margin: 8px 0 8px 8px;
 }
 
 @media (max-width: 1100px) {
   .app-shell {
-    --sidebar-w: 216px;
+    --sidebar-w: 228px;
   }
 }
 
@@ -602,4 +636,121 @@
 .composer.composer-dropping {
   border-color: var(--ring);
   background-color: color-mix(in oklch, var(--ring) 8%, var(--background));
+}
+
+/*
+ * Glass. Cards, popovers and the sidebar blur the live background behind
+ * them; the classes below are for surfaces that aren't shadcn components.
+ * Blur is expensive over an animated scene, so it goes on panels only, never
+ * on rows or text.
+ */
+@layer components {
+  .bg-card,
+  .glass-card {
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+  }
+
+  .bg-card {
+    box-shadow: inset 0 1px 0 var(--glass-highlight);
+  }
+
+  .glass-card {
+    border: 1px solid var(--border);
+    background: var(--card);
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight),
+      var(--glass-shadow);
+  }
+
+  .bg-popover,
+  .glass-pane,
+  .glass-pop {
+    -webkit-backdrop-filter: var(--glass-blur-strong);
+    backdrop-filter: var(--glass-blur-strong);
+  }
+
+  .glass-pane {
+    border: 0.5px solid var(--sidebar-border);
+    background: var(--popover);
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight),
+      0 24px 60px oklch(0 0 0 / 28%);
+  }
+
+  .glass-pop {
+    border: 0.5px solid var(--sidebar-border);
+    background: var(--popover);
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight),
+      0 22px 56px oklch(0 0 0 / 32%);
+  }
+
+  /* Pills, segmented controls and fields set into glass. */
+  .glass-well {
+    border: 0.5px solid var(--border);
+    background: oklch(0 0 0 / 18%);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 5%);
+  }
+
+  .glass-sidebar {
+    -webkit-backdrop-filter: var(--glass-blur-strong);
+    backdrop-filter: var(--glass-blur-strong);
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight),
+      0 10px 34px oklch(0 0 0 / 16%);
+  }
+
+  :root:not(.dark) .glass-well {
+    background: oklch(0.2 0.01 265 / 6%);
+  }
+}
+
+/* Popovers and menus from bits-ui pick up a touch of glass edge as well. */
+[data-slot='popover-content'],
+[data-slot='dropdown-menu-content'],
+[data-slot='select-content'],
+[data-slot='tooltip-content'] {
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 16px 40px oklch(0 0 0 / 28%);
+}
+
+/* Git and Output slide in from the right over the workspace (WorkspaceView). */
+.slide-out {
+  transform: translate3d(calc(100% + 48px), 0, 0);
+  visibility: hidden;
+  transition:
+    transform var(--dur-slide) var(--ease-out-snappy),
+    visibility 0s linear var(--dur-slide);
+  will-change: transform;
+}
+
+.slide-out[data-open='true'] {
+  transform: none;
+  visibility: visible;
+  transition: transform var(--dur-slide) var(--ease-out-snappy);
+}
+
+.slide-scrim {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-med) ease;
+}
+
+.slide-scrim[data-open='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Each view eases in as it mounts: quick enough to read as instant, smooth enough to follow. */
+.main-area > * {
+  animation: view-in var(--dur-med) var(--ease-out-snappy);
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
 }

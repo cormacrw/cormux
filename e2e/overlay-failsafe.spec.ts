@@ -21,9 +21,9 @@ test('the app stays clickable when a dialog exit animation never finishes', asyn
   })
   await page.goto('/')
 
+  // The sidebar command bar opens the palette, a dialog like any other.
   const newWorkspace = page.getByRole('button', {
-    name: 'New Workspace',
-    exact: true,
+    name: 'Search or run a command (Command K)',
   })
   await newWorkspace.click()
   await expect(page.getByRole('dialog')).toBeVisible()
@@ -32,7 +32,7 @@ test('the app stays clickable when a dialog exit animation never finishes', asyn
   // Without the failsafe the overlay stays in place and this click never lands.
   await newWorkspace.click({ timeout: 5000 })
   await expect(
-    page.getByRole('dialog', { name: /New workspace/i }),
+    page.getByRole('dialog', { name: /Command palette/i }),
   ).toBeVisible()
   await page.keyboard.press('Escape')
   await expect
@@ -46,9 +46,9 @@ test('the app stays clickable when a closed dialog leaves the body locked', asyn
   page,
 }) => {
   await page.goto('/')
+  // The sidebar command bar opens the palette, a dialog like any other.
   const newWorkspace = page.getByRole('button', {
-    name: 'New Workspace',
-    exact: true,
+    name: 'Search or run a command (Command K)',
   })
   await newWorkspace.click()
   await expect(page.getByRole('dialog')).toBeVisible()

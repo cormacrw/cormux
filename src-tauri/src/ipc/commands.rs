@@ -14,7 +14,7 @@ use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
-use crate::store::types::{ThreadRow, TodoRow, WorkspaceRow};
+use crate::store::types::{SprintPlanRow, ThreadRow, TodoRow, WorkspaceRow};
 use crate::workspace::ThreadActivity;
 
 use super::types::{
@@ -1906,6 +1906,9 @@ pub async fn create_todo(title: String, state: State<'_, AppState>) -> Result<To
         id: format!("todo-{}", Uuid::new_v4()),
         title: title.to_string(),
         pinned: false,
+        description: String::new(),
+        planned_on: None,
+        done_at: None,
     };
     state.store.insert_todo(&todo)?;
     Ok(todo)
@@ -1926,6 +1929,79 @@ pub async fn set_todo_pinned(
     state: State<'_, AppState>,
 ) -> Result<()> {
     state.store.set_todo_pinned(&todo_id, pinned)
+}
+
+/// The Week page's details pane edits a todo's title and description.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_todo(
+    todo_id: String,
+    title: String,
+    description: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(Error::Store("a todo needs a title".into()));
+    }
+    state.store.update_todo(&todo_id, title, &description)
+}
+
+fn plan_date(planned_on: Option<String>) -> Result<Option<String>> {
+    match planned_on {
+        Some(day) if !crate::store::is_plan_date(&day) => {
+            Err(Error::Store(format!("not a day to plan for: {day}")))
+        }
+        other => Ok(other),
+    }
+}
+
+/// Plans a todo onto a day (`YYYY-MM-DD`), or back into the Week page's loading area.
+#[tauri::command]
+#[specta::specta]
+pub async fn plan_todo(
+    todo_id: String,
+    planned_on: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let planned_on = plan_date(planned_on)?;
+    state.store.plan_todo(&todo_id, planned_on.as_deref())
+}
+
+/// Returns when it was completed, or `None` once reopened.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_todo_done(
+    todo_id: String,
+    done: bool,
+    state: State<'_, AppState>,
+) -> Result<Option<String>> {
+    state.store.set_todo_done(&todo_id, done)
+}
+
+/// Plans a ClickUp task onto a day locally. Nothing is written to ClickUp.
+#[tauri::command]
+#[specta::specta]
+pub async fn plan_sprint_task(
+    task_id: String,
+    planned_on: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<SprintPlanRow> {
+    let planned_on = plan_date(planned_on)?;
+    state
+        .store
+        .plan_sprint_task(&task_id, planned_on.as_deref())
+}
+
+/// Marks a ClickUp task done in the week plan only; its ClickUp status is untouched.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_sprint_task_done(
+    task_id: String,
+    done: bool,
+    state: State<'_, AppState>,
+) -> Result<SprintPlanRow> {
+    state.store.set_sprint_task_done(&task_id, done)
 }
 
 /// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.

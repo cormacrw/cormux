@@ -51,7 +51,11 @@ test('only new rows pop in, and a new reply types out', async ({ page }) => {
   })
 
   // Reloading the turn from the store once it ends replays nothing.
-  await expect(page.getByText('0 working')).toBeVisible({ timeout: 5000 })
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('button', { name: 'OAuth login, Idle, 1 agent' }),
+  ).toBeVisible({ timeout: 5000 })
   expect(await popping(page)).toEqual([])
   expect(errors).toEqual([])
 })
@@ -60,6 +64,8 @@ test('a thread with thousands of events keeps drawing frames while a reply strea
   page,
 }) => {
   await page.addInitScript(() => {
+    // Headless Chromium draws WebGL in software; a still background keeps this about the timeline.
+    localStorage.setItem('cormux-background-animate', '0')
     const w = window as Window & { __frames?: number }
     w.__frames = 0
     const tick = () => {

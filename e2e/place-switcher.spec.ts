@@ -36,6 +36,7 @@ test('holding Ctrl lists places most recent first; letting go switches', async (
     /^\s*TODOs$/,
     /^\s*OAuth login/,
     /^\s*Homebase$/,
+    /^\s*Week$/,
   ])
   await expect(switcher.getByRole('option', { selected: true })).toHaveText(
     /^\s*OAuth login/,
@@ -58,6 +59,7 @@ test('holding Ctrl lists places most recent first; letting go switches', async (
     /^\s*Homebase$/,
     /^\s*TODOs$/,
     /^\s*OAuth login/,
+    /^\s*Week$/,
   ])
   // Esc closes it without going anywhere.
   await page.keyboard.press('Escape')

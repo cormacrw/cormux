@@ -25,8 +25,31 @@
         ) {
           root.classList.add('dark')
         }
-        const accent = read('cormux-accent')
-        if (accent && accent !== 'neutral') root.dataset.accent = accent
+        // Blue is the default; a custom accent sets --primary inline, with
+        // the foreground picked like readableForeground in background/color.ts.
+        const accent = read('cormux-accent') || 'blue'
+        if (accent !== 'neutral') root.dataset.accent = accent
+        const custom = read('cormux-accent-custom')
+        if (accent === 'custom' && /^#[0-9a-f]{6}$/i.test(custom || '')) {
+          const n = parseInt(custom.slice(1), 16)
+          const lin = (c) => {
+            c /= 255
+            return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+          }
+          const lum =
+            0.2126 * lin((n >> 16) & 255) +
+            0.7152 * lin((n >> 8) & 255) +
+            0.0722 * lin(n & 255)
+          // Contrast against #17171c (luminance ~0.0088) versus white.
+          const dark = (lum + 0.05) / 0.0588 > 1.05 / (lum + 0.05)
+          root.style.setProperty('--primary', custom)
+          root.style.setProperty(
+            '--primary-foreground',
+            dark ? '#17171c' : '#ffffff',
+          )
+        }
+        // Ids match BACKGROUNDS in src/lib/background/registry.ts.
+        root.dataset.background = read('cormux-background') || 'studio'
         const uiSize = Number(read('cormux-ui-font-size'))
         if (uiSize >= 14 && uiSize <= 18) root.style.fontSize = uiSize + 'px'
         const codeSize = Number(read('cormux-code-font-size'))

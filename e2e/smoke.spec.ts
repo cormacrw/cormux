@@ -41,7 +41,7 @@ test.describe('browser harness UI', () => {
     await composer.fill('hello from the harness')
     await page.getByRole('button', { name: 'Send to agent' }).click()
     await expect(composer).toHaveValue('')
-    const bubble = page.getByText('hello from the harness')
+    const bubble = page.getByText('hello from the harness', { exact: true })
     await expect(bubble).toBeVisible()
     const you = page.locator('#timeline').getByText(/^You · \d{1,2}:\d{2}/)
     await expect(you).toBeVisible()
@@ -73,16 +73,18 @@ test.describe('browser harness UI', () => {
     ).toBeVisible()
     await page.getByRole('button', { name: 'Homebase' }).click()
 
-    await page
-      .getByRole('button', { name: 'New Workspace', exact: true })
-      .click()
+    await expect(page.locator('#home-title')).toBeVisible()
+    await page.keyboard.press('ControlOrMeta+n')
 
     const dialog = page.getByRole('dialog', { name: 'New workspace' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('No repositories yet')).toHaveCount(0)
     await expect(dialog.locator('#nw-repo')).toBeVisible()
     await expect(dialog.locator('#nw-engine')).toBeVisible()
-    await expect(dialog.getByText('The agent provider to use')).toBeVisible()
+    await expect(dialog.locator('#nw-engine')).toHaveAttribute(
+      'title',
+      'The agent provider to use',
+    )
     await expect(
       dialog.getByText('Describe the task so the agent knows where to start.'),
     ).toHaveCount(0)
@@ -139,13 +141,14 @@ test.describe('browser harness UI', () => {
         },
       ]
     })
-    await page
-      .getByRole('button', { name: 'New Workspace', exact: true })
-      .click()
+    await expect(page.locator('#home-title')).toBeVisible()
+    await page.keyboard.press('ControlOrMeta+n')
     const dialog = page.getByRole('dialog', { name: 'New workspace' })
     await expect(dialog).toBeVisible()
     await expect(dialog.locator('#nw-engine')).toHaveCount(0)
-    await expect(dialog.getByText('The agent provider to use')).toHaveCount(0)
+    await expect(
+      dialog.locator('[title="The agent provider to use"]'),
+    ).toHaveCount(0)
     await expect(dialog.locator('#nw-repo')).toBeVisible()
     await page.screenshot({ path: 'e2e/output/new-workspace-one-engine.png' })
   })

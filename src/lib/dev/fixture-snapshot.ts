@@ -87,9 +87,20 @@ export const fixtureSnapshot: Snapshot = {
         id: 'todo-webhook',
         title: 'Rotate the Stripe webhook secret',
         pinned: true,
+        description: '',
+        plannedOn: null,
+        doneAt: null,
       },
-      { id: 'todo-changelog', title: 'Draft the 0.4 changelog', pinned: false },
+      {
+        id: 'todo-changelog',
+        title: 'Draft the 0.4 changelog',
+        pinned: false,
+        description: '',
+        plannedOn: null,
+        doneAt: null,
+      },
     ],
+    sprintPlan: [],
     scratches: [
       {
         id: 'scratch-webhook',

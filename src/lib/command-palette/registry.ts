@@ -1,5 +1,6 @@
 import { workspaceRunCommand } from '$lib/run-app/run-command'
 import Zap from '@lucide/svelte/icons/zap'
+import CalendarDays from '@lucide/svelte/icons/calendar-days'
 import Download from '@lucide/svelte/icons/download'
 import GitBranch from '@lucide/svelte/icons/git-branch'
 import Layers from '@lucide/svelte/icons/layers'
@@ -39,6 +40,7 @@ const iconByCommandPrefix: Record<string, PaletteCommand['icon']> = {
   'action-homebase': Layers,
   'action-todos': ListTodo,
   'action-sprint': Kanban,
+  'action-week': CalendarDays,
   'action-add-todo': Plus,
   'action-settings': SlidersHorizontal,
   'action-reduce-motion': SlidersHorizontal,
@@ -127,6 +129,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       openHomebase: () => app.openHomebase(),
       openTodos: () => app.openTodos(),
       openSprint: () => app.openSprint(),
+      openWeek: () => app.openWeek(),
       openSettings: () => app.openSettings(),
       openWorkspace: (id, threadId) => app.openWorkspace(id, threadId),
       toggleReduceMotion,

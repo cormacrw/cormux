@@ -23,6 +23,7 @@ export type PaletteRegistryActions = {
   openHomebase: () => void
   openTodos: () => void
   openSprint: () => void
+  openWeek: () => void
   openSettings: () => void
   openWorkspace: (workspaceId: string, threadId?: string) => void
   toggleReduceMotion: () => void
@@ -92,6 +93,13 @@ export function buildPaletteCommandsFromState(
       group: 'Actions',
       label: 'Go to TODOs',
       run: () => actions.openTodos(),
+    },
+    {
+      id: 'action-week',
+      group: 'Actions',
+      label: 'Go to week',
+      meta: 'plan',
+      run: () => actions.openWeek(),
     },
     ...(state.clickupConfigured
       ? [

@@ -14,29 +14,16 @@
     todos,
     workspaces,
   } from '$lib/state'
-  import { isActiveThread } from '$lib/sidebar/status'
   import Cpu from '@lucide/svelte/icons/cpu'
   import Kanban from '@lucide/svelte/icons/square-kanban'
   import Layers from '@lucide/svelte/icons/layers'
   import ListTodo from '@lucide/svelte/icons/list-todo'
-  import Plus from '@lucide/svelte/icons/plus'
-  import Search from '@lucide/svelte/icons/search'
+  import Sparkle from '@lucide/svelte/icons/sparkle'
+  import CalendarDays from '@lucide/svelte/icons/calendar-days'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
-  import SidebarAgentRow from './SidebarAgentRow.svelte'
   import SidebarRepoRow from './SidebarRepoRow.svelte'
   import SidebarScratchRow from './SidebarScratchRow.svelte'
   import SidebarWorkspaceRow from './SidebarWorkspaceRow.svelte'
-
-  const workingAgents = $derived(
-    threads.sidebarAgents.filter(
-      (thread) =>
-        isActiveThread({
-          status: thread.status,
-          paused: thread.paused,
-          activity: thread.activity,
-        }) && !thread.paused,
-    ).length,
-  )
 
   function startWindowDrag(event: MouseEvent) {
     if (event.button !== 0) return
@@ -50,7 +37,7 @@
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="titlebar flex h-10 items-center justify-end"
+    class="titlebar flex h-11 items-center justify-end"
     data-tauri-drag-region
     onmousedown={startWindowDrag}
   >
@@ -64,19 +51,20 @@
   </div>
 
   <div class="grid gap-0.5 pb-2">
-    <Button
-      variant="outline"
-      class="mb-2 h-8 w-full justify-start gap-2 border-border/60 bg-foreground/[0.03] px-2 text-sm font-normal text-muted-foreground hover:text-foreground"
+    <button
+      type="button"
+      class="glass-well mb-2 flex h-[34px] w-full items-center gap-2 rounded-[10px] pr-1.5 pl-2.5 text-left text-sm text-muted-foreground transition-[background-color,color] duration-(--dur-fast) outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
       aria-label="Search or run a command (Command K)"
+      data-od-id="sidebar-command-bar"
       onclick={() => app.requestCommandPalette()}
     >
-      <Search class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
-      <span class="min-w-0 flex-1 text-left">Search</span>
+      <Sparkle class="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">Search or start…</span>
       <kbd
-        class="font-mono text-[10px] text-muted-foreground/80"
+        class="rounded-md bg-foreground/10 px-1.5 py-1 font-mono text-[10px] leading-none"
         aria-hidden="true">⌘K</kbd
       >
-    </Button>
+    </button>
 
     <Button
       variant="ghost"
@@ -107,6 +95,17 @@
       {/if}
     </Button>
 
+    <Button
+      variant="ghost"
+      class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
+      aria-current={app.view === 'week' ? 'page' : undefined}
+      data-od-id="nav-week"
+      onclick={() => app.openWeek()}
+    >
+      <CalendarDays class="size-4 shrink-0 opacity-80" aria-hidden="true" />
+      <span class="flex-1 text-left">Week</span>
+    </Button>
+
     {#if clickup.configured}
       <Button
         variant="ghost"
@@ -124,25 +123,12 @@
         {/if}
       </Button>
     {/if}
-
-    <Button
-      variant="ghost"
-      class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground"
-      onclick={() => app.requestNewWorkspace()}
-    >
-      <Plus class="size-4 shrink-0 opacity-80" aria-hidden="true" />
-      <span class="min-w-0 flex-1 text-left">New workspace</span>
-      <kbd
-        class="font-mono text-[10px] text-muted-foreground/80"
-        aria-hidden="true">⌘N</kbd
-      >
-    </Button>
   </div>
 
   <ScrollArea.Root class="sidebar-scroll -mx-2 min-h-0 flex-1 px-2">
     <div class="flex flex-col">
       <div
-        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[11px] font-semibold text-muted-foreground"
         id="side-repo-label"
       >
         <span>Repos</span>
@@ -163,7 +149,7 @@
       </ul>
 
       <div
-        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[11px] font-semibold text-muted-foreground"
         id="side-ws-label"
       >
         <span>Workspaces</span>
@@ -188,7 +174,7 @@
 
       {#if scratches.items.length > 0}
         <div
-          class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+          class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[11px] font-semibold text-muted-foreground"
           id="side-scratch-label"
         >
           <span>Scratches</span>
@@ -205,27 +191,6 @@
           {/each}
         </ul>
       {/if}
-
-      <div
-        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
-        id="side-ag-label"
-      >
-        <span>Agents</span>
-        <span class="font-mono normal-case tracking-normal"
-          >{workingAgents} working</span
-        >
-      </div>
-      <ul class="grid list-none gap-px p-0" aria-labelledby="side-ag-label">
-        {#if threads.sidebarAgents.length === 0}
-          <li class="px-2 py-1.5 text-xs text-muted-foreground">
-            No agents running
-          </li>
-        {:else}
-          {#each threads.sidebarAgents as thread (thread.id)}
-            <SidebarAgentRow {thread} />
-          {/each}
-        {/if}
-      </ul>
     </div>
   </ScrollArea.Root>
 

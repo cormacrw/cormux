@@ -9,8 +9,8 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
 
-  const createPr = page.getByRole('button', { name: 'Create PR' })
-  await expect(createPr).toHaveAttribute('aria-keyshortcuts', 'Meta+P')
+  // Create PR has no button any more; ⌘P still opens it.
+  await expect(page.getByRole('button', { name: 'Create PR' })).toHaveCount(0)
   await page.screenshot({ path: 'e2e/output/workspace-header-shortcuts.png' })
 
   // Wide windows show every action as a button, with no ⋯ menu.

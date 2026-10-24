@@ -7,6 +7,11 @@ import { fixtureClickupBoard, fixtureClickupDetail } from './fixture-clickup'
 
 type InvokeArgs = Record<string, unknown> | undefined
 
+/** SQLite's `datetime('now')`, as the core stamps `done_at`. */
+function sqliteNow() {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ')
+}
+
 function isRealTauri(): boolean {
   const internals = (
     window as Window & {
@@ -321,6 +326,28 @@ export function installBrowserHarness() {
       { key: 'clickupSpaceId', value: 'space-1' },
       { key: 'clickupFolderId', value: 'folder-sprints' },
     )
+  }
+
+  // The Week page's sample plan: one TODO on Monday, and with ClickUp on, a sprint task
+  // planned for today and a finished one on Monday.
+  const weekCalls: { cmd: string; args: InvokeArgs }[] = []
+  ;(
+    window as { __HARNESS_WEEK_CALLS__?: typeof weekCalls }
+  ).__HARNESS_WEEK_CALLS__ = weekCalls
+  {
+    const today = new Date()
+    const monday = new Date(today)
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+    const day = (date: Date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    const changelog = fixtureSnapshot.persisted.todos.find(
+      (row) => row.id === 'todo-changelog',
+    )
+    if (changelog) changelog.plannedOn = day(monday)
+    fixtureSnapshot.persisted.sprintPlan = [
+      { taskId: 't3', plannedOn: day(today), doneAt: null },
+      { taskId: 't6', plannedOn: day(monday), doneAt: null },
+    ]
   }
 
   // Lets tests raise a toast of any tone without driving a flow that produces it.
@@ -667,6 +694,9 @@ export function installBrowserHarness() {
         id: `todo-harness-${nextEventId++}`,
         title: String(args.title).trim(),
         pinned: false,
+        description: '',
+        plannedOn: null,
+        doneAt: null,
       }
       fixtureSnapshot.persisted.todos.push(todo)
       return todo
@@ -682,6 +712,43 @@ export function installBrowserHarness() {
       )
       if (todo) todo.pinned = Boolean(args.pinned)
       return null
+    }
+    if (
+      cmd === 'update_todo' ||
+      cmd === 'plan_todo' ||
+      cmd === 'set_todo_done'
+    ) {
+      weekCalls.push({ cmd, args })
+      const todo = fixtureSnapshot.persisted.todos.find(
+        (row) => row.id === args.todoId,
+      )
+      if (!todo) return null
+      if (cmd === 'update_todo') {
+        todo.title = String(args.title).trim()
+        todo.description = String(args.description)
+      } else if (cmd === 'plan_todo') {
+        todo.plannedOn = (args.plannedOn as string | null) ?? null
+      } else {
+        todo.doneAt = args.done ? (todo.doneAt ?? sqliteNow()) : null
+        return todo.doneAt
+      }
+      return null
+    }
+    if (cmd === 'plan_sprint_task' || cmd === 'set_sprint_task_done') {
+      weekCalls.push({ cmd, args })
+      const plan = fixtureSnapshot.persisted.sprintPlan
+      const taskId = String(args.taskId)
+      let row = plan.find((item) => item.taskId === taskId)
+      if (!row) {
+        row = { taskId, plannedOn: null, doneAt: null }
+        plan.push(row)
+      }
+      if (cmd === 'plan_sprint_task') {
+        row.plannedOn = (args.plannedOn as string | null) ?? null
+      } else {
+        row.doneAt = args.done ? (row.doneAt ?? sqliteNow()) : null
+      }
+      return { ...row }
     }
     if (cmd === 'set_clickup_api_key') {
       if (!String(args.key).startsWith('pk_')) {

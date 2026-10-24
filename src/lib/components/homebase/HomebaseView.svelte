@@ -9,9 +9,6 @@
   } from '$lib/homebase/filter'
   import { app, homebaseUi, threads, workspaces } from '$lib/state'
   import { formatCost, totalCost } from '$lib/usage/usage'
-  import { Kbd } from '$lib/components/ui/kbd'
-  import CommandIcon from '@lucide/svelte/icons/command'
-  import Plus from '@lucide/svelte/icons/plus'
   import OpenPrsSection from './OpenPrsSection.svelte'
   import PinnedTodosSection from './PinnedTodosSection.svelte'
   import ScratchesSection from './ScratchesSection.svelte'
@@ -54,7 +51,7 @@
 <div class="view-home relative flex min-h-0 flex-1 flex-col overflow-y-auto">
   <div class="mx-auto flex w-full max-w-[1200px] flex-col gap-10 p-6">
     <header
-      class="sticky top-0 z-10 -mx-6 -mt-6 -mb-4 flex flex-wrap items-center justify-between gap-4 bg-background px-6 pt-6 pb-4"
+      class="-mb-4 flex flex-wrap items-center justify-between gap-4 pt-1"
       aria-labelledby="home-title"
     >
       <!-- The cost reads as a caption of the title, so it shares the title's baseline. -->
@@ -77,33 +74,6 @@
             {formatCost(cost)} spent by agents
           </p>
         {/if}
-      </div>
-      <div class="flex items-center gap-2">
-        <Button
-          variant="secondary"
-          size="xl"
-          class="gap-2"
-          data-od-id="new-session"
-          onclick={() => app.requestNewScratch()}
-        >
-          <Plus class="size-4" aria-hidden="true" />
-          New scratch
-          <Kbd class="gap-0.5" aria-hidden="true">
-            <CommandIcon />S
-          </Kbd>
-        </Button>
-        <Button
-          variant="default"
-          size="xl"
-          class="gap-2"
-          onclick={() => app.requestNewWorkspace()}
-        >
-          <Plus class="size-4" aria-hidden="true" />
-          New Workspace
-          <Kbd class="gap-0.5" aria-hidden="true">
-            <CommandIcon />N
-          </Kbd>
-        </Button>
       </div>
     </header>
 
@@ -128,11 +98,10 @@
               if (next) homebaseUi.filter = next as HomebaseFilter
             }
           }
-          variant="outline"
           size="sm"
           role="group"
           aria-label="Filter workspaces"
-          class="data-[spacing=0]:rounded-lg"
+          class="glass-well gap-0.5 rounded-[9px] p-0.5"
         >
           <ToggleGroup.Item
             value="all"

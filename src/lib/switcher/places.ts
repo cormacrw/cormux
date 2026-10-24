@@ -3,11 +3,13 @@ export type Place =
   | { kind: 'workspace'; id: string }
   | { kind: 'homebase' }
   | { kind: 'todos' }
+  | { kind: 'week' }
   | { kind: 'sprint' }
 
 export const MAIN_PAGES: Place[] = [
   { kind: 'homebase' },
   { kind: 'todos' },
+  { kind: 'week' },
   { kind: 'sprint' },
 ]
 

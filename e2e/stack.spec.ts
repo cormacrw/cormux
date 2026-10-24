@@ -33,8 +33,7 @@ test('Changes shows the gh-stack stack beside the diff, checks out, pushes and a
 
   // gh-stack only adds on top, so Add waits for the top branch.
   await expect(panel.getByRole('button', { name: 'Add branch' })).toBeDisabled()
-  // Pull requests stay manual: Create PR is unchanged, and Push only pushes.
-  await expect(page.getByRole('button', { name: 'Create PR' })).toBeVisible()
+  // Pull requests stay manual: Push only pushes.
   await expect(panel.getByRole('button', { name: 'Submit' })).toHaveCount(0)
   await expect(cards.nth(2)).toContainText('#101')
   const push = panel.getByRole('button', { name: 'Push' })
@@ -65,7 +64,6 @@ test('Stack starts from an unstacked branch', async ({ page }) => {
   await expect(panel.locator('[data-stack-branch]')).toContainText(
     'not stacked',
   )
-  await expect(page.getByRole('button', { name: 'Create PR' })).toBeVisible()
   await panel.getByRole('button', { name: 'Add branch' }).click()
   const input = panel.getByLabel(/New branch on top of/)
   await input.fill('bad name')
@@ -118,7 +116,7 @@ test('Create PR targets the branch below, and the header links an existing PR', 
 }) => {
   const panel = await openStack(page)
   // feat/oauth-login has no PR yet; its PR goes against the branch below it.
-  await page.getByRole('button', { name: 'Create PR' }).click()
+  await page.keyboard.press('ControlOrMeta+p')
   const dialog = page.getByRole('dialog', { name: 'Create draft pull request' })
   await expect(dialog.locator('[data-od-id="pr-route"]')).toHaveText(
     'feat/oauth-login → feat/oauth-api · 3 files +96 −12',

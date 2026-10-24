@@ -2,7 +2,7 @@
 
 ## Summary
 
-The workspace header is a single, clean bar across the top of a workspace. On the left: the workspace name and its branch. On the right: the workspace's actions, in a fixed order: app run controls, a ⋯ menu for less frequent actions, and one primary action (**Create PR**, or **Submit review** in review workspaces).
+The workspace header is a single, clean bar across the top of a workspace. On the left: the workspace name and its branch. On the right: the workspace's actions, in a fixed order: app run controls, a ⋯ menu for less frequent actions, and, in review workspaces, one primary action (**Submit review**). Build workspaces have no Create PR button; `⌘P` still opens the Create PR dialog.
 
 ## Why it exists
 
@@ -36,7 +36,7 @@ The header was deliberately stripped back. It previously held a back button, a s
    | separator | | | |
    | `Teardown worktree…` | trash, red | Always | See [08](08-teardown.md) |
 3. **Primary action** (solid, the only primary in the header):
-   - Build workspace: **Create PR** with a PR icon. After a PR is created it becomes a disabled `PR #<N> opened`. See [18](18-create-pr.md).
+   - Build workspace: nothing until the branch has a PR, then a secondary `PR #<N> opened` link. `⌘P` opens Create PR ([18](18-create-pr.md)).
    - Review workspace: **Submit review** with a PR icon. Disabled after submitting. See [19](19-review-workspaces.md).
 
 ## Behaviour

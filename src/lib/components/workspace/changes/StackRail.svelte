@@ -210,9 +210,10 @@
         'mt-3.5 size-2.5 shrink-0 rounded-full',
         kind === 'current' && 'bg-primary ring-4 ring-primary/20',
         kind === 'merged' && 'bg-muted-foreground/50',
-        kind === 'open' && 'border-2 border-muted-foreground/50 bg-background',
+        kind === 'open' &&
+          'border-2 border-muted-foreground/50 bg-background-solid',
         kind === 'uncommitted' &&
-          'border-2 border-dashed border-muted-foreground/60 bg-background',
+          'border-2 border-dashed border-muted-foreground/60 bg-background-solid',
       )}
     ></span>
   </div>

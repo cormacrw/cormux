@@ -21,9 +21,9 @@
     "clean": "rm -rf dist e2e/output test-results playwright-report && cargo clean --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
+    "@fontsource-variable/dm-sans": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "@fontsource-variable/outfit": "^5.3.0",
     "@git-diff-view/svelte": "^0.1.7",
     "@tanstack/svelte-virtual": "^3.13.39",
     "@tauri-apps/api": "^2",
@@ -36,7 +36,8 @@
     "marked": "^18.0.14",
     "marked-highlight": "^2.2.4",
     "motion": "^13.5.0",
-    "paneforge": "^1.0.2"
+    "paneforge": "^1.0.2",
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -48,6 +49,7 @@
     "@tsconfig/svelte": "^5.0.8",
     "@types/dompurify": "^3.2.0",
     "@types/node": "^24.13.3",
+    "@types/three": "^0.186.0",
     "bits-ui": "^2.18.0",
     "cn": "^0.3.0",
     "eslint": "^10.11.0",

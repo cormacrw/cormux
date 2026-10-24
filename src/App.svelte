@@ -8,6 +8,7 @@
   import { ModeWatcher } from 'mode-watcher'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
+  import BackgroundCanvas from '$lib/background/BackgroundCanvas.svelte'
   import CommandPalette from '$lib/components/shell/CommandPalette.svelte'
   import { bindNativeMenu } from '$lib/components/shell/menu'
   import { handleGlobalKeydown } from '$lib/keyboard/global-shortcuts'
@@ -30,6 +31,7 @@
   import ScratchView from '$lib/components/scratch/ScratchView.svelte'
   import TodosView from '$lib/components/todos/TodosView.svelte'
   import SprintView from '$lib/components/sprint/SprintView.svelte'
+  import WeekView from '$lib/components/week/WeekView.svelte'
   import Repo from './routes/Repo.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
@@ -140,6 +142,8 @@
 </script>
 
 <ModeWatcher />
+<!-- The live scene the glass sits on (Settings › Appearance › Background). -->
+<BackgroundCanvas />
 <PlaceSwitcher />
 
 {#if isDevBuild}
@@ -170,6 +174,8 @@
       <TodosView />
     {:else if app.view === 'sprint'}
       <SprintView />
+    {:else if app.view === 'week'}
+      <WeekView />
     {:else if app.view === 'repo'}
       <Repo />
     {:else}

@@ -42,7 +42,7 @@
     <!-- A crashed app runs again from scratch, so it's Run either way. -->
     <Button
       variant="secondary"
-      size="xl"
+      size="default"
       disabled={appStatus === 'stopped' && runBlocked}
       aria-label="Run app"
       aria-keyshortcuts="Meta+R"
@@ -57,7 +57,7 @@
   {:else}
     <Button
       variant="secondary"
-      size="xl"
+      size="default"
       aria-label="Stop app"
       aria-keyshortcuts="Meta+."
       class="hover:text-destructive"

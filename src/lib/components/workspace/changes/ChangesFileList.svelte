@@ -51,7 +51,7 @@
       data-diff-path={file.path}
     >
       <div
-        class="group/file sticky top-0 z-10 flex items-center border-b border-border/40 bg-background hover:bg-[color-mix(in_oklch,var(--muted)_40%,var(--background))]"
+        class="group/file sticky top-0 z-10 flex items-center border-b border-border/40 bg-background-solid hover:bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background-solid))]"
       >
         <button
           type="button"

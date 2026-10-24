@@ -87,8 +87,8 @@
         {...props}
         bind:ref={triggerEl}
         variant="secondary"
-        size="xl"
-        class="w-12 px-0"
+        size="default"
+        class="w-8 px-0"
         aria-label="More workspace actions"
         aria-keyshortcuts="Meta+J"
         title="More actions (⌘J)"

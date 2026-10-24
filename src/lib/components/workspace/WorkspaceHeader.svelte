@@ -215,7 +215,7 @@
         />
         <Button
           variant="secondary"
-          size="xl"
+          size="default"
           aria-keyshortcuts="Meta+T"
           data-ws-focus="terminal"
           data-od-id="ws-terminal"
@@ -228,7 +228,7 @@
         {#if workspace.kind !== 'review'}
           <Button
             variant="secondary"
-            size="xl"
+            size="default"
             disabled={runDisabled || reviewing}
             aria-keyshortcuts="Meta+I"
             title="Review this branch's changes, uncommitted work included"
@@ -248,7 +248,7 @@
         {/if}
         <Button
           variant="destructive"
-          size="xl"
+          size="default"
           aria-label="Delete workspace"
           aria-keyshortcuts="Meta+D"
           data-ws-focus="delete"

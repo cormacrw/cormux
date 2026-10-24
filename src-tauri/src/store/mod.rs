@@ -4,12 +4,12 @@ pub mod types;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
 use types::{
     ApprovalRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow, SettingRow,
-    ThreadEventRow, ThreadRow, TodoRow, WorkspaceRow,
+    SprintPlanRow, ThreadEventRow, ThreadRow, TodoRow, WorkspaceRow,
 };
 
 /// SQLite persistence in the app data directory.
@@ -633,10 +633,89 @@ impl Store {
     pub fn insert_todo(&self, todo: &TodoRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "INSERT INTO todos (id, title, pinned) VALUES (?1, ?2, ?3)",
-                rusqlite::params![todo.id, todo.title, todo.pinned],
+                "INSERT INTO todos (id, title, pinned, description, planned_on, done_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    todo.id,
+                    todo.title,
+                    todo.pinned,
+                    todo.description,
+                    todo.planned_on,
+                    todo.done_at
+                ],
             )?;
             Ok(())
+        })
+    }
+
+    pub fn update_todo(&self, todo_id: &str, title: &str, description: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE todos SET title = ?2, description = ?3 WHERE id = ?1",
+                rusqlite::params![todo_id, title, description],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn plan_todo(&self, todo_id: &str, planned_on: Option<&str>) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE todos SET planned_on = ?2 WHERE id = ?1",
+                rusqlite::params![todo_id, planned_on],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Returns the stored `done_at`, which is `None` once reopened.
+    pub fn set_todo_done(&self, todo_id: &str, done: bool) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE todos SET done_at = CASE WHEN ?2 THEN COALESCE(done_at, datetime('now')) END
+                 WHERE id = ?1",
+                rusqlite::params![todo_id, done],
+            )?;
+            let done_at = conn
+                .query_row(
+                    "SELECT done_at FROM todos WHERE id = ?1",
+                    [todo_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten();
+            Ok(done_at)
+        })
+    }
+
+    pub fn plan_sprint_task(
+        &self,
+        task_id: &str,
+        planned_on: Option<&str>,
+    ) -> Result<SprintPlanRow> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO sprint_plan (task_id, planned_on) VALUES (?1, ?2)
+                 ON CONFLICT(task_id) DO UPDATE SET
+                    planned_on = excluded.planned_on,
+                    updated_at = datetime('now')",
+                rusqlite::params![task_id, planned_on],
+            )?;
+            sprint_plan_row(conn, task_id)
+        })
+    }
+
+    pub fn set_sprint_task_done(&self, task_id: &str, done: bool) -> Result<SprintPlanRow> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO sprint_plan (task_id, done_at)
+                 VALUES (?1, CASE WHEN ?2 THEN datetime('now') END)
+                 ON CONFLICT(task_id) DO UPDATE SET
+                    done_at = CASE WHEN ?2 THEN COALESCE(done_at, datetime('now')) END,
+                    updated_at = datetime('now')",
+                rusqlite::params![task_id, done],
+            )?;
+            sprint_plan_row(conn, task_id)
         })
     }
 
@@ -878,8 +957,14 @@ impl Store {
                 )?,
                 todos: query_all(
                     conn,
-                    "SELECT id, title, pinned FROM todos ORDER BY created_at, rowid",
+                    "SELECT id, title, pinned, description, planned_on, done_at
+                     FROM todos ORDER BY created_at, rowid",
                     row_to_todo,
+                )?,
+                sprint_plan: query_all(
+                    conn,
+                    &format!("{SPRINT_PLAN_COLUMNS} ORDER BY updated_at, rowid"),
+                    row_to_sprint_plan,
                 )?,
                 timeline: query_all(
                     conn,
@@ -990,7 +1075,45 @@ fn row_to_todo(row: &rusqlite::Row<'_>) -> rusqlite::Result<TodoRow> {
         id: row.get(0)?,
         title: row.get(1)?,
         pinned: row.get::<_, i64>(2)? != 0,
+        description: row.get(3)?,
+        planned_on: row.get(4)?,
+        done_at: row.get(5)?,
     })
+}
+
+/// A day the Week page can plan onto: `YYYY-MM-DD` with a real month and day.
+pub fn is_plan_date(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('-').collect();
+    let [year, month, day] = parts.as_slice() else {
+        return false;
+    };
+    let digits = |part: &str, len: usize| {
+        part.len() == len && part.bytes().all(|byte| byte.is_ascii_digit())
+    };
+    if !(digits(year, 4) && digits(month, 2) && digits(day, 2)) {
+        return false;
+    }
+    let month: u32 = month.parse().unwrap_or(0);
+    let day: u32 = day.parse().unwrap_or(0);
+    (1..=12).contains(&month) && (1..=31).contains(&day)
+}
+
+const SPRINT_PLAN_COLUMNS: &str = "SELECT task_id, planned_on, done_at FROM sprint_plan";
+
+fn row_to_sprint_plan(row: &rusqlite::Row<'_>) -> rusqlite::Result<SprintPlanRow> {
+    Ok(SprintPlanRow {
+        task_id: row.get(0)?,
+        planned_on: row.get(1)?,
+        done_at: row.get(2)?,
+    })
+}
+
+fn sprint_plan_row(conn: &Connection, task_id: &str) -> Result<SprintPlanRow> {
+    Ok(conn.query_row(
+        &format!("{SPRINT_PLAN_COLUMNS} WHERE task_id = ?1"),
+        [task_id],
+        row_to_sprint_plan,
+    )?)
 }
 
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
@@ -1047,6 +1170,9 @@ mod tests {
                     id: id.into(),
                     title: title.into(),
                     pinned: false,
+                    description: String::new(),
+                    planned_on: None,
+                    done_at: None,
                 })
                 .unwrap();
         }
@@ -1056,6 +1182,82 @@ mod tests {
         let todos = store.snapshot().unwrap().todos;
         assert_eq!(todos.len(), 1);
         assert_eq!((todos[0].id.as_str(), todos[0].pinned), ("b", true));
+    }
+
+    #[test]
+    fn todos_keep_their_week_plan() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .insert_todo(&TodoRow {
+                id: "a".into(),
+                title: "Ship it".into(),
+                pinned: false,
+                description: String::new(),
+                planned_on: None,
+                done_at: None,
+            })
+            .unwrap();
+        store
+            .update_todo("a", "Ship it today", "Tag, then publish")
+            .unwrap();
+        store.plan_todo("a", Some("2026-10-21")).unwrap();
+        let done_at = store.set_todo_done("a", true).unwrap();
+        assert!(done_at.is_some());
+        // Marking it done again keeps the first completion time.
+        assert_eq!(store.set_todo_done("a", true).unwrap(), done_at);
+
+        let todo = store.snapshot().unwrap().todos.remove(0);
+        assert_eq!(todo.title, "Ship it today");
+        assert_eq!(todo.description, "Tag, then publish");
+        assert_eq!(todo.planned_on.as_deref(), Some("2026-10-21"));
+        assert_eq!(todo.done_at, done_at);
+
+        assert_eq!(store.set_todo_done("a", false).unwrap(), None);
+        store.plan_todo("a", None).unwrap();
+        let todo = store.snapshot().unwrap().todos.remove(0);
+        assert_eq!((todo.planned_on, todo.done_at), (None, None));
+    }
+
+    #[test]
+    fn plan_dates_are_iso_days() {
+        assert!(is_plan_date("2026-10-21"));
+        for bad in [
+            "2026-1-21",
+            "2026-13-01",
+            "2026-10-00",
+            "21/10/2026",
+            "",
+            "2026-10-21T00",
+        ] {
+            assert!(!is_plan_date(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn sprint_plan_rows_upsert_and_reach_the_snapshot() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+
+        let row = store.set_sprint_task_done("t1", true).unwrap();
+        assert_eq!(row.planned_on, None);
+        assert!(row.done_at.is_some());
+
+        let row = store.plan_sprint_task("t1", Some("2026-10-22")).unwrap();
+        assert_eq!(row.planned_on.as_deref(), Some("2026-10-22"));
+        assert!(row.done_at.is_some(), "planning keeps the done state");
+
+        store.plan_sprint_task("t2", Some("2026-10-23")).unwrap();
+        let row = store.set_sprint_task_done("t1", false).unwrap();
+        assert_eq!(row.done_at, None);
+
+        let plan = store.snapshot().unwrap().sprint_plan;
+        assert_eq!(plan.len(), 2);
+        let t1 = plan.iter().find(|row| row.task_id == "t1").unwrap();
+        assert_eq!(
+            (t1.planned_on.as_deref(), t1.done_at.as_deref()),
+            (Some("2026-10-22"), None)
+        );
     }
 
     #[test]

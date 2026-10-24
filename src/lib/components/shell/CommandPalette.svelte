@@ -185,7 +185,7 @@
   shouldFilter={false}
   title="Command palette"
   description="Type a command or workspace name"
-  class="max-w-[600px] sm:max-w-[600px]"
+  class="glass-pop top-2.5! left-2.5! w-[min(600px,calc(100vw-20px))] max-w-[600px] origin-top-left translate-x-0! translate-y-0! rounded-[16px]! sm:max-w-[600px]"
 >
   <Command.Input
     bind:value={query}

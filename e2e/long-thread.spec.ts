@@ -37,8 +37,13 @@ test('a long thread renders its newest turn and follows a streamed reply', async
   // A real wheel: scrollTop set from code is how the virtual list moves too, so it doesn't unpin.
   await page.locator('#thread-scroll').hover()
   await page.mouse.wheel(0, -4000)
-  await expect(page.getByText('1 working')).toBeVisible()
-  await expect(page.getByText('0 working')).toBeVisible({ timeout: 5000 })
+  await expect(page.locator('#thread-tab-th-lead')).not.toHaveAccessibleName(
+    /Idle/,
+  )
+  await expect(page.locator('#thread-tab-th-lead')).toHaveAccessibleName(
+    /Idle/,
+    { timeout: 5000 },
+  )
   expect(await gapFromBottom(page)).toBeGreaterThan(1000)
   expect(errors).toEqual([])
 })
@@ -57,13 +62,18 @@ test('small trackpad steps scroll up out of a streaming reply', async ({
     .getByRole('textbox', { name: 'Message the agent' })
     .fill('stream please')
   await page.getByRole('button', { name: 'Send to agent' }).click()
-  await expect(page.getByText('1 working')).toBeVisible()
+  await expect(page.locator('#thread-tab-th-lead')).not.toHaveAccessibleName(
+    /Idle/,
+  )
   // Each step stays well inside the 80px re-pin zone; following used to snap every one back.
   await page.locator('#thread-scroll').hover()
   for (let step = 0; step < 20; step += 1) {
     await page.mouse.wheel(0, -15)
     await page.waitForTimeout(30)
   }
-  await expect(page.getByText('0 working')).toBeVisible({ timeout: 5000 })
+  await expect(page.locator('#thread-tab-th-lead')).toHaveAccessibleName(
+    /Idle/,
+    { timeout: 5000 },
+  )
   expect(await gapFromBottom(page)).toBeGreaterThan(150)
 })

@@ -7,7 +7,8 @@ test('New workspace picks the engine and repo from app menus, not native selects
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await page.getByRole('button', { name: 'New Workspace', exact: true }).click()
+  await expect(page.locator('#home-title')).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+n')
   const dialog = page.getByRole('dialog', { name: 'New workspace' })
   await expect(dialog).toBeVisible()
   await expect(dialog.locator('select')).toHaveCount(0)

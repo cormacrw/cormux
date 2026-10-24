@@ -235,11 +235,11 @@ test('plan: a waiting plan adds no approval pill to the agent tab or sidebar', a
   await expect(page.locator('#thread-tab-th-lead')).not.toHaveAccessibleName(
     /approval/,
   )
-  const agentRow = page.getByRole('button', {
-    name: /^Holly, Claude Code, in OAuth login: Plan ready for review$/,
-  })
-  await expect(agentRow).toBeVisible()
-  await expect(agentRow).not.toContainText(/\d/)
+  const workspaceRow = page
+    .getByRole('navigation', { name: 'Harness' })
+    .getByRole('button', { name: /^OAuth login, / })
+  await expect(workspaceRow).toBeVisible()
+  await expect(workspaceRow).not.toHaveAccessibleName(/approval/)
 })
 
 test('plan: turning plan mode off drops the waiting plan and closes its tab', async ({
