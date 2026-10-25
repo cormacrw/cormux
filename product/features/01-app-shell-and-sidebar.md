@@ -12,16 +12,17 @@ The user supervises several agents at once. The sidebar answers "what needs me r
 
 - Element: `<nav class="sidebar" id="sidebar" aria-label="Harness">`.
 - Always visible on desktop widths. Collapses to a stacked block above the main area below 760px.
-- Hooks: `nav-settings` (settings button). The workspace list is `#side-ws`, the agent list `#side-ag`.
+- Hooks: `nav-settings` (settings button), `sidebar-command-bar`, `nav-week`. The workspace list is `#side-ws`.
+- The sidebar is a floating pane of frosted glass, inset 8px from the window edge, over the live background (see Settings › Appearance › Background).
 
 ## Anatomy
 
 From top to bottom:
 
 1. **Title bar.** A draggable strip with macOS-style window controls (close, minimise, maximise). The controls are decorative in the prototype (`aria-hidden`). There is no logo and no product name; both were removed deliberately.
-2. **Search button.** A full-width field-like button reading **Search** with a `⌘K` key hint. Opens the command palette (see [02](02-command-palette-and-shortcuts.md)).
+2. **Command bar.** A full-width field-like button reading **Search or start…** with a `⌘K` key hint. It's the way into everything: it opens the command palette, anchored over the bar, for starting workspaces and scratches, jumping anywhere and running commands (see [02](02-command-palette-and-shortcuts.md)). There is no separate New workspace item; `⌘N` and the palette start one.
 3. **Homebase** nav item, with a layers icon. Marked `aria-current="page"` while Homebase is showing.
-4. **New workspace** nav item, with a plus icon and a `⌘N` key hint. Opens the New workspace dialog (see [06](06-new-workspace.md)).
+4. **TODOs**, **Week** (the week planner) and, with ClickUp set up, **Sprint** nav items.
 5. **Repos** section.
    - Section label **Repos** with a count of added repos on the right.
    - One row per repo, in Settings order: a folder icon, the repo name on line 1 and its default branch (monospace) on line 2.
@@ -33,12 +34,7 @@ From top to bottom:
    - Each row: a status dot, the workspace name on line 1, and on line 2 the status word plus agent count, for example `Running · 3 agents`. If any thread in the workspace has approvals waiting, an amber numeric badge sits at the right edge.
    - The row for the open workspace is marked `aria-current="page"` and shown with a stronger background (no coloured side stripe).
    - Empty state: **No workspaces yet**.
-7. **Agents** section.
-   - Section label **Agents** with `N working` on the right, where N counts threads that are running or provisioning and not paused, across all workspaces.
-   - One row per thread across every workspace, in workspace order then thread order.
-   - Each row: the engine's two-letter mark (`CC`, `CU`, `CX`, `GM`), line 1 `Lead in Auth session timeout` (role, then "in" and the workspace name in a subtler colour), line 2 the thread's current activity, or `Paused`.
-   - Right edge: an amber approval badge if the thread has pending approvals, otherwise the thread's status dot.
-   - Empty state: **No agents running**.
+7. **Scratches** section, when there are any.
 8. **Footer.**
    - **Memory meter**: a CPU icon, a horizontal bar and a value like `1.4 GB`. Grouped as "Memory usage" for screen readers.
    - **Settings** icon button (sliders icon). Shows as selected (`aria-current="page"`) while the Settings page is open.
@@ -106,7 +102,6 @@ Reads from `state.workspaces[]` and each workspace's `extra[]` threads:
 
 ## Known gaps and open questions
 
-- The Agents list can get long with many workspaces. There is no grouping, filtering or collapse. Decide whether it should group by workspace, show only working or waiting threads, or be removed now that thread tabs exist inside each workspace.
 - The memory meter has no threshold or warning state. Decide whether high memory should suggest pausing or tearing down workspaces.
 - There is no way to reorder, pin or rename workspaces from the sidebar.
 - No right-click or overflow menu on rows (for example Teardown, Open in editor).

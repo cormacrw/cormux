@@ -6,7 +6,9 @@ use tauri_specta::Event;
 use uuid::Uuid;
 
 use crate::clickup::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
-use crate::composer::{persist_control_step, persist_user_message};
+use crate::composer::{
+    persist_control_step, persist_control_step_with_detail, persist_user_message,
+};
 use crate::engines::{EngineKind, ThreadModels};
 use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
@@ -14,7 +16,7 @@ use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
-use crate::store::types::{ThreadRow, TodoRow, WorkspaceRow};
+use crate::store::types::{SprintPlanRow, ThreadRow, TodoRow, WorkspaceRow};
 use crate::workspace::ThreadActivity;
 
 use super::types::{
@@ -22,11 +24,11 @@ use super::types::{
     CreateWorkspaceBranchInput, CreateWorkspaceInput, CreateWorkspacePullRequestInput,
     CreateWorkspacePullRequestResult, CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult,
     LocalBranchRow, LocalBranchesResult, PtyChunk, RemoveRepoInput, RenameWorkspaceInput,
-    RepoBranchesResult, RepoGitRuntime, ResolveApprovalResult, SendWorkspaceFindingsInput,
-    SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput,
-    SetRepoSingleInstanceInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
-    TeardownInput, TeardownPreview, TestRepoSetupInput, TestRepoSetupResult,
-    WorkspaceAppControlAction, WorkspaceSummaryResult,
+    RepoBranchesResult, RepoGitRuntime, ResolveApprovalResult, ResumeThreadSessionInput,
+    SendWorkspaceFindingsInput, SetRepoDefaultBranchInput, SetRepoRunCommandInput,
+    SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, SetSettingInput, Snapshot,
+    SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
+    TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
 use crate::store::types::RepoRecord;
@@ -72,6 +74,11 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         workspace_git,
         memory,
         pending_live_approvals: state.approvals.pending_count(),
+        tasks_dir: state
+            .store
+            .tasks_dir()
+            .map(|dir| dir.display().to_string())
+            .unwrap_or_default(),
         github_auth_configured,
         pr_synced_at,
         clickup_configured: state.clickup.is_configured(),
@@ -1809,7 +1816,9 @@ pub async fn set_thread_plan_mode(
     Ok(())
 }
 
-/// Like `/clear`: the agent forgets the conversation, but the thread keeps showing it.
+/// Like `/clear`: the agent forgets the conversation and the thread starts a
+/// fresh one. The step records the session it ended, so the conversation can
+/// be resumed later (`resume_thread_session`).
 #[tauri::command]
 #[specta::specta]
 pub async fn new_thread_session(
@@ -1823,9 +1832,54 @@ pub async fn new_thread_session(
             "a scratch can't start a new session".into(),
         ));
     }
+    let ended = state.store.thread_session(&thread_id)?;
     state.engines.discard(&thread_id)?;
     state.store.clear_thread_session(&thread_id)?;
-    persist_control_step(&state.store, &thread_id, "Started a new session")?;
+    persist_control_step_with_detail(
+        &state.store,
+        &thread_id,
+        "Started a new session",
+        Some(serde_json::json!({ "endedSession": ended }).to_string()),
+    )?;
+    state.store.mark_thread_idle(&thread_id)?;
+    set_workspace_thread(&state, &thread, ThreadActivity::Idle).await;
+    emit_composer_snapshot(&app, &state);
+    Ok(())
+}
+
+/// Picks an earlier conversation in the thread back up: the agent resumes its
+/// session, and the thread shows that conversation again. `conversation_id`
+/// is the UI's id for it, echoed back in the step so the timeline can follow.
+#[tauri::command]
+#[specta::specta]
+pub async fn resume_thread_session(
+    app: AppHandle,
+    input: ResumeThreadSessionInput,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let thread_id = input.thread_id;
+    let thread = snapshot_thread(&state, &thread_id)?;
+    if state.store.scratch_for_thread(&thread_id)?.is_some() {
+        return Err(Error::Workspace("a scratch has only one session".into()));
+    }
+    let ended = state.store.thread_session(&thread_id)?;
+    state.engines.discard(&thread_id)?;
+    match input.session_id.as_deref() {
+        Some(session) => state.store.set_thread_session(&thread_id, session)?,
+        None => state.store.clear_thread_session(&thread_id)?,
+    }
+    persist_control_step_with_detail(
+        &state.store,
+        &thread_id,
+        "Resumed an earlier conversation",
+        Some(
+            serde_json::json!({
+                "conversation": input.conversation_id,
+                "endedSession": ended,
+            })
+            .to_string(),
+        ),
+    )?;
     state.store.mark_thread_idle(&thread_id)?;
     set_workspace_thread(&state, &thread, ThreadActivity::Idle).await;
     emit_composer_snapshot(&app, &state);
@@ -1902,19 +1956,26 @@ pub async fn create_todo(title: String, state: State<'_, AppState>) -> Result<To
     if title.is_empty() {
         return Err(Error::Store("a todo needs a title".into()));
     }
-    let todo = TodoRow {
+    let mut todo = TodoRow {
         id: format!("todo-{}", Uuid::new_v4()),
+        number: 0,
         title: title.to_string(),
         pinned: false,
+        description: String::new(),
+        planned_on: None,
+        done_at: None,
     };
-    state.store.insert_todo(&todo)?;
+    todo.number = state.store.insert_todo(&todo)?;
+    crate::todo_files::sync(&state.store);
     Ok(todo)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_todo(todo_id: String, state: State<'_, AppState>) -> Result<()> {
-    state.store.delete_todo(&todo_id)
+    state.store.delete_todo(&todo_id)?;
+    crate::todo_files::sync(&state.store);
+    Ok(())
 }
 
 /// Pinned todos show as cards at the top of Homebase.
@@ -1926,6 +1987,85 @@ pub async fn set_todo_pinned(
     state: State<'_, AppState>,
 ) -> Result<()> {
     state.store.set_todo_pinned(&todo_id, pinned)
+}
+
+/// The Week page's details pane edits a todo's title and description.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_todo(
+    todo_id: String,
+    title: String,
+    description: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(Error::Store("a todo needs a title".into()));
+    }
+    state.store.update_todo(&todo_id, title, &description)?;
+    crate::todo_files::sync(&state.store);
+    Ok(())
+}
+
+fn plan_date(planned_on: Option<String>) -> Result<Option<String>> {
+    match planned_on {
+        Some(day) if !crate::store::is_plan_date(&day) => {
+            Err(Error::Store(format!("not a day to plan for: {day}")))
+        }
+        other => Ok(other),
+    }
+}
+
+/// Plans a todo onto a day (`YYYY-MM-DD`), or back into the Week page's loading area.
+#[tauri::command]
+#[specta::specta]
+pub async fn plan_todo(
+    todo_id: String,
+    planned_on: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let planned_on = plan_date(planned_on)?;
+    state.store.plan_todo(&todo_id, planned_on.as_deref())?;
+    crate::todo_files::sync(&state.store);
+    Ok(())
+}
+
+/// Returns when it was completed, or `None` once reopened.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_todo_done(
+    todo_id: String,
+    done: bool,
+    state: State<'_, AppState>,
+) -> Result<Option<String>> {
+    let done_at = state.store.set_todo_done(&todo_id, done)?;
+    crate::todo_files::sync(&state.store);
+    Ok(done_at)
+}
+
+/// Plans a ClickUp task onto a day locally. Nothing is written to ClickUp.
+#[tauri::command]
+#[specta::specta]
+pub async fn plan_sprint_task(
+    task_id: String,
+    planned_on: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<SprintPlanRow> {
+    let planned_on = plan_date(planned_on)?;
+    state
+        .store
+        .plan_sprint_task(&task_id, planned_on.as_deref())
+}
+
+/// Marks a ClickUp task done in the week plan only; its ClickUp status is untouched.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_sprint_task_done(
+    task_id: String,
+    done: bool,
+    state: State<'_, AppState>,
+) -> Result<SprintPlanRow> {
+    state.store.set_sprint_task_done(&task_id, done)
 }
 
 /// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.

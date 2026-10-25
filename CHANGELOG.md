@@ -2,6 +2,17 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.14
+
+- A new look: frosted macOS glass over a colour theme. Pick Neutral or a bold colour in Settings › Appearance; it tints the window, the glass and the buttons, with a faint "cormux" behind it all. The window opens already drawn in your theme.
+- Starting a new session clears the thread to a greeting just above the prompt bar. From there, resume an earlier conversation (the agent picks its session back up) or pick a task to work on.
+- Bangs replace scratch macros: type `!name` in any prompt bar to drop in a saved prompt, or in the command palette to start a scratch with it.
+- The Week page plans your TODOs and sprint tasks onto days, with a switch to hide weekends. Homebase shows today's tasks, and the TODOs page is gone.
+- Tasks open in one flyout that slides over Homebase, Week and Sprint. TODOs now have IDs like `CMUX-12`; `#CMUX-12` in a prompt points the agent at the task, just like a ClickUp task.
+- Git and Output slide out over the conversation, can be pinned beside it, and toggle with ⌘G and ⌘O.
+- The workspace header keeps its actions in ⋯, with icon buttons to run, stop and restart the app. The sidebar groups workspaces by repo.
+- The New workspace dialog opens instantly, with a searchable base branch picker.
+
 ## 0.1.13
 
 - Ctrl+Tab switches between workspaces and the main pages (Homebase, TODOs, Sprint), most recent first. Tap it to jump back to where you were, or hold Ctrl to pick from a list.

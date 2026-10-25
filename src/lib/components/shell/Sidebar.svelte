@@ -10,33 +10,19 @@
     memory,
     repos,
     scratches,
-    threads,
-    todos,
     workspaces,
   } from '$lib/state'
-  import { isActiveThread } from '$lib/sidebar/status'
   import Cpu from '@lucide/svelte/icons/cpu'
   import Kanban from '@lucide/svelte/icons/square-kanban'
   import Layers from '@lucide/svelte/icons/layers'
-  import ListTodo from '@lucide/svelte/icons/list-todo'
-  import Plus from '@lucide/svelte/icons/plus'
-  import Search from '@lucide/svelte/icons/search'
+  import Sparkle from '@lucide/svelte/icons/sparkle'
+  import CalendarDays from '@lucide/svelte/icons/calendar-days'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
-  import SidebarAgentRow from './SidebarAgentRow.svelte'
   import SidebarRepoRow from './SidebarRepoRow.svelte'
   import SidebarScratchRow from './SidebarScratchRow.svelte'
   import SidebarWorkspaceRow from './SidebarWorkspaceRow.svelte'
-
-  const workingAgents = $derived(
-    threads.sidebarAgents.filter(
-      (thread) =>
-        isActiveThread({
-          status: thread.status,
-          paused: thread.paused,
-          activity: thread.activity,
-        }) && !thread.paused,
-    ).length,
-  )
+  import { sidebarWorkspaces } from '$lib/state/sidebar-workspaces.svelte'
+  import Folder from '@lucide/svelte/icons/folder'
 
   function startWindowDrag(event: MouseEvent) {
     if (event.button !== 0) return
@@ -45,12 +31,12 @@
 </script>
 
 <nav
-  class="sidebar-nav grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-2 pb-2"
+  class="sidebar-nav grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-3.5 pb-3.5"
   aria-label="Harness"
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="titlebar flex h-10 items-center justify-end"
+    class="titlebar flex h-[52px] items-center justify-end"
     data-tauri-drag-region
     onmousedown={startWindowDrag}
   >
@@ -64,19 +50,20 @@
   </div>
 
   <div class="grid gap-0.5 pb-2">
-    <Button
-      variant="outline"
-      class="mb-2 h-8 w-full justify-start gap-2 border-border/60 bg-foreground/[0.03] px-2 text-sm font-normal text-muted-foreground hover:text-foreground"
+    <button
+      type="button"
+      class="glass-well mb-2 flex h-[34px] w-full items-center gap-2 rounded-[10px] pr-1.5 pl-2.5 text-left text-sm text-muted-foreground transition-[background-color,color] duration-(--dur-fast) outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
       aria-label="Search or run a command (Command K)"
+      data-od-id="sidebar-command-bar"
       onclick={() => app.requestCommandPalette()}
     >
-      <Search class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
-      <span class="min-w-0 flex-1 text-left">Search</span>
+      <Sparkle class="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">Search or start…</span>
       <kbd
-        class="font-mono text-[10px] text-muted-foreground/80"
+        class="rounded-md bg-foreground/10 px-1.5 py-1 font-mono text-[10px] leading-none"
         aria-hidden="true">⌘K</kbd
       >
-    </Button>
+    </button>
 
     <Button
       variant="ghost"
@@ -95,16 +82,12 @@
     <Button
       variant="ghost"
       class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
-      aria-current={app.view === 'todos' ? 'page' : undefined}
-      onclick={() => app.openTodos()}
+      aria-current={app.view === 'week' ? 'page' : undefined}
+      data-od-id="nav-week"
+      onclick={() => app.openWeek()}
     >
-      <ListTodo class="size-4 shrink-0 opacity-80" aria-hidden="true" />
-      <span class="flex-1 text-left">TODOs</span>
-      {#if todos.items.length > 0}
-        <span class="font-mono text-[10px] text-muted-foreground/80"
-          >{todos.items.length}</span
-        >
-      {/if}
+      <CalendarDays class="size-4 shrink-0 opacity-80" aria-hidden="true" />
+      <span class="flex-1 text-left">Week</span>
     </Button>
 
     {#if clickup.configured}
@@ -124,25 +107,12 @@
         {/if}
       </Button>
     {/if}
-
-    <Button
-      variant="ghost"
-      class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground"
-      onclick={() => app.requestNewWorkspace()}
-    >
-      <Plus class="size-4 shrink-0 opacity-80" aria-hidden="true" />
-      <span class="min-w-0 flex-1 text-left">New workspace</span>
-      <kbd
-        class="font-mono text-[10px] text-muted-foreground/80"
-        aria-hidden="true">⌘N</kbd
-      >
-    </Button>
   </div>
 
   <ScrollArea.Root class="sidebar-scroll -mx-2 min-h-0 flex-1 px-2">
     <div class="flex flex-col">
       <div
-        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[11px] font-semibold text-muted-foreground"
         id="side-repo-label"
       >
         <span>Repos</span>
@@ -163,7 +133,7 @@
       </ul>
 
       <div
-        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[11px] font-semibold text-muted-foreground"
         id="side-ws-label"
       >
         <span>Workspaces</span>
@@ -171,24 +141,40 @@
           >{workspaces.liveItems.length}</span
         >
       </div>
-      <ul class="grid list-none gap-px p-0" aria-labelledby="side-ws-label">
-        {#if workspaces.sidebarItems.length === 0}
-          <li class="px-2 py-1.5 text-xs text-muted-foreground">
-            No workspaces yet
-          </li>
-        {:else}
-          {#each workspaces.sidebarItems as workspace (workspace.id)}
-            <SidebarWorkspaceRow
-              {workspace}
-              agentCount={threads.forWorkspace(workspace.id).length}
-            />
+      {#if sidebarWorkspaces.groups.length === 0}
+        <p class="px-2 py-1.5 text-xs text-muted-foreground">
+          No workspaces yet
+        </p>
+      {:else}
+        <!-- Grouped by repo; ⌘1–⌘9 follow this order (sidebar-workspaces.svelte.ts). -->
+        <div class="grid gap-2" aria-labelledby="side-ws-label" role="group">
+          {#each sidebarWorkspaces.groups as group (group.repoId)}
+            {@const groupLabel = `side-ws-repo-${group.repoId || 'other'}`}
+            <div>
+              <div
+                class="flex items-center gap-1.5 px-2 pb-0.5 text-[11px] text-muted-foreground/80"
+                id={groupLabel}
+                data-od-id="sidebar-ws-group"
+              >
+                <Folder class="size-3 shrink-0" aria-hidden="true" />
+                <span class="truncate">{group.repoName ?? 'Other'}</span>
+              </div>
+              <ul
+                class="grid list-none gap-px p-0"
+                aria-labelledby={groupLabel}
+              >
+                {#each group.workspaces as workspace (workspace.id)}
+                  <SidebarWorkspaceRow {workspace} />
+                {/each}
+              </ul>
+            </div>
           {/each}
-        {/if}
-      </ul>
+        </div>
+      {/if}
 
       {#if scratches.items.length > 0}
         <div
-          class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+          class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[11px] font-semibold text-muted-foreground"
           id="side-scratch-label"
         >
           <span>Scratches</span>
@@ -205,27 +191,6 @@
           {/each}
         </ul>
       {/if}
-
-      <div
-        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
-        id="side-ag-label"
-      >
-        <span>Agents</span>
-        <span class="font-mono normal-case tracking-normal"
-          >{workingAgents} working</span
-        >
-      </div>
-      <ul class="grid list-none gap-px p-0" aria-labelledby="side-ag-label">
-        {#if threads.sidebarAgents.length === 0}
-          <li class="px-2 py-1.5 text-xs text-muted-foreground">
-            No agents running
-          </li>
-        {:else}
-          {#each threads.sidebarAgents as thread (thread.id)}
-            <SidebarAgentRow {thread} />
-          {/each}
-        {/if}
-      </ul>
     </div>
   </ScrollArea.Root>
 

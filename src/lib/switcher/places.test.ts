@@ -14,20 +14,20 @@ describe('visit', () => {
   it('moves the place to the front without duplicating it', () => {
     let history: Place[] = []
     history = visit(history, ws('a'))
-    history = visit(history, { kind: 'todos' })
+    history = visit(history, { kind: 'week' })
     history = visit(history, ws('b'))
     history = visit(history, ws('a'))
     expect(history.map(placeKey)).toEqual([
       'workspace:a',
       'workspace:b',
-      'todos',
+      'week',
     ])
   })
 })
 
 describe('switcherPlaces', () => {
   it('lists recent places first, then everything else', () => {
-    const history = [ws('b'), { kind: 'todos' } as Place, ws('a')]
+    const history = [ws('b'), { kind: 'week' } as Place, ws('a')]
     expect(
       switcherPlaces(history, {
         workspaceIds: ['a', 'b', 'c'],
@@ -35,7 +35,7 @@ describe('switcherPlaces', () => {
       }).map(placeKey),
     ).toEqual([
       'workspace:b',
-      'todos',
+      'week',
       'workspace:a',
       'workspace:c',
       'homebase',
@@ -50,12 +50,12 @@ describe('switcherPlaces', () => {
         workspaceIds: ['a'],
         sprintAvailable: false,
       }).map(placeKey),
-    ).toEqual(['workspace:a', 'homebase', 'todos'])
+    ).toEqual(['workspace:a', 'homebase', 'week'])
   })
 })
 
 describe('selection', () => {
-  const list = [ws('b'), { kind: 'todos' } as Place, ws('a')]
+  const list = [ws('b'), { kind: 'week' } as Place, ws('a')]
 
   it('starts on the previous place when you’re on the newest', () => {
     expect(startIndex(list, ws('b'))).toBe(1)

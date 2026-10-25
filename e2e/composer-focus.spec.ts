@@ -36,7 +36,10 @@ test('the composer gets focus back after the usual actions', async ({
   await expect(composer).toHaveValue('hi')
 
   // Ctrl+Tab back into the workspace lands in the prompt too.
-  await page.getByRole('button', { name: /^TODOs/ }).click()
+  await page
+    .getByRole('navigation', { name: 'Harness' })
+    .getByRole('button', { name: /^Week/ })
+    .click()
   await page.keyboard.press('Control+Tab')
   await expect(composer).toBeFocused()
 })

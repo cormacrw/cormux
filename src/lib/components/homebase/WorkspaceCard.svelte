@@ -10,7 +10,17 @@
     workspaceCardBadgeKind,
     workspaceCardMetaText,
   } from '$lib/homebase/card-status'
-  import { app, homebaseUi, settings, threads, workspaces } from '$lib/state'
+  import {
+    app,
+    homebaseUi,
+    repos,
+    settings,
+    threads,
+    workspaceRecords,
+    workspaces,
+  } from '$lib/state'
+  import Folder from '@lucide/svelte/icons/folder'
+  import GitBranch from '@lucide/svelte/icons/git-branch'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { onMount } from 'svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -30,6 +40,9 @@
   } = $props()
 
   const workspaceThreads = $derived(threads.forWorkspace(workspace.id))
+  const repoName = $derived(
+    repos.getById(workspaceRecords.getRecord(workspace.id)?.repoId ?? '')?.name,
+  )
   const deleting = $derived(workspaces.isDeleting(workspace))
   const badgeKind = $derived(
     workspaceCardBadgeKind(workspace, workspaceThreads),
@@ -131,8 +144,16 @@
           </Badge>
         {/if}
       </div>
-      <p class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        {#each detailParts as part, index (part.kind + index)}
+      <p
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+      >
+        {#if repoName}
+          <span class="flex items-center gap-1" title="Repository">
+            <Folder class="size-3.5 shrink-0" aria-hidden="true" />
+            <span class="sr-only">Repository</span>{repoName}
+          </span>
+        {/if}
+        {#each detailParts.filter((part) => part.kind !== 'agents') as part, index (part.kind + index)}
           {#if part.kind === 'review'}
             <span
               >Reviewing <code class="font-mono text-[11px]"
@@ -140,12 +161,12 @@
               ></span
             >
           {:else if part.kind === 'branch'}
-            <span
-              >Branch: <code class="font-mono text-[11px]">{part.name}</code
-              ></span
-            >
-          {:else if part.kind === 'agents'}
-            <span>{part.count} {part.count === 1 ? 'agent' : 'agents'}</span>
+            <span class="flex min-w-0 items-center gap-1" title="Branch">
+              <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
+              <span class="sr-only">Branch</span><code
+                class="truncate font-mono text-[11px]">{part.name}</code
+              >
+            </span>
           {:else if part.kind === 'files'}
             <span>{formatModifiedFiles(part.count)}</span>
           {:else if part.kind === 'created'}

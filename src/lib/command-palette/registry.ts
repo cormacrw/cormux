@@ -1,10 +1,10 @@
 import { workspaceRunCommand } from '$lib/run-app/run-command'
 import Zap from '@lucide/svelte/icons/zap'
+import CalendarDays from '@lucide/svelte/icons/calendar-days'
 import Download from '@lucide/svelte/icons/download'
 import GitBranch from '@lucide/svelte/icons/git-branch'
 import Layers from '@lucide/svelte/icons/layers'
 import Kanban from '@lucide/svelte/icons/square-kanban'
-import ListTodo from '@lucide/svelte/icons/list-todo'
 import MessageSquare from '@lucide/svelte/icons/message-square'
 import Play from '@lucide/svelte/icons/play'
 import Plus from '@lucide/svelte/icons/plus'
@@ -28,7 +28,7 @@ import {
   openWorkspaceThread,
   pullWorkspace,
   requestNewThread,
-  runScratchMacro,
+  runBang,
   runWorkspaceApp,
   toggleReduceMotion,
 } from './actions'
@@ -37,8 +37,8 @@ const iconByCommandPrefix: Record<string, PaletteCommand['icon']> = {
   'action-new-workspace': Plus,
   'action-new-scratch': Plus,
   'action-homebase': Layers,
-  'action-todos': ListTodo,
   'action-sprint': Kanban,
+  'action-week': CalendarDays,
   'action-add-todo': Plus,
   'action-settings': SlidersHorizontal,
   'action-reduce-motion': SlidersHorizontal,
@@ -66,7 +66,7 @@ function attachIcons(commands: PaletteCommand[]): PaletteCommand[] {
     if (command.id.startsWith('ws-open-')) {
       return { ...command, icon: workspaceIcon }
     }
-    if (command.id.startsWith('macro-run-')) {
+    if (command.id.startsWith('bang-run-')) {
       return { ...command, icon: Zap }
     }
     if (command.id.startsWith('scratch-open-')) {
@@ -104,7 +104,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       clickupConfigured: clickup.configured,
       workspaces: workspaces.liveItems,
       scratches: scratches.items,
-      scratchMacros: settings.scratchMacros,
+      bangs: settings.bangs,
       threads: threads.agents,
       repos: repos.items,
       records: workspaceRecords.records,
@@ -123,10 +123,10 @@ export function buildPaletteCommands(): PaletteCommand[] {
       requestNewWorkspace: () => app.requestNewWorkspace(),
       requestNewScratch: () => app.requestNewScratch(),
       openScratch: (id) => app.openScratch(id),
-      runScratchMacro: (id, extra) => void runScratchMacro(id, extra),
+      runBang: (id, extra) => void runBang(id, extra),
       openHomebase: () => app.openHomebase(),
-      openTodos: () => app.openTodos(),
       openSprint: () => app.openSprint(),
+      openWeek: () => app.openWeek(),
       openSettings: () => app.openSettings(),
       openWorkspace: (id, threadId) => app.openWorkspace(id, threadId),
       toggleReduceMotion,

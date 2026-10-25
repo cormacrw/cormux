@@ -7,14 +7,17 @@
     matchesHomebaseFilter,
     type HomebaseFilter,
   } from '$lib/homebase/filter'
-  import { app, homebaseUi, threads, workspaces } from '$lib/state'
-  import { formatCost, totalCost } from '$lib/usage/usage'
-  import { Kbd } from '$lib/components/ui/kbd'
-  import CommandIcon from '@lucide/svelte/icons/command'
-  import Plus from '@lucide/svelte/icons/plus'
+  import {
+    app,
+    homebaseUi,
+    threads,
+    threadTimeline,
+    workspaces,
+  } from '$lib/state'
+  import { costSince, formatCost, startOfDayMs } from '$lib/usage/usage'
   import OpenPrsSection from './OpenPrsSection.svelte'
-  import PinnedTodosSection from './PinnedTodosSection.svelte'
   import ScratchesSection from './ScratchesSection.svelte'
+  import TodayTasksSection from './TodayTasksSection.svelte'
   import WorkspaceCard from './WorkspaceCard.svelte'
 
   let homeTitle: HTMLHeadingElement | undefined = $state()
@@ -37,7 +40,16 @@
     return () => window.clearInterval(id)
   })
 
-  const cost = $derived(totalCost(threads.agents.map((thread) => thread.usage)))
+  // Today only: each thread's spend since local midnight, from its usage events.
+  const cost = $derived.by(() => {
+    const since = startOfDayMs(nowMs)
+    const spent = threads.agents
+      .map((thread) =>
+        costSince(threadTimeline.eventsByThread[thread.id] ?? [], since),
+      )
+      .filter((usd): usd is number => usd != null)
+    return spent.length ? spent.reduce((sum, usd) => sum + usd, 0) : null
+  })
   const filterCounts = $derived(
     homebaseFilterCounts(workspaces.items.map((item) => item.lifecycle)),
   )
@@ -54,7 +66,7 @@
 <div class="view-home relative flex min-h-0 flex-1 flex-col overflow-y-auto">
   <div class="mx-auto flex w-full max-w-[1200px] flex-col gap-10 p-6">
     <header
-      class="sticky top-0 z-10 -mx-6 -mt-6 -mb-4 flex flex-wrap items-center justify-between gap-4 bg-background px-6 pt-6 pb-4"
+      class="-mb-4 flex flex-wrap items-center justify-between gap-4 pt-1"
       aria-labelledby="home-title"
     >
       <!-- The cost reads as a caption of the title, so it shares the title's baseline. -->
@@ -72,42 +84,15 @@
           <p
             class="truncate font-mono text-xs text-muted-foreground tabular-nums"
             data-od-id="home-cost"
-            title="What your workspaces' agents have cost so far"
+            title="What your workspaces' agents have cost since midnight"
           >
-            {formatCost(cost)} spent by agents
+            {formatCost(cost)} spent by agents today
           </p>
         {/if}
       </div>
-      <div class="flex items-center gap-2">
-        <Button
-          variant="secondary"
-          size="xl"
-          class="gap-2"
-          data-od-id="new-session"
-          onclick={() => app.requestNewScratch()}
-        >
-          <Plus class="size-4" aria-hidden="true" />
-          New scratch
-          <Kbd class="gap-0.5" aria-hidden="true">
-            <CommandIcon />S
-          </Kbd>
-        </Button>
-        <Button
-          variant="default"
-          size="xl"
-          class="gap-2"
-          onclick={() => app.requestNewWorkspace()}
-        >
-          <Plus class="size-4" aria-hidden="true" />
-          New Workspace
-          <Kbd class="gap-0.5" aria-hidden="true">
-            <CommandIcon />N
-          </Kbd>
-        </Button>
-      </div>
     </header>
 
-    <PinnedTodosSection />
+    <TodayTasksSection />
 
     <ScratchesSection />
 
@@ -128,11 +113,10 @@
               if (next) homebaseUi.filter = next as HomebaseFilter
             }
           }
-          variant="outline"
           size="sm"
           role="group"
           aria-label="Filter workspaces"
-          class="data-[spacing=0]:rounded-lg"
+          class="glass-well gap-0.5 rounded-[9px] p-0.5"
         >
           <ToggleGroup.Item
             value="all"

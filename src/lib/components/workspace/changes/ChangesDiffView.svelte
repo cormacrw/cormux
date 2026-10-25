@@ -191,8 +191,8 @@
 <style>
   /* Match the app's surfaces instead of GitHub's palettes. */
   .changes-diff :global(.diff-tailwindcss-wrapper .diff-style-root) {
-    --diff-plain-content--: var(--background);
-    --diff-plain-lineNumber--: var(--background);
+    --diff-plain-content--: var(--background-solid);
+    --diff-plain-lineNumber--: var(--background-solid);
     --diff-expand-content--: var(--card);
     --diff-expand-lineNumber--: var(--card);
     --diff-empty-content--: var(--card);
@@ -205,7 +205,7 @@
   /* Comments sit in the diff as cards with an accent outline, so they read as notes rather than code. */
   .diff-comment-row {
     padding: 0.5rem 0.75rem;
-    background: var(--background);
+    background: var(--background-solid);
     font-family: var(--font-sans);
   }
   .diff-comment-card {

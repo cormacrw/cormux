@@ -112,11 +112,26 @@ async resumeThread(threadId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Like `/clear`: the agent forgets the conversation, but the thread keeps showing it.
+ * Like `/clear`: the agent forgets the conversation and the thread starts a
+ * fresh one. The step records the session it ended, so the conversation can
+ * be resumed later (`resume_thread_session`).
  */
 async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("new_thread_session", { threadId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Picks an earlier conversation in the thread back up: the agent resumes its
+ * session, and the thread shows that conversation again. `conversation_id`
+ * is the UI's id for it, echoed back in the step so the timeline can follow.
+ */
+async resumeThreadSession(input: ResumeThreadSessionInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resume_thread_session", { input }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -745,6 +760,61 @@ async setTodoPinned(todoId: string, pinned: boolean) : Promise<Result<null, Erro
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * The Week page's details pane edits a todo's title and description.
+ */
+async updateTodo(todoId: string, title: string, description: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_todo", { todoId, title, description }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Plans a todo onto a day (`YYYY-MM-DD`), or back into the Week page's loading area.
+ */
+async planTodo(todoId: string, plannedOn: string | null) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plan_todo", { todoId, plannedOn }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Returns when it was completed, or `None` once reopened.
+ */
+async setTodoDone(todoId: string, done: boolean) : Promise<Result<string | null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_todo_done", { todoId, done }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Plans a ClickUp task onto a day locally. Nothing is written to ClickUp.
+ */
+async planSprintTask(taskId: string, plannedOn: string | null) : Promise<Result<SprintPlanRow, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plan_sprint_task", { taskId, plannedOn }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Marks a ClickUp task done in the week plan only; its ClickUp status is untouched.
+ */
+async setSprintTaskDone(taskId: string, done: boolean) : Promise<Result<SprintPlanRow, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_sprint_task_done", { taskId, done }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -890,7 +960,7 @@ scratches: ScratchRow[];
 /**
  * Oldest first.
  */
-todos: TodoRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
+todos: TodoRow[]; sprintPlan: SprintPlanRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PlanStep = { content: string; status: string }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PromptAttachment = { name: string; 
@@ -916,6 +986,18 @@ export type RepoRecord = { id: string; path: string; name: string; defaultBranch
  */
 singleInstance: boolean }
 export type ResolveApprovalResult = { focusComposer: boolean }
+/**
+ * An earlier conversation to resume in a thread.
+ */
+export type ResumeThreadSessionInput = { threadId: string; 
+/**
+ * The UI's id for the conversation, echoed back in the timeline.
+ */
+conversationId: string; 
+/**
+ * The agent session it ended with; none starts the agent fresh.
+ */
+sessionId: string | null }
 /**
  * A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
  */
@@ -953,7 +1035,23 @@ prSyncedAt: string | null;
 /**
  * True when a ClickUp API key is saved. Every ClickUp surface hides without one.
  */
-clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[] }
+clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[]; 
+/**
+ * Where each TODO is written as `CMUX-<n>.md`, for agents to read.
+ */
+tasksDir: string }
+/**
+ * The Week page's local plan for a ClickUp task. Never written back to ClickUp.
+ */
+export type SprintPlanRow = { taskId: string; 
+/**
+ * `YYYY-MM-DD`; `None` is back in the loading area.
+ */
+plannedOn: string | null; 
+/**
+ * SQLite `datetime('now')`, UTC; `None` while open. Local to the plan only.
+ */
+doneAt: string | null }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
@@ -1010,9 +1108,21 @@ export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspac
 threadId: string | null }
 export type ToastTone = "ok" | "bad" | "default"
 /**
- * A title-only task from the TODOs page.
+ * A task from the TODOs page, which the Week page can plan onto a day.
  */
-export type TodoRow = { id: string; title: string; pinned: boolean }
+export type TodoRow = { id: string; 
+/**
+ * Shown as `CMUX-<number>`; assigned when it's made and never reused.
+ */
+number: number; title: string; pinned: boolean; description: string; 
+/**
+ * `YYYY-MM-DD`, the local day it's planned for; `None` sits in the Week page's loading area.
+ */
+plannedOn: string | null; 
+/**
+ * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`; `None` while open.
+ */
+doneAt: string | null }
 export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
 /**
  * ACP `ToolKind`, owned so adapters and IPC do not depend on the protocol crate.

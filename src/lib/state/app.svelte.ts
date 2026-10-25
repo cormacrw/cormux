@@ -13,13 +13,7 @@ export type { ViewId } from './window-title'
 export { resolveWindowTitle } from './window-title'
 
 export type FocusTarget =
-  | 'homebase'
-  | 'settings'
-  | 'workspace'
-  | 'scratch'
-  | 'todos'
-  | 'sprint'
-  | 'repo'
+  'homebase' | 'settings' | 'workspace' | 'scratch' | 'sprint' | 'week' | 'repo'
 
 export class AppStore {
   version = $state(0)
@@ -98,15 +92,6 @@ export class AppStore {
     this.requestFocus('homebase')
   }
 
-  openTodos() {
-    this.view = 'todos'
-    this.workspaceId = null
-    this.threadId = null
-    this.scratchId = null
-    this.repoId = null
-    this.requestFocus('todos')
-  }
-
   /** The ClickUp sprint board, optionally with one task open in the side pane. */
   openSprint(taskId?: string) {
     this.view = 'sprint'
@@ -116,6 +101,16 @@ export class AppStore {
     this.repoId = null
     if (taskId) clickup.select(taskId)
     this.requestFocus('sprint')
+  }
+
+  /** The Week planner: TODOs and sprint tasks planned onto the days of a week. */
+  openWeek() {
+    this.view = 'week'
+    this.workspaceId = null
+    this.threadId = null
+    this.scratchId = null
+    this.repoId = null
+    this.requestFocus('week')
   }
 
   openSettings() {

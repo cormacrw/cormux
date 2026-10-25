@@ -3,14 +3,14 @@ import { clickup } from '$lib/state/clickup.svelte'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 import { switcher } from '$lib/state/switcher.svelte'
 import { threads } from '$lib/state/threads.svelte'
-import { workspaces } from '$lib/state/workspaces.svelte'
+import { sidebarWorkspaces } from '$lib/state/sidebar-workspaces.svelte'
 import type { Place } from './places'
 
 /** Where the app is, as a place the switcher knows, or null (Settings, a scratch, a repo). */
 export function currentPlace(): Place | null {
   if (app.view === 'workspace' && app.workspaceId)
     return { kind: 'workspace', id: app.workspaceId }
-  if (app.view === 'homebase' || app.view === 'todos' || app.view === 'sprint')
+  if (app.view === 'homebase' || app.view === 'week' || app.view === 'sprint')
     return { kind: app.view }
   return null
 }
@@ -22,7 +22,7 @@ export function openPlace(place: Place) {
       thread && threads.getById(thread)?.workspaceId === place.id
     app.openWorkspace(place.id, stillThere ? thread : undefined)
   } else if (place.kind === 'homebase') app.openHomebase()
-  else if (place.kind === 'todos') app.openTodos()
+  else if (place.kind === 'week') app.openWeek()
   else app.openSprint()
 }
 
@@ -45,7 +45,7 @@ export function handleSwitcherKeydown(event: KeyboardEvent): boolean {
     event.preventDefault()
     if (shellDialogs.blocksCommandPalette()) return true
     switcher.step(event.shiftKey ? -1 : 1, currentPlace(), {
-      workspaceIds: workspaces.sidebarItems.map((workspace) => workspace.id),
+      workspaceIds: sidebarWorkspaces.ordered.map((workspace) => workspace.id),
       sprintAvailable: clickup.configured,
     })
     return true

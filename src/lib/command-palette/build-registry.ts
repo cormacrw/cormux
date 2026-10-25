@@ -2,11 +2,7 @@ import { agentName } from '$lib/agent-name'
 import type { RepoRecord, WorkspaceRecord } from '$lib/ipc/bindings'
 import { workspaceCardMetaText } from '$lib/homebase/card-status'
 import { plural } from '$lib/sidebar/status'
-import {
-  isRunnableMacro,
-  macroPromptPreview,
-  type ScratchMacro,
-} from '$lib/settings/scratch-macros'
+import { bangPreview, isUsableBang, type Bang } from '$lib/settings/bangs'
 import type { Scratch } from '$lib/state/scratches.svelte'
 import type { Thread } from '$lib/state/threads.svelte'
 import type { Workspace } from '$lib/state/workspaces.svelte'
@@ -19,10 +15,10 @@ export type PaletteRegistryActions = {
   requestNewWorkspace: () => void
   requestNewScratch: () => void
   openScratch: (scratchId: string) => void
-  runScratchMacro: (macroId: string, extra?: string) => void
+  runBang: (bangId: string, extra?: string) => void
   openHomebase: () => void
-  openTodos: () => void
   openSprint: () => void
+  openWeek: () => void
   openSettings: () => void
   openWorkspace: (workspaceId: string, threadId?: string) => void
   toggleReduceMotion: () => void
@@ -43,7 +39,7 @@ export type PaletteRegistryState = {
   clickupConfigured: boolean
   workspaces: Workspace[]
   scratches: Scratch[]
-  scratchMacros: ScratchMacro[]
+  bangs: Bang[]
   threads: Thread[]
   repos: RepoRecord[]
   records: WorkspaceRecord[]
@@ -88,10 +84,11 @@ export function buildPaletteCommandsFromState(
       run: () => actions.openHomebase(),
     },
     {
-      id: 'action-todos',
+      id: 'action-week',
       group: 'Actions',
-      label: 'Go to TODOs',
-      run: () => actions.openTodos(),
+      label: 'Go to week',
+      meta: 'plan',
+      run: () => actions.openWeek(),
     },
     ...(state.clickupConfigured
       ? [
@@ -140,14 +137,15 @@ export function buildPaletteCommandsFromState(
     },
   ]
 
-  for (const macro of state.scratchMacros) {
-    if (!isRunnableMacro(macro)) continue
+  for (const bang of state.bangs) {
+    if (!isUsableBang(bang)) continue
     cmds.push({
-      id: `macro-run-${macro.id}`,
-      group: 'Macros',
-      label: macro.name.trim(),
-      subtitle: macroPromptPreview(macro.prompt),
-      run: () => actions.runScratchMacro(macro.id),
+      id: `bang-run-${bang.id}`,
+      group: 'Bangs',
+      label: `!${bang.name}`,
+      subtitle: bangPreview(bang.prompt),
+      meta: 'Start a scratch',
+      run: () => actions.runBang(bang.id),
     })
   }
 

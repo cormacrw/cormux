@@ -5,7 +5,7 @@ test('Discarding uncommitted changes asks first, one file or all of them', async
   page,
 }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await page.getByRole('tab', { name: /^Git/ }).click()
   const panel = page.getByRole('tabpanel', { name: /^Git/ })
   const files = panel.getByRole('list', { name: 'Changed files' })
@@ -43,7 +43,7 @@ test('Discarding uncommitted changes asks first, one file or all of them', async
 
 test('A branch level has no discard', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await page.getByRole('tab', { name: /^Git/ }).click()
   const panel = page.getByRole('tabpanel', { name: /^Git/ })
   await expect(panel.getByRole('button', { name: 'Discard all' })).toBeVisible()

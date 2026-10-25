@@ -3,23 +3,26 @@ import { mkdirSync } from 'node:fs'
 
 const heading = (page: Page) => page.getByRole('heading', { level: 1 })
 
-async function visitHomebaseWorkspaceTodos(page: Page) {
+async function visitHomebaseWorkspaceWeek(page: Page) {
   await page.goto('/')
   await expect(heading(page)).toHaveText('Homebase')
   await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
   await expect(heading(page)).toHaveText('OAuth login')
-  await page.getByRole('button', { name: /^TODOs/ }).click()
-  await expect(heading(page)).toHaveText('TODOs')
+  await page
+    .getByRole('navigation', { name: 'Harness' })
+    .getByRole('button', { name: /^Week/ })
+    .click()
+  await expect(heading(page)).toHaveText('This week')
 }
 
 test('a quick Ctrl+Tab goes back to the previous place, and again flips back', async ({
   page,
 }) => {
-  await visitHomebaseWorkspaceTodos(page)
+  await visitHomebaseWorkspaceWeek(page)
   await page.keyboard.press('Control+Tab')
   await expect(heading(page)).toHaveText('OAuth login')
   await page.keyboard.press('Control+Tab')
-  await expect(heading(page)).toHaveText('TODOs')
+  await expect(heading(page)).toHaveText('This week')
   // Too quick to show the list.
   await expect(page.locator('[data-od-id="place-switcher"]')).toHaveCount(0)
 })
@@ -27,13 +30,13 @@ test('a quick Ctrl+Tab goes back to the previous place, and again flips back', a
 test('holding Ctrl lists places most recent first; letting go switches', async ({
   page,
 }) => {
-  await visitHomebaseWorkspaceTodos(page)
+  await visitHomebaseWorkspaceWeek(page)
   await page.keyboard.down('Control')
   await page.keyboard.press('Tab')
   const switcher = page.locator('[data-od-id="place-switcher"]')
   await expect(switcher).toBeVisible()
   await expect(switcher.getByRole('option')).toHaveText([
-    /^\s*TODOs$/,
+    /^\s*Week$/,
     /^\s*OAuth login/,
     /^\s*Homebase$/,
   ])
@@ -56,7 +59,7 @@ test('holding Ctrl lists places most recent first; letting go switches', async (
   await page.keyboard.press('Tab')
   await expect(switcher.getByRole('option')).toHaveText([
     /^\s*Homebase$/,
-    /^\s*TODOs$/,
+    /^\s*Week$/,
     /^\s*OAuth login/,
   ])
   // Esc closes it without going anywhere.

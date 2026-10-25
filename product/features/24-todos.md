@@ -1,5 +1,8 @@
 # 24 · TODOs
 
+> **Update:** the TODOs page and pinned TODOs on Homebase are gone. TODOs are added and planned on the Week page, or with **Add a task** in the command palette. Homebase now shows **Today**: the TODOs and sprint tasks planned for today, as the board's cards. Clicking a card on Homebase, Week or Sprint opens the **task flyout**, which slides out from the right over the page (drag its left edge to resize; Esc, ×, or a click elsewhere closes it). A TODO's flyout reads like a ClickUp task: an ID chip with Delete and close, the title as the heading, a Status row with **Mark complete**, and the description. The rest of this page describes the old design.
+
+
 ## Summary
 
 A plain list of title-only tasks. **TODOs** sits in the sidebar directly under **Homebase** and opens its own page. Any task can be pinned, and pinned tasks show as cards at the very top of Homebase, above Scratches.

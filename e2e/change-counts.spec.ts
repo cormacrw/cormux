@@ -5,7 +5,7 @@ test('the Git tab counts fall away when the changes are committed', async ({
   page,
 }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   const gitTab = page.getByRole('tab', { name: /^Git/ })
   const counts = gitTab.locator('.font-mono')
   await expect(counts).toHaveText(/^\+\d+\s*−\d+$/)

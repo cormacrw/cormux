@@ -30,10 +30,10 @@ export const SETTINGS_SHORTCUTS: ShortcutReference[] = [
   { keys: '⌘I', description: 'Review the branch (workspace)' },
   { keys: '⌘T', description: 'Open the worktree in Terminal (workspace)' },
   { keys: '⌘D', description: 'Delete the workspace (workspace)' },
-  { keys: '⌘J', description: 'More workspace actions (narrow windows)' },
+  { keys: '⌘J', description: 'More workspace actions (workspace)' },
   { keys: '⌘E', description: 'End scratch' },
-  { keys: '⌘G', description: 'Open the Git tab (workspace)' },
-  { keys: 'Ctrl+`', description: 'Toggle Output tab (workspace)' },
+  { keys: '⌘G', description: 'Show or hide Git (workspace)' },
+  { keys: '⌘O or Ctrl+`', description: 'Show or hide Output (workspace)' },
   {
     keys: 'Esc',
     description:

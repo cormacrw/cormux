@@ -24,7 +24,7 @@ test('only new rows pop in, and a new reply types out', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/?longThread=3')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await expect(
     page.locator('#timeline').getByText('Answer 3', { exact: true }),
   ).toBeVisible()
@@ -51,7 +51,11 @@ test('only new rows pop in, and a new reply types out', async ({ page }) => {
   })
 
   // Reloading the turn from the store once it ends replays nothing.
-  await expect(page.getByText('0 working')).toBeVisible({ timeout: 5000 })
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('button', { name: 'OAuth login, Idle' }),
+  ).toBeVisible({ timeout: 5000 })
   expect(await popping(page)).toEqual([])
   expect(errors).toEqual([])
 })
@@ -69,7 +73,7 @@ test('a thread with thousands of events keeps drawing frames while a reply strea
     requestAnimationFrame(tick)
   })
   await page.goto('/?longThread=3000')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await page.locator('#composer-input').fill('Go')
   const frames = () =>
     page.evaluate(

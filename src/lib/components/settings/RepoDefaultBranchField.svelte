@@ -9,17 +9,20 @@
   let { repo, hintId }: { repo: RepoRecord; hintId: string } = $props()
 
   let branches = $state<string[]>([])
+  /** Only the first load shows the spinner; the list never blanks once it's up. */
   let loading = $state(true)
 
   const current = $derived(repo.defaultBranch?.trim() || 'main')
+  // Every refresh hands down a new repo object; reload only for a different repo.
+  const repoId = $derived(repo.id)
 
   $effect(() => {
-    void loadBranches(repo.id)
+    void loadBranches(repoId)
   })
 
-  async function loadBranches(repoId: string) {
-    loading = true
-    const result = await commands.listRepoBranches(repoId)
+  async function loadBranches(id: string) {
+    const result = await commands.listRepoBranches(id)
+    if (id !== repoId) return
     loading = false
     if (result.status === 'ok') branches = result.data.branches
   }

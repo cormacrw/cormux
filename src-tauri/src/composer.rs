@@ -13,6 +13,16 @@ pub fn persist_user_message(store: &Store, thread_id: &str, text: &str) -> Resul
 }
 
 pub fn persist_control_step(store: &Store, thread_id: &str, title: &str) -> Result<()> {
+    persist_control_step_with_detail(store, thread_id, title, None)
+}
+
+/// A control step carrying data for the UI in `detail`, such as the session a step ended.
+pub fn persist_control_step_with_detail(
+    store: &Store,
+    thread_id: &str,
+    title: &str,
+    detail: Option<String>,
+) -> Result<()> {
     let event = AgentEvent::ToolCall {
         id: format!("control-{}", Uuid::new_v4()),
         title: title.to_string(),
@@ -20,7 +30,7 @@ pub fn persist_control_step(store: &Store, thread_id: &str, title: &str) -> Resu
         kind: ToolKind::Other,
         status: ToolCallStatus::Completed,
         locations: Vec::new(),
-        detail: None,
+        detail,
     };
     persist_agent_event(store, thread_id, &event)
 }

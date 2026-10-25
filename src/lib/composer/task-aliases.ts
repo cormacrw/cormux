@@ -99,3 +99,15 @@ export function taskContext(
   })
   return blocks.length ? `ClickUp tasks:\n\n${blocks.join('\n\n')}` : ''
 }
+
+/**
+ * Where the mentioned TODOs are written down, for the agent to read: the core
+ * keeps each one as `CMUX-<n>.md` (title, status, plan and notes).
+ */
+export function todoContext(mentioned: AliasTask[]): string {
+  if (!mentioned.length) return ''
+  const lines = mentioned.map(
+    (task) => `- ${taskRef(task)} “${task.name}”: ${task.url}`,
+  )
+  return `Cormux TODOs. Read each file for the task's notes and status:\n${lines.join('\n')}`
+}

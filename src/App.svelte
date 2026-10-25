@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import PlaceSwitcher from '$lib/components/shell/PlaceSwitcher.svelte'
   import { trackKeyboardInput } from '$lib/keyboard/focus-home'
   import { switcher } from '$lib/state/switcher.svelte'
   import { currentPlace, handleSwitcherKeyup } from '$lib/switcher/navigate'
-  import { isDevBuild } from '$lib/build-mode'
   import { ModeWatcher } from 'mode-watcher'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
+  import Backdrop from '$lib/background/Backdrop.svelte'
   import CommandPalette from '$lib/components/shell/CommandPalette.svelte'
   import { bindNativeMenu } from '$lib/components/shell/menu'
   import { handleGlobalKeydown } from '$lib/keyboard/global-shortcuts'
@@ -28,8 +28,8 @@
   import NewScratchDialog from '$lib/components/scratch/NewScratchDialog.svelte'
   import EndScratchDialog from '$lib/components/scratch/EndScratchDialog.svelte'
   import ScratchView from '$lib/components/scratch/ScratchView.svelte'
-  import TodosView from '$lib/components/todos/TodosView.svelte'
   import SprintView from '$lib/components/sprint/SprintView.svelte'
+  import WeekView from '$lib/components/week/WeekView.svelte'
   import Repo from './routes/Repo.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
@@ -50,6 +50,20 @@
       } catch (error) {
         console.warn('snapshot unavailable, using empty stores', error)
       }
+      // The window starts hidden (tauri.conf.json) and appears once the first
+      // snapshot has painted, so it never shows half-drawn. The core shows it
+      // anyway after a few seconds, should this never run.
+      void tick().then(() =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const win = getCurrentWindow()
+            void win
+              .show()
+              .then(() => win.setFocus())
+              .catch(() => {})
+          }),
+        ),
+      )
 
       const unlistenMenu = await bindNativeMenu()
       const unlistenFeedback = await bindFeedbackEvents()
@@ -140,15 +154,9 @@
 </script>
 
 <ModeWatcher />
+<!-- What the glass sits on: the theme's gradient and the wordmark. -->
+<Backdrop />
 <PlaceSwitcher />
-
-{#if isDevBuild}
-  <!-- Dev builds get a stripe across the top so they can't pass for the installed app. -->
-  <div
-    class="pointer-events-none fixed inset-x-0 top-0 z-[100] h-[3px] bg-warning"
-    aria-hidden="true"
-  ></div>
-{/if}
 
 <Tooltip.Provider>
   <ToastsRegion />
@@ -166,10 +174,10 @@
       <Workspace />
     {:else if app.view === 'scratch'}
       <ScratchView />
-    {:else if app.view === 'todos'}
-      <TodosView />
     {:else if app.view === 'sprint'}
       <SprintView />
+    {:else if app.view === 'week'}
+      <WeekView />
     {:else if app.view === 'repo'}
       <Repo />
     {:else}

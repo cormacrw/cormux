@@ -8,7 +8,7 @@ test('comment on a diff line and send it to the agent', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await page.getByRole('tab', { name: /^Git/ }).click()
   const panel = page.getByRole('tabpanel', { name: /^Git/ })
   const diff = panel.getByRole('region', { name: 'Proposed changes' })
@@ -107,7 +107,7 @@ test('comments on a branch that is not checked out cannot be sent yet', async ({
   page,
 }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await page.getByRole('tab', { name: /^Git/ }).click()
   const panel = page.getByRole('tabpanel', { name: /^Git/ })
   const stack = panel.getByRole('navigation', { name: 'Stack' })

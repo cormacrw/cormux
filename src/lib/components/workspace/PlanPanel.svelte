@@ -500,7 +500,7 @@
     <div
       id="plan-bar"
       data-od-id="plan-bar"
-      class="border-t border-border/60 bg-background"
+      class="border-t border-border/50 bg-popover"
     >
       <div
         class="mx-auto flex w-full max-w-6xl flex-wrap items-end gap-3 px-8 py-3"

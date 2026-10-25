@@ -21,6 +21,7 @@ import { threadTimeline } from './thread-timeline.svelte'
 import { threads, type Thread } from './threads.svelte'
 import { scratches, scratchFromRow } from './scratches.svelte'
 import { todos } from './todos.svelte'
+import { weekPlan } from './week-plan.svelte'
 import { workspaceRecords } from './workspace-records.svelte'
 import { NO_USAGE } from '$lib/usage/usage'
 import {
@@ -45,6 +46,7 @@ export { threads } from './threads.svelte'
 export { scratches } from './scratches.svelte'
 export { stacks } from './stacks.svelte'
 export { todos } from './todos.svelte'
+export { weekPlan } from './week-plan.svelte'
 export { workspaceRecords } from './workspace-records.svelte'
 export { homebaseUi } from './homebase-ui.svelte'
 export { workspaceUi } from './workspace-ui.svelte'
@@ -321,7 +323,8 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     app.openHomebase()
   }
   scratches.hydrate(snapshot.persisted.scratches.map(scratchFromRow))
-  todos.hydrate(snapshot.persisted.todos)
+  todos.hydrate(snapshot.persisted.todos, snapshot.tasksDir)
+  weekPlan.hydrate(snapshot.persisted.sprintPlan)
   if (app.scratchId && !scratches.getById(app.scratchId)) {
     app.openHomebase()
   }

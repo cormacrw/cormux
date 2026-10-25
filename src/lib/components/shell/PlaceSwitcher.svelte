@@ -1,6 +1,6 @@
 <script lang="ts">
   import Layers from '@lucide/svelte/icons/layers'
-  import ListTodo from '@lucide/svelte/icons/list-todo'
+  import CalendarDays from '@lucide/svelte/icons/calendar-days'
   import Kanban from '@lucide/svelte/icons/square-kanban'
   import StatusDot from './StatusDot.svelte'
   import { repos, switcher, workspaceRecords, workspaces } from '$lib/state'
@@ -24,7 +24,7 @@
 
   const PAGES = {
     homebase: { label: 'Homebase', icon: Layers },
-    todos: { label: 'TODOs', icon: ListTodo },
+    week: { label: 'Week', icon: CalendarDays },
     sprint: { label: 'Sprint', icon: Kanban },
   } as const
 

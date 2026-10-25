@@ -71,14 +71,16 @@
       return
     }
     hydrateFromSnapshot(await fetchSnapshot())
-    // Homebase stays put: focus the card that slid into this slot, or New scratch.
+    // Homebase stays put: focus the card that slid into this slot, or the command bar.
     await tick()
     const next = scratches.items[Math.min(index, scratches.items.length - 1)]
     const target = next
       ? document.querySelector<HTMLElement>(
           `[data-action="open-scratch"][data-arg="${next.id}"]`,
         )
-      : document.querySelector<HTMLElement>('[data-od-id="new-session"]')
+      : document.querySelector<HTMLElement>(
+          '[data-od-id="sidebar-command-bar"]',
+        )
     target?.focus()
   }
 

@@ -101,14 +101,14 @@
     <div class="grid gap-3" data-od-id="pr-list">
       {#each cards as card (`${card.kind}-${card.id}`)}
         {#if card.kind === 'list'}
-          <ul class="divide-y rounded-xl border border-border text-sm">
+          <ul class="glass-card divide-y divide-border/60 rounded-2xl text-sm">
             {#each card.prs as pr (pr.id)}
               <PrRow {pr} {nowMs} />
             {/each}
           </ul>
         {:else}
           <section
-            class="overflow-hidden rounded-xl border border-border text-sm"
+            class="glass-card overflow-hidden rounded-2xl text-sm"
             aria-labelledby="pr-stack-label-{card.id}"
             data-od-id="pr-stack-{card.id}"
           >

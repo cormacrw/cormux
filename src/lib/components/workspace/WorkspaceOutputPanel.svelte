@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TrayControls from './TrayControls.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Badge } from '$lib/components/ui/badge'
   import {
@@ -201,6 +202,7 @@
     >
       {#if !narrow}Clear{/if}
     </Button>
+    <TrayControls tray="output" name="Output" shortcut="⌘O" />
   </header>
 
   {#if showEmptyNoCommand}

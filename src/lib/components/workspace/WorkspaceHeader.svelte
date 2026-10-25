@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
   import {
@@ -24,18 +23,12 @@
   import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte'
   import WorkspacePrimaryAction from './WorkspacePrimaryAction.svelte'
   import WorkspaceRunControls from './WorkspaceRunControls.svelte'
-  import { Kbd } from '$lib/components/ui/kbd'
   import { formatCost, totalCost } from '$lib/usage/usage'
   import {
     openWorkspaceTerminal,
     startBranchReview,
   } from '$lib/workspace/worktree-actions'
-  import CommandIcon from '@lucide/svelte/icons/command'
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Pencil from '@lucide/svelte/icons/pencil'
-  import ScanSearch from '@lucide/svelte/icons/scan-search'
-  import SquareTerminal from '@lucide/svelte/icons/square-terminal'
-  import Trash2 from '@lucide/svelte/icons/trash-2'
 
   let {
     workspace,
@@ -47,7 +40,6 @@
     onRename: () => void
   } = $props()
 
-  let narrow = $state(false)
   let headerEl: HTMLElement | undefined = $state()
 
   const record = $derived(workspaceRecords.getRecord(workspace.id))
@@ -87,19 +79,7 @@
     void restoreHeaderFocus()
   })
 
-  // The secondary buttons fold into ⋯ once the header can't fit them beside the title.
-  // Measured on the header, not the window, since the sidebar takes a varying share.
-  const NARROW_HEADER_PX = 1240
-  onMount(() => {
-    if (!headerEl) return
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) narrow = entry.contentRect.width < NARROW_HEADER_PX
-    })
-    observer.observe(headerEl)
-    return () => observer.disconnect()
-  })
-
-  // Handled here rather than on the buttons, which narrow windows fold into ⋯.
+  // Handled here rather than on the buttons, since most actions live in ⋯.
   function onKeydown(event: KeyboardEvent) {
     const status = runtime.appStatus
     if (isHeaderShortcut(event, 'r')) {
@@ -200,67 +180,17 @@
       class="flex flex-wrap items-center justify-end gap-2 max-md:w-full"
       data-od-id="ws-actions"
     >
-      {#if narrow}
-        <WorkspaceMoreMenu
-          workspaceId={workspace.id}
-          {runDisabled}
-          canReview={workspace.kind !== 'review'}
-          reviewDisabled={runDisabled || reviewing}
-        />
-      {:else}
-        <WorkspaceRunControls
-          workspaceId={workspace.id}
-          repoId={record?.repoId ?? ''}
-          {runDisabled}
-        />
-        <Button
-          variant="secondary"
-          size="xl"
-          aria-keyshortcuts="Meta+T"
-          data-ws-focus="terminal"
-          data-od-id="ws-terminal"
-          onclick={() => void openWorkspaceTerminal(workspace.id)}
-        >
-          <SquareTerminal class="size-4" aria-hidden="true" />
-          Terminal
-          <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />T</Kbd>
-        </Button>
-        {#if workspace.kind !== 'review'}
-          <Button
-            variant="secondary"
-            size="xl"
-            disabled={runDisabled || reviewing}
-            aria-keyshortcuts="Meta+I"
-            title="Review this branch's changes, uncommitted work included"
-            data-ws-focus="review"
-            data-od-id="ws-review"
-            onclick={() => void startBranchReview(workspace.id)}
-          >
-            {#if reviewing}
-              <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
-              Reviewing…
-            {:else}
-              <ScanSearch class="size-4" aria-hidden="true" />
-              Review
-              <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />I</Kbd>
-            {/if}
-          </Button>
-        {/if}
-        <Button
-          variant="destructive"
-          size="xl"
-          aria-label="Delete workspace"
-          aria-keyshortcuts="Meta+D"
-          data-ws-focus="delete"
-          data-od-id="ws-delete"
-          onclick={() => shellDialogs.openTeardown(workspace.id)}
-        >
-          <Trash2 class="size-4" aria-hidden="true" />
-          Delete
-          <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />D</Kbd>
-        </Button>
-      {/if}
-
+      <WorkspaceRunControls
+        workspaceId={workspace.id}
+        repoId={record?.repoId ?? ''}
+        {runDisabled}
+      />
+      <WorkspaceMoreMenu
+        workspaceId={workspace.id}
+        {runDisabled}
+        canReview={workspace.kind !== 'review'}
+        reviewDisabled={runDisabled || reviewing}
+      />
       <WorkspacePrimaryAction {workspace} />
     </div>
   </div>

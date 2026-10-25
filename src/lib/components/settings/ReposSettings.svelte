@@ -154,17 +154,53 @@
     }
   }
 
+  /**
+   * What's being typed in a field (`run-<id>` or `setup-<id>`). The field shows
+   * this, not the saved value, until you leave it: saves land a beat later and
+   * the refresh they cause carries the value as saved (trimmed, and missing
+   * whatever was typed since), which would jump the text and caret under you.
+   */
+  let drafts = $state<Record<string, string>>({})
+
+  function fieldValue(key: string, saved: string) {
+    return drafts[key] ?? saved
+  }
+
   function saveRunCommand(repoId: string, value: string) {
-    patchRepo(repoId, { runCommand: value || null })
+    drafts[`run-${repoId}`] = value
     debouncedSave(repoId, () => void persistRunCommand(repoId, value))
   }
 
   function saveSetupCommands(repoId: string, value: string) {
-    patchRepo(repoId, { setupCommands: value })
+    drafts[`setup-${repoId}`] = value
     debouncedSave(
       `setup-${repoId}`,
       () => void persistSetupCommands(repoId, value),
     )
+  }
+
+  /** Leaving a field saves now and shows the saved value again. */
+  async function finishField(timerKey: string, draftKey: string) {
+    const pending = saveTimers.get(timerKey)
+    const value = drafts[draftKey]
+    if (pending) {
+      clearTimeout(pending)
+      saveTimers.delete(timerKey)
+    }
+    if (value === undefined) return
+    const repoId = draftKey.replace(/^(run|setup)-/, '')
+    if (pending) {
+      await (draftKey.startsWith('run-')
+        ? persistRunCommand(repoId, value)
+        : persistSetupCommands(repoId, value))
+    }
+    patchRepo(
+      repoId,
+      draftKey.startsWith('run-')
+        ? { runCommand: value.trim() || null }
+        : { setupCommands: value },
+    )
+    delete drafts[draftKey]
   }
 
   async function pickFolder() {
@@ -253,15 +289,16 @@
     {@const key = repoDomKey(repo.id)}
     {@const used = workspaceCountForRepo(repo.id, workspaceRecords.records)}
     {@const block = removeRepoBlockReason(repo, repos.items.length, used)}
-    {@const run = effectiveRun(
-      repos.items.find((row) => row.id === repo.id) ?? repo,
-    )}
+    <!-- Follows what's being typed, so the flag clears as you type, not when the save lands. -->
+    {@const run = effectiveRun({
+      runCommand: fieldValue(`run-${repo.id}`, repo.runCommand ?? ''),
+    })}
     {@const panelOpen = isExpanded(repo.id)}
     <li
-      class="repo-item rounded-lg border border-border"
+      class="repo-item glass-card overflow-hidden rounded-2xl"
       data-od-id="settings-repo-{key}"
     >
-      <div class="set-row flex flex-wrap items-center gap-2 px-3 py-2">
+      <div class="set-row flex flex-wrap items-center gap-2 px-4 py-3">
         <Folder
           class="size-4 shrink-0 text-muted-foreground"
           aria-hidden="true"
@@ -320,7 +357,7 @@
       </div>
       {#if panelOpen}
         <div
-          class="repo-config space-y-4 border-t border-border px-3 py-3"
+          class="repo-config space-y-4 border-t border-border px-4 py-4"
           id="repo-cfg-{key}"
           data-od-id="settings-repo-{key}-config"
         >
@@ -340,10 +377,11 @@
               class="font-mono text-xs"
               placeholder="pnpm install&#10;cp {repo.path}/.env .env"
               aria-describedby="repo-setup-hint-{key}"
-              value={repos.items.find((row) => row.id === repo.id)
-                ?.setupCommands ?? repo.setupCommands}
+              value={fieldValue(`setup-${repo.id}`, repo.setupCommands)}
               oninput={(event) =>
                 saveSetupCommands(repo.id, event.currentTarget.value)}
+              onblur={() =>
+                void finishField(`setup-${repo.id}`, `setup-${repo.id}`)}
             />
             <p
               class="field-hint text-xs text-muted-foreground"
@@ -360,10 +398,7 @@
             </label>
             <Input
               id="run-{repo.id}"
-              value={repos.items.find((row) => row.id === repo.id)
-                ?.runCommand ??
-                repo.runCommand ??
-                ''}
+              value={fieldValue(`run-${repo.id}`, repo.runCommand ?? '')}
               placeholder="pnpm dev"
               spellcheck={false}
               autocomplete="off"
@@ -371,6 +406,7 @@
               aria-describedby="repo-run-hint-{key}"
               oninput={(event) =>
                 saveRunCommand(repo.id, event.currentTarget.value)}
+              onblur={() => void finishField(repo.id, `run-${repo.id}`)}
             />
             <p
               class="field-hint text-xs text-muted-foreground"
@@ -420,7 +456,7 @@
 </ul>
 
 <form
-  class="repo-add mt-4 grid gap-2"
+  class="repo-add glass-card mt-4 grid gap-2 rounded-2xl p-4"
   data-od-id="settings-repo-add"
   novalidate
   onsubmit={(event) => void submitAdd(event)}

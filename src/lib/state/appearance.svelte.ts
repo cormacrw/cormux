@@ -4,17 +4,26 @@
  * storage keys in sync with the script there.
  */
 
-export const ACCENTS = [
-  { id: 'neutral', label: 'Graphite' },
-  { id: 'blue', label: 'Blue' },
-  { id: 'violet', label: 'Violet' },
-  { id: 'green', label: 'Green' },
-  { id: 'gold', label: 'Gold' },
-  { id: 'orange', label: 'Orange' },
-  { id: 'rose', label: 'Rose' },
+/**
+ * Colour themes. Neutral is grey glass with a blue primary; the others tint
+ * the window, the glass and the primary with one bold hue. The hues live in
+ * app.css (`data-palette` on <html>); `hue` and `strength` (--tint-s,
+ * default 1) here only draw the picker's previews, so keep them in sync.
+ */
+export const THEMES = [
+  { id: 'neutral', label: 'Neutral', hue: null },
+  { id: 'blue', label: 'Blue', hue: 262 },
+  { id: 'violet', label: 'Violet', hue: 292 },
+  { id: 'pink', label: 'Pink', hue: 345 },
+  { id: 'red', label: 'Red', hue: 22, strength: 0.5 },
+  { id: 'orange', label: 'Orange', hue: 50, strength: 0.5 },
+  { id: 'green', label: 'Green', hue: 155, strength: 0.35 },
+  { id: 'teal', label: 'Teal', hue: 200 },
 ] as const
 
-export type AccentId = (typeof ACCENTS)[number]['id']
+export type ThemeId = (typeof THEMES)[number]['id']
+
+export const DEFAULT_THEME: ThemeId = 'blue'
 
 export const UI_FONT_SIZES = [14, 15, 16, 17, 18] as const
 export const CODE_FONT_SIZES = [11, 12, 13, 14, 15, 16] as const
@@ -44,7 +53,8 @@ export const DEFAULT_UI_FONT_SIZE = 16
 export const DEFAULT_CODE_FONT_SIZE = 12
 export const DEFAULT_CODE_FONT: CodeFontId = 'jetbrains'
 
-const ACCENT_KEY = 'cormux-accent'
+const THEME_KEY = 'cormux-theme'
+const WORDMARK_KEY = 'cormux-wordmark'
 const UI_FONT_KEY = 'cormux-ui-font-size'
 const CODE_FONT_KEY = 'cormux-code-font-size'
 const CODE_FONT_FAMILY_KEY = 'cormux-code-font'
@@ -75,16 +85,17 @@ function readSize(key: string, allowed: readonly number[], fallback: number) {
 }
 
 class AppearanceState {
-  accent = $state<AccentId>('neutral')
+  theme = $state<ThemeId>(DEFAULT_THEME)
+  /** The big "cormux" drawn faintly behind the glass. */
+  showWordmark = $state(true)
   uiFontSize = $state(DEFAULT_UI_FONT_SIZE)
   codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
   codeFont = $state<CodeFontId>(DEFAULT_CODE_FONT)
 
   constructor() {
-    const accent = read(ACCENT_KEY)
-    if (ACCENTS.some((row) => row.id === accent)) {
-      this.accent = accent as AccentId
-    }
+    const theme = read(THEME_KEY)
+    if (THEMES.some((row) => row.id === theme)) this.theme = theme as ThemeId
+    this.showWordmark = read(WORDMARK_KEY) !== '0'
     this.uiFontSize = readSize(UI_FONT_KEY, UI_FONT_SIZES, DEFAULT_UI_FONT_SIZE)
     this.codeFontSize = readSize(
       CODE_FONT_KEY,
@@ -96,10 +107,16 @@ class AppearanceState {
     this.apply()
   }
 
-  setAccent(next: AccentId) {
-    this.accent = next
-    write(ACCENT_KEY, next)
+  setTheme(next: ThemeId) {
+    if (!THEMES.some((row) => row.id === next)) return
+    this.theme = next
+    write(THEME_KEY, next)
     this.apply()
+  }
+
+  setShowWordmark(next: boolean) {
+    this.showWordmark = next
+    write(WORDMARK_KEY, next ? '1' : '0')
   }
 
   setUiFontSize(next: number) {
@@ -126,8 +143,8 @@ class AppearanceState {
   private apply() {
     if (typeof document === 'undefined') return
     const root = document.documentElement
-    if (this.accent === 'neutral') delete root.dataset.accent
-    else root.dataset.accent = this.accent
+    if (this.theme === 'neutral') delete root.dataset.palette
+    else root.dataset.palette = this.theme
     // Tailwind sizes are rem, so the root size scales text across the UI.
     root.style.fontSize =
       this.uiFontSize === DEFAULT_UI_FONT_SIZE ? '' : `${this.uiFontSize}px`

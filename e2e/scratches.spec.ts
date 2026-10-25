@@ -21,12 +21,6 @@ test.describe('scratches', () => {
         name: 'Delete Why the webhook signature fails',
       }),
     ).toBeVisible()
-    // New scratch sits left of New Workspace.
-    const newScratch = page.getByRole('button', { name: /New scratch/ })
-    const newWorkspace = page.getByRole('button', { name: /New Workspace/ })
-    expect((await newScratch.boundingBox())!.x).toBeLessThan(
-      (await newWorkspace.boundingBox())!.x,
-    )
     await page.screenshot({
       path: 'e2e/output/scratches-home.png',
       fullPage: true,

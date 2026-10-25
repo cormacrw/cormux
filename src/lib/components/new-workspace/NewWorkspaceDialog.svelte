@@ -1,11 +1,16 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import Bot from '@lucide/svelte/icons/bot'
+  import Folder from '@lucide/svelte/icons/folder'
+  import { onMount, tick, untrack } from 'svelte'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
   import * as Select from '$lib/components/ui/select/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
+  import { bangExpand } from '$lib/composer/bang-expand'
+  import { expandBangs } from '$lib/settings/bangs'
+  import { settings as bangSettings } from '$lib/state/settings.svelte'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
@@ -34,7 +39,7 @@
     shellDialogs,
     workspaceRecords,
   } from '$lib/state'
-  import BaseBranchCombobox from './BaseBranchCombobox.svelte'
+  import BaseBranchPicker from './BaseBranchPicker.svelte'
 
   let open = $state(false)
   let submitting = $state(false)
@@ -54,7 +59,13 @@
   let engineStatuses = $state<EngineStatus[]>([])
 
   let promptInput = $state<HTMLTextAreaElement | null>(null)
-  let baseCombo: BaseBranchCombobox | undefined = $state()
+
+  // `!name` then a space swaps in a bang's prompt; any left whole expand on submit.
+  $effect(() => {
+    if (!promptInput) return
+    const handle = bangExpand(promptInput)
+    return () => handle?.destroy?.()
+  })
 
   const workspaceBranchesOnRepo = $derived(
     workspaceRecords.records
@@ -108,20 +119,32 @@
     submitting = false
   }
 
+  // Opens at once; engines and branches load behind it. The last detection is
+  // used straight away, and a fresh one only steps in if you haven't picked.
   async function prepareOpen() {
     dismissOpenPopover()
     window.dispatchEvent(new CustomEvent('cormux:close-palette'))
     if (open) return
     resetForm()
-    await loadEngines()
-    const only = soleInstalledEngine(engineStatuses)
-    if (only) engine = only
+    const cached = soleInstalledEngine(engineStatuses)
+    if (cached) engine = cached
     open = true
     shellDialogs.newWorkspaceOpen = true
-    await loadBranches(repoId)
+    const untouched = engine
+    void loadEngines().then(() => {
+      const only = soleInstalledEngine(engineStatuses)
+      if (only && open && engine === untouched) engine = only
+    })
+    void loadBranches(repoId)
     await tick()
     promptInput?.focus()
   }
+
+  // Picking another base clears its error.
+  $effect(() => {
+    void baseBranch
+    untrack(() => (baseError = null))
+  })
 
   function closeDialog() {
     open = false
@@ -221,7 +244,7 @@
       branch,
       base: baseBranch.trim(),
       engine,
-      goal: prompt.trim(),
+      goal: expandBangs(prompt.trim(), bangSettings.bangs),
     })
 
     if (result.status === 'error') {
@@ -234,13 +257,6 @@
     closeDialog()
     hydrateFromSnapshot(await fetchSnapshot())
     app.openWorkspace(result.data.workspaceId)
-  }
-
-  function onDialogKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && baseCombo?.isOpen()) {
-      event.preventDefault()
-      baseCombo.closeList()
-    }
   }
 
   function onFormKeydown(event: KeyboardEvent) {
@@ -276,10 +292,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={(next) => !next && closeDialog()}>
-  <Dialog.Content
-    class="max-w-[720px] sm:max-w-[720px] gap-0 p-0"
-    onkeydown={onDialogKeydown}
-  >
+  <Dialog.Content class="max-w-[780px] sm:max-w-[780px] gap-0 p-0">
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <form
       class="flex flex-col"
@@ -290,11 +303,13 @@
       }}
       onkeydown={onFormKeydown}
     >
-      <Dialog.Header class="px-5 pt-5">
-        <Dialog.Title>New workspace</Dialog.Title>
+      <Dialog.Header class="px-5 pt-4">
+        <Dialog.Title class="text-sm font-semibold text-muted-foreground"
+          >New workspace</Dialog.Title
+        >
       </Dialog.Header>
 
-      <div class="flex flex-col gap-5 p-5">
+      <div class="flex flex-col gap-4 px-5 pt-3 pb-5">
         <div class="grid gap-1.5">
           <label class="text-sm font-medium" for="nw-prompt"
             >Initial prompt</label
@@ -303,7 +318,7 @@
             bind:ref={promptInput}
             id="nw-prompt"
             rows={4}
-            class="min-h-[112px] max-h-[280px] resize-y"
+            class="max-h-[280px] min-h-[112px] resize-y text-[15px] leading-relaxed"
             placeholder="e.g., Implement OAuth login with Supabase"
             bind:value={prompt}
             oninput={onPromptInput}
@@ -311,177 +326,167 @@
           />
           <p id="nw-prompt-hint" class="text-xs text-muted-foreground">
             Optional. Leave blank and the thread waits until you send a message.
+            Type !name for a bang.
           </p>
         </div>
 
-        <div class="grid gap-4 min-[760px]:grid-cols-2">
-          {#if !soleEngine}
-            <div class="grid gap-1.5">
-              <label class="text-sm font-medium" for="nw-engine"
-                >AI engine</label
-              >
-              <Select.Root
-                type="single"
-                value={engine}
-                onValueChange={(value) => {
-                  if (value) engine = value as EngineKind
-                }}
-              >
-                <Select.Trigger
-                  id="nw-engine"
-                  class="w-full"
-                  aria-describedby="nw-engine-hint"
-                >
-                  <span class="truncate"
-                    >{ENGINE_OPTIONS.find((option) => option.kind === engine)
-                      ?.label ?? engine}</span
-                  >
-                </Select.Trigger>
-                <Select.Content>
-                  {#each ENGINE_OPTIONS as option (option.kind)}
-                    {@const install = engineInstallLabel(
-                      engineStatusByKind.get(option.kind),
-                    )}
-                    <Select.Item value={option.kind} label={option.label}>
-                      {option.label}
-                      {#if install}
-                        <span class="ml-auto text-xs text-muted-foreground"
-                          >{install}</span
-                        >
-                      {/if}
-                    </Select.Item>
-                  {/each}
-                </Select.Content>
-              </Select.Root>
-              <p id="nw-engine-hint" class="text-xs text-muted-foreground">
-                The agent provider to use
-              </p>
-            </div>
-          {/if}
-          <div
-            class="grid gap-1.5 {soleEngine ? 'min-[760px]:col-span-2' : ''}"
-          >
-            <label class="text-sm font-medium" for="nw-repo">Repository</label>
-            {#if repos.items.length === 0}
-              <div
-                id="nw-repo"
-                class="border-input bg-input/30 text-muted-foreground flex h-8 items-center rounded-lg border px-2.5 text-sm"
-              >
-                No repositories yet
-              </div>
-              <p id="nw-repo-hint" class="text-xs text-muted-foreground">
-                Add a repo in Settings before creating a workspace.
-              </p>
-            {:else}
-              <Select.Root
-                type="single"
-                value={repoId}
-                onValueChange={(value) => void onRepoChange(value)}
-              >
-                <Select.Trigger
-                  id="nw-repo"
-                  class="w-full"
-                  aria-describedby="nw-repo-hint"
-                >
-                  <span class="truncate"
-                    >{repos.items.find((repo) => repo.id === repoId)?.name ??
-                      'Pick a repository'}</span
-                  >
-                </Select.Trigger>
-                <Select.Content>
-                  {#each repos.items as repo (repo.id)}
-                    <Select.Item value={repo.id} label={repo.name}
-                      >{repo.name}</Select.Item
-                    >
-                  {/each}
-                </Select.Content>
-              </Select.Root>
-              <p id="nw-repo-hint" class="text-xs text-muted-foreground">
-                The worktree is created from this repo
-              </p>
-            {/if}
-          </div>
-        </div>
-
-        <div class="grid gap-4 min-[760px]:grid-cols-2">
-          <div class="grid gap-1.5">
-            <label class="text-sm font-medium" for="nw-base">Base branch</label>
-            <BaseBranchCombobox
-              bind:this={baseCombo}
-              id="nw-base"
-              hintId="nw-base-hint"
-              errorId="nw-base-error"
-              bind:value={baseBranch}
-              branches={branchList}
-              workspaceBranches={repoWorkspaceBranches}
-              bind:error={baseError}
-            />
-            {#if baseError}
-              <p id="nw-base-error" class="text-xs text-destructive">
-                {baseError}
-              </p>
-            {:else}
-              <p id="nw-base-hint" class="text-xs text-muted-foreground">
-                Your new branch starts from here
-              </p>
-            {/if}
-          </div>
-          <div class="grid gap-1.5">
-            <label class="text-sm font-medium" for="nw-branch"
-              >Branch name</label
-            >
-            <Input
-              id="nw-branch"
-              class="font-mono"
-              spellcheck={false}
-              placeholder="feat/oauth-login"
-              bind:value={branchName}
-              oninput={onBranchInput}
-              onblur={() => {
-                const value = branchName.trim()
-                if (!value) return
-                const code = branchCode(value)
-                branchError = code ? branchErrorMessage(value, code) : null
-              }}
-              aria-invalid={branchError ? 'true' : undefined}
-              aria-describedby="nw-branch-hint nw-branch-error"
-            />
-            <p id="nw-branch-hint" class="text-xs text-muted-foreground">
-              New branch created for this worktree
+        <div class="grid gap-1.5 sm:w-1/2">
+          <label class="text-sm font-medium" for="nw-branch">Branch name</label>
+          <Input
+            id="nw-branch"
+            class="font-mono"
+            spellcheck={false}
+            placeholder="feat/oauth-login"
+            bind:value={branchName}
+            oninput={onBranchInput}
+            onblur={() => {
+              const value = branchName.trim()
+              if (!value) return
+              const code = branchCode(value)
+              branchError = code ? branchErrorMessage(value, code) : null
+            }}
+            aria-invalid={branchError ? 'true' : undefined}
+            aria-describedby="nw-branch-hint nw-branch-error"
+          />
+          {#if branchError}
+            <p id="nw-branch-error" class="text-xs text-destructive">
+              {branchError}
             </p>
-            {#if branchError}
-              <p id="nw-branch-error" class="text-xs text-destructive">
-                {branchError}
-              </p>
-            {:else}
-              <span id="nw-branch-error" class="sr-only"></span>
-            {/if}
-          </div>
+          {:else}
+            <p id="nw-branch-hint" class="text-xs text-muted-foreground">
+              Drafted from the prompt · a new branch for this worktree
+            </p>
+            <span id="nw-branch-error" class="sr-only"></span>
+          {/if}
         </div>
 
+        {#if baseError}
+          <p id="nw-base-error" class="text-xs text-destructive">
+            {baseError}
+          </p>
+        {/if}
         {#if submitError}
           <p class="text-sm text-destructive">{submitError}</p>
         {/if}
       </div>
 
-      <Dialog.Footer class="items-center m-0 px-5 py-4">
-        <Button
-          size="xl"
-          type="button"
-          variant="ghost"
-          disabled={submitting}
-          onclick={closeDialog}>Cancel <DialogShortcut keys="cancel" /></Button
-        >
-        <Button size="xl" type="submit" disabled={submitting || !repoId}>
-          {#if submitting}
-            <LoaderCircleIcon class="size-4 animate-spin" aria-hidden="true" />
-            Creating worktree…
+      <!-- Where the worktree comes from sits with the actions, as compact pickers. -->
+      <div
+        class="flex items-center gap-1.5 border-t border-border/60 px-4 py-3"
+      >
+        <!-- The pickers shrink and truncate, so the actions never wrap to a second line. -->
+        <div class="flex min-w-0 flex-1 items-center gap-1.5">
+          {#if repos.items.length === 0}
+            <span
+              id="nw-repo"
+              class="glass-well flex h-8 items-center rounded-[9px] px-2.5 text-xs text-muted-foreground"
+              title="Add a repo in Settings before creating a workspace."
+            >
+              No repositories yet
+            </span>
           {:else}
-            Create Workspace
-            <DialogShortcut keys="submit" />
+            <label class="sr-only" for="nw-repo">Repository</label>
+            <Select.Root
+              type="single"
+              value={repoId}
+              onValueChange={(value) => void onRepoChange(value)}
+            >
+              <Select.Trigger
+                id="nw-repo"
+                size="sm"
+                class="glass-well h-8 max-w-[168px] min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
+                title="The worktree is created from this repo"
+              >
+                <Folder
+                  class="size-3.5 shrink-0 opacity-70"
+                  aria-hidden="true"
+                />
+                <span class="truncate"
+                  >{repos.items.find((repo) => repo.id === repoId)?.name ??
+                    'Pick a repository'}</span
+                >
+              </Select.Trigger>
+              <Select.Content>
+                {#each repos.items as repo (repo.id)}
+                  <Select.Item value={repo.id} label={repo.name}
+                    >{repo.name}</Select.Item
+                  >
+                {/each}
+              </Select.Content>
+            </Select.Root>
           {/if}
-        </Button>
-      </Dialog.Footer>
+
+          <label class="sr-only" for="nw-base">Base branch</label>
+          <BaseBranchPicker
+            id="nw-base"
+            bind:value={baseBranch}
+            branches={branchList}
+            workspaceBranches={repoWorkspaceBranches}
+            describedBy={baseError ? 'nw-base-error' : undefined}
+            invalid={!!baseError}
+          />
+
+          {#if !soleEngine}
+            <label class="sr-only" for="nw-engine">AI engine</label>
+            <Select.Root
+              type="single"
+              value={engine}
+              onValueChange={(value) => {
+                if (value) engine = value as EngineKind
+              }}
+            >
+              <Select.Trigger
+                id="nw-engine"
+                size="sm"
+                class="glass-well h-8 min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
+                title="The agent provider to use"
+              >
+                <Bot class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
+                <span class="truncate"
+                  >{ENGINE_OPTIONS.find((option) => option.kind === engine)
+                    ?.label ?? engine}</span
+                >
+              </Select.Trigger>
+              <Select.Content>
+                {#each ENGINE_OPTIONS as option (option.kind)}
+                  {@const install = engineInstallLabel(
+                    engineStatusByKind.get(option.kind),
+                  )}
+                  <Select.Item value={option.kind} label={option.label}>
+                    {option.label}
+                    {#if install}
+                      <span class="ml-auto text-xs text-muted-foreground"
+                        >{install}</span
+                      >
+                    {/if}
+                  </Select.Item>
+                {/each}
+              </Select.Content>
+            </Select.Root>
+          {/if}
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={submitting}
+            onclick={closeDialog}
+            >Cancel <DialogShortcut keys="cancel" /></Button
+          >
+          <Button type="submit" disabled={submitting || !repoId}>
+            {#if submitting}
+              <LoaderCircleIcon
+                class="size-4 animate-spin"
+                aria-hidden="true"
+              />
+              Creating worktree…
+            {:else}
+              Create Workspace
+              <DialogShortcut keys="submit" />
+            {/if}
+          </Button>
+        </div>
+      </div>
     </form>
   </Dialog.Content>
 </Dialog.Root>

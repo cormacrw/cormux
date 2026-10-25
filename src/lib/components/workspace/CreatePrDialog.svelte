@@ -261,7 +261,7 @@
             />
             {#if drafting}
               <div
-                class="pointer-events-none absolute inset-px grid content-start gap-3 rounded-lg bg-background px-5 py-4"
+                class="pointer-events-none absolute inset-px grid content-start gap-3 rounded-lg bg-popover px-5 py-4"
                 aria-hidden="true"
               >
                 {#each SKELETON_WIDTHS as width, index (index)}

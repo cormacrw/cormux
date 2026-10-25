@@ -409,7 +409,7 @@
   <div
     id="findings-bar"
     data-od-id="findings-send-bar"
-    class="border-t border-border/60 bg-background"
+    class="border-t border-border/50 bg-popover"
   >
     <div
       class="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-3 px-8 py-3"

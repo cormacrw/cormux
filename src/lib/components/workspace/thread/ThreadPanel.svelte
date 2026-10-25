@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount, untrack } from 'svelte'
+  import { onDestroy, onMount, tick, untrack } from 'svelte'
   import {
     app,
     findings,
@@ -13,13 +13,17 @@
   import { buddyColor } from '$lib/buddy'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
+  import { enterConversation } from '$lib/thread/conversation-motion'
   import { createEntryScope, liveReplyId } from '$lib/thread/entering'
   import { liveSubtitle, liveTitle } from '$lib/thread/map-events-to-timeline'
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
   import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
   import { createVirtualizer } from '@tanstack/svelte-virtual'
+  import Pause from '@lucide/svelte/icons/pause'
+  import AgentSpinner from './AgentSpinner.svelte'
   import ThreadComposer from './ThreadComposer.svelte'
   import ThreadFind from './ThreadFind.svelte'
+  import ThreadHero from './ThreadHero.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
   import TimelineMessages from './TimelineMessages.svelte'
 
@@ -69,9 +73,11 @@
     ),
   )
 
+  // The live row floats above the prompt bar instead (see the composer's status).
+  const live = $derived(items.at(-1)?.kind === 'live')
   const rows = $derived(
     buildTimelineRows(
-      items,
+      live ? items.slice(0, -1) : items,
       agentName(thread.id),
       engineDisplayName(thread.engine),
     ),
@@ -80,11 +86,29 @@
   const useVirtual = $derived(rows.length > 150)
   const typingReplyId = $derived(liveReplyId(items))
 
-  // Snapshot what the thread already shows when it opens; only rows after that animate.
-  // The thread object is replaced on every status change, so depend on the id alone.
+  // Earlier conversations in this thread (since new sessions), to resume.
+  const conversations = $derived(threadTimeline.conversations(thread.id))
+  const conversationId = $derived(conversations.current.id)
+  // An empty conversation shows a greeting instead of the last one's messages.
+  const showHero = $derived(items.length === 0)
+
+  // Snapshot what the thread already shows when it opens, or switches to another
+  // conversation; only rows after that animate. The thread object is replaced on
+  // every status change, so depend on the ids alone.
   const threadId = $derived(thread.id)
+  // Switching conversation within a thread (new session, resume) rises the new one in.
+  let shownConversation = ''
+  $effect(() => {
+    const key = `${threadId}:${conversationId}`
+    const previous = shownConversation
+    shownConversation = key
+    if (previous && previous !== key && previous.startsWith(`${threadId}:`)) {
+      void tick().then(enterConversation)
+    }
+  })
   const entries = $derived.by(() => {
     void threadId
+    void conversationId
     return untrack(() => createEntryScope(rows))
   })
 
@@ -319,15 +343,42 @@
   <div
     id="thread-scroll"
     bind:this={scrollEl}
-    class="min-h-0 flex-1 overflow-y-auto"
+    class="@container min-h-0 flex-1 overflow-y-auto"
   >
     <div
       bind:this={contentEl}
-      class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-3 select-text"
+      class={[
+        'mx-auto w-full max-w-[760px] px-4 pt-3 select-text',
+        // The greeting sits at the bottom, its box reaching down to the prompt
+        // bar so it can fall away behind it (see ThreadHero).
+        showHero
+          ? 'flex min-h-full flex-col overflow-clip'
+          : live
+            ? 'pb-14'
+            : 'pb-4',
+      ]}
     >
-      <ThreadIntro {thread} {workspace} {otherThreadCount} {nowMs} />
+      {#if showHero}
+        <ThreadHero
+          {thread}
+          {workspace}
+          {conversationId}
+          earlier={conversations.earlier}
+          {nowMs}
+          onFocusComposer={() => focusComposer?.()}
+        />
+      {:else}
+        <div data-conversation-part>
+          <ThreadIntro {thread} {workspace} {otherThreadCount} {nowMs} />
+        </div>
+      {/if}
 
-      <ol class="mt-4 space-y-2" aria-label="Conversation" id="timeline">
+      <ol
+        class={['mt-4 space-y-2', showHero && 'hidden']}
+        aria-label="Conversation"
+        id="timeline"
+        data-conversation-part
+      >
         {#if useVirtual}
           <div
             style={`height: ${$virtualizer.getTotalSize()}px; position: relative;`}
@@ -383,6 +434,32 @@
     </div>
   </div>
 
+  {#snippet liveStatus()}
+    <div
+      class="live-status glass-pane flex max-w-full min-w-0 items-center gap-2 rounded-full py-1.5 pr-3.5 pl-3 text-xs shadow-none"
+      data-od-id="live-status"
+    >
+      {#if thread.paused}
+        <Pause
+          class="size-3 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+      {:else}
+        <AgentSpinner class="mr-1" />
+      {/if}
+      <span
+        class={[
+          'shrink-0 font-medium text-foreground/85',
+          // Re-added on resume as the spinner remounts, so both restart the beat together.
+          !thread.paused && 'agent-working-text',
+        ]}>{liveRowTitle}</span
+      >
+      {#if liveRowSubtitle && liveRowSubtitle !== liveRowTitle}
+        <span class="truncate text-muted-foreground">· {liveRowSubtitle}</span>
+      {/if}
+    </div>
+  {/snippet}
+
   <div id="thread-announce" class="sr-only" aria-live="polite">
     {announceText}
   </div>
@@ -390,6 +467,7 @@
   <ThreadComposer
     {thread}
     newSession
+    status={live ? liveStatus : undefined}
     bind:focusComposer
     onSent={() => {
       pinnedToBottom = true
@@ -397,3 +475,18 @@
     }}
   />
 </div>
+
+<style>
+  /* Floats in a beat after a send, once a first prompt's greeting has fallen away. */
+  .live-status {
+    animation: live-status-in var(--dur-med) var(--ease-out-snappy) 300ms
+      backwards;
+  }
+
+  @keyframes live-status-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 6px, 0);
+    }
+  }
+</style>

@@ -64,6 +64,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "011_repo_single_instance",
         sql: include_str!("../../migrations/011_repo_single_instance.sql"),
     },
+    Migration {
+        version: 12,
+        name: "012_week_plan",
+        sql: include_str!("../../migrations/012_week_plan.sql"),
+    },
+    Migration {
+        version: 13,
+        name: "013_todo_number",
+        sql: include_str!("../../migrations/013_todo_number.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -147,7 +157,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 11);
+        assert_eq!(version, 13);
 
         for expected in [
             "approvals",
@@ -158,6 +168,7 @@ mod tests {
             "schema_migrations",
             "scratches",
             "settings",
+            "sprint_plan",
             "thread_events",
             "threads",
             "todos",

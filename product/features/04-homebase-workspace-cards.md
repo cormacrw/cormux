@@ -20,7 +20,7 @@ The user needs one place to see all parallel work and decide where to spend atte
 
 - **Homebase** as the page title (`h1`), left-aligned. It receives focus when you navigate to Homebase.
 - Beside it, once any workspace agent has reported a cost, the total in mono: `$4.20 spent by agents` (`home-cost`).
-- **New Workspace** primary button on the right, with a plus icon and `⌘N` hint. This is the only solid primary button on the screen.
+- No action buttons and no header background: new workspaces and scratches start from the sidebar's command bar, `⌘N` or `⌘S`.
 
 There are no summary stats (workspace counts, agents working, approvals waiting). They were removed on purpose; the cards and sidebar carry that information.
 

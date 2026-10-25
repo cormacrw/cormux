@@ -9,8 +9,7 @@
 
 <style>
   .agent-spinner {
-    /* Graphite (no data-accent) is grey, so fall back to the app's blue accent. */
-    --color-1: var(--sidebar-primary);
+    --color-1: var(--primary);
     /* A lighter shade of the same hue, so the beat reads as a glow, not a flash. */
     --color-2: color-mix(in oklch, var(--color-1) 70%, white);
     --size: 0.5px;
@@ -23,10 +22,6 @@
     background: var(--color-1);
     box-shadow: 0 0 0 0 var(--color-1);
     animation: agent-heartbeat var(--agent-beat-duration) ease-in-out infinite;
-  }
-
-  :global(:root[data-accent]) .agent-spinner {
-    --color-1: var(--primary);
   }
 
   @keyframes agent-heartbeat {

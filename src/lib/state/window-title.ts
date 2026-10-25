@@ -1,11 +1,5 @@
 export type ViewId =
-  | 'homebase'
-  | 'workspace'
-  | 'scratch'
-  | 'settings'
-  | 'todos'
-  | 'sprint'
-  | 'repo'
+  'homebase' | 'workspace' | 'scratch' | 'settings' | 'sprint' | 'week' | 'repo'
 
 export function resolveWindowTitle(
   view: ViewId,
@@ -14,8 +8,8 @@ export function resolveWindowTitle(
   appName = 'Cormux',
 ): string {
   if (view === 'settings') return `${appName} · Settings`
-  if (view === 'todos') return `${appName} · TODOs`
   if (view === 'sprint') return `${appName} · Sprint`
+  if (view === 'week') return `${appName} · Week`
   if (
     (view === 'workspace' || view === 'scratch' || view === 'repo') &&
     openId

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Cormux",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "identifier": "com.cormacrw.cormux",
   "build": {
     "frontendDist": "../dist",
@@ -19,13 +19,14 @@
         "minWidth": 960,
         "minHeight": 600,
         "resizable": true,
+        "visible": false,
         "backgroundColor": "#0b0c0e",
         "fullscreen": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": {
-          "x": 16,
-          "y": 22
+          "x": 34,
+          "y": 40
         }
       }
     ],

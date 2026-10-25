@@ -6,9 +6,9 @@
   import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte'
   import GithubSettings from '$lib/components/settings/GithubSettings.svelte'
   import NotificationsSettings from '$lib/components/settings/NotificationsSettings.svelte'
-  import PrPromptSettings from '$lib/components/settings/PrPromptSettings.svelte'
+  import PromptsSettings from '$lib/components/settings/PromptsSettings.svelte'
   import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
-  import ScratchMacrosSettings from '$lib/components/settings/ScratchMacrosSettings.svelte'
+  import BangsSettings from '$lib/components/settings/BangsSettings.svelte'
   import ShortcutsSettings from '$lib/components/settings/ShortcutsSettings.svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
   import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
@@ -121,7 +121,7 @@
           <SettingsSectionHead
             id="settings-appearance-h"
             title="Appearance"
-            description="Theme, primary color and text sizes on this Mac."
+            description="Mode, colour theme and text sizes on this Mac."
           />
           <div class="mt-4">
             <AppearanceSettings />
@@ -165,6 +165,24 @@
         </section>
 
         <section
+          use:bindSection={'prompts'}
+          id={settingsSectionDomId('prompts')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-prompts-h"
+          data-od-id="settings-prompts-section"
+        >
+          <SettingsSectionHead
+            id="settings-prompts-h"
+            title="Prompts"
+            description="What Cormux asks agents on your behalf."
+          />
+          <div class="mt-4">
+            <PromptsSettings />
+          </div>
+        </section>
+
+        <section
           use:bindSection={'github'}
           id={settingsSectionDomId('github')}
           class="set-sec scroll-mt-6 outline-none"
@@ -175,11 +193,10 @@
           <SettingsSectionHead
             id="settings-github-h"
             title="GitHub"
-            description="Pull requests sync through the gh CLI, and how Create PR drafts them."
+            description="Pull requests sync through the gh CLI."
           />
           <div class="mt-4">
             <GithubSettings />
-            <PrPromptSettings />
           </div>
         </section>
 
@@ -218,19 +235,19 @@
         </section>
 
         <section
-          use:bindSection={'macros'}
-          id={settingsSectionDomId('macros')}
+          use:bindSection={'bangs'}
+          id={settingsSectionDomId('bangs')}
           class="set-sec scroll-mt-6 outline-none"
           tabindex="-1"
-          aria-labelledby="settings-macros-h"
-          data-od-id="settings-macros"
+          aria-labelledby="settings-bangs-h"
+          data-od-id="settings-bangs"
         >
           <SettingsSectionHead
-            id="settings-macros-h"
-            title="Scratch macros"
-            description="Saved prompts you can start as a scratch from the command palette."
+            id="settings-bangs-h"
+            title="Bangs"
+            description="Short names for prompts you use a lot. Type !name in any prompt bar to put the prompt in, or in the command palette to start a scratch with it."
           />
-          <ScratchMacrosSettings />
+          <BangsSettings />
         </section>
 
         <section

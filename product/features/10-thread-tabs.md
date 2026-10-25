@@ -27,8 +27,8 @@ Left to right:
 2. **Findings tab** (review workspaces, only after the review finishes): a list icon, `Findings`, and a count of findings not yet sent. See [20](20-review-findings.md).
 3. **+ (New thread)** icon button.
 4. Flexible space.
-5. **Git tab**, pinned right: a git-branch icon, `Git`, and `+N −N` when there are changed files. See [14](14-changes-panel.md).
-6. **Output tab**, pinned right: a terminal icon, `Output`, and a status mark:
+5. **Git tab**, pinned right: a git-branch icon, `Git`, and `+N −N` when there are changed files. It slides the Changes panel out from the right over the conversation, which stays mounted (and keeps its scroll) underneath. See [14](14-changes-panel.md).
+6. **Output tab**, pinned right: a terminal icon, `Output`, and a status mark. Like Git, it slides out over the conversation:
    - Spinner while the worktree is setting up or the app is starting.
    - Green dot and the port (for example `:5173`) while the app is running.
    - Nothing when stopped.
@@ -37,6 +37,7 @@ Left to right:
 ## Behaviour
 
 ### Selecting tabs
+- Git and Output are slide-outs: the same tab, `Esc`, the panel's × or a click on the dimmed conversation slides them away, back to the thread, plan or findings tab underneath.
 - Clicking a thread tab shows that thread's conversation and scrolls it to the end.
 - Clicking Findings shows the findings panel, scrolled to the top, focusing the tab.
 - Clicking Changes shows the Changes panel in place of the conversation.

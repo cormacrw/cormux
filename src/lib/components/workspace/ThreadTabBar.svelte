@@ -147,10 +147,10 @@
 
   function threadTabClass(selected: boolean) {
     return cn(
-      'h-8 max-w-[11rem] shrink-0 gap-1.5 rounded-t-md rounded-b-none border border-transparent px-2.5 font-normal shadow-none',
+      'h-8 max-w-[11rem] shrink-0 gap-1.5 rounded-[9px] border border-transparent px-2.5 font-normal shadow-none',
       selected
-        ? '-mb-px border-border/70 border-b-background bg-background text-foreground'
-        : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+        ? 'bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] font-medium text-foreground shadow-[inset_0_1px_0_var(--glass-highlight)] hover:bg-[color-mix(in_oklch,var(--foreground)_14%,transparent)]'
+        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
     )
   }
 </script>
@@ -161,12 +161,12 @@
   bind:this={barEl}
   role="group"
   aria-label="Thread tabs"
-  class="thread-bar flex h-9 shrink-0 items-end gap-1 overflow-x-auto border-b border-border/60 px-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+  class="thread-bar flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 px-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
   data-od-id="thread-tabs"
 >
   <div
     id="thread-tabs"
-    class="flex min-w-0 items-end gap-0.5"
+    class="flex min-w-0 items-center gap-1"
     role="tablist"
     tabindex="-1"
     onkeydown={onBarKeydown}
@@ -184,7 +184,7 @@
       {@const closable = canCloseThread(workspace.id, thread.id)}
       <span
         role="presentation"
-        class="group/tab relative flex shrink-0 items-end"
+        class="group/tab relative flex shrink-0 items-center"
       >
         <Button
           id="thread-tab-{thread.id}"
@@ -242,7 +242,7 @@
       {@const selected = workspaceUi.activeTab === 'plan'}
       <span
         role="presentation"
-        class="group/tab relative flex shrink-0 items-end"
+        class="group/tab relative flex shrink-0 items-center"
       >
         <Button
           id="thread-tab-plan"
@@ -321,7 +321,7 @@
       id="thread-add"
       variant="ghost"
       size="icon-sm"
-      class="mb-px size-7 shrink-0 text-muted-foreground"
+      class="size-7 shrink-0 text-muted-foreground"
       aria-label="New thread"
       title="New thread (⇧⌘N)"
       aria-keyshortcuts="Meta+Shift+N"
@@ -340,22 +340,22 @@
     tabindex="-1"
     onkeydown={onBarKeydown}
     aria-label="Git and app"
-    class="flex shrink-0 items-end gap-0.5"
+    class="flex shrink-0 items-center gap-1"
   >
     <Button
       id="thread-tab-changes"
       role="tab"
       variant="ghost"
       size="sm"
-      class={threadTabClass(workspaceUi.activeTab === 'changes')}
-      aria-selected={workspaceUi.activeTab === 'changes'}
+      class={threadTabClass(workspaceUi.gitVisible)}
+      aria-selected={workspaceUi.gitVisible}
       aria-controls="changes-panel"
       tabindex={tabIndex({ kind: 'changes' })}
       aria-label={changesTabAriaLabel(changeCountLabel)}
       aria-keyshortcuts="Meta+G"
       title="Git (⌘G)"
       data-od-id="thread-tab-changes"
-      onclick={() => selectTab({ kind: 'changes' })}
+      onclick={() => workspaceUi.toggleGit()}
     >
       <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
       <span class="truncate" aria-hidden="true">Git</span>
@@ -368,8 +368,8 @@
       role="tab"
       variant="ghost"
       size="sm"
-      class={threadTabClass(workspaceUi.activeTab === 'output')}
-      aria-selected={workspaceUi.activeTab === 'output'}
+      class={threadTabClass(workspaceUi.outputVisible)}
+      aria-selected={workspaceUi.outputVisible}
       aria-controls="output-panel"
       tabindex={tabIndex({ kind: 'output' })}
       aria-label={outputTabAriaLabel({
@@ -377,8 +377,10 @@
         appStatus: runtime.appStatus,
         port: runtime.port,
       })}
+      aria-keyshortcuts="Meta+O"
+      title="Output (⌘O)"
       data-od-id="thread-tab-output"
-      onclick={() => selectTab({ kind: 'output' })}
+      onclick={() => workspaceUi.toggleOutputTab()}
     >
       <Terminal class="size-3.5 shrink-0" aria-hidden="true" />
       <span class="truncate" aria-hidden="true">Output</span>

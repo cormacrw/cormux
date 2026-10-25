@@ -19,6 +19,7 @@ commands.allow = [
   "pause_thread",
   "resume_thread",
   "new_thread_session",
+  "resume_thread_session",
   "thread_models",
   "set_thread_model",
   "set_thread_plan_mode",
@@ -86,5 +87,10 @@ commands.allow = [
   "unsubscribe",
   "create_todo",
   "delete_todo",
-  "set_todo_pinned"
+  "set_todo_pinned",
+  "update_todo",
+  "plan_todo",
+  "set_todo_done",
+  "plan_sprint_task",
+  "set_sprint_task_done"
 ]

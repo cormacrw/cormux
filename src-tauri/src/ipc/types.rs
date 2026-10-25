@@ -25,6 +25,8 @@ pub struct Snapshot {
     /// True when a ClickUp API key is saved. Every ClickUp surface hides without one.
     pub clickup_configured: bool,
     pub workspace_apps: Vec<WorkspaceAppRuntime>,
+    /// Where each TODO is written as `CMUX-<n>.md`, for agents to read.
+    pub tasks_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -221,6 +223,17 @@ pub struct SendWorkspaceFindingsInput {
     pub workspace_id: String,
     pub thread_id: String,
     pub finding_ids: Vec<String>,
+}
+
+/// An earlier conversation to resume in a thread.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeThreadSessionInput {
+    pub thread_id: String,
+    /// The UI's id for the conversation, echoed back in the timeline.
+    pub conversation_id: String,
+    /// The agent session it ended with; none starts the agent fresh.
+    pub session_id: Option<String>,
 }
 
 /// Findings to dismiss, or (with `dismissed: false`) to restore.

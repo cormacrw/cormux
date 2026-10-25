@@ -10,7 +10,7 @@ test('the composer picks a model per thread when the engine lists some', async (
   await page.goto('/')
 
   // The fixture Lead runs Cursor, which lists no models until its session starts.
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await expect(page.locator('#composer')).toBeVisible()
   await expect(page.locator('[data-od-id="composer-model"]')).toHaveCount(0)
 

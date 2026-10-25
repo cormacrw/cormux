@@ -17,7 +17,7 @@ Defaults matter in a tool used many times a day: which engine new workspaces use
 ## Layout
 
 - **Title** `Settings` (`h1`, focused on arrival).
-- **Section list** (left, sticky): Agents, Repos, Scratch macros, General, Appearance, GitHub, Notifications.
+- **Section list** (left, sticky): Appearance, General, Agents, Prompts, GitHub, ClickUp, Repos, Bangs, Notifications, Keyboard shortcuts.
 - **Sections** (right), each with a heading, a one-line description, and one or more grouped panels of rows.
 - **Narrow windows:** the section list becomes a row of buttons above the content.
 
@@ -43,8 +43,8 @@ Used as: the pre-selected engine in the New workspace dialog, and the engine for
 ### Repos
 Description: `Local folders that new workspaces can check out from.` Full detail in [22](22-repos.md).
 
-### Scratch macros
-Description: `Saved prompts you can start as a scratch from the command palette.` Laid out like Repos: one row per macro (lightning icon, name, first line of the prompt) with **Configure** and **Remove**, then an **Add a macro** name field. Adding a macro expands it and focuses **Prompt**. Configure shows **Name** and **Prompt**; edits save 350ms after typing stops. A cleared name keeps the previous one. Names must be unique when added. A macro without a prompt is flagged `Not in the palette`. Stored as JSON in the `scratchMacros` settings row. See [23](23-scratches.md#scratch-macros).
+### Bangs
+Description: `Short names for prompts you use a lot. Type !name in any prompt bar to put the prompt in, or in the command palette to start a scratch with it.` One row per bang (`!name` in monospace, the prompt's first line) with **Configure** and **Remove**, then an **Add a bang** field with a `!` prefix. Names are tidied as typed: the `!` dropped, spaces become `-`, lowercase, only letters, digits, `-` and `_`. A blank or taken name is refused when adding (`Give the bang a name, like test or review.`, `!name already exists.`); renaming to one that's taken keeps the old name. Adding a bang expands it and focuses **Prompt**; edits save 350ms after typing stops. A bang without a prompt is flagged `Needs a prompt` and isn't offered anywhere. Stored as JSON in the `bangs` settings row; until it's first saved, the old `scratchMacros` row is read instead. See [23](23-scratches.md#bangs).
 
 ### General
 Description: `Defaults for new workspaces and how the app behaves.`

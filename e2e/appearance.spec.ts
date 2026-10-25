@@ -6,7 +6,7 @@ async function openAppearance(page: Page) {
   return page.locator('[data-od-id="settings-appearance-group"]')
 }
 
-test('Theme setting overrides the system theme and persists', async ({
+test('Mode setting overrides the system theme and persists', async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -15,7 +15,7 @@ test('Theme setting overrides the system theme and persists', async ({
   await expect(html).toHaveClass(/\bdark\b/)
 
   const theme = (await openAppearance(page)).getByRole('group', {
-    name: 'Theme',
+    name: 'Mode',
   })
   await expect(theme.getByRole('radio', { name: 'System' })).toBeChecked()
   await theme.getByRole('radio', { name: 'Light' }).click()
@@ -28,13 +28,21 @@ test('Theme setting overrides the system theme and persists', async ({
   await (
     await openAppearance(page)
   )
-    .getByRole('group', { name: 'Theme' })
+    .getByRole('group', { name: 'Mode' })
     .getByRole('radio', { name: 'System' })
     .click()
   await expect(html).toHaveClass(/\bdark\b/)
 })
 
-test('primary color and font sizes apply and persist', async ({ page }) => {
+function primary(page: Page) {
+  return page.evaluate(() =>
+    getComputedStyle(document.documentElement)
+      .getPropertyValue('--primary')
+      .trim(),
+  )
+}
+
+test('colour theme and font sizes apply and persist', async ({ page }) => {
   await page.goto('/')
   const html = page.locator('html')
   const mono = page.locator('.font-mono').first()
@@ -46,16 +54,21 @@ test('primary color and font sizes apply and persist', async ({ page }) => {
       ),
     )
     .toBe(true)
-  const newWorkspace = page.getByRole('button', { name: /New Workspace/ })
-  const graphite = await newWorkspace.evaluate(
-    (el) => getComputedStyle(el).backgroundColor,
-  )
+  // Blue is the default theme.
+  await expect(html).toHaveAttribute('data-palette', 'blue')
+  const blue = await primary(page)
 
   const panel = await openAppearance(page)
-  const colors = panel.getByRole('radiogroup', { name: 'Primary color' })
-  await expect(colors.getByRole('radio', { name: 'Graphite' })).toBeChecked()
-  await colors.getByRole('radio', { name: 'Blue' }).click()
-  await expect(html).toHaveAttribute('data-accent', 'blue')
+  const themes = panel.getByRole('radiogroup', { name: 'Theme' })
+  await expect(themes.getByRole('radio', { name: 'Blue' })).toBeChecked()
+  await themes.getByRole('radio', { name: 'Violet' }).click()
+  await expect(html).toHaveAttribute('data-palette', 'violet')
+  await expect.poll(() => primary(page)).not.toBe(blue)
+  const violet = await primary(page)
+
+  await themes.getByRole('radio', { name: 'Neutral' }).click()
+  await expect(html).not.toHaveAttribute('data-palette', /.*/)
+  await themes.getByRole('radio', { name: 'Violet' }).click()
 
   await panel.getByLabel('UI font size').click()
   await page.getByRole('option', { name: '18px' }).click()
@@ -72,7 +85,8 @@ test('primary color and font sizes apply and persist', async ({ page }) => {
   await expect(mono).toHaveCSS('font-family', /Geist Mono Variable/)
 
   await page.reload()
-  await expect(html).toHaveAttribute('data-accent', 'blue')
+  await expect(html).toHaveAttribute('data-palette', 'violet')
+  await expect.poll(() => primary(page)).toBe(violet)
   await expect(html).toHaveCSS('font-size', '18px')
   expect(
     await html.evaluate((el) =>
@@ -83,6 +97,26 @@ test('primary color and font sizes apply and persist', async ({ page }) => {
     'font-family',
     /Geist Mono Variable/,
   )
-  await page.getByRole('button', { name: 'Homebase' }).click()
-  await expect(newWorkspace).not.toHaveCSS('background-color', graphite)
+})
+
+test('the wordmark shows behind the glass and can be turned off', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const wordmark = page.locator('[data-od-id="wordmark"]')
+  await expect(wordmark).toBeAttached()
+  // Faint, and never in the way of clicks.
+  await expect(page.locator('[data-od-id="backdrop"]')).toHaveCSS(
+    'pointer-events',
+    'none',
+  )
+
+  const toggle = (await openAppearance(page)).getByRole('switch', {
+    name: 'Show wordmark',
+  })
+  await expect(toggle).toBeChecked()
+  await toggle.click()
+  await expect(wordmark).not.toBeAttached()
+  await page.reload()
+  await expect(wordmark).not.toBeAttached()
 })

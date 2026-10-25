@@ -1,9 +1,7 @@
 <script lang="ts">
-  import { tick } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
   import * as Empty from '$lib/components/ui/empty'
-  import * as Resizable from '$lib/components/ui/resizable'
   import {
     daysLeft,
     formatPoints,
@@ -20,7 +18,6 @@
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import SprintTaskCard from './SprintTaskCard.svelte'
-  import SprintTaskPanel from './SprintTaskPanel.svelte'
 
   /** Pointer travel before a press becomes a drag, so a click still selects. */
   const DRAG_THRESHOLD = 4
@@ -155,37 +152,11 @@
     clickup.select(clickup.selectedTaskId === task.id ? null : task.id)
   }
 
-  async function closePanel() {
-    const id = clickup.selectedTaskId
-    clickup.select(null)
-    await tick()
-    if (id) {
-      document.querySelector<HTMLElement>(`[data-task-id="${id}"]`)?.focus()
-    }
-  }
-
-  /** Escape closes the task pane, unless a dialog, menu or select is open and wants it. */
-  function onWindowKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || event.defaultPrevented) return
-    if (!clickup.selectedTaskId || drag) return
-    if (
-      document.querySelector(
-        '[role="dialog"], [role="alertdialog"], [role="listbox"], [role="menu"]',
-      )
-    ) {
-      return
-    }
-    event.preventDefault()
-    void closePanel()
-  }
-
   function openClickupSettings() {
     app.openSettings()
     settings.focusSection = 'clickup'
   }
 </script>
-
-<svelte:window onkeydown={onWindowKeydown} />
 
 <section
   class={cn(
@@ -369,120 +340,102 @@
         Showing the last loaded board. {clickup.error}
       </p>
     {/if}
-    <Resizable.PaneGroup
-      direction="horizontal"
-      autoSaveId="cormux-sprint-board"
-      class="min-h-0 flex-1"
-    >
-      <Resizable.Pane id="sprint-board" order={1} minSize={35}>
-        <div
-          bind:this={boardEl}
-          class="flex h-full min-h-0 items-start gap-3 overflow-x-auto overflow-y-hidden p-4"
-          role="list"
-          aria-label="Sprint lanes"
-          data-od-id="sprint-board"
-        >
-          {#each clickup.lanes as lane (lane.status.name)}
-            {@const isTarget =
-              drag?.active &&
-              overLane === lane.status.name &&
-              drag.task.status.toLowerCase() !== lane.status.name.toLowerCase()}
-            <section
-              class={cn(
-                'group/lane flex max-h-full w-[272px] shrink-0 flex-col rounded-xl border border-transparent bg-muted/40 transition-colors',
-                isTarget && 'border-primary/60 bg-primary/[0.07]',
-              )}
-              role="listitem"
-              aria-label="{statusLabel(lane.status.name)}, {plural(
-                lane.tasks.length,
-                'task',
-              )}"
-              data-lane={lane.status.name}
-            >
-              <header class="flex items-center gap-2 px-3 pt-3 pb-2">
+    <div class="min-h-0 flex-1">
+      <div
+        bind:this={boardEl}
+        class="flex h-full min-h-0 items-start gap-3 overflow-x-auto overflow-y-hidden p-4"
+        role="list"
+        aria-label="Sprint lanes"
+        data-od-id="sprint-board"
+      >
+        {#each clickup.lanes as lane (lane.status.name)}
+          {@const isTarget =
+            drag?.active &&
+            overLane === lane.status.name &&
+            drag.task.status.toLowerCase() !== lane.status.name.toLowerCase()}
+          <section
+            class={cn(
+              'group/lane flex max-h-full w-[272px] shrink-0 flex-col rounded-xl border border-transparent bg-muted/40 transition-colors',
+              isTarget && 'border-primary/60 bg-primary/[0.07]',
+            )}
+            role="listitem"
+            aria-label="{statusLabel(lane.status.name)}, {plural(
+              lane.tasks.length,
+              'task',
+            )}"
+            data-lane={lane.status.name}
+          >
+            <header class="flex items-center gap-2 px-3 pt-3 pb-2">
+              <span
+                class="size-2.5 shrink-0 rounded-full"
+                style:background-color={lane.status.color ?? 'currentColor'}
+                aria-hidden="true"
+              ></span>
+              <h2
+                class="truncate text-xs font-semibold tracking-wide uppercase"
+              >
+                {statusLabel(lane.status.name)}
+              </h2>
+              <span class="font-mono text-xs text-muted-foreground"
+                >{lane.tasks.length}</span
+              >
+              {#if lane.tasks.length > 0}
                 <span
-                  class="size-2.5 shrink-0 rounded-full"
-                  style:background-color={lane.status.color ?? 'currentColor'}
-                  aria-hidden="true"
-                ></span>
-                <h2
-                  class="truncate text-xs font-semibold tracking-wide uppercase"
+                  class="ml-auto font-mono text-[11px] text-muted-foreground"
+                  title="Sprint points in this lane"
+                  >{formatPoints(sprintTotals(lane.tasks).points)} pts</span
                 >
-                  {statusLabel(lane.status.name)}
-                </h2>
-                <span class="font-mono text-xs text-muted-foreground"
-                  >{lane.tasks.length}</span
-                >
-                {#if lane.tasks.length > 0}
-                  <span
-                    class="ml-auto font-mono text-[11px] text-muted-foreground"
-                    title="Sprint points in this lane"
-                    >{formatPoints(sprintTotals(lane.tasks).points)} pts</span
-                  >
-                {/if}
-                <button
-                  type="button"
-                  class={cn(
-                    'flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 outline-none transition-opacity group-hover/lane:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50',
-                    lane.tasks.length === 0 && 'ml-auto',
-                  )}
-                  aria-label="Hide {statusLabel(lane.status.name)}"
-                  title="Hide lane"
-                  onclick={() => clickup.setLaneHidden(lane.status.name, true)}
-                >
-                  <EyeOff class="size-3.5" aria-hidden="true" />
-                </button>
-              </header>
-              <div
-                class="flex min-h-16 flex-col gap-2 overflow-y-auto px-2 pt-1 pb-2"
+              {/if}
+              <button
+                type="button"
+                class={cn(
+                  'flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 outline-none transition-opacity group-hover/lane:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50',
+                  lane.tasks.length === 0 && 'ml-auto',
+                )}
+                aria-label="Hide {statusLabel(lane.status.name)}"
+                title="Hide lane"
+                onclick={() => clickup.setLaneHidden(lane.status.name, true)}
               >
-                {#each lane.tasks as task (task.id)}
-                  <SprintTaskCard
-                    {task}
-                    selected={clickup.selectedTaskId === task.id}
-                    dragging={drag?.active === true && drag.task.id === task.id}
-                    onSelect={() => selectTask(task)}
-                    onPointerDown={(event) => onCardPointerDown(event, task)}
-                  />
-                {/each}
-              </div>
-            </section>
+                <EyeOff class="size-3.5" aria-hidden="true" />
+              </button>
+            </header>
+            <div
+              class="flex min-h-16 flex-col gap-2 overflow-y-auto px-2 pt-1 pb-2"
+            >
+              {#each lane.tasks as task (task.id)}
+                <SprintTaskCard
+                  {task}
+                  selected={clickup.selectedTaskId === task.id}
+                  dragging={drag?.active === true && drag.task.id === task.id}
+                  onSelect={() => selectTask(task)}
+                  onPointerDown={(event) => onCardPointerDown(event, task)}
+                />
+              {/each}
+            </div>
+          </section>
+        {:else}
+          {#if clickup.hiddenLaneCount > 0}
+            <p
+              class="flex items-center gap-2 p-2 text-sm text-muted-foreground"
+            >
+              Every lane is hidden.
+              <Button
+                variant="link"
+                size="sm"
+                class="h-auto p-0"
+                onclick={() => clickup.showAllLanes()}
+              >
+                Show all lanes
+              </Button>
+            </p>
           {:else}
-            {#if clickup.hiddenLaneCount > 0}
-              <p
-                class="flex items-center gap-2 p-2 text-sm text-muted-foreground"
-              >
-                Every lane is hidden.
-                <Button
-                  variant="link"
-                  size="sm"
-                  class="h-auto p-0"
-                  onclick={() => clickup.showAllLanes()}
-                >
-                  Show all lanes
-                </Button>
-              </p>
-            {:else}
-              <p class="p-2 text-sm text-muted-foreground">
-                This sprint has no tasks yet.
-              </p>
-            {/if}
-          {/each}
-        </div>
-      </Resizable.Pane>
-      {#if clickup.selectedTask}
-        <Resizable.Handle withHandle />
-        <Resizable.Pane
-          id="sprint-task"
-          order={2}
-          defaultSize={34}
-          minSize={22}
-          maxSize={60}
-        >
-          <SprintTaskPanel />
-        </Resizable.Pane>
-      {/if}
-    </Resizable.PaneGroup>
+            <p class="p-2 text-sm text-muted-foreground">
+              This sprint has no tasks yet.
+            </p>
+          {/if}
+        {/each}
+      </div>
+    </div>
   {/if}
 </section>
 

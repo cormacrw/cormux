@@ -28,7 +28,7 @@ test.describe('navigation shortcuts', () => {
     expect(errors).toEqual([])
   })
 
-  test('⌘G opens the Git tab in a workspace', async ({ page }) => {
+  test('⌘G shows and hides Git in a workspace', async ({ page }) => {
     await page.goto('/')
     await expect(
       page.getByRole('button', { name: /^OAuth login,/ }),
@@ -41,6 +41,33 @@ test.describe('navigation shortcuts', () => {
     await page.keyboard.press('ControlOrMeta+g')
     await expect(git).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('tabpanel', { name: /^Git/ })).toBeVisible()
+    await page.keyboard.press('ControlOrMeta+g')
+    await expect(git).toHaveAttribute('aria-selected', 'false')
+  })
+
+  test('⌘O shows and hides Output in a workspace', async ({ page }) => {
+    await page.goto('/')
+    await expect(
+      page.getByRole('button', { name: /^OAuth login,/ }),
+    ).toBeVisible()
+    await page.keyboard.press('ControlOrMeta+1')
+    const output = page.locator('#thread-tab-output')
+    await expect(output).toHaveAttribute('aria-selected', 'false')
+    await page.keyboard.press('ControlOrMeta+o')
+    await expect(output).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('ControlOrMeta+o')
+    await expect(output).toHaveAttribute('aria-selected', 'false')
+
+    // Clicking the Git or Output tab toggles it the same way.
+    await output.click()
+    await expect(output).toHaveAttribute('aria-selected', 'true')
+    await output.click()
+    await expect(output).toHaveAttribute('aria-selected', 'false')
+    const git = page.locator('#thread-tab-changes')
+    await git.click()
+    await expect(git).toHaveAttribute('aria-selected', 'true')
+    await git.click()
+    await expect(git).toHaveAttribute('aria-selected', 'false')
   })
 })
 

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cormux</title>
-    <!-- Apply Settings > Appearance and paint the background before app.css loads so boot doesn't flash. -->
+    <!-- Apply Settings > Appearance before app.css loads so boot doesn't flash. -->
     <script>
       {
         // Keys and values match mode-watcher and src/lib/state/appearance.svelte.ts.
@@ -25,8 +25,37 @@
         ) {
           root.classList.add('dark')
         }
-        const accent = read('cormux-accent')
-        if (accent && accent !== 'neutral') root.dataset.accent = accent
+        // Ids match THEMES in appearance.svelte.ts; Blue is the default, Neutral has no attribute.
+        const theme = read('cormux-theme') || 'blue'
+        if (theme !== 'neutral') root.dataset.palette = theme
+        // First paint in the theme's own gradient, matching Backdrop.svelte and
+        // the theme tokens in app.css, rather than a flat grey until styles load.
+        const palettes = {
+          blue: [262, 1],
+          violet: [292, 1],
+          pink: [345, 1],
+          red: [22, 0.5],
+          orange: [50, 0.5],
+          green: [155, 0.35],
+          teal: [200, 1],
+        }
+        const isDark = root.classList.contains('dark')
+        const [hue, strength] = palettes[theme] ?? [265, 0]
+        const base = palettes[theme]
+          ? isDark
+            ? `oklch(0.25 ${0.12 * strength} ${hue})`
+            : `oklch(0.72 ${0.13 * strength} ${hue})`
+          : isDark
+            ? 'oklch(0.13 0.012 265)'
+            : 'oklch(0.93 0.01 265)'
+        const high = palettes[theme]
+          ? isDark
+            ? `oklch(0.42 ${0.17 * strength} ${hue})`
+            : `oklch(0.86 ${0.09 * strength} ${hue})`
+          : isDark
+            ? 'oklch(0.2 0.015 265)'
+            : 'oklch(0.975 0.006 265)'
+        root.style.background = `radial-gradient(120% 110% at 90% -10%, ${high}, transparent 70%) fixed, ${base}`
         const uiSize = Number(read('cormux-ui-font-size'))
         if (uiSize >= 14 && uiSize <= 18) root.style.fontSize = uiSize + 'px'
         const codeSize = Number(read('cormux-code-font-size'))

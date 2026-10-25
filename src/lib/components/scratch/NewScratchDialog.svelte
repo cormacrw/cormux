@@ -6,6 +6,9 @@
   import { Input } from '$lib/components/ui/input/index.js'
   import * as Select from '$lib/components/ui/select/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
+  import { bangExpand } from '$lib/composer/bang-expand'
+  import { expandBangs } from '$lib/settings/bangs'
+  import { settings as bangSettings } from '$lib/state/settings.svelte'
   import { commands, fetchSnapshot } from '$lib/ipc'
   import { coreErrorText } from '$lib/feedback/core-error'
   import { showToast } from '$lib/feedback/show-toast'
@@ -24,6 +27,13 @@
   let repoId = $state('')
   let prompt = $state('')
   let promptInput = $state<HTMLTextAreaElement | null>(null)
+
+  // `!name` then a space swaps in a bang's prompt; any left whole expand on submit.
+  $effect(() => {
+    if (!promptInput) return
+    const handle = bangExpand(promptInput)
+    return () => handle?.destroy?.()
+  })
 
   async function prepareOpen() {
     dismissOpenPopover()
@@ -47,7 +57,7 @@
     // Blank: the core drafts a title from the prompt, then Haiku renames it.
     const trimmed = title.trim()
     // Nothing is provisioned, so the dialog closes before the core answers.
-    const text = prompt.trim()
+    const text = expandBangs(prompt.trim(), bangSettings.bangs)
     closeDialog()
     const result = await commands.createScratch({
       title: trimmed,
@@ -129,6 +139,7 @@
           />
           <p id="sess-prompt-hint" class="text-xs text-muted-foreground">
             Optional. Leave it blank and write the first message in the scratch.
+            Type !name for a bang.
           </p>
         </div>
 
