@@ -2,7 +2,7 @@ import { coreErrorText } from '$lib/feedback/core-error'
 import { showToast } from '$lib/feedback/show-toast'
 import { commands, fetchSnapshot } from '$lib/ipc'
 import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
-import { macroPromptWithExtra } from '$lib/settings/scratch-macros'
+import { bangPromptWithExtra } from '$lib/settings/bangs'
 import { hydrateFromSnapshot } from '$lib/state'
 import { app } from '$lib/state/app.svelte'
 import { repos } from '$lib/state/repos.svelte'
@@ -67,17 +67,17 @@ export function toggleReduceMotion() {
 }
 
 /**
- * Starts a scratch from a macro in the default repo without leaving the current view.
- * `extra` is what was typed after the macro chip in the palette.
+ * Starts a scratch from a bang in the default repo without leaving the current view.
+ * `extra` is what was typed after `!name` in the palette, added to the prompt.
  */
-export async function runScratchMacro(macroId: string, extra = '') {
-  const macro = settings.scratchMacros.find((row) => row.id === macroId)
-  if (!macro) return
-  const title = macro.name.trim()
+export async function runBang(bangId: string, extra = '') {
+  const bang = settings.bangs.find((row) => row.id === bangId)
+  if (!bang) return
+  const title = `!${bang.name}`
   const result = await commands.createScratch({
     title,
     repoId: resolveDefaultRepoId(repos.items, settings.defaultRepo),
-    prompt: macroPromptWithExtra(macro.prompt, extra),
+    prompt: bangPromptWithExtra(bang.prompt, extra),
   })
   if (result.status === 'error') {
     showToast({

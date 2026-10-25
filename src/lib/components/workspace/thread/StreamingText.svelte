@@ -26,6 +26,34 @@
   function stopTyping(order: number) {
     delete typing[order]
   }
+
+  // Replies already shown, by text. Rebuilding a thread from the store can
+  // give a reply a new row id; this keeps it from typing out a second time.
+  const shownTexts: string[] = []
+  const SHOWN_LIMIT = 300
+
+  function rememberShown(text: string) {
+    if (text.length < 2) return
+    const at = shownTexts.findIndex(
+      (seen) => text.startsWith(seen) || seen.startsWith(text),
+    )
+    if (at >= 0) {
+      if (shownTexts[at]!.length >= text.length) return
+      shownTexts.splice(at, 1)
+    }
+    shownTexts.push(text)
+    if (shownTexts.length > SHOWN_LIMIT) shownTexts.shift()
+  }
+
+  /** How much of `text` was shown before, under any id. */
+  function alreadyShown(text: string): number {
+    let best = 0
+    for (const seen of shownTexts) {
+      if (seen.startsWith(text)) return text.length
+      if (text.startsWith(seen)) best = Math.max(best, seen.length)
+    }
+    return best
+  }
 </script>
 
 <script lang="ts">
@@ -50,12 +78,19 @@
 
   const order = takeOrder()
 
-  // Replies that were already in the thread when it opened show in full.
+  // Replies that were already in the thread when it opened show in full, and
+  // one seen before under another id picks up where it left off.
   let shown = $state(
     untrack(() =>
-      entries?.claim(key) && !prefersReducedMotion() ? 0 : text.length,
+      entries?.claim(key) && !prefersReducedMotion()
+        ? alreadyShown(text)
+        : text.length,
     ),
   )
+  $effect(() => {
+    const visible = text.slice(0, shown)
+    untrack(() => rememberShown(visible))
+  })
   let frame = 0
   let lastFrameAt = 0
   // Characters earned but not yet shown, so the pace holds between frames.

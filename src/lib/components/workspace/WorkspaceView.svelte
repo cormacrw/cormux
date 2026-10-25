@@ -65,10 +65,12 @@
   const workspaceRepoId = $derived(
     workspace ? (workspaceRecords.getRecord(workspace.id)?.repoId ?? '') : '',
   )
-  const outputTabActive = $derived(workspaceUi.activeTab === 'output')
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
   const planTabActive = $derived(workspaceUi.activeTab === 'plan')
-  const changesTabActive = $derived(workspaceUi.activeTab === 'changes')
+  // A pinned tray sits beside the conversation as a pane, and both stay usable.
+  const pinnedTray = $derived(workspaceUi.pinnedTray)
+  const gitVisible = $derived(workspaceUi.gitVisible)
+  const outputVisible = $derived(workspaceUi.outputVisible)
   // Git and Output slide over the panel underneath, which stays mounted so
   // closing them is instant and the conversation keeps its scroll.
   const baseTab = $derived(workspaceUi.baseTab)
@@ -76,17 +78,37 @@
   // Mounted on first open, then kept so reopening doesn't rebuild the diff or log.
   let changesMounted = $state(false)
   let outputMounted = $state(false)
+  // A first open mounts the panel closed and opens it a frame later, so it
+  // slides in like every later open instead of appearing in place.
+  let changesArmed = $state(false)
+  let outputArmed = $state(false)
+  function nextFrame(run: () => void) {
+    requestAnimationFrame(() => requestAnimationFrame(run))
+  }
   $effect(() => {
-    if (changesTabActive) changesMounted = true
-    if (outputTabActive) outputMounted = true
+    if (gitVisible && !untrack(() => changesMounted)) {
+      changesMounted = true
+      nextFrame(() => (changesArmed = true))
+    }
+    if (outputVisible && !untrack(() => outputMounted)) {
+      outputMounted = true
+      nextFrame(() => (outputArmed = true))
+    }
   })
+  // Switching workspaces shows whatever was open straight away.
   $effect(() => {
     void workspaceId
     untrack(() => {
-      changesMounted = changesTabActive
-      outputMounted = outputTabActive
+      changesMounted = changesArmed = gitVisible
+      outputMounted = outputArmed = outputVisible
     })
   })
+  const changesOpen = $derived(gitVisible && changesArmed)
+  const outputOpen = $derived(outputVisible && outputArmed)
+  const PANE_CLASS =
+    'tray-pane glass-pane relative my-3 mr-3 flex max-w-[calc(100%-372px)] min-w-[320px] shrink-0 flex-col overflow-hidden rounded-[18px]'
+  const SLIDE_CLASS =
+    'slide-out glass-pane absolute inset-y-3 right-3 z-30 flex w-[min(var(--tray-w),calc(94%-12px))] flex-col overflow-hidden rounded-[18px]'
 
   // Esc slides Git or Output away from anywhere in the workspace, unless a dialog,
   // menu or popover is open and wants the key for itself.
@@ -100,6 +122,31 @@
       return
     event.preventDefault()
     workspaceUi.closeSlideOut()
+  }
+
+  let paneRow: HTMLDivElement | undefined = $state()
+
+  // Dragging the pinned pane's left edge resizes it, leaving the conversation at least 360px.
+  function onPaneEdgeDown(event: PointerEvent) {
+    if (event.button !== 0 || !paneRow) return
+    event.preventDefault()
+    const handle = event.currentTarget as HTMLElement
+    handle.setPointerCapture(event.pointerId)
+    const row = paneRow.getBoundingClientRect()
+    const move = (next: PointerEvent) => {
+      const width = row.right - 12 - next.clientX
+      workspaceUi.setTrayWidth(
+        Math.min(Math.max(width, 320), Math.max(320, row.width - 372)),
+      )
+    }
+    const up = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      handle.removeEventListener('pointercancel', up)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+    handle.addEventListener('pointercancel', up)
   }
 
   function onSlideOutKeydown(event: KeyboardEvent) {
@@ -126,7 +173,7 @@
   $effect(() => {
     if (!workspaceId || isLoadSpike) return
     void workspaceBranch
-    void changesTabActive
+    void gitVisible
     untrack(() => void stacks.load(workspaceId))
   })
 
@@ -247,8 +294,14 @@
     <ThreadTabBar {workspace} />
 
     {#if activeThread}
-      <div class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div class="flex min-h-0 flex-1 flex-col" inert={slideOut != null}>
+      <div
+        bind:this={paneRow}
+        class="relative flex min-h-0 flex-1 overflow-hidden"
+      >
+        <div
+          class="workspace-main flex min-h-0 min-w-0 flex-1 flex-col"
+          inert={slideOut != null}
+        >
           {#if baseTab === 'thread'}
             <ThreadPanel
               {workspace}
@@ -275,15 +328,31 @@
           onclick={() => workspaceUi.closeSlideOut()}
         ></button>
 
+        {#snippet resizeEdge()}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize"
+            title="Drag to resize"
+            onpointerdown={onPaneEdgeDown}
+          ></div>
+        {/snippet}
+
         {#if changesMounted}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="slide-out glass-pane absolute inset-y-0 right-0 z-30 flex w-[min(960px,94%)] flex-col overflow-hidden rounded-tl-[18px]"
-            data-open={changesTabActive}
+            class={pinnedTray === 'changes' ? PANE_CLASS : SLIDE_CLASS}
+            style:--tray-w="960px"
+            style:width={pinnedTray === 'changes'
+              ? `${workspaceUi.trayWidth}px`
+              : null}
+            data-open={changesOpen}
+            data-pinned={pinnedTray === 'changes'}
             data-od-id="git-slide-out"
-            inert={!changesTabActive}
+            data-tray="git"
+            inert={!gitVisible}
             onkeydown={onSlideOutKeydown}
           >
+            {#if pinnedTray === 'changes'}{@render resizeEdge()}{/if}
             <ChangesPanel
               {workspace}
               thread={activeThread}
@@ -298,12 +367,19 @@
             role="tabpanel"
             aria-labelledby="thread-tab-output"
             tabindex="-1"
-            class="slide-out glass-pane absolute inset-y-0 right-0 z-30 flex w-[min(720px,94%)] flex-col overflow-hidden rounded-tl-[18px]"
-            data-open={outputTabActive}
+            class={pinnedTray === 'output' ? PANE_CLASS : SLIDE_CLASS}
+            style:--tray-w="720px"
+            style:width={pinnedTray === 'output'
+              ? `${workspaceUi.trayWidth}px`
+              : null}
+            data-open={outputOpen}
+            data-pinned={pinnedTray === 'output'}
             data-od-id="output-slide-out"
-            inert={!outputTabActive}
+            data-tray="output"
+            inert={!outputVisible}
             onkeydown={onSlideOutKeydown}
           >
+            {#if pinnedTray === 'output'}{@render resizeEdge()}{/if}
             <WorkspaceOutputPanel
               workspaceId={workspace.id}
               repoId={workspaceRepoId}

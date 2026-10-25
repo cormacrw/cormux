@@ -13,7 +13,7 @@ test('usage: a thread shows its tokens, context fill and cost, totalled in the h
   })
   await page.goto('/')
   await expect(page.locator('[data-od-id="home-cost"]')).toHaveText(
-    '$1.23 spent by agents',
+    '$1.23 spent by agents today',
   )
   // It sits on the title's baseline, not the header's bottom edge.
   const titleBox = (await page.locator('#home-title').boundingBox())!
@@ -44,9 +44,8 @@ test('usage: a thread shows its tokens, context fill and cost, totalled in the h
   })
   await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
 
-  await expect(page.locator('[data-od-id="composer-usage"]')).toHaveText(
-    '22.3k · 11% · $1.23',
-  )
+  // The prompt bar shows only how full the context is.
+  await expect(page.locator('[data-od-id="composer-usage"]')).toHaveText('11%')
   await expect(page.locator('#thread-tab-th-lead')).toHaveAttribute(
     'title',
     '22.3k tokens in context (11% of 200k) · $1.23 so far',

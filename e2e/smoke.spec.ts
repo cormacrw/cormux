@@ -31,9 +31,7 @@ test.describe('browser harness UI', () => {
     })
     await page.getByRole('button', { name: 'Homebase' }).click()
 
-    await page
-      .getByRole('button', { name: 'OAuth login, Idle, 1 agent' })
-      .click()
+    await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
     await expect(
       page.getByRole('heading', { name: 'OAuth login' }),
     ).toBeVisible()
@@ -48,11 +46,11 @@ test.describe('browser harness UI', () => {
     const bubbleBox = await bubble.boundingBox()
     const youBox = await you.boundingBox()
     expect(youBox!.y).toBeGreaterThan(bubbleBox!.y)
-    await expect(
-      page.locator('#timeline').getByText('Working').first(),
-    ).toBeVisible()
+    // What the agent is doing floats just above the prompt bar.
+    const status = page.locator('[data-od-id="live-status"]')
+    await expect(status).toContainText('Working')
     await page.getByRole('button', { name: 'Stop', exact: true }).click()
-    await expect(page.locator('#timeline').getByText('Working')).toHaveCount(0)
+    await expect(status).toHaveCount(0)
     mkdirSync('e2e/output', { recursive: true })
     await page.screenshot({
       path: 'e2e/output/workspace.png',

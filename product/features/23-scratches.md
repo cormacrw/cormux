@@ -279,13 +279,15 @@ Every 4000ms the sidebar memory figure counts unpaused running scratches the sam
 
 Every 60s, `createdMin` increments on every scratch. If Homebase or a scratch page is showing, it re-renders. Cards do not display `createdMin`. The sample timestamps (`26m`, `4m`, `2h`) are the `t` strings on timeline items, not `createdMin`, and they do not tick.
 
-### Scratch macros
+### Bangs
 
-A macro is a saved name and prompt, managed in Settings › Scratch macros ([21](21-settings.md)). Each macro with a name and a prompt appears in the palette under **Macros** (right after Actions), labelled with its name, lightning icon, and a muted second line with the prompt's first 20 characters (whitespace collapsed, `…` when cut).
+A bang is a short name with no spaces, like `!test`, that stands for a saved prompt. Bangs are managed in Settings › Bangs ([21](21-settings.md)) and replace the old scratch macros; saved macros carry over, with names made into bangs (`Morning triage` → `!morning-triage`).
 
-Typing a macro's full name (any case) then Space or Tab turns it into a chip, like the TODO chip ([24](24-todos.md)). Whatever is typed after the chip is appended to the saved prompt after a blank line. The list shows one row, `Start <name>`, with the preview plus `+ “<text>”`. Enter starts it; the footer hint reads `start scratch`. Backspace on an empty field turns the chip back into the name. Enter on the bare name (no chip) runs the macro as saved.
+**In the command palette** a bang starts a scratch. Each usable bang (a name and a prompt) is listed under **Bangs**, right after Actions: `!name`, the prompt's start as a muted second line, and `Start a scratch` on the right; typing `!te` filters them. Typing a bang's full name and then more words shows one row, `Start a scratch with !name`, with the preview plus `+ “<words>”`; Enter starts it, and the words go on the end of the prompt after a blank line. The footer hint reads `start scratch`.
 
-Running one starts a scratch titled with the macro's name, in the Default repository, with the prompt as its first message. It does **not** navigate: you stay on whatever view you were on. A success toast `Started <name>` confirms it, and clicking the toast opens the scratch. Errors toast `Could not start the scratch`.
+Starting one creates a scratch titled `!name`, in the Default repository, with the prompt as its first message. It does **not** navigate: you stay on whatever view you were on. A success toast `Started !name` confirms it, and clicking the toast opens the scratch. Errors toast `Could not start the scratch`.
+
+**In a prompt bar** (any thread or scratch), typing `!` opens the picker with your bangs, filtered as you type; picking one replaces `!word` with the prompt, unsent, so you can edit it. A whole `!name` left in a message expands to its prompt when sent. The New workspace and New scratch dialogs have no picker: there, `!name` then a space swaps in the prompt, and any left whole expand on submit.
 
 ## Rules and edge cases
 

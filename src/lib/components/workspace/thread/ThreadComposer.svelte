@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte'
   import { onMount, tick } from 'svelte'
   import { composerMayTakeFocus, isEditable } from '$lib/keyboard/focus-home'
   import { app } from '$lib/state/app.svelte'
@@ -38,16 +39,25 @@
     taskToken,
   } from '$lib/composer/task-aliases'
   import { expandMessage } from '$lib/composer/expand-message'
+  import {
+    bangPreview,
+    bangToken,
+    filterBangs,
+    insertBang,
+    type Bang,
+  } from '$lib/settings/bangs'
+  import Zap from '@lucide/svelte/icons/zap'
   import { taskRef } from '$lib/clickup/board'
+  import { todos } from '$lib/state/todos.svelte'
+  import { todoAliasTask } from '$lib/todos/ref'
   import { clickup } from '$lib/state/clickup.svelte'
-  import type { ClickupTask } from '$lib/ipc/bindings'
   import { repos } from '$lib/state/repos.svelte'
   import type { RepoRecord } from '$lib/ipc/bindings'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { settings } from '$lib/state/settings.svelte'
   import { cn } from '$lib/utils'
-  import { usageSummary } from '$lib/usage/usage'
+  import { contextPercent, usageSummary } from '$lib/usage/usage'
   import { threadPlanMode } from '$lib/plans/plans'
   import { setThreadPlanMode } from '$lib/plans/leave-plan-mode'
   import { formatPlanFeedback } from '$lib/plans/feedback'
@@ -63,10 +73,7 @@
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
-  import Buddy from '$lib/components/buddy/Buddy.svelte'
   import { agentName } from '$lib/agent-name'
-  import { buddyColor, buddyMoodForThread } from '$lib/buddy'
-  import { engineDisplayName } from '$lib/sidebar/engine'
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import FileText from '@lucide/svelte/icons/file-text'
@@ -83,6 +90,7 @@
   let {
     thread,
     onSent,
+    status,
     // eslint-disable-next-line no-useless-assignment -- bindable, set by the effect below
     focusComposer = $bindable(),
     inputLabel = 'Message the agent',
@@ -92,6 +100,8 @@
   }: {
     thread: Thread
     onSent?: () => void
+    /** What the agent is doing, floated just above the prompt bar. */
+    status?: Snippet
     focusComposer?: (() => void) | null
     inputLabel?: string
     placeholder?: string
@@ -105,15 +115,14 @@
   /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
   let historyIndex = $state<number | null>(null)
 
-  const mood = $derived(buddyMoodForThread(thread))
-  const color = $derived(buddyColor(thread.id))
   const name = $derived(agentName(thread.id))
-  const engineName = $derived(engineDisplayName(thread.engine))
   const draft = $derived(composerDrafts.textFor(thread.id))
   const showPause = $derived(composerShowsPauseControl(thread.status))
   const pauseLabel = $derived(composerPauseLabel(thread.status, thread.paused))
   const isPaused = $derived(thread.status === 'paused' || thread.paused)
-  const usage = $derived(usageSummary(thread.usage))
+  // Only how full the context is; tokens and cost are in the thread tab's tooltip.
+  const contextFill = $derived(contextPercent(thread.usage))
+  const usageDetail = $derived(usageSummary(thread.usage).detail)
   const canStartNewSession = $derived(
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
@@ -195,8 +204,13 @@
   const repoMatches = $derived(
     repoWord ? filterRepos(repos.items, repoWord.query) : [],
   )
-  // Typing `#` offers the tasks on your sprint board; `#ref` becomes the task on send.
-  const sprintTasks = $derived(clickup.mine?.tasks ?? [])
+  // Typing `#` offers your open TODOs (CMUX-<n>) and sprint tasks; `#ref` becomes the task on send.
+  const sprintTasks = $derived([
+    ...todos.items
+      .filter((todo) => !todo.doneAt)
+      .map((todo) => todoAliasTask(todo, todos.filesDir)),
+    ...(clickup.mine?.tasks ?? []),
+  ])
   const taskWord = $derived(
     token || repoWord || !sprintTasks.length
       ? null
@@ -205,12 +219,21 @@
   const taskMatches = $derived(
     taskWord ? filterTasks(sprintTasks, taskWord.query) : [],
   )
+  // Typing `!` offers your bangs (Settings › Bangs); picking one puts its prompt in.
+  const bangWord = $derived(
+    token || repoWord || taskWord || !settings.bangs.length
+      ? null
+      : bangToken(draft, Math.min(caret, draft.length)),
+  )
+  const bangMatches = $derived(
+    bangWord ? filterBangs(settings.bangs, bangWord.query) : [],
+  )
   type PickerOption = {
     key: string
     label: string
     detail: string
     badge: string | null
-    kind: 'skill' | 'repo' | 'task'
+    kind: 'skill' | 'repo' | 'task' | 'bang'
     choose: () => void
   }
   const pickerOptions = $derived.by((): PickerOption[] => {
@@ -227,6 +250,15 @@
               : null,
         kind: 'skill' as const,
         choose: () => chooseSkill(skill),
+      }))
+    if (bangWord)
+      return bangMatches.map((bang) => ({
+        key: bang.id,
+        label: `!${bang.name}`,
+        detail: bangPreview(bang.prompt, 80),
+        badge: null,
+        kind: 'bang' as const,
+        choose: () => chooseBang(bang),
       }))
     if (taskWord)
       return taskMatches.map((task) => ({
@@ -277,7 +309,12 @@
     applyPick(insertRepoAlias(draft, repoWord, repoAlias(repo)))
   }
 
-  function chooseTask(task: ClickupTask) {
+  function chooseBang(bang: Bang) {
+    if (!bangWord) return
+    applyPick(insertBang(draft, bangWord, bang))
+  }
+
+  function chooseTask(task: (typeof sprintTasks)[number]) {
     if (!taskWord) return
     applyPick(insertTaskAlias(draft, taskWord, taskRef(task)))
   }
@@ -318,7 +355,9 @@
   }
 
   $effect(() => {
+    // Fits the box too, for text put in the draft from outside (a picked task).
     focusComposer = () => {
+      fitHeight()
       inputEl?.focus()
     }
   })
@@ -631,7 +670,15 @@
   class="composer-wrap sticky bottom-0 z-10 px-1 pt-2 pb-4"
   data-od-id="composer-wrap"
 >
+  {#if status && !pickerOpen}
+    <div
+      class="pointer-events-none absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-[760px]"
+    >
+      {@render status()}
+    </div>
+  {/if}
   {#if pickerOpen}
+    <!-- Solid, not glass: it sits over the greeting's big type, which would show through. -->
     {@const shownKind = pickerOptions[0]?.kind ?? 'skill'}
     <ul
       id="composer-picker"
@@ -640,8 +687,10 @@
         ? 'Repositories'
         : shownKind === 'task'
           ? 'Sprint tasks'
-          : 'Skills'}
-      class="absolute inset-x-1 bottom-full mx-auto -mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg"
+          : shownKind === 'bang'
+            ? 'Bangs'
+            : 'Skills'}
+      class="composer-picker absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-background-solid p-1 text-popover-foreground shadow-lg"
       data-od-id="{shownKind}-picker"
     >
       {#each pickerOptions as option, index (option.key)}
@@ -655,9 +704,18 @@
             event.preventDefault()
             option.choose()
           }}
-          onmouseenter={() => (pickerIndex = index)}
+          onpointermove={(event) => {
+            // Only a pointer that really moved: the list opening, or sliding in
+            // under a still one, mustn't steal the highlight from the keyboard.
+            if (event.movementX || event.movementY) pickerIndex = index
+          }}
         >
-          {#if option.kind === 'task'}
+          {#if option.kind === 'bang'}
+            <Zap
+              class="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          {:else if option.kind === 'task'}
             <Kanban
               class="size-3.5 shrink-0 text-muted-foreground"
               aria-hidden="true"
@@ -713,7 +771,7 @@
   >
     {#if attachments.length}
       <ul
-        class="flex flex-wrap gap-2 px-3 pt-3"
+        class="flex flex-wrap gap-3 px-4 pt-4 pb-3"
         aria-label="Attachments"
         data-od-id="composer-attachments"
       >
@@ -728,7 +786,7 @@
               <img
                 src={attachment.previewUrl}
                 alt={attachment.name}
-                class="size-16 rounded-md border border-border object-cover"
+                class="size-16 rounded-lg border border-border object-cover"
               />
               <button
                 type="button"
@@ -742,7 +800,7 @@
             </li>
           {:else}
             <li
-              class="flex h-16 max-w-56 items-center gap-2 self-end rounded-md border border-border bg-muted/40 p-1 pr-1.5 text-xs"
+              class="flex h-16 max-w-56 items-center gap-2 self-end rounded-lg border border-border bg-muted/40 p-1.5 pr-2.5 text-xs"
               title={attachment.path ?? attachment.name}
               data-od-id="composer-attachment"
             >
@@ -815,10 +873,6 @@
         id="composer-meta"
         data-od-id="composer-meta"
       >
-        <Buddy {mood} {color} glasses={thread.role === 'Reviewer'} size={20} />
-        <span class="lbl truncate"
-          >{thread.role ? `${engineName} · ${name}` : engineName}</span
-        >
         <ThreadModelPicker {thread} />
         <Button
           type="button"
@@ -851,12 +905,12 @@
             Plan
           </Button>
         {/if}
-        {#if usage.meter}
+        {#if contextFill != null}
           <span
             class="shrink-0 font-mono text-[10px] text-muted-foreground/80 tabular-nums"
             data-od-id="composer-usage"
-            title={usage.detail}
-            aria-label={usage.detail}>{usage.meter}</span
+            title={usageDetail}
+            aria-label="Context {contextFill}% full">{contextFill}%</span
           >
         {/if}
         {#if showPause}
@@ -910,6 +964,9 @@
         {#if sprintTasks.length}
           <kbd class="rounded border border-border/60 px-1">#</kbd> tasks
         {/if}
+        {#if settings.bangs.length}
+          <kbd class="rounded border border-border/60 px-1">!</kbd> bangs
+        {/if}
       </span>
 
       {#if thread.status === 'running'}
@@ -944,3 +1001,18 @@
     </div>
   </form>
 </div>
+
+<style>
+  /* The picker pops up from the prompt bar. */
+  .composer-picker {
+    transform-origin: bottom center;
+    animation: composer-picker-in var(--dur-med) var(--ease-out-snappy);
+  }
+
+  @keyframes composer-picker-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 6px, 0) scale(0.98);
+    }
+  }
+</style>

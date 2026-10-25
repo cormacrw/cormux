@@ -36,7 +36,7 @@
 <li>
   <button
     type="button"
-    class="grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent/80 aria-[current=page]:bg-sidebar-accent"
+    class="grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-[background-color,transform] duration-(--dur-fast) ease-(--ease-out-snappy) outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.98] aria-[current=page]:bg-sidebar-accent dark:hover:bg-muted/50"
     aria-current={isCurrent ? 'page' : undefined}
     aria-label={ariaLabel}
     onclick={() => app.openScratch(scratch.id)}

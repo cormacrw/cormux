@@ -323,7 +323,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     app.openHomebase()
   }
   scratches.hydrate(snapshot.persisted.scratches.map(scratchFromRow))
-  todos.hydrate(snapshot.persisted.todos)
+  todos.hydrate(snapshot.persisted.todos, snapshot.tasksDir)
   weekPlan.hydrate(snapshot.persisted.sprintPlan)
   if (app.scratchId && !scratches.getById(app.scratchId)) {
     app.openHomebase()

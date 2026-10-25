@@ -1,5 +1,5 @@
 <script lang="ts">
-  import SlideOutClose from './SlideOutClose.svelte'
+  import TrayControls from './TrayControls.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Badge } from '$lib/components/ui/badge'
   import {
@@ -202,7 +202,7 @@
     >
       {#if !narrow}Clear{/if}
     </Button>
-    <SlideOutClose label="Close output" />
+    <TrayControls tray="output" name="Output" shortcut="⌘O" />
   </header>
 
   {#if showEmptyNoCommand}

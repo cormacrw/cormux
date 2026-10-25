@@ -13,16 +13,12 @@
     TODO_TRIGGER,
     todoTitleFromQuery,
   } from '$lib/command-palette/todo-mode'
-  import { runScratchMacro } from '$lib/command-palette/actions'
+  import { runBang } from '$lib/command-palette/actions'
   import { schedulePaletteCommand } from '$lib/command-palette/run-command'
   import type { PaletteCommand } from '$lib/command-palette/types'
   import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
   import { motionMs } from '$lib/motion'
-  import {
-    macroNamed,
-    macroPromptPreview,
-    type ScratchMacro,
-  } from '$lib/settings/scratch-macros'
+  import { bangPreview, paletteBang } from '$lib/settings/bangs'
   import { app } from '$lib/state/app.svelte'
   import { settings } from '$lib/state/settings.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
@@ -37,9 +33,9 @@
   let query = $state('')
   /** "todo" was turned into a chip: the input now holds a task title. */
   let todoMode = $state(false)
-  /** A macro's name was turned into a chip: the input now holds text to add to its prompt. */
-  let macroMode = $state<ScratchMacro | null>(null)
   const chipText = $derived(query.trim())
+  /** `!name more words`: start a scratch with that bang's prompt, the words added. */
+  const bangRun = $derived(todoMode ? null : paletteBang(query, settings.bangs))
 
   const allCommands = $derived(buildPaletteCommands())
   const filtered = $derived(filterCommands(allCommands, query))
@@ -74,6 +70,11 @@
       enterTodoMode('')
       return
     }
+    // Picking a bang completes it, the same as typing its name: words can follow.
+    if (command.id.startsWith('bang-run-')) {
+      completeBang(command.label)
+      return
+    }
     schedulePaletteCommand(close, command)
   }
 
@@ -82,14 +83,22 @@
     query = title
   }
 
-  function enterMacroMode(macro: ScratchMacro) {
-    macroMode = macro
-    query = ''
+  function completeBang(label: string) {
+    query = `${label} `
+    queueMicrotask(() => {
+      const field = document.querySelector<HTMLInputElement>(
+        '[data-slot="command-input"]',
+      )
+      field?.focus()
+      field?.setSelectionRange(query.length, query.length)
+    })
   }
 
-  function startMacro(macro: ScratchMacro, extra: string) {
+  function startBang() {
+    if (!bangRun) return
+    const { bang, extra } = bangRun
     close()
-    void runScratchMacro(macro.id, extra)
+    void runBang(bang.id, extra)
   }
 
   async function addTodo(text: string) {
@@ -121,16 +130,22 @@
       }
       return
     }
-    if (macroMode) {
-      if (event.key === 'Enter') {
+    // Tab completes a partial `!name` to the first bang listed.
+    if (event.key === 'Tab' && /^![\w-]*$/.test(text.trim()) && !bangRun) {
+      const first = filtered.find((command) =>
+        command.id.startsWith('bang-run-'),
+      )
+      if (first) {
         event.preventDefault()
         event.stopPropagation()
-        startMacro(macroMode, text)
-      } else if (event.key === 'Backspace' && text === '') {
-        event.preventDefault()
-        query = macroMode.name
-        macroMode = null
+        completeBang(first.label)
+        return
       }
+    }
+    if (bangRun && event.key === 'Enter') {
+      event.preventDefault()
+      event.stopPropagation()
+      startBang()
       return
     }
     if (
@@ -142,21 +157,11 @@
       enterTodoMode('')
       return
     }
-    // Enter on a macro's name just runs it, through the list.
-    const macro =
-      event.key === ' ' || event.key === 'Tab'
-        ? macroNamed(settings.scratchMacros, text)
-        : undefined
-    if (macro) {
-      event.preventDefault()
-      event.stopPropagation()
-      enterMacroMode(macro)
-    }
   }
 
   // A pasted "todo <title>" never presses the trigger key.
   $effect(() => {
-    if (todoMode || macroMode) return
+    if (todoMode) return
     const title = todoTitleFromQuery(query)
     if (title != null) enterTodoMode(title)
   })
@@ -165,7 +170,6 @@
     if (!open) return
     query = ''
     todoMode = false
-    macroMode = null
   })
 
   onMount(() => {
@@ -185,20 +189,14 @@
   shouldFilter={false}
   title="Command palette"
   description="Type a command or workspace name"
-  class="glass-pop top-2.5! left-2.5! w-[min(600px,calc(100vw-20px))] max-w-[600px] origin-top-left translate-x-0! translate-y-0! rounded-[16px]! sm:max-w-[600px]"
+  class="glass-pop max-w-[600px] rounded-[16px]! sm:max-w-[600px]"
 >
   <Command.Input
     bind:value={query}
     placeholder={todoMode
       ? 'Add a task…'
-      : macroMode
-        ? 'Add to the prompt, or press Enter…'
-        : 'Type a command or workspace…'}
-    aria-label={todoMode
-      ? 'Task title'
-      : macroMode
-        ? `Add to the ${macroMode.name} prompt`
-        : undefined}
+      : 'Type a command, workspace, or !bang…'}
+    aria-label={todoMode ? 'Task title' : undefined}
     aria-controls="pal-list"
     aria-expanded={open}
     onkeydown={onInputKeydown}
@@ -211,15 +209,6 @@
           in:scale={{ start: 0.8, duration: motionMs(160), easing: cubicOut }}
           >TODO</span
         >
-      {:else if macroMode}
-        <span
-          class="inline-flex max-w-[200px] items-center gap-1 rounded-md bg-foreground/10 px-1.5 py-0.5 text-xs font-medium text-foreground"
-          data-od-id="palette-macro-chip"
-          in:scale={{ start: 0.8, duration: motionMs(160), easing: cubicOut }}
-        >
-          <Zap class="size-3 shrink-0" aria-hidden="true" />
-          <span class="truncate">{macroMode.name}</span>
-        </span>
       {/if}
     {/snippet}
   </Command.Input>
@@ -237,20 +226,22 @@
           </span>
         </Command.Item>
       </Command.Group>
-    {:else if macroMode}
-      {@const macro = macroMode}
-      <Command.Group heading="Macros">
+    {:else if bangRun}
+      {@const { bang, extra } = bangRun}
+      <Command.Group heading="Bangs">
         <Command.Item
-          value="macro-start"
-          onSelect={() => startMacro(macro, query)}
+          value="bang-start"
+          data-od-id="palette-bang-start"
+          onSelect={startBang}
         >
           <Zap class="text-muted-foreground" aria-hidden="true" />
           <span class="flex min-w-0 flex-1 flex-col">
-            <span class="truncate">Start {macro.name}</span>
+            <span class="truncate"
+              >Start a scratch with <span class="font-mono">!{bang.name}</span
+              ></span
+            >
             <span class="truncate text-xs text-muted-foreground">
-              {macroPromptPreview(macro.prompt)}{chipText
-                ? ` + “${chipText}”`
-                : ''}
+              {bangPreview(bang.prompt)}{extra ? ` + “${extra}”` : ''}
             </span>
           </span>
         </Command.Item>
@@ -307,7 +298,7 @@
     </span>
     <span class="inline-flex items-center gap-1">
       <Kbd>↵</Kbd>
-      {todoMode ? 'add task' : macroMode ? 'start scratch' : 'run'}
+      {todoMode ? 'add task' : bangRun ? 'start scratch' : 'run'}
     </span>
   </div>
   <div class="absolute top-3 right-3 hidden sm:flex">

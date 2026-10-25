@@ -13,14 +13,7 @@ export type { ViewId } from './window-title'
 export { resolveWindowTitle } from './window-title'
 
 export type FocusTarget =
-  | 'homebase'
-  | 'settings'
-  | 'workspace'
-  | 'scratch'
-  | 'todos'
-  | 'sprint'
-  | 'week'
-  | 'repo'
+  'homebase' | 'settings' | 'workspace' | 'scratch' | 'sprint' | 'week' | 'repo'
 
 export class AppStore {
   version = $state(0)
@@ -97,15 +90,6 @@ export class AppStore {
     this.scratchId = null
     this.repoId = null
     this.requestFocus('homebase')
-  }
-
-  openTodos() {
-    this.view = 'todos'
-    this.workspaceId = null
-    this.threadId = null
-    this.scratchId = null
-    this.repoId = null
-    this.requestFocus('todos')
   }
 
   /** The ClickUp sprint board, optionally with one task open in the side pane. */

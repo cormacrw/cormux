@@ -1,14 +1,13 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte'
+  import { untrack } from 'svelte'
+  import { planItem, toggleItemDone } from '$lib/week/actions'
   import { fly } from 'svelte/transition'
   import { cubicOut } from 'svelte/easing'
   import { Button } from '$lib/components/ui/button'
-  import * as Resizable from '$lib/components/ui/resizable'
-  import SprintTaskPanel from '$lib/components/sprint/SprintTaskPanel.svelte'
   import { motionMs } from '$lib/motion'
   import { app, clickup, todos, weekPlan } from '$lib/state'
   import { cn } from '$lib/utils'
-  import { addDays, dayLabel, weekRange, type Day } from '$lib/week/dates'
+  import { addDays, dayLabel, weekRange } from '$lib/week/dates'
   import {
     byDay,
     itemKey,
@@ -22,8 +21,7 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import Inbox from '@lucide/svelte/icons/inbox'
   import WeekCard from './WeekCard.svelte'
-  import WeekPlanControls from './WeekPlanControls.svelte'
-  import WeekTodoPanel from './WeekTodoPanel.svelte'
+  import { Switch } from '$lib/components/ui/switch'
 
   /** Pointer travel before a press becomes a drag, so a click still opens the card. */
   const DRAG_THRESHOLD = 4
@@ -56,16 +54,28 @@
       weekPlan.rows,
     ),
   )
-  const loading = $derived(
-    loadingItems(items, {
+  const loading = $derived.by(() => {
+    const waiting = loadingItems(items, {
       today: weekPlan.today,
       thisWeek: weekPlan.thisWeek,
       shown: weekPlan.days,
       filter: weekPlan.filter,
-    }),
-  )
-  const lanes = $derived(byDay(items, weekPlan.days))
-  const progress = $derived(plannedDone(items, weekPlan.days))
+    })
+    // With weekends hidden, what's planned on them waits here instead of vanishing.
+    const hidden = weekPlan.days.filter(
+      (day) => !weekPlan.visibleDays.includes(day),
+    )
+    const onHiddenDays = items.filter(
+      (item) =>
+        !item.done &&
+        item.plannedOn != null &&
+        hidden.includes(item.plannedOn) &&
+        (weekPlan.filter === 'all' || item.kind === weekPlan.filter),
+    )
+    return [...waiting, ...onHiddenDays]
+  })
+  const lanes = $derived(byDay(items, weekPlan.visibleDays))
+  const progress = $derived(plannedDone(items, weekPlan.visibleDays))
   const heading = $derived.by(() => {
     if (weekPlan.isThisWeek) return 'This week'
     if (weekPlan.start === addDays(weekPlan.thisWeek, -7)) return 'Last week'
@@ -81,16 +91,6 @@
         ) ?? null)
       : null,
   )
-  const selectedTodo = $derived(
-    selectedItem?.kind === 'todo'
-      ? (todos.items.find((todo) => todo.id === selectedItem.id) ?? null)
-      : null,
-  )
-  const paneOpen = $derived(
-    selectedItem != null &&
-      (selectedItem.kind === 'todo' || clickup.selectedTask != null),
-  )
-
   const FILTERS: { id: WeekFilter; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'todo', label: 'TODOs' },
@@ -116,16 +116,9 @@
     }
   }
 
-  function plan(item: WeekItem, day: Day | null) {
-    if (item.kind === 'todo') void todos.plan(item.id, day)
-    else void weekPlan.planSprintTask(item.id, day)
-  }
-
-  function toggleDone(item: WeekItem) {
-    if (item.doneInClickup) return
-    if (item.kind === 'todo') void todos.setDone(item.id, !item.done)
-    else void weekPlan.setSprintTaskDone(item.id, !item.done)
-  }
+  // The flyout (TaskFlyout, at the app level) shares these.
+  const plan = planItem
+  const toggleDone = toggleItemDone
 
   type Drag = {
     item: WeekItem
@@ -145,7 +138,7 @@
   let swallowClick = false
 
   function laneOf(item: WeekItem) {
-    return item.plannedOn && weekPlan.days.includes(item.plannedOn)
+    return item.plannedOn && weekPlan.visibleDays.includes(item.plannedOn)
       ? item.plannedOn
       : LOADING
   }
@@ -205,9 +198,11 @@
     setTimeout(() => (swallowClick = false), 0)
   }
 
-  function onPointerUp() {
+  function onPointerUp(event: PointerEvent) {
     if (drag?.active) {
       swallowNextClick()
+      // The lane under the pointer now: edge scrolling may have moved the lanes since the last move.
+      overLane = laneAt(event.clientX, event.clientY) ?? overLane
       if (overLane && overLane !== drag.from) {
         plan(drag.item, overLane === LOADING ? null : overLane)
       }
@@ -239,39 +234,7 @@
     const same = selectedItem?.key === item.key
     weekPlan.select(same ? null : { kind: item.kind, id: item.id })
   }
-
-  async function closePane() {
-    const key = selectedItem?.key
-    weekPlan.select(null)
-    await tick()
-    if (key) {
-      document.querySelector<HTMLElement>(`[data-week-card="${key}"]`)?.focus()
-    }
-  }
-
-  function deleteTodo(id: string) {
-    weekPlan.select(null)
-    void todos.remove(id)
-    title?.focus()
-  }
-
-  /** Escape closes the pane, unless a dialog, menu or select is open and wants it. */
-  function onWindowKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || event.defaultPrevented) return
-    if (!paneOpen || drag) return
-    if (
-      document.querySelector(
-        '[role="dialog"], [role="alertdialog"], [role="listbox"], [role="menu"]',
-      )
-    ) {
-      return
-    }
-    event.preventDefault()
-    void closePane()
-  }
 </script>
-
-<svelte:window onkeydown={onWindowKeydown} />
 
 {#snippet card(item: WeekItem)}
   <div in:fly={{ y: 6, duration: motionMs(160), easing: cubicOut }}>
@@ -321,11 +284,18 @@
         >
       </p>
     </div>
-    <div
-      class="ml-auto flex items-center gap-0.5"
-      role="group"
-      aria-label="Week"
+    <label
+      class="ml-auto flex items-center gap-2 text-xs text-muted-foreground"
+      data-od-id="week-weekends"
     >
+      <Switch
+        checked={!weekPlan.hideWeekends}
+        onCheckedChange={(show) => weekPlan.setHideWeekends(!show)}
+        aria-label="Show weekends"
+      />
+      Weekends
+    </label>
+    <div class="flex items-center gap-0.5" role="group" aria-label="Week">
       <Button
         variant="ghost"
         size="icon-sm"
@@ -351,167 +321,133 @@
     </div>
   </header>
 
-  <Resizable.PaneGroup
-    direction="horizontal"
-    autoSaveId="cormux-week-board"
-    class="min-h-0 flex-1"
-  >
-    <Resizable.Pane id="week-board" order={1} minSize={35}>
-      <div
-        bind:this={boardEl}
-        class="flex h-full min-h-0 items-stretch gap-2.5 overflow-auto px-6 pt-1 pb-6"
-        data-od-id="week-board"
+  <div class="min-h-0 flex-1">
+    <div
+      bind:this={boardEl}
+      class="flex h-full min-h-0 items-stretch gap-2.5 overflow-auto px-6 pt-1 pb-6"
+      data-od-id="week-board"
+    >
+      <section
+        class="glass-card relative flex min-h-full w-[270px] shrink-0 flex-col gap-2 self-start rounded-2xl p-2.5"
+        aria-labelledby="week-loading-title"
+        data-week-lane={LOADING}
+        data-od-id="week-loading"
       >
-        <section
-          class="glass-card relative flex min-h-full w-[270px] shrink-0 flex-col gap-2 self-start rounded-2xl p-2.5"
-          aria-labelledby="week-loading-title"
-          data-week-lane={LOADING}
-          data-od-id="week-loading"
-        >
-          {@render dropHighlight(LOADING)}
-          <div class="flex items-center gap-2 px-1 pt-0.5">
-            <Inbox class="size-3.5 opacity-80" aria-hidden="true" />
-            <h2 id="week-loading-title" class="text-[13px] font-bold">
-              Loading area
-            </h2>
-            <span class="font-mono text-[11px] text-muted-foreground"
-              >{loading.length}</span
-            >
-          </div>
-          <p class="px-1 text-[11px] leading-snug text-muted-foreground">
-            Open TODOs{clickup.ready ? ' and your sprint tasks' : ''}. Drag them
-            onto a day.
-          </p>
-          <label for="week-add" class="sr-only">Add a TODO</label>
-          <input
-            id="week-add"
-            class="glass-well relative h-[34px] w-full rounded-[10px] px-3 text-[13px] outline-none placeholder:text-muted-foreground/70 focus-visible:ring-3 focus-visible:ring-ring/50"
-            type="text"
-            autocomplete="off"
-            placeholder="+ Add a TODO"
-            bind:value={draft}
-            onkeydown={onAddKeydown}
-          />
-          <div
-            class="glass-well relative inline-flex self-start rounded-lg p-0.5"
-            role="group"
-            aria-label="Show"
+        {@render dropHighlight(LOADING)}
+        <div class="flex items-center gap-2 px-1 pt-0.5">
+          <Inbox class="size-3.5 opacity-80" aria-hidden="true" />
+          <h2 id="week-loading-title" class="text-[13px] font-bold">
+            Loading area
+          </h2>
+          <span class="font-mono text-[11px] text-muted-foreground"
+            >{loading.length}</span
           >
-            {#each FILTERS as filter (filter.id)}
-              <button
-                type="button"
-                class={cn(
-                  'h-6 rounded-md px-2.5 text-xs outline-none transition-opacity focus-visible:ring-3 focus-visible:ring-ring/50',
-                  weekPlan.filter === filter.id
-                    ? 'bg-muted text-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-                aria-pressed={weekPlan.filter === filter.id}
-                onclick={() => (weekPlan.filter = filter.id)}
-                >{filter.label}</button
+        </div>
+        <p class="px-1 text-[11px] leading-snug text-muted-foreground">
+          Open TODOs{clickup.ready ? ' and your sprint tasks' : ''}. Drag them
+          onto a day.
+        </p>
+        <label for="week-add" class="sr-only">Add a TODO</label>
+        <input
+          id="week-add"
+          class="glass-well relative h-[34px] w-full rounded-[10px] px-3 text-[13px] outline-none placeholder:text-muted-foreground/70 focus-visible:ring-3 focus-visible:ring-ring/50"
+          type="text"
+          autocomplete="off"
+          placeholder="+ Add a TODO"
+          bind:value={draft}
+          onkeydown={onAddKeydown}
+        />
+        <div
+          class="glass-well relative inline-flex self-start rounded-lg p-0.5"
+          role="group"
+          aria-label="Show"
+        >
+          {#each FILTERS as filter (filter.id)}
+            <button
+              type="button"
+              class={cn(
+                'h-6 rounded-md px-2.5 text-xs outline-none transition-opacity focus-visible:ring-3 focus-visible:ring-ring/50',
+                weekPlan.filter === filter.id
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              aria-pressed={weekPlan.filter === filter.id}
+              onclick={() => (weekPlan.filter = filter.id)}
+              >{filter.label}</button
+            >
+          {/each}
+        </div>
+        <div class="relative flex flex-col gap-2" role="list">
+          {#each loading as item (item.key)}
+            <div role="listitem">{@render card(item)}</div>
+          {:else}
+            <p class="px-1 py-3 text-xs text-muted-foreground">
+              Nothing waiting to be planned.
+            </p>
+          {/each}
+        </div>
+      </section>
+
+      {#each weekPlan.visibleDays as day (day)}
+        {@const label = dayLabel(day)}
+        {@const cards = lanes.get(day) ?? []}
+        {@const today = day === weekPlan.today}
+        <!-- Styled like the Sprint board's lanes: as tall as their cards, scrolling past the board. -->
+        <section
+          class={cn(
+            'group/lane relative flex max-h-full w-[300px] shrink-0 flex-col self-start rounded-xl border border-transparent bg-muted/40 transition-colors',
+            today && 'border-info/30',
+          )}
+          aria-label="{label.long} {label.date}{today ? ', today' : ''}"
+          data-week-lane={day}
+          data-today={today || undefined}
+        >
+          {@render dropHighlight(day)}
+          <header class="flex items-center gap-2 px-3 pt-3 pb-2">
+            <span
+              class={cn(
+                'size-2.5 shrink-0 rounded-full',
+                today ? 'bg-info' : 'bg-muted-foreground/40',
+              )}
+              aria-hidden="true"
+            ></span>
+            <h2
+              class={cn(
+                'truncate text-xs font-semibold tracking-wide uppercase',
+                today && 'text-info',
+              )}
+            >
+              {label.name}
+            </h2>
+            <span class="text-xs text-muted-foreground">{label.date}</span>
+            <span class="font-mono text-xs text-muted-foreground"
+              >{cards.length}</span
+            >
+            {#if today}
+              <span
+                class="ml-auto rounded-full bg-info/25 px-1.5 py-px text-[10px] font-bold text-info"
+                >Today</span
               >
-            {/each}
-          </div>
-          <div class="relative flex flex-col gap-2" role="list">
-            {#each loading as item (item.key)}
+            {/if}
+          </header>
+          <div
+            class="relative flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto px-2 pt-1 pb-2"
+            role="list"
+          >
+            {#each cards as item (item.key)}
               <div role="listitem">{@render card(item)}</div>
             {:else}
-              <p class="px-1 py-3 text-xs text-muted-foreground">
-                Nothing waiting to be planned.
-              </p>
+              <div
+                class="grid h-16 place-items-center rounded-lg border border-dashed border-border text-[11px] text-muted-foreground"
+              >
+                Drop tasks here
+              </div>
             {/each}
           </div>
         </section>
-
-        {#each weekPlan.days as day (day)}
-          {@const label = dayLabel(day)}
-          {@const cards = lanes.get(day) ?? []}
-          {@const today = day === weekPlan.today}
-          <section
-            class={cn(
-              'glass-card relative flex min-h-full w-[196px] shrink-0 flex-col gap-2 self-start rounded-2xl p-2.5',
-              today && 'border-info/40 bg-info/[0.08]',
-            )}
-            aria-label="{label.long} {label.date}{today ? ', today' : ''}"
-            data-week-lane={day}
-            data-today={today || undefined}
-          >
-            {@render dropHighlight(day)}
-            <div class="flex items-baseline gap-1.5 px-1 pt-0.5 pb-1">
-              <h2 class={cn('text-[13px] font-bold', today && 'text-info')}>
-                {label.name}
-              </h2>
-              <span class="text-xs text-muted-foreground">{label.date}</span>
-              {#if today}
-                <span
-                  class="rounded-full bg-info/25 px-1.5 py-px text-[10px] font-bold text-info"
-                  >Today</span
-                >
-              {/if}
-              <span class="ml-auto font-mono text-[11px] text-muted-foreground"
-                >{cards.length}</span
-              >
-            </div>
-            <div class="relative flex flex-col gap-2" role="list">
-              {#each cards as item (item.key)}
-                <div role="listitem">{@render card(item)}</div>
-              {:else}
-                <div
-                  class="grid h-16 place-items-center rounded-xl border border-dashed border-border text-[11px] text-muted-foreground"
-                >
-                  Drop tasks here
-                </div>
-              {/each}
-            </div>
-          </section>
-        {/each}
-      </div>
-    </Resizable.Pane>
-    {#if paneOpen && selectedItem}
-      <Resizable.Handle withHandle />
-      <Resizable.Pane
-        id="week-task"
-        order={2}
-        defaultSize={30}
-        minSize={22}
-        maxSize={55}
-      >
-        <div
-          class="glass-pane flex h-full min-h-0 flex-col overflow-hidden rounded-l-2xl"
-          data-od-id="week-pane"
-        >
-          {#if selectedTodo}
-            {#key selectedTodo.id}
-              <WeekTodoPanel
-                todo={selectedTodo}
-                onClose={() => void closePane()}
-                onDelete={() => deleteTodo(selectedTodo.id)}
-              >
-                <WeekPlanControls
-                  item={selectedItem}
-                  days={weekPlan.days}
-                  onPlan={(day) => plan(selectedItem, day)}
-                  onToggleDone={() => toggleDone(selectedItem)}
-                />
-              </WeekTodoPanel>
-            {/key}
-          {:else}
-            <div class="min-h-0 flex-1 [&>aside]:bg-transparent">
-              <SprintTaskPanel />
-            </div>
-            <div class="px-4 pb-4">
-              <WeekPlanControls
-                item={selectedItem}
-                days={weekPlan.days}
-                onPlan={(day) => plan(selectedItem, day)}
-                onToggleDone={() => toggleDone(selectedItem)}
-              />
-            </div>
-          {/if}
-        </div>
-      </Resizable.Pane>
-    {/if}
-  </Resizable.PaneGroup>
+      {/each}
+    </div>
+  </div>
 </section>
 
 {#if drag?.active}

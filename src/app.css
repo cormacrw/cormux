@@ -21,23 +21,22 @@
 :root {
   color-scheme: light;
 
-  --backdrop: oklch(0.93 0.01 265);
-  --background: oklch(0.985 0.004 265 / 52%);
-  --background-solid: oklch(0.975 0.003 265);
-  --foreground: oklch(0.2 0.008 265);
+  --backdrop: oklch(0.93 calc(0.01 * var(--tint-k)) var(--tint-h));
+  --backdrop-hi: oklch(0.975 0.006 var(--tint-h));
+  --wordmark: oklch(0 0 0 / 4%);
+  --background: oklch(0.985 calc(0.004 * var(--tint-k)) var(--tint-h) / 52%);
+  --background-solid: oklch(0.975 calc(0.003 * var(--tint-k)) var(--tint-h));
+  --foreground: oklch(0.2 calc(0.008 * var(--tint-k)) var(--tint-h));
   --card: oklch(1 0 0 / 58%);
-  --card-foreground: oklch(0.2 0.008 265);
-  --popover: oklch(0.995 0.002 265 / 82%);
-  --popover-foreground: oklch(0.2 0.008 265);
-  --swatch-neutral: oklch(0.215 0.006 265);
-  --primary: var(--swatch-neutral);
-  --primary-foreground: oklch(0.985 0.002 265);
-  --secondary: oklch(0.2 0.01 265 / 6%);
-  --secondary-foreground: oklch(0.2 0.008 265);
-  --muted: oklch(0.2 0.01 265 / 6%);
-  --muted-foreground: oklch(0.45 0.012 265);
-  --accent: oklch(0.2 0.01 265 / 8%);
-  --accent-foreground: oklch(0.2 0.008 265);
+  --card-foreground: oklch(0.2 calc(0.008 * var(--tint-k)) var(--tint-h));
+  --popover: oklch(0.995 calc(0.002 * var(--tint-k)) var(--tint-h) / 82%);
+  --popover-foreground: oklch(0.2 calc(0.008 * var(--tint-k)) var(--tint-h));
+  --secondary: oklch(0.2 calc(0.01 * var(--tint-k)) var(--tint-h) / 6%);
+  --secondary-foreground: oklch(0.2 calc(0.008 * var(--tint-k)) var(--tint-h));
+  --muted: oklch(0.2 calc(0.01 * var(--tint-k)) var(--tint-h) / 6%);
+  --muted-foreground: oklch(0.45 calc(0.012 * var(--tint-k)) var(--tint-h));
+  --accent: oklch(0.2 calc(0.01 * var(--tint-k)) var(--tint-h) / 8%);
+  --accent-foreground: oklch(0.2 calc(0.008 * var(--tint-k)) var(--tint-h));
   --destructive: oklch(0.56 0.215 27);
   --border: oklch(0 0 0 / 9%);
   --input: oklch(0 0 0 / 13%);
@@ -51,16 +50,20 @@
   --chart-2: oklch(0.58 0.15 155);
   --chart-3: oklch(0.6 0.14 65);
   --chart-4: oklch(0.577 0.215 27);
-  --chart-5: oklch(0.5 0.01 265);
+  --chart-5: oklch(0.5 calc(0.01 * var(--tint-k)) var(--tint-h));
 
   --radius: 0.625rem;
 
-  --sidebar: oklch(0.99 0.003 265 / 52%);
-  --sidebar-foreground: oklch(0.2 0.008 265);
+  --sidebar: oklch(0.99 calc(0.003 * var(--tint-k)) var(--tint-h) / 52%);
+  --sidebar-foreground: oklch(0.2 calc(0.008 * var(--tint-k)) var(--tint-h));
   --sidebar-primary: oklch(0.6 0.16 250);
-  --sidebar-primary-foreground: oklch(0.985 0.002 265);
-  --sidebar-accent: oklch(0.2 0.01 265 / 8%);
-  --sidebar-accent-foreground: oklch(0.2 0.008 265);
+  --sidebar-primary-foreground: oklch(
+    0.985 calc(0.002 * var(--tint-k)) var(--tint-h)
+  );
+  --sidebar-accent: oklch(0.2 calc(0.01 * var(--tint-k)) var(--tint-h) / 8%);
+  --sidebar-accent-foreground: oklch(
+    0.2 calc(0.008 * var(--tint-k)) var(--tint-h)
+  );
   --sidebar-border: oklch(1 0 0 / 70%);
   --sidebar-ring: oklch(0.6 0.16 250);
 
@@ -69,6 +72,9 @@
   --glass-shadow: 0 1px 2px oklch(0 0 0 / 6%), 0 8px 24px oklch(0 0 0 / 7%);
   --glass-blur: blur(24px) saturate(170%);
   --glass-blur-strong: blur(40px) saturate(190%);
+
+  /* The macOS 26 window's corner radius (no toolbar); the nav matches it. */
+  --window-radius: 16px;
 
   /* Motion: short and eased so the UI keeps up with the keyboard. */
   --ease-out-snappy: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -91,23 +97,24 @@
 .dark {
   color-scheme: dark;
 
-  --backdrop: oklch(0.13 0.012 265);
-  --background: oklch(0.15 0.012 265 / 50%);
-  --background-solid: oklch(0.17 0.01 265);
-  --foreground: oklch(0.965 0.003 265);
+  --backdrop: oklch(0.13 calc(0.012 * var(--tint-k)) var(--tint-h));
+  --backdrop-hi: oklch(0.2 0.015 var(--tint-h));
+  --wordmark: oklch(1 0 0 / 3.5%);
+  --background: oklch(0.15 calc(0.012 * var(--tint-k)) var(--tint-h) / 50%);
+  --background-solid: oklch(0.17 calc(0.01 * var(--tint-k)) var(--tint-h));
+  --foreground: oklch(0.965 calc(0.003 * var(--tint-k)) var(--tint-h));
   --card: oklch(1 0 0 / 6.5%);
-  --card-foreground: oklch(0.965 0.003 265);
-  --popover: oklch(0.24 0.012 265 / 84%);
-  --popover-foreground: oklch(0.965 0.003 265);
-  --swatch-neutral: oklch(0.945 0.003 265);
-  --primary: var(--swatch-neutral);
-  --primary-foreground: oklch(0.185 0.005 265);
+  --card-foreground: oklch(0.965 calc(0.003 * var(--tint-k)) var(--tint-h));
+  --popover: oklch(0.24 calc(0.012 * var(--tint-k)) var(--tint-h) / 84%);
+  --popover-foreground: oklch(0.965 calc(0.003 * var(--tint-k)) var(--tint-h));
   --secondary: oklch(1 0 0 / 8%);
-  --secondary-foreground: oklch(0.965 0.003 265);
+  --secondary-foreground: oklch(
+    0.965 calc(0.003 * var(--tint-k)) var(--tint-h)
+  );
   --muted: oklch(1 0 0 / 7%);
-  --muted-foreground: oklch(0.76 0.012 265);
+  --muted-foreground: oklch(0.76 calc(0.012 * var(--tint-k)) var(--tint-h));
   --accent: oklch(1 0 0 / 10%);
-  --accent-foreground: oklch(0.965 0.003 265);
+  --accent-foreground: oklch(0.965 calc(0.003 * var(--tint-k)) var(--tint-h));
   --destructive: oklch(0.68 0.19 25);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 13%);
@@ -121,14 +128,18 @@
   --chart-2: oklch(0.74 0.15 155);
   --chart-3: oklch(0.8 0.14 75);
   --chart-4: oklch(0.66 0.2 25);
-  --chart-5: oklch(0.68 0.01 265);
+  --chart-5: oklch(0.68 calc(0.01 * var(--tint-k)) var(--tint-h));
 
-  --sidebar: oklch(0.3 0.014 265 / 42%);
-  --sidebar-foreground: oklch(0.965 0.003 265);
+  --sidebar: oklch(0.3 calc(0.014 * var(--tint-k)) var(--tint-h) / 42%);
+  --sidebar-foreground: oklch(0.965 calc(0.003 * var(--tint-k)) var(--tint-h));
   --sidebar-primary: oklch(0.72 0.14 250);
-  --sidebar-primary-foreground: oklch(0.155 0.004 265);
+  --sidebar-primary-foreground: oklch(
+    0.155 calc(0.004 * var(--tint-k)) var(--tint-h)
+  );
   --sidebar-accent: oklch(1 0 0 / 11%);
-  --sidebar-accent-foreground: oklch(0.965 0.003 265);
+  --sidebar-accent-foreground: oklch(
+    0.965 calc(0.003 * var(--tint-k)) var(--tint-h)
+  );
   --sidebar-border: oklch(1 0 0 / 11%);
   --sidebar-ring: oklch(0.72 0.14 250);
 
@@ -147,56 +158,68 @@
 }
 
 /*
- * Primary colour picked in Settings > Appearance (data-accent on <html>).
- * Blue is the default. Graphite (no data-accent) follows the theme via
- * --swatch-neutral; the others keep white text readable in both themes,
- * except gold, which takes dark text. Swatches in the picker read these same
- * variables. data-accent='custom' gets --primary and --primary-foreground as
- * inline styles on <html> (see appearance.svelte.ts and index.html), so it
- * needs no rule here. ACCENTS in appearance.svelte.ts holds hex equivalents
- * of these swatches for the background scenes; keep them in sync.
+ * Colour themes (Settings > Appearance, data-palette on <html>). Every
+ * neutral token above takes its hue from --tint-h and scales its chroma by
+ * --tint-k, so a theme recolours the window, the glass, the sidebar and the
+ * text tints in one go; the backdrop, the wordmark and the primary get bold
+ * values of their own. --tint-s tones a theme down where its hue reads louder
+ * than the rest at the same chroma (red, orange, green); buttons keep full
+ * colour. Neutral (no data-palette) is grey glass with a blue
+ * primary. THEMES in appearance.svelte.ts lists the ids; keep them in sync.
  */
 :root {
   --code-font-size: 12px;
   --code-font-family:
     'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
 
-  --swatch-blue: oklch(0.56 0.19 257);
-  --swatch-violet: oklch(0.55 0.21 292);
-  --swatch-green: oklch(0.56 0.14 155);
-  --swatch-gold: oklch(0.8 0.15 85);
-  --swatch-orange: oklch(0.61 0.18 45);
-  --swatch-rose: oklch(0.58 0.2 15);
-}
-
-:root[data-accent] {
+  --tint-h: 265;
+  --tint-k: 1;
+  --primary: oklch(0.56 0.19 257);
   --primary-foreground: oklch(0.985 0 0);
 }
 
-:root[data-accent='blue'] {
-  --primary: var(--swatch-blue);
+:root[data-palette='blue'] {
+  --tint-h: 262;
+}
+:root[data-palette='violet'] {
+  --tint-h: 292;
+}
+:root[data-palette='pink'] {
+  --tint-h: 345;
+}
+:root[data-palette='red'] {
+  --tint-h: 22;
+  --tint-s: 0.5;
+}
+:root[data-palette='orange'] {
+  --tint-h: 50;
+  --tint-s: 0.5;
+}
+:root[data-palette='green'] {
+  --tint-h: 155;
+  --tint-s: 0.35;
+}
+:root[data-palette='teal'] {
+  --tint-h: 200;
 }
 
-:root[data-accent='violet'] {
-  --primary: var(--swatch-violet);
+:root[data-palette] {
+  --tint-k: calc(5 * var(--tint-s, 1));
+  --backdrop: oklch(0.72 calc(0.13 * var(--tint-s, 1)) var(--tint-h));
+  --backdrop-hi: oklch(0.86 calc(0.09 * var(--tint-s, 1)) var(--tint-h));
+  --wordmark: oklch(0.95 calc(0.06 * var(--tint-s, 1)) var(--tint-h) / 40%);
+  --primary: oklch(0.52 0.2 var(--tint-h));
+  --ring: oklch(0.6 0.17 var(--tint-h));
+  --sidebar-primary: var(--primary);
+  --sidebar-ring: var(--ring);
 }
 
-:root[data-accent='green'] {
-  --primary: var(--swatch-green);
-}
-
-:root[data-accent='gold'] {
-  --primary: var(--swatch-gold);
-  /* Too light for white text. */
-  --primary-foreground: oklch(0.22 0.03 75);
-}
-
-:root[data-accent='orange'] {
-  --primary: var(--swatch-orange);
-}
-
-:root[data-accent='rose'] {
-  --primary: var(--swatch-rose);
+:root.dark[data-palette] {
+  --backdrop: oklch(0.25 calc(0.12 * var(--tint-s, 1)) var(--tint-h));
+  --backdrop-hi: oklch(0.42 calc(0.17 * var(--tint-s, 1)) var(--tint-h));
+  --wordmark: oklch(0.55 calc(0.19 * var(--tint-s, 1)) var(--tint-h) / 45%);
+  --primary: oklch(0.64 0.17 var(--tint-h));
+  --ring: oklch(0.72 0.14 var(--tint-h));
 }
 
 @theme inline {
@@ -583,8 +606,8 @@
 
 /* The sidebar floats inside the window as its own pane of glass. */
 .app-shell > aside {
-  width: calc(var(--sidebar-w) - 10px);
-  margin: 8px 0 8px 8px;
+  width: calc(var(--sidebar-w) - 14px);
+  margin: 12px 0 12px 12px;
 }
 
 @media (max-width: 1100px) {
@@ -670,6 +693,17 @@
     backdrop-filter: var(--glass-blur-strong);
   }
 
+  /* Your messages: the accent itself as glass, solid enough to read over any background. */
+  .user-bubble {
+    background: color-mix(in oklch, var(--primary) 82%, transparent);
+    color: var(--primary-foreground);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 22%),
+      0 4px 16px oklch(0 0 0 / 14%);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+  }
+
   .glass-pane {
     border: 0.5px solid var(--sidebar-border);
     background: var(--popover);
@@ -753,4 +787,93 @@
     opacity: 0;
     transform: translate3d(0, 4px, 0);
   }
+}
+
+/* Sending the first prompt: the greeting falls down out of view, clipped at
+   its own bottom edge so it drops behind the prompt bar, as the message pops in. */
+[data-od-id='thread-hero'] {
+  view-transition-name: thread-hero;
+}
+
+::view-transition-group(thread-hero) {
+  overflow: clip;
+}
+
+::view-transition-old(thread-hero):only-child {
+  animation: thread-hero-out 320ms cubic-bezier(0.55, 0, 0.75, 0.3) forwards;
+}
+
+@keyframes thread-hero-out {
+  to {
+    transform: translate3d(0, 105%, 0);
+  }
+}
+
+/*
+ * Pinning a tray (Git or Output), unpinning it, and closing a pinned one run
+ * as view transitions (layoutTransition in workspace-ui.svelte.ts): the tray
+ * glides between slide-out and pane, or slides off to the right, and the
+ * conversation slides to its new centre beside it. Snapshots keep their
+ * natural size and are clipped, never stretched, so text doesn't squash.
+ */
+.workspace-main {
+  view-transition-name: workspace-main;
+}
+
+[data-tray='git'] {
+  view-transition-name: git-tray;
+  view-transition-class: tray;
+}
+
+[data-tray='output'] {
+  view-transition-name: output-tray;
+  view-transition-class: tray;
+}
+
+::view-transition-group(*) {
+  animation-duration: var(--dur-slide);
+  animation-timing-function: var(--ease-out-snappy);
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-image-pair(.tray) {
+  border-radius: 18px;
+  overflow: clip;
+}
+
+::view-transition-group(workspace-main) {
+  overflow: clip;
+}
+
+/* Natural size, centred in the moving box: the conversation is a centred
+   column, so this slides it to its new centre rather than snapping. */
+::view-transition-old(workspace-main),
+::view-transition-new(workspace-main) {
+  left: 50%;
+  width: auto;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
+/* No cross-fade: the two layouts sit at different offsets and would ghost.
+   Only the new one shows, sliding from where the old one was. */
+::view-transition-old(workspace-main) {
+  animation: none;
+  opacity: 0;
+}
+
+::view-transition-new(workspace-main) {
+  animation: none;
+}
+
+::view-transition-old(.tray),
+::view-transition-new(.tray) {
+  width: auto;
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
 }

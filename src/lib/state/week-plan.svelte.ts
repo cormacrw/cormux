@@ -26,6 +26,16 @@ export type WeekSelection = { kind: WeekItem['kind']; id: string }
  * The Week page: which week is on screen, the loading area's filter, the open card, and the
  * local plan for ClickUp sprint tasks. Sprint plans never reach ClickUp.
  */
+const HIDE_WEEKENDS_KEY = 'cormux-week-hide-weekends'
+
+function readHideWeekends(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(HIDE_WEEKENDS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 export class WeekPlanStore {
   rows = $state<SprintPlanRow[]>([])
   today = $state<Day>(currentDay())
@@ -36,6 +46,12 @@ export class WeekPlanStore {
   selectedTodoId = $state<string | null>(null)
 
   readonly days = $derived(weekDays(this.start))
+  /** Saturday and Sunday out of the board; what's planned on them waits in the loading area. */
+  hideWeekends = $state(readHideWeekends())
+  /** The lanes on screen: Monday to Friday with weekends hidden, else all seven. */
+  readonly visibleDays = $derived(
+    this.hideWeekends ? this.days.slice(0, 5) : this.days,
+  )
   readonly thisWeek = $derived(weekStart(this.today))
   readonly isThisWeek = $derived(this.start === this.thisWeek)
 
@@ -50,6 +66,15 @@ export class WeekPlanStore {
     const following = this.start === this.thisWeek
     this.today = today
     if (following) this.start = weekStart(today)
+  }
+
+  setHideWeekends(hide: boolean) {
+    this.hideWeekends = hide
+    try {
+      globalThis.localStorage?.setItem(HIDE_WEEKENDS_KEY, hide ? '1' : '0')
+    } catch {
+      // Storage is optional; the choice still holds for this session.
+    }
   }
 
   previousWeek() {

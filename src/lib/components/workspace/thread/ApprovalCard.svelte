@@ -140,8 +140,8 @@
     <Card.Root
       data-od-id="approval-{item.id}"
       class={cn(
-        'border-warning/30 bg-warning/5',
-        quiet && 'border-border/60 bg-muted/20 opacity-90',
+        'border-warning/40 bg-popover',
+        quiet && 'border-border/60 opacity-90',
       )}
     >
       <Card.Header class="flex-row items-start gap-2 space-y-0 pb-2">

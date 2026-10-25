@@ -31,13 +31,27 @@ async function openWeek(page: Page) {
 
 /** Pointer drag with real moves, so the 4px threshold and lane hit testing run. */
 async function dragTo(page: Page, card: Locator, target: Locator) {
-  const from = (await card.boundingBox())!
+  // A card that just arrived is still animating in; measure it once it's settled.
+  await card.evaluate((el) =>
+    Promise.all(
+      el
+        .getAnimations({ subtree: true })
+        .map((animation) => animation.finished),
+    ),
+  )
+  // Scroll first, then measure: scrolling the board moves the card too.
   await target.scrollIntoViewIfNeeded()
+  await card.scrollIntoViewIfNeeded()
+  const from = (await card.boundingBox())!
   await page.mouse.move(from.x + 40, from.y + from.height / 2)
   await page.mouse.down()
   await page.mouse.move(from.x + 46, from.y + from.height / 2 + 4)
   const to = (await target.boundingBox())!
-  await page.mouse.move(to.x + to.width / 2, to.y + 40, { steps: 8 })
+  await page.mouse.move(
+    to.x + to.width / 2,
+    to.y + Math.min(to.height / 2, 120),
+    { steps: 8 },
+  )
   await expect(target).toHaveAttribute('data-week-lane', /.+/)
   await page.mouse.up()
 }
@@ -101,12 +115,15 @@ test.describe('week', () => {
       page.getByRole('button', { name: 'Mark “Book the venue” not done' }),
     ).toHaveAttribute('aria-pressed', 'true')
     await expect(newCard).toHaveAttribute('data-done', 'true')
-    await expect(page.locator('[data-od-id="week-pane"]')).toHaveCount(0)
+    await expect(page.locator('[data-od-id="task-flyout"]')).toHaveAttribute(
+      'data-open',
+      'false',
+    )
     await expect(progress).toHaveText('1 of 2 planned done')
 
     // Clicking the card opens the pane, where the description saves after typing stops.
     await newCard.locator('[data-week-card]').click()
-    const pane = page.locator('[data-od-id="week-pane"]')
+    const pane = page.locator('[data-od-id="task-flyout"]')
     await expect(pane.getByRole('textbox', { name: 'Title' })).toHaveValue(
       'Book the venue',
     )
@@ -126,20 +143,11 @@ test.describe('week', () => {
       )
       .toBe(true)
 
-    // "Planned for" moves it to another day.
-    const radios = pane.getByRole('radiogroup', { name: 'Planned for' })
-    await expect(radios.getByRole('radio', { checked: true })).toHaveAttribute(
-      'data-plan-day',
-      days[1]!,
-    )
-    await radios.locator(`[data-plan-day="${days[3]}"]`).click()
-    await expect(lane(days[3]!)).toContainText('Book the venue')
-    await expect(lane(days[1]!)).not.toContainText('Book the venue')
     await page.screenshot({ path: 'e2e/output/week.png' })
 
-    // Escape closes the pane and puts focus back on the card.
+    // Escape closes the flyout and puts focus back on the card.
     await page.keyboard.press('Escape')
-    await expect(pane).toHaveCount(0)
+    await expect(pane).toHaveAttribute('data-open', 'false')
     await expect(newCard.locator('[data-week-card]')).toBeFocused()
 
     // Reopening shows the saved description.
@@ -147,8 +155,10 @@ test.describe('week', () => {
     await expect(
       pane.getByRole('textbox', { name: 'Description' }),
     ).toHaveValue('Two quotes, then call on Thursday.')
-    await pane.getByRole('radio', { name: 'Unplanned' }).click()
-    await expect(loading).toContainText('Book the venue')
+
+    // A click elsewhere in the app closes it.
+    await page.getByRole('heading', { name: 'This week', level: 1 }).click()
+    await expect(pane).toHaveAttribute('data-open', 'false')
 
     expect(errors).toEqual([])
   })
@@ -188,22 +198,36 @@ test.describe('week', () => {
     await expect(loading.locator('[data-week-item^="todo:"]')).toHaveCount(0)
     await loading.getByRole('button', { name: 'All', exact: true }).click()
 
-    // The pane is the Sprint page's, plus the plan controls.
+    // The flyout is the Sprint page's task panel.
     await sprintCard.locator('[data-week-card]').click()
-    const pane = page.locator('[data-od-id="week-pane"]')
+    const pane = page.locator('[data-od-id="task-flyout"]')
     await expect(
       pane.getByRole('heading', {
         name: 'Session expires mid checkout on Safari',
       }),
     ).toBeVisible()
-    await pane.locator(`[data-plan-day="${days[4]}"]`).click()
     await expect(
-      page.locator(
-        `[data-week-lane="${days[4]}"] [data-week-item="sprint:t2"]`,
-      ),
-    ).toBeVisible()
-    await pane.getByRole('button', { name: 'Mark complete' }).click()
-    await expect(sprintCard).toHaveAttribute('data-done', 'true')
+      pane.getByRole('button', { name: 'Mark complete' }),
+    ).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(pane).toHaveAttribute('data-open', 'false')
+
+    // Planned by dragging, and ticked off on the card; neither reaches ClickUp.
+    await dragTo(
+      page,
+      sprintCard,
+      page.locator(`[data-week-lane="${days[0]}"]`),
+    )
+    const planned = page.locator(
+      `[data-week-lane="${days[0]}"] [data-week-item="sprint:t2"]`,
+    )
+    await expect(planned).toBeVisible()
+    await planned
+      .getByRole('button', {
+        name: /^Mark “Session expires mid checkout on Safari” done$/,
+      })
+      .click()
+    await expect(planned).toHaveAttribute('data-done', 'true')
 
     const clickupWrites = await page.evaluate(
       () =>
@@ -218,5 +242,45 @@ test.describe('week', () => {
     await page.screenshot({ path: 'e2e/output/week-sprint.png' })
 
     expect(errors).toEqual([])
+  })
+
+  test('weekends can be hidden; what is planned on them waits in the loading area', async ({
+    page,
+  }) => {
+    // Wide enough that Sunday's lane is on screen to drop on.
+    await page.setViewportSize({ width: 2800, height: 900 })
+    await page.goto('/')
+    await openWeek(page)
+    const days = thisWeek()
+    const lanes = page.locator(
+      '[data-week-lane]:not([data-week-lane="loading"])',
+    )
+    const loading = page.locator('[data-week-lane="loading"]')
+    await expect(lanes).toHaveCount(7)
+
+    // Plan the fixture TODO for Sunday, then hide weekends.
+    const card = page
+      .locator('[data-week-lane="' + days[0] + '"] [data-week-item]')
+      .first()
+    const title = (await card.innerText()).split('\n')[0]!.trim()
+    await dragTo(page, card, page.locator(`[data-week-lane="${days[6]}"]`))
+    await expect(page.locator(`[data-week-lane="${days[6]}"]`)).toContainText(
+      title,
+    )
+
+    const weekends = page.getByRole('switch', { name: 'Show weekends' })
+    await expect(weekends).toBeChecked()
+    await weekends.click()
+    await expect(lanes).toHaveCount(5)
+    await expect(page.locator(`[data-week-lane="${days[5]}"]`)).toHaveCount(0)
+    await expect(loading).toContainText(title)
+
+    // Remembered across a reload.
+    await page.reload()
+    await openWeek(page)
+    await expect(lanes).toHaveCount(5)
+    await page.getByRole('switch', { name: 'Show weekends' }).click()
+    // (The harness's data resets on reload, so the plan itself doesn't survive here.)
+    await expect(lanes).toHaveCount(7)
   })
 })

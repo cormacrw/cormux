@@ -7,11 +7,17 @@
     matchesHomebaseFilter,
     type HomebaseFilter,
   } from '$lib/homebase/filter'
-  import { app, homebaseUi, threads, workspaces } from '$lib/state'
-  import { formatCost, totalCost } from '$lib/usage/usage'
+  import {
+    app,
+    homebaseUi,
+    threads,
+    threadTimeline,
+    workspaces,
+  } from '$lib/state'
+  import { costSince, formatCost, startOfDayMs } from '$lib/usage/usage'
   import OpenPrsSection from './OpenPrsSection.svelte'
-  import PinnedTodosSection from './PinnedTodosSection.svelte'
   import ScratchesSection from './ScratchesSection.svelte'
+  import TodayTasksSection from './TodayTasksSection.svelte'
   import WorkspaceCard from './WorkspaceCard.svelte'
 
   let homeTitle: HTMLHeadingElement | undefined = $state()
@@ -34,7 +40,16 @@
     return () => window.clearInterval(id)
   })
 
-  const cost = $derived(totalCost(threads.agents.map((thread) => thread.usage)))
+  // Today only: each thread's spend since local midnight, from its usage events.
+  const cost = $derived.by(() => {
+    const since = startOfDayMs(nowMs)
+    const spent = threads.agents
+      .map((thread) =>
+        costSince(threadTimeline.eventsByThread[thread.id] ?? [], since),
+      )
+      .filter((usd): usd is number => usd != null)
+    return spent.length ? spent.reduce((sum, usd) => sum + usd, 0) : null
+  })
   const filterCounts = $derived(
     homebaseFilterCounts(workspaces.items.map((item) => item.lifecycle)),
   )
@@ -69,15 +84,15 @@
           <p
             class="truncate font-mono text-xs text-muted-foreground tabular-nums"
             data-od-id="home-cost"
-            title="What your workspaces' agents have cost so far"
+            title="What your workspaces' agents have cost since midnight"
           >
-            {formatCost(cost)} spent by agents
+            {formatCost(cost)} spent by agents today
           </p>
         {/if}
       </div>
     </header>
 
-    <PinnedTodosSection />
+    <TodayTasksSection />
 
     <ScratchesSection />
 

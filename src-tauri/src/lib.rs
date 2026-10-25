@@ -35,6 +35,7 @@ mod state;
 mod store;
 mod summaries;
 mod teardown;
+mod todo_files;
 mod workspace;
 
 use std::time::Duration;
@@ -120,6 +121,8 @@ pub fn run() {
             let pr_app = app.handle().clone();
             let db_path = data_dir(app.path().app_data_dir()?).join("cormux.db");
             state.store.open(&db_path)?;
+            // TODO files are rewritten on every change; this catches up on the rest.
+            crate::todo_files::sync(&state.store);
             let approval_notify = state.approval_notify.clone();
             let turn_end_notify = state.turn_end_notify.clone();
             app.manage(state);
@@ -137,6 +140,20 @@ pub fn run() {
             });
 
             app.state::<AppState>().mcp.attach_app(app.handle().clone());
+
+            // The window starts hidden and the app shows it once it has painted. If
+            // that never happens (a startup error), show it anyway rather than
+            // leave Cormux running with no window.
+            let fallback = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(4)).await;
+                if let Some(window) = fallback.get_webview_window("main")
+                    && !window.is_visible().unwrap_or(true)
+                {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            });
 
             let approval_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {

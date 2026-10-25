@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  costSince,
+  startOfDayMs,
   contextPercent,
   formatCost,
   formatTokens,
@@ -58,5 +60,32 @@ describe('totalCost', () => {
       ]),
     ).toBe(1.25)
     expect(totalCost([NO_USAGE])).toBeNull()
+  })
+})
+
+describe('costSince', () => {
+  const usage = (atMs: number, cost: number | null) => ({
+    atMs,
+    event: { type: 'usage', cost_usd: cost },
+  })
+
+  it('counts only what the running total grew by since then', () => {
+    expect(
+      costSince([usage(100, 1.5), usage(200, 2), usage(300, 2.75)], 150),
+    ).toBeCloseTo(1.25)
+  })
+
+  it('is null when nothing was spent since then', () => {
+    expect(costSince([usage(100, 1.5)], 150)).toBeNull()
+    expect(costSince([usage(200, null)], 150)).toBeNull()
+  })
+
+  it('counts a thread that started since then in full', () => {
+    expect(costSince([usage(200, 0.4)], 150)).toBeCloseTo(0.4)
+  })
+
+  it('finds local midnight', () => {
+    const noon = new Date(2026, 9, 24, 12, 30).getTime()
+    expect(startOfDayMs(noon)).toBe(new Date(2026, 9, 24).getTime())
   })
 })

@@ -24,7 +24,7 @@ test('only new rows pop in, and a new reply types out', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/?longThread=3')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await expect(
     page.locator('#timeline').getByText('Answer 3', { exact: true }),
   ).toBeVisible()
@@ -54,7 +54,7 @@ test('only new rows pop in, and a new reply types out', async ({ page }) => {
   await expect(
     page
       .getByRole('navigation', { name: 'Harness' })
-      .getByRole('button', { name: 'OAuth login, Idle, 1 agent' }),
+      .getByRole('button', { name: 'OAuth login, Idle' }),
   ).toBeVisible({ timeout: 5000 })
   expect(await popping(page)).toEqual([])
   expect(errors).toEqual([])
@@ -64,8 +64,6 @@ test('a thread with thousands of events keeps drawing frames while a reply strea
   page,
 }) => {
   await page.addInitScript(() => {
-    // Headless Chromium draws WebGL in software; a still background keeps this about the timeline.
-    localStorage.setItem('cormux-background-animate', '0')
     const w = window as Window & { __frames?: number }
     w.__frames = 0
     const tick = () => {
@@ -75,7 +73,7 @@ test('a thread with thousands of events keeps drawing frames while a reply strea
     requestAnimationFrame(tick)
   })
   await page.goto('/?longThread=3000')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await page.locator('#composer-input').fill('Go')
   const frames = () =>
     page.evaluate(

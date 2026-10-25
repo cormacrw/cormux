@@ -108,3 +108,31 @@ test('# offers the sprint’s tasks and sends one as its name, link and descript
       /^Fix ENG-198 “Session expires mid checkout on Safari” \(https:\/\/[^)]+\) and keep # notes\n\nClickUp tasks:\n\n### ENG-198 Session expires mid checkout on Safari\n## Problem/,
     )
 })
+
+test('the picker opening under a still pointer keeps the first option highlighted', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await page
+    .getByRole('button', {
+      name: 'Why the webhook signature fails, my-app, Idle',
+    })
+    .click()
+  const input = page.locator('#composer-input')
+  // Park the pointer just above the prompt bar, where the last option will open.
+  const bar = (await page.locator('#composer').boundingBox())!
+  await page.mouse.move(bar.x + bar.width / 2, bar.y - 24)
+  await input.fill('/')
+  const options = page
+    .getByRole('listbox', { name: 'Skills' })
+    .getByRole('option')
+  await expect(options).toHaveCount(3)
+  await page.waitForTimeout(300)
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+  await expect(options.last()).toHaveAttribute('aria-selected', 'false')
+
+  // Moving the pointer does pick what's under it.
+  const last = (await options.last().boundingBox())!
+  await page.mouse.move(last.x + 40, last.y + last.height / 2, { steps: 3 })
+  await expect(options.last()).toHaveAttribute('aria-selected', 'true')
+})

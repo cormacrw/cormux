@@ -5,6 +5,7 @@ import type {
   TodoRow,
 } from '$lib/ipc/bindings'
 import { taskRef } from '$lib/clickup/board'
+import { todoRef } from '$lib/todos/ref'
 import { localDayOf, type Day } from './dates'
 
 export type WeekFilter = 'all' | 'todo' | 'sprint'
@@ -17,7 +18,7 @@ export type WeekItem = {
   /** Unique across kinds, for keys and `data-week-card`. */
   key: string
   title: string
-  /** `TODO`, or the task's ClickUp ID. */
+  /** The TODO's `CMUX-<n>`, or the task's ClickUp ID. */
   tag: string
   points: number | null
   plannedOn: Day | null
@@ -49,7 +50,7 @@ export function todoItem(todo: TodoRow): WeekItem {
     id: todo.id,
     key: itemKey('todo', todo.id),
     title: todo.title,
-    tag: 'TODO',
+    tag: todoRef(todo),
     points: null,
     plannedOn: todo.plannedOn,
     done: todo.doneAt != null,

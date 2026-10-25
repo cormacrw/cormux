@@ -12,17 +12,6 @@ export default defineConfig({
     trace: 'on-first-retry',
     colorScheme: 'dark',
     viewport: { width: 1280, height: 800 },
-    // Headless Chromium renders WebGL in software, so an animated background would
-    // slow every spec down. Specs about the background clear this themselves.
-    storageState: {
-      cookies: [],
-      origins: [
-        {
-          origin: 'http://127.0.0.1:1420',
-          localStorage: [{ name: 'cormux-background-animate', value: '0' }],
-        },
-      ],
-    },
   },
   webServer: {
     command: 'pnpm dev --host 127.0.0.1',

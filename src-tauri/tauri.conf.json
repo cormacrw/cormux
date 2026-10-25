@@ -19,13 +19,14 @@
         "minWidth": 960,
         "minHeight": 600,
         "resizable": true,
+        "visible": false,
         "backgroundColor": "#0b0c0e",
         "fullscreen": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": {
-          "x": 22,
-          "y": 25
+          "x": 34,
+          "y": 40
         }
       }
     ],

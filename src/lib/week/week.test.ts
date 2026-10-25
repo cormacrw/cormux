@@ -55,6 +55,7 @@ describe('week dates', () => {
 
 const todo = (id: string, patch: Partial<TodoRow> = {}): TodoRow => ({
   id,
+  number: 1,
   title: id,
   pinned: false,
   description: '',

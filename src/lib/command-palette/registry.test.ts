@@ -44,9 +44,9 @@ describe('buildPaletteCommandsFromState', () => {
             createdAtMs: null,
           },
         ],
-        scratchMacros: [
-          { id: 'macro-1', name: 'Morning triage', prompt: 'Check CI' },
-          { id: 'macro-2', name: 'Empty', prompt: '' },
+        bangs: [
+          { id: 'bang-1', name: 'triage', prompt: 'Check CI' },
+          { id: 'bang-2', name: 'empty', prompt: '' },
         ],
         threads: [
           {
@@ -129,9 +129,8 @@ describe('buildPaletteCommandsFromState', () => {
         requestNewWorkspace: noop,
         requestNewScratch: noop,
         openScratch: noop,
-        runScratchMacro: noop,
+        runBang: noop,
         openHomebase: noop,
-        openTodos: noop,
         openSprint: noop,
         openWeek: noop,
         openSettings: noop,
@@ -148,12 +147,13 @@ describe('buildPaletteCommandsFromState', () => {
 
     expect(labels).toContain('New workspace')
     expect(labels).toContain('New scratch')
-    expect(labels).toContain('Go to TODOs')
+    expect(labels).not.toContain('Go to TODOs')
     expect(labels).toContain('Go to week')
     expect(labels).toContain('Add a task')
     // No ClickUp key, no sprint page.
     expect(labels).not.toContain('Go to sprint')
-    expect(labels).toContain('Morning triage')
+    expect(labels).toContain('!triage')
+    expect(labels).not.toContain('!empty')
     expect(labels).not.toContain('Empty')
     expect(labels).toContain('Open Why the webhook signature fails')
     expect(labels).toContain('Open Auth')

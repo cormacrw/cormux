@@ -9,8 +9,7 @@
   } from '$lib/sidebar/status'
   import StatusDot from './StatusDot.svelte'
 
-  let { workspace, agentCount }: { workspace: Workspace; agentCount: number } =
-    $props()
+  let { workspace }: { workspace: Workspace } = $props()
 
   const statusInput = $derived({
     lifecycle: workspace.lifecycle,
@@ -29,7 +28,7 @@
   const appRunning = $derived(appRuntime.appStatus === 'running')
 
   const ariaLabel = $derived.by(() => {
-    const parts = [workspace.name, statusWord, plural(agentCount, 'agent')]
+    const parts = [workspace.name, statusWord]
     if (appRunning) {
       parts.push(
         appRuntime.port
@@ -50,7 +49,7 @@
 <li>
   <button
     type="button"
-    class="grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent/80 aria-[current=page]:bg-sidebar-accent"
+    class="grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-[background-color,transform] duration-(--dur-fast) ease-(--ease-out-snappy) outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.98] aria-[current=page]:bg-sidebar-accent dark:hover:bg-muted/50"
     aria-current={isCurrent ? 'page' : undefined}
     aria-label={ariaLabel}
     onclick={() => app.openWorkspace(workspace.id)}
@@ -60,9 +59,7 @@
       <span class="truncate text-sm text-sidebar-foreground"
         >{workspace.name}</span
       >
-      <span class="truncate text-xs text-muted-foreground">
-        {statusWord} · {plural(agentCount, 'agent')}
-      </span>
+      <span class="truncate text-xs text-muted-foreground">{statusWord}</span>
     </span>
     {#if workspace.pendingApprovals > 0}
       <Badge

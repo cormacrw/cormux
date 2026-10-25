@@ -75,3 +75,29 @@ export function totalCost(usages: ThreadUsage[]): number | null {
     .filter((cost): cost is number => cost != null)
   return costs.length ? costs.reduce((sum, cost) => sum + cost, 0) : null
 }
+
+/** Local midnight at the start of the day `nowMs` falls in. */
+export function startOfDayMs(nowMs: number): number {
+  const day = new Date(nowMs)
+  day.setHours(0, 0, 0, 0)
+  return day.getTime()
+}
+
+/**
+ * What a thread spent since `sinceMs`, from its usage events, or null if it
+ * reported no cost since then. Each event carries the thread's running total,
+ * so it's the latest total less the last one before `sinceMs`.
+ */
+export function costSince(
+  events: { atMs: number; event: { type: string; cost_usd?: number | null } }[],
+  sinceMs: number,
+): number | null {
+  let before = 0
+  let latest: number | null = null
+  for (const { atMs, event } of events) {
+    if (event.type !== 'usage' || event.cost_usd == null) continue
+    if (atMs < sinceMs) before = event.cost_usd
+    else latest = event.cost_usd
+  }
+  return latest == null ? null : Math.max(0, latest - before)
+}

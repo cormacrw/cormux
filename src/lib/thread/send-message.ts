@@ -8,21 +8,25 @@ import { showToast } from '$lib/feedback/show-toast'
 import { threads } from '$lib/state/threads.svelte'
 import { threadTimeline } from '$lib/state/thread-timeline.svelte'
 
+import { firstPromptTransition } from './conversation-motion'
+
 /** Post a user message to a thread's agent. Resolves false (after toasting) if it didn't send. */
 export async function sendThreadMessage(
   threadId: string,
   text: string,
   attachments: ComposerAttachment[] = [],
 ): Promise<boolean> {
-  threadTimeline.appendStreamChunk(
-    threadId,
-    shownMessage(
-      text,
-      attachments.map((attachment) => attachment.name),
-    ),
-    'user',
-  )
-  threads.setStatus(threadId, 'running')
+  firstPromptTransition(() => {
+    threadTimeline.appendStreamChunk(
+      threadId,
+      shownMessage(
+        text,
+        attachments.map((attachment) => attachment.name),
+      ),
+      'user',
+    )
+    threads.setStatus(threadId, 'running')
+  })
   let message: string | null = null
   try {
     const result = await commands.sendThreadPrompt(

@@ -15,7 +15,7 @@ import {
 import { startNewSession } from '$lib/thread/start-new-session'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
-import { workspaces } from '$lib/state/workspaces.svelte'
+import { sidebarWorkspaces } from '$lib/state/sidebar-workspaces.svelte'
 
 type PopoverCloser = () => boolean
 
@@ -116,7 +116,7 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   // ⌘1–⌘9 open workspaces in sidebar order.
   if (mod && !event.shiftKey && !event.altKey && /^[1-9]$/.test(event.key)) {
     event.preventDefault()
-    const workspace = workspaces.sidebarItems[Number(event.key) - 1]
+    const workspace = sidebarWorkspaces.ordered[Number(event.key) - 1]
     if (workspace && !dialogBlocksShortcuts()) app.openWorkspace(workspace.id)
     return
   }
@@ -129,7 +129,19 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
     app.view === 'workspace'
   ) {
     event.preventDefault()
-    if (!dialogBlocksShortcuts()) workspaceUi.openTab('changes')
+    if (!dialogBlocksShortcuts()) workspaceUi.toggleGit()
+    return
+  }
+
+  if (
+    mod &&
+    key === 'o' &&
+    !event.shiftKey &&
+    !event.altKey &&
+    app.view === 'workspace'
+  ) {
+    event.preventDefault()
+    if (!dialogBlocksShortcuts()) workspaceUi.toggleOutputTab()
     return
   }
 

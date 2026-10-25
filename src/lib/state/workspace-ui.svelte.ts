@@ -1,3 +1,5 @@
+import { tick } from 'svelte'
+
 export type WorkspacePanelTab =
   'thread' | 'plan' | 'findings' | 'changes' | 'output'
 
@@ -9,6 +11,58 @@ export function isSlideOut(tab: WorkspacePanelTab): tab is WorkspaceSlideOut {
   return tab === 'changes' || tab === 'output'
 }
 
+const PINNED_TRAY_KEY = 'cormux-pinned-tray'
+const TRAY_WIDTH_KEY = 'cormux-git-pane-width'
+
+function readTrayWidth(): number {
+  try {
+    const stored = Number(globalThis.localStorage?.getItem(TRAY_WIDTH_KEY))
+    return stored >= 320 ? stored : 640
+  } catch {
+    return 640
+  }
+}
+
+function readPinnedTray(): WorkspaceSlideOut | null {
+  try {
+    const stored = globalThis.localStorage?.getItem(PINNED_TRAY_KEY)
+    return stored === 'changes' || stored === 'output' ? stored : null
+  } catch {
+    return null
+  }
+}
+
+function writePinnedTray(tray: WorkspaceSlideOut | null) {
+  try {
+    globalThis.localStorage?.setItem(PINNED_TRAY_KEY, tray ?? '')
+  } catch {
+    // Storage is optional; the pin just won't survive a restart.
+  }
+}
+
+/**
+ * Runs a layout change as a view transition, so a tray glides between
+ * slide-out and pinned pane, and slides away when closed (styles in app.css).
+ * Plain update where unsupported or with reduced motion.
+ */
+function layoutTransition(update: () => void) {
+  const doc = globalThis.document
+  const reduced =
+    doc?.documentElement.classList.contains('reduce-motion') ||
+    globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  if (!doc || reduced || typeof doc.startViewTransition !== 'function') {
+    update()
+    return
+  }
+  const transition = doc.startViewTransition(async () => {
+    update()
+    await tick()
+  })
+  // A newer layout change can cut this one short; the update still lands.
+  transition.ready.catch(() => {})
+  transition.finished.catch(() => {})
+}
+
 export class WorkspaceUiStore {
   activeTab = $state<WorkspacePanelTab>('thread')
   /** The panel under a slide-out: the last thread, plan or findings tab. */
@@ -16,8 +70,20 @@ export class WorkspaceUiStore {
   readonly slideOut = $derived<WorkspaceSlideOut | null>(
     isSlideOut(this.activeTab) ? this.activeTab : null,
   )
-  /** Tab before switching to Output (for Ctrl+` toggle). */
-  tabBeforeOutput = $state<WorkspacePanelTab>('thread')
+  /**
+   * The tray docked beside the conversation as a pane, if any. Closing a
+   * pinned tray unpins it, so the next open is a slide-out again.
+   */
+  pinnedTray = $state<WorkspaceSlideOut | null>(readPinnedTray())
+  /** Width of the pinned pane in px; dragging its edge changes it. */
+  trayWidth = $state(readTrayWidth())
+  /** Git is on screen, as a slide-out or as the pinned pane. */
+  readonly gitVisible = $derived(
+    this.activeTab === 'changes' || this.pinnedTray === 'changes',
+  )
+  readonly outputVisible = $derived(
+    this.activeTab === 'output' || this.pinnedTray === 'output',
+  )
   /** File to expand and scroll to in Changes (set by links in the conversation). */
   revealDiffPath = $state<string | null>(null)
   /** Line of the new file to scroll to once `revealDiffPath` is shown. */
@@ -31,14 +97,16 @@ export class WorkspaceUiStore {
   planThreadId = $state<string | null>(null)
 
   openTab(tab: WorkspacePanelTab) {
-    if (!isSlideOut(tab)) this.baseTab = tab
-    if (tab === 'output') {
-      if (this.activeTab !== 'output') {
-        this.tabBeforeOutput = this.activeTab
+    // While a tray is pinned, the other tray takes its place as the pane,
+    // and the panel underneath keeps focus.
+    if (isSlideOut(tab) && this.pinnedTray) {
+      if (isSlideOut(this.activeTab)) this.activeTab = this.baseTab
+      if (this.pinnedTray !== tab) {
+        layoutTransition(() => this.pinTray(tab))
       }
-      this.activeTab = 'output'
       return
     }
+    if (!isSlideOut(tab)) this.baseTab = tab
     this.activeTab = tab
   }
 
@@ -60,19 +128,61 @@ export class WorkspaceUiStore {
     if (isSlideOut(this.activeTab)) this.activeTab = this.baseTab
   }
 
+  /** ⌘G: shows or hides Git. */
+  toggleGit() {
+    this.toggleTray('changes')
+  }
+
+  /** ⌘O or Ctrl+`: shows or hides Output. */
   toggleOutputTab() {
-    if (this.activeTab === 'output') {
-      this.activeTab = this.tabBeforeOutput
+    this.toggleTray('output')
+  }
+
+  toggleTray(tray: WorkspaceSlideOut) {
+    const showing = tray === 'changes' ? this.gitVisible : this.outputVisible
+    if (showing) this.closeTray(tray)
+    else this.openTab(tray)
+  }
+
+  /** Hides a tray, whichever way it is showing; a pinned one unpins as it goes. */
+  closeTray(tray: WorkspaceSlideOut) {
+    if (this.pinnedTray === tray) {
+      layoutTransition(() => this.pinTray(null))
       return
     }
-    this.tabBeforeOutput = this.activeTab
-    this.activeTab = 'output'
+    if (this.activeTab === tray) this.closeSlideOut()
+  }
+
+  /** Pins a tray beside the conversation, or unpins it back to a slide-out that stays open. */
+  setTrayPinned(tray: WorkspaceSlideOut, pinned: boolean) {
+    layoutTransition(() => {
+      if (pinned) {
+        this.pinTray(tray)
+        if (isSlideOut(this.activeTab)) this.activeTab = this.baseTab
+      } else {
+        this.pinTray(null)
+        this.activeTab = tray
+      }
+    })
+  }
+
+  private pinTray(tray: WorkspaceSlideOut | null) {
+    this.pinnedTray = tray
+    writePinnedTray(tray)
+  }
+
+  setTrayWidth(width: number) {
+    this.trayWidth = Math.round(width)
+    try {
+      globalThis.localStorage?.setItem(TRAY_WIDTH_KEY, String(this.trayWidth))
+    } catch {
+      // Optional, as above.
+    }
   }
 
   resetForWorkspace() {
     this.activeTab = 'thread'
     this.baseTab = 'thread'
-    this.tabBeforeOutput = 'thread'
     this.revealDiffPath = null
     this.revealDiffLine = null
     this.collapsedDiffPaths = {}

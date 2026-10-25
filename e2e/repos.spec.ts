@@ -12,7 +12,7 @@ test.describe('repos', () => {
 
     const nav = page.getByRole('navigation', { name: 'Harness' })
     const repoList = nav.getByRole('list', { name: 'Repos' })
-    const workspaceList = nav.getByRole('list', { name: /Workspaces/ })
+    const workspaceList = nav.getByRole('group', { name: /Workspaces/ })
     await expect(repoList.getByText('my-app')).toBeVisible()
     expect((await repoList.boundingBox())!.y).toBeLessThan(
       (await workspaceList.boundingBox())!.y,

@@ -7,16 +7,16 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
   mkdirSync('e2e/output', { recursive: true })
   await page.setViewportSize({ width: 1600, height: 800 })
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
 
   // Create PR has no button any more; ⌘P still opens it.
   await expect(page.getByRole('button', { name: 'Create PR' })).toHaveCount(0)
   await page.screenshot({ path: 'e2e/output/workspace-header-shortcuts.png' })
 
-  // Wide windows show every action as a button, with no ⋯ menu.
+  // The actions live in ⋯ at every width.
   await expect(
     page.getByRole('button', { name: 'More workspace actions' }),
-  ).toHaveCount(0)
+  ).toBeVisible()
   await page.keyboard.press('ControlOrMeta+t')
   await expect
     .poll(() =>
@@ -55,7 +55,7 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
 test('narrow windows fold the secondary actions into ⋯', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 720 })
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await expect(
     page.getByRole('button', { name: 'Delete workspace' }),
   ).toHaveCount(0)

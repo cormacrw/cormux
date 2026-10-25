@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 
 async function openStack(page: Page, query = '') {
   await page.goto(`/${query}`)
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await page.getByRole('tab', { name: /^Git/ }).click()
   return page
     .getByRole('tabpanel', { name: /^Git/ })

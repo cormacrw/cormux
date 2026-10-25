@@ -1,5 +1,5 @@
 <script lang="ts">
-  import SlideOutClose from '../SlideOutClose.svelte'
+  import TrayControls from '../TrayControls.svelte'
   import { onMount, tick, untrack } from 'svelte'
   import { agentName } from '$lib/agent-name'
   import { afterPaint } from '$lib/changes/mount-queue'
@@ -273,7 +273,7 @@
           </Button>
         </span>
       {/if}
-      <SlideOutClose label="Close changes" />
+      <TrayControls tray="changes" name="Git" shortcut="⌘G" />
     </div>
 
     <div class="relative flex min-h-0 flex-1 flex-col">

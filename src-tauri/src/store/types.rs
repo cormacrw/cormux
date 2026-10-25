@@ -96,6 +96,8 @@ pub struct ScratchRow {
 #[serde(rename_all = "camelCase")]
 pub struct TodoRow {
     pub id: String,
+    /// Shown as `CMUX-<number>`; assigned when it's made and never reused.
+    pub number: i64,
     pub title: String,
     pub pinned: bool,
     pub description: String,

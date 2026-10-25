@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { todoAliasTask } from '$lib/todos/ref'
 import {
+  todoContext,
   expandTaskAliases,
   filterTasks,
   insertTaskAlias,
@@ -81,5 +83,35 @@ describe('task aliases', () => {
     expect(taskContext([tasks[0]!], { '86b1x2k': 'x'.repeat(2500) })).toContain(
       `${'x'.repeat(2000)}…`,
     )
+  })
+})
+
+describe('TODO aliases', () => {
+  const todo = todoAliasTask(
+    {
+      id: 'todo-1',
+      number: 12,
+      title: 'Book the venue',
+      pinned: false,
+      description: 'Ask for the big room',
+      plannedOn: null,
+      doneAt: null,
+    },
+    '/data/tasks/',
+  )
+
+  it('expands #CMUX-n to its ref, title and file, like a ClickUp task', () => {
+    const { text, mentioned } = expandTaskAliases('Do #cmux-12 today', [todo])
+    expect(text).toBe(
+      'Do CMUX-12 “Book the venue” (/data/tasks/CMUX-12.md) today',
+    )
+    expect(mentioned).toEqual([todo])
+  })
+
+  it('tells the agent where to read each TODO', () => {
+    expect(todoContext([todo])).toBe(
+      "Cormux TODOs. Read each file for the task's notes and status:\n- CMUX-12 “Book the venue”: /data/tasks/CMUX-12.md",
+    )
+    expect(todoContext([])).toBe('')
   })
 })

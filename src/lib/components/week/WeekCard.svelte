@@ -12,6 +12,7 @@
     onOpen,
     onToggleDone,
     onPointerDown,
+    draggable = true,
   }: {
     item: WeekItem
     selected?: boolean
@@ -22,6 +23,8 @@
     onOpen?: () => void
     onToggleDone?: () => void
     onPointerDown?: (event: PointerEvent) => void
+    /** Off where cards can't be dragged (Homebase's Today). */
+    draggable?: boolean
   } = $props()
 
   const checkLabel = $derived(
@@ -45,11 +48,12 @@
 
 <article
   class={cn(
-    'glass-card group/card relative flex touch-none items-start gap-2 rounded-xl py-2.5 pr-2.5 pl-2 text-card-foreground select-none',
+    'glass-card group/card relative flex items-start gap-2 rounded-xl py-2.5 pr-2.5 pl-2 text-card-foreground select-none',
+    draggable && 'touch-none',
     'transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none',
     'has-[[data-week-card]:focus-visible]:ring-3 has-[[data-week-card]:focus-visible]:ring-ring/50',
-    !ghost &&
-      'cursor-grab [@media(hover:hover)_and_(pointer:fine)]:hover:-translate-y-px',
+    !ghost && '[@media(hover:hover)_and_(pointer:fine)]:hover:-translate-y-px',
+    !ghost && draggable && 'cursor-grab',
     item.done && !ghost && 'opacity-60',
     selected && 'border-primary/70 ring-2 ring-primary/25',
     dragging && 'opacity-35',

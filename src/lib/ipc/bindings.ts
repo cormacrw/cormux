@@ -112,11 +112,26 @@ async resumeThread(threadId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Like `/clear`: the agent forgets the conversation, but the thread keeps showing it.
+ * Like `/clear`: the agent forgets the conversation and the thread starts a
+ * fresh one. The step records the session it ended, so the conversation can
+ * be resumed later (`resume_thread_session`).
  */
 async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("new_thread_session", { threadId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Picks an earlier conversation in the thread back up: the agent resumes its
+ * session, and the thread shows that conversation again. `conversation_id`
+ * is the UI's id for it, echoed back in the step so the timeline can follow.
+ */
+async resumeThreadSession(input: ResumeThreadSessionInput) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resume_thread_session", { input }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -972,6 +987,18 @@ export type RepoRecord = { id: string; path: string; name: string; defaultBranch
 singleInstance: boolean }
 export type ResolveApprovalResult = { focusComposer: boolean }
 /**
+ * An earlier conversation to resume in a thread.
+ */
+export type ResumeThreadSessionInput = { threadId: string; 
+/**
+ * The UI's id for the conversation, echoed back in the timeline.
+ */
+conversationId: string; 
+/**
+ * The agent session it ended with; none starts the agent fresh.
+ */
+sessionId: string | null }
+/**
  * A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
  */
 export type ScratchRow = { id: string; repoId: string; title: string; threadId: string; engine: string; status: string; 
@@ -1008,7 +1035,11 @@ prSyncedAt: string | null;
 /**
  * True when a ClickUp API key is saved. Every ClickUp surface hides without one.
  */
-clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[] }
+clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[]; 
+/**
+ * Where each TODO is written as `CMUX-<n>.md`, for agents to read.
+ */
+tasksDir: string }
 /**
  * The Week page's local plan for a ClickUp task. Never written back to ClickUp.
  */
@@ -1079,7 +1110,11 @@ export type ToastTone = "ok" | "bad" | "default"
 /**
  * A task from the TODOs page, which the Week page can plan onto a day.
  */
-export type TodoRow = { id: string; title: string; pinned: boolean; description: string; 
+export type TodoRow = { id: string; 
+/**
+ * Shown as `CMUX-<number>`; assigned when it's made and never reused.
+ */
+number: number; title: string; pinned: boolean; description: string; 
 /**
  * `YYYY-MM-DD`, the local day it's planned for; `None` sits in the Week page's loading area.
  */

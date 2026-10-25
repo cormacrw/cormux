@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskFlyout from '$lib/components/tasks/TaskFlyout.svelte'
   import type { Snippet } from 'svelte'
   import {
     clampSidebarWidth,
@@ -70,7 +71,7 @@
 >
   <aside
     bind:this={aside}
-    class="glass-sidebar relative z-10 flex min-h-0 min-w-0 flex-col rounded-[18px] border border-sidebar-border bg-sidebar"
+    class="glass-sidebar relative z-10 flex min-h-0 min-w-0 flex-col rounded-(--window-radius) border border-sidebar-border bg-sidebar"
   >
     <Sidebar />
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -100,7 +101,10 @@
       ></span>
     </div>
   </aside>
-  <main class="main-area flex min-h-0 min-w-0 flex-col">
+  <!-- Clipped: the closed task flyout waits past the right edge, and must not make the shell scrollable. -->
+  <main class="main-area relative flex min-h-0 min-w-0 flex-col overflow-clip">
     {@render children()}
+    <!-- A task opened from Homebase, Week or Sprint slides out over the page. -->
+    <TaskFlyout />
   </main>
 </div>

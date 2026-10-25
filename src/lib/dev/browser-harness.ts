@@ -242,6 +242,16 @@ export function installBrowserHarness() {
       (thread) => thread.id === 'th-lead',
     )!.engine = leadEngine
   }
+  // Tests can preset settings rows, as a returning user has them.
+  const presetSettings = (
+    window as { __HARNESS_SETTINGS__?: Record<string, string> }
+  ).__HARNESS_SETTINGS__
+  for (const [key, value] of Object.entries(presetSettings ?? {})) {
+    const rows = fixtureSnapshot.persisted.settings
+    const row = rows.find((entry) => entry.key === key)
+    if (row) row.value = value
+    else rows.push({ key, value })
+  }
   // Tests can give the fixture repo a run command.
   const repoRunCommand = (window as { __HARNESS_RUN_COMMAND__?: string })
     .__HARNESS_RUN_COMMAND__
@@ -265,6 +275,27 @@ export function installBrowserHarness() {
       )!,
       leadUsage,
     )
+    // As a real turn does, log the usage it reported, stamped now.
+    const timeline = fixtureSnapshot.persisted.timeline
+    timeline.push({
+      id: Math.max(0, ...timeline.map((row) => row.id)) + 1,
+      threadId: 'th-lead',
+      seq:
+        Math.max(
+          0,
+          ...timeline
+            .filter((row) => row.threadId === 'th-lead')
+            .map((row) => row.seq),
+        ) + 1,
+      kind: 'usage',
+      payload: JSON.stringify({
+        type: 'usage',
+        used_tokens: leadUsage.usedTokens ?? 0,
+        context_size: leadUsage.contextSize ?? 0,
+        cost_usd: leadUsage.costUsd,
+      }),
+      createdAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    })
   }
   // Tests can inject a plan the Lead thread is waiting on, as Claude hands one over in plan mode.
   const injectedPlan = (window as { __HARNESS_PLAN__?: string })
@@ -690,8 +721,10 @@ export function installBrowserHarness() {
       }
     }
     if (cmd === 'create_todo') {
+      const todos = fixtureSnapshot.persisted.todos
       const todo = {
         id: `todo-harness-${nextEventId++}`,
+        number: Math.max(0, ...todos.map((row) => row.number)) + 1,
         title: String(args.title).trim(),
         pinned: false,
         description: '',
@@ -801,6 +834,32 @@ export function installBrowserHarness() {
         (window as { __HARNESS_ENGINES__?: typeof fixtureEngines })
           .__HARNESS_ENGINES__ ?? fixtureEngines
       )
+    }
+    // Like the core: save the repo, then announce a state change.
+    if (
+      cmd === 'set_repo_run_command' ||
+      cmd === 'set_repo_setup_commands' ||
+      cmd === 'set_repo_single_instance'
+    ) {
+      const input = args.input as {
+        repoId: string
+        runCommand?: string | null
+        setupCommands?: string
+        singleInstance?: boolean
+      }
+      const repo = fixtureSnapshot.persisted.repos.find(
+        (row) => row.id === input.repoId,
+      )
+      if (repo) {
+        if ('runCommand' in input)
+          repo.runCommand = input.runCommand?.trim() || null
+        if ('setupCommands' in input)
+          repo.setupCommands = input.setupCommands ?? ''
+        if ('singleInstance' in input)
+          repo.singleInstance = input.singleInstance ?? false
+      }
+      emitStateChanged()
+      return null
     }
     if (cmd === 'set_repo_default_branch') {
       const input = args.input as { repoId: string; defaultBranch: string }
@@ -963,8 +1022,25 @@ export function installBrowserHarness() {
       threadModels.set(String(args.threadId), (args.model as string) ?? null)
       return null
     }
-    if (cmd === 'new_thread_session') {
-      const threadId = String(args.threadId)
+    if (cmd === 'new_thread_session' || cmd === 'resume_thread_session') {
+      const resume =
+        cmd === 'resume_thread_session'
+          ? (args.input as {
+              threadId: string
+              conversationId: string
+              sessionId: string | null
+            })
+          : null
+      const threadId = resume ? resume.threadId : String(args.threadId)
+      const thread = fixtureSnapshot.persisted.threads.find(
+        (row) => row.id === threadId,
+      )
+      const ended = thread?.sessionId ?? null
+      // Tests read back what was resumed.
+      if (resume) {
+        ;(window as { __HARNESS_RESUMED__?: unknown }).__HARNESS_RESUMED__ =
+          resume
+      }
       const timeline = fixtureSnapshot.persisted.timeline
       const seq =
         Math.max(
@@ -976,12 +1052,18 @@ export function installBrowserHarness() {
       const event = {
         type: 'toolCall',
         id: `control-${seq}`,
-        title: 'Started a new session',
+        title: resume
+          ? 'Resumed an earlier conversation'
+          : 'Started a new session',
         name: null,
         kind: 'other',
         status: 'completed',
         locations: [],
-        detail: null,
+        detail: JSON.stringify(
+          resume
+            ? { conversation: resume.conversationId, endedSession: ended }
+            : { endedSession: ended },
+        ),
       }
       timeline.push({
         id: 800_000 + seq,
@@ -991,10 +1073,10 @@ export function installBrowserHarness() {
         payload: JSON.stringify(event),
         createdAt: '2026-09-28 12:00:00',
       })
-      const thread = fixtureSnapshot.persisted.threads.find(
-        (row) => row.id === threadId,
-      )
-      if (thread) thread.status = 'idle'
+      if (thread) {
+        thread.status = 'idle'
+        thread.sessionId = resume ? resume.sessionId : null
+      }
       emitStateChanged()
       return null
     }

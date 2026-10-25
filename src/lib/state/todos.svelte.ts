@@ -18,9 +18,12 @@ export class TodosStore {
   /** Oldest first. */
   items = $state<Todo[]>([])
   readonly pinned = $derived(this.items.filter((item) => item.pinned))
+  /** Where the core writes each TODO as `CMUX-<n>.md`, for agents to read. */
+  filesDir = $state('')
 
-  hydrate(items: Todo[]) {
+  hydrate(items: Todo[], filesDir = this.filesDir) {
     this.items = items
+    this.filesDir = filesDir
   }
 
   async add(title: string) {

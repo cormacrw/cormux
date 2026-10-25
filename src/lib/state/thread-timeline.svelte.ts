@@ -12,6 +12,7 @@ import {
 import type { TimelineItem } from '$lib/thread/timeline-types'
 import { threads } from './threads.svelte'
 import { reviewFindingsReady } from '$lib/thread/review-findings'
+import { splitConversations } from '$lib/thread/conversations'
 
 type ThreadMeta = {
   status: string
@@ -66,7 +67,8 @@ export class ThreadTimelineStore {
     meta: ThreadMeta,
     findingCount: number,
   ): TimelineItem[] {
-    const events = this.eventsByThread[threadId] ?? []
+    // Only the conversation showing now; earlier ones can be resumed.
+    const events = this.conversations(threadId).current.events
     const threadApprovals = this.approvals.filter(
       (row) => row.threadId === threadId,
     )
@@ -83,6 +85,11 @@ export class ThreadTimelineStore {
       liveToolTitle: this.currentToolByThread[threadId] ?? null,
       scratch: meta.scratch,
     })
+  }
+
+  /** The thread's current conversation and the earlier ones (see conversations.ts). */
+  conversations(threadId: string) {
+    return splitConversations(this.eventsByThread[threadId] ?? [])
   }
 
   applyEvent(threadId: string, event: AgentEvent) {

@@ -236,13 +236,13 @@
       {#if item.kind === 'user'}
         <div class="group relative max-w-[min(100%,34rem)]">
           <div
-            class="rounded-[18px] rounded-br-md border border-[color-mix(in_oklch,var(--primary)_40%,transparent)] bg-[color-mix(in_oklch,var(--primary)_24%,transparent)] px-3.5 py-2 text-sm leading-5 text-foreground"
+            class="rounded-[18px] rounded-br-md user-bubble border border-[color-mix(in_oklch,var(--primary)_60%,white_10%)] px-3.5 py-2 text-sm leading-5"
           >
             <p class="whitespace-pre-wrap">{item.text}</p>
           </div>
           <button
             type="button"
-            class="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded text-foreground/60 opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+            class="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded text-primary-foreground/70 opacity-0 transition hover:text-primary-foreground focus-visible:opacity-100 group-hover:opacity-100"
             aria-label="Copy message"
             onclick={() => copyText(item.id, item.text)}
           >
@@ -435,7 +435,7 @@
           {/each}
         </div>
       {:else if item.kind === 'plan'}
-        <Card.Root>
+        <Card.Root class="bg-popover">
           <Card.Header class="flex-row items-center gap-2 space-y-0 pb-2">
             <List class="size-4 text-muted-foreground" aria-hidden="true" />
             <Card.Title class="text-sm font-medium">Proposed plan</Card.Title>

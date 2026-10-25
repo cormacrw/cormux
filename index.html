@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cormux</title>
-    <!-- Apply Settings > Appearance and paint the background before app.css loads so boot doesn't flash. -->
+    <!-- Apply Settings > Appearance before app.css loads so boot doesn't flash. -->
     <script>
       {
         // Keys and values match mode-watcher and src/lib/state/appearance.svelte.ts.
@@ -25,31 +25,37 @@
         ) {
           root.classList.add('dark')
         }
-        // Blue is the default; a custom accent sets --primary inline, with
-        // the foreground picked like readableForeground in background/color.ts.
-        const accent = read('cormux-accent') || 'blue'
-        if (accent !== 'neutral') root.dataset.accent = accent
-        const custom = read('cormux-accent-custom')
-        if (accent === 'custom' && /^#[0-9a-f]{6}$/i.test(custom || '')) {
-          const n = parseInt(custom.slice(1), 16)
-          const lin = (c) => {
-            c /= 255
-            return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-          }
-          const lum =
-            0.2126 * lin((n >> 16) & 255) +
-            0.7152 * lin((n >> 8) & 255) +
-            0.0722 * lin(n & 255)
-          // Contrast against #17171c (luminance ~0.0088) versus white.
-          const dark = (lum + 0.05) / 0.0588 > 1.05 / (lum + 0.05)
-          root.style.setProperty('--primary', custom)
-          root.style.setProperty(
-            '--primary-foreground',
-            dark ? '#17171c' : '#ffffff',
-          )
+        // Ids match THEMES in appearance.svelte.ts; Blue is the default, Neutral has no attribute.
+        const theme = read('cormux-theme') || 'blue'
+        if (theme !== 'neutral') root.dataset.palette = theme
+        // First paint in the theme's own gradient, matching Backdrop.svelte and
+        // the theme tokens in app.css, rather than a flat grey until styles load.
+        const palettes = {
+          blue: [262, 1],
+          violet: [292, 1],
+          pink: [345, 1],
+          red: [22, 0.5],
+          orange: [50, 0.5],
+          green: [155, 0.35],
+          teal: [200, 1],
         }
-        // Ids match BACKGROUNDS in src/lib/background/registry.ts.
-        root.dataset.background = read('cormux-background') || 'studio'
+        const isDark = root.classList.contains('dark')
+        const [hue, strength] = palettes[theme] ?? [265, 0]
+        const base = palettes[theme]
+          ? isDark
+            ? `oklch(0.25 ${0.12 * strength} ${hue})`
+            : `oklch(0.72 ${0.13 * strength} ${hue})`
+          : isDark
+            ? 'oklch(0.13 0.012 265)'
+            : 'oklch(0.93 0.01 265)'
+        const high = palettes[theme]
+          ? isDark
+            ? `oklch(0.42 ${0.17 * strength} ${hue})`
+            : `oklch(0.86 ${0.09 * strength} ${hue})`
+          : isDark
+            ? 'oklch(0.2 0.015 265)'
+            : 'oklch(0.975 0.006 265)'
+        root.style.background = `radial-gradient(120% 110% at 90% -10%, ${high}, transparent 70%) fixed, ${base}`
         const uiSize = Number(read('cormux-ui-font-size'))
         if (uiSize >= 14 && uiSize <= 18) root.style.fontSize = uiSize + 'px'
         const codeSize = Number(read('cormux-code-font-size'))

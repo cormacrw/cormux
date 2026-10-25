@@ -8,13 +8,15 @@ import {
   readStringSetting,
 } from '$lib/new-workspace/settings-defaults'
 import {
-  parseScratchMacros,
-  SCRATCH_MACROS_KEY,
-  serializeScratchMacros,
-  type ScratchMacro,
-} from '$lib/settings/scratch-macros'
+  BANGS_KEY,
+  LEGACY_MACROS_KEY,
+  parseBangs,
+  serializeBangs,
+  type Bang,
+} from '$lib/settings/bangs'
 
 const PR_PROMPT_KEY = 'prPrompt'
+const TASK_PROMPT_KEY = 'taskPrompt'
 
 function upsertRow(rows: SettingRow[], key: string, value: string) {
   const next = rows.filter((row) => row.key !== key)
@@ -33,9 +35,12 @@ export class SettingsStore {
   worktreeRoot = $state(DEFAULT_WORKTREE_ROOT)
   notifyApprovals = $state(true)
   notifyReviewFinished = $state(true)
-  scratchMacros = $state<ScratchMacro[]>([])
+  /** `!name` prompts, for any prompt bar and the command palette (Settings › Bangs). */
+  bangs = $state<Bang[]>([])
   /** Instructions for drafting a PR description; empty means the built-in default. */
   prPrompt = $state('')
+  /** The template picking a task types into the composer; empty uses the default. */
+  taskPrompt = $state('')
   /** App that Open in Terminal launches; empty means Terminal. */
   terminalApp = $state('')
   rows = $state<SettingRow[]>([])
@@ -80,9 +85,11 @@ export class SettingsStore {
       )
       this.runEverything = readBooleanSetting(rows, 'runEverything', false)
       this.prPrompt = readStringSetting(rows, PR_PROMPT_KEY, '')
+      this.taskPrompt = readStringSetting(rows, TASK_PROMPT_KEY, '')
       this.terminalApp = readStringSetting(rows, 'terminalApp', '')
-      this.scratchMacros = parseScratchMacros(
-        rows.find((row) => row.key === SCRATCH_MACROS_KEY)?.value,
+      this.bangs = parseBangs(
+        rows.find((row) => row.key === BANGS_KEY)?.value,
+        rows.find((row) => row.key === LEGACY_MACROS_KEY)?.value,
       )
     }
   }
@@ -150,14 +157,19 @@ export class SettingsStore {
     await this.persist('notifyApprovals', next ? 'true' : 'false')
   }
 
-  async setScratchMacros(next: ScratchMacro[]) {
-    this.scratchMacros = next
-    await this.persist(SCRATCH_MACROS_KEY, serializeScratchMacros(next))
+  async setBangs(next: Bang[]) {
+    this.bangs = next
+    await this.persist(BANGS_KEY, serializeBangs(next))
   }
 
   async setPrPrompt(next: string) {
     this.prPrompt = next
     await this.persist(PR_PROMPT_KEY, next)
+  }
+
+  async setTaskPrompt(next: string) {
+    this.taskPrompt = next
+    await this.persist(TASK_PROMPT_KEY, next)
   }
 
   async setNotifyReviewFinished(next: boolean) {

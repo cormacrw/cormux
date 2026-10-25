@@ -30,7 +30,7 @@
 >
   <button
     type="button"
-    class="sess-open flex min-w-0 flex-1 items-center gap-3 rounded-l-xl py-2 pl-4 pr-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+    class="sess-open flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-l-xl py-2 pl-4 pr-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
     data-action="open-scratch"
     data-arg={scratch.id}
     aria-label="{scratch.title}, {scratch.repoId}, {SCRATCH_STATUS_LABEL[
@@ -48,7 +48,7 @@
   </button>
   <button
     type="button"
-    class="flex size-11 shrink-0 items-center justify-center self-center rounded-lg text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset mr-1"
+    class="flex size-11 shrink-0 cursor-pointer items-center justify-center self-center rounded-lg text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset mr-1"
     data-action="delete-scratch"
     data-arg={scratch.id}
     title="Delete scratch"

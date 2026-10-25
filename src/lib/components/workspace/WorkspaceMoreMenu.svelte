@@ -22,7 +22,7 @@
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import { onMount } from 'svelte'
 
-  // Narrow windows only: the header's secondary buttons fold in here.
+  // The header's actions besides Run: Output, Terminal, Review and Delete.
   let {
     workspaceId,
     runDisabled = false,
@@ -103,14 +103,12 @@
   </DropdownMenu.Trigger>
   <DropdownMenu.Content align="end" id="ws-more" class="w-60">
     <DropdownMenu.Group>
-      <DropdownMenu.Label class="text-xs text-muted-foreground">
-        App
-      </DropdownMenu.Label>
       <DropdownMenu.Item
         onclick={() => closeAndRun(() => workspaceUi.toggleOutputTab())}
       >
         <Terminal class="size-4" aria-hidden="true" />
         Output
+        <DropdownMenu.Shortcut>⌘O</DropdownMenu.Shortcut>
       </DropdownMenu.Item>
       {#if appStatus === 'stopped' || appStatus === 'crashed'}
         <DropdownMenu.Item

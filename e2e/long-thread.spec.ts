@@ -13,7 +13,7 @@ test('a long thread renders its newest turn and follows a streamed reply', async
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/?longThread=200')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   const timeline = page.locator('#timeline')
   await expect(
     timeline.getByText('Answer 200', { exact: true }),
@@ -52,7 +52,7 @@ test('small trackpad steps scroll up out of a streaming reply', async ({
   page,
 }) => {
   await page.goto('/?longThread=200')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   const timeline = page.locator('#timeline')
   await expect(
     timeline.getByText('Answer 200', { exact: true }),

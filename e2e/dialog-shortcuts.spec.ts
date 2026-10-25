@@ -14,7 +14,7 @@ test('dialogs show Esc and ⌘↵, and ⌘↵ runs the action', async ({ page })
   await page.keyboard.press('Escape')
   await expect(scratch).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   await page.keyboard.press('ControlOrMeta+d')
   const teardown = page.getByRole('alertdialog')
   await expect(teardown.getByRole('button', { name: 'Teardown' })).toBeEnabled()

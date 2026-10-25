@@ -1,15 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// These specs check the defaults, so start without the suite's still background.
-test.use({ storageState: { cookies: [], origins: [] } })
-
 async function openAppearance(page: Page) {
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('button', { name: 'Appearance', exact: true }).click()
   return page.locator('[data-od-id="settings-appearance-group"]')
 }
 
-test('Theme setting overrides the system theme and persists', async ({
+test('Mode setting overrides the system theme and persists', async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -18,7 +15,7 @@ test('Theme setting overrides the system theme and persists', async ({
   await expect(html).toHaveClass(/\bdark\b/)
 
   const theme = (await openAppearance(page)).getByRole('group', {
-    name: 'Theme',
+    name: 'Mode',
   })
   await expect(theme.getByRole('radio', { name: 'System' })).toBeChecked()
   await theme.getByRole('radio', { name: 'Light' }).click()
@@ -31,7 +28,7 @@ test('Theme setting overrides the system theme and persists', async ({
   await (
     await openAppearance(page)
   )
-    .getByRole('group', { name: 'Theme' })
+    .getByRole('group', { name: 'Mode' })
     .getByRole('radio', { name: 'System' })
     .click()
   await expect(html).toHaveClass(/\bdark\b/)
@@ -45,7 +42,7 @@ function primary(page: Page) {
   )
 }
 
-test('primary color and font sizes apply and persist', async ({ page }) => {
+test('colour theme and font sizes apply and persist', async ({ page }) => {
   await page.goto('/')
   const html = page.locator('html')
   const mono = page.locator('.font-mono').first()
@@ -57,21 +54,21 @@ test('primary color and font sizes apply and persist', async ({ page }) => {
       ),
     )
     .toBe(true)
-  // Blue is the default accent.
-  await expect(html).toHaveAttribute('data-accent', 'blue')
+  // Blue is the default theme.
+  await expect(html).toHaveAttribute('data-palette', 'blue')
   const blue = await primary(page)
 
   const panel = await openAppearance(page)
-  const colors = panel.getByRole('radiogroup', { name: 'Primary color' })
-  await expect(colors.getByRole('radio', { name: 'Blue' })).toBeChecked()
-  await colors.getByRole('radio', { name: 'Violet' }).click()
-  await expect(html).toHaveAttribute('data-accent', 'violet')
+  const themes = panel.getByRole('radiogroup', { name: 'Theme' })
+  await expect(themes.getByRole('radio', { name: 'Blue' })).toBeChecked()
+  await themes.getByRole('radio', { name: 'Violet' }).click()
+  await expect(html).toHaveAttribute('data-palette', 'violet')
   await expect.poll(() => primary(page)).not.toBe(blue)
   const violet = await primary(page)
 
-  await colors.getByRole('radio', { name: 'Graphite' }).click()
-  await expect(html).not.toHaveAttribute('data-accent', /.*/)
-  await colors.getByRole('radio', { name: 'Violet' }).click()
+  await themes.getByRole('radio', { name: 'Neutral' }).click()
+  await expect(html).not.toHaveAttribute('data-palette', /.*/)
+  await themes.getByRole('radio', { name: 'Violet' }).click()
 
   await panel.getByLabel('UI font size').click()
   await page.getByRole('option', { name: '18px' }).click()
@@ -88,7 +85,7 @@ test('primary color and font sizes apply and persist', async ({ page }) => {
   await expect(mono).toHaveCSS('font-family', /Geist Mono Variable/)
 
   await page.reload()
-  await expect(html).toHaveAttribute('data-accent', 'violet')
+  await expect(html).toHaveAttribute('data-palette', 'violet')
   await expect.poll(() => primary(page)).toBe(violet)
   await expect(html).toHaveCSS('font-size', '18px')
   expect(
@@ -102,48 +99,24 @@ test('primary color and font sizes apply and persist', async ({ page }) => {
   )
 })
 
-test('custom primary color applies, picks readable text, and persists', async ({
+test('the wordmark shows behind the glass and can be turned off', async ({
   page,
 }) => {
   await page.goto('/')
-  const html = page.locator('html')
-  const panel = await openAppearance(page)
-  const picker = panel.getByLabel('Custom color')
-  const inline = (name: string) =>
-    html.evaluate((el, prop) => el.style.getPropertyValue(prop), name)
-
-  // A light colour takes dark text.
-  await picker.fill('#ffcc33')
-  await expect(html).toHaveAttribute('data-accent', 'custom')
-  await expect.poll(() => inline('--primary')).toBe('#ffcc33')
-  expect(await inline('--primary-foreground')).toBe('#17171c')
-  await expect(
-    panel
-      .getByRole('radiogroup', { name: 'Primary color' })
-      .getByRole('radio', { checked: true }),
-  ).toHaveCount(0)
-
-  // A dark one takes white.
-  await picker.fill('#123456')
-  await expect.poll(() => inline('--primary')).toBe('#123456')
-  expect(await inline('--primary-foreground')).toBe('#ffffff')
-
-  // index.html applies it before first paint.
-  await page.reload()
-  await expect(html).toHaveAttribute('data-accent', 'custom')
-  expect(await inline('--primary')).toBe('#123456')
-  expect(await inline('--primary-foreground')).toBe('#ffffff')
-
-  // Picking a swatch drops the inline colour.
-  await (
-    await openAppearance(page)
+  const wordmark = page.locator('[data-od-id="wordmark"]')
+  await expect(wordmark).toBeAttached()
+  // Faint, and never in the way of clicks.
+  await expect(page.locator('[data-od-id="backdrop"]')).toHaveCSS(
+    'pointer-events',
+    'none',
   )
-    .getByRole('radiogroup', { name: 'Primary color' })
-    .getByRole('radio', { name: 'Rose' })
-    .click()
-  await expect(html).toHaveAttribute('data-accent', 'rose')
-  expect(await inline('--primary')).toBe('')
-  await expect(
-    (await openAppearance(page)).getByLabel('Custom color'),
-  ).toHaveValue('#123456')
+
+  const toggle = (await openAppearance(page)).getByRole('switch', {
+    name: 'Show wordmark',
+  })
+  await expect(toggle).toBeChecked()
+  await toggle.click()
+  await expect(wordmark).not.toBeAttached()
+  await page.reload()
+  await expect(wordmark).not.toBeAttached()
 })

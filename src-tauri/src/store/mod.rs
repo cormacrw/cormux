@@ -16,21 +16,32 @@ use types::{
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Option<Connection>>>,
+    /// Beside the database: one Markdown file per TODO, for agents to read (todo_files.rs).
+    tasks_dir: Arc<Mutex<Option<std::path::PathBuf>>>,
 }
 
 impl Store {
     pub fn new() -> Self {
         Self {
             conn: Arc::new(Mutex::new(None)),
+            tasks_dir: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn open(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
+            if let Ok(mut dir) = self.tasks_dir.lock() {
+                *dir = Some(parent.join("tasks"));
+            }
         }
         let conn = Connection::open(path)?;
         self.configure(conn)
+    }
+
+    /// Where the TODO files live, once the database is open.
+    pub fn tasks_dir(&self) -> Option<std::path::PathBuf> {
+        self.tasks_dir.lock().ok()?.clone()
     }
 
     #[cfg(test)]
@@ -630,13 +641,20 @@ impl Store {
         })
     }
 
-    pub fn insert_todo(&self, todo: &TodoRow) -> Result<()> {
+    /// Inserts a todo with the next free number, and returns that number.
+    pub fn insert_todo(&self, todo: &TodoRow) -> Result<i64> {
         self.with_conn(|conn| {
+            let number: i64 = conn.query_row(
+                "SELECT COALESCE(MAX(number), 0) + 1 FROM todos",
+                [],
+                |row| row.get(0),
+            )?;
             conn.execute(
-                "INSERT INTO todos (id, title, pinned, description, planned_on, done_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO todos (id, number, title, pinned, description, planned_on, done_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params![
                     todo.id,
+                    number,
                     todo.title,
                     todo.pinned,
                     todo.description,
@@ -644,7 +662,7 @@ impl Store {
                     todo.done_at
                 ],
             )?;
-            Ok(())
+            Ok(number)
         })
     }
 
@@ -957,7 +975,7 @@ impl Store {
                 )?,
                 todos: query_all(
                     conn,
-                    "SELECT id, title, pinned, description, planned_on, done_at
+                    "SELECT id, number, title, pinned, description, planned_on, done_at
                      FROM todos ORDER BY created_at, rowid",
                     row_to_todo,
                 )?,
@@ -1073,11 +1091,12 @@ fn row_to_scratch(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScratchRow> {
 fn row_to_todo(row: &rusqlite::Row<'_>) -> rusqlite::Result<TodoRow> {
     Ok(TodoRow {
         id: row.get(0)?,
-        title: row.get(1)?,
-        pinned: row.get::<_, i64>(2)? != 0,
-        description: row.get(3)?,
-        planned_on: row.get(4)?,
-        done_at: row.get(5)?,
+        number: row.get(1)?,
+        title: row.get(2)?,
+        pinned: row.get::<_, i64>(3)? != 0,
+        description: row.get(4)?,
+        planned_on: row.get(5)?,
+        done_at: row.get(6)?,
     })
 }
 
@@ -1168,6 +1187,7 @@ mod tests {
             store
                 .insert_todo(&TodoRow {
                     id: id.into(),
+                    number: 0,
                     title: title.into(),
                     pinned: false,
                     description: String::new(),
@@ -1182,6 +1202,20 @@ mod tests {
         let todos = store.snapshot().unwrap().todos;
         assert_eq!(todos.len(), 1);
         assert_eq!((todos[0].id.as_str(), todos[0].pinned), ("b", true));
+        // Numbers count up from 1 and aren't reused once a todo is deleted.
+        assert_eq!(todos[0].number, 2);
+        let next = store
+            .insert_todo(&TodoRow {
+                id: "c".into(),
+                number: 0,
+                title: "Third".into(),
+                pinned: false,
+                description: String::new(),
+                planned_on: None,
+                done_at: None,
+            })
+            .unwrap();
+        assert_eq!(next, 3);
     }
 
     #[test]
@@ -1191,6 +1225,7 @@ mod tests {
         store
             .insert_todo(&TodoRow {
                 id: "a".into(),
+                number: 0,
                 title: "Ship it".into(),
                 pinned: false,
                 description: String::new(),

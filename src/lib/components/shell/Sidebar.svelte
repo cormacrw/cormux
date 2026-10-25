@@ -10,20 +10,19 @@
     memory,
     repos,
     scratches,
-    threads,
-    todos,
     workspaces,
   } from '$lib/state'
   import Cpu from '@lucide/svelte/icons/cpu'
   import Kanban from '@lucide/svelte/icons/square-kanban'
   import Layers from '@lucide/svelte/icons/layers'
-  import ListTodo from '@lucide/svelte/icons/list-todo'
   import Sparkle from '@lucide/svelte/icons/sparkle'
   import CalendarDays from '@lucide/svelte/icons/calendar-days'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import SidebarRepoRow from './SidebarRepoRow.svelte'
   import SidebarScratchRow from './SidebarScratchRow.svelte'
   import SidebarWorkspaceRow from './SidebarWorkspaceRow.svelte'
+  import { sidebarWorkspaces } from '$lib/state/sidebar-workspaces.svelte'
+  import Folder from '@lucide/svelte/icons/folder'
 
   function startWindowDrag(event: MouseEvent) {
     if (event.button !== 0) return
@@ -32,12 +31,12 @@
 </script>
 
 <nav
-  class="sidebar-nav grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-2 pb-2"
+  class="sidebar-nav grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-3.5 pb-3.5"
   aria-label="Harness"
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="titlebar flex h-11 items-center justify-end"
+    class="titlebar flex h-[52px] items-center justify-end"
     data-tauri-drag-region
     onmousedown={startWindowDrag}
   >
@@ -78,21 +77,6 @@
         class="font-mono text-[10px] text-muted-foreground/80"
         aria-hidden="true">⌘H</kbd
       >
-    </Button>
-
-    <Button
-      variant="ghost"
-      class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
-      aria-current={app.view === 'todos' ? 'page' : undefined}
-      onclick={() => app.openTodos()}
-    >
-      <ListTodo class="size-4 shrink-0 opacity-80" aria-hidden="true" />
-      <span class="flex-1 text-left">TODOs</span>
-      {#if todos.items.length > 0}
-        <span class="font-mono text-[10px] text-muted-foreground/80"
-          >{todos.items.length}</span
-        >
-      {/if}
     </Button>
 
     <Button
@@ -157,20 +141,36 @@
           >{workspaces.liveItems.length}</span
         >
       </div>
-      <ul class="grid list-none gap-px p-0" aria-labelledby="side-ws-label">
-        {#if workspaces.sidebarItems.length === 0}
-          <li class="px-2 py-1.5 text-xs text-muted-foreground">
-            No workspaces yet
-          </li>
-        {:else}
-          {#each workspaces.sidebarItems as workspace (workspace.id)}
-            <SidebarWorkspaceRow
-              {workspace}
-              agentCount={threads.forWorkspace(workspace.id).length}
-            />
+      {#if sidebarWorkspaces.groups.length === 0}
+        <p class="px-2 py-1.5 text-xs text-muted-foreground">
+          No workspaces yet
+        </p>
+      {:else}
+        <!-- Grouped by repo; ⌘1–⌘9 follow this order (sidebar-workspaces.svelte.ts). -->
+        <div class="grid gap-2" aria-labelledby="side-ws-label" role="group">
+          {#each sidebarWorkspaces.groups as group (group.repoId)}
+            {@const groupLabel = `side-ws-repo-${group.repoId || 'other'}`}
+            <div>
+              <div
+                class="flex items-center gap-1.5 px-2 pb-0.5 text-[11px] text-muted-foreground/80"
+                id={groupLabel}
+                data-od-id="sidebar-ws-group"
+              >
+                <Folder class="size-3 shrink-0" aria-hidden="true" />
+                <span class="truncate">{group.repoName ?? 'Other'}</span>
+              </div>
+              <ul
+                class="grid list-none gap-px p-0"
+                aria-labelledby={groupLabel}
+              >
+                {#each group.workspaces as workspace (workspace.id)}
+                  <SidebarWorkspaceRow {workspace} />
+                {/each}
+              </ul>
+            </div>
           {/each}
-        {/if}
-      </ul>
+        </div>
+      {/if}
 
       {#if scratches.items.length > 0}
         <div

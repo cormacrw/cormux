@@ -7,7 +7,7 @@ test('thread tabs close with ×, middle-click or Delete; the Lead stays', async 
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle, 1 agent' }).click()
+  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
   const tabs = page.getByRole('tablist', { name: 'Agent threads' })
   await expect(tabs.getByRole('button', { name: /^Close/ })).toHaveCount(0)
 

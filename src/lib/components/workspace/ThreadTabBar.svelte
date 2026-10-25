@@ -347,15 +347,15 @@
       role="tab"
       variant="ghost"
       size="sm"
-      class={threadTabClass(workspaceUi.activeTab === 'changes')}
-      aria-selected={workspaceUi.activeTab === 'changes'}
+      class={threadTabClass(workspaceUi.gitVisible)}
+      aria-selected={workspaceUi.gitVisible}
       aria-controls="changes-panel"
       tabindex={tabIndex({ kind: 'changes' })}
       aria-label={changesTabAriaLabel(changeCountLabel)}
       aria-keyshortcuts="Meta+G"
       title="Git (⌘G)"
       data-od-id="thread-tab-changes"
-      onclick={() => selectTab({ kind: 'changes' })}
+      onclick={() => workspaceUi.toggleGit()}
     >
       <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
       <span class="truncate" aria-hidden="true">Git</span>
@@ -368,8 +368,8 @@
       role="tab"
       variant="ghost"
       size="sm"
-      class={threadTabClass(workspaceUi.activeTab === 'output')}
-      aria-selected={workspaceUi.activeTab === 'output'}
+      class={threadTabClass(workspaceUi.outputVisible)}
+      aria-selected={workspaceUi.outputVisible}
       aria-controls="output-panel"
       tabindex={tabIndex({ kind: 'output' })}
       aria-label={outputTabAriaLabel({
@@ -377,8 +377,10 @@
         appStatus: runtime.appStatus,
         port: runtime.port,
       })}
+      aria-keyshortcuts="Meta+O"
+      title="Output (⌘O)"
       data-od-id="thread-tab-output"
-      onclick={() => selectTab({ kind: 'output' })}
+      onclick={() => workspaceUi.toggleOutputTab()}
     >
       <Terminal class="size-3.5 shrink-0" aria-hidden="true" />
       <span class="truncate" aria-hidden="true">Output</span>
