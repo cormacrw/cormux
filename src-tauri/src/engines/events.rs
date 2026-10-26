@@ -1,12 +1,11 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-/// Engines Harness can spawn. Launch is Claude and Cursor; Codex and Gemini share ACP.
+/// Engines Harness can spawn. Launch is Claude; Codex and Gemini share ACP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum EngineKind {
     Claude,
-    Cursor,
     Codex,
     Gemini,
 }
@@ -15,7 +14,6 @@ impl EngineKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Claude => "claude",
-            Self::Cursor => "cursor",
             Self::Codex => "codex",
             Self::Gemini => "gemini",
         }
@@ -25,7 +23,6 @@ impl EngineKind {
     pub fn binaries(self) -> &'static [&'static str] {
         match self {
             Self::Claude => &["claude"],
-            Self::Cursor => &["agent"],
             Self::Codex => &["codex-acp", "codex"],
             Self::Gemini => &["gemini"],
         }
@@ -41,7 +38,7 @@ impl EngineKind {
     }
 
     pub fn all() -> &'static [EngineKind] {
-        &[Self::Claude, Self::Cursor, Self::Codex, Self::Gemini]
+        &[Self::Claude, Self::Codex, Self::Gemini]
     }
 }
 
@@ -144,7 +141,7 @@ pub enum AgentEvent {
         detail: Option<String>,
         auto_approved: bool,
     },
-    /// Fields an engine fills in after the first `ToolCall`, such as Cursor's edit path.
+    /// Fields an engine fills in after the first `ToolCall`, such as an edit's path.
     ToolCallUpdate {
         id: String,
         title: Option<String>,

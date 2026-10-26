@@ -7,7 +7,6 @@ export type EngineOption = {
 
 export const ENGINE_OPTIONS: EngineOption[] = [
   { kind: 'claude', label: 'Claude Code' },
-  { kind: 'cursor', label: 'Cursor CLI' },
 ]
 
 /** The one installed agent, when there is nothing to choose. */

@@ -227,7 +227,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                     let _ = store.set_thread_session(&thread_id, &id_str);
                     let _ = events.send(AgentEvent::SessionStarted { session_id: id_str });
                 }
-                // Ask mode is the ACP read-only mode (Cursor: "no edits or command execution").
+                // Ask mode is the ACP read-only mode: no edits or command execution.
                 // An engine without it gets the rule written into every prompt instead.
                 let prefix_read_only = read_only
                     && connection

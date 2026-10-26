@@ -9,11 +9,8 @@ function status(kind: EngineStatus['kind'], installed: boolean): EngineStatus {
 describe('soleInstalledEngine', () => {
   it('returns the only installed agent in the picker', () => {
     expect(
-      soleInstalledEngine([status('claude', true), status('cursor', false)]),
+      soleInstalledEngine([status('claude', true), status('codex', true)]),
     ).toBe('claude')
-    expect(
-      soleInstalledEngine([status('claude', true), status('cursor', true)]),
-    ).toBe(null)
     expect(
       soleInstalledEngine([status('claude', false), status('codex', true)]),
     ).toBe(null)

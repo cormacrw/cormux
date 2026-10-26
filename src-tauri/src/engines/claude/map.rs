@@ -66,7 +66,7 @@ fn tool_call(id: &str, name: &str, input: &Value) -> AgentEvent {
     let kind = ToolKind::from_claude_tool(name);
     let field = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_string);
     let path = field("file_path").or_else(|| field("notebook_path"));
-    // The timeline shows a shell step by its command, the way Cursor titles it.
+    // The timeline shows a shell step by its command.
     let (title, detail) = match kind {
         ToolKind::Execute => (
             field("command").unwrap_or_else(|| name.to_string()),

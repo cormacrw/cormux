@@ -665,7 +665,6 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
 
 fn engine_display(engine: &str) -> String {
     match engine.to_lowercase().as_str() {
-        "cursor" => "Cursor".into(),
         "codex" => "Codex".into(),
         "gemini" => "Gemini".into(),
         _ => "Claude Code".into(),

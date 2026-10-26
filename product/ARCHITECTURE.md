@@ -153,7 +153,6 @@ The core of the product. Each thread is one long-lived engine process with the w
 
 | Engine | Process | Protocol | Approvals arrive as |
 | --- | --- | --- | --- |
-| Cursor CLI | `agent acp` | ACP over stdio | `session/request_permission` |
 | Gemini CLI | `gemini --acp` | ACP over stdio | `session/request_permission` |
 | Codex CLI | `codex-acp` (wraps `codex app-server`) | ACP over stdio | `session/request_permission` |
 | Claude Code | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --await-initialize` | Claude stream-JSON, translated to ACP events in Rust | `control_request` with subtype `can_use_tool` |
@@ -334,7 +333,7 @@ Closed under epic COR-31. Product-facing summary in [`PRODUCT.md` → Decisions 
 
 | ID | Shipped behaviour |
 | --- | --- |
-| COR-207 | **Engines:** Adapters for Claude (stream-JSON), Cursor/Codex/Gemini (ACP). Settings `detectEngines` shows all four; default engine is Claude. MVP launch story is Claude + Cursor; Codex/Gemini when installed. |
+| COR-207 | **Engines:** Adapters for Claude (stream-JSON) and Codex/Gemini (ACP). The app offers Claude only; Cursor was dropped, and migration 014 turns its threads into Claude threads. |
 | COR-208 | **GitHub auth:** Keychain service `cormux` / user `github-token`; `resolve_token` falls back to `gh auth token`. **Reviews:** `ReviewLineComment` on submit when findings include path and line. |
 | COR-209 | **Small model:** `LlmClient::complete` uses Keychain Anthropic key if present, else `claude -p --model haiku --output-format json`. Debounced per workspace (~60s). |
 | COR-210 | **Quit:** `RunEvent::ExitRequested` → `process.stop_all()` (PTY apps). **Teardown:** `engines.stop_threads` sends `EngineCommand::Shutdown` then waits `STOP_GRACE` (5s) per thread. |

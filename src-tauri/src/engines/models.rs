@@ -36,6 +36,6 @@ pub fn static_models(kind: EngineKind) -> Vec<ModelOption> {
             label: label.into(),
         })
         .collect(),
-        EngineKind::Cursor | EngineKind::Codex | EngineKind::Gemini => Vec::new(),
+        EngineKind::Codex | EngineKind::Gemini => Vec::new(),
     }
 }

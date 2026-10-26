@@ -26,12 +26,11 @@ Defaults matter in a tool used many times a day: which engine new workspaces use
 ### Agents
 Description: `How new agents start and what they can do without asking.`
 
-**Default engine** (`settings-default-engine`): a radio group of four rows. Each row: the engine mark, name, the engine's hint, a `Default` tag on the current one, and a radio indicator.
+**Default engine** (`settings-default-engine`): a radio group with a row per engine (Claude Code for now). Each row: the engine mark, name, the engine's hint, a `Default` tag on the current one, and a radio indicator.
 
 | Engine | Hint |
 | --- | --- |
 | Claude Code | Edits files directly and asks before risky steps |
-| Cursor CLI | Writes a plan first and waits for your go-ahead |
 | Codex CLI | Works through the task in a sandbox and proposes a diff |
 | Gemini CLI | Reads widely across the repo before suggesting changes |
 

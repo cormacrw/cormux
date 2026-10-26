@@ -81,7 +81,7 @@ draft comment (in memory) = { id, start, end, quote, body }   // start/end: offs
 
 ## Known gaps and open questions
 
-- Claude only. Cursor, Codex and Gemini have their own plan or ask modes over ACP; they aren't wired up yet.
+- Claude only. Codex and Gemini have their own plan or ask modes over ACP; they aren't wired up yet.
 - No diff between revisions, and earlier revisions can't be opened.
 - Comments can't be edited, only deleted and re-added.
 - Highlighting text needs a pointer; keyboard users can still send overall feedback.

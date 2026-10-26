@@ -11,13 +11,6 @@ export const fixtureEngines: EngineStatus[] = [
     signedIn: true,
   },
   {
-    kind: 'cursor',
-    installed: true,
-    binary: '/usr/local/bin/cursor',
-    version: '1.0.0',
-    signedIn: true,
-  },
-  {
     kind: 'codex',
     installed: false,
     binary: null,
@@ -37,7 +30,7 @@ export const fixtureSnapshot: Snapshot = {
   version: 1,
   view: 'homebase',
   persisted: {
-    settings: [{ key: 'defaultEngine', value: 'cursor' }],
+    settings: [{ key: 'defaultEngine', value: 'claude' }],
     repos: [
       {
         id: FIXTURE_REPO_ID,
@@ -73,7 +66,7 @@ export const fixtureSnapshot: Snapshot = {
         id: 'th-lead',
         workspaceId: 'ws-auth',
         title: 'Lead',
-        engine: 'cursor',
+        engine: 'claude',
         sessionId: null,
         status: 'idle',
         usedTokens: null,

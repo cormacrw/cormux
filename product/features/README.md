@@ -28,7 +28,7 @@ Every spec follows the same outline:
 | Repo | A local folder containing a git repository, registered in Settings. |
 | Workspace | One git worktree on its own branch, created from a repo, holding one or more threads. Named in plain language ("Auth session timeout"). |
 | Thread | One agent conversation inside a workspace. The first thread is the **Lead** (or **Reviewer** / **Planner**). |
-| Engine | The agent CLI a thread runs on: Claude Code, Cursor CLI, Codex CLI or Gemini CLI. |
+| Engine | The agent CLI a thread runs on: Claude Code for now; the core also has Codex and Gemini adapters. |
 | Homebase | The overview screen: workspace cards and open pull requests. |
 | Approval | A request from an agent to perform a risky action, which the user approves or denies. |
 | Findings | The output of a review: issues grouped as Blocking, Suggestions and Nits. |

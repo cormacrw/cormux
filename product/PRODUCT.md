@@ -16,7 +16,7 @@ macOS is the first and only target for now. Tauri keeps Windows and Linux possib
 
 Software developers who run several AI coding agents at once against their own repositories, and who review pull requests that they opened or are requested on. **(inferred)** Their job is supervision more than typing: starting agents on tasks, answering approvals, checking diffs and output, and getting finished work into a PR.
 
-They already work in a terminal and have at least one agent CLI installed and signed in (Claude Code or Cursor CLI), git configured with push access, and a GitHub account.
+They already work in a terminal and have at least one agent CLI installed and signed in (Claude Code), git configured with push access, and a GitHub account.
 
 Solo developer versus team, and how much PR review matters compared with building, is unconfirmed.
 
@@ -30,7 +30,7 @@ Success means the user can keep several workspaces moving at once and always kno
 
 **(inferred, unconfirmed)** Cormux sits above individual agent CLIs rather than competing with them:
 
-- **Engine-agnostic:** every thread picks an engine. Cormux drives the CLIs the user already has installed and signed in to, so it never handles their model accounts. **MVP launch:** Claude Code and Cursor CLI. Codex and Gemini use the same ACP adapters and appear in Settings when installed.
+- **Engine-agnostic:** every thread picks an engine. Cormux drives the CLIs the user already has installed and signed in to, so it never handles their model accounts. **For now:** Claude Code only. Cursor CLI was dropped; the Codex and Gemini ACP adapters stay in the core but aren't offered in the app.
 - **Isolation by default:** one worktree and branch per workspace, so parallel agents never share a checkout.
 - **The whole lifecycle in one place:** worktree setup, running the app, diffs, PR creation, PR review and teardown, not just the chat.
 - **Local and light:** a small native app (about 10 MB) that runs everything on the user's machine with their own git and credentials.
@@ -97,7 +97,7 @@ Recorded from the shipped build (epic COR-31). Technical detail in [`ARCHITECTUR
 
 | ID | Decision |
 | --- | --- |
-| COR-207 | **Engines at launch:** Claude Code + Cursor CLI. Codex and Gemini ACP adapters are in the app and selectable when the CLI is installed; not required for MVP positioning. |
+| COR-207 | **Engines at launch:** Claude Code only. Cursor CLI was dropped; existing Cursor threads carry on as Claude threads. The Codex and Gemini ACP adapters are in the core but not offered in the app. |
 | COR-208 | **GitHub:** Personal access token in macOS Keychain (Settings), with optional fallback to `gh auth token` when no PAT is stored. Submit review posts **line comments** for findings that have file and line; others go in the review body. |
 | COR-209 | **Small model:** One-shot calls through the installed Claude CLI (`haiku`) using the user's existing Claude sign-in. Optional Anthropic API key in Keychain if set. No separate API key required for MVP. |
 | COR-210 | **Quit:** On exit, the process supervisor runs `stop_all` (app and setup PTYs). Agent engines get a **5s graceful shutdown** on workspace teardown; nothing is left running in the background after Cormux quits. |

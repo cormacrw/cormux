@@ -49,13 +49,12 @@ Starting parallel work must be fast and safe. One dialog covers everything neede
 **Row 3 (full width):**
 
 5. **AI engine**
-   - Select: Claude Code, Cursor CLI, Codex CLI, Gemini CLI. Defaults to the default engine from Settings.
+   - Select: Claude Code, the only engine for now. The select is hidden when only one engine is installed. Defaults to the default engine from Settings.
    - Hint changes with the selection:
 
    | Engine | Hint |
    | --- | --- |
    | Claude Code | `Edits files directly and asks before risky steps` |
-   | Cursor CLI | `Writes a plan first and waits for your go-ahead` |
    | Codex CLI | `Works through the task in a sandbox and proposes a diff` |
    | Gemini CLI | `Reads widely across the repo before suggesting changes` |
 
@@ -152,7 +151,7 @@ title        workspace name
 branch       branch name
 repo         selected repo id
 base         base branch
-engine       'claude' | 'cursor' | 'codex' | 'gemini'
+engine       'claude' | 'codex' | 'gemini'
 goal         the initial prompt
 status       'provisioning'
 activity     'Running worktree setup…'

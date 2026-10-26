@@ -10,7 +10,7 @@ describe('settings-defaults', () => {
   it('reads engine with fallbacks', () => {
     expect(readDefaultEngine([])).toBe('claude')
     expect(readDefaultEngine([{ key: 'defaultEngine', value: 'cursor' }])).toBe(
-      'cursor',
+      'claude',
     )
     expect(readDefaultEngine([{ key: 'defaultEngine', value: 'codex' }])).toBe(
       'claude',

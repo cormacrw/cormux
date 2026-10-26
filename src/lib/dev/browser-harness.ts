@@ -47,7 +47,7 @@ function createScratch(input: ScratchInput) {
         (prompt ? prompt.charAt(0).toUpperCase() + prompt.slice(1, 64) : '') ||
         'Untitled scratch',
       threadId,
-      engine: 'cursor',
+      engine: 'claude',
       status: prompt ? 'running' : 'idle',
       createdAt,
     },
@@ -233,14 +233,6 @@ export function installBrowserHarness() {
       ...persisted.settings,
       { key: 'review:ws-auth/status', value: 'ready' },
     ]
-  }
-  // Tests can run the Lead on another engine (the fixture's is Cursor).
-  const leadEngine = (window as { __HARNESS_LEAD_ENGINE__?: string })
-    .__HARNESS_LEAD_ENGINE__
-  if (leadEngine) {
-    fixtureSnapshot.persisted.threads.find(
-      (thread) => thread.id === 'th-lead',
-    )!.engine = leadEngine
   }
   // Tests can preset settings rows, as a returning user has them.
   const presetSettings = (
@@ -889,7 +881,7 @@ export function installBrowserHarness() {
       return {
         workspaceId: args.workspaceId,
         workspaceName: 'OAuth login',
-        engineLabel: 'Cursor',
+        engineLabel: 'Claude Code',
         branch: 'feat/oauth-login',
         worktreePath: '/tmp/cormux-fixture/oauth',
         appRunning: false,
