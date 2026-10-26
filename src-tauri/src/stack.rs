@@ -162,8 +162,12 @@ fn stderr_text(output: &Output) -> String {
 }
 
 fn extension_missing(output: &Output) -> bool {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    stderr.contains("unknown command \"stack\"")
+    stderr_says_extension_missing(&String::from_utf8_lossy(&output.stderr))
+}
+
+/// Older gh says `unknown command "stack"`; gh 2.103+ suggests installing the official extension.
+fn stderr_says_extension_missing(stderr: &str) -> bool {
+    stderr.contains("unknown command \"stack\"") || stderr.contains(INSTALL_HINT)
 }
 
 /// Turn a failed gh-stack run into an error the UI can show as-is.
@@ -926,6 +930,17 @@ mod tests {
         );
         assert_eq!(stack_with_branch(file, "nope"), None);
         assert_eq!(stack_with_branch("not json", "b"), None);
+    }
+
+    #[test]
+    fn spots_a_missing_gh_stack_extension() {
+        assert!(stderr_says_extension_missing(
+            "unknown command \"stack\" for \"gh\""
+        ));
+        assert!(stderr_says_extension_missing(
+            "gh stack is available as an official extension.\nTo install it, run:\n  gh extension install github/gh-stack\n"
+        ));
+        assert!(!stderr_says_extension_missing("HTTP 401: Bad credentials"));
     }
 
     #[test]
