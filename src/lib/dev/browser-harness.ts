@@ -1127,6 +1127,12 @@ export function installBrowserHarness() {
     }
     if (cmd === 'plugin:event|unlisten') return null
     if (cmd === 'plugin:window|is_focused') return true
+    if (cmd === 'plugin:window|is_fullscreen') {
+      return (
+        (window as { __HARNESS_FULLSCREEN__?: boolean })
+          .__HARNESS_FULLSCREEN__ === true
+      )
+    }
     if (cmd === 'plugin:window|set_title') {
       const title = args.value
       if (typeof title === 'string') document.title = title
