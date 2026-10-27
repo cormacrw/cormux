@@ -179,10 +179,6 @@ test('plan: a revised plan opens the Plan tab, and approving returns to the thre
 test('plan: the composer switches a Claude thread to plan mode', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_LEAD_ENGINE__?: string }).__HARNESS_LEAD_ENGINE__ =
-      'claude'
-  })
   await openWorkspace(page)
   const toggle = page.locator('[data-od-id="composer-plan-mode"]')
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')

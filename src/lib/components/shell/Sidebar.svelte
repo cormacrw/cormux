@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { isDevBuild } from '$lib/build-mode'
   import { Button } from '$lib/components/ui/button'
@@ -28,6 +29,30 @@
     if (event.button !== 0) return
     void getCurrentWindow().startDragging()
   }
+
+  // Full screen hides the traffic lights, so their row collapses and the sidebar moves up.
+  let fullscreen = $state(false)
+
+  onMount(() => {
+    const win = getCurrentWindow()
+    const sync = () =>
+      void win
+        .isFullscreen()
+        .then((value) => (fullscreen = Boolean(value)))
+        .catch(() => {})
+    sync()
+    let unlisten: (() => void) | undefined
+    let disposed = false
+    // Entering or leaving full screen resizes the window.
+    void win.onResized(sync).then((stop) => {
+      if (disposed) stop()
+      else unlisten = stop
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  })
 </script>
 
 <nav
@@ -36,18 +61,11 @@
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="titlebar flex h-[52px] items-center justify-end"
+    class={fullscreen ? 'titlebar h-3.5' : 'titlebar h-[52px]'}
     data-tauri-drag-region
+    data-od-id="sidebar-titlebar"
     onmousedown={startWindowDrag}
-  >
-    {#if isDevBuild}
-      <span
-        class="pointer-events-none rounded-md bg-warning px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider text-background"
-        title="Development build, with its own data"
-        data-od-id="dev-build-badge">DEV</span
-      >
-    {/if}
-  </div>
+  ></div>
 
   <div class="grid gap-0.5 pb-2">
     <button
@@ -206,6 +224,13 @@
         </Tooltip.Trigger>
         <Tooltip.Content side="top">Memory used</Tooltip.Content>
       </Tooltip.Root>
+      {#if isDevBuild}
+        <span
+          class="ml-2 rounded-md bg-warning px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider text-background"
+          title="Development build, with its own data"
+          data-od-id="dev-build-badge">DEV</span
+        >
+      {/if}
     </div>
     <Button
       variant="ghost"

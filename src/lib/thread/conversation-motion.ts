@@ -1,5 +1,6 @@
 import { tick } from 'svelte'
 import { prefersReducedMotion } from '$lib/motion'
+import { appearance } from '$lib/state/appearance.svelte'
 
 /** What a thread shows of its conversation: the intro or greeting, and the timeline. */
 const PARTS = '#thread-scroll [data-conversation-part]'
@@ -47,6 +48,8 @@ export function enterConversation() {
  */
 export function firstPromptTransition(update: () => void) {
   const greeting = document.querySelector('[data-od-id="thread-hero"]')
+  // The backdrop's wordmark falls away with the greeting.
+  if (greeting) appearance.glideWordmark()
   if (
     !greeting ||
     prefersReducedMotion() ||
@@ -55,11 +58,17 @@ export function firstPromptTransition(update: () => void) {
     update()
     return
   }
+  // Only the greeting is snapshotted; the rest of the page stays live, so the
+  // backdrop's wordmark sinks away smoothly underneath.
+  const root = document.documentElement
+  root.classList.add('first-prompt')
   const transition = document.startViewTransition(async () => {
     update()
     await tick()
   })
   // Cut short by another transition, the update still lands.
   transition.ready.catch(() => {})
-  transition.finished.catch(() => {})
+  transition.finished
+    .catch(() => {})
+    .finally(() => root.classList.remove('first-prompt'))
 }

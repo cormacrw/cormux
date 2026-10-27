@@ -1304,7 +1304,7 @@ mod tests {
                 id: "t1".into(),
                 workspace_id: "scratch-1".into(),
                 title: "Scratch".into(),
-                engine: "cursor".into(),
+                engine: "codex".into(),
                 session_id: None,
                 status: "running".into(),
                 used_tokens: None,
@@ -1330,7 +1330,7 @@ mod tests {
         let snapshot = store.snapshot().unwrap();
         assert!(snapshot.threads.is_empty());
         assert_eq!(snapshot.scratches.len(), 1);
-        assert_eq!(snapshot.scratches[0].engine, "cursor");
+        assert_eq!(snapshot.scratches[0].engine, "codex");
         assert_eq!(snapshot.scratches[0].status, "idle");
         assert_eq!(
             store.scratch_for_thread("t1").unwrap().unwrap().id,
@@ -1542,7 +1542,7 @@ mod tests {
                     id: id.into(),
                     workspace_id: "w1".into(),
                     title: title.into(),
-                    engine: "cursor".into(),
+                    engine: "codex".into(),
                     session_id: None,
                     status: "running".into(),
                     used_tokens: None,

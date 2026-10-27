@@ -156,7 +156,7 @@ impl EngineRegistry {
                 )
                 .await?
             }
-            EngineKind::Cursor | EngineKind::Codex | EngineKind::Gemini => self.spawn_acp(
+            EngineKind::Codex | EngineKind::Gemini => self.spawn_acp(
                 &spec,
                 model,
                 env,
@@ -190,7 +190,7 @@ impl EngineRegistry {
         let current = self.store.thread_model(thread_id)?;
         let options = match kind {
             EngineKind::Claude => static_models(kind),
-            EngineKind::Cursor | EngineKind::Codex | EngineKind::Gemini => self
+            EngineKind::Codex | EngineKind::Gemini => self
                 .threads
                 .lock()
                 .map_err(|error| Error::Engine(error.to_string()))?
@@ -488,7 +488,6 @@ impl EngineRegistry {
 
 pub fn default_acp_argv(kind: EngineKind) -> Vec<String> {
     match kind {
-        EngineKind::Cursor => vec!["agent".into(), "acp".into()],
         EngineKind::Gemini => vec!["gemini".into(), "--acp".into()],
         EngineKind::Codex => vec!["codex-acp".into()],
         EngineKind::Claude => vec!["claude".into()],
@@ -1079,7 +1078,7 @@ mod tests {
         engines
             .spawn(SpawnSpec {
                 thread_id: "acp1".into(),
-                kind: EngineKind::Cursor,
+                kind: EngineKind::Codex,
                 cwd: std::env::temp_dir(),
                 resume: None,
                 override_argv: Some(vec!["python3".into(), script.display().to_string()]),
@@ -1127,10 +1126,6 @@ mod tests {
             default_acp_argv(EngineKind::Codex),
             vec!["codex-acp".to_string()]
         );
-        assert_eq!(
-            default_acp_argv(EngineKind::Cursor),
-            vec!["agent".to_string(), "acp".into()]
-        );
     }
 
     fn seed_thread(store: &Store, thread_id: &str, session_id: Option<&str>) {
@@ -1170,7 +1165,7 @@ mod tests {
                 id: thread_id.into(),
                 workspace_id: "w1".into(),
                 title: "Lead".into(),
-                engine: "cursor".into(),
+                engine: "codex".into(),
                 session_id: session_id.map(str::to_string),
                 status: "idle".into(),
                 used_tokens: None,

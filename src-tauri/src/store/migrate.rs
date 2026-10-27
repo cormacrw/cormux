@@ -74,6 +74,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "013_todo_number",
         sql: include_str!("../../migrations/013_todo_number.sql"),
     },
+    Migration {
+        version: 14,
+        name: "014_drop_cursor",
+        sql: include_str!("../../migrations/014_drop_cursor.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -157,7 +162,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, 14);
 
         for expected in [
             "approvals",
@@ -239,5 +244,56 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM thread_events", [], |row| row.get(0))
             .unwrap();
         assert_eq!(events, 0);
+    }
+
+    #[test]
+    fn cursor_threads_become_claude_threads() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+        for migration in &MIGRATIONS[..13] {
+            apply(&conn, migration).unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO threads (id, workspace_id, title, engine, session_id, status, model)
+                VALUES ('c', 'w', 'Lead', 'cursor', 'cursor-sess', 'idle', 'gpt-5'),
+                       ('k', 'w', 'Lead', 'claude', 'claude-sess', 'idle', 'opus');
+             INSERT INTO settings (key, value) VALUES ('defaultEngine', 'cursor');",
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        let thread = |id: &str| -> (String, Option<String>, Option<String>) {
+            conn.query_row(
+                "SELECT engine, session_id, model FROM threads WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(thread("c"), ("claude".into(), None, None));
+        assert_eq!(
+            thread("k"),
+            (
+                "claude".into(),
+                Some("claude-sess".into()),
+                Some("opus".into())
+            )
+        );
+        let default: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'defaultEngine'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(default, "claude");
     }
 }

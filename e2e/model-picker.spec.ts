@@ -9,12 +9,6 @@ test('the composer picks a model per thread when the engine lists some', async (
   mkdirSync('e2e/output', { recursive: true })
   await page.goto('/')
 
-  // The fixture Lead runs Cursor, which lists no models until its session starts.
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
-  await expect(page.locator('#composer')).toBeVisible()
-  await expect(page.locator('[data-od-id="composer-model"]')).toHaveCount(0)
-
-  await page.goto('/')
   await page
     .getByRole('button', {
       name: 'Why the webhook signature fails, my-app, Idle',

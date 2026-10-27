@@ -1,4 +1,5 @@
-import { events } from '$lib/ipc'
+import { events, type CoreError } from '$lib/ipc'
+import { coreErrorText } from './core-error'
 import type { ToastRaised } from '$lib/ipc/bindings'
 import { workspaces } from '$lib/state/workspaces.svelte'
 import {
@@ -68,8 +69,14 @@ export function toastCoreError(error: unknown) {
       ? error.message
       : typeof error === 'string'
         ? error
-        : 'Something went wrong'
+        : isCoreError(error)
+          ? coreErrorText(error)
+          : 'Something went wrong'
   showToast(coreErrorToast(message))
+}
+
+function isCoreError(error: unknown): error is CoreError {
+  return typeof error === 'object' && error !== null && 'kind' in error
 }
 
 export function toastEnvironmentReloaded() {

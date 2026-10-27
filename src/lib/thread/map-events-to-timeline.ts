@@ -265,7 +265,7 @@ function namedToolStep(
 
 const COMMAND_PREVIEW_CHARS = 50
 
-// Cursor titles a shell step with the whole command in backticks; Claude titles it `Bash`.
+// ACP engines title a shell step with the whole command in backticks; Claude titles it `Bash`.
 function commandText(event: Extract<AgentEvent, { type: 'toolCall' }>): string {
   const title = event.title.trim()
   if (event.name && title === event.name) return ''
@@ -315,7 +315,7 @@ function flushRun(
 
 type TimelineEvent = MapTimelineInput['events'][number]
 
-// Engines fill in a tool call after announcing it (Cursor sends the edit path later),
+// Engines fill in a tool call after announcing it (an ACP edit's path comes later),
 // so fold each update into the call it belongs to.
 function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
   const merged: TimelineEvent[] = []
@@ -489,7 +489,7 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
 
   flushRun(run, items, runSeq, nextId)
 
-  // Cursor streams the answer inside the thought, then again as the reply.
+  // An ACP engine can stream the answer inside the thought, then again as the reply.
   const visible = items.filter((item, index) => {
     const next = items[index + 1]
     return !(

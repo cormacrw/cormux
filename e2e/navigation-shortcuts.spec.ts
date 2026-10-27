@@ -96,10 +96,6 @@ test('⇧⌘] and ⇧⌘[ move through the workspace tabs, and ⇧⌘N starts a 
 })
 
 test('⇧⌘P switches plan mode on a Claude thread', async ({ page }) => {
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_LEAD_ENGINE__?: string }).__HARNESS_LEAD_ENGINE__ =
-      'claude'
-  })
   await page.goto('/')
   await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
   const toggle = page.locator('[data-od-id="composer-plan-mode"]')

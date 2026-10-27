@@ -88,6 +88,11 @@ class AppearanceState {
   theme = $state<ThemeId>(DEFAULT_THEME)
   /** The big "cormux" drawn faintly behind the glass. */
   showWordmark = $state(true)
+  /** Sunk out of view while a thread on screen has a conversation going. */
+  wordmarkAway = $state(false)
+  /** The wordmark animates to its new place instead of jumping there. */
+  wordmarkGliding = $state(false)
+  private glideTimer: ReturnType<typeof setTimeout> | undefined
   uiFontSize = $state(DEFAULT_UI_FONT_SIZE)
   codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
   codeFont = $state<CodeFontId>(DEFAULT_CODE_FONT)
@@ -117,6 +122,23 @@ class AppearanceState {
   setShowWordmark(next: boolean) {
     this.showWordmark = next
     write(WORDMARK_KEY, next ? '1' : '0')
+  }
+
+  /** Animates the wordmark's next move: a conversation starting or being cleared. */
+  glideWordmark() {
+    this.wordmarkGliding = true
+    clearTimeout(this.glideTimer)
+    // Outlasts the slower of the two moves (Backdrop.svelte).
+    this.glideTimer = setTimeout(() => {
+      this.wordmarkGliding = false
+    }, 1400)
+  }
+
+  /** Puts the wordmark back without animating, as when leaving a thread. */
+  resetWordmark() {
+    clearTimeout(this.glideTimer)
+    this.wordmarkGliding = false
+    this.wordmarkAway = false
   }
 
   setUiFontSize(next: number) {

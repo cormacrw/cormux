@@ -2,6 +2,15 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.15
+
+- The "cormux" wordmark falls away with the greeting when you send a conversation's first prompt, and rises back when you start a new session. It stays hidden while a thread has a conversation going.
+- Pinning Git or Output beside the conversation is smooth again, and the tray now slides over the conversation instead of under it.
+- Pages appear without the wordmark flashing sharp through their glass cards.
+- In full screen the sidebar moves up into the space the traffic lights leave, and the DEV badge sits in the sidebar footer.
+- Claude is the only engine for now: Cursor is gone, and existing Cursor threads carry on as Claude threads.
+- Opening a workspace without gh-stack installed no longer shows a "Something went wrong" toast, and error toasts show the real message.
+
 ## 0.1.14
 
 - A new look: frosted macOS glass over a colour theme. Pick Neutral or a bold colour in Settings › Appearance; it tints the window, the glass and the buttons, with a faint "cormux" behind it all. The window opens already drawn in your theme.

@@ -1,4 +1,4 @@
-//! Spike 2 (COR-43) plus the long-lived Cursor/Gemini/Codex ACP session (COR-59).
+//! Spike 2 (COR-43) plus the long-lived Gemini/Codex ACP session (COR-59).
 
 mod map;
 mod session;
@@ -98,11 +98,5 @@ mod tests {
     #[tokio::test]
     async fn mock_agent_permission_round_trip_and_session_load() {
         assert!(permission_and_load(mock_args()).await.unwrap());
-    }
-
-    #[tokio::test]
-    #[ignore = "talks to a real `agent acp` binary"]
-    async fn live_cursor_agent_acp() {
-        permission_and_load(["agent", "acp"]).await.unwrap();
     }
 }

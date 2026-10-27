@@ -54,14 +54,25 @@ function layoutTransition(update: () => void) {
     update()
     return
   }
+  // Blurring behind moving glass every frame drops the slide to a crawl, so the
+  // glass goes without its blur until the panes settle.
+  const root = doc.documentElement
+  root.classList.add('layout-shift')
   const transition = doc.startViewTransition(async () => {
     update()
     await tick()
   })
+  latestTransition = transition
   // A newer layout change can cut this one short; the update still lands.
   transition.ready.catch(() => {})
-  transition.finished.catch(() => {})
+  transition.finished
+    .catch(() => {})
+    .finally(() => {
+      if (latestTransition === transition) root.classList.remove('layout-shift')
+    })
 }
+
+let latestTransition: ViewTransition | null = null
 
 export class WorkspaceUiStore {
   activeTab = $state<WorkspacePanelTab>('thread')

@@ -107,7 +107,7 @@
   <SettingsPanel>
     <SettingsRow
       title="Run everything"
-      description="On, both engines use tools without asking. Off, they ask before every tool."
+      description="On, the agent uses tools without asking. Off, it asks before every tool."
     >
       {#snippet control()}
         <Switch

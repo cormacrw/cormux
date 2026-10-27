@@ -3,10 +3,6 @@ import { expect, test } from '@playwright/test'
 test('the composer gets focus back after the usual actions', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_LEAD_ENGINE__?: string }).__HARNESS_LEAD_ENGINE__ =
-      'claude'
-  })
   await page.goto('/')
   const composer = page.locator('#composer-input')
 

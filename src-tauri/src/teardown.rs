@@ -264,7 +264,6 @@ fn lead_engine_label(state: &AppState, workspace_id: &str) -> String {
 
 fn engine_display(engine: &str) -> String {
     match engine.to_lowercase().as_str() {
-        "cursor" => "Cursor CLI".into(),
         "codex" => "Codex CLI".into(),
         "gemini" => "Gemini CLI".into(),
         _ => "Claude Code".into(),

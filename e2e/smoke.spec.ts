@@ -16,7 +16,7 @@ test.describe('browser harness UI', () => {
     await page.getByRole('button', { name: 'Settings' }).click()
     await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible()
     await expect(page.getByText('Claude Code')).toBeVisible()
-    await expect(page.getByText('Cursor CLI')).toBeVisible()
+    await expect(page.getByText('Cursor CLI')).toHaveCount(0)
     await expect(page.getByText('Codex CLI')).toHaveCount(0)
     await expect(page.getByText('Gemini CLI')).toHaveCount(0)
     await expect(page.getByText('Edits files directly')).toHaveCount(0)
@@ -78,11 +78,8 @@ test.describe('browser harness UI', () => {
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('No repositories yet')).toHaveCount(0)
     await expect(dialog.locator('#nw-repo')).toBeVisible()
-    await expect(dialog.locator('#nw-engine')).toBeVisible()
-    await expect(dialog.locator('#nw-engine')).toHaveAttribute(
-      'title',
-      'The agent provider to use',
-    )
+    // Claude is the only engine, so there is nothing to pick.
+    await expect(dialog.locator('#nw-engine')).toHaveCount(0)
     await expect(
       dialog.getByText('Describe the task so the agent knows where to start.'),
     ).toHaveCount(0)
@@ -129,13 +126,6 @@ test.describe('browser harness UI', () => {
           binary: '/usr/local/bin/claude',
           version: '1.0.0',
           signedIn: true,
-        },
-        {
-          kind: 'cursor',
-          installed: false,
-          binary: null,
-          version: null,
-          signedIn: null,
         },
       ]
     })
