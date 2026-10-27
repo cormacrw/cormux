@@ -53,7 +53,12 @@
 
 <div class="cormux-backdrop" aria-hidden="true" data-od-id="backdrop">
   {#if appearance.showWordmark}
-    <div class="wordmark-area" bind:this={area}>
+    <div
+      class="wordmark-area"
+      class:away={appearance.wordmarkAway}
+      class:gliding={appearance.wordmarkGliding}
+      bind:this={area}
+    >
       <span
         bind:this={mark}
         class="wordmark"
@@ -87,6 +92,27 @@
   .wordmark-area {
     position: absolute;
     inset: 0 0 0 264px;
+  }
+
+  /* A conversation's going: the camera tilts up and the word sinks out of view. */
+  .wordmark-area.away {
+    transform: translate3d(0, 105%, 0);
+    opacity: 0;
+  }
+
+  /* Only starting a conversation or clearing one animates; moving between
+     pages just shows or hides it. Rising back: moving from the first frame. */
+  .wordmark-area.gliding {
+    transition:
+      transform 1200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 900ms ease-out;
+  }
+
+  /* Falls with the greeting (thread-hero-out in app.css). */
+  .wordmark-area.gliding.away {
+    transition:
+      transform 420ms cubic-bezier(0.55, 0, 0.75, 0.3),
+      opacity 0s linear 420ms;
   }
 
   .wordmark {

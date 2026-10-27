@@ -7,6 +7,7 @@
     threads,
     workspaceUi,
   } from '$lib/state'
+  import { appearance } from '$lib/state/appearance.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { agentName } from '$lib/agent-name'
@@ -91,6 +92,13 @@
   const conversationId = $derived(conversations.current.id)
   // An empty conversation shows a greeting instead of the last one's messages.
   const showHero = $derived(items.length === 0)
+
+  // The backdrop's wordmark is away while a conversation's going (it only
+  // animates when one starts or is cleared; see glideWordmark).
+  $effect(() => {
+    appearance.wordmarkAway = !showHero
+  })
+  onDestroy(() => appearance.resetWordmark())
 
   // Snapshot what the thread already shows when it opens, or switches to another
   // conversation; only rows after that animate. The thread object is replaced on
@@ -479,7 +487,7 @@
 <style>
   /* Floats in a beat after a send, once a first prompt's greeting has fallen away. */
   .live-status {
-    animation: live-status-in var(--dur-med) var(--ease-out-snappy) 300ms
+    animation: live-status-in var(--dur-med) var(--ease-out-snappy) 400ms
       backwards;
   }
 
