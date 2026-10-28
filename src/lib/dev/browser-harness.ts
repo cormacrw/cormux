@@ -1219,6 +1219,20 @@ export function installBrowserHarness() {
       }
       return null
     }
+    if (cmd === 'resolve_thread_media') {
+      const source = String(args.source ?? '')
+      const name = source.split('/').filter(Boolean).pop() ?? source
+      const kind = /\.(mp4|webm|mov|m4v)$/i.test(name) ? 'video' : 'image'
+      return {
+        kind,
+        name,
+        path: `/fixtures/${name}`,
+        previewUrl:
+          kind === 'image'
+            ? 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII='
+            : null,
+      }
+    }
     if (cmd.startsWith('plugin:')) return null
     return null
   }

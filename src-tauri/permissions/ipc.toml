@@ -81,6 +81,7 @@ commands.allow = [
   "send_workspace_findings",
   "dismiss_workspace_findings",
   "image_preview",
+  "resolve_thread_media",
   "create_scratch",
   "end_scratch",
   "refresh_workspace_diff",

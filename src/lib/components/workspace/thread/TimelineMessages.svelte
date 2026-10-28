@@ -1,5 +1,7 @@
 <script lang="ts">
   import { hideFindingsBlock } from '$lib/findings/findings-block'
+  import { splitTaskCards } from '$lib/tasks/task-cards-block'
+  import TaskDraftCards from './TaskDraftCards.svelte'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
   import Buddy from '$lib/components/buddy/Buddy.svelte'
@@ -15,6 +17,7 @@
     ToolStepIcon,
   } from '$lib/thread/timeline-types'
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
+  import { workspaceRecords } from '$lib/state/workspace-records.svelte'
   import { popIn, type EntryScope } from '$lib/thread/entering'
   import { cn } from '$lib/utils'
   import AgentSpinner from './AgentSpinner.svelte'
@@ -74,6 +77,10 @@
   } = $props()
 
   const diffFiles = $derived(workspaceDiff.filesByWorkspace[workspaceId] ?? [])
+  // Media an agent references in a reply resolves against its worktree.
+  const workdir = $derived(
+    workspaceRecords.getRecord(workspaceId)?.worktreePath,
+  )
 
   // The newest thought is still being written while the live row trails it.
   const activeThoughtId = $derived.by(() => {
@@ -278,20 +285,27 @@
           <div
             class="mt-1 border-l-2 border-border pl-3 text-sm text-muted-foreground"
           >
-            <ThoughtMarkdown text={item.text} />
+            <ThoughtMarkdown text={item.text} media {workdir} />
           </div>
         </details>
       {:else if item.kind === 'thought' && hideFindingsBlock(item.text)}
-        {@const replyText = hideFindingsBlock(item.text)}
+        {@const taskSplit = splitTaskCards(hideFindingsBlock(item.text))}
+        {@const replyText = taskSplit.text}
         <div class="group max-w-[42rem]">
-          <div class="text-sm text-foreground">
-            <StreamingText
-              text={replyText}
-              {entries}
-              key={item.id}
-              live={item.id === liveReplyId}
-            />
-          </div>
+          {#if replyText}
+            <div class="text-sm text-foreground">
+              <StreamingText
+                text={replyText}
+                {entries}
+                key={item.id}
+                live={item.id === liveReplyId}
+                {workdir}
+              />
+            </div>
+          {/if}
+          {#if taskSplit.drafts.length}
+            <TaskDraftCards drafts={taskSplit.drafts} />
+          {/if}
           <!-- Under the reply, not over it, so it never covers the last words of a line. -->
           <div class="mt-1 flex h-5 items-center">
             <button

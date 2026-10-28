@@ -68,12 +68,15 @@
     entries,
     key,
     live = false,
+    workdir,
   }: {
     text: string
     entries: EntryScope | undefined
     key: string
     /** The agent is still writing this reply, so the cursor stays after it catches up. */
     live?: boolean
+    /** The thread's worktree, so media the reply references can resolve and render. */
+    workdir?: string
   } = $props()
 
   const order = takeOrder()
@@ -149,4 +152,4 @@
   })
 </script>
 
-<ThoughtMarkdown text={markdown} cursor={isTyping || live} />
+<ThoughtMarkdown text={markdown} cursor={isTyping || live} media {workdir} />

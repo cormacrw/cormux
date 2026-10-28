@@ -2,6 +2,12 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.16
+
+- Screenshots and recordings an agent references in a reply now show inline in the thread, and they survive the worktree being torn down. Every engine is told at startup that the thread renders them, so agents embed captures instead of just naming the path.
+- Scoped work can show as a hierarchy in the conversation: the epic with its scope and done-when list, then its tasks and subtasks, with a total of points. It's opt-in through the `cormux-task-cards` skill in the repo (see the README to install it).
+- The sidebar now sits flush to the window edges, and the traffic lights move in to match.
+
 ## 0.1.15
 
 - The "cormux" wordmark falls away with the greeting when you send a conversation's first prompt, and rises back when you start a new session. It stays hidden while a thread has a conversation going.

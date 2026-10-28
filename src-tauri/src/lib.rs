@@ -35,6 +35,7 @@ mod state;
 mod store;
 mod summaries;
 mod teardown;
+mod thread_media;
 mod todo_files;
 mod workspace;
 

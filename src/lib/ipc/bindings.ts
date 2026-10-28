@@ -715,6 +715,18 @@ async imagePreview(path: string) : Promise<Result<string | null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Copies a media file an agent referenced in its reply into the app's media folder,
+ * where the webview may load it. `None` when it isn't a showable image or recording.
+ */
+async resolveThreadMedia(source: string, workdir: string | null) : Promise<Result<ThreadMedia | null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resolve_thread_media", { source, workdir }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createScratch(input: CreateScratchInput) : Promise<Result<CreateScratchResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_scratch", { input }) };
@@ -1094,6 +1106,19 @@ export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: 
  * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
  */
 createdAt: string }
+export type ThreadMedia = { 
+/**
+ * `image` or `video`.
+ */
+kind: string; name: string; 
+/**
+ * The copy inside the media folder, loaded through the asset protocol.
+ */
+path: string; 
+/**
+ * A data URL for images small enough to show directly; `None` otherwise.
+ */
+previewUrl: string | null }
 /**
  * The models a thread can switch to, and the one it's on (`None` is the engine's default).
  */

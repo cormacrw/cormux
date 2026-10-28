@@ -1904,6 +1904,28 @@ pub async fn send_workspace_findings(
     Ok(())
 }
 
+/// Copies a media file an agent referenced in its reply into the app's media folder,
+/// where the webview may load it. `None` when it isn't a showable image or recording.
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_thread_media(
+    app: AppHandle,
+    source: String,
+    workdir: Option<String>,
+) -> Result<Option<crate::thread_media::ThreadMedia>> {
+    use tauri::Manager;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| Error::Workspace(error.to_string()))?;
+    let media_dir = crate::data_dir(app_data).join("media");
+    crate::thread_media::resolve(
+        &media_dir,
+        &source,
+        workdir.as_deref().map(std::path::Path::new),
+    )
+}
+
 /// A thumbnail for an image attached by path, for the composer.
 #[tauri::command]
 #[specta::specta]

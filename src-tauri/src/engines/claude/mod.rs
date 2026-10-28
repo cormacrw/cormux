@@ -33,6 +33,8 @@ pub fn claude_argv(resume: Option<&str>, model: Option<&str>) -> Vec<String> {
         "--permission-prompts".into(),
         "host".into(),
         "--await-initialize".into(),
+        "--append-system-prompt".into(),
+        crate::engines::MEDIA_INSTRUCTION.into(),
     ];
     if let Some(id) = resume {
         args.push("--resume".into());
@@ -58,6 +60,16 @@ mod tests {
                 .any(|w| w == ["--permission-prompt-tool", "stdio"])
         );
         assert!(args.contains(&"--await-initialize".into()));
+    }
+
+    #[test]
+    fn argv_tells_claude_the_thread_renders_media() {
+        let args = claude_argv(None, None);
+        let at = args
+            .iter()
+            .position(|arg| arg == "--append-system-prompt")
+            .expect("system prompt flag");
+        assert_eq!(args[at + 1], crate::engines::MEDIA_INSTRUCTION);
     }
 
     #[test]
