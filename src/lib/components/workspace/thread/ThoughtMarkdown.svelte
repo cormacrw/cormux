@@ -4,23 +4,49 @@
     renderRichMarkdown,
     renderSanitizedMarkdown,
   } from '$lib/thread/sanitize-markdown'
+  import { splitLocalMedia } from '$lib/thread/local-media'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import CodeCopyButton from './CodeCopyButton.svelte'
+  import ThreadMedia from './ThreadMedia.svelte'
 
   let {
     text,
     cursor = false,
     rich = false,
+    media = false,
+    workdir,
   }: {
     text: string
     /** Documents (task descriptions) rather than chat: headings, tables and checklists too. */
     rich?: boolean
     /** A ▎ cursor, blinking at the end of the last line while a reply types. */
     cursor?: boolean
+    /**
+     * Chat replies only: local media files the reply references render inline.
+     * Relative ones resolve against `workdir`, the thread's worktree.
+     */
+    media?: boolean
+    workdir?: string
   } = $props()
 
+  // Local media references become components; the prose between them renders as before.
+  const rendered = $derived(
+    (media ? splitLocalMedia(text) : [{ kind: 'text' as const, text }]).map(
+      (segment) =>
+        segment.kind === 'text'
+          ? {
+              ...segment,
+              html: rich
+                ? renderRichMarkdown(segment.text)
+                : renderSanitizedMarkdown(segment.text),
+            }
+          : segment,
+    ),
+  )
   const html = $derived(
-    rich ? renderRichMarkdown(text) : renderSanitizedMarkdown(text),
+    rendered
+      .map((segment) => (segment.kind === 'text' ? segment.html : ''))
+      .join(''),
   )
 
   let root: HTMLDivElement | undefined = $state()
@@ -86,5 +112,11 @@
   onclick={handleClick}
   role="presentation"
 >
-  {@html html}
+  {#each rendered as segment, index (index)}
+    {#if segment.kind === 'text'}
+      {@html segment.html}
+    {:else}
+      <ThreadMedia source={segment.source} alt={segment.alt} {workdir} />
+    {/if}
+  {/each}
 </div>

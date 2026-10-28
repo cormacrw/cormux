@@ -46,6 +46,9 @@ struct ThreadSlot {
     events: broadcast::Sender<AgentEvent>,
     session_id: Arc<Mutex<Option<String>>>,
     pending_seed: Arc<Mutex<Option<String>>>,
+    /// Whether this engine has been told the thread renders media. Claude hears it
+    /// in its system prompt instead, so this only ever flips for ACP engines.
+    briefed: Arc<Mutex<bool>>,
     /// Models an ACP engine offered when its session started; empty until then.
     models: Arc<Mutex<Vec<ModelOption>>>,
 }
@@ -178,6 +181,7 @@ impl EngineRegistry {
                     events,
                     session_id,
                     pending_seed,
+                    briefed: Arc::new(Mutex::new(false)),
                     models,
                 },
             );
@@ -245,7 +249,35 @@ impl EngineRegistry {
                 prompt.text
             );
         }
+        // ACP has no system-prompt channel, so its engines hear how the thread
+        // renders media on their first prompt instead. Never shown in the thread:
+        // the conversation keeps the user's own text. Claude is briefed through
+        // `--append-system-prompt` and is skipped here.
+        if self.take_brief(thread_id) {
+            prompt.text = format!("{}\n\n{}", prompt.text, super::MEDIA_INSTRUCTION);
+        }
         self.send(thread_id, EngineCommand::Prompt(prompt))
+    }
+
+    /// True exactly once per ACP engine process: the first prompt it receives.
+    fn take_brief(&self, thread_id: &str) -> bool {
+        let Ok(threads) = self.threads.lock() else {
+            return false;
+        };
+        let Some(slot) = threads.get(thread_id) else {
+            return false;
+        };
+        if slot.kind == EngineKind::Claude {
+            return false;
+        }
+        let Ok(mut briefed) = slot.briefed.lock() else {
+            return false;
+        };
+        if *briefed {
+            return false;
+        }
+        *briefed = true;
+        true
     }
 
     fn take_seed(&self, thread_id: &str) -> Result<Option<String>> {
@@ -849,6 +881,49 @@ mod tests {
             .expect("turn end within 10s")
             .unwrap();
         assert_eq!(thread_id, "t-idle");
+    }
+
+    #[test]
+    fn first_prompt_briefs_acp_engines_once_and_claude_never() {
+        let engines = registry();
+        let insert = |id: &str, kind: EngineKind| {
+            let (commands, rx) = mpsc::unbounded_channel();
+            let (events, _) = broadcast::channel(4);
+            engines.threads.lock().unwrap().insert(
+                id.into(),
+                ThreadSlot {
+                    kind,
+                    commands,
+                    events,
+                    session_id: Arc::new(Mutex::new(None)),
+                    pending_seed: Arc::new(Mutex::new(None)),
+                    briefed: Arc::new(Mutex::new(false)),
+                    models: Arc::new(Mutex::new(Vec::new())),
+                },
+            );
+            rx
+        };
+        let sent_text =
+            |rx: &mut mpsc::UnboundedReceiver<EngineCommand>| match rx.try_recv().unwrap() {
+                EngineCommand::Prompt(prompt) => prompt.text,
+                _ => panic!("expected a prompt"),
+            };
+
+        // Codex (ACP): first prompt carries the instruction, the second doesn't.
+        let mut acp_rx = insert("t-acp", EngineKind::Codex);
+        engines.prompt("t-acp", "Fix the sidebar").unwrap();
+        let first = sent_text(&mut acp_rx);
+        assert!(first.starts_with("Fix the sidebar\n\n"));
+        assert!(first.ends_with(crate::engines::MEDIA_INSTRUCTION));
+        engines.prompt("t-acp", "Now the header").unwrap();
+        assert_eq!(sent_text(&mut acp_rx), "Now the header");
+
+        // Claude hears it via --append-system-prompt, so its prompts stay untouched.
+        let mut claude_rx = insert("t-claude", EngineKind::Claude);
+        engines.prompt("t-claude", "Fix the sidebar").unwrap();
+        assert_eq!(sent_text(&mut claude_rx), "Fix the sidebar");
+
+        assert!(!engines.take_brief("no-such-thread"));
     }
 
     fn mock_claude_argv() -> Vec<String> {

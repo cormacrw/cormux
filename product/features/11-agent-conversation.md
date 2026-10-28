@@ -54,6 +54,11 @@ Each step row: an icon, a title, an optional detail line, optional chips, and a 
   - `Ran tests: 12 passed` · `vitest · src/lib/auth` · chips `12 passed`, `0 failed`, `1.8s`
 - **Edit steps**: pencil icon (trash for deletions). Title `Edited` / `Created` / `Deleted` followed by the file name as a link button, then `+N −N`. Detail is the full path. Clicking the file name opens the Changes panel on that file's diff.
 
+### Media in agent replies
+
+- A local image or recording an agent references in its markdown — `![caption](/path/shot.png)`, `[caption](/path/flow.webm)`, or a raw `<img>`/`<video>` tag — renders inline where it appears in the reply, with the alt/link text as its caption. Images click to enlarge; recordings get a player. Relative paths resolve against the thread's worktree. Remote sources are not rendered.
+- Before the webview loads anything, the core validates the file (extension and magic bytes, 20 MB images / 200 MB recordings) and copies it into the app's media folder, the only folder the asset protocol may serve. The copy survives worktree teardown and app restarts. A reference that fails validation shows as an unavailable-file note.
+
 ### Live row
 
 - Title: the thread's activity (for example `Analyzing AST…`), `Paused by you` when paused, or the provisioning activity.

@@ -17,6 +17,7 @@
     ToolStepIcon,
   } from '$lib/thread/timeline-types'
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
+  import { workspaceRecords } from '$lib/state/workspace-records.svelte'
   import { popIn, type EntryScope } from '$lib/thread/entering'
   import { cn } from '$lib/utils'
   import AgentSpinner from './AgentSpinner.svelte'
@@ -76,6 +77,10 @@
   } = $props()
 
   const diffFiles = $derived(workspaceDiff.filesByWorkspace[workspaceId] ?? [])
+  // Media an agent references in a reply resolves against its worktree.
+  const workdir = $derived(
+    workspaceRecords.getRecord(workspaceId)?.worktreePath,
+  )
 
   // The newest thought is still being written while the live row trails it.
   const activeThoughtId = $derived.by(() => {
@@ -280,7 +285,7 @@
           <div
             class="mt-1 border-l-2 border-border pl-3 text-sm text-muted-foreground"
           >
-            <ThoughtMarkdown text={item.text} />
+            <ThoughtMarkdown text={item.text} media {workdir} />
           </div>
         </details>
       {:else if item.kind === 'thought' && hideFindingsBlock(item.text)}
@@ -294,6 +299,7 @@
                 {entries}
                 key={item.id}
                 live={item.id === liveReplyId}
+                {workdir}
               />
             </div>
           {/if}

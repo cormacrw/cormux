@@ -25,7 +25,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 specta = { version = "=2.0.0-rc.22", features = ["derive", "serde", "serde_json"] }
 specta-typescript = "0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
-tauri = { version = "2.12.0", features = [] }
+tauri = { version = "2.12.0", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tauri-plugin-dialog = "2.8.0"

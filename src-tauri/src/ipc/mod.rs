@@ -88,6 +88,7 @@ pub fn builder() -> Builder {
             commands::send_workspace_findings,
             commands::dismiss_workspace_findings,
             commands::image_preview,
+            commands::resolve_thread_media,
             commands::create_scratch,
             commands::end_scratch,
             commands::create_todo,

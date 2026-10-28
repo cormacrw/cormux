@@ -50,6 +50,10 @@ cp -R skills/cormux-task-cards ~/.claude/skills/
 
 The skill pairs with whatever skill or workflow you already use to draft and create tasks — it only controls presentation, and creating the tasks still happens with the agent in chat. Nothing is installed automatically, and without the skill conversations render exactly as before; a reply that contains no block, or a malformed one, is shown as plain prose.
 
+## Screenshots and recordings in the thread
+
+Agents can show their work visually: a local image or recording referenced in a reply's markdown (`![caption](/path/to/shot.png)`, `[caption](/path/to/flow.webm)`) renders inline in the thread, which is how a screenshot from a browser tool becomes something you can actually look at. Cormux copies the file into its own media folder first, so it survives worktree teardown, and only that folder is served to the webview. No skill or setup is needed: every engine is told once, when it starts, that the thread renders media this way — Claude through its system prompt, the ACP engines on their first prompt — so agents embed captures instead of only naming the path in prose.
+
 ## Releasing
 
 Every push to `main` runs `.github/workflows/release.yml`, but it only publishes a release when the version is new: if `v<version>` is already released, the run passes in seconds and builds nothing. So bump the version before merging `develop` into `main`, in all four places:

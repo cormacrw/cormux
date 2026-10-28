@@ -18,6 +18,7 @@ export {
   type Snapshot,
   type StateChangeKind,
   type StateChanged,
+  type ThreadMedia,
   type ToastRaised,
   type ToastRaisedPayload,
 } from './bindings'
