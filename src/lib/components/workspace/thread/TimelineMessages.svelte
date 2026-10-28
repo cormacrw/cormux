@@ -1,5 +1,7 @@
 <script lang="ts">
   import { hideFindingsBlock } from '$lib/findings/findings-block'
+  import { splitTaskCards } from '$lib/tasks/task-cards-block'
+  import TaskDraftCards from './TaskDraftCards.svelte'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
   import Buddy from '$lib/components/buddy/Buddy.svelte'
@@ -282,16 +284,22 @@
           </div>
         </details>
       {:else if item.kind === 'thought' && hideFindingsBlock(item.text)}
-        {@const replyText = hideFindingsBlock(item.text)}
+        {@const taskSplit = splitTaskCards(hideFindingsBlock(item.text))}
+        {@const replyText = taskSplit.text}
         <div class="group max-w-[42rem]">
-          <div class="text-sm text-foreground">
-            <StreamingText
-              text={replyText}
-              {entries}
-              key={item.id}
-              live={item.id === liveReplyId}
-            />
-          </div>
+          {#if replyText}
+            <div class="text-sm text-foreground">
+              <StreamingText
+                text={replyText}
+                {entries}
+                key={item.id}
+                live={item.id === liveReplyId}
+              />
+            </div>
+          {/if}
+          {#if taskSplit.drafts.length}
+            <TaskDraftCards drafts={taskSplit.drafts} />
+          {/if}
           <!-- Under the reply, not over it, so it never covers the last words of a line. -->
           <div class="mt-1 flex h-5 items-center">
             <button

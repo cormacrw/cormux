@@ -37,6 +37,19 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 `pnpm test:e2e` is how UI changes get verified without the native window. It stubs Tauri invoke (see `src/lib/dev/browser-harness.ts`), clicks through the Svelte shell, and writes `e2e/output/*.png`. Overlay traffic lights still need `pnpm tauri dev`.
 
+## Optional skill: task draft cards
+
+When an agent scopes work in a conversation, Cormux can show it as a hierarchy instead of leaving it in the prose: the epic and its scope first, then the tasks under it, then their subtasks. This is opt-in: install the [`cormux-task-cards` skill](skills/cormux-task-cards/SKILL.md), which asks any task-drafting workflow to scope epics before breaking them down, and to also present the result in a structured block that Cormux renders.
+
+```sh
+mkdir -p ~/.claude/skills
+cp -R skills/cormux-task-cards ~/.claude/skills/
+```
+
+(Or symlink it instead of copying, so repo updates flow through: `ln -s "$PWD/skills/cormux-task-cards" ~/.claude/skills/cormux-task-cards`.)
+
+The skill pairs with whatever skill or workflow you already use to draft and create tasks — it only controls presentation, and creating the tasks still happens with the agent in chat. Nothing is installed automatically, and without the skill conversations render exactly as before; a reply that contains no block, or a malformed one, is shown as plain prose.
+
 ## Releasing
 
 Every push to `main` runs `.github/workflows/release.yml`, but it only publishes a release when the version is new: if `v<version>` is already released, the run passes in seconds and builds nothing. So bump the version before merging `develop` into `main`, in all four places:
