@@ -1,10 +1,27 @@
 import { expect, test } from '@playwright/test'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 
 test('the sidebar keeps room for the traffic lights, with DEV in its footer', async ({
   page,
 }) => {
   await page.goto('/')
+  // Flush to the window edges, so the native traffic lights (inset in
+  // tauri.conf.json) shift by the 12px float margin they used to sit inside.
+  const sidebarBox = await page.locator('.app-shell > aside').boundingBox()
+  expect(sidebarBox?.x).toBe(0)
+  expect(sidebarBox?.y).toBe(0)
+  expect(sidebarBox!.y + sidebarBox!.height).toBe(
+    await page.evaluate(() => window.innerHeight),
+  )
+  const tauriConf = JSON.parse(
+    readFileSync('src-tauri/tauri.conf.json', 'utf8'),
+  ) as {
+    app: { windows: { trafficLightPosition: { x: number; y: number } }[] }
+  }
+  expect(tauriConf.app.windows[0].trafficLightPosition).toEqual({
+    x: 22,
+    y: 28,
+  })
   const titlebar = page.locator('[data-od-id="sidebar-titlebar"]')
   await expect(titlebar).toBeVisible()
   expect((await titlebar.boundingBox())?.height).toBe(52)
