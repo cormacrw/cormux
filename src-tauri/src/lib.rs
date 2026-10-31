@@ -22,6 +22,7 @@ mod mcp;
 mod menu;
 mod metrics;
 mod naming;
+mod orchestration;
 mod pr_draft;
 mod process;
 mod provisioning;
@@ -162,6 +163,11 @@ pub fn run() {
                     }
                     let state = approval_app.state::<AppState>();
                     crate::feedback::emit_approval_counts(&approval_app, &state);
+                    if let Err(error) =
+                        crate::orchestration::on_approval_requested(&approval_app).await
+                    {
+                        log::warn!("reporting a blocked thread failed: {error}");
+                    }
                 }
             });
 
@@ -207,6 +213,11 @@ pub fn run() {
                         crate::review::on_reviewer_turn_end(&turn_end_app, &thread_id).await
                     {
                         log::warn!("reading review findings failed: {error}");
+                    }
+                    if let Err(error) =
+                        crate::orchestration::on_turn_end(&turn_end_app, &thread_id).await
+                    {
+                        log::warn!("reporting a thread failed: {error}");
                     }
                 }
             });

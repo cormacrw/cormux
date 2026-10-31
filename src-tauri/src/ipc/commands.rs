@@ -1157,6 +1157,28 @@ pub async fn create_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CreateWorkspaceResult> {
+    let started = start_workspace(&app, &state, input, None).await?;
+    Ok(CreateWorkspaceResult {
+        workspace_id: started.workspace_id,
+    })
+}
+
+pub struct StartedWorkspace {
+    pub workspace_id: String,
+    pub thread_id: String,
+    pub branch: String,
+    pub base: String,
+}
+
+/// A new worktree and its thread, provisioned in the background. `parent_thread_id` is the
+/// thread that asked for it, when an agent did.
+pub async fn start_workspace(
+    app: &AppHandle,
+    state: &AppState,
+    input: CreateWorkspaceInput,
+    parent_thread_id: Option<String>,
+) -> Result<StartedWorkspace> {
+    let app = app.clone();
     let snapshot = state.store.snapshot()?;
     let repo = snapshot
         .repos
@@ -1243,6 +1265,7 @@ pub async fn create_workspace(
         cost_usd: None,
         transcript_readonly: false,
         retired: false,
+        parent_thread_id,
     })?;
     // Stored before provisioning starts, since the engine reads it when it spawns.
     if let Some(model) = input.model.as_deref() {
@@ -1282,6 +1305,12 @@ pub async fn create_workspace(
     let thread_id_bg = thread_id.clone();
     let engine = input.engine.clone();
     let repo_name = repo.name.clone();
+    let started = StartedWorkspace {
+        workspace_id: workspace_id.clone(),
+        thread_id: thread_id.clone(),
+        branch: input.branch.clone(),
+        base: input.base.clone(),
+    };
     let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
 
     tauri::async_runtime::spawn(async move {
@@ -1300,7 +1329,7 @@ pub async fn create_workspace(
         .await;
     });
 
-    Ok(CreateWorkspaceResult { workspace_id })
+    Ok(started)
 }
 
 /// Swaps the drafted name for Haiku's unless the workspace was renamed or deleted meanwhile.
@@ -1587,6 +1616,19 @@ pub async fn send_thread_prompt(
     attachments: Vec<crate::attachments::PromptAttachment>,
     state: State<'_, AppState>,
 ) -> Result<()> {
+    submit_thread_prompt(&app, &state, &thread_id, text, attachments).await
+}
+
+/// A message into a thread, from the user or another thread: starts the engine if it isn't
+/// running, and queues the message if the thread is paused.
+pub async fn submit_thread_prompt(
+    app: &AppHandle,
+    state: &AppState,
+    thread_id: &str,
+    text: String,
+    attachments: Vec<crate::attachments::PromptAttachment>,
+) -> Result<()> {
+    let (app, thread_id) = (app.clone(), thread_id.to_string());
     let text = text.trim().to_string();
     if text.is_empty() && attachments.is_empty() {
         return Ok(());
@@ -1607,11 +1649,11 @@ pub async fn send_thread_prompt(
         .map_err(|error| Error::Workspace(error.to_string()))?;
     let folder = crate::data_dir(app_data).join("attachments");
     let (prompt, text) = crate::attachments::build_prompt(&folder, &text, &attachments)?;
-    let thread = snapshot_thread(&state, &thread_id)?;
+    let thread = snapshot_thread(state, &thread_id)?;
     let held = thread.status == "paused";
     if !held && !state.engines.has_thread(&thread_id) {
         crate::provisioning::ensure_thread_engine(
-            &state,
+            state,
             &thread_id,
             &thread.engine,
             &thread.workspace_id,
@@ -1631,7 +1673,7 @@ pub async fn send_thread_prompt(
             .store
             .set_workspace_status(&thread.workspace_id, "running")?;
     }
-    emit_composer_snapshot(&app, &state);
+    emit_composer_snapshot(&app, state);
     Ok(())
 }
 

@@ -74,6 +74,7 @@ export const fixtureSnapshot: Snapshot = {
         costUsd: null,
         transcriptReadonly: false,
         retired: false,
+        parentThreadId: null,
       },
     ],
 

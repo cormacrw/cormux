@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-#[cfg(test)]
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -13,7 +12,7 @@ use tokio::time::timeout;
 use super::protocol::user_message;
 use super::protocol::{
     Event, PermissionDecision, StdinMessage, decode_event, encode_line, initialize_request,
-    interrupt_request, permission_response, set_model_request, user_prompt_message,
+    interrupt_request, mcp_response, permission_response, set_model_request, user_prompt_message,
 };
 use crate::engines::claude_argv;
 use crate::engines::prompt::Prompt;
@@ -32,6 +31,8 @@ pub struct SpawnOptions {
     pub extra_args: Vec<String>,
     /// When false, only `extra_args` are passed (used by the mock CLI fixture).
     pub use_default_args: bool,
+    /// Give the session the Cormux MCP server, which `run_claude` answers.
+    pub orchestrate: bool,
     pub env: Option<HashMap<String, String>>,
 }
 
@@ -44,6 +45,7 @@ impl Default for SpawnOptions {
             model: None,
             extra_args: Vec::new(),
             use_default_args: true,
+            orchestrate: false,
             env: None,
         }
     }
@@ -64,7 +66,11 @@ pub struct ClaudeSession {
 impl ClaudeSession {
     pub async fn spawn(options: SpawnOptions) -> Result<Self> {
         let mut args = if options.use_default_args {
-            claude_argv(options.resume.as_deref(), options.model.as_deref())
+            claude_argv(
+                options.resume.as_deref(),
+                options.model.as_deref(),
+                options.orchestrate,
+            )
         } else {
             Vec::new()
         };
@@ -133,7 +139,12 @@ impl ClaudeSession {
         };
 
         if options.use_default_args {
-            timeout(HANDSHAKE_TIMEOUT, session.handshake_initialize())
+            let sdk_servers = if options.orchestrate {
+                vec![crate::mcp::SERVER_NAME.to_string()]
+            } else {
+                Vec::new()
+            };
+            timeout(HANDSHAKE_TIMEOUT, session.handshake_initialize(sdk_servers))
                 .await
                 .map_err(|_| Error::Engine("timed out waiting for Claude to start".into()))??;
         }
@@ -141,9 +152,10 @@ impl ClaudeSession {
         Ok(session)
     }
 
-    async fn handshake_initialize(&mut self) -> Result<()> {
+    async fn handshake_initialize(&mut self, sdk_servers: Vec<String>) -> Result<()> {
         let request_id = self.alloc_request_id("init");
-        self.write_message(&initialize_request(&request_id)).await?;
+        self.write_message(&initialize_request(&request_id, sdk_servers))
+            .await?;
         loop {
             match self.next_event().await? {
                 Some(Event::ControlResponse {
@@ -154,6 +166,15 @@ impl ClaudeSession {
                         return Err(Error::Engine("initialize handshake failed".into()));
                     }
                     return Ok(());
+                }
+                // The CLI connects its MCP servers before it answers the handshake.
+                Some(Event::McpMessage {
+                    request_id,
+                    message,
+                    ..
+                }) => {
+                    self.answer_mcp(&request_id, crate::mcp::handshake_reply(&message))
+                        .await?;
                 }
                 Some(_) => continue,
                 None => {
@@ -185,6 +206,11 @@ impl ClaudeSession {
         decision: PermissionDecision,
     ) -> Result<()> {
         self.write_message(&permission_response(request_id, decision))
+            .await
+    }
+
+    pub async fn answer_mcp(&mut self, request_id: &str, response: Value) -> Result<()> {
+        self.write_message(&mcp_response(request_id, response))
             .await
     }
 
@@ -524,7 +550,7 @@ mod tests {
         assert!(saw_error_result);
 
         // Resume is a new process with --resume <id>; prove the argv and a second init.
-        let resume_args = crate::engines::claude_argv(host.session_id(), None);
+        let resume_args = crate::engines::claude_argv(host.session_id(), None, false);
         assert!(resume_args.windows(2).any(|w| w == ["--resume", "sess-1"]));
 
         let (host2_out, _mock2_in) = duplex(4096);

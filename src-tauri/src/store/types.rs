@@ -77,6 +77,8 @@ pub struct ThreadRow {
     pub transcript_readonly: bool,
     /// Kept to read but can't be continued: a workspace's older thread, or a scratch's.
     pub retired: bool,
+    /// The thread that started this one through `create_thread`.
+    pub parent_thread_id: Option<String>,
 }
 
 /// A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.

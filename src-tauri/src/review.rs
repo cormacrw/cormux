@@ -256,6 +256,7 @@ pub async fn create_review_workspace(
         cost_usd: None,
         transcript_readonly: false,
         retired: false,
+        parent_thread_id: None,
     })?;
 
     let user_message = user_review_message(

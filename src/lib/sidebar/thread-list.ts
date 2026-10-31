@@ -60,6 +60,25 @@ export function splitThreadList<
 }
 
 /**
+ * A thread's children sit right under it. One whose parent isn't in this list stays where it is,
+ * since it has nothing to sit under.
+ */
+export function nestThreadList<
+  T extends { id: string; parentId: string | null },
+>(items: T[]): (T & { nested: boolean })[] {
+  const ids = new Set(items.map((item) => item.id))
+  const isChild = (item: T) => item.parentId != null && ids.has(item.parentId)
+  return items
+    .filter((item) => !isChild(item))
+    .flatMap((item) => [
+      { ...item, nested: false },
+      ...items
+        .filter((child) => isChild(child) && child.parentId === item.id)
+        .map((child) => ({ ...child, nested: true })),
+    ])
+}
+
+/**
  * Whatever needs you first, with what has waited longest on top. Below that, most recent
  * activity first. Ties keep their order, so rows don't swap for no reason.
  */

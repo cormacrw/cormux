@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentEvent } from '$lib/ipc/bindings'
 import {
+  nestThreadList,
   sortThreadList,
   splitThreadList,
   threadActivityMs,
@@ -99,5 +100,35 @@ describe('thread sections', () => {
       threads: items,
       working: [],
     })
+  })
+})
+
+describe('nestThreadList', () => {
+  const item = (id: string, parentId: string | null = null) => ({
+    id,
+    parentId,
+  })
+
+  it('puts children right under their parent', () => {
+    const rows = nestThreadList([
+      item('kid', 'lead'),
+      item('other'),
+      item('lead'),
+      item('kid-2', 'lead'),
+    ])
+    expect(rows.map((row) => [row.id, row.nested])).toEqual([
+      ['other', false],
+      ['lead', false],
+      ['kid', true],
+      ['kid-2', true],
+    ])
+  })
+
+  it('keeps a child whose parent is not in the list', () => {
+    const rows = nestThreadList([item('kid', 'gone'), item('other')])
+    expect(rows.map((row) => [row.id, row.nested])).toEqual([
+      ['kid', false],
+      ['other', false],
+    ])
   })
 })

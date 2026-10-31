@@ -43,7 +43,9 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
             },
             error: if *is_error { result.clone() } else { None },
         }],
-        Event::ControlResponse { .. } | Event::Other { .. } => Vec::new(),
+        Event::McpMessage { .. } | Event::ControlResponse { .. } | Event::Other { .. } => {
+            Vec::new()
+        }
     }
 }
 

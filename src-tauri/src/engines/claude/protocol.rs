@@ -47,7 +47,11 @@ pub struct ImageSource {
 #[serde(tag = "subtype")]
 pub enum ControlRequest {
     #[serde(rename = "initialize")]
-    Initialize {},
+    Initialize {
+        /// MCP servers this host answers itself, over this same stream.
+        #[serde(rename = "sdkMcpServers", skip_serializing_if = "Vec::is_empty")]
+        sdk_mcp_servers: Vec<String>,
+    },
     #[serde(rename = "interrupt")]
     Interrupt,
     /// Omitting `model` goes back to the CLI's default.
@@ -62,7 +66,14 @@ pub enum ControlRequest {
 pub struct ControlResponse {
     pub subtype: &'static str,
     pub request_id: String,
-    pub response: PermissionDecision,
+    pub response: ControlResponseBody,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ControlResponseBody {
+    Permission(PermissionDecision),
+    Mcp { mcp_response: Value },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,6 +116,13 @@ pub enum Event {
     /// Tool results, which the CLI echoes back as a `user` message.
     ToolResults(Vec<ToolResult>),
     CanUseTool(CanUseTool),
+    /// A JSON-RPC message for an MCP server this host answers. Must always get a response,
+    /// notifications included.
+    McpMessage {
+        request_id: String,
+        server_name: String,
+        message: Value,
+    },
     Result {
         session_id: Option<String>,
         is_error: bool,
@@ -177,10 +195,13 @@ pub fn user_prompt_message(prompt: &Prompt) -> StdinMessage {
     }
 }
 
-pub fn initialize_request(request_id: impl Into<String>) -> StdinMessage {
+pub fn initialize_request(
+    request_id: impl Into<String>,
+    sdk_mcp_servers: Vec<String>,
+) -> StdinMessage {
     StdinMessage::ControlRequest {
         request_id: request_id.into(),
-        request: ControlRequest::Initialize {},
+        request: ControlRequest::Initialize { sdk_mcp_servers },
     }
 }
 
@@ -206,7 +227,17 @@ pub fn permission_response(
         response: ControlResponse {
             subtype: "success",
             request_id: request_id.into(),
-            response: decision,
+            response: ControlResponseBody::Permission(decision),
+        },
+    }
+}
+
+pub fn mcp_response(request_id: impl Into<String>, mcp_response: Value) -> StdinMessage {
+    StdinMessage::ControlResponse {
+        response: ControlResponse {
+            subtype: "success",
+            request_id: request_id.into(),
+            response: ControlResponseBody::Mcp { mcp_response },
         },
     }
 }
@@ -343,6 +374,15 @@ fn decode_control_request(value: &Value) -> Result<Event> {
                 .and_then(Value::as_str)
                 .map(str::to_string),
         })),
+        "mcp_message" => Ok(Event::McpMessage {
+            request_id,
+            server_name: request
+                .get("server_name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            message: request.get("message").cloned().unwrap_or(Value::Null),
+        }),
         other => Ok(Event::Other {
             type_name: format!("control_request:{other}"),
         }),
@@ -528,7 +568,7 @@ mod tests {
 
     #[test]
     fn encodes_initialize() {
-        let line = encode_line(&initialize_request("init-1")).unwrap();
+        let line = encode_line(&initialize_request("init-1", Vec::new())).unwrap();
         let value: Value = serde_json::from_str(line.trim_end()).unwrap();
         assert_eq!(value["type"], "control_request");
         assert_eq!(value["request"]["subtype"], "initialize");
@@ -539,6 +579,39 @@ mod tests {
         let line = encode_line(&interrupt_request("int_1")).unwrap();
         let value: Value = serde_json::from_str(line.trim_end()).unwrap();
         assert_eq!(value["request"]["subtype"], "interrupt");
+    }
+
+    #[test]
+    fn initialize_names_the_servers_the_host_answers() {
+        let line = encode_line(&initialize_request("init-1", vec!["cormux".into()])).unwrap();
+        let value: Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(value["request"]["sdkMcpServers"][0], "cormux");
+    }
+
+    #[test]
+    fn decodes_an_mcp_message_and_encodes_its_response() {
+        let event = decode_event(
+            r#"{"type":"control_request","request_id":"r1","request":{"subtype":"mcp_message","server_name":"cormux","message":{"jsonrpc":"2.0","id":1,"method":"tools/list"}}}"#,
+        )
+        .unwrap();
+        let Event::McpMessage {
+            request_id,
+            server_name,
+            message,
+        } = event
+        else {
+            panic!("unexpected {event:?}");
+        };
+        assert_eq!(
+            (request_id.as_str(), server_name.as_str()),
+            ("r1", "cormux")
+        );
+        assert_eq!(message["method"], "tools/list");
+
+        let line = encode_line(&mcp_response("r1", serde_json::json!({"id": 1}))).unwrap();
+        let value: Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(value["response"]["request_id"], "r1");
+        assert_eq!(value["response"]["response"]["mcp_response"]["id"], 1);
     }
 
     #[test]

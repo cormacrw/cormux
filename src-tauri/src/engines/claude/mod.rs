@@ -11,6 +11,9 @@
 //!   user message, not during the initialize handshake.
 //! - Interrupt is a host `control_request` with `subtype: interrupt`.
 //! - Resume is a new process with `--resume <session_id>` from `system`/`init`.
+//! - An `sdk` server in `--mcp-config`, also named as `sdkMcpServers` in `initialize`, is
+//!   answered by the host: each JSON-RPC message arrives as a `control_request` with
+//!   `subtype: mcp_message`, and every one needs a `control_response`.
 
 pub mod map;
 mod protocol;
@@ -20,7 +23,12 @@ pub use protocol::{CanUseTool, Event, PermissionDecision};
 pub use session::{ClaudeSession, SpawnOptions};
 
 /// Argument vector for a streaming Claude Code session (binary not included).
-pub fn claude_argv(resume: Option<&str>, model: Option<&str>) -> Vec<String> {
+pub fn claude_argv(resume: Option<&str>, model: Option<&str>, orchestrate: bool) -> Vec<String> {
+    let mut brief = crate::engines::MEDIA_INSTRUCTION.to_string();
+    if orchestrate {
+        brief.push_str("\n\n");
+        brief.push_str(crate::mcp::ORCHESTRATION_INSTRUCTION);
+    }
     let mut args = vec![
         "-p".into(),
         "--verbose".into(),
@@ -34,8 +42,14 @@ pub fn claude_argv(resume: Option<&str>, model: Option<&str>) -> Vec<String> {
         "host".into(),
         "--await-initialize".into(),
         "--append-system-prompt".into(),
-        crate::engines::MEDIA_INSTRUCTION.into(),
+        brief,
     ];
+    if orchestrate {
+        args.push("--mcp-config".into());
+        args.push(crate::mcp::sdk_mcp_config());
+        args.push("--allowedTools".into());
+        args.push(crate::mcp::read_only_tools().join(","));
+    }
     if let Some(id) = resume {
         args.push("--resume".into());
         args.push(id.into());
@@ -53,7 +67,7 @@ mod tests {
 
     #[test]
     fn argv_includes_print_and_stdio_permission_tool() {
-        let args = claude_argv(None, None);
+        let args = claude_argv(None, None, false);
         assert!(args.contains(&"-p".into()));
         assert!(
             args.windows(2)
@@ -64,7 +78,7 @@ mod tests {
 
     #[test]
     fn argv_tells_claude_the_thread_renders_media() {
-        let args = claude_argv(None, None);
+        let args = claude_argv(None, None, false);
         let at = args
             .iter()
             .position(|arg| arg == "--append-system-prompt")
@@ -73,15 +87,30 @@ mod tests {
     }
 
     #[test]
+    fn orchestrating_threads_get_the_cormux_server_and_its_brief() {
+        let args = claude_argv(None, None, true);
+        let at = args.iter().position(|arg| arg == "--mcp-config").unwrap();
+        assert!(args[at + 1].contains(r#""type":"sdk""#));
+        let at = args.iter().position(|arg| arg == "--allowedTools").unwrap();
+        assert!(args[at + 1].contains("mcp__cormux__get_thread"));
+        assert!(!args[at + 1].contains("create_thread"));
+        let at = args
+            .iter()
+            .position(|arg| arg == "--append-system-prompt")
+            .unwrap();
+        assert!(args[at + 1].contains("create_thread"));
+    }
+
+    #[test]
     fn argv_resume_appends_session_id() {
-        let args = claude_argv(Some("sess-1"), None);
+        let args = claude_argv(Some("sess-1"), None, false);
         assert!(args.windows(2).any(|w| w == ["--resume", "sess-1"]));
         assert!(!args.contains(&"--model".into()));
     }
 
     #[test]
     fn argv_model_appends_flag() {
-        let args = claude_argv(None, Some("opus"));
+        let args = claude_argv(None, Some("opus"), false);
         assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
     }
 }

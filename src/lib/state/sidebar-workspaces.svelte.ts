@@ -1,4 +1,5 @@
 import {
+  nestThreadList,
   sortThreadList,
   splitThreadList,
   threadActivityMs,
@@ -23,7 +24,13 @@ export type ThreadListItem = {
   activityAtMs: number
   /** Null for a scratch, which is kept to read. */
   workspace: Workspace | null
+  /** The workspace whose thread started this one, and what it's called. */
+  parentId: string | null
+  parentTitle: string | null
 }
+
+/** A row in the list, which `nested` draws under its parent. */
+export type ThreadListRowItem = ThreadListItem & { nested: boolean }
 
 /**
  * The sidebar's list: every thread, what needs you first, with working threads in a section of
@@ -37,6 +44,11 @@ class ThreadList {
         ? (threadTimeline.eventsByThread[thread.id] ?? [])
         : []
       const repoId = workspaceRecords.getRecord(workspace.id)?.repoId
+      const parentThread = thread?.parentThreadId
+        ? threads.getById(thread.parentThreadId)
+        : undefined
+      const parent =
+        parentThread && workspaces.getById(parentThread.workspaceId)
       return {
         id: workspace.id,
         title: workspace.name,
@@ -50,6 +62,8 @@ class ThreadList {
         }),
         activityAtMs: threadActivityMs(events) || (workspace.createdAtMs ?? 0),
         workspace,
+        parentId: parent?.id ?? null,
+        parentTitle: parent?.name ?? null,
       }
     })
     const legacy = scratches.items.map((scratch) => ({
@@ -64,16 +78,22 @@ class ThreadList {
         ) ||
         (scratch.createdAtMs ?? 0),
       workspace: null,
+      parentId: null,
+      parentTitle: null,
     }))
     return sortThreadList([...rows, ...legacy])
   })
 
-  readonly sections = $derived(
-    splitThreadList(
+  readonly sections = $derived.by(() => {
+    const { threads, working } = splitThreadList(
       this.items,
       app.view === 'workspace' ? app.workspaceId : null,
-    ),
-  )
+    )
+    return {
+      threads: nestThreadList(threads),
+      working: nestThreadList(working),
+    }
+  })
 
   readonly ordered = $derived(
     [...this.sections.threads, ...this.sections.working].flatMap((item) =>

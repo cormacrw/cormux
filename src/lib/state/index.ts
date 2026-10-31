@@ -233,6 +233,7 @@ function buildThreadModels(snapshot: Snapshot) {
           : threadActivityLine(thread.status),
       pendingApprovals: pendingThreads.get(thread.id) ?? 0,
       retired: thread.retired,
+      parentThreadId: thread.parentThreadId,
       usage: {
         usedTokens: thread.usedTokens,
         contextSize: thread.contextSize,

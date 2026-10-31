@@ -13,6 +13,8 @@ export type Thread = {
   usage: ThreadUsage
   /** Readable but can't be continued: a workspace's older thread, or a scratch's. */
   retired: boolean
+  /** The thread that started this one, when an agent did. */
+  parentThreadId?: string | null
   /** Set on a scratch's thread, which lives outside any workspace. */
   scratchId?: string
 }
@@ -47,6 +49,11 @@ export class ThreadsStore {
   /** The workspace's one thread that can still be messaged. */
   liveFor(workspaceId: string) {
     return this.forWorkspace(workspaceId).find((thread) => !thread.retired)
+  }
+
+  /** The threads this one started. */
+  childrenOf(threadId: string) {
+    return this.items.filter((thread) => thread.parentThreadId === threadId)
   }
 
   /** The workspace's older threads, kept to read. */

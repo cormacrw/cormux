@@ -19,7 +19,7 @@
   import { motionMs } from '$lib/motion'
   import {
     sidebarWorkspaces,
-    type ThreadListItem,
+    type ThreadListRowItem,
   } from '$lib/state/sidebar-workspaces.svelte'
   import { cn } from '$lib/utils'
 
@@ -86,7 +86,7 @@
   })
 </script>
 
-{#snippet rows(items: ThreadListItem[])}
+{#snippet rows(items: ThreadListRowItem[])}
   {#each items as item (item.id)}
     <li
       animate:flip={{ duration: motionMs(320), easing: cubicOut }}

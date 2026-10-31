@@ -534,8 +534,9 @@ impl Store {
         self.with_conn(|conn| {
             conn.execute(
                 "INSERT INTO threads (id, workspace_id, title, engine, session_id, status,
-                    used_tokens, context_size, cost_usd, transcript_readonly, retired)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                    used_tokens, context_size, cost_usd, transcript_readonly, retired,
+                    parent_thread_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(id) DO UPDATE SET title = excluded.title, engine = excluded.engine,
                     session_id = excluded.session_id, status = excluded.status,
                     used_tokens = excluded.used_tokens, context_size = excluded.context_size,
@@ -553,6 +554,7 @@ impl Store {
                     thread.cost_usd,
                     thread.transcript_readonly as i64,
                     thread.retired as i64,
+                    thread.parent_thread_id,
                 ],
             )?;
             Ok(())
@@ -649,6 +651,39 @@ impl Store {
                 }
             }
             Ok(reply)
+        })
+    }
+
+    /// Where the thread's conversation last moved, so a turn is only reported once.
+    pub fn last_message_seq(&self, thread_id: &str) -> Result<i64> {
+        self.with_conn(|conn| {
+            Ok(conn.query_row(
+                "SELECT COALESCE(MAX(seq), 0) FROM thread_events
+                 WHERE thread_id = ?1 AND kind = 'message'",
+                [thread_id],
+                |row| row.get(0),
+            )?)
+        })
+    }
+
+    /// A page of the transcript after `since`, oldest first, as `(seq, kind, payload)`.
+    pub fn thread_events_after(
+        &self,
+        thread_id: &str,
+        since: i64,
+        limit: i64,
+    ) -> Result<Vec<(i64, String, String)>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT seq, kind, payload FROM thread_events
+                 WHERE thread_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
+            )?;
+            let rows = stmt
+                .query_map(rusqlite::params![thread_id, since, limit], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows)
         })
     }
 
@@ -916,7 +951,7 @@ impl Store {
 }
 
 const THREAD_COLUMNS: &str = "SELECT id, workspace_id, title, engine, session_id, status,
-        used_tokens, context_size, cost_usd, transcript_readonly, retired
+        used_tokens, context_size, cost_usd, transcript_readonly, retired, parent_thread_id
      FROM threads";
 
 fn row_to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
@@ -932,6 +967,7 @@ fn row_to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
         cost_usd: row.get(8)?,
         transcript_readonly: row.get::<_, i64>(9)? != 0,
         retired: row.get::<_, i64>(10)? != 0,
+        parent_thread_id: row.get(11)?,
     })
 }
 
@@ -1012,6 +1048,7 @@ mod tests {
                 cost_usd: None,
                 transcript_readonly: false,
                 retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
         store
@@ -1095,6 +1132,7 @@ mod tests {
                 cost_usd: None,
                 transcript_readonly: false,
                 retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
         store.append_event("t1", "message", "{}").unwrap();
@@ -1173,6 +1211,7 @@ mod tests {
                 cost_usd: None,
                 transcript_readonly: false,
                 retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
         let events = [
@@ -1253,6 +1292,7 @@ mod tests {
                     cost_usd: None,
                     transcript_readonly: false,
                     retired: false,
+                    parent_thread_id: None,
                 })
                 .unwrap();
             store.append_event(id, "message", "{}").unwrap();
@@ -1352,6 +1392,7 @@ mod tests {
                 cost_usd: None,
                 transcript_readonly: false,
                 retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
         store

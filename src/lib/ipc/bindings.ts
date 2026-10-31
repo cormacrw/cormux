@@ -1006,7 +1006,11 @@ export type ThreadRow = { id: string; workspaceId: string; title: string; engine
 /**
  * Kept to read but can't be continued: a workspace's older thread, or a scratch's.
  */
-retired: boolean }
+retired: boolean; 
+/**
+ * The thread that started this one through `create_thread`.
+ */
+parentThreadId: string | null }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
 export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null; 

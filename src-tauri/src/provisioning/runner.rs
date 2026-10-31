@@ -381,6 +381,7 @@ async fn finish_after_setup(
         cost_usd: None,
         transcript_readonly: false,
         retired: false,
+        parent_thread_id: None,
     });
 
     if start_agent {
@@ -613,6 +614,17 @@ async fn mark_failed(
             thread_id: None,
         },
     );
+    // Spawned: reporting can start an engine, and starting one can end up back here.
+    let app = app.clone();
+    let workspace_id = workspace_id.to_string();
+    let message = message.to_string();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) =
+            crate::orchestration::on_provisioning_failed(&app, &workspace_id, &message).await
+        {
+            log::warn!("reporting failed setup: {error}");
+        }
+    });
 }
 
 /// The worktree is checked out, setup has run, and the Reviewer has its prompt.

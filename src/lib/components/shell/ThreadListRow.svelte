@@ -6,12 +6,12 @@
     workspaceStatusWord,
   } from '$lib/sidebar/status'
   import { app, workspaceRecords } from '$lib/state'
-  import type { ThreadListItem } from '$lib/state/sidebar-workspaces.svelte'
+  import type { ThreadListRowItem } from '$lib/state/sidebar-workspaces.svelte'
   import { cn } from '$lib/utils'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import StatusDot from './StatusDot.svelte'
 
-  let { item, nowMs }: { item: ThreadListItem; nowMs: number } = $props()
+  let { item, nowMs }: { item: ThreadListRowItem; nowMs: number } = $props()
 
   const workspace = $derived(item.workspace)
   const attention = $derived(item.urgency === 'attention')
@@ -69,6 +69,7 @@
       item.branch,
       attention ? `needs attention, ${statusLine}` : statusLine,
       appPort ? `app running on port ${appPort}` : null,
+      item.parentTitle ? `started by ${item.parentTitle}` : null,
     ]
       .filter(Boolean)
       .join(', '),
@@ -84,6 +85,7 @@
   type="button"
   class={cn(
     'thread-row relative grid w-full grid-cols-[16px_minmax(0,1fr)] gap-x-2 overflow-hidden rounded-lg px-2.5 py-2 text-left transition-[background-color,transform,box-shadow] duration-(--dur-fast) ease-(--ease-out-snappy) outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.98] aria-[current=page]:bg-sidebar-accent dark:hover:bg-muted/50',
+    item.nested && 'pl-6',
   )}
   aria-current={isCurrent ? 'page' : undefined}
   aria-label={ariaLabel}
@@ -145,6 +147,11 @@
             <span class="size-1.5 rounded-full bg-emerald-500"></span>:{appPort}
           </span>
         {/if}
+      </span>
+    {/if}
+    {#if item.parentTitle && !item.nested}
+      <span class="truncate text-[11px] text-muted-foreground">
+        Started by {item.parentTitle}
       </span>
     {/if}
     {#if showStatus}

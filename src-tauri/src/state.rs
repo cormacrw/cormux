@@ -7,6 +7,7 @@ use crate::app::WorkspaceAppService;
 use crate::clickup::ClickupClient;
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::ipc::subscriptions::Subscriptions;
+use crate::orchestration::ReportQueue;
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::PrSyncScheduler,
     llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
@@ -34,6 +35,7 @@ pub struct AppState {
     pub approval_notify: broadcast::Sender<()>,
     pub turn_end_notify: broadcast::Sender<String>,
     pub subscriptions: Subscriptions,
+    pub reports: ReportQueue,
 }
 
 impl AppState {
@@ -50,18 +52,19 @@ impl AppState {
         let approvals = Arc::new(ApprovalBroker::new());
         let (approval_notify, _) = broadcast::channel(32);
         let (turn_end_notify, _) = broadcast::channel(64);
-        let engines = EngineRegistry::new(
-            shell_env.clone(),
-            approvals.clone(),
-            store.clone(),
-            approval_notify.clone(),
-            turn_end_notify.clone(),
-        );
         let mcp = CormuxMcp::new(
             store.clone(),
             process.clone(),
             approvals.clone(),
             apps.clone(),
+        );
+        let engines = EngineRegistry::new(
+            shell_env.clone(),
+            approvals.clone(),
+            store.clone(),
+            mcp.clone(),
+            approval_notify.clone(),
+            turn_end_notify.clone(),
         );
         Self {
             event_version: AtomicU64::new(0),
@@ -83,6 +86,7 @@ impl AppState {
             approval_notify,
             turn_end_notify,
             subscriptions: Subscriptions::new(),
+            reports: ReportQueue::default(),
         }
     }
 

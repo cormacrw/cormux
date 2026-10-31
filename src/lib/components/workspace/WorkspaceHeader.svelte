@@ -48,7 +48,15 @@
   const repo = $derived(record ? repos.getById(record.repoId) : undefined)
   const runtime = $derived(workspaceRecords.runtime(workspace.id))
   const wsThreads = $derived(threads.forWorkspace(workspace.id))
-  const cost = $derived(totalCost(wsThreads.map((thread) => thread.usage)))
+  // What this work has cost, the threads it started included.
+  const cost = $derived(
+    totalCost(
+      [
+        ...wsThreads,
+        ...wsThreads.flatMap((thread) => threads.childrenOf(thread.id)),
+      ].map((thread) => thread.usage),
+    ),
+  )
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runDisabled = $derived(
     provisioning || workspace.lifecycle === 'provisioningFailed',

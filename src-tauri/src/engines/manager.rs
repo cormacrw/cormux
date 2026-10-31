@@ -15,6 +15,7 @@ use super::models::{ModelOption, ThreadModels, static_models};
 use super::prompt::Prompt;
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::error::{Error, Result};
+use crate::mcp::CormuxMcp;
 use crate::shell_env::ShellEnv;
 use crate::store::Store;
 
@@ -32,6 +33,7 @@ pub struct EngineRegistry {
     env: Arc<RwLock<ShellEnv>>,
     approvals: Arc<ApprovalBroker>,
     pub(crate) store: Store,
+    mcp: CormuxMcp,
     approval_notify: tokio::sync::broadcast::Sender<()>,
     /// Thread ids whose turn just ended (or whose engine exited).
     turn_end_notify: tokio::sync::broadcast::Sender<String>,
@@ -74,6 +76,7 @@ impl EngineRegistry {
         env: Arc<RwLock<ShellEnv>>,
         approvals: Arc<ApprovalBroker>,
         store: Store,
+        mcp: CormuxMcp,
         approval_notify: tokio::sync::broadcast::Sender<()>,
         turn_end_notify: tokio::sync::broadcast::Sender<String>,
     ) -> Self {
@@ -81,6 +84,7 @@ impl EngineRegistry {
             env,
             approvals,
             store,
+            mcp,
             approval_notify,
             turn_end_notify,
             threads: Arc::new(Mutex::new(HashMap::new())),
@@ -430,6 +434,8 @@ impl EngineRegistry {
             model,
             extra_args,
             use_default_args,
+            // A read-only scratch has no workspace to start threads from.
+            orchestrate: use_default_args && !spec.read_only,
             env: Some(env.vars().clone()),
         };
         if options.env.as_ref().is_some_and(|vars| vars.is_empty()) {
@@ -445,6 +451,7 @@ impl EngineRegistry {
         let auto_all = spec.auto_approve_all;
         let read_only = spec.read_only;
         let approval_notify = self.approval_notify.clone();
+        let mcp = self.mcp.clone();
         tokio::spawn(async move {
             run_claude(
                 session,
@@ -452,6 +459,7 @@ impl EngineRegistry {
                 events,
                 approvals,
                 store,
+                mcp,
                 thread_id,
                 session_id,
                 ClaudePolicy {
@@ -525,6 +533,7 @@ async fn run_claude(
     events: broadcast::Sender<AgentEvent>,
     approvals: Arc<ApprovalBroker>,
     store: Store,
+    mcp: CormuxMcp,
     thread_id: String,
     session_id: Arc<Mutex<Option<String>>>,
     policy: ClaudePolicy,
@@ -532,6 +541,8 @@ async fn run_claude(
     // Where leaving plan mode goes back to; a session that starts outside plan mode updates it.
 ) {
     let (answer_tx, mut answer_rx) = mpsc::unbounded_channel::<ClaudeAnswer>();
+    // Tool calls run off the pump, which has to keep reading while they work.
+    let (mcp_tx, mut mcp_rx) = mpsc::unbounded_channel::<(String, serde_json::Value)>();
     // Claude's running cost for this process, so each turn adds only what it cost.
     let mut process_cost = 0.0_f64;
     loop {
@@ -601,7 +612,19 @@ async fn run_claude(
                                 cost_usd,
                             );
                         }
-                        if let Event::CanUseTool(req) = &raw {
+                        if let Event::McpMessage { request_id, message, server_name } = raw {
+                            let reply = mcp_tx.clone();
+                            let mcp = mcp.clone();
+                            let thread_id = thread_id.clone();
+                            tokio::spawn(async move {
+                                let answer = if server_name == crate::mcp::SERVER_NAME {
+                                    mcp.handle_message(&thread_id, &message).await
+                                } else {
+                                    crate::mcp::unknown_server_reply(&message, &server_name)
+                                };
+                                let _ = reply.send((request_id, answer));
+                            });
+                        } else if let Event::CanUseTool(req) = &raw {
                             handle_claude_permission(
                                 &mut session,
                                 req,
@@ -632,6 +655,11 @@ async fn run_claude(
                         });
                         break;
                     }
+                }
+            }
+            Some((request_id, answer)) = mcp_rx.recv() => {
+                if let Err(error) = session.answer_mcp(&request_id, answer).await {
+                    log::warn!("claude mcp answer: {error}");
                 }
             }
             Some(answer) = answer_rx.recv() => {
@@ -770,6 +798,16 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_mcp(store: Store) -> CormuxMcp {
+        let env = Arc::new(RwLock::new(ShellEnv::new()));
+        CormuxMcp::new(
+            store,
+            crate::process::ProcessSupervisor::new(env),
+            Arc::new(ApprovalBroker::new()),
+            crate::app::WorkspaceAppService::new(),
+        )
+    }
     use crate::approvals::ApprovalBroker;
     use crate::shell_env::ShellEnv;
     use crate::store::Store;
@@ -784,10 +822,86 @@ mod tests {
         EngineRegistry::new(
             env,
             approvals,
-            store,
+            store.clone(),
+            test_mcp(store),
             approval_notify,
             broadcast::channel(8).0,
         )
+    }
+
+    /// Needs a signed-in `claude` on PATH, and spends one small Haiku turn.
+    #[tokio::test]
+    #[ignore]
+    async fn live_claude_reaches_the_cormux_tools() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .upsert_thread(&crate::store::types::ThreadRow {
+                id: "live".into(),
+                workspace_id: "live-workspace".into(),
+                title: "Lead".into(),
+                engine: "claude".into(),
+                session_id: None,
+                status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
+            })
+            .unwrap();
+        store.set_thread_model("live", Some("haiku")).unwrap();
+        let engines = EngineRegistry::new(
+            Arc::new(RwLock::new(ShellEnv::new())),
+            Arc::new(ApprovalBroker::new()),
+            store.clone(),
+            test_mcp(store.clone()),
+            broadcast::channel(4).0,
+            broadcast::channel(8).0,
+        );
+        engines
+            .spawn(SpawnSpec {
+                thread_id: "live".into(),
+                kind: EngineKind::Claude,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: None,
+                auto_approve_readonly: false,
+                auto_approve_all: false,
+                read_only: false,
+            })
+            .await
+            .unwrap();
+        let mut events = engines.subscribe("live").unwrap();
+        engines
+            .prompt(
+                "live",
+                "Call mcp__cormux__get_thread with id \"nonexistent\", then quote its error.",
+            )
+            .unwrap();
+        let mut reply = String::new();
+        let mut used_tool = false;
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(90), events.recv())
+                .await
+                .expect("the turn timed out")
+                .unwrap();
+            match event {
+                AgentEvent::ToolCall {
+                    name: Some(name), ..
+                } => {
+                    used_tool |= name == "mcp__cormux__get_thread";
+                }
+                AgentEvent::Permission { .. } => panic!("a read tool asked for approval"),
+                AgentEvent::MessageChunk { text, .. } => reply.push_str(&text),
+                AgentEvent::TurnEnd { .. } => break,
+                _ => {}
+            }
+        }
+        engines.stop("live").await.unwrap();
+        assert!(used_tool, "never called the tool: {reply}");
+        assert!(reply.contains("unknown thread"), "{reply}");
     }
 
     #[tokio::test]
@@ -799,7 +913,8 @@ mod tests {
         let engines = EngineRegistry::new(
             env,
             Arc::new(ApprovalBroker::new()),
-            store,
+            store.clone(),
+            test_mcp(store),
             broadcast::channel(4).0,
             turn_end_notify,
         );
@@ -1031,6 +1146,7 @@ mod tests {
                 cost_usd: None,
                 transcript_readonly: false,
                 retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
     }

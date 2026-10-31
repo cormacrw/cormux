@@ -89,6 +89,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "016_drop_plan_mode",
         sql: include_str!("../../migrations/016_drop_plan_mode.sql"),
     },
+    Migration {
+        version: 17,
+        name: "017_thread_parent",
+        sql: include_str!("../../migrations/017_thread_parent.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -172,7 +177,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 16);
+        assert_eq!(version, 17);
 
         for expected in [
             "approvals",
