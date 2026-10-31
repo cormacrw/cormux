@@ -162,7 +162,7 @@ test('a working thread only moves to Working once you leave it', async ({
   await expect(toggle).toHaveCount(0)
 })
 
-test('a thread flashes unless it is working, and carries no status text', async ({
+test('a thread flashes only while waiting on you, and carries no status text', async ({
   page,
 }) => {
   await page.goto('/')
@@ -174,6 +174,8 @@ test('a thread flashes unless it is working, and carries no status text', async 
   const row = page.getByRole('button', { name: /^OAuth login,/ })
   await expect(row).toHaveAttribute('data-urgency', 'attention')
   await expect(row).not.toContainText('Idle')
+  // Finished threads hold still, so a quiet sidebar lets the app go idle.
+  await expect(row.locator('.status-flash')).toHaveCount(0)
 
   const rows = page.locator('[data-od-id="thread-list"] button')
   await expect(rows).toHaveCount(3)

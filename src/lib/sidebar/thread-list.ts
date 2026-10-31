@@ -6,26 +6,16 @@ import type { AgentEvent, WorkspaceLifecycle } from '$lib/ipc/bindings'
  */
 export type ThreadUrgency = 'attention' | 'quiet'
 
-type TimedEvent = { atMs: number; event: AgentEvent }
-
 /**
- * When the thread last moved: a message from you or the end of a turn. Streamed output doesn't
- * count, so a working thread holds its place in the list instead of jumping on every chunk.
+ * Whether an event moved the thread: a message from you or the end of a turn. Streamed output
+ * doesn't count, so a working thread holds its place in the list instead of jumping on every chunk.
  */
-export function threadActivityMs(events: TimedEvent[]): number {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const row = events[index]
-    if (!row) continue
-    const { event } = row
-    if (
-      event.type === 'turnEnd' ||
-      event.type === 'engineExited' ||
-      (event.type === 'messageChunk' && event.role === 'user')
-    ) {
-      return row.atMs
-    }
-  }
-  return 0
+export function isThreadActivity(event: AgentEvent): boolean {
+  return (
+    event.type === 'turnEnd' ||
+    event.type === 'engineExited' ||
+    (event.type === 'messageChunk' && event.role === 'user')
+  )
 }
 
 export function threadUrgency(input: {

@@ -1,5 +1,6 @@
 import type { AgentEvent, ApprovalRow, ToolKind } from '$lib/ipc/bindings'
 import { parseApprovalPayload } from '$lib/approvals/payload'
+import { memoByText } from './memo'
 import { summarizeRun } from './run-summary'
 import type {
   TimelineChip,
@@ -19,7 +20,6 @@ export type MapTimelineInput = {
   approvals: ApprovalRow[]
   findingsReady: boolean
   showLive: boolean
-  liveToolTitle: string | null
   /** A scratch runs on the main checkout in the engine's read-only mode. */
   scratch?: boolean
 }
@@ -45,8 +45,7 @@ type NextId = (prefix: string) => string
  * Ids count items of each kind (the 3rd user message is `user-3`), so a rebuild after a
  * new chunk or a reload from the store gives every row the same key and it stays mounted.
  */
-function ordinalIds(): NextId {
-  const counts = new Map<string, number>()
+function ordinalIds(counts: Map<string, number>): NextId {
   return (prefix) => {
     const next = (counts.get(prefix) ?? 0) + 1
     counts.set(prefix, next)
@@ -122,6 +121,10 @@ function withToolName(text: string, toolName: string): string {
   return toolName ? text.replace(toolName, toolDisplayName(toolName)) : text
 }
 
+// A timeline rebuild re-reads every approval and run, and neither changes once written.
+const parsedApproval = memoByText(parseApprovalPayload)
+const summarizedRun = memoByText(summarizeRun)
+
 function approvalFromPermission(
   event: Extract<AgentEvent, { type: 'permission' }>,
   seq: number,
@@ -129,7 +132,7 @@ function approvalFromPermission(
   approvals: ApprovalRow[],
 ) {
   const row = approvals.find((entry) => entry.id === event.id)
-  const payload = row ? parseApprovalPayload(row.payload) : null
+  const payload = row ? parsedApproval(row.payload) : null
   const state = approvalState(event.id, approvals)
   return {
     kind: 'approval' as const,
@@ -274,7 +277,7 @@ function withRunResult(
   output: string | undefined,
 ): ToolRunStep {
   if (step.kind !== 'tool' || event.kind !== 'execute' || !output) return step
-  const run = summarizeRun(output)
+  const run = summarizedRun(output)
   return run ? { ...step, run, output } : step
 }
 
@@ -367,179 +370,209 @@ function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
   return merged
 }
 
-export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
-  const items: TimelineItem[] = []
-  const nextId = ordinalIds()
-  const run: ToolRunStep[] = []
+type FoldState = {
+  items: TimelineItem[]
+  counts: Map<string, number>
+  nextId: NextId
+  run: ToolRunStep[]
   // A subagent's steps can land runs after the step that spawned them.
-  const stepsById = new Map<string, ToolRunStep>()
-  let runSeq = 0
-  let pendingAutoChip: TimelineChip | undefined
-  let sealMessage = false
+  stepsById: Map<string, ToolRunStep>
+  runSeq: number
+  pendingAutoChip: TimelineChip | undefined
+  sealMessage: boolean
   // Set when the user sends the prompt; cleared when that turn ends.
-  let runStartedAt = 0
+  runStartedAt: number
+}
 
-  for (const { seq, atMs = 0, event, output } of mergeToolUpdates(
-    input.events,
-  )) {
-    switch (event.type) {
-      case 'messageChunk': {
-        flushRun(run, items, runSeq, nextId)
-        if (event.role === 'user') {
-          if (!runStartedAt && atMs) runStartedAt = atMs
-          const last = items[items.length - 1]
-          if (!sealMessage && last?.kind === 'user') {
-            last.text += event.text
-            last.seq = seq
-          } else {
-            items.push({
-              kind: 'user',
-              id: nextId('user'),
-              text: event.text,
-              seq,
-              atMs,
-            })
-          }
-          sealMessage = false
+function foldState(
+  items: TimelineItem[] = [],
+  counts = new Map<string, number>(),
+  pendingAutoChip?: TimelineChip,
+  sealMessage = false,
+): FoldState {
+  return {
+    items,
+    counts,
+    nextId: ordinalIds(counts),
+    run: [],
+    stepsById: new Map(),
+    runSeq: 0,
+    pendingAutoChip,
+    sealMessage,
+    runStartedAt: 0,
+  }
+}
+
+function foldEvent(
+  state: FoldState,
+  { seq, atMs = 0, event, output }: TimelineEvent,
+  input: MapTimelineInput,
+) {
+  const { items, run, nextId, stepsById } = state
+  switch (event.type) {
+    case 'messageChunk': {
+      flushRun(run, items, state.runSeq, nextId)
+      if (event.role === 'user') {
+        if (!state.runStartedAt && atMs) state.runStartedAt = atMs
+        const last = items[items.length - 1]
+        if (!state.sealMessage && last?.kind === 'user') {
+          last.text += event.text
+          last.seq = seq
         } else {
-          const role = event.role === 'agent' ? 'agent' : 'thought'
-          const last = items[items.length - 1]
-          if (!sealMessage && last?.kind === 'thought' && last.role === role) {
-            last.text += event.text
-            last.seq = seq
-          } else {
-            items.push({
-              kind: 'thought',
-              id: nextId('thought'),
-              role,
-              text: event.text,
-              seq,
-              atMs,
-            })
-          }
-          sealMessage = false
-        }
-        break
-      }
-      case 'toolCall': {
-        if (isAppEvent(event)) {
-          flushRun(run, items, runSeq, nextId)
           items.push({
-            kind: 'event',
-            id: event.id,
-            icon: iconForAppEvent(event.title),
-            title: event.title,
-            detail: event.detail ?? undefined,
+            kind: 'user',
+            id: nextId('user'),
+            text: event.text,
             seq,
             atMs,
           })
-          break
         }
-        // The plan's own row stands for the request to leave plan mode.
-        const toolName = event.name ?? event.title
-        // Both show up as their approval card, never as a step.
-        if (toolName === 'ExitPlanMode' || toolName === 'AskUserQuestion') break
-        if (!toolKindIsRunStep(event.kind)) break
-        if (!run.length) runSeq = seq
-        const scratchRead =
-          input.scratch && (event.kind === 'read' || event.kind === 'search')
-        const chips = pendingAutoChip
-          ? [pendingAutoChip]
-          : scratchRead
-            ? [SCRATCH_CHIP]
-            : undefined
-        pendingAutoChip = undefined
-        const step = withRunResult(
-          toolStepFromCall(event, seq, atMs, chips),
-          event,
-          output,
-        )
-        stepsById.set(event.id, step)
-        const parent = event.parent_id
-          ? stepsById.get(event.parent_id)
-          : undefined
-        if (parent?.kind === 'tool') {
-          parent.children = [
-            ...(parent.children ?? []),
-            { ...step, status: event.status },
-          ]
-          break
+        state.sealMessage = false
+      } else {
+        const role = event.role === 'agent' ? 'agent' : 'thought'
+        const last = items[items.length - 1]
+        if (
+          !state.sealMessage &&
+          last?.kind === 'thought' &&
+          last.role === role
+        ) {
+          last.text += event.text
+          last.seq = seq
+        } else {
+          items.push({
+            kind: 'thought',
+            id: nextId('thought'),
+            role,
+            text: event.text,
+            seq,
+            atMs,
+          })
         }
-        run.push(step)
-        break
+        state.sealMessage = false
       }
-      case 'plan': {
-        flushRun(run, items, runSeq, nextId)
-        const steps = event.entries.map((entry) => entry.content)
-        const statuses = event.entries.map((entry) => entry.status)
-        // An agent re-sends its list as it works: that ticks the turn's plan off, not a new one.
-        const lastUser = items.findLastIndex((row) => row.kind === 'user')
-        const current = items.findLastIndex((row) => row.kind === 'plan')
-        const plan = current > lastUser ? items[current] : undefined
-        if (plan?.kind === 'plan') {
-          plan.steps = steps
-          plan.statuses = statuses
-          break
-        }
+      break
+    }
+    case 'toolCall': {
+      if (isAppEvent(event)) {
+        flushRun(run, items, state.runSeq, nextId)
         items.push({
-          kind: 'plan',
-          id: nextId('plan'),
-          steps,
-          statuses,
+          kind: 'event',
+          id: event.id,
+          icon: iconForAppEvent(event.title),
+          title: event.title,
+          detail: event.detail ?? undefined,
           seq,
           atMs,
         })
         break
       }
-      case 'permission': {
-        flushRun(run, items, runSeq, nextId)
-        if (event.auto_approved) {
-          pendingAutoChip = input.scratch
-            ? SCRATCH_CHIP
-            : { label: 'Read-only, auto-approved', tone: 'muted' }
-          break
-        }
-        items.push(approvalFromPermission(event, seq, atMs, input.approvals))
+      // The plan's own row stands for the request to leave plan mode.
+      const toolName = event.name ?? event.title
+      // Both show up as their approval card, never as a step.
+      if (toolName === 'ExitPlanMode' || toolName === 'AskUserQuestion') break
+      if (!toolKindIsRunStep(event.kind)) break
+      if (!run.length) state.runSeq = seq
+      const scratchRead =
+        input.scratch && (event.kind === 'read' || event.kind === 'search')
+      const chips = state.pendingAutoChip
+        ? [state.pendingAutoChip]
+        : scratchRead
+          ? [SCRATCH_CHIP]
+          : undefined
+      state.pendingAutoChip = undefined
+      const step = withRunResult(
+        toolStepFromCall(event, seq, atMs, chips),
+        event,
+        output,
+      )
+      stepsById.set(event.id, step)
+      const parent = event.parent_id
+        ? stepsById.get(event.parent_id)
+        : undefined
+      if (parent?.kind === 'tool') {
+        parent.children = [
+          ...(parent.children ?? []),
+          { ...step, status: event.status },
+        ]
         break
       }
-      case 'currentTool':
-      case 'sessionStarted':
-      case 'usage':
-        flushRun(run, items, runSeq, nextId)
-        sealMessage = true
-        break
-      case 'turnEnd':
-      case 'engineExited':
-        flushRun(run, items, runSeq, nextId)
-        if (runStartedAt && atMs >= runStartedAt) {
-          items.push({
-            kind: 'toolRun',
-            id: nextId('run'),
-            seq,
-            steps: [
-              {
-                kind: 'tool',
-                id: nextId('worked'),
-                icon: 'clock',
-                title: workedForLabel(runStartedAt, atMs),
-                quiet: true,
-                seq,
-                atMs,
-              },
-            ],
-          })
-        }
-        runStartedAt = 0
-        sealMessage = true
-        break
+      run.push(step)
+      break
     }
+    case 'plan': {
+      flushRun(run, items, state.runSeq, nextId)
+      const steps = event.entries.map((entry) => entry.content)
+      const statuses = event.entries.map((entry) => entry.status)
+      // An agent re-sends its list as it works: that ticks the turn's plan off, not a new one.
+      const lastUser = items.findLastIndex((row) => row.kind === 'user')
+      const current = items.findLastIndex((row) => row.kind === 'plan')
+      const plan = current > lastUser ? items[current] : undefined
+      if (plan?.kind === 'plan') {
+        items[current] = { ...plan, steps, statuses }
+        break
+      }
+      items.push({
+        kind: 'plan',
+        id: nextId('plan'),
+        steps,
+        statuses,
+        seq,
+        atMs,
+      })
+      break
+    }
+    case 'permission': {
+      flushRun(run, items, state.runSeq, nextId)
+      if (event.auto_approved) {
+        state.pendingAutoChip = input.scratch
+          ? SCRATCH_CHIP
+          : { label: 'Read-only, auto-approved', tone: 'muted' }
+        break
+      }
+      items.push(approvalFromPermission(event, seq, atMs, input.approvals))
+      break
+    }
+    case 'currentTool':
+    case 'sessionStarted':
+    case 'usage':
+      flushRun(run, items, state.runSeq, nextId)
+      state.sealMessage = true
+      break
+    case 'turnEnd':
+    case 'engineExited':
+      flushRun(run, items, state.runSeq, nextId)
+      if (state.runStartedAt && atMs >= state.runStartedAt) {
+        items.push({
+          kind: 'toolRun',
+          id: nextId('run'),
+          seq,
+          steps: [
+            {
+              kind: 'tool',
+              id: nextId('worked'),
+              icon: 'clock',
+              title: workedForLabel(state.runStartedAt, atMs),
+              quiet: true,
+              seq,
+              atMs,
+            },
+          ],
+        })
+      }
+      state.runStartedAt = 0
+      state.sealMessage = true
+      break
   }
+}
 
-  flushRun(run, items, runSeq, nextId)
-
+function finishTimeline(
+  state: FoldState,
+  input: MapTimelineInput,
+): TimelineItem[] {
+  flushRun(state.run, state.items, state.runSeq, state.nextId)
   // A thought right before the reply can hold the answer too, so the reply stands alone.
-  const visible = items.filter((item, index) => {
-    const next = items[index + 1]
+  const items = state.items.filter((item, index) => {
+    const next = state.items[index + 1]
     return !(
       item.kind === 'thought' &&
       item.role === 'thought' &&
@@ -547,8 +580,6 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
       next.role === 'agent'
     )
   })
-  items.length = 0
-  items.push(...visible)
 
   if (input.findingsReady) {
     items.push({
@@ -563,121 +594,141 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
     items.push({ kind: 'live', id: 'live' })
   }
 
-  void input.liveToolTitle
   return items
 }
 
-export function applyAgentEventToTimeline(
-  items: TimelineItem[],
-  event: AgentEvent,
-  seq: number,
-  approvals: ApprovalRow[],
-): TimelineItem[] {
-  return mapEventsToTimeline({
-    events: flattenItemsToEvents(items, event, seq),
-    approvals,
-    findingsReady: items.some((row) => row.kind === 'findings'),
-    showLive: items.some((row) => row.kind === 'live'),
-    liveToolTitle: null,
-  })
+export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
+  const state = foldState()
+  for (const entry of mergeToolUpdates(input.events)) {
+    foldEvent(state, entry, input)
+  }
+  return finishTimeline(state, input)
 }
 
-function flattenItemsToEvents(
-  items: TimelineItem[],
-  nextEvent: AgentEvent,
-  seq: number,
-): { seq: number; event: AgentEvent }[] {
-  const events: { seq: number; event: AgentEvent }[] = []
-  for (const item of items) {
-    if (item.kind === 'user') {
-      events.push({
-        seq: item.seq,
-        event: { type: 'messageChunk', role: 'user', text: item.text },
-      })
-    } else if (item.kind === 'thought') {
-      events.push({
-        seq: item.seq,
-        event: {
-          type: 'messageChunk',
-          role: item.role,
-          text: item.text,
-        },
-      })
-    } else if (item.kind === 'toolRun') {
-      for (const step of item.steps) {
-        if (step.kind === 'edit') {
-          events.push({
-            seq: step.seq,
-            event: {
-              type: 'toolCall',
-              id: step.id,
-              title: step.verb,
-              name: null,
-              kind: step.verb === 'Deleted' ? 'delete' : 'edit',
-              status: 'completed',
-              locations: [step.path],
-              detail: step.path,
-            },
-          })
-        } else {
-          events.push({
-            seq: step.seq,
-            event: {
-              type: 'toolCall',
-              id: step.id,
-              title: step.title,
-              name: null,
-              kind: 'other',
-              status: 'completed',
-              locations: step.detail ? [step.detail] : [],
-              detail: step.rawDetail ?? step.detail ?? null,
-            },
-          })
-        }
-      }
-    } else if (item.kind === 'event') {
-      events.push({
-        seq: item.seq,
-        event: {
-          type: 'toolCall',
-          id: item.id,
-          title: item.title,
-          name: null,
-          kind: 'other',
-          status: 'completed',
-          locations: [],
-          detail: item.detail ?? null,
-        },
-      })
-    } else if (item.kind === 'plan') {
-      events.push({
-        seq: item.seq,
-        event: {
-          type: 'plan',
-          entries: item.steps.map((content, index) => ({
-            content,
-            status: item.statuses[index] ?? 'pending',
-          })),
-        },
-      })
-    } else if (item.kind === 'approval' && item.state === 'pending') {
-      events.push({
-        seq: item.seq,
-        event: {
-          type: 'permission',
-          id: item.id,
-          tool_call_id: null,
-          title: item.title,
-          tool_name: item.why,
-          kind: 'other',
-          detail: item.what,
-          auto_approved: false,
-        },
-      })
+type FinishedTurns = {
+  /** How many of the input's events these items cover. */
+  count: number
+  first: MapTimelineInput['events'][number] | undefined
+  last: MapTimelineInput['events'][number] | undefined
+  items: TimelineItem[]
+  counts: Map<string, number>
+  pendingAutoChip: TimelineChip | undefined
+  callIds: Set<string>
+  approvals: ApprovalRow[]
+  scratch: boolean | undefined
+}
+
+function sameApprovals(a: ApprovalRow[], b: ApprovalRow[]) {
+  if (a === b) return true
+  return (
+    a.length === b.length &&
+    a.every((row, index) => {
+      const other = b[index]
+      return (
+        row.id === other?.id &&
+        row.status === other.status &&
+        row.payload === other.payload
+      )
+    })
+  )
+}
+
+function touchesFinishedTurn(event: AgentEvent, callIds: Set<string>) {
+  if (event.type === 'toolCallUpdate') return callIds.has(event.id)
+  if (event.type !== 'toolCall') return false
+  return (
+    callIds.has(event.id) ||
+    (event.parent_id != null && callIds.has(event.parent_id))
+  )
+}
+
+/**
+ * The same timeline as `mapEventsToTimeline`, without redoing finished turns on every event, and
+ * handing back the previous object for anything unchanged so its row isn't invalidated. Any event
+ * that reaches back into a finished turn, or a change to the approvals, rebuilds from the start.
+ */
+export class TimelineBuilder {
+  private finished: FinishedTurns | null = null
+  private previous: TimelineItem[] = []
+
+  private usableTurns(input: MapTimelineInput): FinishedTurns | null {
+    const turns = this.finished
+    if (
+      !turns ||
+      turns.scratch !== input.scratch ||
+      input.events.length < turns.count ||
+      input.events[0] !== turns.first ||
+      input.events[turns.count - 1] !== turns.last ||
+      !sameApprovals(turns.approvals, input.approvals)
+    ) {
+      return null
     }
+    for (let index = turns.count; index < input.events.length; index += 1) {
+      if (touchesFinishedTurn(input.events[index]!.event, turns.callIds)) {
+        return null
+      }
+    }
+    return turns
   }
-  events.push({ seq, event: nextEvent })
-  return events
+
+  private fold(input: MapTimelineInput): TimelineItem[] {
+    const turns = this.usableTurns(input)
+    if (!turns) this.finished = null
+    const start = turns?.count ?? 0
+    // Sealed: nothing written after a turn ends can extend a message from before it.
+    const state = turns
+      ? foldState(
+          [...turns.items],
+          new Map(turns.counts),
+          turns.pendingAutoChip,
+          true,
+        )
+      : foldState()
+    const tail = input.events.slice(start)
+    const turnEnd = tail.findLastIndex(
+      ({ event }) => event.type === 'turnEnd' || event.type === 'engineExited',
+    )
+    const boundary = tail[turnEnd]
+    for (const entry of mergeToolUpdates(tail)) {
+      foldEvent(state, entry, input)
+      if (entry !== boundary) continue
+      const callIds = new Set(turns?.callIds)
+      for (const { event } of tail.slice(0, turnEnd + 1)) {
+        if (event.type === 'toolCall') callIds.add(event.id)
+      }
+      this.finished = {
+        count: start + turnEnd + 1,
+        first: input.events[0],
+        last: boundary,
+        items: [...state.items],
+        counts: new Map(state.counts),
+        pendingAutoChip: state.pendingAutoChip,
+        callIds,
+        approvals: input.approvals,
+        scratch: input.scratch,
+      }
+    }
+    return finishTimeline(state, input)
+  }
+
+  build(input: MapTimelineInput): TimelineItem[] {
+    const before = new Map(this.previous.map((item) => [item.id, item]))
+    const reused = new Map<TimelineItem, TimelineItem>()
+    const items = this.fold(input).map((item) => {
+      const old = before.get(item.id)
+      if (!old || old === item) return item
+      if (JSON.stringify(old) !== JSON.stringify(item)) return item
+      reused.set(item, old)
+      return old
+    })
+    if (reused.size && this.finished) {
+      this.finished.items = this.finished.items.map(
+        (item) => reused.get(item) ?? item,
+      )
+    }
+    this.previous = items
+    return items
+  }
 }
 
 export function shouldShowLiveRow(status: string, paused: boolean): boolean {

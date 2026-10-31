@@ -122,6 +122,7 @@
 
   const draft = $derived(composerDrafts.textFor(thread.id))
   const showPause = $derived(composerShowsPauseControl(thread.status))
+  const threadId = $derived(thread.id)
   const pauseLabel = $derived(composerPauseLabel(thread.status, thread.paused))
   const isPaused = $derived(thread.status === 'paused' || thread.paused)
   // Only how full the context is; tokens and cost are in the thread tab's tooltip.
@@ -230,7 +231,7 @@
   const pickerOpen = $derived(!pickerDismissed && pickerOptions.length > 0)
 
   $effect(() => {
-    void thread.id
+    void threadId
     void listSkills
     historyIndex = null
     skills = null
@@ -325,7 +326,7 @@
   // Opening a conversation, switching threads, or coming back to one puts
   // focus in the prompt, ready to type.
   $effect(() => {
-    void thread.id
+    void threadId
     void app.focusGeneration
     void tick().then(takeFocus)
   })

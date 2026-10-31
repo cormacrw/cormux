@@ -53,6 +53,8 @@ impl Default for SpawnOptions {
 }
 
 /// One long-lived `claude -p` process speaking NDJSON on stdin/stdout.
+const LINE_BUFFER_KEEP: usize = 1024 * 1024;
+
 pub struct ClaudeSession {
     child: Child,
     stdin: ChildStdin,
@@ -246,13 +248,17 @@ impl ClaudeSession {
             if read == 0 && self.pending.is_empty() {
                 return Ok(None);
             }
-            let bytes = std::mem::take(&mut self.pending);
-            let line = String::from_utf8_lossy(&bytes);
+            let line = String::from_utf8_lossy(&self.pending);
             let trimmed = line.trim();
-            if trimmed.is_empty() {
+            let event = (!trimmed.is_empty()).then(|| decode_event(trimmed));
+            drop(line);
+            // Kept between lines, but one huge payload doesn't stay allocated.
+            self.pending.clear();
+            self.pending.shrink_to(LINE_BUFFER_KEEP);
+            let Some(event) = event else {
                 continue;
-            }
-            let event = decode_event(trimmed)?;
+            };
+            let event = event?;
             if let Event::Init { session_id, .. } = &event {
                 self.session_id = Some(session_id.clone());
             }

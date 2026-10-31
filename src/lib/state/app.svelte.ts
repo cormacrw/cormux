@@ -65,7 +65,8 @@ export class AppStore {
     // ponytail: core always sends view=homebase. Applying it on every snapshot
     // (including the focus refresh a file dialog triggers) leaves Settings.
     // Apply snapshot.view once the core actually stores the open view.
-    this.version = snapshot.version
+    // A snapshot read before a newer event must not look like a gap on the next one.
+    this.version = Math.max(this.version, snapshot.version)
   }
 
   /** The first page: an empty thread that becomes a workspace on its first message. */

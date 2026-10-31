@@ -7,6 +7,7 @@ import {
   statusDotVariantForWorkspace,
   threadActivityLine,
   workspaceStatusWord,
+  statusDotVariantForAttention,
 } from './status'
 
 describe('statusDotVariantForWorkspace', () => {
@@ -118,5 +119,14 @@ describe('plural', () => {
   it('uses singular and plural labels', () => {
     expect(plural(1, 'agent')).toBe('1 agent')
     expect(plural(3, 'agent')).toBe('3 agents')
+  })
+})
+
+describe('statusDotVariantForAttention', () => {
+  it('flashes only while the agent is on hold for an answer', () => {
+    expect(statusDotVariantForAttention(1, 'running')).toBe('waiting')
+    expect(statusDotVariantForAttention(0, 'waiting')).toBe('waiting')
+    expect(statusDotVariantForAttention(0, 'idle')).toBe('ready')
+    expect(statusDotVariantForAttention(0, undefined)).toBe('ready')
   })
 })

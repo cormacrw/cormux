@@ -28,6 +28,7 @@
   --background-solid: oklch(0.975 calc(0.003 * var(--tint-k)) var(--tint-h));
   --foreground: oklch(0.2 calc(0.008 * var(--tint-k)) var(--tint-h));
   --card: oklch(1 0 0 / 58%);
+  --card-flat: oklch(0.99 calc(0.002 * var(--tint-k)) var(--tint-h) / 80%);
   --card-foreground: oklch(0.2 calc(0.008 * var(--tint-k)) var(--tint-h));
   --popover: oklch(0.995 calc(0.002 * var(--tint-k)) var(--tint-h) / 82%);
   --popover-foreground: oklch(0.2 calc(0.008 * var(--tint-k)) var(--tint-h));
@@ -111,6 +112,7 @@
   --background-solid: oklch(0.17 calc(0.01 * var(--tint-k)) var(--tint-h));
   --foreground: oklch(0.965 calc(0.003 * var(--tint-k)) var(--tint-h));
   --card: oklch(1 0 0 / 6.5%);
+  --card-flat: oklch(0.25 calc(0.012 * var(--tint-k)) var(--tint-h) / 80%);
   --card-foreground: oklch(0.965 calc(0.003 * var(--tint-k)) var(--tint-h));
   --popover: oklch(0.24 calc(0.012 * var(--tint-k)) var(--tint-h) / 84%);
   --popover-foreground: oklch(0.965 calc(0.003 * var(--tint-k)) var(--tint-h));
@@ -245,7 +247,7 @@
   --color-background-solid: var(--background-solid);
   --color-backdrop: var(--backdrop);
   --color-foreground: var(--foreground);
-  --color-card: var(--card);
+  --color-card: var(--card-flat);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
@@ -1015,13 +1017,13 @@ summary.reply-card-head::-webkit-details-marker {
 }
 
 /*
- * Glass. Cards, popovers and the sidebar blur the live background behind
+ * Glass. Popovers, panels and the sidebar blur the live background behind
  * them; the classes below are for surfaces that aren't shadcn components.
  * Blur is expensive over an animated scene, so it goes on panels only, never
- * on rows or text.
+ * on rows or text. bg-card repeats per row and per button, so it gets the
+ * denser --card-flat instead of a blur.
  */
 @layer components {
-  .bg-card,
   .glass-card {
     -webkit-backdrop-filter: var(--glass-blur);
     backdrop-filter: var(--glass-blur);
@@ -1052,15 +1054,13 @@ summary.reply-card-head::-webkit-details-marker {
     backdrop-filter: none;
   }
 
-  /* Your messages: the accent itself as glass, solid enough to read over any background. */
+  /* Your messages: the accent itself, solid enough to read over any background. */
   .user-bubble {
-    background: color-mix(in oklch, var(--primary) 82%, transparent);
+    background: color-mix(in oklch, var(--primary) 92%, transparent);
     color: var(--primary-foreground);
     box-shadow:
       inset 0 1px 0 oklch(1 0 0 / 22%),
       0 4px 16px oklch(0 0 0 / 14%);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
   }
 
   .glass-pane {

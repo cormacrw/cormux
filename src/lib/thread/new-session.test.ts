@@ -22,7 +22,6 @@ describe('new session', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     expect(items).toMatchObject([
       { kind: 'event', icon: 'session', title: NEW_SESSION_TITLE },

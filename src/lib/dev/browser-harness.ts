@@ -2,10 +2,45 @@ import {
   fixtureDiff,
   fixtureEngines,
   fixtureSnapshot,
+  fixtureTimeline,
 } from './fixture-snapshot'
 import { fixtureClickupBoard, fixtureClickupDetail } from './fixture-clickup'
 
 type InvokeArgs = Record<string, unknown> | undefined
+
+/** Matches `thread_activity` in the core's store. */
+function threadActivityRows() {
+  const latest = new Map<string, string>()
+  for (const row of fixtureTimeline) {
+    if (
+      row.kind === 'turn_end' ||
+      row.kind === 'exit' ||
+      (row.kind === 'message' && row.payload.includes('"role":"user"'))
+    ) {
+      latest.set(row.threadId, row.createdAt)
+    }
+  }
+  return [...latest].map(([threadId, createdAt]) => ({ threadId, createdAt }))
+}
+
+/** Matches `thread_event_page` in the core's store. */
+function threadEventPage(args: InvokeArgs) {
+  const rows = fixtureTimeline
+    .filter((row) => row.threadId === args?.threadId)
+    .sort((a, b) => a.seq - b.seq)
+  const limit = Number(args?.limit ?? 2000)
+  const after = args?.afterSeq as number | null | undefined
+  const before = args?.beforeSeq as number | null | undefined
+  const events =
+    after != null
+      ? rows.filter((row) => row.seq > after).slice(0, limit)
+      : rows.filter((row) => before == null || row.seq < before).slice(-limit)
+  const first = events[0]
+  return {
+    events,
+    hasOlder: first ? rows.some((row) => row.seq < first.seq) : false,
+  }
+}
 
 function isRealTauri(): boolean {
   const internals = (
@@ -61,7 +96,7 @@ function createWorkspace(input: WorkspaceInput) {
     workspaceId,
     status: 'idle',
   })
-  persisted.timeline.push({
+  fixtureTimeline.push({
     id: 1000 * n,
     threadId,
     seq: 1,
@@ -78,7 +113,7 @@ function createWorkspace(input: WorkspaceInput) {
 
 /** `?longThread=N` fills the Lead thread with N finished turns (virtualized timeline). */
 function seedLongThread(turns: number) {
-  const timeline = fixtureSnapshot.persisted.timeline
+  const timeline = fixtureTimeline
   let id = 100_000
   let seq = 0
   const push = (kind: string, event: object) => {
@@ -125,15 +160,13 @@ export function installBrowserHarness() {
   // Tests can inject a real thread's events (as exported from cormux.db) for the Lead thread.
   const injected = (
     window as {
-      __HARNESS_TIMELINE__?: typeof fixtureSnapshot.persisted.timeline
+      __HARNESS_TIMELINE__?: typeof fixtureTimeline
     }
   ).__HARNESS_TIMELINE__
   if (injected) {
-    const persisted = fixtureSnapshot.persisted
-    persisted.timeline = [
-      ...persisted.timeline.filter((row) => row.threadId !== 'th-lead'),
-      ...injected,
-    ]
+    const others = fixtureTimeline.filter((row) => row.threadId !== 'th-lead')
+    fixtureTimeline.length = 0
+    fixtureTimeline.push(...others, ...injected)
   }
   // Tests can inject approvals to go with those events.
   const injectedApprovals = (
@@ -199,7 +232,7 @@ export function installBrowserHarness() {
       leadUsage,
     )
     // As a real turn does, log the usage it reported, stamped now.
-    const timeline = fixtureSnapshot.persisted.timeline
+    const timeline = fixtureTimeline
     timeline.push({
       id: Math.max(0, ...timeline.map((row) => row.id)) + 1,
       threadId: 'th-lead',
@@ -324,7 +357,7 @@ export function installBrowserHarness() {
   ;(
     window as { __HARNESS_AGENT_EVENTS__?: (events: object[]) => void }
   ).__HARNESS_AGENT_EVENTS__ = (events) => {
-    const timeline = fixtureSnapshot.persisted.timeline
+    const timeline = fixtureTimeline
     for (const event of events) {
       const seq =
         Math.max(
@@ -345,20 +378,29 @@ export function installBrowserHarness() {
       })
       const channel = agentChannels.get('th-lead')
       if (channel)
-        callbacks.get(channel.id)?.({ index: channel.index++, message: event })
+        callbacks.get(channel.id)?.({
+          index: channel.index++,
+          message: { seq, event },
+        })
     }
   }
 
+  // Stops the reply running in a thread, as interrupting the engine would.
+  const stopReply = new Map<string, () => void>()
+
   const streamReply = (threadId: string, text: string) => {
-    const timeline = fixtureSnapshot.persisted.timeline
-    let seq = Math.max(
-      0,
-      ...timeline
-        .filter((row) => row.threadId === threadId)
-        .map((row) => row.seq),
-    )
+    const timeline = fixtureTimeline
+    let stopped = false
+    let seq = 0
     const persist = (kind: string, event: object) => {
-      seq += 1
+      // Numbered at write time like the store: a stopped reply's timers keep writing here.
+      seq =
+        Math.max(
+          0,
+          ...timeline
+            .filter((row) => row.threadId === threadId)
+            .map((row) => row.seq),
+        ) + 1
       timeline.push({
         id: 900_000 + seq,
         threadId,
@@ -371,11 +413,27 @@ export function installBrowserHarness() {
     const send = (event: object) => {
       const channel = agentChannels.get(threadId)
       if (!channel) return
-      callbacks.get(channel.id)?.({ index: channel.index++, message: event })
+      callbacks.get(channel.id)?.({
+        index: channel.index++,
+        message: { seq, event },
+      })
     }
+    stopReply.set(threadId, () => {
+      stopped = true
+      persist('turn_end', {
+        type: 'turnEnd',
+        stop_reason: 'cancelled',
+        error: null,
+      })
+      const row = fixtureSnapshot.persisted.threads.find(
+        (entry) => entry.id === threadId,
+      )
+      if (row) row.status = 'idle'
+    })
     persist('message', { type: 'messageChunk', role: 'user', text })
     // One tool call first, the way agents read before they answer.
     setTimeout(() => {
+      if (stopped) return
       const read = {
         type: 'toolCall',
         id: `harness-read-${seq}`,
@@ -402,6 +460,7 @@ export function installBrowserHarness() {
     words.forEach((word, i) => {
       setTimeout(
         () => {
+          if (stopped) return
           const event = {
             type: 'messageChunk',
             role: 'agent',
@@ -415,6 +474,8 @@ export function installBrowserHarness() {
     })
     setTimeout(
       () => {
+        if (stopped) return
+        stopReply.delete(threadId)
         const end = { type: 'turnEnd', stop_reason: 'end_turn', error: null }
         persist('turn_end', end)
         send(end)
@@ -586,7 +647,11 @@ export function installBrowserHarness() {
   const threadModels = new Map<string, string | null>()
 
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {
-    if (cmd === 'get_snapshot') return fixtureSnapshot
+    if (cmd === 'get_snapshot') {
+      fixtureSnapshot.persisted.threadActivity = threadActivityRows()
+      return fixtureSnapshot
+    }
+    if (cmd === 'get_thread_events') return threadEventPage(args)
     if (cmd === 'get_workspace_stack') return stackFor(String(args.workspaceId))
     if (cmd === 'switch_workspace_branch') {
       const input = args.input as { workspaceId: string; branch: string }
@@ -823,6 +888,12 @@ export function installBrowserHarness() {
       streamReply('th-lead', String(args.text))
       return null
     }
+    if (cmd === 'cancel_thread_turn') {
+      const threadId = String(args.threadId)
+      stopReply.get(threadId)?.()
+      stopReply.delete(threadId)
+      return null
+    }
     if (cmd === 'list_repo_skills') {
       return [
         { name: 'deploy', description: 'Ship it', source: 'project' },
@@ -890,7 +961,7 @@ export function installBrowserHarness() {
         ;(window as { __HARNESS_RESUMED__?: unknown }).__HARNESS_RESUMED__ =
           resume
       }
-      const timeline = fixtureSnapshot.persisted.timeline
+      const timeline = fixtureTimeline
       const seq =
         Math.max(
           0,

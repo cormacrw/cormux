@@ -10,7 +10,7 @@ use crate::clickup::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
 use crate::composer::{
     persist_control_step, persist_control_step_with_detail, persist_user_message,
 };
-use crate::engines::{EngineKind, ThreadModels};
+use crate::engines::{EngineKind, StreamedEvent, ThreadModels};
 use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
 use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
@@ -40,15 +40,14 @@ const CLICKUP_FOLDER_KEY: &str = "clickupFolderId";
 #[tauri::command]
 #[specta::specta]
 pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
-    let trees = process_trees(&state);
-    let memory = state.metrics.sample(&trees).ok();
+    let memory = state.metrics.latest();
     let github_auth_configured = state.pr_sync.auth_configured(&state);
     let pr_synced_at = state
         .store
         .get_setting("githubPrSyncedAt")?
         .filter(|value| !value.is_empty());
 
-    let persisted = state.store.snapshot()?;
+    let persisted = state.store.blocking(|store| store.snapshot()).await?;
     let workspace_ids: Vec<String> = if state.workspace.list().await.is_empty() {
         persisted
             .workspaces
@@ -546,25 +545,37 @@ pub async fn reload_environment(app: AppHandle, state: State<'_, AppState>) -> R
 
 #[tauri::command]
 #[specta::specta]
-pub async fn fetch_on_focus(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    let updates = state.fetch.tick().await?;
-    crate::git_workspace::apply_behind_updates(&state, &updates).await;
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::BehindCounts,
+pub async fn get_metrics(state: State<'_, AppState>) -> Result<crate::metrics::MemorySample> {
+    match state.metrics.latest() {
+        Some(sample) => Ok(sample),
+        None => sample_metrics(&state).await,
     }
-    .emit(&app);
-    if let Err(error) = state.pr_sync.sync_app(&app).await {
-        log::warn!("focus PR sync failed: {error}");
-    }
-    Ok(())
 }
 
+/// Walks every process on the machine, so it stays off the main thread and the async workers.
+pub(crate) async fn sample_metrics(state: &AppState) -> Result<crate::metrics::MemorySample> {
+    let metrics = state.metrics.clone();
+    let trees = process_trees(state);
+    tokio::task::spawn_blocking(move || metrics.sample(&trees))
+        .await
+        .map_err(|error| crate::error::Error::Metrics(error.to_string()))?
+}
+
+/// A window of a thread's transcript: its newest rows by default, those after `after_seq` to
+/// catch up, or those before `before_seq` to scroll back.
 #[tauri::command]
 #[specta::specta]
-pub fn get_metrics(state: State<'_, AppState>) -> Result<crate::metrics::MemorySample> {
-    state.metrics.sample(&process_trees(&state))
+pub async fn get_thread_events(
+    thread_id: String,
+    after_seq: Option<i64>,
+    before_seq: Option<i64>,
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<crate::store::types::ThreadEventPage> {
+    state
+        .store
+        .blocking(move |store| store.thread_event_page(&thread_id, after_seq, before_seq, limit))
+        .await
 }
 
 fn emit_settings_changed(app: &AppHandle, state: &AppState) {
@@ -668,44 +679,12 @@ pub async fn sync_pull_requests(app: AppHandle, state: State<'_, AppState>) -> R
     state.pr_sync.sync_app(&app).await
 }
 
-/// High-volume ordered stream of agent message chunks for one thread.
-#[tauri::command]
-#[specta::specta]
-pub fn subscribe_agent_chunks(
-    thread_id: String,
-    channel: Channel<AgentChunk>,
-    state: State<'_, AppState>,
-) -> Result<u32> {
-    let engines = state.engines.clone();
-    let mut sub = state.subscriptions.register();
-    let id = sub.id;
-    tauri::async_runtime::spawn(async move {
-        let Some(mut rx) = subscribe_thread(&engines, &thread_id, &mut sub).await else {
-            return;
-        };
-        loop {
-            let event = tokio::select! {
-                _ = sub.stopped() => break,
-                event = rx.recv() => event,
-            };
-            let Ok(event) = event else { break };
-            if let crate::engines::AgentEvent::MessageChunk { text, .. } = event {
-                let _ = channel.send(AgentChunk {
-                    thread_id: thread_id.clone(),
-                    text,
-                });
-            }
-        }
-    });
-    Ok(id)
-}
-
 /// High-volume ordered stream of normalised agent events for one thread.
 #[tauri::command]
 #[specta::specta]
 pub fn subscribe_agent_events(
     thread_id: String,
-    channel: Channel<AgentEvent>,
+    channel: Channel<StreamedEvent>,
     state: State<'_, AppState>,
 ) -> Result<u32> {
     let engines = state.engines.clone();
@@ -723,7 +702,10 @@ pub fn subscribe_agent_events(
                     Ok(event) => {
                         let _ = channel.send(event);
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    // Every event is saved before it's sent, so the UI can read back what it missed.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                        let _ = channel.send(AgentEvent::StreamLagged { missed }.into());
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -737,7 +719,7 @@ async fn subscribe_thread(
     engines: &crate::engines::EngineRegistry,
     thread_id: &str,
     sub: &mut SubscriptionHandle,
-) -> Option<tokio::sync::broadcast::Receiver<crate::engines::AgentEvent>> {
+) -> Option<tokio::sync::broadcast::Receiver<StreamedEvent>> {
     loop {
         if let Ok(rx) = engines.subscribe(thread_id) {
             return Some(rx);
@@ -870,7 +852,13 @@ pub fn subscribe_pty(
     tauri::async_runtime::spawn(async move {
         // Replay the log so reopening the Output tab shows what already ran.
         let mut lines = process.take_log_snapshot(&workspace_id);
+        let activity = process.activity();
+        let mut sub = sub;
         while !sub.is_stopped() {
+            // Armed first, so a line landing just after the drain still wakes this loop.
+            let woken = activity.notified();
+            tokio::pin!(woken);
+            woken.as_mut().enable();
             // Run and setup sessions are forwarded into the workspace log by their monitors.
             lines.extend(process.drain_pending(&workspace_id));
             for line in lines.drain(..) {
@@ -879,6 +867,11 @@ pub fn subscribe_pty(
                     line,
                 });
             }
+            tokio::select! {
+                () = woken => {}
+                () = sub.stopped() => break,
+            }
+            // Lets a burst of output arrive as one batch.
             tokio::time::sleep(Duration::from_millis(30)).await;
         }
     });
@@ -897,22 +890,30 @@ pub async fn subscribe_diffs(
         log::warn!("diff watch for {workspace_id} failed: {error}");
     }
     let diffs = state.diffs.clone();
-    let sub = state.subscriptions.register();
+    let mut sub = state.subscriptions.register();
     let id = sub.id;
+    let subscription = diffs.subscribe(&workspace_id);
+    let mut updates = diffs.updates();
     tauri::async_runtime::spawn(async move {
+        let _subscription = subscription;
         let mut last = None;
-        while !sub.is_stopped() {
+        loop {
             if let Some(diff) = diffs.latest(&workspace_id)
-                && last.as_ref() != Some(&diff)
+                && !last
+                    .as_ref()
+                    .is_some_and(|sent| std::sync::Arc::ptr_eq(sent, &diff))
             {
                 let _ = channel.send(DiffUpdate {
                     workspace_id: workspace_id.clone(),
                     path: String::new(),
-                    diff: Some(diff.clone()),
+                    diff: Some((*diff).clone()),
                 });
                 last = Some(diff);
             }
-            tokio::time::sleep(Duration::from_millis(300)).await;
+            tokio::select! {
+                _ = updates.changed() => {}
+                () = sub.stopped() => break,
+            }
         }
     });
     Ok(id)
@@ -1679,7 +1680,7 @@ pub async fn list_repo_skills(
     repo_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::skills::Skill>> {
-    crate::skills::for_repo(&state, &repo_id)
+    crate::skills::for_repo(&state, &repo_id).await
 }
 
 /// Skills the `/` picker offers for this thread's agent.
@@ -1689,7 +1690,7 @@ pub async fn list_thread_skills(
     thread_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::skills::Skill>> {
-    crate::skills::for_thread(&state, &thread_id)
+    crate::skills::for_thread(&state, &thread_id).await
 }
 
 #[tauri::command]
@@ -2107,7 +2108,7 @@ fn emit_composer_snapshot(app: &AppHandle, state: &AppState) {
     .emit(app);
 }
 
-fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {
+pub(crate) fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {
     let mut trees: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
     for (id, pid) in state.process.pids() {
         trees.entry(id).or_default().push(pid);

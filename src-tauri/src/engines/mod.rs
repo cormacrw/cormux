@@ -7,7 +7,7 @@ mod models;
 pub mod prompt;
 
 pub use detect::EngineStatus;
-pub use events::{AgentEvent, EngineKind, MessageRole, ToolCallStatus, ToolKind};
+pub use events::{AgentEvent, EngineKind, MessageRole, StreamedEvent, ToolCallStatus, ToolKind};
 pub use manager::{EngineRegistry, SpawnSpec};
 pub use models::{ModelOption, ThreadModels, static_models};
 

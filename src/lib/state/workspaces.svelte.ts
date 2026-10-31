@@ -1,4 +1,5 @@
 import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
+import { reuseRows } from './reuse-rows'
 
 /** Homebase card vocabulary — sidebar uses finer-grained status via lifecycle. */
 export type WorkspaceCardStatus = 'idle' | 'working' | 'needsAttention'
@@ -27,7 +28,7 @@ export type Workspace = {
 }
 
 export class WorkspacesStore {
-  items = $state<Workspace[]>([])
+  items = $state.raw<Workspace[]>([])
   /** Teardowns confirmed here but not yet reflected in a snapshot. */
   deletingIds = $state<string[]>([])
 
@@ -49,7 +50,7 @@ export class WorkspacesStore {
   readonly sidebarItems = $derived([...this.liveItems].reverse())
 
   hydrate(items: Workspace[]) {
-    this.items = items
+    this.items = reuseRows(this.items, items)
     this.deletingIds = this.deletingIds.filter((id) =>
       items.some((item) => item.id === id),
     )

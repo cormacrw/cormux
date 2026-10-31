@@ -41,7 +41,7 @@ test('⌘F finds text in the thread, steps through matches and opens a collapsed
   await expect(count).toHaveText('3 of 3')
 
   // The thought is collapsed until a match in it is the current one.
-  const thought = page.locator('details', { hasText: 'no ceiling' })
+  const thought = page.locator('details[data-lazy-fold]').first()
   await expect(thought).not.toHaveAttribute('open', '')
   await input.press('Shift+Enter')
   await expect(count).toHaveText('2 of 3')

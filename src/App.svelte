@@ -12,30 +12,37 @@
   import { bindNativeMenu } from '$lib/components/shell/menu'
   import { handleGlobalKeydown } from '$lib/keyboard/global-shortcuts'
   import { installOverlayFailsafe } from '$lib/overlay-failsafe'
-  import { fetchSnapshot, listenForStateChanges } from '$lib/ipc'
+  import { events, fetchSnapshot, listenForStateChanges } from '$lib/ipc'
   import {
     app,
     clickup,
     hydrateFromSnapshot,
+    memory,
     patchFromEvent,
+    refreshSnapshot,
     settings,
+    shellDialogs,
   } from '$lib/state'
   import ToastsRegion from '$lib/components/feedback/ToastsRegion.svelte'
   import NewThreadView from '$lib/components/new-thread/NewThreadView.svelte'
-  import TeardownDialog from '$lib/components/workspace/TeardownDialog.svelte'
   import CreatePrDialog from '$lib/components/workspace/CreatePrDialog.svelte'
-  import SubmitReviewDialog from '$lib/components/workspace/SubmitReviewDialog.svelte'
-  import EndScratchDialog from '$lib/components/scratch/EndScratchDialog.svelte'
-  import ScratchView from '$lib/components/scratch/ScratchView.svelte'
-  import SprintView from '$lib/components/sprint/SprintView.svelte'
-  import Repo from './routes/Repo.svelte'
+  import LazyView from '$lib/components/shell/LazyView.svelte'
+  import {
+    loadEndScratchDialog,
+    loadRepo,
+    loadScratch,
+    loadSettings,
+    loadSprint,
+    loadSubmitReviewDialog,
+    loadTeardownDialog,
+    preloadLazyViews,
+  } from '$lib/components/shell/lazy-views'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
   import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
   import { setHarnessWindowFocused } from '$lib/feedback/supervision'
   import { openNotifiedTarget } from '$lib/feedback/os-notifications'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import Settings from './routes/Settings.svelte'
   import Workspace from './routes/Workspace.svelte'
 
   onMount(() => {
@@ -62,6 +69,8 @@
         ),
       )
 
+      window.setTimeout(preloadLazyViews, 1000)
+
       const unlistenMenu = await bindNativeMenu()
       const unlistenFeedback = await bindFeedbackEvents()
       const unlistenWorkspaceApp = bindWorkspaceAppControls()
@@ -77,11 +86,12 @@
       setHarnessWindowFocused(await win.isFocused())
       const unlistenState = await listenForStateChanges({
         lastVersion: () => app.version,
-        onEvent: (event) => {
-          void patchFromEvent(event)
-        },
-        onSnapshot: hydrateFromSnapshot,
+        onEvent: patchFromEvent,
+        onGap: () => void refreshSnapshot(),
       })
+      const unlistenMemory = await events.memorySampled.listen(({ payload }) =>
+        memory.hydrate(payload.sample),
+      )
 
       unlisten = () => {
         unlistenMenu()
@@ -90,6 +100,7 @@
         unlistenGitWorkspace()
         unlistenFocus()
         unlistenState()
+        unlistenMemory()
       }
     })()
 
@@ -101,9 +112,12 @@
   onMount(() => installOverlayFailsafe())
 
   // Teammates move tasks in ClickUp too, so the sprint refreshes every couple of minutes.
+  // Regaining focus refreshes it anyway, so a window in the background can skip its turns.
   $effect(() => {
     if (!clickup.ready) return
-    const id = window.setInterval(() => void clickup.refresh(), 120_000)
+    const id = window.setInterval(() => {
+      if (document.hasFocus()) void clickup.refresh()
+    }, 120_000)
     return () => window.clearInterval(id)
   })
 
@@ -157,22 +171,31 @@
 
 <Tooltip.Provider>
   <ToastsRegion />
-  <TeardownDialog />
+  <LazyView
+    load={loadTeardownDialog}
+    when={shellDialogs.teardownWorkspaceId != null}
+  />
   <CreatePrDialog />
-  <SubmitReviewDialog />
-  <EndScratchDialog />
+  <LazyView
+    load={loadSubmitReviewDialog}
+    when={shellDialogs.submitReviewWorkspaceId != null}
+  />
+  <LazyView
+    load={loadEndScratchDialog}
+    when={shellDialogs.endScratch != null}
+  />
   <CommandPalette />
   <AppShell>
     {#if app.view === 'settings'}
-      <Settings />
+      <LazyView load={loadSettings} />
     {:else if app.view === 'workspace'}
       <Workspace />
     {:else if app.view === 'scratch'}
-      <ScratchView />
+      <LazyView load={loadScratch} />
     {:else if app.view === 'sprint'}
-      <SprintView />
+      <LazyView load={loadSprint} />
     {:else if app.view === 'repo'}
-      <Repo />
+      <LazyView load={loadRepo} />
     {:else}
       <NewThreadView />
     {/if}

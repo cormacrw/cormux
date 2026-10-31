@@ -1,4 +1,4 @@
-import type { AgentEvent } from '$lib/ipc'
+import type { StreamedEvent } from '$lib/ipc'
 import { subscribeAgentEvents } from '$lib/ipc/channels'
 
 let listenGeneration = 0
@@ -8,7 +8,7 @@ let listenGeneration = 0
  */
 export function bindVisibleThreadEvents(
   threadId: string,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: StreamedEvent) => void,
 ): () => void {
   const generation = ++listenGeneration
   const stop = subscribeAgentEvents(threadId, (event) => {

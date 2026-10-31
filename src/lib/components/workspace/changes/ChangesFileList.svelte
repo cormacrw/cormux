@@ -27,10 +27,10 @@
     onDiscard?: (file: DiffFile) => void
   } = $props()
 
-  function toggle(path: string) {
+  function toggle(file: DiffFile) {
     workspaceUi.collapsedDiffPaths = {
       ...workspaceUi.collapsedDiffPaths,
-      [path]: !isDiffCollapsed(workspaceUi.collapsedDiffPaths, path),
+      [file.path]: !isDiffCollapsed(workspaceUi.collapsedDiffPaths, file),
     }
   }
 </script>
@@ -39,7 +39,7 @@
   {#each files as file (file.path)}
     {@const status = inferFileStatus(file)}
     {@const parts = splitPath(file.path)}
-    {@const open = !isDiffCollapsed(workspaceUi.collapsedDiffPaths, file.path)}
+    {@const open = !isDiffCollapsed(workspaceUi.collapsedDiffPaths, file)}
     {@const commentCount = diffComments.forFile(
       workspaceId,
       branch,
@@ -59,7 +59,7 @@
           aria-expanded={open}
           aria-controls={bodyId}
           title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-          onclick={() => toggle(file.path)}
+          onclick={() => toggle(file)}
         >
           <ChevronRight
             class={cn(

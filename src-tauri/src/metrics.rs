@@ -1,8 +1,9 @@
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use sysinfo::{Pid, ProcessesToUpdate, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
 use crate::error::Result;
 
@@ -21,15 +22,23 @@ pub struct MemorySample {
 }
 
 /// Sampled resident memory for Cormux, the webview, and child process trees.
+#[derive(Clone)]
 pub struct Metrics {
-    system: Mutex<System>,
+    system: Arc<Mutex<System>>,
+    latest: Arc<Mutex<Option<MemorySample>>>,
 }
 
 impl Metrics {
     pub fn new() -> Self {
         Self {
-            system: Mutex::new(System::new()),
+            system: Arc::new(Mutex::new(System::new())),
+            latest: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// The last reading, for readers that shouldn't pay for a walk of every process.
+    pub fn latest(&self) -> Option<MemorySample> {
+        self.latest.lock().ok()?.clone()
     }
 
     pub fn sample(&self, trees: &[(String, Vec<u32>)]) -> Result<MemorySample> {
@@ -37,16 +46,20 @@ impl Metrics {
             .system
             .lock()
             .map_err(|error| crate::error::Error::Metrics(error.to_string()))?;
-        system.refresh_processes(ProcessesToUpdate::All, true);
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing().with_memory(),
+        );
 
-        let self_pid = std::process::id();
-        let total = tree_memory(&system, self_pid);
+        let children = children_by_parent(&system);
+        let total = tree_memory(&system, &children, std::process::id());
 
         let mut per_workspace = Vec::new();
         for (workspace_id, pids) in trees {
             let mut bytes = 0u64;
             for pid in pids {
-                bytes = bytes.saturating_add(tree_memory(&system, *pid));
+                bytes = bytes.saturating_add(tree_memory(&system, &children, *pid));
             }
             per_workspace.push(WorkspaceMemory {
                 workspace_id: workspace_id.clone(),
@@ -54,47 +67,45 @@ impl Metrics {
             });
         }
 
-        Ok(MemorySample {
+        let sample = MemorySample {
             total_bytes: total,
             per_workspace,
-        })
+        };
+        if let Ok(mut latest) = self.latest.lock() {
+            *latest = Some(sample.clone());
+        }
+        Ok(sample)
     }
 }
 
-fn tree_memory(system: &System, root: u32) -> u64 {
-    let mut total = 0u64;
+fn children_by_parent(system: &System) -> HashMap<u32, Vec<u32>> {
+    let mut children = HashMap::<u32, Vec<u32>>::new();
     for (pid, process) in system.processes() {
-        if in_tree(system, pid.as_u32(), root) {
+        if let Some(parent) = process.parent() {
+            children
+                .entry(parent.as_u32())
+                .or_default()
+                .push(pid.as_u32());
+        }
+    }
+    children
+}
+
+fn tree_memory(system: &System, children: &HashMap<u32, Vec<u32>>, root: u32) -> u64 {
+    let mut total = 0u64;
+    let mut seen = HashSet::from([root]);
+    let mut stack = vec![root];
+    while let Some(pid) = stack.pop() {
+        if let Some(process) = system.process(Pid::from_u32(pid)) {
             total = total.saturating_add(process.memory());
+        }
+        for child in children.get(&pid).into_iter().flatten() {
+            if seen.insert(*child) {
+                stack.push(*child);
+            }
         }
     }
     total
-}
-
-fn in_tree(system: &System, pid: u32, root: u32) -> bool {
-    if pid == root {
-        return true;
-    }
-    let mut current = pid;
-    let mut hops = 0;
-    while hops < 64 {
-        let Some(process) = system.process(Pid::from_u32(current)) else {
-            return false;
-        };
-        let Some(parent) = process.parent() else {
-            return false;
-        };
-        let parent = parent.as_u32();
-        if parent == root {
-            return true;
-        }
-        if parent == current {
-            return false;
-        }
-        current = parent;
-        hops += 1;
-    }
-    false
 }
 
 impl Default for Metrics {
@@ -112,6 +123,27 @@ mod tests {
         let metrics = Metrics::new();
         let sample = metrics.sample(&[]).unwrap();
         assert!(sample.total_bytes > 0);
+        assert_eq!(metrics.latest().unwrap().total_bytes, sample.total_bytes);
+    }
+
+    #[test]
+    fn counts_a_child_in_its_parents_tree() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let metrics = Metrics::new();
+        let parent = std::process::id();
+        let sample = metrics
+            .sample(&[
+                ("self".into(), vec![parent]),
+                ("child".into(), vec![child.id()]),
+            ])
+            .unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(sample.per_workspace[1].bytes > 0);
+        assert!(sample.per_workspace[0].bytes > sample.per_workspace[1].bytes);
     }
 
     #[test]

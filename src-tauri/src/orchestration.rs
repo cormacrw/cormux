@@ -474,14 +474,7 @@ pub async fn on_turn_end(app: &AppHandle, thread_id: &str) -> Result<()> {
 /// A child waiting on an approval can't go on, and only the user can answer it.
 pub async fn on_approval_requested(app: &AppHandle) -> Result<()> {
     let state = app.state::<AppState>();
-    let children: Vec<ThreadRow> = state
-        .store
-        .snapshot()?
-        .threads
-        .into_iter()
-        .filter(|thread| thread.parent_thread_id.is_some())
-        .collect();
-    for child in children {
+    for child in state.store.blocked_child_threads()? {
         let Some(parent_id) = child.parent_thread_id.clone() else {
             continue;
         };

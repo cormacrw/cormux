@@ -1,6 +1,16 @@
+<script lang="ts" module>
+  // Lucide's copy and check, as static markup.
+  const ICON =
+    'xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"'
+  const COPY_ICON = `<svg ${ICON}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
+  const COPIED_ICON = `<svg class="lucide-check" ${ICON}><path d="M20 6 9 17l-5-5"/></svg>`
+  const copiedTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>()
+</script>
+
 <script lang="ts">
-  import { mount, unmount } from 'svelte'
+  import { untrack } from 'svelte'
   import {
+    renderMarkdownBlocks,
     renderRichMarkdown,
     renderSanitizedMarkdown,
   } from '$lib/thread/sanitize-markdown'
@@ -14,7 +24,6 @@
   import { prs } from '$lib/state'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import ChartBlock from './ChartBlock.svelte'
-  import CodeCopyButton from './CodeCopyButton.svelte'
   import DiffBlock from './DiffBlock.svelte'
   import JsonTree from './JsonTree.svelte'
   import MathBlock from './MathBlock.svelte'
@@ -62,16 +71,19 @@
       const segments = media
         ? pairBeforeAfter(splitLocalMedia(block.text))
         : [block]
-      return segments.map((segment) =>
-        segment.kind === 'text'
-          ? {
+      return segments.flatMap((segment): Segment[] => {
+        if (segment.kind !== 'text') return [segment]
+        if (rich) {
+          return [{ ...segment, html: renderRichMarkdown(segment.text) }]
+        }
+        // Mid-typing each block is its own {@html}, so finished ones keep their DOM.
+        return cursor
+          ? renderMarkdownBlocks(segment.text).map((html) => ({
               ...segment,
-              html: rich
-                ? renderRichMarkdown(segment.text)
-                : renderSanitizedMarkdown(segment.text),
-            }
-          : segment,
-      )
+              html,
+            }))
+          : [{ ...segment, html: renderSanitizedMarkdown(segment.text) }]
+      })
     }),
   )
   const html = $derived(
@@ -97,10 +109,13 @@
       cursorEl.textContent = '▎'
       cursorEl.setAttribute('aria-hidden', 'true')
     }
-    const blocks = container.querySelectorAll(
+    // Only the newest block can hold the end of the text.
+    const last = container.lastElementChild
+    const newest = last === cursorEl ? last.previousElementSibling : last
+    const blocks = newest?.querySelectorAll(
       'p, li, pre code, blockquote, th, td',
     )
-    ;(blocks[blocks.length - 1] ?? container).append(cursorEl)
+    ;(blocks?.[blocks.length - 1] ?? newest ?? container).append(cursorEl)
     for (const animation of cursorEl.getAnimations()) animation.currentTime = 0
   })
 
@@ -109,32 +124,63 @@
     void html
     const container = root
     if (!container || cursor || !media) return
-    enhanceMarkdown(container, { workdir, prs: prs.items })
+    enhanceMarkdown(container, {
+      workdir,
+      prs: untrack(() => prs.items),
+    })
   })
 
-  // {@html} replaces every node when the text changes, so each render gets fresh copy buttons.
-  // While a reply types out that's every frame, so they wait until it's done.
+  // Plain buttons with one click handler below, since a long reply has many code blocks. They
+  // wait until the reply is done: mid-typing the blocks are still being replaced.
   $effect(() => {
     void html
     const container = root
     if (!container || cursor) return
-    const buttons = Array.from(container.querySelectorAll('pre'), (pre) =>
-      mount(CodeCopyButton, {
-        target: pre,
-        props: { getText: () => codeText(pre) },
-      }),
-    )
-    return () => buttons.forEach((button) => void unmount(button))
+    for (const pre of container.querySelectorAll('pre')) {
+      if (!pre.querySelector(':scope > .code-copy')) pre.append(copyButton())
+    }
   })
+
+  function copyButton() {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className =
+      'code-copy absolute top-1.5 right-1.5 inline-flex size-6 items-center justify-center rounded bg-muted text-foreground/60 opacity-0 transition hover:text-foreground focus-visible:opacity-100'
+    button.ariaLabel = 'Copy code'
+    button.title = 'Copy code'
+    button.innerHTML = COPY_ICON
+    return button
+  }
+
+  async function copyCode(button: HTMLButtonElement, pre: HTMLPreElement) {
+    try {
+      await navigator.clipboard.writeText(codeText(pre))
+    } catch {
+      return
+    }
+    button.innerHTML = COPIED_ICON
+    clearTimeout(copiedTimers.get(button))
+    copiedTimers.set(
+      button,
+      setTimeout(() => (button.innerHTML = COPY_ICON), 1500),
+    )
+  }
 
   function codeText(pre: HTMLPreElement) {
     const code = (pre.querySelector('code') ?? pre).cloneNode(true) as Element
     code.querySelector('.type-cursor')?.remove()
+    code.querySelector('.code-copy')?.remove()
     return code.textContent ?? ''
   }
 
   function handleClick(event: MouseEvent) {
     const clicked = event.target instanceof Element ? event.target : null
+    const copy = clicked?.closest<HTMLButtonElement>('.code-copy')
+    const copyTarget = copy?.closest('pre')
+    if (copy && copyTarget) {
+      void copyCode(copy, copyTarget)
+      return
+    }
     const file = clicked?.closest<HTMLElement>('.file-ref, .file-ref-link')
     if (file?.dataset.path) {
       event.preventDefault()

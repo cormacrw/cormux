@@ -103,10 +103,29 @@ pub enum MessageRole {
     Thought,
 }
 
+/// An event on its way to the UI, with where the store saved it. `seq` is `None` for an event that
+/// isn't saved, or failed to save, so the UI can tell it from rows it has already read back.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct StreamedEvent {
+    pub seq: Option<i64>,
+    pub event: AgentEvent,
+}
+
+impl From<AgentEvent> for StreamedEvent {
+    fn from(event: AgentEvent) -> Self {
+        Self { seq: None, event }
+    }
+}
+
 /// One internal event every adapter translates into (COR-56).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AgentEvent {
+    /// Never saved: the UI fell behind the stream and dropped `missed` events, which it can
+    /// read back from the store.
+    StreamLagged {
+        missed: u64,
+    },
     SessionStarted {
         session_id: String,
     },

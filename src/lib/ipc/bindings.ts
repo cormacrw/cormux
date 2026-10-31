@@ -22,14 +22,6 @@ async reloadEnvironment() : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async fetchOnFocus() : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("fetch_on_focus") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async getMetrics() : Promise<Result<MemorySample, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_metrics") };
@@ -39,11 +31,12 @@ async getMetrics() : Promise<Result<MemorySample, Error>> {
 }
 },
 /**
- * High-volume ordered stream of agent message chunks for one thread.
+ * A window of a thread's transcript: its newest rows by default, those after `after_seq` to
+ * catch up, or those before `before_seq` to scroll back.
  */
-async subscribeAgentChunks(threadId: string, channel: TAURI_CHANNEL<AgentChunk>) : Promise<Result<number, Error>> {
+async getThreadEvents(threadId: string, afterSeq: number | null, beforeSeq: number | null, limit: number | null) : Promise<Result<ThreadEventPage, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("subscribe_agent_chunks", { threadId, channel }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_thread_events", { threadId, afterSeq, beforeSeq, limit }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -52,7 +45,7 @@ async subscribeAgentChunks(threadId: string, channel: TAURI_CHANNEL<AgentChunk>)
 /**
  * High-volume ordered stream of normalised agent events for one thread.
  */
-async subscribeAgentEvents(threadId: string, channel: TAURI_CHANNEL<AgentEvent>) : Promise<Result<number, Error>> {
+async subscribeAgentEvents(threadId: string, channel: TAURI_CHANNEL<StreamedEvent>) : Promise<Result<number, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("subscribe_agent_events", { threadId, channel }) };
 } catch (e) {
@@ -741,10 +734,12 @@ async endScratch(scratchId: string) : Promise<Result<null, Error>> {
 
 
 export const events = __makeEvents__<{
+memorySampled: MemorySampled,
 stateChanged: StateChanged,
 toastRaised: ToastRaised,
 workspaceStatusChanged: WorkspaceStatusChanged
 }>({
+memorySampled: "memory-sampled",
 stateChanged: "state-changed",
 toastRaised: "toast-raised",
 workspaceStatusChanged: "workspace-status-changed"
@@ -761,7 +756,12 @@ export type AgentChunk = { threadId: string; text: string }
 /**
  * One internal event every adapter translates into (COR-56).
  */
-export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null; parent_id?: string | null } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | 
+export type AgentEvent = 
+/**
+ * Never saved: the UI fell behind the stream and dropped `missed` events, which it can
+ * read back from the store.
+ */
+{ type: "streamLagged"; missed: number } | { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null; parent_id?: string | null } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | 
 /**
  * Fields an engine fills in after the first `ToolCall`, such as an edit's path.
  */
@@ -815,7 +815,11 @@ export type DiffFile = { path: string;
 /**
  * Where a renamed or moved file came from.
  */
-oldPath: string | null; added: number; deleted: number; hunks: DiffHunk[] }
+oldPath: string | null; added: number; deleted: number; hunks: DiffHunk[]; 
+/**
+ * Set when the patch was too big to send whole; `hunks` is the part that fit.
+ */
+truncated?: boolean | null }
 export type DiffHunk = { header: string; body: string }
 /**
  * Committed changes on `head` since it left `base` (`base...head`).
@@ -858,6 +862,10 @@ export type LocalBranchesResult = {
  */
 head: string; branches: LocalBranchRow[] }
 export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
+/**
+ * A fresh memory reading. Carries its own data, so it needs no version or refetch.
+ */
+export type MemorySampled = { sample: MemorySample }
 export type MessageRole = "user" | "agent" | "thought"
 /**
  * One entry in the composer's model picker.
@@ -873,9 +881,9 @@ export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; w
  */
 scratches: ScratchRow[]; 
 /**
- * Oldest first.
+ * When each thread last moved; threads that never have are left out.
  */
-timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
+threadActivity: ThreadActivityRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PlanStep = { content: string; status: string }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PromptAttachment = { name: string; 
@@ -974,12 +982,17 @@ export type StackStatus =
  * `gh` or the gh-stack extension is missing, or stacks are off for this repo.
  */
 "unavailable"
-export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "metrics" | "environment" | "workspaceApp"
+export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "environment" | "workspaceApp"
 /**
  * Low-volume core → UI notification. `version` is monotonic; a gap means the
  * webview should call `get_snapshot` and replace local state.
  */
 export type StateChanged = { version: number; kind: StateChangeKind }
+/**
+ * An event on its way to the UI, with where the store saved it. `seq` is `None` for an event that
+ * isn't saved, or failed to save, so the UI can tell it from rows it has already read back.
+ */
+export type StreamedEvent = { seq: number | null; event: AgentEvent }
 export type SubmitReviewVerdict = "approve" | "requestChanges" | "comment"
 export type SubmitWorkspaceReviewInput = { workspaceId: string; verdict: SubmitReviewVerdict }
 export type SwitchWorkspaceBranchInput = { workspaceId: string; branch: string }
@@ -988,6 +1001,19 @@ export type TeardownInput = { workspaceId: string; deleteBranch: boolean }
 export type TeardownPreview = { workspaceId: string; workspaceName: string; engineLabel: string; branch: string; worktreePath: string; appRunning: boolean; deleteBranchDefault: boolean; dataLoss: TeardownDataLoss }
 export type TestRepoSetupInput = { repoId: string }
 export type TestRepoSetupResult = { ok: boolean; message: string }
+/**
+ * The last message from the user or end of a turn. Streamed output doesn't count, so a working
+ * thread holds its place in the sidebar.
+ */
+export type ThreadActivityRow = { threadId: string; createdAt: string }
+/**
+ * A window of a thread's transcript, oldest first.
+ */
+export type ThreadEventPage = { events: ThreadEventRow[]; 
+/**
+ * Whether rows older than this window exist.
+ */
+hasOlder: boolean }
 export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string; 
 /**
  * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.

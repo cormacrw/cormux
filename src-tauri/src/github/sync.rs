@@ -81,9 +81,9 @@ impl PrSyncScheduler {
             Err(FetchError::SignedOut(message)) => {
                 log::info!("GitHub CLI is signed out; clearing PRs: {message}");
                 self.auth.store(AUTH_SIGNED_OUT, Ordering::SeqCst);
-                state.store.replace_pull_requests(&[])?;
+                let changed = state.store.replace_pull_requests(&[])?;
                 state.store.set_setting(SYNCED_AT_KEY, "")?;
-                return Ok(true);
+                return Ok(changed);
             }
             Err(FetchError::Other(error)) => return Err(error),
         };
@@ -101,11 +101,11 @@ impl PrSyncScheduler {
             });
         }
 
-        state.store.replace_pull_requests(&rows)?;
+        let changed = state.store.replace_pull_requests(&rows)?;
         let synced_at = chrono_like_now();
         state.store.set_setting(SYNCED_AT_KEY, &synced_at)?;
         self.auth.store(AUTH_SIGNED_IN, Ordering::SeqCst);
-        Ok(true)
+        Ok(changed)
     }
 
     pub fn spawn_loop(self, app: AppHandle) {

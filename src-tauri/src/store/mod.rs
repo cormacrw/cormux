@@ -9,19 +9,27 @@ use rusqlite::Connection;
 use crate::error::{Error, Result};
 use types::{
     ApprovalRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow, SettingRow,
-    ThreadEventRow, ThreadRow, WorkspaceRow,
+    ThreadActivityRow, ThreadEventPage, ThreadEventRow, ThreadRow, WorkspaceRow,
 };
+
+const STATEMENT_CACHE: usize = 64;
+const THREAD_EVENT_PAGE: u32 = 2_000;
+const THREAD_EVENT_PAGE_MAX: u32 = 10_000;
 
 /// SQLite persistence in the app data directory.
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Option<Connection>>>,
+    /// WAL lets reads run beside the writer, so a long read can't hold up the engine pumps.
+    /// In-memory stores have no second connection and read through `conn`.
+    reader: Arc<Mutex<Option<Connection>>>,
 }
 
 impl Store {
     pub fn new() -> Self {
         Self {
             conn: Arc::new(Mutex::new(None)),
+            reader: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -29,8 +37,16 @@ impl Store {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let conn = Connection::open(path)?;
-        self.configure(conn)
+        self.configure(Connection::open(path)?)?;
+        // After the migrations, which it mustn't race.
+        let reader = Connection::open(path)?;
+        tune(&reader)?;
+        reader.pragma_update(None, "query_only", true)?;
+        *self
+            .reader
+            .lock()
+            .map_err(|error| Error::Store(error.to_string()))? = Some(reader);
+        Ok(())
     }
 
     #[cfg(test)]
@@ -41,6 +57,7 @@ impl Store {
     fn configure(&self, conn: Connection) -> Result<()> {
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        tune(&conn)?;
         migrate::run(&conn)?;
         *self
             .conn
@@ -60,6 +77,31 @@ impl Store {
         f(conn)
     }
 
+    fn with_read<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        let guard = self
+            .reader
+            .lock()
+            .map_err(|error| Error::Store(error.to_string()))?;
+        match guard.as_ref() {
+            Some(conn) => f(conn),
+            None => {
+                drop(guard);
+                self.with_conn(f)
+            }
+        }
+    }
+
+    /// Runs store work off the async runtime, for reads too big to do on a worker.
+    pub async fn blocking<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&Store) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let store = self.clone();
+        tokio::task::spawn_blocking(move || f(&store))
+            .await
+            .map_err(|error| Error::Store(error.to_string()))?
+    }
+
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -72,8 +114,8 @@ impl Store {
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached("SELECT value FROM settings WHERE key = ?1")?;
             let mut rows = stmt.query([key])?;
             if let Some(row) = rows.next()? {
                 Ok(Some(row.get(0)?))
@@ -127,7 +169,7 @@ impl Store {
     }
 
     pub fn count_active_workspaces_for_repo(&self, repo_id: &str) -> Result<usize> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             let count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM workspaces WHERE repo_id = ?1 AND archived_at IS NULL",
                 rusqlite::params![repo_id],
@@ -138,7 +180,7 @@ impl Store {
     }
 
     pub fn repo_count(&self) -> Result<usize> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             let count: i64 = conn.query_row("SELECT COUNT(*) FROM repos", [], |row| row.get(0))?;
             Ok(count as usize)
         })
@@ -291,8 +333,8 @@ impl Store {
     }
 
     pub fn workspace_by_id(&self, workspace_id: &str) -> Result<Option<WorkspaceRow>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
                 "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
                         summary, summary_at, summary_source, kind, pr_number, pr_html_url,
                         modified_files, archived_at
@@ -311,7 +353,7 @@ impl Store {
 
     /// Workspaces that haven't been archived, without the rest of the snapshot.
     pub fn live_workspaces(&self) -> Result<Vec<WorkspaceRow>> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             query_all(
                 conn,
                 "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
@@ -362,26 +404,29 @@ impl Store {
     }
 
     pub fn mark_thread_idle(&self, thread_id: &str) -> Result<()> {
-        self.set_thread_status(thread_id, "idle")?;
-        let snapshot = self.snapshot()?;
-        let Some(thread) = snapshot.threads.iter().find(|row| row.id == thread_id) else {
-            return Ok(());
-        };
-        let siblings = || {
-            snapshot
-                .threads
-                .iter()
-                .filter(|row| row.workspace_id == thread.workspace_id)
-        };
-        if !siblings().any(|row| row.status == "running") {
+        self.with_conn(|conn| {
+            conn.prepare_cached("UPDATE threads SET status = 'idle' WHERE id = ?1")?
+                .execute([thread_id])?;
             // Another thread's plan still waiting on the user keeps the workspace waiting.
-            let waiting = siblings().any(|row| row.status == "waiting");
-            self.set_workspace_status(
-                &thread.workspace_id,
-                if waiting { "waiting" } else { "idle" },
-            )?;
-        }
-        Ok(())
+            conn.prepare_cached(
+                "UPDATE workspaces
+                 SET status = CASE
+                     WHEN EXISTS (
+                         SELECT 1 FROM threads
+                         WHERE workspace_id = workspaces.id AND closed_at IS NULL
+                             AND status = 'waiting'
+                     ) THEN 'waiting' ELSE 'idle' END
+                 WHERE archived_at IS NULL
+                     AND id = (SELECT workspace_id FROM threads WHERE id = ?1)
+                     AND NOT EXISTS (
+                         SELECT 1 FROM threads
+                         WHERE workspace_id = workspaces.id AND closed_at IS NULL
+                             AND status = 'running'
+                     )",
+            )?
+            .execute([thread_id])?;
+            Ok(())
+        })
     }
 
     pub fn set_thread_status(&self, thread_id: &str, status: &str) -> Result<()> {
@@ -417,8 +462,8 @@ impl Store {
     }
 
     pub fn thread_session(&self, thread_id: &str) -> Result<Option<String>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare("SELECT session_id FROM threads WHERE id = ?1")?;
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached("SELECT session_id FROM threads WHERE id = ?1")?;
             let mut rows = stmt.query([thread_id])?;
             if let Some(row) = rows.next()? {
                 Ok(row.get(0)?)
@@ -430,8 +475,8 @@ impl Store {
 
     /// The model the user picked for the thread; `None` means the engine's default.
     pub fn thread_model(&self, thread_id: &str) -> Result<Option<String>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare("SELECT model FROM threads WHERE id = ?1")?;
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached("SELECT model FROM threads WHERE id = ?1")?;
             let mut rows = stmt.query([thread_id])?;
             if let Some(row) = rows.next()? {
                 Ok(row.get(0)?)
@@ -468,8 +513,8 @@ impl Store {
     }
 
     pub fn transcript_summary(&self, thread_id: &str, limit: usize) -> Result<String> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
                 "SELECT kind, payload FROM thread_events WHERE thread_id = ?1 ORDER BY seq DESC LIMIT ?2",
             )?;
             let rows = stmt.query_map(rusqlite::params![thread_id, limit as i64], |row| {
@@ -541,8 +586,8 @@ impl Store {
     }
 
     pub fn finding_by_id(&self, finding_id: &str) -> Result<Option<FindingRow>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
                 "SELECT id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id
                  FROM findings WHERE id = ?1",
             )?;
@@ -599,8 +644,8 @@ impl Store {
 
     /// Any thread, including a scratch's. `snapshot().threads` only lists workspace threads.
     pub fn thread_by_id(&self, thread_id: &str) -> Result<Option<ThreadRow>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(&format!("{THREAD_COLUMNS} WHERE id = ?1"))?;
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(&format!("{THREAD_COLUMNS} WHERE id = ?1"))?;
             let mut rows = stmt.query([thread_id])?;
             match rows.next()? {
                 Some(row) => Ok(Some(row_to_thread(row)?)),
@@ -626,8 +671,8 @@ impl Store {
     }
 
     pub fn scratch_by_id(&self, scratch_id: &str) -> Result<Option<ScratchRow>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(&format!("{SCRATCH_COLUMNS} WHERE s.id = ?1"))?;
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(&format!("{SCRATCH_COLUMNS} WHERE s.id = ?1"))?;
             let mut rows = stmt.query([scratch_id])?;
             match rows.next()? {
                 Some(row) => Ok(Some(row_to_scratch(row)?)),
@@ -637,8 +682,9 @@ impl Store {
     }
 
     pub fn scratch_for_thread(&self, thread_id: &str) -> Result<Option<ScratchRow>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(&format!("{SCRATCH_COLUMNS} WHERE s.thread_id = ?1"))?;
+        self.with_read(|conn| {
+            let mut stmt =
+                conn.prepare_cached(&format!("{SCRATCH_COLUMNS} WHERE s.thread_id = ?1"))?;
             let mut rows = stmt.query([thread_id])?;
             match rows.next()? {
                 Some(row) => Ok(Some(row_to_scratch(row)?)),
@@ -667,32 +713,124 @@ impl Store {
 
     /// Everything the agent said since the user's last message, with streamed chunks joined.
     pub fn last_agent_reply(&self, thread_id: &str) -> Result<String> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT payload FROM thread_events WHERE thread_id = ?1 AND kind = 'message' ORDER BY seq",
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "SELECT payload FROM thread_events
+                 WHERE thread_id = ?1 AND kind = 'message' ORDER BY seq DESC",
             )?;
-            let payloads = stmt
-                .query_map([thread_id], |row| row.get::<_, String>(0))?
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            let mut reply = String::new();
-            for payload in payloads {
+            let mut rows = stmt.query([thread_id])?;
+            let mut chunks = Vec::new();
+            while let Some(row) = rows.next()? {
+                let payload: String = row.get(0)?;
                 let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload) else {
                     continue;
                 };
-                let text = value.get("text").and_then(|text| text.as_str()).unwrap_or("");
                 match value.get("role").and_then(|role| role.as_str()) {
-                    Some("user") => reply.clear(),
-                    Some("agent") => reply.push_str(text),
+                    Some("user") => break,
+                    Some("agent") => chunks.push(
+                        value
+                            .get("text")
+                            .and_then(|text| text.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                    ),
                     _ => {}
                 }
             }
-            Ok(reply)
+            chunks.reverse();
+            Ok(chunks.concat())
+        })
+    }
+
+    /// The first message in the thread, which is what it was started to do.
+    pub fn first_message_text(&self, thread_id: &str) -> Result<Option<String>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "SELECT payload FROM thread_events
+                 WHERE thread_id = ?1 AND kind = 'message' ORDER BY seq LIMIT 1",
+            )?;
+            let mut rows = stmt.query([thread_id])?;
+            let Some(row) = rows.next()? else {
+                return Ok(None);
+            };
+            let payload: String = row.get(0)?;
+            Ok(serde_json::from_str::<serde_json::Value>(&payload)
+                .ok()
+                .and_then(|value| value.get("text")?.as_str().map(str::to_string)))
+        })
+    }
+
+    /// The first non-blank thing the user asked for in the thread.
+    pub fn first_user_goal(&self, thread_id: &str) -> Result<String> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "SELECT payload FROM thread_events
+                 WHERE thread_id = ?1 AND kind = 'message' ORDER BY seq",
+            )?;
+            let mut rows = stmt.query([thread_id])?;
+            while let Some(row) = rows.next()? {
+                let payload: String = row.get(0)?;
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload)
+                    && value.get("role").and_then(|role| role.as_str()) == Some("user")
+                    && let Some(text) = value.get("text").and_then(|text| text.as_str())
+                {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        return Ok(trimmed.to_string());
+                    }
+                }
+            }
+            Ok(String::new())
+        })
+    }
+
+    /// One window of a transcript. `after_seq` pages forward from there, for catching up;
+    /// otherwise this is the newest rows, or those just before `before_seq` for scrolling back.
+    pub fn thread_event_page(
+        &self,
+        thread_id: &str,
+        after_seq: Option<i64>,
+        before_seq: Option<i64>,
+        limit: Option<u32>,
+    ) -> Result<ThreadEventPage> {
+        let limit = limit
+            .unwrap_or(THREAD_EVENT_PAGE)
+            .clamp(1, THREAD_EVENT_PAGE_MAX) as i64;
+        self.with_read(|conn| {
+            let mut events = if let Some(after) = after_seq {
+                let mut stmt = conn.prepare_cached(
+                    "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events
+                     WHERE thread_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
+                )?;
+                stmt.query_map(rusqlite::params![thread_id, after, limit], row_to_event)?
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+            } else {
+                let mut stmt = conn.prepare_cached(
+                    "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events
+                     WHERE thread_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3",
+                )?;
+                let before = before_seq.unwrap_or(i64::MAX);
+                stmt.query_map(rusqlite::params![thread_id, before, limit], row_to_event)?
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+            };
+            events.sort_by_key(|row| row.seq);
+            let has_older = match events.first() {
+                Some(first) => conn
+                    .prepare_cached(
+                        "SELECT EXISTS (
+                            SELECT 1 FROM thread_events WHERE thread_id = ?1 AND seq < ?2
+                         )",
+                    )?
+                    .query_row(rusqlite::params![thread_id, first.seq], |row| row.get(0))?,
+                None => false,
+            };
+            Ok(ThreadEventPage { events, has_older })
         })
     }
 
     /// Where the thread's conversation last moved, so a turn is only reported once.
     pub fn last_message_seq(&self, thread_id: &str) -> Result<i64> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             Ok(conn.query_row(
                 "SELECT COALESCE(MAX(seq), 0) FROM thread_events
                  WHERE thread_id = ?1 AND kind = 'message'",
@@ -709,8 +847,8 @@ impl Store {
         since: i64,
         limit: i64,
     ) -> Result<Vec<(i64, String, String)>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
                 "SELECT seq, kind, payload FROM thread_events
                  WHERE thread_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
             )?;
@@ -725,22 +863,22 @@ impl Store {
 
     pub fn append_event(&self, thread_id: &str, kind: &str, payload: &str) -> Result<i64> {
         self.with_conn(|conn| {
-            let seq: i64 = conn.query_row(
-                "SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_events WHERE thread_id = ?1",
-                [thread_id],
-                |row| row.get(0),
-            )?;
-            conn.execute(
+            let seq: i64 = conn
+                .prepare_cached(
+                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_events WHERE thread_id = ?1",
+                )?
+                .query_row([thread_id], |row| row.get(0))?;
+            conn.prepare_cached(
                 "INSERT INTO thread_events (thread_id, seq, kind, payload) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![thread_id, seq, kind, payload],
-            )?;
+            )?
+            .execute(rusqlite::params![thread_id, seq, kind, payload])?;
             Ok(seq)
         })
     }
 
     pub fn get_approval(&self, id: &str) -> Result<Option<ApprovalRow>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
                 "SELECT id, thread_id, status, tool, payload FROM approvals WHERE id = ?1",
             )?;
             let mut rows = stmt.query([id])?;
@@ -759,8 +897,8 @@ impl Store {
     }
 
     pub fn pending_approvals_for_thread(&self, thread_id: &str) -> Result<Vec<ApprovalRow>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
                 "SELECT id, thread_id, status, tool, payload FROM approvals
                  WHERE thread_id = ?1 AND status = 'pending' ORDER BY rowid",
             )?;
@@ -775,6 +913,34 @@ impl Store {
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|error| Error::Store(error.to_string()))
+        })
+    }
+
+    pub fn pending_approval_count(&self) -> Result<usize> {
+        self.with_read(|conn| {
+            let count: i64 = conn
+                .prepare_cached("SELECT COUNT(*) FROM approvals WHERE status = 'pending'")?
+                .query_row([], |row| row.get(0))?;
+            Ok(count as usize)
+        })
+    }
+
+    /// Live threads started by another thread that are stuck on an approval.
+    pub fn blocked_child_threads(&self) -> Result<Vec<ThreadRow>> {
+        self.with_read(|conn| {
+            query_all(
+                conn,
+                &format!(
+                    "{THREAD_COLUMNS}
+                     WHERE parent_thread_id IS NOT NULL AND closed_at IS NULL
+                         AND id IN (SELECT thread_id FROM approvals WHERE status = 'pending')
+                         AND workspace_id IN (
+                             SELECT id FROM workspaces WHERE archived_at IS NULL
+                         )
+                     ORDER BY created_at, rowid"
+                ),
+                row_to_thread,
+            )
         })
     }
 
@@ -845,8 +1011,18 @@ impl Store {
         })
     }
 
-    pub fn replace_pull_requests(&self, rows: &[PrRow]) -> Result<()> {
+    /// Returns whether the cache now differs from what it held.
+    pub fn replace_pull_requests(&self, rows: &[PrRow]) -> Result<bool> {
         self.with_conn(|conn| {
+            let mut stored = query_all(conn, PR_COLUMNS, row_to_pr)?;
+            stored.sort_by(|a, b| a.id.cmp(&b.id));
+            let mut incoming = rows.iter().collect::<Vec<_>>();
+            incoming.sort_by(|a, b| a.id.cmp(&b.id));
+            if stored.len() == incoming.len()
+                && stored.iter().zip(&incoming).all(|(old, new)| old == *new)
+            {
+                return Ok(false);
+            }
             // One transaction so a concurrent snapshot never sees an empty table mid-sync.
             let tx = conn.unchecked_transaction()?;
             tx.execute("DELETE FROM pr_cache", [])?;
@@ -858,12 +1034,12 @@ impl Store {
                 )?;
             }
             tx.commit()?;
-            Ok(())
+            Ok(true)
         })
     }
 
     pub fn snapshot(&self) -> Result<PersistedSnapshot> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             Ok(PersistedSnapshot {
                 settings: query_all(
                     conn,
@@ -917,19 +1093,30 @@ impl Store {
                     &format!("{SCRATCH_COLUMNS} ORDER BY s.created_at DESC, s.rowid DESC"),
                     row_to_scratch,
                 )?,
-                timeline: query_all(
+                thread_activity: query_all(
                     conn,
-                    "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events
-                     WHERE thread_id NOT IN (SELECT id FROM threads WHERE closed_at IS NOT NULL)
-                     ORDER BY thread_id, seq",
+                    "SELECT thread_id, created_at FROM (
+                        SELECT t.id AS thread_id, (
+                            SELECT e.created_at FROM thread_events e
+                            WHERE e.thread_id = t.id AND (
+                                e.kind IN ('turn_end', 'exit')
+                                OR (e.kind = 'message'
+                                    AND json_extract(e.payload, '$.role') = 'user')
+                            )
+                            ORDER BY e.seq DESC LIMIT 1
+                        ) AS created_at
+                        FROM threads t
+                        WHERE t.closed_at IS NULL AND (
+                            t.workspace_id IN (
+                                SELECT id FROM workspaces WHERE archived_at IS NULL
+                            )
+                            OR t.id IN (SELECT thread_id FROM scratches)
+                        )
+                     ) WHERE created_at IS NOT NULL",
                     |row| {
-                        Ok(ThreadEventRow {
-                            id: row.get(0)?,
-                            thread_id: row.get(1)?,
-                            seq: row.get(2)?,
-                            kind: row.get(3)?,
-                            payload: row.get(4)?,
-                            created_at: row.get(5)?,
+                        Ok(ThreadActivityRow {
+                            thread_id: row.get(0)?,
+                            created_at: row.get(1)?,
                         })
                     },
                 )?,
@@ -968,22 +1155,44 @@ impl Store {
                         })
                     },
                 )?,
-                pull_requests: query_all(
-                    conn,
-                    "SELECT id, repo_id, number, title, payload FROM pr_cache",
-                    |row| {
-                        Ok(PrRow {
-                            id: row.get(0)?,
-                            repo_id: row.get(1)?,
-                            number: row.get(2)?,
-                            title: row.get(3)?,
-                            payload: row.get(4)?,
-                        })
-                    },
-                )?,
+                pull_requests: query_all(conn, PR_COLUMNS, row_to_pr)?,
             })
         })
     }
+}
+
+/// Trades a power cut losing the newest commits (never corruption, under WAL) for no sync per
+/// commit, and keeps pages and temp tables in memory.
+fn tune(conn: &Connection) -> Result<()> {
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "cache_size", -16_000)?;
+    conn.pragma_update(None, "mmap_size", 256_i64 * 1024 * 1024)?;
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
+    conn.set_prepared_statement_cache_capacity(STATEMENT_CACHE);
+    Ok(())
+}
+
+const PR_COLUMNS: &str = "SELECT id, repo_id, number, title, payload FROM pr_cache";
+
+fn row_to_pr(row: &rusqlite::Row<'_>) -> rusqlite::Result<PrRow> {
+    Ok(PrRow {
+        id: row.get(0)?,
+        repo_id: row.get(1)?,
+        number: row.get(2)?,
+        title: row.get(3)?,
+        payload: row.get(4)?,
+    })
+}
+
+fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadEventRow> {
+    Ok(ThreadEventRow {
+        id: row.get(0)?,
+        thread_id: row.get(1)?,
+        seq: row.get(2)?,
+        kind: row.get(3)?,
+        payload: row.get(4)?,
+        created_at: row.get(5)?,
+    })
 }
 
 const THREAD_COLUMNS: &str = "SELECT id, workspace_id, title, engine, session_id, status,
@@ -1048,7 +1257,7 @@ fn query_all<T>(
     sql: &str,
     f: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
 ) -> Result<Vec<T>> {
-    let mut stmt = conn.prepare(sql)?;
+    let mut stmt = conn.prepare_cached(sql)?;
     let rows = stmt.query_map([], f)?;
     let mut items = Vec::new();
     for row in rows {
@@ -1066,6 +1275,182 @@ impl Default for Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn thread(id: &str, workspace_id: &str, status: &str) -> ThreadRow {
+        ThreadRow {
+            id: id.into(),
+            workspace_id: workspace_id.into(),
+            title: "Lead".into(),
+            engine: "claude".into(),
+            session_id: None,
+            status: status.into(),
+            used_tokens: None,
+            context_size: None,
+            cost_usd: None,
+            transcript_readonly: false,
+            retired: false,
+            parent_thread_id: None,
+        }
+    }
+
+    fn workspace(store: &Store, id: &str, status: &str) {
+        store
+            .upsert_repo(&RepoRecord {
+                id: "r1".into(),
+                path: "/tmp/r1".into(),
+                name: "r1".into(),
+                default_branch: None,
+                setup_commands: String::new(),
+                run_command: None,
+                single_instance: false,
+            })
+            .unwrap();
+        store
+            .upsert_workspace(&WorkspaceRow {
+                id: id.into(),
+                repo_id: "r1".into(),
+                name: id.into(),
+                branch: id.into(),
+                worktree_path: format!("/tmp/{id}"),
+                status: status.into(),
+                created_at: String::new(),
+                summary: None,
+                summary_at: None,
+                summary_source: String::new(),
+                kind: None,
+                pr_number: None,
+                pr_html_url: None,
+                modified_files: 0,
+                archived_at: None,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn reads_go_to_their_own_connection_and_see_committed_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new();
+        store.open(&dir.path().join("cormux.db")).unwrap();
+        store.set_setting("k", "v").unwrap();
+        assert_eq!(store.get_setting("k").unwrap().as_deref(), Some("v"));
+        let refused = store.with_read(|conn| Ok(conn.execute("DELETE FROM settings", [])?));
+        assert!(refused.is_err(), "the reader is read-only");
+        let synchronous: i64 = store
+            .with_conn(|conn| Ok(conn.query_row("PRAGMA synchronous", [], |row| row.get(0))?))
+            .unwrap();
+        assert_eq!(synchronous, 1, "NORMAL");
+    }
+
+    #[test]
+    fn transcripts_page_from_the_newest_rows() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store.upsert_thread(&thread("t1", "w1", "idle")).unwrap();
+        for index in 0..5 {
+            store
+                .append_event("t1", "tool", &format!("{{\"n\":{index}}}"))
+                .unwrap();
+        }
+        let seqs =
+            |page: &ThreadEventPage| page.events.iter().map(|row| row.seq).collect::<Vec<_>>();
+
+        let newest = store.thread_event_page("t1", None, None, Some(2)).unwrap();
+        assert_eq!(seqs(&newest), vec![4, 5]);
+        assert!(newest.has_older);
+
+        let older = store
+            .thread_event_page("t1", None, Some(4), Some(10))
+            .unwrap();
+        assert_eq!(seqs(&older), vec![1, 2, 3]);
+        assert!(!older.has_older);
+
+        let catch_up = store.thread_event_page("t1", Some(3), None, None).unwrap();
+        assert_eq!(seqs(&catch_up), vec![4, 5]);
+
+        let empty = store.thread_event_page("gone", None, None, None).unwrap();
+        assert!(empty.events.is_empty() && !empty.has_older);
+    }
+
+    #[test]
+    fn activity_is_the_last_user_message_or_turn_end() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        workspace(&store, "w1", "idle");
+        for id in ["quiet", "moved"] {
+            store.upsert_thread(&thread(id, "w1", "idle")).unwrap();
+        }
+        store
+            .append_event("quiet", "message", r#"{"role":"agent","text":"hi"}"#)
+            .unwrap();
+        store
+            .append_event("moved", "message", r#"{"role":"user","text":"go"}"#)
+            .unwrap();
+        store.append_event("moved", "tool", "{}").unwrap();
+
+        let activity = store.snapshot().unwrap().thread_activity;
+        assert_eq!(activity.len(), 1);
+        assert_eq!(activity[0].thread_id, "moved");
+    }
+
+    #[test]
+    fn idling_a_thread_settles_its_workspace_from_the_siblings() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        workspace(&store, "w1", "running");
+        store.upsert_thread(&thread("a", "w1", "running")).unwrap();
+        store.upsert_thread(&thread("b", "w1", "running")).unwrap();
+        let status = |store: &Store| store.workspace_by_id("w1").unwrap().unwrap().status;
+
+        store.mark_thread_idle("a").unwrap();
+        assert_eq!(status(&store), "running");
+        store.set_thread_status("b", "waiting").unwrap();
+        store.mark_thread_idle("a").unwrap();
+        assert_eq!(status(&store), "waiting");
+        store.mark_thread_idle("b").unwrap();
+        assert_eq!(status(&store), "idle");
+
+        store.archive_workspace("w1").unwrap();
+        store.mark_thread_idle("a").unwrap();
+        assert_eq!(status(&store), "archived");
+    }
+
+    #[test]
+    fn the_last_reply_joins_chunks_since_the_user_spoke() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store.upsert_thread(&thread("t1", "w1", "idle")).unwrap();
+        for (role, text) in [
+            ("agent", "old"),
+            ("user", "go"),
+            ("agent", "a"),
+            ("agent", "b"),
+        ] {
+            let payload = serde_json::json!({ "role": role, "text": text }).to_string();
+            store.append_event("t1", "message", &payload).unwrap();
+        }
+        assert_eq!(store.last_agent_reply("t1").unwrap(), "ab");
+        assert_eq!(store.first_user_goal("t1").unwrap(), "go");
+        assert_eq!(
+            store.first_message_text("t1").unwrap().as_deref(),
+            Some("old")
+        );
+    }
+
+    #[test]
+    fn an_unchanged_pr_list_reports_no_change() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        let row = |title: &str| PrRow {
+            id: "p1".into(),
+            repo_id: None,
+            number: 1,
+            title: title.into(),
+            payload: "{}".into(),
+        };
+        assert!(store.replace_pull_requests(&[row("a")]).unwrap());
+        assert!(!store.replace_pull_requests(&[row("a")]).unwrap());
+        assert!(store.replace_pull_requests(&[row("b")]).unwrap());
+    }
 
     #[test]
     fn scratch_keeps_its_thread_out_of_workspace_lists() {
@@ -1115,7 +1500,7 @@ mod tests {
         store.delete_scratch("scratch-1").unwrap();
         let snapshot = store.snapshot().unwrap();
         assert!(snapshot.scratches.is_empty());
-        assert!(snapshot.timeline.is_empty());
+        assert!(snapshot.thread_activity.is_empty());
         assert!(store.thread_by_id("t1").unwrap().is_none());
     }
 
@@ -1349,7 +1734,14 @@ mod tests {
         assert_eq!(store.thread_model("lead").unwrap(), None);
         let lead = store.thread_by_id("lead").unwrap().unwrap();
         assert_eq!((lead.used_tokens, lead.context_size), (None, None));
-        assert_eq!(store.snapshot().unwrap().timeline.len(), 1);
+        assert_eq!(
+            store
+                .thread_event_page("lead", None, None, None)
+                .unwrap()
+                .events
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -1472,7 +1864,6 @@ mod tests {
         assert_eq!(snap.repos[0].name, "app");
         assert_eq!(snap.workspaces[0].branch, "feat");
         assert_eq!(snap.threads[0].title, "Lead");
-        assert_eq!(snap.timeline[0].kind, "message");
         assert_eq!(snap.approvals[0].tool, "edit");
         assert_eq!(snap.findings[0].title, "Leak");
         assert_eq!(snap.pull_requests[0].number, 12);

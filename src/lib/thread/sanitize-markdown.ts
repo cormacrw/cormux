@@ -17,6 +17,7 @@ import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import { Marked } from 'marked'
 import { markedHighlight } from 'marked-highlight'
+import { memoByText } from './memo'
 
 // Only the languages agents usually write, so the bundle doesn't carry all ~190 of them.
 for (const [name, language] of Object.entries({
@@ -106,9 +107,24 @@ function markCallouts(html: string): string {
   })
 }
 
-export function renderSanitizedMarkdown(source: string): string {
+function renderSafe(source: string): string {
   const raw = marked.parse(source, { async: false })
   return markCallouts(purify.sanitize(raw, ALLOWED))
+}
+
+export const renderSanitizedMarkdown = memoByText(renderSafe, 300)
+
+/**
+ * A reply being written, one sanitised piece per top-level block. Every block but the last is
+ * finished, so it's rendered once; only the block still growing costs anything per frame.
+ */
+export function renderMarkdownBlocks(source: string): string[] {
+  const blocks = marked.lexer(source).filter((token) => token.type !== 'space')
+  return blocks.map((token, index) =>
+    index === blocks.length - 1
+      ? renderSafe(token.raw)
+      : renderSanitizedMarkdown(token.raw),
+  )
 }
 
 /** ClickUp task descriptions are written as documents, so they also get headings and checklists. */

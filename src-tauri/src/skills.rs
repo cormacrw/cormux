@@ -65,14 +65,12 @@ const BUILTIN: &[(&str, &str)] = &[
 ];
 
 /// Skills available to a thread's agent, by the folder it runs in.
-pub fn for_thread(state: &AppState, thread_id: &str) -> Result<Vec<Skill>> {
-    let cwd = thread_cwd(state, thread_id)?;
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    Ok(list(&cwd, home.as_deref()))
+pub async fn for_thread(state: &AppState, thread_id: &str) -> Result<Vec<Skill>> {
+    list_in_background(thread_cwd(state, thread_id)?).await
 }
 
 /// Skills a new thread off this repo will have, before its worktree exists.
-pub fn for_repo(state: &AppState, repo_id: &str) -> Result<Vec<Skill>> {
+pub async fn for_repo(state: &AppState, repo_id: &str) -> Result<Vec<Skill>> {
     let repo = state
         .store
         .snapshot()?
@@ -80,8 +78,17 @@ pub fn for_repo(state: &AppState, repo_id: &str) -> Result<Vec<Skill>> {
         .into_iter()
         .find(|row| row.id == repo_id)
         .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))?;
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    Ok(list(&expand_tilde(&repo.path), home.as_deref()))
+    list_in_background(expand_tilde(&repo.path)).await
+}
+
+/// Reads every skill's file, so it stays off the threads running everything else.
+async fn list_in_background(cwd: PathBuf) -> Result<Vec<Skill>> {
+    tokio::task::spawn_blocking(move || {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        list(&cwd, home.as_deref())
+    })
+    .await
+    .map_err(|error| Error::Workspace(error.to_string()))
 }
 
 fn thread_cwd(state: &AppState, thread_id: &str) -> Result<PathBuf> {

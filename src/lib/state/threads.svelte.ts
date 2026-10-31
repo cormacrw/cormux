@@ -1,4 +1,5 @@
 import type { ThreadUsage } from '$lib/usage/usage'
+import { reuseRows } from './reuse-rows'
 import { workspaces } from './workspaces.svelte'
 
 export type Thread = {
@@ -20,7 +21,7 @@ export type Thread = {
 }
 
 export class ThreadsStore {
-  items = $state<Thread[]>([])
+  items = $state.raw<Thread[]>([])
 
   /**
    * Live workspace threads only. Scratches and retired threads stay out of agent counts, and
@@ -39,7 +40,7 @@ export class ThreadsStore {
   )
 
   hydrate(items: Thread[]) {
-    this.items = items
+    this.items = reuseRows(this.items, items)
   }
 
   forWorkspace(workspaceId: string) {

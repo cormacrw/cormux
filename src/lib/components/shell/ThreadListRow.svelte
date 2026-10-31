@@ -2,6 +2,7 @@
   import { formatRelativeAge } from '$lib/homebase/relative-time'
   import {
     plural,
+    statusDotVariantForAttention,
     statusDotVariantForWorkspace,
     workspaceStatusWord,
   } from '$lib/sidebar/status'
@@ -43,7 +44,12 @@
 
   // An approval can land while the workspace still reads as running, so urgency decides.
   const dotVariant = $derived.by(() => {
-    if (attention) return 'waiting'
+    if (attention) {
+      return statusDotVariantForAttention(
+        workspace?.pendingApprovals ?? 0,
+        workspace?.lifecycle,
+      )
+    }
     return statusInput ? statusDotVariantForWorkspace(statusInput) : 'idle'
   })
 

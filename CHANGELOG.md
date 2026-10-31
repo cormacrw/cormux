@@ -2,6 +2,15 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.19
+
+- Cormux starts much faster: the code loaded at launch is down from about 2 MB to under 400 kB, with the diff viewer and secondary views loading when you first need them.
+- Threads load when you open them instead of all at launch, so startup no longer slows down as your history grows. Long threads show their newest events first, with a Show earlier messages button. Find searches what's loaded.
+- Long threads and fast replies stay smooth: updates land once per frame, only the part of a reply still being written re-renders, and collapsed sections render when opened.
+- Much less background work: diffs run only for the workspace you're viewing, and memory sampling, branch polling and focus syncing are far lighter. Finished threads no longer animate in the sidebar, and Claude sessions idle for 30 minutes shut down and resume on your next prompt, which also ends any background shells they started.
+- Large diffs are easier on the app: lockfiles, generated files and files over 1,500 lines start collapsed, and very large patches are truncated with a notice. Rarer languages such as Dockerfile are no longer highlighted in diffs.
+- Fixed thread events being lost or shown twice around reconnects, the Thinking status not showing, the running tool group collapsing early, and behind counts going stale after a restart.
+
 ## 0.1.18
 
 - When an agent asks you something, the question appears in a card with options to pick from and a box for your own answer.

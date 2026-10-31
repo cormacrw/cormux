@@ -6,8 +6,11 @@
 //! and `sync` with their non-interactive flags. Pull requests are opened by hand with
 //! Create PR, never by gh-stack. Exit codes are gh-stack's documented ones.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -20,6 +23,9 @@ use crate::git_workspace::{adopt_checked_out_branch, resolve_record};
 use crate::ipc::types::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
 use crate::workspace::WorkspaceRecord;
+
+/// How long GitHub's "no stack has this branch" stands before asking again.
+const REMOTE_STACK_TTL: Duration = Duration::from_secs(120);
 
 const EXIT_NOT_IN_STACK: i32 = 2;
 /// `gh stack checkout`: no stack, local or on GitHub, has the branch.
@@ -199,10 +205,20 @@ fn failure_message(output: &Output, action: &str) -> String {
 }
 
 async fn view(state: &AppState, worktree: &Path) -> Result<View> {
-    let output = match gh_stack(state, worktree, &["view", "--json"]).await {
+    // Reads local state only, so it needn't queue behind the worktree's git calls.
+    let args = ["stack", "view", "--json"];
+    let quiet = [("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1")];
+    let output = match state
+        .git
+        .run_tool_unqueued(worktree, "gh", &args, &quiet)
+        .await
+    {
         Ok(output) => output,
-        Err(Error::Git(message)) => return Ok(View::Unavailable(message)),
-        Err(error) => return Err(error),
+        Err(_) => {
+            return Ok(View::Unavailable(format!(
+                "GitHub CLI not found. Install gh, then {INSTALL_HINT}."
+            )));
+        }
     };
     if output.status.success() {
         let parsed: ViewJson = serde_json::from_slice(&output.stdout)
@@ -267,9 +283,15 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         View::Stacked(json) => json,
         View::NotStacked => {
             if !adopt_local_stack(state, &worktree, &record.branch).await {
+                if recently_unstacked(&worktree, &record.branch) {
+                    return Ok(empty(StackStatus::NotStacked, None));
+                }
                 match checkout_remote_stack(state, &worktree, &record.branch, &record.base).await {
                     RemoteStack::CheckedOut => {}
-                    RemoteStack::None => return Ok(empty(StackStatus::NotStacked, None)),
+                    RemoteStack::None => {
+                        remember_unstacked(&worktree, &record.branch);
+                        return Ok(empty(StackStatus::NotStacked, None));
+                    }
                     RemoteStack::Failed(message) => {
                         return Ok(empty(StackStatus::NotStacked, Some(message)));
                     }
@@ -447,6 +469,32 @@ async fn stack_in_other_worktrees(
         .find_map(|text| stack_with_branch(&text, branch))
 }
 
+/// When GitHub last said each `worktree\0branch` has no stack. Asking means a network call on
+/// every open of an unstacked branch, the common case; a stack made here shows up regardless,
+/// since `view` is asked first.
+fn unstacked_branches() -> &'static Mutex<HashMap<String, Instant>> {
+    static CHECKED: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    CHECKED.get_or_init(Default::default)
+}
+
+fn unstacked_key(worktree: &Path, branch: &str) -> String {
+    format!("{}\0{branch}", worktree.display())
+}
+
+fn recently_unstacked(worktree: &Path, branch: &str) -> bool {
+    unstacked_branches()
+        .lock()
+        .unwrap()
+        .get(&unstacked_key(worktree, branch))
+        .is_some_and(|at| at.elapsed() < REMOTE_STACK_TTL)
+}
+
+fn remember_unstacked(worktree: &Path, branch: &str) {
+    let mut checked = unstacked_branches().lock().unwrap();
+    checked.retain(|_, at| at.elapsed() < REMOTE_STACK_TTL);
+    checked.insert(unstacked_key(worktree, branch), Instant::now());
+}
+
 enum RemoteStack {
     /// A stack on GitHub has the branch, and it's now set up in this worktree.
     CheckedOut,
@@ -458,9 +506,9 @@ enum RemoteStack {
 
 /// A branch checked out from GitHub has no gh-stack metadata in this worktree, so
 /// `gh stack view` calls it unstacked. `gh stack checkout <branch>` looks for it in the
-/// stacks on GitHub too and, when one has it, sets that stack up here. This runs on every
-/// load of an unstacked branch, so a stack made elsewhere shows up the next time the Stack
-/// tab opens or the branch is checked out.
+/// stacks on GitHub too and, when one has it, sets that stack up here. This runs on loads of
+/// an unstacked branch, so a stack made elsewhere shows up within `REMOTE_STACK_TTL` the next
+/// time the Stack tab opens or the branch is checked out.
 async fn checkout_remote_stack(
     state: &AppState,
     worktree: &Path,

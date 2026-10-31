@@ -36,15 +36,21 @@ mod store;
 mod summaries;
 mod teardown;
 mod thread_media;
+mod window_activity;
 mod workspace;
 
 use std::time::Duration;
 
-use ipc::events::StateChanged;
+use ipc::events::{MemorySampled, StateChanged};
 use ipc::types::StateChangeKind;
 use state::AppState;
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_specta::Event;
+use window_activity::WindowActivity;
+
+const METRICS_INTERVAL: Duration = Duration::from_secs(4);
+/// Nobody reads the sidebar label while the window is in the background, so only every 60s.
+const METRICS_BACKGROUND_TICKS: u32 = 15;
 
 /// Dev builds keep their own data, so running Cormux from inside Cormux can't touch the
 /// installed app's workspaces.
@@ -72,8 +78,15 @@ pub fn run() {
             menu::handle(app, event.id().as_ref());
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::Focused(true) = event {
+            if let WindowEvent::Focused(focused) = event {
                 let app = window.app_handle().clone();
+                let Some(activity) = app.try_state::<WindowActivity>() else {
+                    return;
+                };
+                activity.set_focused(*focused);
+                if !*focused || !activity.begin_sync(std::time::Instant::now()) {
+                    return;
+                }
                 tauri::async_runtime::spawn(async move {
                     let state = app.state::<AppState>();
                     match state.fetch.tick().await {
@@ -92,6 +105,7 @@ pub fn run() {
                     if let Err(error) = state.pr_sync.sync_app(&app).await {
                         log::warn!("focus PR sync failed: {error}");
                     }
+                    app.state::<WindowActivity>().finish_sync();
                 });
             }
         })
@@ -111,6 +125,7 @@ pub fn run() {
             ipc.mount_events(app);
             app.set_menu(menu::build(app.handle())?)?;
 
+            app.manage(WindowActivity::new());
             let state = AppState::new();
             state.diffs.start();
             state.fetch.spawn_loop();
@@ -119,11 +134,13 @@ pub fn run() {
             let env = state.shell_env.clone();
             let pr_sync = state.pr_sync.clone();
             let pr_app = app.handle().clone();
+            let startup_app = app.handle().clone();
             let db_path = data_dir(app.path().app_data_dir()?).join("cormux.db");
             state.store.open(&db_path)?;
             state.store.reset_interrupted_turns()?;
             let approval_notify = state.approval_notify.clone();
             let turn_end_notify = state.turn_end_notify.clone();
+            state.engines.spawn_idle_reaper();
             app.manage(state);
             // Reads AppState from the handle, so it starts once the state is managed.
             crate::git_workspace::spawn_branch_watch(app.handle().clone());
@@ -131,6 +148,11 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = env.write().await.load_or_inherit().await {
                     log::warn!("shell env load failed: {error}");
+                }
+                let startup = startup_app.state::<AppState>();
+                startup.process.remove_stale_logs();
+                if let Err(error) = crate::git_workspace::restore_fetch_targets(&startup).await {
+                    log::warn!("restoring fetch targets failed: {error}");
                 }
                 if let Err(error) = pr_sync.sync_app(&pr_app).await {
                     log::warn!("initial PR sync failed: {error}");
@@ -224,24 +246,19 @@ pub fn run() {
 
             let metrics_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(4));
+                let mut interval = tokio::time::interval(METRICS_INTERVAL);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                let mut ticks = 0u32;
                 loop {
                     interval.tick().await;
+                    ticks = ticks.wrapping_add(1);
+                    let focused = metrics_handle.state::<WindowActivity>().is_focused();
+                    if !focused && !ticks.is_multiple_of(METRICS_BACKGROUND_TICKS) {
+                        continue;
+                    }
                     let state = metrics_handle.state::<AppState>();
-                    let trees: Vec<(String, Vec<u32>)> = {
-                        let mut grouped = std::collections::HashMap::<String, Vec<u32>>::new();
-                        for (id, pid) in state.process.pids() {
-                            grouped.entry(id).or_default().push(pid);
-                        }
-                        grouped.into_iter().collect()
-                    };
-                    if state.metrics.sample(&trees).is_ok() {
-                        let version = state.bump_event_version();
-                        let _ = StateChanged {
-                            version,
-                            kind: StateChangeKind::Metrics,
-                        }
-                        .emit(&metrics_handle);
+                    if let Ok(sample) = ipc::commands::sample_metrics(&state).await {
+                        let _ = MemorySampled { sample }.emit(&metrics_handle);
                     }
                 }
             });

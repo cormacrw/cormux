@@ -4,9 +4,8 @@ description = "Allow the webview to call Cormux core commands"
 commands.allow = [
   "get_snapshot",
   "reload_environment",
-  "fetch_on_focus",
   "get_metrics",
-  "subscribe_agent_chunks",
+  "get_thread_events",
   "subscribe_agent_events",
   "subscribe_pty",
   "subscribe_diffs",

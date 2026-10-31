@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use tokio::process::Command;
 use tokio::sync::{Mutex as AsyncMutex, RwLock};
@@ -16,7 +17,21 @@ pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
 pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
 
 /// A new thread waits this long at most for its base branch to fetch.
-const BASE_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+const BASE_FETCH_TIMEOUT: Duration = Duration::from_secs(20);
+/// New threads off the same base within this long share one fetch.
+const BASE_FETCH_TTL: Duration = Duration::from_secs(30);
+
+/// `git diff` with a stable header, whatever the user's diff settings, for `split_patches`.
+const PATCH_ARGS: [&str; 8] = [
+    "-c",
+    "core.quotePath=false",
+    "diff",
+    "--no-ext-diff",
+    "--no-color",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "-M",
+];
 
 /// System `git` wrapper. Credential helpers, hooks and LFS apply because this
 /// shells out instead of using git2/gix. Calls for one worktree are serialised.
@@ -28,6 +43,8 @@ pub struct Git {
 struct GitInner {
     env: Arc<RwLock<ShellEnv>>,
     queues: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
+    /// When each `repo\0base` last fetched, locked for the duration of a fetch.
+    base_fetches: Mutex<HashMap<String, Arc<AsyncMutex<Option<Instant>>>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +89,7 @@ impl Git {
             inner: Arc::new(GitInner {
                 env,
                 queues: Mutex::new(HashMap::new()),
+                base_fetches: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -85,6 +103,7 @@ impl Git {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
     {
+        let key = Self::queue_key(worktree);
         let lock = {
             let mut queues = self
                 .inner
@@ -92,12 +111,23 @@ impl Git {
                 .lock()
                 .map_err(|error| Error::Git(error.to_string()))?;
             queues
-                .entry(Self::queue_key(worktree))
+                .entry(key.clone())
                 .or_insert_with(|| Arc::new(AsyncMutex::new(())))
                 .clone()
         };
-        let _guard = lock.lock().await;
-        f().await
+        let result = {
+            let _guard = lock.lock().await;
+            f().await
+        };
+        // Clones are only taken under this lock, so nobody can be about to queue on it.
+        if let Ok(mut queues) = self.inner.queues.lock()
+            && queues
+                .get(&key)
+                .is_some_and(|entry| Arc::ptr_eq(entry, &lock) && Arc::strong_count(entry) == 2)
+        {
+            queues.remove(&key);
+        }
+        result
     }
 
     async fn run(&self, cwd: &Path, args: &[&str]) -> Result<Output> {
@@ -114,20 +144,31 @@ impl Git {
         args: &[&str],
         extra_env: &[(&str, &str)],
     ) -> Result<Output> {
-        self.with_queue(worktree, || async {
-            let env = self.inner.env.read().await;
-            let mut command = Command::new(program);
-            command.args(args);
-            env.apply(&mut command);
-            command.envs(extra_env.iter().copied());
-            command.current_dir(worktree);
-            command.stdin(std::process::Stdio::null());
-            command
-                .output()
-                .await
-                .map_err(|error| Error::Git(format!("{program}: {error}")))
+        self.with_queue(worktree, || {
+            self.run_tool_unqueued(worktree, program, args, extra_env)
         })
         .await
+    }
+
+    /// Like `run_tool`, for read-only calls that needn't wait behind the worktree's queue.
+    pub async fn run_tool_unqueued(
+        &self,
+        worktree: &Path,
+        program: &str,
+        args: &[&str],
+        extra_env: &[(&str, &str)],
+    ) -> Result<Output> {
+        let env = self.inner.env.read().await;
+        let mut command = Command::new(program);
+        command.args(args);
+        env.apply(&mut command);
+        command.envs(extra_env.iter().copied());
+        command.current_dir(worktree);
+        command.stdin(std::process::Stdio::null());
+        command
+            .output()
+            .await
+            .map_err(|error| Error::Git(format!("{program}: {error}")))
     }
 
     async fn run_unlocked(&self, cwd: Option<&Path>, args: &[&str]) -> Result<Output> {
@@ -267,10 +308,28 @@ impl Git {
     /// Where a new branch off `base` should start: the freshest of local and origin's, fetched
     /// now. A fetch that fails (offline, no remote) falls back to what's already here.
     pub async fn latest_base(&self, repo: &Path, base: &str) -> String {
+        self.fetch_base(repo, base).await;
+        self.freshest_ref(repo, base).await
+    }
+
+    /// Fetch `base` unless that just happened. Threads started together wait on one fetch,
+    /// outside the repo's queue, so nothing else on the repo waits for the network.
+    async fn fetch_base(&self, repo: &Path, base: &str) {
+        let key = format!("{}\0{base}", Self::queue_key(repo));
+        let slot = {
+            let Ok(mut fetches) = self.inner.base_fetches.lock() else {
+                return;
+            };
+            fetches.entry(key).or_default().clone()
+        };
+        let mut fetched = slot.lock().await;
+        if fetched.is_some_and(|at| at.elapsed() < BASE_FETCH_TTL) {
+            return;
+        }
         let args = ["fetch", "origin", base];
-        let fetch = self.run(repo, &args);
+        let fetch = self.run_unlocked(Some(repo), &args);
         match tokio::time::timeout(BASE_FETCH_TIMEOUT, fetch).await {
-            Ok(Ok(output)) if output.status.success() => {}
+            Ok(Ok(output)) if output.status.success() => *fetched = Some(Instant::now()),
             Ok(Ok(output)) => log::warn!(
                 "fetching {base} failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
@@ -278,7 +337,6 @@ impl Git {
             Ok(Err(error)) => log::warn!("fetching {base} failed: {error}"),
             Err(_) => log::warn!("fetching {base} timed out"),
         }
-        self.freshest_ref(repo, base).await
     }
 
     pub async fn worktree_add_detached(
@@ -424,16 +482,31 @@ impl Git {
             )
             .await?;
         Self::diff_ok(&output, "diff --numstat")?;
-        let mut changes = Vec::new();
-        for stat in parse_numstat_z(&output.stdout) {
-            let patch = if with_patches {
-                let mut args = vec!["diff", "-M", "HEAD", "--"];
-                args.extend(stat.paths());
-                let output = self.run_with_env(Some(worktree), &args, &env).await?;
-                Self::diff_ok(&output, "diff file")?;
-                Self::stdout(&output)
-            } else {
-                String::new()
+        let stats = parse_numstat_z(&output.stdout);
+        if !with_patches {
+            return Ok(stats
+                .into_iter()
+                .map(|stat| (stat, String::new()))
+                .collect());
+        }
+        let mut args = PATCH_ARGS.to_vec();
+        args.push("HEAD");
+        let whole = self.run_with_env(Some(worktree), &args, &env).await?;
+        Self::diff_ok(&whole, "diff")?;
+        let text = Self::stdout(&whole);
+        let mut patches = split_patches(&text);
+        let mut changes = Vec::with_capacity(stats.len());
+        for stat in stats {
+            let patch = match patches.remove(stat.patch_header().as_str()) {
+                Some(patch) => patch.to_string(),
+                None => {
+                    let mut args = PATCH_ARGS.to_vec();
+                    args.extend(["HEAD", "--"]);
+                    args.extend(stat.paths());
+                    let output = self.run_with_env(Some(worktree), &args, &env).await?;
+                    Self::diff_ok(&output, "diff file")?;
+                    Self::stdout(&output)
+                }
             };
             changes.push((stat, patch));
         }
@@ -508,17 +581,41 @@ impl Git {
         Ok(scratch)
     }
 
-    pub async fn diff_file_range(
+    /// Each file changed by `range` with its patch.
+    pub async fn range_changes(
         &self,
         worktree: &Path,
         range: &str,
-        file: &FileStat,
-    ) -> Result<String> {
-        let mut args = vec!["diff", "-M", range, "--"];
-        args.extend(file.paths());
-        let output = self.run(worktree, &args).await?;
-        Self::diff_ok(&output, "diff file in range")?;
-        Ok(Self::stdout(&output))
+    ) -> Result<Vec<(FileStat, String)>> {
+        let stats = self.numstat_range(worktree, range).await?;
+        if stats.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut args = PATCH_ARGS.to_vec();
+        args.push(range);
+        let whole = self.run(worktree, &args).await?;
+        Self::diff_ok(&whole, "diff range")?;
+        let text = Self::stdout(&whole);
+        let mut patches = split_patches(&text);
+        let mut changes = Vec::with_capacity(stats.len());
+        for stat in stats {
+            let patch = match patches.remove(stat.patch_header().as_str()) {
+                Some(patch) => patch.to_string(),
+                None => {
+                    let mut args = PATCH_ARGS.to_vec();
+                    args.extend([range, "--"]);
+                    args.extend(stat.paths());
+                    let output = self.run(worktree, &args).await?;
+                    if Self::diff_ok(&output, "diff file in range").is_ok() {
+                        Self::stdout(&output)
+                    } else {
+                        String::new()
+                    }
+                }
+            };
+            changes.push((stat, patch));
+        }
+        Ok(changes)
     }
 
     pub async fn status_porcelain(&self, worktree: &Path) -> Result<String> {
@@ -843,6 +940,60 @@ impl FileStat {
             .chain([self.path.as_str()])
             .collect()
     }
+
+    /// The first line of this file's section in a `PATCH_ARGS` diff. Git quotes the paths it
+    /// must (tabs, newlines), so those won't match and are diffed on their own.
+    fn patch_header(&self) -> String {
+        let old = self.old_path.as_deref().unwrap_or(&self.path);
+        format!("diff --git a/{old} b/{}", self.path)
+    }
+}
+
+/// A whole `git diff` by file, keyed by each section's `diff --git` line. Patch content always
+/// starts with a diff marker, so that line can't be mistaken for it.
+fn split_patches(diff: &str) -> HashMap<&str, &str> {
+    let mut starts: Vec<usize> = diff
+        .match_indices("\ndiff --git ")
+        .map(|(index, _)| index + 1)
+        .collect();
+    if diff.starts_with("diff --git ") {
+        starts.insert(0, 0);
+    }
+    let ends = starts.iter().skip(1).copied().chain([diff.len()]);
+    starts
+        .iter()
+        .zip(ends)
+        .map(|(&start, end)| {
+            let section = &diff[start..end];
+            (section.lines().next().unwrap_or_default(), section)
+        })
+        .collect()
+}
+
+/// `.git` of a worktree: the folder itself, or where a linked worktree's `.git` file points.
+pub fn worktree_git_dir(worktree: &Path) -> Option<PathBuf> {
+    let dot_git = worktree.join(".git");
+    if dot_git.is_dir() {
+        return Some(dot_git);
+    }
+    let text = std::fs::read_to_string(&dot_git).ok()?;
+    let dir = text.trim().strip_prefix("gitdir:")?;
+    Some(worktree.join(dir.trim()))
+}
+
+/// The branch a worktree has checked out, read from `HEAD` without spawning git: empty while
+/// detached, `None` when `HEAD` can't say (unreadable, or a reftable repo's placeholder).
+pub fn checked_out_branch(worktree: &Path) -> Option<String> {
+    let head = std::fs::read_to_string(worktree_git_dir(worktree)?.join("HEAD")).ok()?;
+    parse_head(&head)
+}
+
+fn parse_head(head: &str) -> Option<String> {
+    let Some(reference) = head.trim().strip_prefix("ref:") else {
+        return Some(String::new());
+    };
+    let branch = reference.trim().strip_prefix("refs/heads/")?;
+    (branch != ".invalid").then(|| branch.to_string())
 }
 
 /// `git diff --numstat -z`: `added\tdeleted\tpath\0`, or for a rename
@@ -926,6 +1077,121 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success(), "{args:?} failed in {}", cwd.display());
+    }
+
+    #[test]
+    fn reads_the_branch_from_head() {
+        assert_eq!(
+            parse_head("ref: refs/heads/feat/a\n").as_deref(),
+            Some("feat/a")
+        );
+        assert_eq!(parse_head("3f2a9c\n").as_deref(), Some(""));
+        assert_eq!(parse_head("ref: refs/heads/.invalid\n"), None);
+    }
+
+    #[tokio::test]
+    async fn a_linked_worktrees_head_is_read_without_git() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        assert_eq!(checked_out_branch(&repo).as_deref(), Some("main"));
+        let dir = tempfile::tempdir().unwrap();
+        let worktree = dir.path().join("wt");
+        git.worktree_add(&repo, &worktree, "feat/x", "main")
+            .await
+            .unwrap();
+        assert_eq!(checked_out_branch(&worktree).as_deref(), Some("feat/x"));
+    }
+
+    /// Every kind of change git treats specially, each compared with diffing that file alone.
+    #[tokio::test]
+    async fn the_whole_diff_splits_into_what_each_file_would_show() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        let long: String = (0..40).map(|n| format!("line {n}\n")).collect();
+        for (name, body) in [
+            ("to-rename.txt", long.as_str()),
+            ("to-delete.txt", "gone\n"),
+            ("spaces in name.txt", "a\n"),
+            ("caf\u{e9}.txt", "a\n"),
+            ("tab\tname.txt", "a\n"),
+            ("script.sh", "#!/bin/sh\n"),
+        ] {
+            std::fs::write(repo.join(name), body).unwrap();
+        }
+        std::fs::write(repo.join("logo.bin"), [0u8, 1, 2]).unwrap();
+        run_ok(&repo, &["git", "add", "."]);
+        run_ok(&repo, &["git", "commit", "-qm", "files"]);
+
+        std::fs::rename(repo.join("to-rename.txt"), repo.join("renamed.txt")).unwrap();
+        std::fs::remove_file(repo.join("to-delete.txt")).unwrap();
+        std::fs::write(repo.join("spaces in name.txt"), "b\n").unwrap();
+        std::fs::write(repo.join("caf\u{e9}.txt"), "b\n").unwrap();
+        std::fs::write(repo.join("tab\tname.txt"), "b\n").unwrap();
+        std::fs::write(repo.join("logo.bin"), [3u8, 4, 5]).unwrap();
+        std::fs::write(repo.join("untracked.txt"), "new\n").unwrap();
+        run_ok(&repo, &["chmod", "+x", "script.sh"]);
+
+        let changes = git.uncommitted_changes(&repo, true).await.unwrap();
+        assert_eq!(changes.len(), 8);
+        let index = git.scratch_index(&repo).await.unwrap();
+        let index = index.to_string_lossy().to_string();
+        let env = [("GIT_INDEX_FILE", index.as_str())];
+        git.run_with_env(Some(&repo), &["add", "--intent-to-add", "--", "."], &env)
+            .await
+            .unwrap();
+        for (stat, patch) in &changes {
+            let mut args = PATCH_ARGS.to_vec();
+            args.extend(["HEAD", "--"]);
+            args.extend(stat.paths());
+            let alone = git.run_with_env(Some(&repo), &args, &env).await.unwrap();
+            assert_eq!(*patch, Git::stdout(&alone), "{}", stat.path);
+            assert!(!patch.is_empty(), "{}", stat.path);
+        }
+        let _ = std::fs::remove_file(&index);
+
+        run_ok(&repo, &["git", "switch", "-qc", "feat/a"]);
+        run_ok(&repo, &["git", "add", "."]);
+        run_ok(&repo, &["git", "commit", "-qm", "everything"]);
+        let committed = git.range_changes(&repo, "main...feat/a").await.unwrap();
+        assert_eq!(committed.len(), 8);
+        for (stat, patch) in &committed {
+            assert!(!patch.is_empty(), "{}", stat.path);
+        }
+    }
+
+    #[tokio::test]
+    async fn base_fetches_are_shared_only_when_they_worked() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let (_clone_dir, clone) = clone_of(&origin);
+        assert_eq!(git.latest_base(&clone, "main").await, "origin/main");
+        // Inside the window a new commit waits for the next fetch.
+        commit(&origin, "landed.txt");
+        git.latest_base(&clone, "main").await;
+        assert!(!git.ref_has(&clone, "origin/main", "landed.txt").await);
+
+        let (_missing_dir, missing) = clone_of(&origin);
+        run_ok(
+            &missing,
+            &["git", "remote", "set-url", "origin", "/nowhere"],
+        );
+        git.latest_base(&missing, "main").await;
+        let origin_path = origin.to_string_lossy().to_string();
+        run_ok(
+            &missing,
+            &["git", "remote", "set-url", "origin", &origin_path],
+        );
+        commit(&origin, "later.txt");
+        git.latest_base(&missing, "main").await;
+        assert!(git.ref_has(&missing, "origin/main", "later.txt").await);
+    }
+
+    #[tokio::test]
+    async fn an_idle_worktree_leaves_no_queue_behind() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        git.status_porcelain(&repo).await.unwrap();
+        assert!(git.inner.queues.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1060,6 +1326,13 @@ mod tests {
         std::fs::write(repo.join(file), "x\n").unwrap();
         run_ok(repo, &["git", "add", file]);
         run_ok(repo, &["git", "commit", "-q", "-m", file]);
+    }
+
+    impl Git {
+        async fn ref_has(&self, repo: &Path, reference: &str, file: &str) -> bool {
+            let spec = format!("{reference}:{file}");
+            self.ref_exists(repo, &spec).await.unwrap()
+        }
     }
 
     fn clone_of(origin: &Path) -> (tempfile::TempDir, PathBuf) {

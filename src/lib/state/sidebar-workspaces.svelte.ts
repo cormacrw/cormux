@@ -2,7 +2,6 @@ import {
   nestThreadList,
   sortThreadList,
   splitThreadList,
-  threadActivityMs,
   threadUrgency,
   type ThreadUrgency,
 } from '$lib/sidebar/thread-list'
@@ -38,11 +37,9 @@ export type ThreadListRowItem = ThreadListItem & { nested: boolean }
  */
 class ThreadList {
   readonly items = $derived.by((): ThreadListItem[] => {
+    const activity = threadTimeline.activityByThread
     const rows = workspaces.liveItems.map((workspace) => {
       const thread = threads.liveFor(workspace.id)
-      const events = thread
-        ? (threadTimeline.eventsByThread[thread.id] ?? [])
-        : []
       const repoId = workspaceRecords.getRecord(workspace.id)?.repoId
       const parentThread = thread?.parentThreadId
         ? threads.getById(thread.parentThreadId)
@@ -60,7 +57,8 @@ class ThreadList {
           pendingApprovals: workspace.pendingApprovals,
           threadStatus: thread?.status,
         }),
-        activityAtMs: threadActivityMs(events) || (workspace.createdAtMs ?? 0),
+        activityAtMs:
+          (thread && activity[thread.id]) || (workspace.createdAtMs ?? 0),
         workspace,
         parentId: parent?.id ?? null,
         parentTitle: parent?.name ?? null,
@@ -72,11 +70,7 @@ class ThreadList {
       repoName: repos.getById(scratch.repoId)?.name ?? scratch.repoId,
       branch: null,
       urgency: 'quiet' as const,
-      activityAtMs:
-        threadActivityMs(
-          threadTimeline.eventsByThread[scratch.threadId] ?? [],
-        ) ||
-        (scratch.createdAtMs ?? 0),
+      activityAtMs: activity[scratch.threadId] || (scratch.createdAtMs ?? 0),
       workspace: null,
       parentId: null,
       parentTitle: null,

@@ -99,6 +99,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "018_drop_acp_engines",
         sql: include_str!("../../migrations/018_drop_acp_engines.sql"),
     },
+    Migration {
+        version: 19,
+        name: "019_read_path_indexes",
+        sql: include_str!("../../migrations/019_read_path_indexes.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -182,7 +187,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 18);
+        assert_eq!(version, 19);
 
         for expected in [
             "approvals",

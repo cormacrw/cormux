@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::git::WorktreeDiff;
 use crate::llm::LlmClient;
-use crate::store::types::{ThreadEventRow, WorkspaceRow};
+use crate::store::types::WorkspaceRow;
 
 const CANNED: &[(&str, &str)] = &[
     (
@@ -101,24 +101,6 @@ pub fn build_draft_prompt(
         transcript,
         file_block,
     )
-}
-
-pub fn extract_goal_from_events(events: &[ThreadEventRow]) -> String {
-    for row in events {
-        if row.kind != "message" {
-            continue;
-        }
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&row.payload)
-            && value.get("role").and_then(|role| role.as_str()) == Some("user")
-            && let Some(text) = value.get("text").and_then(|text| text.as_str())
-        {
-            let trimmed = text.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
-    }
-    String::new()
 }
 
 pub async fn draft_why(

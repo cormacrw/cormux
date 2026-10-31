@@ -85,16 +85,27 @@
     const target = `${current}\u0000${needle}`
     const scroll = target !== revealed
     revealed = target
-    void reveal(
-      root,
-      needle,
-      match ? rowKey(rows[match.row]!) : null,
-      match,
-      scroll,
-    )
+    const show = () =>
+      void reveal(
+        root,
+        needle,
+        match ? rowKey(rows[match.row]!) : null,
+        match,
+        scroll,
+      )
+    clearTimeout(refreshTimer)
+    if (scroll) show()
+    else refreshTimer = setTimeout(show, REFRESH_MS)
   })
 
-  onDestroy(clearHighlights)
+  // Redrawing every highlight walks the whole page, so streaming only does it a few times a second.
+  const REFRESH_MS = 250
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined
+
+  onDestroy(() => {
+    clearTimeout(refreshTimer)
+    clearHighlights()
+  })
 
   function clearHighlights() {
     if (typeof CSS === 'undefined' || !CSS.highlights) return
@@ -142,6 +153,15 @@
         rowEl = root.querySelector(`[data-row-key="${CSS.escape(key)}"]`)
       }
     }
+    // Folded thoughts and runs aren't rendered until opened, and that happens on `toggle`.
+    const folds = rowEl?.querySelectorAll<HTMLDetailsElement>(
+      'details[data-lazy-fold]:not([open])',
+    )
+    if (folds?.length) {
+      for (const fold of folds) fold.open = true
+      await new Promise((done) => requestAnimationFrame(done))
+    }
+    await tick()
     // Open collapsed thoughts and step details that hold the match.
     const lower = needle.toLocaleLowerCase()
     for (const details of rowEl?.querySelectorAll('details') ?? []) {

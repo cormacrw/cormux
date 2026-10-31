@@ -7,8 +7,9 @@ import type {
   WorkspaceRecord,
   WorkspaceRow,
 } from '$lib/ipc/bindings'
-import { commands, fetchSnapshot } from '$lib/ipc'
+import { fetchSnapshot } from '$lib/ipc'
 import { app } from './app.svelte'
+import { coalesce } from './coalesce'
 import { clickup } from './clickup.svelte'
 import { memory } from './memory.svelte'
 import { prs } from './prs.svelte'
@@ -300,35 +301,11 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   }
   workspaces.hydrate(nextWorkspaces)
   threads.hydrate(threadModels)
-  const findingCountByWorkspace: Record<string, number> = {}
-  for (const row of snapshot.persisted.findings) {
-    findingCountByWorkspace[row.workspaceId] =
-      (findingCountByWorkspace[row.workspaceId] ?? 0) + 1
-  }
-  const threadMeta: Record<
-    string,
-    {
-      status: string
-      paused: boolean
-      role: string
-      workspaceId: string
-    }
-  > = {}
-  for (const thread of threadModels) {
-    threadMeta[thread.id] = {
-      status: thread.status,
-      paused: thread.paused,
-      role: thread.role,
-      workspaceId: thread.workspaceId,
-    }
-  }
   threadTimeline.hydrate({
-    timeline: snapshot.persisted.timeline,
     threadIds: threadModels.map((thread) => thread.id),
     approvals: snapshot.persisted.approvals,
     settings: snapshot.persisted.settings,
-    threadMeta,
-    findingCountByWorkspace,
+    activity: snapshot.persisted.threadActivity,
   })
   findings.hydrate(snapshot.persisted.findings)
   repos.hydrate(snapshot.persisted.repos)
@@ -351,33 +328,15 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   if (app.view === 'sprint' && !clickup.configured) app.openNewThread()
 }
 
-export async function patchFromEvent(event: StateChanged) {
-  app.version = event.version
-  if (event.kind === 'metrics') {
-    const result = await commands.getMetrics()
-    if (result.status === 'ok') {
-      memory.hydrate(result.data)
-    }
-    return
-  }
-  if (event.kind === 'toast') {
-    return
-  }
-  if (event.kind === 'workspaceApp') {
-    const snapshot = await fetchSnapshot()
-    workspaceRecords.applyApps(snapshot.workspaceApps ?? [])
-    app.version = snapshot.version
-    return
-  }
+/** Fetch and apply a snapshot. Calls that land during one share the next, not one each. */
+export const refreshSnapshot = coalesce(async () => {
+  hydrateFromSnapshot(await fetchSnapshot())
+})
+
+export function patchFromEvent(event: StateChanged) {
+  app.version = Math.max(app.version, event.version)
+  if (event.kind === 'toast') return
   // A fetch or pull moved `origin`, so the repo rows' counts are stale too.
   if (event.kind === 'behindCounts') void repos.refreshGit()
-  if (
-    event.kind === 'behindCounts' ||
-    event.kind === 'workspaceStatus' ||
-    event.kind === 'approvalCounts' ||
-    event.kind === 'prSync' ||
-    event.kind === 'environment'
-  ) {
-    hydrateFromSnapshot(await fetchSnapshot())
-  }
+  void refreshSnapshot()
 }
