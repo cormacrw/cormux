@@ -457,6 +457,11 @@ async fn spawn_engine(
             .store
             .workspace_by_id(workspace_id)?
             .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        if row.archived_at.is_some() {
+            return Err(Error::Workspace(format!(
+                "workspace {workspace_id} is archived"
+            )));
+        }
         let record = crate::git_workspace::resolve_record(state, workspace_id, &row).await?;
         state.workspace.remember(record).await;
     }
@@ -465,6 +470,11 @@ async fn spawn_engine(
         .get(workspace_id)
         .await
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    if workspace.status == WorkspaceLifecycle::TearingDown {
+        return Err(Error::Workspace(format!(
+            "workspace {workspace_id} is being torn down"
+        )));
+    }
     let kind = EngineKind::from_name(engine);
     let run_everything = crate::approvals::run_everything_from_store(&state.store);
     state
