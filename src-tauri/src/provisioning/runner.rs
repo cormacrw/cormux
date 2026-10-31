@@ -396,7 +396,7 @@ async fn finish_after_setup(
         set_activity(
             state,
             &job.workspace_id,
-            initial_running_activity(&job.engine, job.review),
+            initial_running_activity(job.review),
             0,
             None,
             None,
@@ -486,14 +486,11 @@ async fn spawn_engine(
     Ok(())
 }
 
-fn initial_running_activity(engine: &str, review: bool) -> &'static str {
+fn initial_running_activity(review: bool) -> &'static str {
     if review {
-        return "Reading the diff…";
-    }
-    if engine.eq_ignore_ascii_case("claude") {
-        "Reading repo…"
+        "Reading the diff…"
     } else {
-        "Drafting plan…"
+        "Reading repo…"
     }
 }
 
@@ -518,7 +515,6 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
         .get(&job.workspace_id)
         .await
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", job.workspace_id)))?;
-    let engine_label = engine_display(&job.engine);
     let summary = if job.review {
         let author = state
             .store
@@ -531,17 +527,12 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
             .map(|num| format!("#{num}"))
             .unwrap_or_else(|| "the PR".into());
         format!(
-            "Reviewing {pr_label} from {author} against {}. {engine_label} is reading the diff and will draft comments for your approval; nothing has been posted to GitHub yet.",
+            "Reviewing {pr_label} from {author} against {}. Claude Code is reading the diff and will draft comments for your approval; nothing has been posted to GitHub yet.",
             record.base
-        )
-    } else if job.engine.eq_ignore_ascii_case("claude") {
-        format!(
-            "Just started on “{}”, branched from {}. {engine_label} is reading the repo to find where the change belongs; no files have been touched yet.",
-            workspace.name, record.base
         )
     } else {
         format!(
-            "Just started on “{}”, branched from {}. {engine_label} is drafting a step-by-step plan for your approval; no files have been touched yet.",
+            "Just started on “{}”, branched from {}. Claude Code is reading the repo to find where the change belongs; no files have been touched yet.",
             workspace.name, record.base
         )
     };
@@ -564,14 +555,6 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
         archived_at: workspace.archived_at,
     });
     Ok(())
-}
-
-fn engine_display(engine: &str) -> String {
-    match engine.to_lowercase().as_str() {
-        "codex" => "Codex".into(),
-        "gemini" => "Gemini".into(),
-        _ => "Claude Code".into(),
-    }
 }
 
 async fn mark_failed(

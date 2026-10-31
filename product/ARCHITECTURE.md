@@ -21,7 +21,7 @@ So the backend runs two kinds of child process:
 
 | Kind | Transport | Used for |
 | --- | --- | --- |
-| **Agent engines** | stdio pipes speaking a JSON protocol (ACP, or Claude Code's stream-JSON) | Every thread. See [Engine adapters](#engine-adapters). |
+| **Agent engines** | stdio pipes speaking a JSON protocol (Claude Code's stream-JSON) | Every thread. See [Engine adapters](#engine-adapters). |
 | **Shell processes** | PTY | Worktree setup commands and the app's run command, so tools print colour and behave as they do in a terminal. See [Process supervisor](#process-supervisor). |
 
 ## Feature coverage
@@ -40,9 +40,9 @@ Each feature spec checked against the stack. "Supported" means the stack handles
 | 08 | Teardown | Supported | Stop agents and the app by process group, then `git worktree remove` and `git branch -D`. |
 | 09 | Workspace header | Supported | "Open in editor" and "Reveal in Finder" (spec gaps) via `tauri-plugin-opener`. |
 | 10 | Thread tabs | Supported | One engine process per thread, all with the worktree as their working directory. |
-| 11 | Agent conversation | Supported via structured protocol | ACP events map onto the timeline item kinds. Long threads need a virtual list; agent markdown needs sanitising. |
+| 11 | Agent conversation | Supported via structured protocol | Engine events map onto the timeline item kinds. Long threads need a virtual list; agent markdown needs sanitising. |
 | 12 | Composer | Supported, needs a decision | Sending is `session/prompt`. **Pause can't be a true pause**; see [Pause semantics](#pause-semantics). |
-| 13 | Approvals | Supported | ACP `session/request_permission` and Claude Code's `can_use_tool` control request both block the agent until Harness answers. Auto-approve read-only tools is enforced by the backend. |
+| 13 | Approvals | Supported | Claude Code's `can_use_tool` control request blocks the agent until Harness answers. Auto-approve read-only tools is enforced by the backend. |
 | 14 | Changes panel | Supported | Filesystem watcher plus `git diff`; custom diff renderer with Shiki highlighting and jsdiff word ranges; `Resizable` panes. |
 | 15 | Run app and Output | Supported | PTY per app in its own process group; ANSI to styled spans; port read from output; exit code gives the missing Crashed state. |
 | 16 | Branch switching | Supported | `git switch`, refused with a clear message when the worktree is dirty. |
@@ -78,7 +78,7 @@ flowchart LR
   end
 
   subgraph Children["Child processes"]
-    Agents["Agent CLIs\n(claude, agent acp, gemini --acp, codex-acp)"]
+    Agents["Agent CLIs\n(claude)"]
     Apps["Setup and run commands\n(pnpm install, pnpm dev)"]
     Git[git]
   end
@@ -149,15 +149,13 @@ creating → provisioning → ready ⇄ (threads running / idle / waiting) → t
 
 ### Engine adapters (`engines`)
 
-The core of the product. Each thread is one long-lived engine process with the worktree as its working directory. Adapters translate each engine's native stream into one internal event model, based on the **Agent Client Protocol (ACP)** types from the `agent-client-protocol` crate.
+The core of the product. Each thread is one long-lived engine process with the worktree as its working directory. Adapters translate each engine's native stream into one internal event model.
 
 | Engine | Process | Protocol | Approvals arrive as |
 | --- | --- | --- | --- |
-| Gemini CLI | `gemini --acp` | ACP over stdio | `session/request_permission` |
-| Codex CLI | `codex-acp` (wraps `codex app-server`) | ACP over stdio | `session/request_permission` |
-| Claude Code | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --await-initialize` | Claude stream-JSON, translated to ACP events in Rust | `control_request` with subtype `can_use_tool` |
+| Claude Code | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --await-initialize` | Claude stream-JSON, translated to engine events in Rust | `control_request` with subtype `can_use_tool` |
 
-Claude Code gets a native Rust translator because its ACP adapter is a Node package, which would mean bundling or requiring Node. Its control protocol is the one Anthropic's Agent SDK uses, but it's thinly documented and has had permission bugs, so it's the first thing to spike (see [Spikes](#spikes-before-building-features)).
+Claude Code gets a native Rust translator so Cormux doesn't have to bundle or require Node. Its control protocol is the one Anthropic's Agent SDK uses, but it's thinly documented and has had permission bugs, so it's the first thing to spike (see [Spikes](#spikes-before-building-features)).
 
 **Mapping to timeline items** ([11](features/11-agent-conversation.md)):
 
@@ -172,7 +170,7 @@ Claude Code gets a native Rust translator because its ACP adapter is a Node pack
 | Current tool call in progress | the live row's subtitle, replacing the prototype's rotating strings |
 | Usage update | token and cost counters (a spec gap) |
 
-**Sessions and restarts:** each thread stores its engine session id. After Harness restarts, the thread resumes with ACP `session/load` or `claude --resume <id>` where the engine supports it; otherwise the transcript is kept read-only and the next message starts a new session with a summary of the old one.
+**Sessions and restarts:** each thread stores its engine session id. After Harness restarts, the thread resumes with `claude --resume <id>`.
 
 **Engine detection** (Settings, [21](features/21-settings.md)): resolve each binary on the login-shell `PATH`, run `--version`, and check sign-in status. Missing engines are shown as not installed rather than failing at workspace creation.
 
@@ -187,7 +185,7 @@ Holds every pending permission request as a oneshot channel keyed by approval id
 
 ### Harness MCP server (`mcp`)
 
-A small MCP server inside the core. Claude threads reach it over their existing stream-JSON connection rather than a separate process: `--mcp-config` declares an `sdk` server, the same name goes in `sdkMcpServers` on `initialize`, and each JSON-RPC message then arrives as a `mcp_message` control request. The session a message came through identifies the caller, so a tool can't act as another thread. Codex and Gemini threads, and read-only scratches, don't get these tools.
+A small MCP server inside the core. Claude threads reach it over their existing stream-JSON connection rather than a separate process: `--mcp-config` declares an `sdk` server, the same name goes in `sdkMcpServers` on `initialize`, and each JSON-RPC message then arrives as a `mcp_message` control request. The session a message came through identifies the caller, so a tool can't act as another thread. Read-only scratches don't get these tools.
 
 | Tool | Approval | Purpose |
 | --- | --- | --- |
@@ -338,7 +336,7 @@ Closed under epic COR-31. Product-facing summary in [`PRODUCT.md` → Decisions 
 
 | ID | Shipped behaviour |
 | --- | --- |
-| COR-207 | **Engines:** Adapters for Claude (stream-JSON) and Codex/Gemini (ACP). The app offers Claude only; Cursor was dropped, and migration 014 turns its threads into Claude threads. |
+| COR-207 | **Engines:** Claude (stream-JSON) only. Other engines were dropped; migrations 014 and 018 turn their threads into Claude threads. |
 | COR-208 | **GitHub auth:** Keychain service `cormux` / user `github-token`; `resolve_token` falls back to `gh auth token`. **Reviews:** `ReviewLineComment` on submit when findings include path and line. |
 | COR-209 | **Small model:** `LlmClient::complete` uses Keychain Anthropic key if present, else `claude -p --model haiku --output-format json`. Debounced per workspace (~60s). |
 | COR-210 | **Quit:** `RunEvent::ExitRequested` → `process.stop_all()` (PTY apps). **Teardown:** `engines.stop_threads` sends `EngineCommand::Shutdown` then waits `STOP_GRACE` (5s) per thread. |
@@ -353,14 +351,13 @@ Closed under epic COR-31. Product-facing summary in [`PRODUCT.md` → Decisions 
 
 ### Pause semantics
 
-The composer's Pause ([12](features/12-composer.md)) can't freeze an agent mid-thought. Suspending the process (`SIGSTOP`) would leave its model request hanging until the API times out. The realistic behaviour is **interrupt and hold**: Pause cancels the current turn (ACP `session/cancel`, or Claude Code's interrupt), the thread shows "Paused by you", messages typed while paused are queued, and Resume sends the queue (or "continue") as the next turn. An in-flight tool call is either allowed to finish or cancelled with it, depending on the engine.
+The composer's Pause ([12](features/12-composer.md)) can't freeze an agent mid-thought. Suspending the process (`SIGSTOP`) would leave its model request hanging until the API times out. The realistic behaviour is **interrupt and hold**: Pause cancels the current turn (Claude Code's interrupt), the thread shows "Paused by you", messages typed while paused are queued, and Resume sends the queue (or "continue") as the next turn. An in-flight tool call is either allowed to finish or cancelled with it, depending on the engine.
 
 ## Spikes before building features
 
 Short experiments that de-risk the plan, in order:
 
 1. **Claude Code control protocol:** spawn `claude -p` with stream-JSON in and out, `--permission-prompt-tool stdio`, and `--await-initialize`. Send a host `initialize` control request before the first user message, then two messages, receive and answer a `can_use_tool` request, interrupt a turn, resume a session. `-p` is required: the CLI only accepts `--input-format stream-json` in print mode. Without the initialize handshake, permission asks are auto-denied (`system`/`permission_denied`) instead of `can_use_tool`. Interrupt is a host `control_request` with `subtype: interrupt`. Resume is a new process with `--resume <session_id>` from `system`/`init`.
-2. **Cursor over ACP:** `agent acp` with the Rust `agent-client-protocol` client. Initialize, `session/new`, answer `session/request_permission`, then `session/load`. Mocked in tests; live binary is `--ignored`.
-3. **Login-shell environment:** resolve env via `$SHELL -l -i -c 'env -0'` (the same capture a signed Finder-launched `.app` needs), then run `claude --version` / `pnpm` in that env. Finder codesign is the same function with a GUI-empty `PATH`.
-4. **PTY app lifecycle:** `portable-pty`, port parsed from `localhost:<port>` / `127.0.0.1:<port>`, Stop uses `killpg`, non-zero exit is the crash code.
-5. **Streaming load:** Homebase → "Streaming load spike" streams agent text and 100 Hz logs over IPC while a 5000-line diff is open; fps is shown in the workspace header.
+2. **Login-shell environment:** resolve env via `$SHELL -l -i -c 'env -0'` (the same capture a signed Finder-launched `.app` needs), then run `claude --version` / `pnpm` in that env. Finder codesign is the same function with a GUI-empty `PATH`.
+3. **PTY app lifecycle:** `portable-pty`, port parsed from `localhost:<port>` / `127.0.0.1:<port>`, Stop uses `killpg`, non-zero exit is the crash code.
+4. **Streaming load:** Homebase → "Streaming load spike" streams agent text and 100 Hz logs over IPC while a 5000-line diff is open; fps is shown in the workspace header.

@@ -849,34 +849,22 @@ export function installBrowserHarness() {
       ]
     }
     if (cmd === 'engine_models') {
-      return args.engine === 'claude'
-        ? [
-            { id: 'fable', label: 'Fable' },
-            { id: 'opus', label: 'Opus' },
-            { id: 'sonnet', label: 'Sonnet' },
-            { id: 'haiku', label: 'Haiku' },
-          ]
-        : []
+      return [
+        { id: 'fable', label: 'Fable' },
+        { id: 'opus', label: 'Opus' },
+        { id: 'sonnet', label: 'Sonnet' },
+        { id: 'haiku', label: 'Haiku' },
+      ]
     }
     if (cmd === 'thread_models') {
-      const engine = [
-        ...fixtureSnapshot.persisted.threads.map((row) => ({
-          threadId: row.id,
-          engine: row.engine,
-        })),
-        ...fixtureSnapshot.persisted.scratches,
-      ].find((row) => row.threadId === args.threadId)?.engine
       return {
         current: threadModels.get(String(args.threadId)) ?? null,
-        options:
-          engine === 'claude'
-            ? [
-                { id: 'fable', label: 'Fable' },
-                { id: 'opus', label: 'Opus' },
-                { id: 'sonnet', label: 'Sonnet' },
-                { id: 'haiku', label: 'Haiku' },
-              ]
-            : [],
+        options: [
+          { id: 'fable', label: 'Fable' },
+          { id: 'opus', label: 'Opus' },
+          { id: 'sonnet', label: 'Sonnet' },
+          { id: 'haiku', label: 'Haiku' },
+        ],
       }
     }
     if (cmd === 'set_thread_model') {

@@ -142,7 +142,7 @@
   const canAttach = $derived(!onSubmit)
   let draggingFiles = $state(false)
 
-  // Typing `/` anywhere opens the skill picker. Skills are Claude Code's, so other engines skip it.
+  // Typing `/` anywhere opens the skill picker.
   let skills = $state<Skill[] | null>(null)
   let skillsThreadId: string | null = null
   let pickerIndex = $state(0)
@@ -150,11 +150,7 @@
   let pickerDismissed = $state(false)
   /** Where the caret is in the draft; the picker follows the `/` or `@` word it's in. */
   let caret = $state(0)
-  const token = $derived(
-    thread.engine === 'claude'
-      ? skillToken(draft, Math.min(caret, draft.length))
-      : null,
-  )
+  const token = $derived(skillToken(draft, Math.min(caret, draft.length)))
   const query = $derived(token?.query ?? null)
   const skillMatches = $derived(
     query !== null && skills ? filterSkills(skills, query) : [],
@@ -892,9 +888,7 @@
         class="composer-hint text-[10px] text-muted-foreground/80"
         aria-hidden="true"
       >
-        {#if thread.engine === 'claude'}
-          <kbd class="rounded border border-border/60 px-1">/</kbd> skills
-        {/if}
+        <kbd class="rounded border border-border/60 px-1">/</kbd> skills
         {#if repos.items.length}
           <kbd class="rounded border border-border/60 px-1">@</kbd> repos
         {/if}

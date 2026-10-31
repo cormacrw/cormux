@@ -10,20 +10,6 @@ export const fixtureEngines: EngineStatus[] = [
     version: '1.0.0',
     signedIn: true,
   },
-  {
-    kind: 'codex',
-    installed: false,
-    binary: null,
-    version: null,
-    signedIn: null,
-  },
-  {
-    kind: 'gemini',
-    installed: false,
-    binary: null,
-    version: null,
-    signedIn: null,
-  },
 ]
 
 export const fixtureSnapshot: Snapshot = {

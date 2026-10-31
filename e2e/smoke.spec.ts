@@ -19,8 +19,6 @@ test.describe('browser harness UI', () => {
     await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible()
     await expect(page.getByText('Claude Code')).toBeVisible()
     await expect(page.getByText('Cursor CLI')).toHaveCount(0)
-    await expect(page.getByText('Codex CLI')).toHaveCount(0)
-    await expect(page.getByText('Gemini CLI')).toHaveCount(0)
     await expect(page.getByText('Edits files directly')).toHaveCount(0)
     await expect(
       page.getByRole('switch', { name: 'Run everything' }),

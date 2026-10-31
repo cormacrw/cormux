@@ -158,7 +158,7 @@ describe('mapEventsToTimeline', () => {
           event: {
             type: 'toolCall',
             id: 'cursor-shell',
-            title: `\`${command}\``,
+            title: command,
             name: null,
             kind: 'execute',
             status: 'completed',
@@ -195,7 +195,7 @@ describe('mapEventsToTimeline', () => {
     expect(steps[1]).toMatchObject({ title: 'Ran a command', quiet: true })
   })
 
-  it('fills an ACP edit from its later update', () => {
+  it('fills an edit from its later update', () => {
     const editCall = (id: string) => ({
       type: 'toolCall' as const,
       id,

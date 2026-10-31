@@ -209,17 +209,3 @@ pub fn payload_with_questions(
         ..payload
     }
 }
-
-pub fn payload_with_option_labels(
-    mut payload: ApprovalPayload,
-    ok_label: Option<String>,
-    no_label: Option<String>,
-) -> ApprovalPayload {
-    if let Some(ok) = ok_label.filter(|value| !value.is_empty()) {
-        payload.ok_label = ok;
-    }
-    if let Some(no) = no_label.filter(|value| !value.is_empty()) {
-        payload.no_label = no;
-    }
-    payload
-}

@@ -441,7 +441,7 @@ id           'sess-' + base36 timestamp, or a sample id
 kind         'session'          // internal; UI says scratch
 title        string, required, drafted up to 40 chars, typed up to 64
 repo         repo id
-engine       'claude' | 'codex' | 'gemini'
+engine       'claude'
 status       'running' | 'idle'
 activity     string shown as the live-row title
 paused       boolean

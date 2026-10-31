@@ -1261,8 +1261,6 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
         <select class="select" id="engine" name="engine" aria-describedby="engine-hint">
           <option value="claude" selected>Claude Code</option>
           <option value="cursor">Cursor CLI</option>
-          <option value="codex">Codex CLI</option>
-          <option value="gemini">Gemini CLI</option>
         </select>
         <p class="field-hint" id="engine-hint">Edits files directly and asks before risky steps</p>
       </div>
@@ -1361,9 +1359,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 const ic = (n, c = '') => `<svg class="i ${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
 const ENGINES = {
   claude: { name: 'Claude Code', mark: 'CC', hint: 'Edits files directly and asks before risky steps' },
-  cursor: { name: 'Cursor CLI', mark: 'CU', hint: 'Writes a plan first and waits for your go-ahead' },
-  codex: { name: 'Codex CLI', mark: 'CX', hint: 'Works through the task in a sandbox and proposes a diff' },
-  gemini: { name: 'Gemini CLI', mark: 'GM', hint: 'Reads widely across the repo before suggesting changes' }
+  cursor: { name: 'Cursor CLI', mark: 'CU', hint: 'Writes a plan first and waits for your go-ahead' }
 };
 document.getElementById('engine').addEventListener('change', e => { document.getElementById('engine-hint').textContent = ENGINES[e.target.value].hint; });
 const BRANCHES = ['main', 'develop', 'staging', 'release/2.4', 'release/2.3', 'feat/billing-v2', 'feat/onboarding-checklist', 'feat/team-invites', 'fix/timezone-display', 'fix/csv-export-encoding', 'chore/deps-september', 'refactor/api-client'];

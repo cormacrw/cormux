@@ -134,7 +134,7 @@ New items are inserted before the `live` item so it stays last.
 
 ## Simulated in the prototype
 
-- All agent output is scripted. A real build must translate each engine's native event stream (Claude Code's stream-JSON, Cursor CLI, Codex, Gemini) into these item kinds. That adapter layer is the core of the product.
+- All agent output is scripted. A real build must translate each engine's native event stream (Claude Code's stream-JSON) into these item kinds. That adapter layer is the core of the product.
 - Times are static strings (`12m`, `now`) and don't update.
 - The live subtitle rotates through a fixed list; a real build should show the current tool call.
 

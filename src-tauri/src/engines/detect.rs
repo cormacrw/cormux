@@ -43,7 +43,6 @@ async fn detect_one(env: &ShellEnv, kind: EngineKind) -> EngineStatus {
     let version = version_line(env, &binary).await;
     let signed_in = match kind {
         EngineKind::Claude => claude_signed_in(env, &binary).await,
-        _ => None,
     };
 
     EngineStatus {
@@ -124,7 +123,7 @@ mod tests {
     async fn missing_engine_is_not_installed() {
         let dir = tempfile::tempdir().unwrap();
         let env = ShellEnv::from_vars([("PATH".into(), dir.path().display().to_string())]);
-        let status = detect_one(&env, EngineKind::Gemini).await;
+        let status = detect_one(&env, EngineKind::Claude).await;
         assert!(!status.installed);
         assert!(status.binary.is_none());
     }
@@ -132,12 +131,12 @@ mod tests {
     #[tokio::test]
     async fn finds_stub_binary_on_path() {
         let dir = tempfile::tempdir().unwrap();
-        let stub = dir.path().join("gemini");
-        std::fs::write(&stub, "#!/bin/sh\necho gemini 9.9.9\n").unwrap();
+        let stub = dir.path().join("claude");
+        std::fs::write(&stub, "#!/bin/sh\necho claude 9.9.9\n").unwrap();
         std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
         let env = ShellEnv::from_vars([("PATH".into(), dir.path().display().to_string())]);
-        let status = detect_one(&env, EngineKind::Gemini).await;
+        let status = detect_one(&env, EngineKind::Claude).await;
         assert!(status.installed);
-        assert_eq!(status.version.as_deref(), Some("gemini 9.9.9"));
+        assert_eq!(status.version.as_deref(), Some("claude 9.9.9"));
     }
 }

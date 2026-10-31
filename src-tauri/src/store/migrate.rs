@@ -94,6 +94,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "017_thread_parent",
         sql: include_str!("../../migrations/017_thread_parent.sql"),
     },
+    Migration {
+        version: 18,
+        name: "018_drop_acp_engines",
+        sql: include_str!("../../migrations/018_drop_acp_engines.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -177,7 +182,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 17);
+        assert_eq!(version, 18);
 
         for expected in [
             "approvals",
@@ -348,6 +353,59 @@ mod tests {
             .unwrap()
         };
         assert_eq!(thread("c"), ("claude".into(), None, None));
+        assert_eq!(
+            thread("k"),
+            (
+                "claude".into(),
+                Some("claude-sess".into()),
+                Some("opus".into())
+            )
+        );
+        let default: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'defaultEngine'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(default, "claude");
+    }
+
+    #[test]
+    fn codex_and_gemini_threads_become_claude_threads() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+        for migration in &MIGRATIONS[..17] {
+            apply(&conn, migration).unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO threads (id, workspace_id, title, engine, session_id, status, model)
+                VALUES ('x', 'w', 'Lead', 'codex', 'acp-sess', 'idle', 'gpt-5'),
+                       ('g', 'w', 'Lead', 'Gemini', 'acp-sess', 'idle', 'flash'),
+                       ('k', 'w', 'Lead', 'claude', 'claude-sess', 'idle', 'opus');
+             INSERT INTO settings (key, value) VALUES ('defaultEngine', 'gemini');",
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        let thread = |id: &str| -> (String, Option<String>, Option<String>) {
+            conn.query_row(
+                "SELECT engine, session_id, model FROM threads WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(thread("x"), ("claude".into(), None, None));
+        assert_eq!(thread("g"), ("claude".into(), None, None));
         assert_eq!(
             thread("k"),
             (

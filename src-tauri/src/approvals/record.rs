@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::payload::{
-    AgentQuestion, ApprovalPayload, QUESTION_TOOL, payload_from_permission,
-    payload_with_option_labels, payload_with_questions,
+    AgentQuestion, ApprovalPayload, QUESTION_TOOL, payload_from_permission, payload_with_questions,
 };
 use crate::engines::AgentEvent;
 use crate::store::Store;
@@ -12,12 +11,8 @@ pub fn record_pending_permission(
     store: &Store,
     thread_id: &str,
     event: &AgentEvent,
-    option_labels: Option<(Option<String>, Option<String>)>,
 ) -> Result<(), crate::error::Error> {
-    record_pending(store, thread_id, event, |payload| match option_labels {
-        Some((ok, no)) => payload_with_option_labels(payload, ok, no),
-        None => payload,
-    })
+    record_pending(store, thread_id, event, |payload| payload)
 }
 
 pub fn record_pending_question(

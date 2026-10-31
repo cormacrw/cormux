@@ -55,7 +55,6 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     let worktree = PathBuf::from(&record.worktree_path);
     let repo_name = repo_dir_name(&repo_path);
 
-    let engine_label = lead_engine_label(state, workspace_id);
     let uncommitted_files = count_uncommitted_files(state, &worktree, row.modified_files).await;
     let unpushed_commits = if worktree.is_dir() {
         state
@@ -74,7 +73,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     Ok(TeardownPreview {
         workspace_id: workspace_id.to_string(),
         workspace_name: row.name,
-        engine_label,
+        engine_label: "Claude Code".into(),
         branch: branch.clone(),
         worktree_path: display_worktree_path(repo_name, &branch),
         app_running: state.process.workspace_has_session(workspace_id),
@@ -240,27 +239,6 @@ async fn count_uncommitted_files(state: &AppState, worktree: &Path, fallback: i6
     match state.git.numstat(worktree).await {
         Ok(files) => files.len() as u32,
         Err(_) => fallback.max(0) as u32,
-    }
-}
-
-fn lead_engine_label(state: &AppState, workspace_id: &str) -> String {
-    let Ok(snapshot) = state.store.snapshot() else {
-        return "the agent".into();
-    };
-    let engine = snapshot
-        .threads
-        .iter()
-        .find(|thread| thread.workspace_id == workspace_id)
-        .map(|thread| thread.engine.as_str())
-        .unwrap_or("claude");
-    engine_display(engine)
-}
-
-fn engine_display(engine: &str) -> String {
-    match engine.to_lowercase().as_str() {
-        "codex" => "Codex CLI".into(),
-        "gemini" => "Gemini CLI".into(),
-        _ => "Claude Code".into(),
     }
 }
 

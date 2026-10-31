@@ -30,7 +30,7 @@ Success means the user can keep several workspaces moving at once and always kno
 
 **(inferred, unconfirmed)** Cormux sits above individual agent CLIs rather than competing with them:
 
-- **Engine-agnostic:** every thread picks an engine. Cormux drives the CLIs the user already has installed and signed in to, so it never handles their model accounts. **For now:** Claude Code only. Cursor CLI was dropped; the Codex and Gemini ACP adapters stay in the core but aren't offered in the app.
+- **Engine-agnostic:** every thread picks an engine. Cormux drives the CLIs the user already has installed and signed in to, so it never handles their model accounts. **For now:** Claude Code only. Cursor CLI was dropped.
 - **Isolation by default:** one worktree and branch per workspace, so parallel agents never share a checkout.
 - **The whole lifecycle in one place:** worktree setup, running the app, diffs, PR creation, PR review and teardown, not just the chat.
 - **Local and light:** a small native app (about 10 MB) that runs everything on the user's machine with their own git and credentials.
@@ -61,7 +61,7 @@ The confirmed stack. Details, module boundaries and the feature-by-feature check
 
 What this means for the product:
 
-- **Agents are driven through structured protocols, not a terminal.** Each thread's CLI talks to Cormux in JSON (the Agent Client Protocol, or Claude Code's stream-JSON), which is what lets Cormux show tool steps, edits, plans and approval cards instead of raw terminal output. Setup and run commands do run in a terminal-like PTY, so the Output tab shows real colourised output.
+- **Agents are driven through structured protocols, not a terminal.** Each thread's CLI talks to Cormux in JSON (Claude Code's stream-JSON), which is what lets Cormux show tool steps, edits, plans and approval cards instead of raw terminal output. Setup and run commands do run in a terminal-like PTY, so the Output tab shows real colourised output.
 - **Cormux uses the user's own tools and credentials.** It runs the system `git` with the user's config and SSH keys, spawns commands in the user's login shell environment (so `nvm`, `asdf`, `pnpm` and `uv` work), and keeps the GitHub token in the macOS Keychain.
 - **The Rust core owns the truth.** The interface can reload without losing work, and agent sessions resume after Cormux restarts where the engine allows it.
 - **Memory is mostly the agents.** The core is light, but each agent CLI uses 150 to 400 MB. The memory meter reports that honestly.
@@ -100,7 +100,7 @@ Recorded from the shipped build (epic COR-31). Technical detail in [`ARCHITECTUR
 
 | ID | Decision |
 | --- | --- |
-| COR-207 | **Engines at launch:** Claude Code only. Cursor CLI was dropped; existing Cursor threads carry on as Claude threads. The Codex and Gemini ACP adapters are in the core but not offered in the app. |
+| COR-207 | **Engines at launch:** Claude Code only. Cursor CLI was dropped; existing Cursor threads carry on as Claude threads. |
 | COR-208 | **GitHub:** Personal access token in macOS Keychain (Settings), with optional fallback to `gh auth token` when no PAT is stored. Submit review posts **line comments** for findings that have file and line; others go in the review body. |
 | COR-209 | **Small model:** One-shot calls through the installed Claude CLI (`haiku`) using the user's existing Claude sign-in. Optional Anthropic API key in Keychain if set. No separate API key required for MVP. |
 | COR-210 | **Quit:** On exit, the process supervisor runs `stop_all` (app and setup PTYs). Agent engines get a **5s graceful shutdown** on workspace teardown; nothing is left running in the background after Cormux quits. |

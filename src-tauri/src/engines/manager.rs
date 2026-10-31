@@ -5,14 +5,13 @@ use std::time::Duration;
 
 use tokio::sync::{RwLock, broadcast, mpsc};
 
-use super::acp;
 use super::claude::map as claude_map;
 use super::claude::turn_gate::TurnGate;
 use super::claude::{CanUseTool, ClaudeSession, Event, PermissionDecision, SpawnOptions};
 use super::command::EngineCommand;
 use super::detect::{self, EngineStatus};
 use super::events::{AgentEvent, EngineKind, ToolCallStatus, ToolKind};
-use super::models::{ModelOption, ThreadModels, static_models};
+use super::models::{ThreadModels, static_models};
 use super::prompt::Prompt;
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::error::{Error, Result};
@@ -43,16 +42,9 @@ pub struct EngineRegistry {
 }
 
 struct ThreadSlot {
-    kind: EngineKind,
     commands: mpsc::UnboundedSender<EngineCommand>,
     events: broadcast::Sender<AgentEvent>,
     session_id: Arc<Mutex<Option<String>>>,
-    pending_seed: Arc<Mutex<Option<String>>>,
-    /// Whether this engine has been told the thread renders media. Claude hears it
-    /// in its system prompt instead, so this only ever flips for ACP engines.
-    briefed: Arc<Mutex<bool>>,
-    /// Models an ACP engine offered when its session started; empty until then.
-    models: Arc<Mutex<Vec<ModelOption>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,32 +139,11 @@ impl EngineRegistry {
         let mut spec = spec;
         spec.resume = resume;
         let session_id = Arc::new(Mutex::new(spec.resume.clone()));
-        let pending_seed = Arc::new(Mutex::new(None));
-        let models = Arc::new(Mutex::new(Vec::new()));
         let model = self.store.thread_model(&spec.thread_id).ok().flatten();
         let env = self.env.read().await.clone();
-        let commands = match spec.kind {
-            EngineKind::Claude => {
-                self.spawn_claude(
-                    &spec,
-                    model,
-                    env,
-                    events.clone(),
-                    session_id.clone(),
-                    pending_seed.clone(),
-                )
-                .await?
-            }
-            EngineKind::Codex | EngineKind::Gemini => self.spawn_acp(
-                &spec,
-                model,
-                env,
-                events.clone(),
-                session_id.clone(),
-                pending_seed.clone(),
-                models.clone(),
-            ),
-        };
+        let commands = self
+            .spawn_claude(&spec, model, env, events.clone(), session_id.clone())
+            .await?;
 
         self.threads
             .lock()
@@ -180,33 +151,18 @@ impl EngineRegistry {
             .insert(
                 spec.thread_id.clone(),
                 ThreadSlot {
-                    kind: spec.kind,
                     commands,
                     events,
                     session_id,
-                    pending_seed,
-                    briefed: Arc::new(Mutex::new(false)),
-                    models,
                 },
             );
         Ok(())
     }
 
-    /// The thread's picked model and what it can switch to. ACP engines only know their
-    /// models once a session is running, so an idle ACP thread lists none.
+    /// The thread's picked model and what it can switch to.
     pub fn thread_models(&self, thread_id: &str, kind: EngineKind) -> Result<ThreadModels> {
         let current = self.store.thread_model(thread_id)?;
-        let options = match kind {
-            EngineKind::Claude => static_models(kind),
-            EngineKind::Codex | EngineKind::Gemini => self
-                .threads
-                .lock()
-                .map_err(|error| Error::Engine(error.to_string()))?
-                .get(thread_id)
-                .filter(|slot| slot.kind == kind)
-                .and_then(|slot| slot.models.lock().ok().map(|models| models.clone()))
-                .unwrap_or_default(),
-        };
+        let options = static_models(kind);
         Ok(ThreadModels { current, options })
     }
 
@@ -237,62 +193,7 @@ impl EngineRegistry {
     }
 
     pub fn prompt(&self, thread_id: &str, prompt: impl Into<Prompt>) -> Result<()> {
-        let mut prompt = prompt.into();
-        if let Some(seed) = self.take_seed(thread_id)? {
-            prompt.text = format!(
-                "Previous session could not be resumed. Summary of the earlier transcript:\n{seed}\n\n---\n{}",
-                prompt.text
-            );
-        }
-        // ACP has no system-prompt channel, so its engines hear about the branch and how
-        // the thread renders media on their first prompt instead. Never shown in the thread:
-        // the conversation keeps the user's own text. Claude is briefed through
-        // `--append-system-prompt` and is skipped here.
-        if self.take_brief(thread_id) {
-            prompt.text = format!(
-                "{}\n\n{}\n\n{}",
-                prompt.text,
-                super::BRANCH_INSTRUCTION,
-                super::MEDIA_INSTRUCTION
-            );
-        }
-        self.send(thread_id, EngineCommand::Prompt(prompt))
-    }
-
-    /// True exactly once per ACP engine process: the first prompt it receives.
-    fn take_brief(&self, thread_id: &str) -> bool {
-        let Ok(threads) = self.threads.lock() else {
-            return false;
-        };
-        let Some(slot) = threads.get(thread_id) else {
-            return false;
-        };
-        if slot.kind == EngineKind::Claude {
-            return false;
-        }
-        let Ok(mut briefed) = slot.briefed.lock() else {
-            return false;
-        };
-        if *briefed {
-            return false;
-        }
-        *briefed = true;
-        true
-    }
-
-    fn take_seed(&self, thread_id: &str) -> Result<Option<String>> {
-        let threads = self
-            .threads
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?;
-        let Some(slot) = threads.get(thread_id) else {
-            return Ok(None);
-        };
-        Ok(slot
-            .pending_seed
-            .lock()
-            .ok()
-            .and_then(|mut seed| seed.take()))
+        self.send(thread_id, EngineCommand::Prompt(prompt.into()))
     }
 
     pub fn cancel(&self, thread_id: &str) -> Result<()> {
@@ -410,7 +311,6 @@ impl EngineRegistry {
             .map_err(|_| Error::Engine("engine process is gone".into()))
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn spawn_claude(
         &self,
         spec: &SpawnSpec,
@@ -418,9 +318,7 @@ impl EngineRegistry {
         env: ShellEnv,
         events: broadcast::Sender<AgentEvent>,
         session_id: Arc<Mutex<Option<String>>>,
-        pending_seed: Arc<Mutex<Option<String>>>,
     ) -> Result<mpsc::UnboundedSender<EngineCommand>> {
-        let _ = pending_seed;
         let (binary, extra_args, use_default_args) = if let Some(argv) = &spec.override_argv {
             let mut argv = argv.clone();
             let binary = PathBuf::from(argv.remove(0));
@@ -479,57 +377,6 @@ impl EngineRegistry {
         });
         Ok(tx)
     }
-
-    #[allow(clippy::too_many_arguments)]
-    fn spawn_acp(
-        &self,
-        spec: &SpawnSpec,
-        model: Option<String>,
-        env: ShellEnv,
-        events: broadcast::Sender<AgentEvent>,
-        session_id: Arc<Mutex<Option<String>>>,
-        pending_seed: Arc<Mutex<Option<String>>>,
-        models: Arc<Mutex<Vec<ModelOption>>>,
-    ) -> mpsc::UnboundedSender<EngineCommand> {
-        let argv = spec
-            .override_argv
-            .clone()
-            .unwrap_or_else(|| resolved_acp_argv(spec.kind, &env));
-        acp::start(acp::AcpSpawn {
-            argv,
-            cwd: spec.cwd.clone(),
-            resume: spec.resume.clone(),
-            env,
-            events,
-            approvals: self.approvals.clone(),
-            auto_approve_readonly: spec.auto_approve_readonly,
-            auto_approve_all: spec.auto_approve_all,
-            read_only: spec.read_only,
-            session_id,
-            store: self.store.clone(),
-            thread_id: spec.thread_id.clone(),
-            pending_seed,
-            model,
-            models,
-            approval_notify: self.approval_notify.clone(),
-        })
-    }
-}
-
-pub fn default_acp_argv(kind: EngineKind) -> Vec<String> {
-    match kind {
-        EngineKind::Gemini => vec!["gemini".into(), "--acp".into()],
-        EngineKind::Codex => vec!["codex-acp".into()],
-        EngineKind::Claude => vec!["claude".into()],
-    }
-}
-
-fn resolved_acp_argv(kind: EngineKind, env: &ShellEnv) -> Vec<String> {
-    let mut argv = default_acp_argv(kind);
-    if let Some(binary) = detect::resolve_binary(env, kind.binaries()) {
-        argv[0] = binary.display().to_string();
-    }
-    argv
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -787,7 +634,7 @@ async fn handle_claude_permission(
         ToolCallStatus::Pending,
     ));
     let recorded = if questions.is_empty() {
-        crate::approvals::record_pending_permission(store, thread_id, &mapped, None)
+        crate::approvals::record_pending_permission(store, thread_id, &mapped)
     } else {
         crate::approvals::record_pending_question(store, thread_id, &mapped, questions)
     };
@@ -1245,49 +1092,6 @@ mod tests {
         assert_eq!(thread_id, "t-bg");
     }
 
-    #[test]
-    fn first_prompt_briefs_acp_engines_once_and_claude_never() {
-        let engines = registry();
-        let insert = |id: &str, kind: EngineKind| {
-            let (commands, rx) = mpsc::unbounded_channel();
-            let (events, _) = broadcast::channel(4);
-            engines.threads.lock().unwrap().insert(
-                id.into(),
-                ThreadSlot {
-                    kind,
-                    commands,
-                    events,
-                    session_id: Arc::new(Mutex::new(None)),
-                    pending_seed: Arc::new(Mutex::new(None)),
-                    briefed: Arc::new(Mutex::new(false)),
-                    models: Arc::new(Mutex::new(Vec::new())),
-                },
-            );
-            rx
-        };
-        let sent_text =
-            |rx: &mut mpsc::UnboundedReceiver<EngineCommand>| match rx.try_recv().unwrap() {
-                EngineCommand::Prompt(prompt) => prompt.text,
-                _ => panic!("expected a prompt"),
-            };
-
-        // Codex (ACP): first prompt carries the instruction, the second doesn't.
-        let mut acp_rx = insert("t-acp", EngineKind::Codex);
-        engines.prompt("t-acp", "Fix the sidebar").unwrap();
-        let first = sent_text(&mut acp_rx);
-        assert!(first.starts_with("Fix the sidebar\n\n"));
-        assert!(first.ends_with(crate::engines::MEDIA_INSTRUCTION));
-        engines.prompt("t-acp", "Now the header").unwrap();
-        assert_eq!(sent_text(&mut acp_rx), "Now the header");
-
-        // Claude hears it via --append-system-prompt, so its prompts stay untouched.
-        let mut claude_rx = insert("t-claude", EngineKind::Claude);
-        engines.prompt("t-claude", "Fix the sidebar").unwrap();
-        assert_eq!(sent_text(&mut claude_rx), "Fix the sidebar");
-
-        assert!(!engines.take_brief("no-such-thread"));
-    }
-
     fn mock_claude_argv() -> Vec<String> {
         let script =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/claude/mock_claude.py");
@@ -1345,220 +1149,5 @@ mod tests {
         }
 
         engines.stop("t1").await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn acp_mock_session_permission_and_turn_end() {
-        let engines = registry();
-        let approvals = engines.approvals.clone();
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/acp/mock_acp.py");
-        engines
-            .spawn(SpawnSpec {
-                thread_id: "acp1".into(),
-                kind: EngineKind::Codex,
-                cwd: std::env::temp_dir(),
-                resume: None,
-                override_argv: Some(vec!["python3".into(), script.display().to_string()]),
-                auto_approve_readonly: false,
-                auto_approve_all: false,
-                read_only: false,
-            })
-            .await
-            .unwrap();
-
-        let mut events = engines.subscribe("acp1").unwrap();
-        engines.prompt("acp1", "touch spike-ok.txt").unwrap();
-
-        let permission_id = loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap();
-            if let AgentEvent::Permission { id, .. } = event {
-                break id;
-            }
-        };
-        approvals.resolve(&permission_id, true, None).await.unwrap();
-
-        loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap();
-            if let AgentEvent::TurnEnd { stop_reason, .. } = event {
-                assert_eq!(stop_reason, "end_turn");
-                break;
-            }
-        }
-        engines.stop("acp1").await.unwrap();
-    }
-
-    #[test]
-    fn acp_argv_for_codex_and_gemini() {
-        assert_eq!(
-            default_acp_argv(EngineKind::Gemini),
-            vec!["gemini".to_string(), "--acp".into()]
-        );
-        assert_eq!(
-            default_acp_argv(EngineKind::Codex),
-            vec!["codex-acp".to_string()]
-        );
-    }
-
-    fn seed_thread(store: &Store, thread_id: &str, session_id: Option<&str>) {
-        use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
-        store
-            .upsert_repo(&RepoRecord {
-                id: "r1".into(),
-                path: "/tmp/app".into(),
-                name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
-            })
-            .unwrap();
-        store
-            .upsert_workspace(&WorkspaceRow {
-                id: "w1".into(),
-                repo_id: "r1".into(),
-                name: "Login".into(),
-                branch: "feat".into(),
-                worktree_path: "/tmp/wt".into(),
-                status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
-            })
-            .unwrap();
-        store
-            .upsert_thread(&ThreadRow {
-                id: thread_id.into(),
-                workspace_id: "w1".into(),
-                title: "Lead".into(),
-                engine: "codex".into(),
-                session_id: session_id.map(str::to_string),
-                status: "idle".into(),
-                used_tokens: None,
-                context_size: None,
-                cost_usd: None,
-                transcript_readonly: false,
-                retired: false,
-                parent_thread_id: None,
-            })
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn acp_resumes_stored_session_and_emits_usage() {
-        let engines = registry();
-        seed_thread(&engines.store, "acp-resume", Some("sess-acp-1"));
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/acp/mock_acp.py");
-        engines
-            .spawn(SpawnSpec {
-                thread_id: "acp-resume".into(),
-                kind: EngineKind::Gemini,
-                cwd: std::env::temp_dir(),
-                resume: None,
-                override_argv: Some(vec!["python3".into(), script.display().to_string()]),
-                auto_approve_readonly: false,
-                auto_approve_all: false,
-                read_only: false,
-            })
-            .await
-            .unwrap();
-
-        let mut events = engines.subscribe("acp-resume").unwrap();
-        engines.prompt("acp-resume", "continue").unwrap();
-        let mut saw_usage = false;
-        loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap();
-            if let AgentEvent::MessageChunk { text, .. } = &event {
-                assert!(
-                    !text.starts_with("replayed"),
-                    "session/load replay leaked: {text}"
-                );
-            }
-            match event {
-                AgentEvent::Usage { used_tokens, .. } => {
-                    assert_eq!(used_tokens, 42);
-                    saw_usage = true;
-                }
-                AgentEvent::Permission { id, .. } => {
-                    engines.approvals.resolve(&id, true, None).await.unwrap();
-                }
-                AgentEvent::TurnEnd { .. } => break,
-                _ => {}
-            }
-        }
-        assert!(saw_usage);
-        let persisted = engines.store.transcript_summary("acp-resume", 100).unwrap();
-        assert!(
-            !persisted.contains("replayed"),
-            "replay was persisted: {persisted}"
-        );
-        engines.stop("acp-resume").await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn acp_failed_resume_seeds_next_prompt() {
-        let engines = registry();
-        seed_thread(&engines.store, "acp-miss", Some("missing-session"));
-        engines
-            .store
-            .append_event("acp-miss", "message", "{\"text\":\"hello from before\"}")
-            .unwrap();
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/acp/mock_acp.py");
-        engines
-            .spawn(SpawnSpec {
-                thread_id: "acp-miss".into(),
-                kind: EngineKind::Codex,
-                cwd: std::env::temp_dir(),
-                resume: None,
-                override_argv: Some(vec!["python3".into(), script.display().to_string()]),
-                auto_approve_readonly: false,
-                auto_approve_all: false,
-                read_only: false,
-            })
-            .await
-            .unwrap();
-
-        let mut events = engines.subscribe("acp-miss").unwrap();
-        // Times out and fails unless the session starts.
-        loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap();
-            if matches!(event, AgentEvent::SessionStarted { .. }) {
-                break;
-            }
-        }
-        engines.prompt("acp-miss", "next").unwrap();
-        loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap();
-            match event {
-                AgentEvent::Permission { id, .. } => {
-                    engines.approvals.resolve(&id, true, None).await.unwrap();
-                }
-                AgentEvent::TurnEnd { .. } => break,
-                _ => {}
-            }
-        }
-        let summary = engines.store.transcript_summary("acp-miss", 40).unwrap();
-        assert!(summary.contains("hello from before") || !summary.is_empty());
-        engines.stop("acp-miss").await.unwrap();
     }
 }
