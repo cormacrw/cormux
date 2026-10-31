@@ -10,18 +10,14 @@ import type {
 import { commands, fetchSnapshot } from '$lib/ipc'
 import { app } from './app.svelte'
 import { clickup } from './clickup.svelte'
-import { homebaseUi } from './homebase-ui.svelte'
 import { memory } from './memory.svelte'
 import { prs } from './prs.svelte'
 import { repos } from './repos.svelte'
 import { settings } from './settings.svelte'
 import { findings } from './findings.svelte'
-import { plans } from './plans.svelte'
 import { threadTimeline } from './thread-timeline.svelte'
 import { threads, type Thread } from './threads.svelte'
 import { scratches, scratchFromRow } from './scratches.svelte'
-import { todos } from './todos.svelte'
-import { weekPlan } from './week-plan.svelte'
 import { workspaceRecords } from './workspace-records.svelte'
 import { NO_USAGE } from '$lib/usage/usage'
 import {
@@ -45,15 +41,11 @@ export { shellDialogs } from './shell-dialogs.svelte'
 export { threads } from './threads.svelte'
 export { scratches } from './scratches.svelte'
 export { stacks } from './stacks.svelte'
-export { todos } from './todos.svelte'
-export { weekPlan } from './week-plan.svelte'
 export { workspaceRecords } from './workspace-records.svelte'
-export { homebaseUi } from './homebase-ui.svelte'
 export { workspaceUi } from './workspace-ui.svelte'
 export { workspaceDiff } from './workspace-diff.svelte'
 export { workspaces } from './workspaces.svelte'
 export { findings } from './findings.svelte'
-export { plans } from './plans.svelte'
 export { switcher } from './switcher.svelte'
 export { threadTimeline } from './thread-timeline.svelte'
 
@@ -69,11 +61,10 @@ function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {
   return 'idle'
 }
 
-// A waiting plan has its own status and Plan tab badge, so it isn't counted in the pills.
 function pendingByThread(approvals: Snapshot['persisted']['approvals']) {
   const map = new Map<string, number>()
   for (const row of approvals) {
-    if (row.status !== 'pending' || row.tool === 'execute_plan') continue
+    if (row.status !== 'pending') continue
     map.set(row.threadId, (map.get(row.threadId) ?? 0) + 1)
   }
   return map
@@ -153,7 +144,6 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
 
   const rows = persistedById(snapshot)
   const records = workspaceRecordsFromSnapshot(snapshot)
-  const planThreads = threadsWithPendingPlan(snapshot.persisted.approvals)
 
   return records.map((workspace) => {
     const persisted = rows.get(workspace.id)
@@ -171,10 +161,10 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
 
     const kind = persisted?.kind === 'review' ? ('review' as const) : null
 
+    // Waiting says what it's waiting for, not whatever the workspace was last doing.
     const activityText =
-      workspace.status === 'waiting' &&
-      wsThreads.some((thread) => planThreads.has(thread.id))
-        ? PLAN_READY
+      workspace.status === 'waiting'
+        ? 'Waiting for approval'
         : workspaceActivityFromRecord(workspace.status, workspace, kind)
 
     return {
@@ -201,23 +191,12 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
   })
 }
 
-/** Threads whose plan is waiting for the user's review. */
-function threadsWithPendingPlan(approvals: Snapshot['persisted']['approvals']) {
-  return new Set(
-    approvals
-      .filter((row) => row.status === 'pending' && row.tool === 'execute_plan')
-      .map((row) => row.threadId),
-  )
-}
-
-const PLAN_READY = 'Plan ready for review'
-
-function threadActivityLine(status: string, planPending = false): string {
+function threadActivityLine(status: string): string {
   switch (status) {
     case 'running':
       return 'Working'
     case 'waiting':
-      return planPending ? PLAN_READY : 'Waiting for approval'
+      return 'Waiting for approval'
     case 'paused':
       return 'Paused'
     default:
@@ -227,7 +206,6 @@ function threadActivityLine(status: string, planPending = false): string {
 
 function buildThreadModels(snapshot: Snapshot) {
   const pendingThreads = pendingByThread(snapshot.persisted.approvals)
-  const planThreads = threadsWithPendingPlan(snapshot.persisted.approvals)
   const workspaceOrder = workspaceRecordsFromSnapshot(snapshot).map((w) => w.id)
   const orderIndex = new Map(workspaceOrder.map((id, i) => [id, i]))
 
@@ -252,8 +230,9 @@ function buildThreadModels(snapshot: Snapshot) {
       activity:
         thread.status === 'provisioning'
           ? threadActivityForProvisioning(thread.status, wsActivity, provStep)
-          : threadActivityLine(thread.status, planThreads.has(thread.id)),
+          : threadActivityLine(thread.status),
       pendingApprovals: pendingThreads.get(thread.id) ?? 0,
+      retired: thread.retired,
       usage: {
         usedTokens: thread.usedTokens,
         contextSize: thread.contextSize,
@@ -286,6 +265,7 @@ function buildScratchThreads(snapshot: Snapshot): Thread[] {
     activity: threadActivityLine(row.status),
     pendingApprovals: pendingThreads.get(row.threadId) ?? 0,
     usage: NO_USAGE,
+    retired: true,
     scratchId: row.id,
   }))
 }
@@ -307,26 +287,15 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     },
     snapshot.persisted.settings,
   )
-  const prevIds = new Set(workspaces.items.map((item) => item.id))
   const recordList = workspaceRecordsFromSnapshot(snapshot)
   const nextWorkspaces = buildWorkspaceModels(snapshot)
-  if (nextWorkspaces.some((item) => !prevIds.has(item.id))) {
-    homebaseUi.resetFilter()
-  }
-  for (const item of workspaces.items) {
-    if (!nextWorkspaces.some((row) => row.id === item.id)) {
-      homebaseUi.beginCardExit(item)
-    }
-  }
   const aliveIds = new Set(nextWorkspaces.map((row) => row.id))
   if (app.workspaceId && !aliveIds.has(app.workspaceId)) {
-    app.openHomebase()
+    app.openNewThread()
   }
   scratches.hydrate(snapshot.persisted.scratches.map(scratchFromRow))
-  todos.hydrate(snapshot.persisted.todos, snapshot.tasksDir)
-  weekPlan.hydrate(snapshot.persisted.sprintPlan)
   if (app.scratchId && !scratches.getById(app.scratchId)) {
-    app.openHomebase()
+    app.openNewThread()
   }
   workspaces.hydrate(nextWorkspaces)
   threads.hydrate(threadModels)
@@ -361,7 +330,6 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     findingCountByWorkspace,
   })
   findings.hydrate(snapshot.persisted.findings)
-  plans.hydrate(snapshot.persisted.approvals)
   repos.hydrate(snapshot.persisted.repos)
   workspaceRecords.hydrate(recordList)
   workspaceRecords.applyGitStats(snapshot.workspaceGit ?? [])
@@ -379,7 +347,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     authConfigured: snapshot.githubAuthConfigured,
   })
   clickup.hydrate(snapshot.clickupConfigured, snapshot.persisted.settings)
-  if (app.view === 'sprint' && !clickup.configured) app.openHomebase()
+  if (app.view === 'sprint' && !clickup.configured) app.openNewThread()
 }
 
 export async function patchFromEvent(event: StateChanged) {

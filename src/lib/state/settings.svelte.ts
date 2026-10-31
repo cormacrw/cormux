@@ -16,7 +16,6 @@ import {
 } from '$lib/settings/bangs'
 
 const PR_PROMPT_KEY = 'prPrompt'
-const TASK_PROMPT_KEY = 'taskPrompt'
 
 function upsertRow(rows: SettingRow[], key: string, value: string) {
   const next = rows.filter((row) => row.key !== key)
@@ -39,8 +38,6 @@ export class SettingsStore {
   bangs = $state<Bang[]>([])
   /** Instructions for drafting a PR description; empty means the built-in default. */
   prPrompt = $state('')
-  /** The template picking a task types into the composer; empty uses the default. */
-  taskPrompt = $state('')
   /** App that Open in Terminal launches; empty means Terminal. */
   terminalApp = $state('')
   rows = $state<SettingRow[]>([])
@@ -85,7 +82,6 @@ export class SettingsStore {
       )
       this.runEverything = readBooleanSetting(rows, 'runEverything', false)
       this.prPrompt = readStringSetting(rows, PR_PROMPT_KEY, '')
-      this.taskPrompt = readStringSetting(rows, TASK_PROMPT_KEY, '')
       this.terminalApp = readStringSetting(rows, 'terminalApp', '')
       this.bangs = parseBangs(
         rows.find((row) => row.key === BANGS_KEY)?.value,
@@ -165,11 +161,6 @@ export class SettingsStore {
   async setPrPrompt(next: string) {
     this.prPrompt = next
     await this.persist(PR_PROMPT_KEY, next)
-  }
-
-  async setTaskPrompt(next: string) {
-    this.taskPrompt = next
-    await this.persist(TASK_PROMPT_KEY, next)
   }
 
   async setNotifyReviewFinished(next: boolean) {

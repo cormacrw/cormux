@@ -45,7 +45,7 @@ test('composer: paste and drop files, remove one, and send them with the message
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const composer = page.locator('#composer-input')
   await composer.click()
 

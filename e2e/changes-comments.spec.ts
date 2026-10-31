@@ -8,9 +8,9 @@ test('comment on a diff line and send it to the agent', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
-  await page.getByRole('tab', { name: /^Git/ }).click()
-  const panel = page.getByRole('tabpanel', { name: /^Git/ })
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.locator('#tray-changes').click()
+  const panel = page.getByRole('region', { name: 'Git', exact: true })
   const diff = panel.getByRole('region', { name: 'Proposed changes' })
   await expect(diff.getByText('provider?: string').first()).toBeVisible()
   await expect(panel.getByRole('button', { name: 'Approve file' })).toHaveCount(
@@ -78,10 +78,11 @@ test('comment on a diff line and send it to the agent', async ({ page }) => {
   await expect(page.locator('#timeline')).toContainText(
     'Use a map of providers instead of an if',
   )
-  await expect(
-    page.getByRole('tab', { name: new RegExp(`^${leadName}`) }),
-  ).toHaveAttribute('aria-selected', 'true')
-  await page.getByRole('tab', { name: /^Git/ }).click()
+  await expect(page.locator('#tray-changes')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  await page.locator('#tray-changes').click()
   await expect(
     panel.getByRole('button', { name: /Send \d+ comment/ }),
   ).toHaveCount(0)
@@ -107,9 +108,9 @@ test('comments on a branch that is not checked out cannot be sent yet', async ({
   page,
 }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
-  await page.getByRole('tab', { name: /^Git/ }).click()
-  const panel = page.getByRole('tabpanel', { name: /^Git/ })
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.locator('#tray-changes').click()
+  const panel = page.getByRole('region', { name: 'Git', exact: true })
   const stack = panel.getByRole('navigation', { name: 'Stack' })
   const diff = panel.getByRole('region', { name: 'Proposed changes' })
   const target = panel.locator('[data-od-id="changes-target"]')

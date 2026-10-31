@@ -5,25 +5,18 @@
   import { Button } from '$lib/components/ui/button'
   import * as ScrollArea from '$lib/components/ui/scroll-area'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import {
-    app,
-    clickup,
-    memory,
-    repos,
-    scratches,
-    workspaces,
-  } from '$lib/state'
+  import { app, clickup, memory } from '$lib/state'
+  import { cubicOut } from 'svelte/easing'
+  import { flip } from 'svelte/animate'
+  import { fade, fly } from 'svelte/transition'
   import Cpu from '@lucide/svelte/icons/cpu'
   import Kanban from '@lucide/svelte/icons/square-kanban'
-  import Layers from '@lucide/svelte/icons/layers'
   import Sparkle from '@lucide/svelte/icons/sparkle'
-  import CalendarDays from '@lucide/svelte/icons/calendar-days'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
-  import SidebarRepoRow from './SidebarRepoRow.svelte'
-  import SidebarScratchRow from './SidebarScratchRow.svelte'
-  import SidebarWorkspaceRow from './SidebarWorkspaceRow.svelte'
+  import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus'
+  import ThreadListRow from './ThreadListRow.svelte'
+  import { motionMs } from '$lib/motion'
   import { sidebarWorkspaces } from '$lib/state/sidebar-workspaces.svelte'
-  import Folder from '@lucide/svelte/icons/folder'
 
   function startWindowDrag(event: MouseEvent) {
     if (event.button !== 0) return
@@ -32,6 +25,14 @@
 
   // Full screen hides the traffic lights, so their row collapses and the sidebar moves up.
   let fullscreen = $state(false)
+
+  // Keeps the rows' ages current.
+  let nowMs = $state(Date.now())
+
+  onMount(() => {
+    const timer = setInterval(() => (nowMs = Date.now()), 60_000)
+    return () => clearInterval(timer)
+  })
 
   onMount(() => {
     const win = getCurrentWindow()
@@ -86,26 +87,19 @@
     <Button
       variant="ghost"
       class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
-      aria-current={app.view === 'homebase' ? 'page' : undefined}
-      onclick={() => app.openHomebase()}
+      aria-current={app.view === 'newThread' ? 'page' : undefined}
+      data-od-id="nav-new-thread"
+      onclick={() => app.openNewThread()}
     >
-      <Layers class="size-4 shrink-0 opacity-80" aria-hidden="true" />
-      <span class="flex-1 text-left">Homebase</span>
+      <MessageSquarePlus
+        class="size-4 shrink-0 opacity-80"
+        aria-hidden="true"
+      />
+      <span class="flex-1 text-left">New thread</span>
       <kbd
         class="font-mono text-[10px] text-muted-foreground/80"
-        aria-hidden="true">⌘H</kbd
+        aria-hidden="true">⌘N</kbd
       >
-    </Button>
-
-    <Button
-      variant="ghost"
-      class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
-      aria-current={app.view === 'week' ? 'page' : undefined}
-      data-od-id="nav-week"
-      onclick={() => app.openWeek()}
-    >
-      <CalendarDays class="size-4 shrink-0 opacity-80" aria-hidden="true" />
-      <span class="flex-1 text-left">Week</span>
     </Button>
 
     {#if clickup.configured}
@@ -130,82 +124,31 @@
   <ScrollArea.Root class="sidebar-scroll -mx-2 min-h-0 flex-1 px-2">
     <div class="flex flex-col">
       <div
-        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[11px] font-semibold text-muted-foreground"
-        id="side-repo-label"
+        class="flex items-center justify-between px-2 pt-4 pb-1.5 text-[11px] font-semibold text-muted-foreground"
+        id="side-threads-label"
       >
-        <span>Repos</span>
-        <span class="font-mono normal-case tracking-normal"
-          >{repos.items.length}</span
+        <span>Threads</span>
+        <span class="font-mono tracking-normal normal-case"
+          >{sidebarWorkspaces.items.length}</span
         >
       </div>
-      <ul class="grid list-none gap-px p-0" aria-labelledby="side-repo-label">
-        {#if repos.items.length === 0}
-          <li class="px-2 py-1.5 text-xs text-muted-foreground">
-            No repos yet
-          </li>
-        {:else}
-          {#each repos.items as repo (repo.id)}
-            <SidebarRepoRow {repo} />
-          {/each}
-        {/if}
-      </ul>
-
-      <div
-        class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[11px] font-semibold text-muted-foreground"
-        id="side-ws-label"
-      >
-        <span>Workspaces</span>
-        <span class="font-mono normal-case tracking-normal"
-          >{workspaces.liveItems.length}</span
-        >
-      </div>
-      {#if sidebarWorkspaces.groups.length === 0}
-        <p class="px-2 py-1.5 text-xs text-muted-foreground">
-          No workspaces yet
-        </p>
+      {#if sidebarWorkspaces.items.length === 0}
+        <p class="px-2 py-1.5 text-xs text-muted-foreground">No threads yet</p>
       {:else}
-        <!-- Grouped by repo; ⌘1–⌘9 follow this order (sidebar-workspaces.svelte.ts). -->
-        <div class="grid gap-2" aria-labelledby="side-ws-label" role="group">
-          {#each sidebarWorkspaces.groups as group (group.repoId)}
-            {@const groupLabel = `side-ws-repo-${group.repoId || 'other'}`}
-            <div>
-              <div
-                class="flex items-center gap-1.5 px-2 pb-0.5 text-[11px] text-muted-foreground/80"
-                id={groupLabel}
-                data-od-id="sidebar-ws-group"
-              >
-                <Folder class="size-3 shrink-0" aria-hidden="true" />
-                <span class="truncate">{group.repoName ?? 'Other'}</span>
-              </div>
-              <ul
-                class="grid list-none gap-px p-0"
-                aria-labelledby={groupLabel}
-              >
-                {#each group.workspaces as workspace (workspace.id)}
-                  <SidebarWorkspaceRow {workspace} />
-                {/each}
-              </ul>
-            </div>
-          {/each}
-        </div>
-      {/if}
-
-      {#if scratches.items.length > 0}
-        <div
-          class="flex items-center justify-between px-2 pb-1.5 pt-4 text-[11px] font-semibold text-muted-foreground"
-          id="side-scratch-label"
-        >
-          <span>Scratches</span>
-          <span class="font-mono normal-case tracking-normal"
-            >{scratches.items.length}</span
-          >
-        </div>
+        <!-- What needs you first; ⌘1–⌘9 follow this order (sidebar-workspaces.svelte.ts). -->
         <ul
-          class="grid list-none gap-px p-0"
-          aria-labelledby="side-scratch-label"
+          class="grid list-none gap-1 p-0"
+          aria-labelledby="side-threads-label"
+          data-od-id="thread-list"
         >
-          {#each scratches.items as scratch (scratch.id)}
-            <SidebarScratchRow {scratch} />
+          {#each sidebarWorkspaces.items as item (item.id)}
+            <li
+              animate:flip={{ duration: motionMs(320), easing: cubicOut }}
+              in:fly={{ y: -10, duration: motionMs(240), easing: cubicOut }}
+              out:fade={{ duration: motionMs(140) }}
+            >
+              <ThreadListRow {item} {nowMs} />
+            </li>
           {/each}
         </ul>
       {/if}

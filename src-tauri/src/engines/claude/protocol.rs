@@ -56,9 +56,6 @@ pub enum ControlRequest {
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<String>,
     },
-    /// `default`, `plan`, `acceptEdits` or `bypassPermissions`.
-    #[serde(rename = "set_permission_mode")]
-    SetPermissionMode { mode: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -195,16 +192,6 @@ pub fn set_model_request(request_id: impl Into<String>, model: Option<String>) -
     StdinMessage::ControlRequest {
         request_id: request_id.into(),
         request: ControlRequest::SetModel { model },
-    }
-}
-
-pub fn set_permission_mode_request(
-    request_id: impl Into<String>,
-    mode: impl Into<String>,
-) -> StdinMessage {
-    StdinMessage::ControlRequest {
-        request_id: request_id.into(),
-        request: ControlRequest::SetPermissionMode { mode: mode.into() },
     }
 }
 
@@ -505,17 +492,6 @@ mod tests {
         assert_eq!(used_tokens, Some(22_274));
         assert_eq!(context_size, Some(1_000_000));
         assert_eq!(cost_usd.as_deref(), Some("0.0045"));
-    }
-
-    #[test]
-    fn encodes_set_permission_mode() {
-        let line = encode_line(&set_permission_mode_request("mode-1", "plan")).unwrap();
-        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
-        assert_eq!(value["type"], "control_request");
-        assert_eq!(
-            value["request"],
-            json!({"subtype": "set_permission_mode", "mode": "plan"})
-        );
     }
 
     #[test]

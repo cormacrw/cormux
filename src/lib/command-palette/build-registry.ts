@@ -3,29 +3,26 @@ import type { RepoRecord, WorkspaceRecord } from '$lib/ipc/bindings'
 import { workspaceCardMetaText } from '$lib/homebase/card-status'
 import { plural } from '$lib/sidebar/status'
 import { bangPreview, isUsableBang, type Bang } from '$lib/settings/bangs'
+import type { PullRequest } from '$lib/state/prs.svelte'
 import type { Scratch } from '$lib/state/scratches.svelte'
 import type { Thread } from '$lib/state/threads.svelte'
 import type { Workspace } from '$lib/state/workspaces.svelte'
 import type { AppRunStatus } from '$lib/state/workspace-records.svelte'
 import type { PaletteCommand } from './types'
 
-export const ADD_TODO_COMMAND_ID = 'action-add-todo'
-
 export type PaletteRegistryActions = {
-  requestNewWorkspace: () => void
-  requestNewScratch: () => void
+  openNewThread: () => void
   openScratch: (scratchId: string) => void
   runBang: (bangId: string, extra?: string) => void
-  openHomebase: () => void
+  openRepo: (repoId: string) => void
+  reviewPullRequest: (pr: PullRequest) => void
   openSprint: () => void
-  openWeek: () => void
   openSettings: () => void
   openWorkspace: (workspaceId: string, threadId?: string) => void
   toggleReduceMotion: () => void
   openSettingsSection: (section: string) => void
   openWorkspaceThread: (workspaceId: string, threadId: string) => void
   openWorkspaceFindings: (workspaceId: string) => void
-  requestNewThread: (workspaceId: string) => void
   runWorkspaceApp: (
     workspaceId: string,
     action: 'run' | 'restart' | 'stop',
@@ -42,6 +39,7 @@ export type PaletteRegistryState = {
   bangs: Bang[]
   threads: Thread[]
   repos: RepoRecord[]
+  pullRequests: PullRequest[]
   records: WorkspaceRecord[]
   runtimeFor: (workspaceId: string) => {
     appStatus: AppRunStatus
@@ -64,31 +62,11 @@ export function buildPaletteCommandsFromState(
 ): PaletteCommand[] {
   const cmds: PaletteCommand[] = [
     {
-      id: 'action-new-workspace',
+      id: 'action-new-thread',
       group: 'Actions',
-      label: 'New workspace',
+      label: 'New thread',
       kbd: '⌘N',
-      run: () => actions.requestNewWorkspace(),
-    },
-    {
-      id: 'action-new-scratch',
-      group: 'Actions',
-      label: 'New scratch',
-      kbd: '⌘S',
-      run: () => actions.requestNewScratch(),
-    },
-    {
-      id: 'action-homebase',
-      group: 'Actions',
-      label: 'Go to Homebase',
-      run: () => actions.openHomebase(),
-    },
-    {
-      id: 'action-week',
-      group: 'Actions',
-      label: 'Go to week',
-      meta: 'plan',
-      run: () => actions.openWeek(),
+      run: () => actions.openNewThread(),
     },
     ...(state.clickupConfigured
       ? [
@@ -101,14 +79,6 @@ export function buildPaletteCommandsFromState(
           },
         ]
       : []),
-    {
-      id: ADD_TODO_COMMAND_ID,
-      group: 'Actions',
-      label: 'Add a task',
-      meta: 'todo',
-      // The palette handles this one: it switches to todo mode instead of closing.
-      run: () => {},
-    },
     {
       id: 'action-settings',
       group: 'Actions',
@@ -162,6 +132,26 @@ export function buildPaletteCommandsFromState(
     })
   }
 
+  for (const repo of state.repos) {
+    cmds.push({
+      id: `repo-open-${repo.id}`,
+      group: 'Actions',
+      label: `Open ${repo.name}`,
+      meta: 'repo',
+      run: () => actions.openRepo(repo.id),
+    })
+  }
+
+  for (const pr of state.pullRequests) {
+    cmds.push({
+      id: `pr-review-${pr.id}`,
+      group: 'Actions',
+      label: `Review PR #${pr.num} ${pr.title}`,
+      meta: 'pull request',
+      run: () => actions.reviewPullRequest(pr),
+    })
+  }
+
   // After Workspaces, before App.
   for (const scratch of state.scratches) {
     cmds.push({
@@ -177,7 +167,8 @@ export function buildPaletteCommandsFromState(
     const wsThreads = state.threads.filter(
       (t) => t.workspaceId === workspace.id,
     )
-    for (const thread of wsThreads) {
+    // The workspace's own row opens its one thread; older ones are only here and in its header.
+    for (const thread of wsThreads.filter((row) => row.retired)) {
       cmds.push({
         id: `thread-open-${thread.id}`,
         group: 'Threads',
@@ -186,12 +177,6 @@ export function buildPaletteCommandsFromState(
         run: () => actions.openWorkspaceThread(workspace.id, thread.id),
       })
     }
-    cmds.push({
-      id: `thread-new-${workspace.id}`,
-      group: 'Threads',
-      label: `New thread in ${workspace.name}`,
-      run: () => actions.requestNewThread(workspace.id),
-    })
     cmds.push({
       id: `findings-${workspace.id}`,
       group: 'Threads',

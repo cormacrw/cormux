@@ -10,6 +10,7 @@ const baseWorkspace = {
   paused: false,
   activityText: 'Idle',
   pendingApprovals: 0,
+  retired: false,
   usage: NO_USAGE,
   cardStatus: 'idle' as const,
   createdAtMs: null,
@@ -37,6 +38,7 @@ describe('workspaceCardMetaText', () => {
         paused: false,
         activity: 'Working',
         pendingApprovals: 1,
+        retired: false,
         usage: NO_USAGE,
       },
     ])
@@ -54,6 +56,7 @@ describe('workspaceCardMetaText', () => {
         paused: false,
         activity: 'Working',
         pendingApprovals: 0,
+        retired: false,
         usage: NO_USAGE,
       },
       {
@@ -65,6 +68,7 @@ describe('workspaceCardMetaText', () => {
         paused: false,
         activity: 'Working',
         pendingApprovals: 0,
+        retired: false,
         usage: NO_USAGE,
       },
     ])
@@ -87,6 +91,7 @@ describe('workspaceCardMetaText', () => {
           paused: false,
           activity: 'Working',
           pendingApprovals: 1,
+          retired: false,
           usage: NO_USAGE,
         },
       ]),

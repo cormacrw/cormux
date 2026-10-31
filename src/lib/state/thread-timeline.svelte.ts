@@ -78,7 +78,6 @@ export class ThreadTimelineStore {
       findingsReady: reviewFindingsReady(
         this.settings,
         meta.workspaceId,
-        meta.role,
         findingCount,
       ),
       showLive: shouldShowLiveRow(meta.status, meta.paused),

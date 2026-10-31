@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button'
   import { workspaceUi } from '$lib/state'
-  import type { WorkspaceSlideOut } from '$lib/state/workspace-ui.svelte'
+  import type { PinnableTray } from '$lib/state/workspace-ui.svelte'
   import Pin from '@lucide/svelte/icons/pin'
   import PinOff from '@lucide/svelte/icons/pin-off'
   import X from '@lucide/svelte/icons/x'
@@ -11,7 +11,7 @@
     tray,
     name,
     shortcut,
-  }: { tray: WorkspaceSlideOut; name: string; shortcut: string } = $props()
+  }: { tray: PinnableTray; name: string; shortcut: string } = $props()
 
   const pinned = $derived(workspaceUi.pinnedTray === tray)
   const pinLabel = $derived(

@@ -16,23 +16,14 @@ pub fn apply_harness_effects(
     payload: &ApprovalPayload,
     approved: bool,
 ) -> Result<HarnessEffectHints> {
-    let is_plan = payload.effect.as_deref() == Some("execute_plan");
     if !approved {
-        // The comments go back with the denial; the Plan tab keeps their full text.
-        if is_plan && payload.deny_reason.is_some() {
-            persist_control_step(&state.store, &row.thread_id, "Sent feedback on the plan")?;
-        }
         return Ok(HarnessEffectHints {
-            focus_composer: is_plan && payload.plan.is_none(),
+            focus_composer: false,
         });
     }
 
     match payload.effect.as_deref() {
         Some("send_to_lead") => cross_thread_suggestions(state, row, payload)?,
-        Some("execute_plan") => {
-            persist_control_step(&state.store, &row.thread_id, "Plan approved")?;
-            crate::plan_mode::set_plan_mode(&state.store, &row.thread_id, false)?;
-        }
         Some("delete_file") => {
             persist_control_step(
                 &state.store,

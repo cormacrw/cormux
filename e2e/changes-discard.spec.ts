@@ -5,9 +5,9 @@ test('Discarding uncommitted changes asks first, one file or all of them', async
   page,
 }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
-  await page.getByRole('tab', { name: /^Git/ }).click()
-  const panel = page.getByRole('tabpanel', { name: /^Git/ })
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.locator('#tray-changes').click()
+  const panel = page.getByRole('region', { name: 'Git', exact: true })
   const files = panel.getByRole('list', { name: 'Changed files' })
   await expect(files.getByRole('listitem')).toHaveCount(2)
 
@@ -43,9 +43,9 @@ test('Discarding uncommitted changes asks first, one file or all of them', async
 
 test('A branch level has no discard', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
-  await page.getByRole('tab', { name: /^Git/ }).click()
-  const panel = page.getByRole('tabpanel', { name: /^Git/ })
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.locator('#tray-changes').click()
+  const panel = page.getByRole('region', { name: 'Git', exact: true })
   await expect(panel.getByRole('button', { name: 'Discard all' })).toBeVisible()
   await panel
     .getByRole('navigation', { name: 'Stack' })

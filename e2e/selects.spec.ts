@@ -1,15 +1,13 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
-test('New workspace picks the repo from an app menu, not a native select', async ({
+test('New thread picks the repo from an app menu, not a native select', async ({
   page,
 }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await expect(page.locator('#home-title')).toBeVisible()
-  await page.keyboard.press('ControlOrMeta+n')
-  const dialog = page.getByRole('dialog', { name: 'New workspace' })
+  const dialog = page.locator('[data-od-id="new-thread"]')
   await expect(dialog).toBeVisible()
   await expect(dialog.locator('select')).toHaveCount(0)
 

@@ -75,6 +75,8 @@ pub struct ThreadRow {
     pub context_size: Option<i64>,
     pub cost_usd: Option<f64>,
     pub transcript_readonly: bool,
+    /// Kept to read but can't be continued: a workspace's older thread, or a scratch's.
+    pub retired: bool,
 }
 
 /// A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
@@ -89,33 +91,6 @@ pub struct ScratchRow {
     pub status: String,
     /// SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
     pub created_at: String,
-}
-
-/// A task from the TODOs page, which the Week page can plan onto a day.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct TodoRow {
-    pub id: String,
-    /// Shown as `CMUX-<number>`; assigned when it's made and never reused.
-    pub number: i64,
-    pub title: String,
-    pub pinned: bool,
-    pub description: String,
-    /// `YYYY-MM-DD`, the local day it's planned for; `None` sits in the Week page's loading area.
-    pub planned_on: Option<String>,
-    /// SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`; `None` while open.
-    pub done_at: Option<String>,
-}
-
-/// The Week page's local plan for a ClickUp task. Never written back to ClickUp.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SprintPlanRow {
-    pub task_id: String,
-    /// `YYYY-MM-DD`; `None` is back in the loading area.
-    pub planned_on: Option<String>,
-    /// SQLite `datetime('now')`, UTC; `None` while open. Local to the plan only.
-    pub done_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -175,8 +150,6 @@ pub struct PersistedSnapshot {
     /// Newest first.
     pub scratches: Vec<ScratchRow>,
     /// Oldest first.
-    pub todos: Vec<TodoRow>,
-    pub sprint_plan: Vec<SprintPlanRow>,
     pub timeline: Vec<ThreadEventRow>,
     pub approvals: Vec<ApprovalRow>,
     pub findings: Vec<FindingRow>,

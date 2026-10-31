@@ -4,10 +4,8 @@ import { clickup } from '$lib/state/clickup.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { settings } from '$lib/state/settings.svelte'
 import { expandBangs } from '$lib/settings/bangs'
-import { todos } from '$lib/state/todos.svelte'
-import { todoAliasTask } from '$lib/todos/ref'
 import { expandRepoAliases } from './repo-aliases'
-import { expandTaskAliases, taskContext, todoContext } from './task-aliases'
+import { expandTaskAliases, taskContext } from './task-aliases'
 
 /** How long sending waits for a task's description before going without it. */
 const DESCRIPTION_WAIT_MS = 3000
@@ -33,27 +31,16 @@ async function description(task: ClickupTask): Promise<string> {
 export async function expandMessage(text: string): Promise<string> {
   const withBangs = expandBangs(text, settings.bangs)
   const withRepos = expandRepoAliases(withBangs, repos.items)
-  const todoTasks = todos.items.map((todo) =>
-    todoAliasTask(todo, todos.filesDir),
+  const { text: expanded, mentioned } = expandTaskAliases(
+    withRepos,
+    clickup.mine?.tasks ?? [],
   )
-  const { text: expanded, mentioned } = expandTaskAliases(withRepos, [
-    ...todoTasks,
-    ...(clickup.mine?.tasks ?? []),
-  ])
   if (!mentioned.length) return expanded
-  const sprint = mentioned.filter(
-    (task): task is ClickupTask => !('kind' in task),
-  )
   const descriptions = Object.fromEntries(
     await Promise.all(
-      sprint.map(async (task) => [task.id, await description(task)]),
+      mentioned.map(async (task) => [task.id, await description(task)]),
     ),
   )
-  const context = [
-    taskContext(sprint, descriptions),
-    todoContext(mentioned.filter((task) => 'kind' in task)),
-  ]
-    .filter(Boolean)
-    .join('\n\n')
+  const context = taskContext(mentioned, descriptions)
   return context ? `${expanded}\n\n${context}` : expanded
 }

@@ -48,20 +48,13 @@
   } from '$lib/settings/bangs'
   import Zap from '@lucide/svelte/icons/zap'
   import { taskRef } from '$lib/clickup/board'
-  import { todos } from '$lib/state/todos.svelte'
-  import { todoAliasTask } from '$lib/todos/ref'
   import { clickup } from '$lib/state/clickup.svelte'
   import { repos } from '$lib/state/repos.svelte'
   import type { RepoRecord } from '$lib/ipc/bindings'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { settings } from '$lib/state/settings.svelte'
-  import { cn } from '$lib/utils'
   import { contextPercent, usageSummary } from '$lib/usage/usage'
-  import { threadPlanMode } from '$lib/plans/plans'
-  import { setThreadPlanMode } from '$lib/plans/leave-plan-mode'
-  import { formatPlanFeedback } from '$lib/plans/feedback'
-  import { plans } from '$lib/state/plans.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { sendThreadMessage } from '$lib/thread/send-message'
   import {
@@ -81,7 +74,6 @@
   import Kanban from '@lucide/svelte/icons/square-kanban'
   import Paperclip from '@lucide/svelte/icons/paperclip'
   import X from '@lucide/svelte/icons/x'
-  import ClipboardList from '@lucide/svelte/icons/clipboard-list'
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
   import Sparkles from '@lucide/svelte/icons/sparkles'
@@ -97,6 +89,10 @@
     placeholder,
     sendLabel = 'Send to agent',
     newSession = false,
+    onSubmit,
+    pickers,
+    listSkills,
+    disabled = false,
   }: {
     thread: Thread
     onSent?: () => void
@@ -106,8 +102,18 @@
     inputLabel?: string
     placeholder?: string
     sendLabel?: string
-    /** Show the New session button (threads only; scratches end instead). */
+    /** Show the New session button (a thread that's already running). */
     newSession?: boolean
+    /**
+     * Takes the message instead of the thread, for a composer whose thread doesn't exist yet.
+     * Resolves false to put the draft back. `stay` is ⌘↵: send it off without leaving.
+     */
+    onSubmit?: (text: string, stay: boolean) => Promise<boolean>
+    /** Controls for the start of the footer, before anything else. */
+    pickers?: Snippet
+    /** Reads the `/` picker's skills, for a composer whose thread doesn't exist yet. */
+    listSkills?: () => Promise<Skill[]>
+    disabled?: boolean
   } = $props()
 
   let inputEl = $state<HTMLTextAreaElement | null>(null)
@@ -126,59 +132,13 @@
   const canStartNewSession = $derived(
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
-  // Plan mode is Claude's, and a scratch is always read-only anyway.
-  const canPlan = $derived(newSession && thread.engine === 'claude')
-  const planMode = $derived(canPlan && threadPlanMode(settings.rows, thread.id))
-
-  // The agent's turn is on hold until its plan is answered, so a message now is feedback on it.
-  const waitingPlan = $derived(
-    plans.latestFor([thread.id]).find((plan) => plan.state === 'pending'),
-  )
-
   const attachments = $derived(composerDrafts.attachmentsFor(thread.id))
-  // Plan feedback is text only, so attachments wait while a plan does.
   const canSend = $derived(
-    draft.trim().length > 0 || (attachments.length > 0 && !waitingPlan),
+    !disabled && (draft.trim().length > 0 || attachments.length > 0),
   )
+  // No thread yet means no model to pick and nowhere to keep attachments.
+  const canAttach = $derived(!onSubmit)
   let draggingFiles = $state(false)
-
-  async function sendPlanFeedback(
-    planId: string,
-    threadId: string,
-    text: string,
-  ) {
-    try {
-      await plans.resolve(planId, formatPlanFeedback([], text))
-      showToast({
-        tone: 'ok',
-        parts: [
-          {
-            type: 'text',
-            value: `Sent your feedback on the plan to ${agentName(threadId)}`,
-          },
-        ],
-      })
-      return true
-    } catch (error) {
-      showToast({
-        tone: 'bad',
-        parts: [
-          {
-            type: 'text',
-            value:
-              error instanceof Error
-                ? error.message
-                : 'Could not reach the agent',
-          },
-        ],
-      })
-      return false
-    }
-  }
-
-  function togglePlanMode() {
-    void setThreadPlanMode(thread.id, !planMode)
-  }
 
   // Typing `/` anywhere opens the skill picker. Skills are Claude Code's, so other engines skip it.
   let skills = $state<Skill[] | null>(null)
@@ -204,13 +164,8 @@
   const repoMatches = $derived(
     repoWord ? filterRepos(repos.items, repoWord.query) : [],
   )
-  // Typing `#` offers your open TODOs (CMUX-<n>) and sprint tasks; `#ref` becomes the task on send.
-  const sprintTasks = $derived([
-    ...todos.items
-      .filter((todo) => !todo.doneAt)
-      .map((todo) => todoAliasTask(todo, todos.filesDir)),
-    ...(clickup.mine?.tasks ?? []),
-  ])
+  // Typing `#` offers your sprint tasks; `#ref` becomes the task on send.
+  const sprintTasks = $derived(clickup.mine?.tasks ?? [])
   const taskWord = $derived(
     token || repoWord || !sprintTasks.length
       ? null
@@ -282,6 +237,7 @@
 
   $effect(() => {
     void thread.id
+    void listSkills
     historyIndex = null
     skills = null
     skillsThreadId = null
@@ -293,6 +249,10 @@
     if (query === null || skillsThreadId === thread.id) return
     const threadId = thread.id
     skillsThreadId = threadId
+    if (listSkills) {
+      void listSkills().then((found) => (skills = found))
+      return
+    }
     void commands.listThreadSkills(threadId).then((result) => {
       if (thread.id !== threadId) return
       skills = result.status === 'ok' ? result.data : []
@@ -368,7 +328,7 @@
       inputEl.focus({ preventScroll: true })
   }
 
-  // Opening a conversation, switching threads, or coming back to one (from Plan, say) puts
+  // Opening a conversation, switching threads, or coming back to one puts
   // focus in the prompt, ready to type.
   $effect(() => {
     void thread.id
@@ -388,7 +348,7 @@
     if (document.activeElement === document.body) void tick().then(takeFocus)
   }
 
-  // A click on a control in the composer's footer (Plan, attach, New session, pause) leaves
+  // A click on a control in the composer's footer (attach, New session, pause) leaves
   // the prompt focused; a menu that opens keeps focus until it closes.
   function onFootClick(event: MouseEvent) {
     if ((event.target as Element).closest('button')) setTimeout(takeFocus, 0)
@@ -428,12 +388,12 @@
     fitHeight()
   }
 
-  async function sendMessage() {
+  async function sendMessage(stay = false) {
     const text = draft.trim()
     if (!canSend) return
     // The composer is reused across thread tabs, so pin the id before awaiting.
     const threadId = thread.id
-    const sending = waitingPlan ? [] : attachments
+    const sending = attachments
     composerDrafts.setFor(threadId, '')
     if (sending.length) composerDrafts.setAttachments(threadId, [])
     historyIndex = null
@@ -445,8 +405,8 @@
     })
     onSent?.()
     const outgoing = await expandMessage(text)
-    const sent = waitingPlan
-      ? await sendPlanFeedback(waitingPlan.id, threadId, outgoing)
+    const sent = onSubmit
+      ? await onSubmit(outgoing, stay)
       : await sendThreadMessage(threadId, outgoing, sending)
     if (!sent) {
       composerDrafts.setFor(threadId, text)
@@ -478,7 +438,7 @@
 
   function onPaste(event: ClipboardEvent) {
     const files = [...(event.clipboardData?.files ?? [])]
-    if (!files.length || waitingPlan) return
+    if (!files.length || !canAttach) return
     event.preventDefault()
     void attachFiles(files)
   }
@@ -517,12 +477,12 @@
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type === 'over' || event.payload.type === 'enter') {
-          draggingFiles = !waitingPlan
+          draggingFiles = canAttach
         } else if (event.payload.type === 'leave') {
           draggingFiles = false
         } else if (event.payload.type === 'drop') {
           draggingFiles = false
-          if (waitingPlan || !event.payload.paths.length) return
+          if (!canAttach || !event.payload.paths.length) return
           attachPaths(event.payload.paths)
         }
       })
@@ -577,7 +537,7 @@
     if (pickerOpen && !imeConfirm && onPickerKeydown(event)) return
     if (event.key === 'Enter' && !event.shiftKey && !imeConfirm) {
       event.preventDefault()
-      void sendMessage()
+      void sendMessage(event.metaKey || event.ctrlKey)
       return
     }
     const plain =
@@ -757,13 +717,13 @@
       void sendMessage()
     }}
     ondragover={(event) => {
-      if (!hasFiles(event) || waitingPlan) return
+      if (!hasFiles(event) || !canAttach) return
       event.preventDefault()
       draggingFiles = true
     }}
     ondragleave={() => (draggingFiles = false)}
     ondrop={(event) => {
-      if (!hasFiles(event) || waitingPlan) return
+      if (!hasFiles(event) || !canAttach) return
       event.preventDefault()
       draggingFiles = false
       void attachFiles([...(event.dataTransfer?.files ?? [])])
@@ -826,11 +786,6 @@
           {/if}
         {/each}
       </ul>
-      {#if waitingPlan}
-        <p class="px-4 pt-1 text-xs text-muted-foreground">
-          Attachments go with your next message once the plan is answered.
-        </p>
-      {/if}
     {/if}
     <label class="sr-only" for="composer-input">{inputLabel}</label>
     <Textarea
@@ -839,12 +794,7 @@
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      placeholder={placeholder ??
-        (waitingPlan
-          ? `Reply to ${name}’s plan, or review it in the Plan tab…`
-          : planMode
-            ? `Ask ${name} to plan something…`
-            : `Message ${name}…`)}
+      placeholder={placeholder ?? `Message ${name}…`}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'composer-picker' : undefined}
@@ -873,36 +823,20 @@
         id="composer-meta"
         data-od-id="composer-meta"
       >
-        <ThreadModelPicker {thread} />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          class="text-muted-foreground"
-          data-od-id="composer-attach"
-          aria-label="Attach images or files"
-          title="Attach images or files (you can also paste or drop them)"
-          disabled={!!waitingPlan}
-          onclick={() => void pickFiles()}
-        >
-          <Paperclip class="size-3.5" aria-hidden="true" />
-        </Button>
-        {#if canPlan}
+        {@render pickers?.()}
+        {#if canAttach}
+          <ThreadModelPicker {thread} />
           <Button
             type="button"
             variant="ghost"
-            size="xs"
-            data-od-id="composer-plan-mode"
-            aria-pressed={planMode}
-            aria-keyshortcuts="Meta+Shift+P"
-            title={planMode
-              ? `Leave plan mode; ${name} goes back to working normally (⇧⌘P)`
-              : `Have ${name} write a plan for you to review before it edits anything (⇧⌘P)`}
-            class={cn(planMode && 'bg-info/15 text-info hover:bg-info/20')}
-            onclick={() => void togglePlanMode()}
+            size="icon-xs"
+            class="text-muted-foreground"
+            data-od-id="composer-attach"
+            aria-label="Attach images or files"
+            title="Attach images or files (you can also paste or drop them)"
+            onclick={() => void pickFiles()}
           >
-            <ClipboardList class="size-3.5" aria-hidden="true" />
-            Plan
+            <Paperclip class="size-3.5" aria-hidden="true" />
           </Button>
         {/if}
         {#if contextFill != null}
@@ -953,8 +887,6 @@
         class="composer-hint text-[10px] text-muted-foreground/80"
         aria-hidden="true"
       >
-        <kbd class="rounded border border-border/60 px-1">↵</kbd> send
-        <kbd class="rounded border border-border/60 px-1">⇧↵</kbd> new line
         {#if thread.engine === 'claude'}
           <kbd class="rounded border border-border/60 px-1">/</kbd> skills
         {/if}
@@ -964,9 +896,7 @@
         {#if sprintTasks.length}
           <kbd class="rounded border border-border/60 px-1">#</kbd> tasks
         {/if}
-        {#if settings.bangs.length}
-          <kbd class="rounded border border-border/60 px-1">!</kbd> bangs
-        {/if}
+        <kbd class="rounded border border-border/60 px-1">!</kbd> bangs
       </span>
 
       {#if thread.status === 'running'}

@@ -10,7 +10,7 @@ pub mod prompt;
 pub use detect::EngineStatus;
 pub use events::{AgentEvent, EngineKind, MessageRole, ToolCallStatus, ToolKind};
 pub use manager::{EngineRegistry, SpawnSpec};
-pub use models::ThreadModels;
+pub use models::{ModelOption, ThreadModels, static_models};
 
 pub use claude::claude_argv;
 

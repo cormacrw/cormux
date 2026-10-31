@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte'
+  import { Button } from '$lib/components/ui/button'
   import {
     app,
     findings,
@@ -31,11 +32,9 @@
   let {
     workspace,
     thread,
-    panelLabelId,
   }: {
     workspace: Workspace
     thread: Thread
-    panelLabelId: string | undefined
   } = $props()
 
   let scrollEl: HTMLElement | undefined = $state()
@@ -55,10 +54,6 @@
   let scrollToEndNext = $state(true)
   let focusComposer = $state<(() => void) | null>(null)
 
-  const wsThreads = $derived(threads.forWorkspace(workspace.id))
-  const otherThreadCount = $derived(
-    Math.max(0, wsThreads.filter((row) => row.id !== thread.id).length),
-  )
   const workspaceFindings = $derived(findings.forWorkspace(workspace.id))
 
   const items = $derived(
@@ -333,8 +328,6 @@
 
 <div
   id="thread-panel"
-  role="tabpanel"
-  aria-labelledby={panelLabelId}
   data-od-id="thread-panel"
   class="relative flex min-h-0 flex-1 flex-col"
 >
@@ -373,11 +366,10 @@
           {conversationId}
           earlier={conversations.earlier}
           {nowMs}
-          onFocusComposer={() => focusComposer?.()}
         />
       {:else}
         <div data-conversation-part>
-          <ThreadIntro {thread} {workspace} {otherThreadCount} {nowMs} />
+          <ThreadIntro {thread} {workspace} {nowMs} />
         </div>
       {/if}
 
@@ -472,16 +464,35 @@
     {announceText}
   </div>
 
-  <ThreadComposer
-    {thread}
-    newSession
-    status={live ? liveStatus : undefined}
-    bind:focusComposer
-    onSent={() => {
-      pinnedToBottom = true
-      scrollToEndNext = true
-    }}
-  />
+  {#if thread.retired}
+    <div class="px-1 pt-2 pb-4">
+      <p
+        class="glass-pane mx-auto flex max-w-[760px] items-center justify-between gap-3 rounded-[18px] px-4 py-3 text-sm text-muted-foreground"
+        data-od-id="thread-read-only"
+      >
+        This earlier thread is read-only.
+        <Button
+          variant="secondary"
+          size="sm"
+          onclick={() =>
+            (app.threadId = threads.liveFor(workspace.id)?.id ?? null)}
+        >
+          Go to the current thread
+        </Button>
+      </p>
+    </div>
+  {:else}
+    <ThreadComposer
+      {thread}
+      newSession
+      status={live ? liveStatus : undefined}
+      bind:focusComposer
+      onSent={() => {
+        pinnedToBottom = true
+        scrollToEndNext = true
+      }}
+    />
+  {/if}
 </div>
 
 <style>

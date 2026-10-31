@@ -1,21 +1,74 @@
-import { groupWorkspacesByRepo } from '$lib/sidebar/workspace-groups'
+import {
+  sortThreadList,
+  threadActivityMs,
+  threadUrgency,
+  type ThreadUrgency,
+} from '$lib/sidebar/thread-list'
 import { repos } from './repos.svelte'
+import { scratches } from './scratches.svelte'
+import { threadTimeline } from './thread-timeline.svelte'
+import { threads } from './threads.svelte'
 import { workspaceRecords } from './workspace-records.svelte'
-import { workspaces } from './workspaces.svelte'
+import { workspaces, type Workspace } from './workspaces.svelte'
 
-/**
- * The sidebar's workspaces, grouped by repo. `ordered` is the order they show
- * in, which ⌘1–⌘9 and the Ctrl+Tab list follow too.
- */
-class SidebarWorkspaces {
-  readonly groups = $derived(
-    groupWorkspacesByRepo(
-      workspaces.sidebarItems,
-      (id) => workspaceRecords.getRecord(id)?.repoId,
-      repos.items,
-    ),
-  )
-  readonly ordered = $derived(this.groups.flatMap((group) => group.workspaces))
+export type ThreadListItem = {
+  /** The workspace id, or the scratch id for a read-only scratch. */
+  id: string
+  title: string
+  repoName: string | null
+  branch: string | null
+  urgency: ThreadUrgency
+  activityAtMs: number
+  /** Null for a scratch, which is kept to read. */
+  workspace: Workspace | null
 }
 
-export const sidebarWorkspaces = new SidebarWorkspaces()
+/**
+ * The sidebar's list: every thread, what needs you first. ⌘1–⌘9 and the Ctrl+Tab list follow
+ * the workspaces in it.
+ */
+class ThreadList {
+  readonly items = $derived.by((): ThreadListItem[] => {
+    const rows = workspaces.liveItems.map((workspace) => {
+      const thread = threads.liveFor(workspace.id)
+      const events = thread
+        ? (threadTimeline.eventsByThread[thread.id] ?? [])
+        : []
+      const repoId = workspaceRecords.getRecord(workspace.id)?.repoId
+      return {
+        id: workspace.id,
+        title: workspace.name,
+        repoName: (repoId && repos.getById(repoId)?.name) || null,
+        branch: workspace.branch,
+        urgency: threadUrgency({
+          lifecycle: workspace.lifecycle,
+          paused: workspace.paused,
+          pendingApprovals: workspace.pendingApprovals,
+          threadStatus: thread?.status,
+        }),
+        activityAtMs: threadActivityMs(events) || (workspace.createdAtMs ?? 0),
+        workspace,
+      }
+    })
+    const legacy = scratches.items.map((scratch) => ({
+      id: scratch.id,
+      title: scratch.title,
+      repoName: repos.getById(scratch.repoId)?.name ?? scratch.repoId,
+      branch: null,
+      urgency: 'quiet' as const,
+      activityAtMs:
+        threadActivityMs(
+          threadTimeline.eventsByThread[scratch.threadId] ?? [],
+        ) ||
+        (scratch.createdAtMs ?? 0),
+      workspace: null,
+    }))
+    return sortThreadList([...rows, ...legacy])
+  })
+
+  readonly ordered = $derived(
+    this.items.flatMap((item) => (item.workspace ? [item.workspace] : [])),
+  )
+}
+
+export const sidebarWorkspaces = new ThreadList()

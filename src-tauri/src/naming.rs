@@ -1,10 +1,10 @@
-//! Titles for workspaces and scratches created without one. A scratch gets a draft title from
-//! the prompt straight away, then Haiku replaces it unless the user renamed it first. A workspace
-//! is numbered.
+//! Names for workspaces created without one. A workspace gets a draft name from its prompt
+//! straight away, then Haiku replaces it unless the user renamed it first. A workspace started
+//! without a prompt is numbered.
 
 use crate::llm::LlmClient;
 
-pub const UNTITLED_SCRATCH: &str = "Untitled scratch";
+pub const WORKSPACE_NAME_MAX: usize = 48;
 
 /// `Workspace N`, one past the highest number already used.
 pub fn next_workspace_name<'a>(existing: impl Iterator<Item = &'a str>) -> String {

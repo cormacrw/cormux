@@ -2,10 +2,8 @@ use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter};
 
 pub const COMMAND_PALETTE: &str = "command-palette";
-pub const HOMEBASE: &str = "homebase";
 pub const HIDE: &str = "hide";
 pub const NEW_WORKSPACE: &str = "new-workspace";
-pub const NEW_SCRATCH: &str = "new-scratch";
 pub const OPEN_SETTINGS: &str = "open-settings";
 pub const RELOAD_ENVIRONMENT: &str = "reload-environment";
 
@@ -33,8 +31,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         None::<&str>,
     )?;
-    // Not the predefined Hide: that one owns ⌘H, which goes to Homebase.
-    let hide = MenuItem::with_id(app, HIDE, format!("Hide {APP_NAME}"), true, None::<&str>)?;
+    // Our own item, so the handler can hide the window itself.
+    let hide = MenuItem::with_id(
+        app,
+        HIDE,
+        format!("Hide {APP_NAME}"),
+        true,
+        Some("CmdOrCtrl+H"),
+    )?;
     let hide_others = PredefinedMenuItem::hide_others(app, None)?;
     let show_all = PredefinedMenuItem::show_all(app, None)?;
     let quit = PredefinedMenuItem::quit(app, None)?;
@@ -57,16 +61,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         ],
     )?;
 
-    let new_workspace = MenuItem::with_id(
-        app,
-        NEW_WORKSPACE,
-        "New Workspace",
-        true,
-        Some("CmdOrCtrl+N"),
-    )?;
-    let new_scratch =
-        MenuItem::with_id(app, NEW_SCRATCH, "New Scratch", true, Some("CmdOrCtrl+S"))?;
-    let file_menu = Submenu::with_items(app, "File", true, &[&new_workspace, &new_scratch])?;
+    let new_workspace =
+        MenuItem::with_id(app, NEW_WORKSPACE, "New Thread", true, Some("CmdOrCtrl+N"))?;
+    let file_menu = Submenu::with_items(app, "File", true, &[&new_workspace])?;
 
     let edit_menu = Submenu::with_items(
         app,
@@ -90,8 +87,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         Some("CmdOrCtrl+K"),
     )?;
-    let homebase = MenuItem::with_id(app, HOMEBASE, "Go to Homebase", true, Some("CmdOrCtrl+H"))?;
-    let view_menu = Submenu::with_items(app, "View", true, &[&homebase, &command_palette])?;
+    let view_menu = Submenu::with_items(app, "View", true, &[&command_palette])?;
 
     Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &view_menu])
 }
@@ -105,10 +101,8 @@ pub fn handle(app: &AppHandle, id: &str) {
         return;
     }
     let event = match id {
-        HOMEBASE => "menu://homebase",
         COMMAND_PALETTE => "menu://command-palette",
         NEW_WORKSPACE => "menu://new-workspace",
-        NEW_SCRATCH => "menu://new-scratch",
         OPEN_SETTINGS => "menu://open-settings",
         RELOAD_ENVIRONMENT => "menu://reload-environment",
         _ => return,

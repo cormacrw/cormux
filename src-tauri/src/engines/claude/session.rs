@@ -13,8 +13,7 @@ use tokio::time::timeout;
 use super::protocol::user_message;
 use super::protocol::{
     Event, PermissionDecision, StdinMessage, decode_event, encode_line, initialize_request,
-    interrupt_request, permission_response, set_model_request, set_permission_mode_request,
-    user_prompt_message,
+    interrupt_request, permission_response, set_model_request, user_prompt_message,
 };
 use crate::engines::claude_argv;
 use crate::engines::prompt::Prompt;
@@ -198,13 +197,6 @@ impl ClaudeSession {
     pub async fn set_model(&mut self, model: Option<String>) -> Result<String> {
         let request_id = self.alloc_request_id("model");
         self.write_message(&set_model_request(&request_id, model))
-            .await?;
-        Ok(request_id)
-    }
-
-    pub async fn set_permission_mode(&mut self, mode: &str) -> Result<String> {
-        let request_id = self.alloc_request_id("mode");
-        self.write_message(&set_permission_mode_request(&request_id, mode))
             .await?;
         Ok(request_id)
     }
@@ -647,113 +639,6 @@ mod tests {
             } if text == "resumed"
         ));
         resumed.shutdown().await.unwrap();
-    }
-
-    /// Plan mode end to end: switch a live session to plan mode, approve the plan Claude hands
-    /// over with `setMode` back to a normal mode, and check the edit that follows behaves as
-    /// that mode should: `default` asks first, `auto` just runs it. `CORMUX_LIVE_MODE` picks the
-    /// mode (default `auto`).
-    #[tokio::test]
-    #[ignore = "talks to a real `claude` binary; cargo test -- --ignored --nocapture"]
-    async fn live_claude_plan_approval_leaves_plan_mode() {
-        use super::super::protocol::AssistantBlock;
-
-        #[derive(Debug, PartialEq)]
-        enum Edit {
-            Asked,
-            RanWithoutAsking,
-            None,
-        }
-        let normal_mode = std::env::var("CORMUX_LIVE_MODE").unwrap_or_else(|_| "auto".into());
-        let cwd = std::env::temp_dir().join("cormux-plan-mode-live");
-        let _ = std::fs::remove_dir_all(&cwd);
-        std::fs::create_dir_all(&cwd).unwrap();
-        let mut session = ClaudeSession::spawn(SpawnOptions {
-            cwd: Some(cwd),
-            extra_args: vec!["--max-turns".into(), "8".into()],
-            ..SpawnOptions::default()
-        })
-        .await
-        .expect("spawn claude");
-        session.set_permission_mode("plan").await.unwrap();
-        session
-            .send_user(
-                "Create a file named plan-ok.txt containing the word ok. Keep the plan to two lines.",
-            )
-            .await
-            .unwrap();
-
-        let is_edit = |name: &str| matches!(name, "Write" | "Edit" | "Bash");
-        let mut approved_plan = false;
-        // Edits Claude started after the approval, until their result or a permission ask.
-        let mut edits: Vec<String> = Vec::new();
-        let edit = timeout(Duration::from_secs(180), async {
-            loop {
-                let Some(event) = session.next_event().await.unwrap() else {
-                    return Edit::None;
-                };
-                match event {
-                    Event::CanUseTool(req) if req.tool_name == "ExitPlanMode" => {
-                        approved_plan = true;
-                        session
-                            .answer_tool(
-                                &req.request_id,
-                                PermissionDecision::Allow {
-                                    updated_input: req.input.clone(),
-                                    updated_permissions: Some(
-                                        crate::plan_mode::leave_plan_mode_permissions(&normal_mode),
-                                    ),
-                                },
-                            )
-                            .await
-                            .unwrap();
-                    }
-                    Event::CanUseTool(req) if approved_plan && is_edit(&req.tool_name) => {
-                        session
-                            .answer_tool(
-                                &req.request_id,
-                                PermissionDecision::Deny {
-                                    message: "live test stops here".into(),
-                                },
-                            )
-                            .await
-                            .unwrap();
-                        return Edit::Asked;
-                    }
-                    Event::CanUseTool(req) => {
-                        session
-                            .answer_tool(&req.request_id, allow_input(req.input.clone()))
-                            .await
-                            .unwrap();
-                    }
-                    Event::Assistant { blocks } if approved_plan => {
-                        edits.extend(blocks.into_iter().filter_map(|block| match block {
-                            AssistantBlock::ToolUse { id, name, .. } if is_edit(&name) => Some(id),
-                            _ => None,
-                        }));
-                    }
-                    Event::ToolResults(results)
-                        if results
-                            .iter()
-                            .any(|result| edits.contains(&result.tool_use_id)) =>
-                    {
-                        return Edit::RanWithoutAsking;
-                    }
-                    Event::Result { .. } => return Edit::None,
-                    _ => {}
-                }
-            }
-        })
-        .await
-        .expect("timed out");
-        session.shutdown().await.unwrap();
-        assert!(approved_plan, "Claude never handed over a plan");
-        let expected = if normal_mode == "default" {
-            Edit::Asked
-        } else {
-            Edit::RanWithoutAsking
-        };
-        assert_eq!(edit, expected, "after approving into {normal_mode}");
     }
 
     #[tokio::test]

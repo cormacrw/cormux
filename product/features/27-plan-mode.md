@@ -1,5 +1,7 @@
 # 27 · Plan mode
 
+> Removed from the app. The code is in git history if it comes back.
+
 ## Summary
 
 A Claude thread can be switched to **plan mode**. The agent reads the code and writes a plan, but edits nothing. When it's done, the plan opens in a **Plan** tab as a document. The user highlights parts of it, comments, and sends the comments back for a revision, as many rounds as it takes. Approving the plan sends the agent off to carry it out.

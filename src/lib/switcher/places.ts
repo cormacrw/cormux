@@ -1,15 +1,8 @@
 /** Somewhere Ctrl+Tab can take you: a workspace or one of the main pages. */
 export type Place =
-  | { kind: 'workspace'; id: string }
-  | { kind: 'homebase' }
-  | { kind: 'week' }
-  | { kind: 'sprint' }
+  { kind: 'workspace'; id: string } | { kind: 'newThread' } | { kind: 'sprint' }
 
-export const MAIN_PAGES: Place[] = [
-  { kind: 'homebase' },
-  { kind: 'week' },
-  { kind: 'sprint' },
-]
+export const MAIN_PAGES: Place[] = [{ kind: 'newThread' }, { kind: 'sprint' }]
 
 const HISTORY_LIMIT = 40
 

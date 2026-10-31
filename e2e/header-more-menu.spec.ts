@@ -11,7 +11,7 @@ test('the header keeps actions in ⋯ at any width, beside an icon Run button', 
   })
   await page.setViewportSize({ width: 1600, height: 700 })
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(
     page.getByRole('heading', { name: 'OAuth login', level: 1 }),
   ).toBeVisible()

@@ -15,6 +15,9 @@ use crate::shell_env::ShellEnv;
 pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
 pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
 
+/// A new thread waits this long at most for its base branch to fetch.
+const BASE_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// System `git` wrapper. Credential helpers, hooks and LFS apply because this
 /// shells out instead of using git2/gix. Calls for one worktree are serialised.
 #[derive(Clone)]
@@ -245,9 +248,37 @@ impl Git {
     ) -> Result<()> {
         let path_str = path.to_string_lossy().to_string();
         let output = self
-            .run(repo, &["worktree", "add", "-b", branch, &path_str, base])
+            .run(
+                repo,
+                &[
+                    "worktree",
+                    "add",
+                    "--no-track",
+                    "-b",
+                    branch,
+                    &path_str,
+                    base,
+                ],
+            )
             .await?;
         Self::require_success(&output, "worktree add")
+    }
+
+    /// Where a new branch off `base` should start: the freshest of local and origin's, fetched
+    /// now. A fetch that fails (offline, no remote) falls back to what's already here.
+    pub async fn latest_base(&self, repo: &Path, base: &str) -> String {
+        let args = ["fetch", "origin", base];
+        let fetch = self.run(repo, &args);
+        match tokio::time::timeout(BASE_FETCH_TIMEOUT, fetch).await {
+            Ok(Ok(output)) if output.status.success() => {}
+            Ok(Ok(output)) => log::warn!(
+                "fetching {base} failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            Ok(Err(error)) => log::warn!("fetching {base} failed: {error}"),
+            Err(_) => log::warn!("fetching {base} timed out"),
+        }
+        self.freshest_ref(repo, base).await
     }
 
     pub async fn worktree_add_detached(
@@ -1008,6 +1039,71 @@ mod tests {
         git.discard(&repo, &[]).await.unwrap();
         assert_eq!(git.status_porcelain(&repo).await.unwrap(), "");
         assert!(!repo.join("dir").exists());
+    }
+
+    fn commit(repo: &Path, file: &str) {
+        std::fs::write(repo.join(file), "x\n").unwrap();
+        run_ok(repo, &["git", "add", file]);
+        run_ok(repo, &["git", "commit", "-q", "-m", file]);
+    }
+
+    fn clone_of(origin: &Path) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        run_ok(
+            dir.path(),
+            &["git", "clone", "-q", &origin.to_string_lossy(), "clone"],
+        );
+        let clone = dir.path().join("clone");
+        run_ok(&clone, &["git", "config", "user.email", "cormux@test"]);
+        run_ok(&clone, &["git", "config", "user.name", "Cormux"]);
+        (dir, clone)
+    }
+
+    #[tokio::test]
+    async fn a_new_branch_starts_from_what_origin_just_got() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let (_clone_dir, clone) = clone_of(&origin);
+        // Local main is now behind, and nothing has fetched since.
+        commit(&origin, "landed.txt");
+
+        let start = git.latest_base(&clone, "main").await;
+        assert_eq!(start, "origin/main");
+
+        let worktree = clone.parent().unwrap().join("wt");
+        git.worktree_add(&clone, &worktree, "feat/new", &start)
+            .await
+            .unwrap();
+        assert!(worktree.join("landed.txt").exists());
+        // It doesn't track main, so a push can't land there.
+        let upstream = std::process::Command::new("git")
+            .args(["config", "branch.feat/new.remote"])
+            .current_dir(&clone)
+            .output()
+            .unwrap();
+        assert!(!upstream.status.success());
+    }
+
+    #[tokio::test]
+    async fn a_new_branch_keeps_commits_origin_does_not_have() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let (_clone_dir, clone) = clone_of(&origin);
+        commit(&clone, "unpushed.txt");
+        assert_eq!(git.latest_base(&clone, "main").await, "main");
+    }
+
+    #[tokio::test]
+    async fn a_new_branch_falls_back_when_it_cannot_fetch() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let (_clone_dir, clone) = clone_of(&origin);
+        run_ok(&clone, &["git", "remote", "set-url", "origin", "/nowhere"]);
+        // Its last fetch is what it knows: origin/main, level with main.
+        assert_eq!(git.latest_base(&clone, "main").await, "origin/main");
+
+        let (_dir, alone) = init_repo();
+        assert_eq!(git.latest_base(&alone, "main").await, "main");
     }
 
     #[tokio::test]

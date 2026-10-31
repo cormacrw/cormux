@@ -12,6 +12,7 @@ const thread = (patch: Partial<Thread>): Thread => ({
   paused: false,
   activity: 'Idle',
   pendingApprovals: 0,
+  retired: false,
   usage: NO_USAGE,
   ...patch,
 })

@@ -76,17 +76,6 @@ async sendThreadPrompt(threadId: string, text: string, attachments: PromptAttach
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Close a thread tab: stop its agent and hide it. The workspace's first thread stays open.
- */
-async closeWorkspaceThread(threadId: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("close_workspace_thread", { threadId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async cancelThreadTurn(threadId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cancel_thread_turn", { threadId }) };
@@ -150,22 +139,19 @@ async threadModels(threadId: string) : Promise<Result<ThreadModels, Error>> {
 },
 /**
  * `None` goes back to the engine's default. A live engine switches before its next turn.
+ * The models an engine offers, for a thread that doesn't exist yet.
  */
-async setThreadModel(threadId: string, model: string | null) : Promise<Result<null, Error>> {
+async engineModels(engine: string) : Promise<Result<ModelOption[], Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("set_thread_model", { threadId, model }) };
+    return { status: "ok", data: await TAURI_INVOKE("engine_models", { engine }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Plan mode: the agent plans without editing until the user approves. A live Claude session
- * switches now; the setting also applies the next time the thread's agent starts.
- */
-async setThreadPlanMode(threadId: string, enabled: boolean) : Promise<Result<null, Error>> {
+async setThreadModel(threadId: string, model: string | null) : Promise<Result<null, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("set_thread_plan_mode", { threadId, enabled }) };
+    return { status: "ok", data: await TAURI_INVOKE("set_thread_model", { threadId, model }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -431,6 +417,17 @@ async listThreadSkills(threadId: string) : Promise<Result<Skill[], Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Skills the `/` picker offers on the new thread page.
+ */
+async listRepoSkills(repoId: string) : Promise<Result<Skill[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_repo_skills", { repoId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async retryWorkspaceProvisioning(workspaceId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("retry_workspace_provisioning", { workspaceId }) };
@@ -442,14 +439,6 @@ async retryWorkspaceProvisioning(workspaceId: string) : Promise<Result<null, Err
 async skipWorkspaceProvisioningSetup(workspaceId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("skip_workspace_provisioning_setup", { workspaceId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async joinWorkspaceThread(input: JoinWorkspaceThreadInput) : Promise<Result<JoinWorkspaceThreadResult, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("join_workspace_thread", { input }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -727,102 +716,12 @@ async resolveThreadMedia(source: string, workdir: string | null) : Promise<Resul
     else return { status: "error", error: e  as any };
 }
 },
-async createScratch(input: CreateScratchInput) : Promise<Result<CreateScratchResult, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("create_scratch", { input }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 /**
  * Discards the scratch's conversation. The repo is not changed.
  */
 async endScratch(scratchId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("end_scratch", { scratchId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async createTodo(title: string) : Promise<Result<TodoRow, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("create_todo", { title }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async deleteTodo(todoId: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_todo", { todoId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Pinned todos show as cards at the top of Homebase.
- */
-async setTodoPinned(todoId: string, pinned: boolean) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_todo_pinned", { todoId, pinned }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * The Week page's details pane edits a todo's title and description.
- */
-async updateTodo(todoId: string, title: string, description: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("update_todo", { todoId, title, description }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Plans a todo onto a day (`YYYY-MM-DD`), or back into the Week page's loading area.
- */
-async planTodo(todoId: string, plannedOn: string | null) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("plan_todo", { todoId, plannedOn }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Returns when it was completed, or `None` once reopened.
- */
-async setTodoDone(todoId: string, done: boolean) : Promise<Result<string | null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_todo_done", { todoId, done }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Plans a ClickUp task onto a day locally. Nothing is written to ClickUp.
- */
-async planSprintTask(taskId: string, plannedOn: string | null) : Promise<Result<SprintPlanRow, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("plan_sprint_task", { taskId, plannedOn }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Marks a ClickUp task done in the week plan only; its ClickUp status is untouched.
- */
-async setSprintTaskDone(taskId: string, done: boolean) : Promise<Result<SprintPlanRow, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_sprint_task_done", { taskId, done }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -895,14 +794,12 @@ export type ClickupUser = { id: number; username: string; initials: string; colo
 export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
 export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number; title: string; head: string; base: string; author: string; authorIsYou: boolean; filesChanged: number; prHtmlUrl: string | null }
 export type CreateReviewWorkspaceResult = { workspaceId: string; created: boolean }
-export type CreateScratchInput = { title: string; repoId: string; 
-/**
- * Optional. Blank opens an empty conversation.
- */
-prompt: string | null }
-export type CreateScratchResult = { scratchId: string; threadId: string }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
-export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string }
+export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string; 
+/**
+ * The model to start on; `None` leaves the engine's default.
+ */
+model: string | null }
 export type CreateWorkspacePullRequestInput = { workspaceId: string; body: string; title: string | null }
 export type CreateWorkspacePullRequestResult = { workspaceId: string; number: number; htmlUrl: string; title: string }
 export type CreateWorkspaceResult = { workspaceId: string }
@@ -939,8 +836,6 @@ export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; messag
 export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null; sentToThreadId: string | null }
 export type GitConflictOperation = "merge" | "rebase"
 export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
-export type JoinWorkspaceThreadInput = { workspaceId: string; title: string; engine: string }
-export type JoinWorkspaceThreadResult = { threadId: string }
 /**
  * Lines added and deleted across a set of files.
  */
@@ -972,7 +867,7 @@ scratches: ScratchRow[];
 /**
  * Oldest first.
  */
-todos: TodoRow[]; sprintPlan: SprintPlanRow[]; timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
+timeline: ThreadEventRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
 export type PlanStep = { content: string; status: string }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PromptAttachment = { name: string; 
@@ -1047,23 +942,7 @@ prSyncedAt: string | null;
 /**
  * True when a ClickUp API key is saved. Every ClickUp surface hides without one.
  */
-clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[]; 
-/**
- * Where each TODO is written as `CMUX-<n>.md`, for agents to read.
- */
-tasksDir: string }
-/**
- * The Week page's local plan for a ClickUp task. Never written back to ClickUp.
- */
-export type SprintPlanRow = { taskId: string; 
-/**
- * `YYYY-MM-DD`; `None` is back in the loading area.
- */
-plannedOn: string | null; 
-/**
- * SQLite `datetime('now')`, UTC; `None` while open. Local to the plan only.
- */
-doneAt: string | null }
+clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
@@ -1123,7 +1002,11 @@ previewUrl: string | null }
  * The models a thread can switch to, and the one it's on (`None` is the engine's default).
  */
 export type ThreadModels = { current: string | null; options: ModelOption[] }
-export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean }
+export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean; 
+/**
+ * Kept to read but can't be continued: a workspace's older thread, or a scratch's.
+ */
+retired: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
 export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null; 
@@ -1132,22 +1015,6 @@ export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspac
  */
 threadId: string | null }
 export type ToastTone = "ok" | "bad" | "default"
-/**
- * A task from the TODOs page, which the Week page can plan onto a day.
- */
-export type TodoRow = { id: string; 
-/**
- * Shown as `CMUX-<number>`; assigned when it's made and never reused.
- */
-number: number; title: string; pinned: boolean; description: string; 
-/**
- * `YYYY-MM-DD`, the local day it's planned for; `None` sits in the Week page's loading area.
- */
-plannedOn: string | null; 
-/**
- * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`; `None` while open.
- */
-doneAt: string | null }
 export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
 /**
  * ACP `ToolKind`, owned so adapters and IPC do not depend on the protocol crate.

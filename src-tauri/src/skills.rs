@@ -71,6 +71,19 @@ pub fn for_thread(state: &AppState, thread_id: &str) -> Result<Vec<Skill>> {
     Ok(list(&cwd, home.as_deref()))
 }
 
+/// Skills a new thread off this repo will have, before its worktree exists.
+pub fn for_repo(state: &AppState, repo_id: &str) -> Result<Vec<Skill>> {
+    let repo = state
+        .store
+        .snapshot()?
+        .repos
+        .into_iter()
+        .find(|row| row.id == repo_id)
+        .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))?;
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    Ok(list(&expand_tilde(&repo.path), home.as_deref()))
+}
+
 fn thread_cwd(state: &AppState, thread_id: &str) -> Result<PathBuf> {
     if let Some(scratch) = state.store.scratch_for_thread(thread_id)? {
         let repo = state

@@ -3,9 +3,9 @@ import { mkdirSync } from 'node:fs'
 
 async function openChanges(page: Page, query = '') {
   await page.goto(`/${query}`)
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
-  await page.getByRole('tab', { name: /^Git/ }).click()
-  return page.getByRole('tabpanel', { name: /^Git/ })
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.locator('#tray-changes').click()
+  return page.getByRole('region', { name: 'Git', exact: true })
 }
 
 test('Changes starts on uncommitted work, and each stack level diffs against the branch below', async ({

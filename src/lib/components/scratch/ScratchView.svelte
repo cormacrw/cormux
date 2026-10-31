@@ -5,7 +5,6 @@
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
   import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
-  import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
   import TimelineMessages from '$lib/components/workspace/thread/TimelineMessages.svelte'
   import ThreadFind from '$lib/components/workspace/thread/ThreadFind.svelte'
   import {
@@ -16,14 +15,13 @@
     threadTimeline,
     threads,
   } from '$lib/state'
-  import { scratchStatus, type Scratch } from '$lib/state/scratches.svelte'
+  import type { Scratch } from '$lib/state/scratches.svelte'
   import { buddyColor } from '$lib/buddy'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import { createEntryScope, liveReplyId } from '$lib/thread/entering'
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
   import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
-  import ScratchStatusBadge from './ScratchStatusBadge.svelte'
 
   const scratch = $derived<Scratch | undefined>(
     app.scratchId ? scratches.getById(app.scratchId) : undefined,
@@ -34,7 +32,6 @@
   const repo = $derived(scratch ? repos.getById(scratch.repoId) : undefined)
   // A removed repo falls back to its id.
   const repoPath = $derived(repo?.path ?? scratch?.repoId ?? '')
-  const status = $derived(scratchStatus(thread))
   const engineName = $derived(engineDisplayName(scratch?.engine ?? 'claude'))
 
   const items = $derived(
@@ -53,7 +50,6 @@
       : [],
   )
   const rows = $derived(buildTimelineRows(items, '', engineName))
-  const hasUserMessage = $derived(items.some((item) => item.kind === 'user'))
 
   const liveTitle = $derived(
     thread?.paused ? 'Paused by you' : 'Reading the repo…',
@@ -70,23 +66,16 @@
   let contentEl = $state<HTMLElement | null>(null)
   // Off once the reader scrolls up; back on when they return to the end.
   let pinnedToBottom = true
-  let focusComposer = $state<(() => void) | null>(null)
   let announceText = $state('')
   let nowMs = $state(Date.now())
   let prevItemCount = 0
   let prevThreadId: string | null = null
   let scrollToEnd = $state(true)
 
-  // Opening a scratch puts focus in its composer, ready to type; an ended one has none, so
-  // its title takes it.
   $effect(() => {
     if (app.focusTarget !== 'scratch') return
     void app.focusGeneration
-    void tick().then(() => {
-      app.scratchComposerFocus = false
-      if (focusComposer) focusComposer()
-      else headingEl?.focus()
-    })
+    void tick().then(() => headingEl?.focus())
   })
 
   // Snapshot what the scratch already shows when it opens; only rows after that animate.
@@ -170,7 +159,7 @@
   function onKeydown(event: KeyboardEvent) {
     if (!scratch || !isHeaderShortcut(event, 'e')) return
     event.preventDefault()
-    shellDialogs.openEndScratch(scratch.id, false)
+    shellDialogs.openEndScratch(scratch.id)
   }
 </script>
 
@@ -207,16 +196,15 @@
         </p>
       </div>
       <div class="flex shrink-0 items-center gap-2">
-        <ScratchStatusBadge {status} />
         <Button
           variant="secondary"
           size="xl"
           data-action="end-scratch"
           data-od-id="session-end"
           aria-keyshortcuts="Meta+E"
-          onclick={() => shellDialogs.openEndScratch(scratch.id, false)}
+          onclick={() => shellDialogs.openEndScratch(scratch.id)}
         >
-          End scratch
+          Delete
           <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />E</Kbd>
         </Button>
       </div>
@@ -254,7 +242,7 @@
               {entries}
               liveReplyId={liveReplyId(items)}
               onOpenFindings={() => {}}
-              onFocusComposer={() => focusComposer?.()}
+              onFocusComposer={() => {}}
             />
           </ol>
         </div>
@@ -265,19 +253,11 @@
       {announceText}
     </div>
 
-    <div data-od-id="session-composer">
-      <ThreadComposer
-        {thread}
-        bind:focusComposer
-        inputLabel="Message this scratch"
-        placeholder={hasUserMessage
-          ? 'Ask a follow-up…'
-          : 'Write the first message…'}
-        sendLabel="Send"
-        onSent={() => {
-          scrollToEnd = true
-        }}
-      />
-    </div>
+    <p
+      class="px-5 py-3 text-center text-xs text-muted-foreground"
+      data-od-id="session-read-only"
+    >
+      This scratch is read-only. Start a new thread to carry on.
+    </p>
   </section>
 {/if}

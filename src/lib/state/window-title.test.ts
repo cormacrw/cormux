@@ -3,8 +3,8 @@ import { resolveWindowTitle } from './window-title'
 
 describe('resolveWindowTitle', () => {
   it('titles Homebase and Settings', () => {
-    expect(resolveWindowTitle('homebase', null, undefined)).toBe(
-      'Cormux · Homebase',
+    expect(resolveWindowTitle('newThread', null, undefined)).toBe(
+      'Cormux · New thread',
     )
     expect(resolveWindowTitle('settings', null, undefined)).toBe(
       'Cormux · Settings',
@@ -12,8 +12,8 @@ describe('resolveWindowTitle', () => {
   })
 
   it('names dev builds in the title', () => {
-    expect(resolveWindowTitle('homebase', null, undefined, 'Cormux Dev')).toBe(
-      'Cormux Dev · Homebase',
+    expect(resolveWindowTitle('newThread', null, undefined, 'Cormux Dev')).toBe(
+      'Cormux Dev · New thread',
     )
   })
 

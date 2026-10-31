@@ -1,6 +1,6 @@
+import type { PullRequest } from '$lib/state/prs.svelte'
 import { describe, expect, it } from 'vitest'
 import { NO_USAGE } from '$lib/usage/usage'
-import { agentName } from '$lib/agent-name'
 import { buildPaletteCommandsFromState } from './build-registry'
 
 const noop = () => {}
@@ -58,6 +58,7 @@ describe('buildPaletteCommandsFromState', () => {
             paused: false,
             activity: 'Idle',
             pendingApprovals: 0,
+            retired: false,
             usage: NO_USAGE,
           },
         ],
@@ -71,6 +72,9 @@ describe('buildPaletteCommandsFromState', () => {
             runCommand: 'pnpm dev',
             singleInstance: false,
           },
+        ],
+        pullRequests: [
+          { id: 'acme/app#482', num: 482, title: 'Fix login' } as PullRequest,
         ],
         records: [
           {
@@ -126,30 +130,25 @@ describe('buildPaletteCommandsFromState', () => {
             : undefined,
       },
       {
-        requestNewWorkspace: noop,
-        requestNewScratch: noop,
+        openNewThread: noop,
         openScratch: noop,
         runBang: noop,
-        openHomebase: noop,
+        openRepo: noop,
+        reviewPullRequest: noop,
         openSprint: noop,
-        openWeek: noop,
         openSettings: noop,
         openWorkspace: noop,
         toggleReduceMotion: noop,
         openSettingsSection: noop,
         openWorkspaceThread: noop,
         openWorkspaceFindings: noop,
-        requestNewThread: noop,
         runWorkspaceApp: noop,
         pullWorkspace: noop,
       },
     ).map((c) => c.label)
 
-    expect(labels).toContain('New workspace')
-    expect(labels).toContain('New scratch')
-    expect(labels).not.toContain('Go to TODOs')
-    expect(labels).toContain('Go to week')
-    expect(labels).toContain('Add a task')
+    expect(labels).toContain('New thread')
+    expect(labels).toContain('Review PR #482 Fix login')
     // No ClickUp key, no sprint page.
     expect(labels).not.toContain('Go to sprint')
     expect(labels).toContain('!triage')
@@ -159,8 +158,6 @@ describe('buildPaletteCommandsFromState', () => {
     expect(labels).toContain('Open Auth')
     expect(labels).toContain('Run app in Auth')
     expect(labels).toContain('Pull 2 commits from main into Auth')
-    expect(labels).toContain(`Open ${agentName('th-1')} in Auth`)
-    expect(labels).toContain('New thread in Auth')
     expect(labels).toContain('Open Findings in Auth')
   })
 })

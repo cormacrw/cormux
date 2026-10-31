@@ -21,7 +21,7 @@
       variant === 'provisioning' &&
         'bg-info motion-safe:animate-[status-blink_1.2s_ease-in-out_infinite]',
       variant === 'paused' && 'bg-warning',
-      variant === 'waiting' && 'bg-warning ring-2 ring-warning/30',
+      variant === 'waiting' && 'status-flash bg-yellow-400',
     )}
   ></span>
 </span>
@@ -35,6 +35,30 @@
     to {
       opacity: 0;
       transform: scale(1.6);
+    }
+  }
+
+  /*
+    A class here, not a Tailwind arbitrary animation: Svelte renames keyframes per component,
+    so a name in a class string never finds them.
+  */
+  .status-flash {
+    animation: status-flash 2.8s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .status-flash {
+      animation: none;
+    }
+  }
+
+  @keyframes status-flash {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
     }
   }
 

@@ -79,6 +79,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "014_drop_cursor",
         sql: include_str!("../../migrations/014_drop_cursor.sql"),
     },
+    Migration {
+        version: 15,
+        name: "015_one_thread_per_workspace",
+        sql: include_str!("../../migrations/015_one_thread_per_workspace.sql"),
+    },
+    Migration {
+        version: 16,
+        name: "016_drop_plan_mode",
+        sql: include_str!("../../migrations/016_drop_plan_mode.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -162,7 +172,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 14);
+        assert_eq!(version, 16);
 
         for expected in [
             "approvals",
@@ -244,6 +254,60 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM thread_events", [], |row| row.get(0))
             .unwrap();
         assert_eq!(events, 0);
+    }
+
+    #[test]
+    fn one_thread_stays_live_per_workspace() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+        for migration in &MIGRATIONS[..14] {
+            apply(&conn, migration).unwrap();
+        }
+        // `lead` was created first, but `helper` spoke last, so `helper` carries on.
+        conn.execute_batch(
+            "INSERT INTO threads (id, workspace_id, title, engine, status) VALUES
+                ('lead', 'w', 'Lead', 'claude', 'waiting'),
+                ('helper', 'w', 'Agent 2', 'claude', 'idle'),
+                ('quiet', 'w', 'Agent 3', 'claude', 'idle'),
+                ('solo', 'w2', 'Lead', 'claude', 'idle'),
+                ('scratch', 's', 'Scratch', 'claude', 'idle');
+             INSERT INTO scratches (id, repo_id, title, thread_id)
+                VALUES ('s', 'r', 'A question', 'scratch');
+             INSERT INTO thread_events (thread_id, seq, kind, payload) VALUES
+                ('lead', 1, 'message', '{}'),
+                ('helper', 1, 'message', '{}');
+             INSERT INTO approvals (id, thread_id, status, tool, payload)
+                VALUES ('a', 'lead', 'pending', 'bash', '{}');",
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        let retired = |id: &str| -> bool {
+            conn.query_row("SELECT retired FROM threads WHERE id = ?1", [id], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+                != 0
+        };
+        assert!(retired("lead"));
+        assert!(!retired("helper"));
+        assert!(retired("quiet"));
+        assert!(!retired("solo"));
+        assert!(retired("scratch"));
+        let approval: String = conn
+            .query_row("SELECT status FROM approvals WHERE id = 'a'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(approval, "denied");
     }
 
     #[test]

@@ -3,8 +3,8 @@ import { mkdirSync } from 'node:fs'
 
 async function openOutput(page: import('@playwright/test').Page) {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
-  await page.locator('#thread-tab-output').click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.locator('#tray-output').click()
 }
 
 test('Output: override the repo’s run command for one workspace, then go back to it', async ({

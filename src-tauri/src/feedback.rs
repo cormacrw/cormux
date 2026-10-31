@@ -83,12 +83,6 @@ pub fn toast_for_approval(tool: &str, approved: bool) -> Option<ToastRaisedPaylo
                 value: "Deleted legacy-cookie.ts in worktree".into(),
             }],
         ),
-        "execute_plan" => (
-            ToastTone::Ok,
-            vec![ToastPart::Text {
-                value: "Plan approved. The agent is carrying it out".into(),
-            }],
-        ),
         "send_suggestions" | "review_suggestions" => (
             ToastTone::Ok,
             vec![ToastPart::Text {

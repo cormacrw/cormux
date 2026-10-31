@@ -1,6 +1,4 @@
-use super::payload::{
-    ApprovalPayload, payload_from_permission, payload_with_option_labels, payload_with_plan,
-};
+use super::payload::{ApprovalPayload, payload_from_permission, payload_with_option_labels};
 use crate::engines::AgentEvent;
 use crate::store::Store;
 use crate::store::types::ApprovalRow;
@@ -14,18 +12,6 @@ pub fn record_pending_permission(
     record_pending(store, thread_id, event, |payload| match option_labels {
         Some((ok, no)) => payload_with_option_labels(payload, ok, no),
         None => payload,
-    })
-}
-
-/// An `ExitPlanMode` call, recorded with its plan for the Plan tab.
-pub fn record_pending_plan(
-    store: &Store,
-    thread_id: &str,
-    event: &AgentEvent,
-    plan: String,
-) -> Result<(), crate::error::Error> {
-    record_pending(store, thread_id, event, |payload| {
-        payload_with_plan(payload, plan)
     })
 }
 
@@ -91,24 +77,6 @@ pub fn mark_resolved(
     };
     store.upsert_approval(&updated)?;
     Ok((updated, payload))
-}
-
-/// Closes a request nobody answered, such as a plan the user left plan mode on.
-pub fn mark_dismissed(store: &Store, id: &str) -> Result<ApprovalRow, crate::error::Error> {
-    let row = store
-        .get_approval(id)?
-        .ok_or_else(|| crate::error::Error::Approval(format!("unknown approval {id}")))?;
-    let mut payload: ApprovalPayload = serde_json::from_str(&row.payload).unwrap_or_default();
-    payload.resolved_at_ms = Some(chrono_ms());
-    let payload_json = serde_json::to_string(&payload)
-        .map_err(|error| crate::error::Error::Store(error.to_string()))?;
-    let updated = ApprovalRow {
-        status: "dismissed".into(),
-        payload: payload_json,
-        ..row
-    };
-    store.upsert_approval(&updated)?;
-    Ok(updated)
 }
 
 fn persist_permission_event(

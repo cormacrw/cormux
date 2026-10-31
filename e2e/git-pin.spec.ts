@@ -5,8 +5,8 @@ test('a pinned tray sits beside the conversation; closing it unpins it', async (
 }) => {
   await page.setViewportSize({ width: 1400, height: 900 })
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
-  const git = page.getByRole('tab', { name: /^Git/ })
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  const git = page.locator('#tray-changes')
   const pane = page.locator('[data-od-id="git-slide-out"]')
   const composer = page.locator('#composer-input')
 
@@ -25,7 +25,7 @@ test('a pinned tray sits beside the conversation; closing it unpins it', async (
 
   // The pin survives a reload.
   await page.reload()
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(pane).toHaveAttribute('data-pinned', 'true')
 
   // Output takes the pinned spot while Git is pinned.
@@ -41,9 +41,9 @@ test('a pinned tray sits beside the conversation; closing it unpins it', async (
   await page.keyboard.press('ControlOrMeta+g')
   await expect(pane).toHaveAttribute('data-pinned', 'false')
   await expect(pane).toHaveAttribute('data-open', 'true')
-  await expect(git).toHaveAttribute('aria-selected', 'true')
+  await expect(git).toHaveAttribute('aria-pressed', 'true')
   await page.keyboard.press('Escape')
-  await expect(git).toHaveAttribute('aria-selected', 'false')
+  await expect(git).toHaveAttribute('aria-pressed', 'false')
 
   // Unpinning from the pin button leaves it open as a slide-out.
   await page.keyboard.press('ControlOrMeta+g')
@@ -52,5 +52,5 @@ test('a pinned tray sits beside the conversation; closing it unpins it', async (
     .click()
   await page.getByRole('button', { name: 'Unpin Git' }).click()
   await expect(pane).toHaveAttribute('data-pinned', 'false')
-  await expect(git).toHaveAttribute('aria-selected', 'true')
+  await expect(git).toHaveAttribute('aria-pressed', 'true')
 })

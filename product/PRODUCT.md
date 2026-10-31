@@ -37,11 +37,14 @@ Success means the user can keep several workspaces moving at once and always kno
 
 ## Operating Context
 
-- Work is organized by **repo** (a local folder containing a git repository), then **workspace** (worktree plus branch), then **thread** (one agent conversation).
-- **Homebase** is the overview: workspace cards with status ("2 agents working", "Idle", "Needs Attention"), plus open GitHub PRs that the user opened, is requested on, or is mentioned in.
-- Inside a workspace, the **agent conversation is the main surface**. Threads are tabs along the top. An Output tab shows the running app's logs, and a Changes panel shows the diff on demand. The file tree and editor are deliberately secondary for now.
+- Work is organized by **repo**, then **thread**. Every thread has its own worktree and branch: a workspace and its one thread are the same thing to the user.
+- The **sidebar** is a flat list of threads, each showing its repo and branch. Any thread that isn't working flashes an orange dot and sits on top, longest wait first, because it should be prompted or closed. Working threads follow by recent activity. Rows animate as they move.
+- The **first page is an empty thread**. There is no creation dialog: typing the first message there, with a repo and base branch picked in the prompt bar, spawns the worktree and opens the thread.
+- Repo pages and PR reviews open from the command palette.
+- Inside a thread, the **agent conversation is the main surface**. Git, Output and Findings are buttons in the header that slide out over it. The file tree and editor are deliberately secondary for now.
+- Threads from before this model (a workspace's older threads, and old scratches) stay readable but can't be continued.
 - Agents ask for **approvals** before risky tool calls. Read-only tools can be auto-approved.
-- **Review workspaces** check out a PR branch. A Reviewer thread produces **findings** grouped as Blocking, Suggestions and Nits, and the user picks which ones to send to an agent to fix.
+- **Review workspaces** check out a PR branch. The thread produces **findings** grouped as Blocking, Suggestions and Nits, and the user picks which ones to send back to it to fix.
 - The user works in a local git environment with GitHub as the remote.
 - Cormux is often in the background while agents work. It must reach the user through OS notifications and the dock badge when something needs them.
 

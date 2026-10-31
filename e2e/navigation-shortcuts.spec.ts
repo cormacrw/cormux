@@ -1,15 +1,18 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('navigation shortcuts', () => {
-  test('⌘1 opens the first workspace and ⌘H goes back to Homebase', async ({
+  test('⌘1 opens the first thread and ⌘N goes to a new one', async ({
     page,
   }) => {
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     await page.goto('/')
 
-    const homebase = page.getByRole('button', { name: /^Homebase/ })
-    await expect(homebase).toHaveAttribute('aria-current', 'page')
+    await expect(page.locator('[data-od-id="nav-new-thread"]')).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    const homebase = page.getByRole('button', { name: /^New thread/ })
 
     await page.keyboard.press('ControlOrMeta+1')
     await expect(
@@ -22,7 +25,7 @@ test.describe('navigation shortcuts', () => {
       page.getByRole('button', { name: /^OAuth login,/ }),
     ).toHaveAttribute('aria-current', 'page')
 
-    await page.keyboard.press('ControlOrMeta+h')
+    await page.keyboard.press('ControlOrMeta+n')
     await expect(homebase).toHaveAttribute('aria-current', 'page')
 
     expect(errors).toEqual([])
@@ -33,16 +36,18 @@ test.describe('navigation shortcuts', () => {
     await expect(
       page.getByRole('button', { name: /^OAuth login,/ }),
     ).toBeVisible()
-    // Homebase has no Git tab; nothing happens.
+    // A new thread has no Git; nothing happens.
     await page.keyboard.press('ControlOrMeta+g')
     await page.keyboard.press('ControlOrMeta+1')
-    const git = page.getByRole('tab', { name: /^Git/ })
-    await expect(git).toHaveAttribute('aria-selected', 'false')
+    const git = page.locator('#tray-changes')
+    await expect(git).toHaveAttribute('aria-pressed', 'false')
     await page.keyboard.press('ControlOrMeta+g')
-    await expect(git).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByRole('tabpanel', { name: /^Git/ })).toBeVisible()
+    await expect(git).toHaveAttribute('aria-pressed', 'true')
+    await expect(
+      page.getByRole('region', { name: 'Git', exact: true }),
+    ).toBeVisible()
     await page.keyboard.press('ControlOrMeta+g')
-    await expect(git).toHaveAttribute('aria-selected', 'false')
+    await expect(git).toHaveAttribute('aria-pressed', 'false')
   })
 
   test('⌘O shows and hides Output in a workspace', async ({ page }) => {
@@ -51,57 +56,22 @@ test.describe('navigation shortcuts', () => {
       page.getByRole('button', { name: /^OAuth login,/ }),
     ).toBeVisible()
     await page.keyboard.press('ControlOrMeta+1')
-    const output = page.locator('#thread-tab-output')
-    await expect(output).toHaveAttribute('aria-selected', 'false')
+    const output = page.locator('#tray-output')
+    await expect(output).toHaveAttribute('aria-pressed', 'false')
     await page.keyboard.press('ControlOrMeta+o')
-    await expect(output).toHaveAttribute('aria-selected', 'true')
+    await expect(output).toHaveAttribute('aria-pressed', 'true')
     await page.keyboard.press('ControlOrMeta+o')
-    await expect(output).toHaveAttribute('aria-selected', 'false')
+    await expect(output).toHaveAttribute('aria-pressed', 'false')
 
     // Clicking the Git or Output tab toggles it the same way.
     await output.click()
-    await expect(output).toHaveAttribute('aria-selected', 'true')
+    await expect(output).toHaveAttribute('aria-pressed', 'true')
     await output.click()
-    await expect(output).toHaveAttribute('aria-selected', 'false')
-    const git = page.locator('#thread-tab-changes')
+    await expect(output).toHaveAttribute('aria-pressed', 'false')
+    const git = page.locator('#tray-changes')
     await git.click()
-    await expect(git).toHaveAttribute('aria-selected', 'true')
+    await expect(git).toHaveAttribute('aria-pressed', 'true')
     await git.click()
-    await expect(git).toHaveAttribute('aria-selected', 'false')
+    await expect(git).toHaveAttribute('aria-pressed', 'false')
   })
-})
-
-test('⇧⌘] and ⇧⌘[ move through the workspace tabs, and ⇧⌘N starts a thread', async ({
-  page,
-}) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
-  const selected = page.locator('[role="tab"][aria-selected="true"]')
-  await expect(selected).toHaveId('thread-tab-th-lead')
-
-  await page.keyboard.press('ControlOrMeta+Shift+BracketRight')
-  await expect(selected).toHaveId('thread-tab-changes')
-  await page.keyboard.press('ControlOrMeta+Shift+BracketRight')
-  await expect(selected).toHaveId('thread-tab-output')
-  // It wraps around both ends.
-  await page.keyboard.press('ControlOrMeta+Shift+BracketRight')
-  await expect(selected).toHaveId('thread-tab-th-lead')
-  await page.keyboard.press('ControlOrMeta+Shift+BracketLeft')
-  await expect(selected).toHaveId('thread-tab-output')
-
-  const threadTabs = page.locator('#thread-tabs [role="tab"][data-thread-id]')
-  await expect(threadTabs).toHaveCount(1)
-  await page.keyboard.press('ControlOrMeta+Shift+n')
-  await expect(threadTabs).toHaveCount(2)
-})
-
-test('⇧⌘P switches plan mode on a Claude thread', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
-  const toggle = page.locator('[data-od-id="composer-plan-mode"]')
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await page.keyboard.press('ControlOrMeta+Shift+p')
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  await page.keyboard.press('ControlOrMeta+Shift+p')
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
 })

@@ -28,7 +28,7 @@ test('⌘F finds text in the thread, steps through matches and opens a collapsed
     ],
   )
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const composer = page.locator('#composer-input')
   await composer.click()
 
@@ -65,7 +65,7 @@ test('⌘F finds text in the thread, steps through matches and opens a collapsed
 
 test('⌘F finds rows a long thread hasn’t rendered yet', async ({ page }) => {
   await page.goto('/?longThread=200')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(page.getByText('Answer 200', { exact: true })).toBeVisible()
   // The first answers are far above and not rendered.
   await expect(

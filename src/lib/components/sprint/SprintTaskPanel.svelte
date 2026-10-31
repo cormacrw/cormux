@@ -34,7 +34,7 @@
 
   let titleEl: HTMLHeadingElement | undefined = $state()
 
-  // Opening a task from Homebase or the board moves focus here for keyboard users.
+  // Opening a task from the board moves focus here for keyboard users.
   $effect(() => {
     if (task?.id) titleEl?.focus({ preventScroll: true })
   })

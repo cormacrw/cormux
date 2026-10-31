@@ -8,7 +8,7 @@ test('Create PR drafts a description with no extra options', async ({
   page.on('pageerror', (error) => errors.push(error.message))
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await page.keyboard.press('ControlOrMeta+p')
 
   const dialog = page.locator('[data-od-id="pr-dialog"]')

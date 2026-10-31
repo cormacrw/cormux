@@ -40,7 +40,9 @@
   const workspace = $derived(workspaces.getById(workspaceId))
   const rows = $derived(findings.forWorkspace(workspaceId))
   const openRows = $derived(openFindings(rows))
-  const wsThreads = $derived(threads.forWorkspace(workspaceId))
+  const wsThreads = $derived(
+    threads.forWorkspace(workspaceId).filter((thread) => !thread.retired),
+  )
   const reviewer = $derived(
     wsThreads.find((thread) => thread.role === 'Reviewer') ?? wsThreads[0],
   )
@@ -140,8 +142,8 @@
 
 <div
   id="findings-panel"
-  role="tabpanel"
-  aria-labelledby="thread-tab-findings"
+  role="region"
+  aria-label="Findings"
   data-od-id="findings"
   class="flex min-h-0 flex-1 flex-col"
 >

@@ -24,7 +24,7 @@ test('only new rows pop in, and a new reply types out', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/?longThread=3')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(
     page.locator('#timeline').getByText('Answer 3', { exact: true }),
   ).toBeVisible()
@@ -54,7 +54,7 @@ test('only new rows pop in, and a new reply types out', async ({ page }) => {
   await expect(
     page
       .getByRole('navigation', { name: 'Harness' })
-      .getByRole('button', { name: 'OAuth login, Idle' }),
+      .getByRole('button', { name: /^OAuth login,/ }),
   ).toBeVisible({ timeout: 5000 })
   expect(await popping(page)).toEqual([])
   expect(errors).toEqual([])
@@ -73,7 +73,7 @@ test('a thread with thousands of events keeps drawing frames while a reply strea
     requestAnimationFrame(tick)
   })
   await page.goto('/?longThread=3000')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await page.locator('#composer-input').fill('Go')
   const frames = () =>
     page.evaluate(
@@ -96,7 +96,7 @@ test('a long reply the agent sent all at once doesn’t take ages to type out', 
   page,
 }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(page.locator('#composer-input')).toBeVisible()
   const long = Array.from(
     { length: 30 },
@@ -121,7 +121,7 @@ test('a long reply the agent sent all at once doesn’t take ages to type out', 
 
 test('two replies never type at the same time', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(page.locator('#composer-input')).toBeVisible()
   const say = (events: object[]) =>
     page.evaluate(

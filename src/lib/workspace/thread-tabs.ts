@@ -1,34 +1,4 @@
-import { agentName } from '$lib/agent-name'
-import type { Thread } from '$lib/state/threads.svelte'
-import type { WorkspacePanelTab } from '$lib/state/workspace-ui.svelte'
-import { plural, threadActivityLine } from '$lib/sidebar/status'
-
-/** Deferred per product/features/10-thread-tabs.md — COR-123 tracks these. */
-export const THREAD_TAB_KNOWN_GAPS = [
-  'No rename or reorder for threads, and no reopening a closed one',
-  'No ⌘1–⌘9 jump to thread N',
-  'No unread indicator when a thread posts while you are elsewhere',
-  'New threads always use the default engine; no role picker',
-] as const
-
-export type ThreadBarTabKey =
-  | { kind: 'thread'; threadId: string }
-  | { kind: 'plan' }
-  | { kind: 'findings' }
-  | { kind: 'changes' }
-  | { kind: 'output' }
-
-export function threadTabAriaLabel(thread: Thread): string {
-  const activity = threadActivityLine(thread)
-  const base = `${agentName(thread.id)}, ${activity}`
-  if (thread.pendingApprovals <= 0) return base
-  return `${base}, ${plural(thread.pendingApprovals, 'approval', 'approvals')} waiting`
-}
-
-export function planTabAriaLabel(pendingCount: number): string {
-  if (pendingCount <= 0) return 'Plan'
-  return `Plan, ${plural(pendingCount, 'plan', 'plans')} waiting for review`
-}
+import { plural } from '$lib/sidebar/status'
 
 export function findingsTabAriaLabel(openCount: number): string {
   return `Review findings, ${plural(openCount, 'open finding', 'open findings')}`
@@ -60,59 +30,6 @@ export function outputTabAriaLabel(input: {
   port: number | null
 }): string {
   return `App output, ${outputTabState(input)}`
-}
-
-export function buildThreadBarTabOrder(
-  threads: Thread[],
-  showFindings: boolean,
-  showPlan = false,
-): ThreadBarTabKey[] {
-  const keys: ThreadBarTabKey[] = threads.map((thread) => ({
-    kind: 'thread',
-    threadId: thread.id,
-  }))
-  if (showPlan) keys.push({ kind: 'plan' })
-  if (showFindings) keys.push({ kind: 'findings' })
-  keys.push({ kind: 'changes' }, { kind: 'output' })
-  return keys
-}
-
-export function activeThreadBarTabKey(input: {
-  tabs: ThreadBarTabKey[]
-  panelTab: WorkspacePanelTab
-  threadId: string | null
-}): ThreadBarTabKey | null {
-  if (input.panelTab !== 'thread') {
-    const kind = input.panelTab
-    return input.tabs.find((tab) => tab.kind === kind) ?? null
-  }
-  return (
-    input.tabs.find(
-      (tab) => tab.kind === 'thread' && tab.threadId === input.threadId,
-    ) ??
-    input.tabs.find((tab) => tab.kind === 'thread') ??
-    null
-  )
-}
-
-export function tabKeyId(tab: ThreadBarTabKey): string {
-  if (tab.kind === 'thread') return `thread-tab-${tab.threadId}`
-  if (tab.kind === 'plan') return 'thread-tab-plan'
-  if (tab.kind === 'findings') return 'thread-tab-findings'
-  if (tab.kind === 'changes') return 'thread-tab-changes'
-  return 'thread-tab-output'
-}
-
-export function moveTabFocusIndex(
-  current: number,
-  length: number,
-  key: 'ArrowLeft' | 'ArrowRight' | 'Home' | 'End',
-): number {
-  if (length <= 0) return 0
-  if (key === 'Home') return 0
-  if (key === 'End') return length - 1
-  if (key === 'ArrowRight') return (current + 1) % length
-  return (current - 1 + length) % length
 }
 
 /** Review workspaces show it once the review is in; others once a branch review found something. */

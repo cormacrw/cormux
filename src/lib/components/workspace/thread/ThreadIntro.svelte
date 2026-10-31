@@ -9,12 +9,10 @@
   let {
     thread,
     workspace,
-    otherThreadCount,
     nowMs,
   }: {
     thread: Thread
     workspace: Workspace
-    otherThreadCount: number
     nowMs: number
   } = $props()
 
@@ -23,16 +21,6 @@
   const color = $derived(buddyColor(thread.id))
   const name = $derived(agentName(thread.id))
   const engineName = $derived(engineDisplayName(thread.engine))
-
-  const relationship = $derived.by(() => {
-    if (isLead) {
-      if (otherThreadCount > 0) {
-        return `leads ${otherThreadCount} other ${otherThreadCount === 1 ? 'thread' : 'threads'} in this worktree`
-      }
-      return 'owns this worktree'
-    }
-    return 'shares the worktree with Lead'
-  })
 
   const summaryAge = $derived.by(() => {
     if (!workspace.summaryAtMs) return null
@@ -46,7 +34,7 @@
     <div class="min-w-0 space-y-1">
       <h2 class="text-lg font-semibold tracking-tight">{name}</h2>
       <p class="text-sm text-muted-foreground">
-        {engineName} · {thread.role} · {relationship}
+        {engineName} · {thread.role}
       </p>
     </div>
   </div>

@@ -33,7 +33,7 @@ test.describe('bangs', () => {
     await page.screenshot({ path: 'e2e/output/bangs-settings.png' })
 
     // In a prompt bar, ! offers it and picking puts the prompt in, unsent.
-    await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+    await page.getByRole('button', { name: /^OAuth login,/ }).click()
     const composer = page.locator('#composer-input')
     await composer.fill('First, ')
     await composer.pressSequentially('!fix')
@@ -47,7 +47,7 @@ test.describe('bangs', () => {
     )
     await expect(picker).toHaveCount(0)
 
-    // From the palette, !name and more words start a scratch in the background.
+    // From the palette, !name and more words start a thread in the background.
     const dialog = page.getByRole('dialog')
     await page.getByRole('button', { name: /Search or run a command/ }).click()
     const field = dialog.locator('input')
@@ -73,11 +73,13 @@ test.describe('bangs', () => {
     await page.keyboard.press('Enter')
     await expect(dialog).toHaveCount(0)
 
-    const toast = page.getByText('Started !fix-tests').first()
-    await expect(toast).toBeVisible()
-    await toast.click()
-    const view = page.locator('#view-session')
-    await expect(view.getByText(/only the api/)).toBeVisible()
+    await page
+      .locator('[data-od-id="thread-list"]')
+      .getByRole('button', { name: /^Run the tests/ })
+      .click()
+    await expect(
+      page.locator('#timeline').getByText(/only the api/),
+    ).toBeVisible()
 
     expect(errors).toEqual([])
   })

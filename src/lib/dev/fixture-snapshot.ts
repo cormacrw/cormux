@@ -73,29 +73,10 @@ export const fixtureSnapshot: Snapshot = {
         contextSize: null,
         costUsd: null,
         transcriptReadonly: false,
+        retired: false,
       },
     ],
-    todos: [
-      {
-        id: 'todo-webhook',
-        number: 1,
-        title: 'Rotate the Stripe webhook secret',
-        pinned: true,
-        description: '',
-        plannedOn: null,
-        doneAt: null,
-      },
-      {
-        id: 'todo-changelog',
-        number: 2,
-        title: 'Draft the 0.4 changelog',
-        pinned: false,
-        description: '',
-        plannedOn: null,
-        doneAt: null,
-      },
-    ],
-    sprintPlan: [],
+
     scratches: [
       {
         id: 'scratch-webhook',
@@ -221,7 +202,6 @@ export const fixtureSnapshot: Snapshot = {
   workspaceGit: [],
   memory: { totalBytes: 1_400_000_000, perWorkspace: [] },
   pendingLiveApprovals: 0,
-  tasksDir: '/tmp/cormux-fixture/tasks',
   githubAuthConfigured: false,
   prSyncedAt: null,
   clickupConfigured: false,

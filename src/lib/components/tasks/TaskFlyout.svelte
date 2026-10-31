@@ -1,16 +1,11 @@
 <!--
-  The task flyout: a TODO or sprint task opened from Homebase, Week or Sprint
-  slides out from the right over the page, like Git and Output in a workspace.
+  The task flyout: a sprint task opened on the Sprint page slides out from the right over the page, like Git and Output in a workspace.
   Drag its left edge to resize it; Esc or × closes it.
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte'
   import SprintTaskPanel from '$lib/components/sprint/SprintTaskPanel.svelte'
-  import TaskDoneButton from './TaskDoneButton.svelte'
-  import WeekTodoPanel from '$lib/components/week/WeekTodoPanel.svelte'
-  import { app, clickup, todos, weekPlan } from '$lib/state'
-  import { toggleItemDone } from '$lib/week/actions'
-  import { itemKey, weekItems, type WeekItem } from '$lib/week/items'
+  import { app, clickup } from '$lib/state'
 
   const WIDTH_KEY = 'cormux-task-flyout-width'
   const MIN_WIDTH = 340
@@ -26,66 +21,28 @@
 
   let width = $state(readWidth())
 
-  const items = $derived(
-    weekItems(
-      todos.items,
-      clickup.ready ? (clickup.mine ?? null) : null,
-      weekPlan.rows,
-    ),
-  )
-  const selection = $derived(weekPlan.selected())
-  const selected = $derived(
-    selection
-      ? (items.find(
-          (item) => item.key === itemKey(selection.kind, selection.id),
-        ) ?? null)
-      : null,
-  )
-  const ready = $derived(
-    selected != null &&
-      (selected.kind === 'todo' || clickup.selectedTask != null),
-  )
-
-  // What's on screen: the open task, or the last one while it slides away.
-  let shown = $state<WeekItem | null>(null)
-  $effect(() => {
-    if (ready && selected) shown = selected
-  })
-  const shownTodo = $derived(
-    shown?.kind === 'todo'
-      ? (todos.items.find((todo) => todo.id === shown!.id) ?? null)
-      : null,
-  )
+  const ready = $derived(clickup.selectedTask != null)
 
   // Leaving the page it was opened on closes it. A task opened along with the
   // page (app.openSprint(taskId)) belongs to that page, so it stays.
   let openedOn: string | null = null
   $effect(() => {
-    void selection
+    void clickup.selectedTaskId
     untrack(() => (openedOn = app.view))
   })
   $effect(() => {
     const view = app.view
     untrack(() => {
-      if (selection && openedOn !== view) weekPlan.select(null)
+      if (clickup.selectedTaskId && openedOn !== view) clickup.select(null)
     })
   })
 
   async function close() {
-    const key = selected?.key
-    weekPlan.select(null)
+    const id = clickup.selectedTaskId
+    clickup.select(null)
     await tick()
-    if (!key) return
-    document
-      .querySelector<HTMLElement>(
-        `[data-week-card="${key}"], [data-task-id="${key.replace(/^sprint:/, '')}"]`,
-      )
-      ?.focus()
-  }
-
-  function deleteTodo(id: string) {
-    weekPlan.select(null)
-    void todos.remove(id)
+    if (!id) return
+    document.querySelector<HTMLElement>(`[data-task-id="${id}"]`)?.focus()
   }
 
   /** Esc closes it, unless a dialog, menu or select is open and wants the key. */
@@ -114,7 +71,7 @@
     if (!(target instanceof Element) || flyoutEl?.contains(target)) return
     if (
       target.closest(
-        '[data-week-item], [data-task-id], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-bits-floating-content-wrapper]',
+        '[data-task-id], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-bits-floating-content-wrapper]',
       )
     )
       return
@@ -173,24 +130,8 @@
     data-od-id="task-flyout-resize"
     onpointerdown={onEdgeDown}
   ></div>
-  {#if shown}
-    {#if shown.kind === 'todo' && shownTodo}
-      {#key shownTodo.id}
-        <WeekTodoPanel
-          todo={shownTodo}
-          onClose={() => void close()}
-          onDelete={() => deleteTodo(shownTodo.id)}
-        >
-          <TaskDoneButton
-            item={shown}
-            onToggle={() => toggleItemDone(shown!)}
-          />
-        </WeekTodoPanel>
-      {/key}
-    {:else if shown.kind === 'sprint'}
-      <div class="min-h-0 flex-1 [&>aside]:bg-transparent">
-        <SprintTaskPanel />
-      </div>
-    {/if}
-  {/if}
+  <!-- Stays mounted while it slides away; the pane holds its own last task. -->
+  <div class="min-h-0 flex-1 [&>aside]:bg-transparent">
+    <SprintTaskPanel />
+  </div>
 </div>

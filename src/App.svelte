@@ -21,15 +21,13 @@
     settings,
   } from '$lib/state'
   import ToastsRegion from '$lib/components/feedback/ToastsRegion.svelte'
-  import NewWorkspaceDialog from '$lib/components/new-workspace/NewWorkspaceDialog.svelte'
+  import NewThreadView from '$lib/components/new-thread/NewThreadView.svelte'
   import TeardownDialog from '$lib/components/workspace/TeardownDialog.svelte'
   import CreatePrDialog from '$lib/components/workspace/CreatePrDialog.svelte'
   import SubmitReviewDialog from '$lib/components/workspace/SubmitReviewDialog.svelte'
-  import NewScratchDialog from '$lib/components/scratch/NewScratchDialog.svelte'
   import EndScratchDialog from '$lib/components/scratch/EndScratchDialog.svelte'
   import ScratchView from '$lib/components/scratch/ScratchView.svelte'
   import SprintView from '$lib/components/sprint/SprintView.svelte'
-  import WeekView from '$lib/components/week/WeekView.svelte'
   import Repo from './routes/Repo.svelte'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
@@ -37,7 +35,6 @@
   import { setHarnessWindowFocused } from '$lib/feedback/supervision'
   import { openNotifiedTarget } from '$lib/feedback/os-notifications'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import Homebase from './routes/Homebase.svelte'
   import Settings from './routes/Settings.svelte'
   import Workspace from './routes/Workspace.svelte'
 
@@ -160,11 +157,9 @@
 
 <Tooltip.Provider>
   <ToastsRegion />
-  <NewWorkspaceDialog />
   <TeardownDialog />
   <CreatePrDialog />
   <SubmitReviewDialog />
-  <NewScratchDialog />
   <EndScratchDialog />
   <CommandPalette />
   <AppShell>
@@ -176,12 +171,10 @@
       <ScratchView />
     {:else if app.view === 'sprint'}
       <SprintView />
-    {:else if app.view === 'week'}
-      <WeekView />
     {:else if app.view === 'repo'}
       <Repo />
     {:else}
-      <Homebase />
+      <NewThreadView />
     {/if}
   </AppShell>
 </Tooltip.Provider>

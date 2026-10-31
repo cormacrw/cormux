@@ -58,9 +58,7 @@
   <Dialog.Content class="sm:max-w-sm">
     <Dialog.Header>
       <Dialog.Title>Rename workspace</Dialog.Title>
-      <Dialog.Description>
-        Shown in the sidebar and on Homebase.
-      </Dialog.Description>
+      <Dialog.Description>Shown in the sidebar.</Dialog.Description>
     </Dialog.Header>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <form

@@ -11,17 +11,11 @@ export async function bindNativeMenu() {
     listen('menu://open-settings', () => {
       app.openSettings()
     }),
-    listen('menu://homebase', () => {
-      app.openHomebase()
-    }),
     listen('menu://command-palette', () => {
       app.requestCommandPalette()
     }),
     listen('menu://new-workspace', () => {
-      app.requestNewWorkspace()
-    }),
-    listen('menu://new-scratch', () => {
-      app.requestNewScratch()
+      app.openNewThread()
     }),
     listen('menu://reload-environment', () => {
       void (async () => {
