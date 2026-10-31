@@ -132,7 +132,7 @@ pub struct FindingRow {
     pub sent_to_thread_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PrRow {
     pub id: String,
@@ -140,6 +140,24 @@ pub struct PrRow {
     pub number: i64,
     pub title: String,
     pub payload: String,
+}
+
+/// The last message from the user or end of a turn. Streamed output doesn't count, so a working
+/// thread holds its place in the sidebar.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadActivityRow {
+    pub thread_id: String,
+    pub created_at: String,
+}
+
+/// A window of a thread's transcript, oldest first.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadEventPage {
+    pub events: Vec<ThreadEventRow>,
+    /// Whether rows older than this window exist.
+    pub has_older: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -151,8 +169,8 @@ pub struct PersistedSnapshot {
     pub threads: Vec<ThreadRow>,
     /// Newest first.
     pub scratches: Vec<ScratchRow>,
-    /// Oldest first.
-    pub timeline: Vec<ThreadEventRow>,
+    /// When each thread last moved; threads that never have are left out.
+    pub thread_activity: Vec<ThreadActivityRow>,
     pub approvals: Vec<ApprovalRow>,
     pub findings: Vec<FindingRow>,
     pub pull_requests: Vec<PrRow>,

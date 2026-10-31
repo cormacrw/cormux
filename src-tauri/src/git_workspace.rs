@@ -40,6 +40,18 @@ pub async fn load_workspace(state: &AppState, workspace_id: &str) -> Result<Work
     Ok(record)
 }
 
+/// Workspaces from earlier runs, so background fetches cover them before any is opened.
+pub async fn restore_fetch_targets(state: &AppState) -> Result<()> {
+    for row in state.store.live_workspaces()? {
+        if state.workspace.get(&row.id).await.is_none() {
+            let record = resolve_record(state, &row.id, &row).await?;
+            state.workspace.remember(record).await;
+        }
+    }
+    state.workspace.sync_fetch_targets().await;
+    Ok(())
+}
+
 pub async fn resolve_record(
     state: &AppState,
     workspace_id: &str,
@@ -154,7 +166,6 @@ pub async fn switch_workspace_branch(
 
     refresh_git_stats(state, workspace_id, &worktree, &record.base, branch).await;
 
-    state.diffs.request_refresh(workspace_id);
     let _ = state
         .diffs
         .compute(workspace_id, &worktree)
@@ -198,7 +209,6 @@ pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &st
         Ok(()) => {
             state.workspace.clear_git_conflict(workspace_id).await;
             refresh_git_stats(state, workspace_id, &worktree, &record.base, &record.branch).await;
-            state.diffs.request_refresh(workspace_id);
             let _ = state.diffs.compute(workspace_id, &worktree).await;
 
             if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
@@ -270,7 +280,6 @@ pub async fn rebase_workspace(app: &AppHandle, state: &AppState, workspace_id: &
         Ok(()) => {
             state.workspace.clear_git_conflict(workspace_id).await;
             refresh_git_stats(state, workspace_id, &worktree, &record.base, &record.branch).await;
-            state.diffs.request_refresh(workspace_id);
             let _ = state.diffs.compute(workspace_id, &worktree).await;
 
             if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
@@ -369,7 +378,6 @@ pub async fn abort_workspace_git_conflict(
     }
     state.workspace.clear_git_conflict(workspace_id).await;
     refresh_git_stats(state, workspace_id, &worktree, &record.base, &record.branch).await;
-    state.diffs.request_refresh(workspace_id);
     let _ = state.diffs.compute(workspace_id, &worktree).await;
     emit_git_state(app, state).await;
     Ok(())
@@ -404,7 +412,6 @@ pub async fn create_workspace_branch(
         state.store.set_workspace_pr_number(workspace_id, None)?;
     }
     refresh_git_stats(state, workspace_id, &worktree, &record.base, name).await;
-    state.diffs.request_refresh(workspace_id);
     let _ = state.diffs.compute(workspace_id, &worktree).await;
     if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
         let _ = append_git_step(
@@ -465,7 +472,6 @@ pub async fn adopt_checked_out_branch(
         &branch
     };
     refresh_git_stats(state, workspace_id, &worktree, &record.base, current).await;
-    state.diffs.request_refresh(workspace_id);
     let _ = state.diffs.compute(workspace_id, &worktree).await;
     emit_workspace_refresh(app, state);
     emit_git_state(app, state).await;
@@ -475,8 +481,8 @@ pub async fn adopt_checked_out_branch(
 /// How often each worktree's checked-out branch is compared with the one on record.
 const BRANCH_WATCH_INTERVAL: Duration = Duration::from_secs(3);
 
-/// A worktree's HEAD lives under the main repo's `.git/worktrees/`, outside the folder the
-/// diff watcher sees, so a checkout from a terminal or by the agent would go unnoticed.
+/// The diff watcher only runs for the workspace on screen, so a checkout from a terminal or by
+/// an agent in any other worktree would go unnoticed. Reading `HEAD` costs no process.
 pub fn spawn_branch_watch(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(BRANCH_WATCH_INTERVAL);
@@ -507,8 +513,12 @@ async fn adopt_outside_checkouts(app: &AppHandle, state: &AppState) -> Result<()
             continue;
         }
         // Empty while HEAD is detached (mid-rebase); wait until a branch is checked out.
-        let Ok(branch) = state.git.current_branch(worktree).await else {
-            continue;
+        let branch = match crate::git::checked_out_branch(worktree) {
+            Some(branch) => branch,
+            None => match state.git.current_branch(worktree).await {
+                Ok(branch) => branch,
+                Err(_) => continue,
+            },
         };
         if branch.is_empty() || branch == row.branch {
             continue;

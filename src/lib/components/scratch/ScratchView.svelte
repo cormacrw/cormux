@@ -19,9 +19,13 @@
   import { buddyColor } from '$lib/buddy'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
-  import { createEntryScope, liveReplyId } from '$lib/thread/entering'
+  import {
+    createEntryScope,
+    liveReplyId,
+    liveRunId,
+    liveThoughtId,
+  } from '$lib/thread/entering'
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
-  import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
 
   const scratch = $derived<Scratch | undefined>(
     app.scratchId ? scratches.getById(app.scratchId) : undefined,
@@ -83,6 +87,8 @@
   const threadId = $derived(thread?.id)
   const entries = $derived.by(() => {
     void threadId
+    // Rows read from the store were already there.
+    void (threadId && threadTimeline.isLoaded(threadId))
     return untrack(() => createEntryScope(rows))
   })
 
@@ -136,9 +142,7 @@
   $effect(() => {
     const id = thread?.id
     if (!id) return
-    return bindVisibleThreadEvents(id, (event) => {
-      threadTimeline.applyEvent(id, event)
-    })
+    return threadTimeline.watch(id)
   })
 
   onMount(() => {
@@ -241,6 +245,8 @@
               buddyColor={buddyColor(thread.id)}
               {entries}
               liveReplyId={liveReplyId(items)}
+              activeThoughtId={liveThoughtId(items)}
+              activeRunId={liveRunId(items)}
               onOpenFindings={() => {}}
               onFocusComposer={() => {}}
             />

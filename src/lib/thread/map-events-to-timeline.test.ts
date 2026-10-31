@@ -58,7 +58,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     expect(items[0]).toMatchObject({ kind: 'thought', role: 'thought' })
     const steps = items[1]?.kind === 'toolRun' ? items[1].steps : []
@@ -86,7 +85,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({ kind: 'user', text: 'Hello world' })
@@ -130,7 +128,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
       scratch: true,
     })
     expect(items[0]).toMatchObject({ kind: 'toolRun' })
@@ -183,7 +180,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     const steps = items[0]?.kind === 'toolRun' ? items[0].steps : []
     expect(steps[0]).toMatchObject({
@@ -225,7 +221,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     expect(items).toHaveLength(1)
     const steps = items[0]?.kind === 'toolRun' ? items[0].steps : []
@@ -266,7 +261,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     expect(
       items.map((item) => (item.kind === 'thought' ? item.text : item.kind)),
@@ -311,7 +305,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     expect(
       items.flatMap((item) =>
@@ -357,7 +350,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     expect(items).toHaveLength(1)
     const run = items[0]
@@ -387,7 +379,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     const run = items[0]
     expect(run?.kind).toBe('toolRun')
@@ -433,7 +424,6 @@ describe('mapEventsToTimeline', () => {
       ],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     expect(items[0]).toMatchObject({
       kind: 'approval',
@@ -488,7 +478,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     expect(items.map((item) => item.kind)).toEqual(['toolRun', 'approval'])
     expect(items[0]).toMatchObject({
@@ -507,7 +496,6 @@ describe('mapEventsToTimeline', () => {
       approvals: [],
       findingsReady: false,
       showLive: true,
-      liveToolTitle: null,
     })
     expect(items.at(-1)?.kind).toBe('live')
     expect(items[0]?.kind).toBe('user')
@@ -535,7 +523,6 @@ describe('named tool steps', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     const run = items[0]
     if (run?.kind !== 'toolRun') throw new Error('expected a tool run')
@@ -642,7 +629,6 @@ describe('shouldShowLiveRow', () => {
       approvals: [],
       findingsReady: false,
       showLive: false,
-      liveToolTitle: null,
     })
     const ids = items.flatMap((item) =>
       item.kind === 'toolRun'

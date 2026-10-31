@@ -11,9 +11,8 @@ pub fn builder() -> Builder {
         .commands(tauri_specta::collect_commands![
             commands::get_snapshot,
             commands::reload_environment,
-            commands::fetch_on_focus,
             commands::get_metrics,
-            commands::subscribe_agent_chunks,
+            commands::get_thread_events,
             commands::subscribe_agent_events,
             commands::detect_engines,
             commands::send_thread_prompt,
@@ -92,6 +91,7 @@ pub fn builder() -> Builder {
         ])
         .events(tauri_specta::collect_events![
             events::StateChanged,
+            events::MemorySampled,
             events::WorkspaceStatusChanged,
             events::ToastRaised
         ])

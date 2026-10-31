@@ -1,4 +1,4 @@
-import type { EngineStatus, Snapshot } from '$lib/ipc/bindings'
+import type { EngineStatus, Snapshot, ThreadEventRow } from '$lib/ipc/bindings'
 
 export const FIXTURE_REPO_ID = 'my-app'
 
@@ -89,96 +89,7 @@ export const fixtureSnapshot: Snapshot = {
         createdAt: '2026-09-28 12:00:00',
       },
     ],
-    timeline: [
-      {
-        id: 1,
-        threadId: 'th-scratch-webhook',
-        seq: 1,
-        kind: 'message',
-        payload: JSON.stringify({
-          type: 'messageChunk',
-          role: 'user',
-          text: 'Stripe webhooks are failing signature checks on /api/stripe/webhook. Why?',
-        }),
-        createdAt: '2026-09-28 12:00:00',
-      },
-      {
-        id: 4,
-        threadId: 'th-scratch-webhook',
-        seq: 2,
-        kind: 'message',
-        payload: JSON.stringify({
-          type: 'messageChunk',
-          role: 'thought',
-          text: 'Signature failures usually mean the body was parsed before verification. Check how the handler reads the request.',
-        }),
-        createdAt: '2026-09-28 12:00:02',
-      },
-      {
-        id: 2,
-        threadId: 'th-scratch-webhook',
-        seq: 3,
-        kind: 'tool',
-        payload: JSON.stringify({
-          type: 'toolCall',
-          id: 'read-webhook',
-          title: 'Read 2 files',
-          name: 'Read',
-          kind: 'read',
-          status: 'completed',
-          locations: [],
-          detail: 'src/routes/api/stripe/webhook/+server.ts, src/lib/stripe.ts',
-        }),
-        createdAt: '2026-09-28 12:00:05',
-      },
-      {
-        id: 5,
-        threadId: 'th-scratch-webhook',
-        seq: 4,
-        kind: 'tool',
-        payload: JSON.stringify({
-          type: 'toolCall',
-          id: 'search-construct',
-          title: 'Searched for constructEvent',
-          name: 'Grep',
-          kind: 'search',
-          status: 'completed',
-          locations: [],
-          detail: null,
-        }),
-        createdAt: '2026-09-28 12:00:08',
-      },
-      {
-        id: 6,
-        threadId: 'th-scratch-webhook',
-        seq: 5,
-        kind: 'tool',
-        payload: JSON.stringify({
-          type: 'toolCall',
-          id: 'shell-log',
-          title:
-            '`git log --oneline -5 -- src/routes/api/stripe/webhook/+server.ts src/lib/stripe.ts`',
-          name: null,
-          kind: 'execute',
-          status: 'completed',
-          locations: [],
-          detail: null,
-        }),
-        createdAt: '2026-09-28 12:00:12',
-      },
-      {
-        id: 3,
-        threadId: 'th-scratch-webhook',
-        seq: 6,
-        kind: 'message',
-        payload: JSON.stringify({
-          type: 'messageChunk',
-          role: 'agent',
-          text: 'The handler calls request.json() before constructEvent. Stripe signs the raw body, so verify against request.text() first. I didn’t edit anything.',
-        }),
-        createdAt: '2026-09-28 12:00:20',
-      },
-    ],
+    threadActivity: [],
     approvals: [],
     findings: [],
     pullRequests: [],
@@ -210,6 +121,98 @@ export const fixtureSnapshot: Snapshot = {
 }
 
 /** Uncommitted diff the harness streams for the OAuth workspace. */
+/** The harness's `thread_events` table. */
+export const fixtureTimeline: ThreadEventRow[] = [
+  {
+    id: 1,
+    threadId: 'th-scratch-webhook',
+    seq: 1,
+    kind: 'message',
+    payload: JSON.stringify({
+      type: 'messageChunk',
+      role: 'user',
+      text: 'Stripe webhooks are failing signature checks on /api/stripe/webhook. Why?',
+    }),
+    createdAt: '2026-09-28 12:00:00',
+  },
+  {
+    id: 4,
+    threadId: 'th-scratch-webhook',
+    seq: 2,
+    kind: 'message',
+    payload: JSON.stringify({
+      type: 'messageChunk',
+      role: 'thought',
+      text: 'Signature failures usually mean the body was parsed before verification. Check how the handler reads the request.',
+    }),
+    createdAt: '2026-09-28 12:00:02',
+  },
+  {
+    id: 2,
+    threadId: 'th-scratch-webhook',
+    seq: 3,
+    kind: 'tool',
+    payload: JSON.stringify({
+      type: 'toolCall',
+      id: 'read-webhook',
+      title: 'Read 2 files',
+      name: 'Read',
+      kind: 'read',
+      status: 'completed',
+      locations: [],
+      detail: 'src/routes/api/stripe/webhook/+server.ts, src/lib/stripe.ts',
+    }),
+    createdAt: '2026-09-28 12:00:05',
+  },
+  {
+    id: 5,
+    threadId: 'th-scratch-webhook',
+    seq: 4,
+    kind: 'tool',
+    payload: JSON.stringify({
+      type: 'toolCall',
+      id: 'search-construct',
+      title: 'Searched for constructEvent',
+      name: 'Grep',
+      kind: 'search',
+      status: 'completed',
+      locations: [],
+      detail: null,
+    }),
+    createdAt: '2026-09-28 12:00:08',
+  },
+  {
+    id: 6,
+    threadId: 'th-scratch-webhook',
+    seq: 5,
+    kind: 'tool',
+    payload: JSON.stringify({
+      type: 'toolCall',
+      id: 'shell-log',
+      title:
+        '`git log --oneline -5 -- src/routes/api/stripe/webhook/+server.ts src/lib/stripe.ts`',
+      name: null,
+      kind: 'execute',
+      status: 'completed',
+      locations: [],
+      detail: null,
+    }),
+    createdAt: '2026-09-28 12:00:12',
+  },
+  {
+    id: 3,
+    threadId: 'th-scratch-webhook',
+    seq: 6,
+    kind: 'message',
+    payload: JSON.stringify({
+      type: 'messageChunk',
+      role: 'agent',
+      text: 'The handler calls request.json() before constructEvent. Stripe signs the raw body, so verify against request.text() first. I didn’t edit anything.',
+    }),
+    createdAt: '2026-09-28 12:00:20',
+  },
+]
+
 export const fixtureDiff = {
   workspaceId: 'ws-auth',
   target: null,

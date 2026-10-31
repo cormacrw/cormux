@@ -3,6 +3,7 @@
   import {
     OUTPUT_LINE_CLASS,
     classifyOutputLine,
+    type OutputLine,
   } from '$lib/workspace/output-log'
 
   let {
@@ -10,7 +11,7 @@
     onScroll,
     logEl = $bindable(),
   }: {
-    lines: string[]
+    lines: OutputLine[]
     onScroll: () => void
     logEl?: HTMLDivElement
   } = $props()
@@ -28,14 +29,14 @@
   data-od-id="output-log"
   onscroll={onScroll}
 >
-  {#each lines as line, index (index)}
-    {@const style = classifyOutputLine(line)}
+  {#each lines as line (line.id)}
+    {@const style = classifyOutputLine(line.text)}
     {#if style === 'blank'}
       <div class="h-5" aria-hidden="true"></div>
     {:else}
       <div class={`whitespace-pre-wrap break-all ${OUTPUT_LINE_CLASS[style]}`}>
         <!-- eslint-disable-next-line svelte/no-at-html-tags -- ansiLineToHtml escapes the line first -->
-        {@html ansiLineToHtml(line)}
+        {@html ansiLineToHtml(line.text)}
       </div>
     {/if}
   {/each}

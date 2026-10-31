@@ -144,6 +144,7 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
 
     state.store.archive_workspace(&input.workspace_id)?;
     state.diffs.unwatch(&input.workspace_id);
+    state.process.forget_workspace(&input.workspace_id);
     state.fetch.remove_workspace(&input.workspace_id).await;
     state.workspace.remove(&input.workspace_id).await;
     state.workspace.sync_fetch_targets().await;
@@ -165,7 +166,7 @@ async fn run_teardown_steps(
     thread_ids: &[String],
 ) -> Result<()> {
     state.engines.stop_threads(thread_ids).await?;
-    state.process.stop_workspace_sessions(&record.id)?;
+    state.process.stop_workspace_sessions(&record.id).await?;
 
     let repo = PathBuf::from(&record.repo_path);
     let worktree = PathBuf::from(&record.worktree_path);

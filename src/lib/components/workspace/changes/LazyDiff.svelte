@@ -1,7 +1,13 @@
+<script lang="ts" module>
+  // The diff viewer brings every highlight.js grammar, so it loads with the first diff.
+  let diffView: Promise<typeof import('./ChangesDiffView.svelte')> | undefined
+  const loadDiffView = () => (diffView ??= import('./ChangesDiffView.svelte'))
+</script>
+
 <script lang="ts">
+  import type { Component } from 'svelte'
   import { afterPaint } from '$lib/changes/mount-queue'
   import type { DiffFile } from '$lib/ipc/bindings'
-  import ChangesDiffView from './ChangesDiffView.svelte'
 
   let {
     workspaceId,
@@ -15,7 +21,10 @@
 
   // Highlighting a diff is the slow part of the Git tab, so each one waits until it
   // scrolls near view, then mounts in a frame of its own; it stays mounted after.
-  let shown = $state(false)
+  let DiffView =
+    $state.raw<
+      Component<{ workspaceId: string; branch: string | null; file: DiffFile }>
+    >()
   let placeholder: HTMLDivElement | undefined = $state()
 
   const lineCount = $derived(
@@ -32,26 +41,35 @@
   )
 
   $effect(() => {
-    if (shown || !placeholder) return
+    if (DiffView || !placeholder) return
+    let stopped = false
     let cancel: (() => void) | undefined
     const observer = new IntersectionObserver(
       (entries) => {
-        if (cancel || !entries.some((entry) => entry.isIntersecting)) return
+        if (!entries.some((entry) => entry.isIntersecting)) return
         observer.disconnect()
-        cancel = afterPaint(() => (shown = true))
+        void loadDiffView().then((view) => {
+          if (stopped) return
+          cancel = afterPaint(() => (DiffView = view.default))
+        })
       },
-      { rootMargin: '800px 0px' },
+      // The root has to be the scroller: it clips, so a margin on the viewport does nothing.
+      {
+        root: placeholder.closest('[data-diff-scroller]'),
+        rootMargin: '800px 0px',
+      },
     )
     observer.observe(placeholder)
     return () => {
+      stopped = true
       observer.disconnect()
       cancel?.()
     }
   })
 </script>
 
-{#if shown}
-  <ChangesDiffView {workspaceId} {branch} {file} />
+{#if DiffView}
+  <DiffView {workspaceId} {branch} {file} />
 {:else}
   <div
     bind:this={placeholder}

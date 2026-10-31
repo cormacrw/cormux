@@ -18,7 +18,7 @@ use super::map::{
 };
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::engines::command::EngineCommand;
-use crate::engines::events::AgentEvent;
+use crate::engines::events::{AgentEvent, StreamedEvent};
 use crate::engines::manager::READ_ONLY_DENIAL;
 use crate::engines::models::ModelOption;
 use crate::error::{Error, Result};
@@ -30,7 +30,7 @@ pub struct AcpSpawn {
     pub cwd: PathBuf,
     pub resume: Option<String>,
     pub env: ShellEnv,
-    pub events: broadcast::Sender<AgentEvent>,
+    pub events: broadcast::Sender<StreamedEvent>,
     pub approvals: Arc<ApprovalBroker>,
     pub auto_approve_readonly: bool,
     pub auto_approve_all: bool,
@@ -98,7 +98,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                         return Ok(());
                     }
                     if let Some(event) = map_session_update(&notification.update) {
-                        persist_event(&store_notify, &thread_notify, &event);
+                        let seq = persist_event(&store_notify, &thread_notify, &event);
                         if let AgentEvent::Usage {
                             used_tokens,
                             context_size,
@@ -112,7 +112,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                                 *cost_usd,
                             );
                         }
-                        let _ = events.send(event);
+                        let _ = events.send(StreamedEvent { seq, event });
                     }
                     Ok(())
                 }
@@ -145,7 +145,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                         if let AgentEvent::Permission { auto_approved, .. } = &mut event {
                             *auto_approved = true;
                         }
-                        let _ = events.send(event);
+                        let _ = events.send(event.into());
                         respond_permission(&request, responder, true);
                         return Ok(());
                     }
@@ -153,7 +153,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                         AgentEvent::Permission { id, .. } => id.clone(),
                         _ => request.tool_call.tool_call_id.to_string(),
                     };
-                    let _ = events.send(event.clone());
+                    let _ = events.send(event.clone().into());
                     if let Err(error) = crate::approvals::record_pending_permission(
                         &store_perm,
                         &thread_perm,
@@ -225,7 +225,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                     let id_str = session_id.to_string();
                     *stored_id.lock().unwrap() = Some(id_str.clone());
                     let _ = store.set_thread_session(&thread_id, &id_str);
-                    let _ = events.send(AgentEvent::SessionStarted { session_id: id_str });
+                    let _ = events.send(AgentEvent::SessionStarted { session_id: id_str }.into());
                 }
                 // Ask mode is the ACP read-only mode: no edits or command execution.
                 // An engine without it gets the rule written into every prompt instead.
@@ -301,8 +301,8 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                                     stop_reason: "cancelled".into(),
                                     error: None,
                                 };
-                                persist_event(&store, &thread_id, &done);
-                                let _ = events.send(done);
+                                let seq = persist_event(&store, &thread_id, &done);
+                                let _ = events.send(StreamedEvent { seq, event: done });
                                 continue;
                             };
                             let done = match result {
@@ -312,8 +312,8 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
                                     error: Some(error.to_string()),
                                 },
                             };
-                            persist_event(&store, &thread_id, &done);
-                            let _ = events.send(done);
+                            let seq = persist_event(&store, &thread_id, &done);
+                            let _ = events.send(StreamedEvent { seq, event: done });
                         }
                         EngineCommand::Cancel => {
                             let _ = connection
@@ -334,7 +334,7 @@ async fn run(spawn: AcpSpawn, mut commands: mpsc::UnboundedReceiver<EngineComman
         .await
         .map_err(|error| Error::Engine(error.to_string()))?;
 
-    let _ = events.send(AgentEvent::EngineExited { code: None });
+    let _ = events.send(AgentEvent::EngineExited { code: None }.into());
     Ok(())
 }
 
@@ -359,7 +359,7 @@ async fn set_model(
     }
 }
 
-fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
+fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) -> Option<i64> {
     let kind = match event {
         AgentEvent::SessionStarted { .. } => "session",
         AgentEvent::MessageChunk { .. } => "message",
@@ -371,6 +371,7 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
         AgentEvent::Usage { .. } => "usage",
         AgentEvent::TurnEnd { .. } => "turn_end",
         AgentEvent::EngineExited { .. } => "exit",
+        AgentEvent::StreamLagged { .. } => return None,
     };
     if matches!(
         event,
@@ -378,9 +379,9 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
     ) {
         let _ = store.mark_thread_idle(thread_id);
     }
-    if let Ok(payload) = serde_json::to_string(event) {
-        let _ = store.append_event(thread_id, kind, &payload);
-    }
+    serde_json::to_string(event)
+        .ok()
+        .and_then(|payload| store.append_event(thread_id, kind, &payload).ok())
 }
 
 fn respond_permission(

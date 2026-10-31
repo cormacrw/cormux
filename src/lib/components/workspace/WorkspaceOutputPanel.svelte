@@ -7,8 +7,13 @@
     runWorkspaceApp,
   } from '$lib/command-palette/actions'
   import { subscribePty } from '$lib/ipc'
-  import { repos, settings, workspaceRecords } from '$lib/state'
+  import { repos, settings, workspaceRecords, workspaceUi } from '$lib/state'
   import { runCommandOverride } from '$lib/run-app/run-command'
+  import {
+    OUTPUT_LINE_CAP,
+    appendOutputLines,
+    type OutputLine,
+  } from '$lib/workspace/output-log'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -29,7 +34,12 @@
   } = $props()
 
   let narrow = $state(false)
-  let lines = $state<string[]>([])
+  let lines = $state.raw<OutputLine[]>([])
+  // Lines wait here for the next frame, or for the tray to open. Chatty dev servers print far
+  // faster than anyone can read, so the list only changes once a frame.
+  let pending: OutputLine[] = []
+  let nextLineId = 0
+  let flushFrame: number | undefined
   let logEl: HTMLDivElement | undefined = $state()
   let stickToBottom = $state(true)
 
@@ -63,16 +73,38 @@
     !provisioning && !!runCommand && lines.length === 0,
   )
 
+  function resetLog() {
+    lines = []
+    pending = []
+  }
+
+  function flushLines() {
+    if (flushFrame != null) cancelAnimationFrame(flushFrame)
+    flushFrame = undefined
+    if (!workspaceUi.outputVisible || pending.length === 0) return
+    lines = appendOutputLines(lines, pending)
+    pending = []
+    if (stickToBottom) {
+      queueMicrotask(() => {
+        if (logEl) logEl.scrollTop = logEl.scrollHeight
+      })
+    }
+  }
+
   $effect(() => {
     void logVersion
-    lines = []
+    resetLog()
     stickToBottom = true
   })
 
   $effect(() => {
     void workspaceId
-    lines = []
+    resetLog()
     stickToBottom = true
+  })
+
+  $effect(() => {
+    if (workspaceUi.outputVisible) flushLines()
   })
 
   $effect(() => {
@@ -89,13 +121,16 @@
     const id = workspaceId
     return subscribePty(id, (chunk) => {
       if (chunk.workspaceId !== id) return
-      lines = [...lines.slice(-499), chunk.line]
-      if (stickToBottom) {
-        queueMicrotask(() => {
-          if (logEl) logEl.scrollTop = logEl.scrollHeight
-        })
+      pending.push({ id: nextLineId++, text: chunk.line })
+      if (pending.length > OUTPUT_LINE_CAP) pending.shift()
+      if (workspaceUi.outputVisible) {
+        flushFrame ??= requestAnimationFrame(flushLines)
       }
     })
+  })
+
+  $effect(() => () => {
+    if (flushFrame != null) cancelAnimationFrame(flushFrame)
   })
 
   function onLogScroll() {
@@ -107,7 +142,7 @@
   function run(action: 'run' | 'restart' | 'stop' | 'clear') {
     if (action === 'clear') {
       runWorkspaceApp(workspaceId, 'clear')
-      lines = []
+      resetLog()
       queueMicrotask(() => logEl?.focus())
       return
     }

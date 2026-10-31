@@ -8,6 +8,7 @@
     type DiffComment,
   } from '$lib/changes/diff-comments.svelte'
   import { toDiffViewData } from '$lib/changes/diff-view-data'
+  import { isLargeDiff } from '$lib/changes/file-status'
   import { appearance, workspaceUi } from '$lib/state'
   import { Button } from '$lib/components/ui/button'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -95,7 +96,7 @@
     {extendData}
     diffViewMode={mode}
     diffViewTheme={theme.current === 'light' ? 'light' : 'dark'}
-    diffViewHighlight
+    diffViewHighlight={!isLargeDiff(file)}
     diffViewAddWidget
     diffViewFontSize={appearance.codeFontSize}
   >
@@ -186,6 +187,14 @@
       </div>
     {/snippet}
   </DiffView>
+  {#if file.truncated}
+    <p
+      class="px-3 py-2 text-xs text-muted-foreground"
+      data-od-id="diff-truncated"
+    >
+      This diff is too big to show in full.
+    </p>
+  {/if}
 </div>
 
 <style>

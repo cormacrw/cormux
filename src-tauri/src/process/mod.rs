@@ -2,18 +2,25 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 
 use crate::error::{Error, Result};
 use crate::shell_env::ShellEnv;
 
 const RING_CAP: usize = 500;
+/// A line that never ends (`\r`-only progress bars) keeps only its tail.
+const FRAGMENT_CAP: usize = 64 * 1024;
+/// A log past this starts over; nothing reads it back, it's there for debugging.
+const LOG_FILE_CAP: u64 = 10 * 1024 * 1024;
+/// How long a stopped session gets to exit before it's killed.
+const STOP_GRACE: Duration = Duration::from_millis(200);
+const STOP_POLL: Duration = Duration::from_millis(25);
 
 /// Setup and run commands in a PTY, each in its own process group.
 #[derive(Clone)]
@@ -21,6 +28,8 @@ pub struct ProcessSupervisor {
     env: Arc<RwLock<ShellEnv>>,
     sessions: Arc<Mutex<HashMap<String, RunningApp>>>,
     logs: Arc<Mutex<HashMap<String, Arc<SessionShared>>>>,
+    /// Woken on every new line of any session.
+    activity: Arc<Notify>,
 }
 
 struct SessionShared {
@@ -28,17 +37,28 @@ struct SessionShared {
     pending: Mutex<Vec<String>>,
     fragment: Mutex<String>,
     log: Mutex<File>,
+    log_bytes: AtomicU64,
     exited: Mutex<Option<i32>>,
     killed: AtomicBool,
+    activity: Arc<Notify>,
 }
 
 struct RunningApp {
     pid: u32,
     shared: Arc<SessionShared>,
+    /// The PTY's descriptors, released as soon as the process exits.
+    pty: Mutex<Option<Pty>>,
+}
+
+struct Pty {
     // Only tests write input, but dropping the writer sends EOF to the app.
     #[cfg_attr(not(test), allow(dead_code))]
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer: Box<dyn Write + Send>,
     _master: Box<dyn MasterPty + Send>,
+}
+
+fn log_path(id: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("cormux-pty-{id}.log"))
 }
 
 impl ProcessSupervisor {
@@ -47,6 +67,26 @@ impl ProcessSupervisor {
             env,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             logs: Arc::new(Mutex::new(HashMap::new())),
+            activity: Arc::new(Notify::new()),
+        }
+    }
+
+    /// Woken when any session or log gets a new line.
+    pub fn activity(&self) -> Arc<Notify> {
+        self.activity.clone()
+    }
+
+    /// Logs left by earlier runs; a live session's file stays open under it if it's a second app.
+    pub fn remove_stale_logs(&self) {
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("cormux-pty-") && name.ends_with(".log") {
+                let _ = std::fs::remove_file(entry.path());
+            }
         }
     }
 
@@ -56,26 +96,18 @@ impl ProcessSupervisor {
             let mut logs = self.logs.lock().unwrap();
             logs.entry(id.to_string())
                 .or_insert_with(|| {
-                    Arc::new(SessionShared {
-                        lines: Mutex::new(VecDeque::new()),
-                        pending: Mutex::new(Vec::new()),
-                        fragment: Mutex::new(String::new()),
-                        log: Mutex::new(
+                    let log = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(log_path(id))
+                        .unwrap_or_else(|_| {
                             OpenOptions::new()
                                 .create(true)
                                 .append(true)
-                                .open(std::env::temp_dir().join(format!("cormux-pty-{id}.log")))
-                                .unwrap_or_else(|_| {
-                                    OpenOptions::new()
-                                        .create(true)
-                                        .append(true)
-                                        .open(std::env::temp_dir().join("cormux-pty-fallback.log"))
-                                        .expect("fallback pty log")
-                                }),
-                        ),
-                        exited: Mutex::new(None),
-                        killed: AtomicBool::new(false),
-                    })
+                                .open(log_path("fallback"))
+                                .expect("fallback pty log")
+                        });
+                    Arc::new(SessionShared::new(log, self.activity.clone()))
                 })
                 .clone()
         };
@@ -148,21 +180,13 @@ impl ProcessSupervisor {
             .map_err(|error| Error::Process(error.to_string()))?;
         let _ = writer.flush();
 
-        let log_path = std::env::temp_dir().join(format!("cormux-pty-{id}.log"));
         let log = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&log_path)
+            .open(log_path(id))
             .map_err(|error| Error::Process(error.to_string()))?;
 
-        let shared = Arc::new(SessionShared {
-            lines: Mutex::new(VecDeque::new()),
-            pending: Mutex::new(Vec::new()),
-            fragment: Mutex::new(String::new()),
-            log: Mutex::new(log),
-            exited: Mutex::new(None),
-            killed: AtomicBool::new(false),
-        });
+        let shared = Arc::new(SessionShared::new(log, self.activity.clone()));
 
         let reader_shared = shared.clone();
         thread::spawn(move || {
@@ -175,7 +199,20 @@ impl ProcessSupervisor {
             }
         });
 
-        let wait_shared = shared.clone();
+        self.sessions.lock().unwrap().insert(
+            id.to_string(),
+            RunningApp {
+                pid,
+                shared: shared.clone(),
+                pty: Mutex::new(Some(Pty {
+                    writer,
+                    _master: pair.master,
+                })),
+            },
+        );
+
+        let wait_shared = shared;
+        let wait_sessions = self.sessions.clone();
         thread::spawn(move || {
             let mut child = child;
             let code = match child.wait() {
@@ -183,17 +220,18 @@ impl ProcessSupervisor {
                 Err(_) => 1,
             };
             *wait_shared.exited.lock().unwrap() = Some(code);
+            wait_shared.activity.notify_waiters();
+            // The record stays for its exit code; the descriptors needn't. `pty` can already
+            // belong to a newer session under this id, hence the check.
+            if let Some(app) = wait_sessions
+                .lock()
+                .unwrap()
+                .values()
+                .find(|app| Arc::ptr_eq(&app.shared, &wait_shared))
+            {
+                app.pty.lock().unwrap().take();
+            }
         });
-
-        self.sessions.lock().unwrap().insert(
-            id.to_string(),
-            RunningApp {
-                pid,
-                shared,
-                writer: Mutex::new(writer),
-                _master: pair.master,
-            },
-        );
         Ok(pid)
     }
 
@@ -257,9 +295,11 @@ impl ProcessSupervisor {
         let app = sessions
             .get(id)
             .ok_or_else(|| Error::Process(format!("no session {id}")))?;
-        app.writer
-            .lock()
-            .unwrap()
+        let mut pty = app.pty.lock().unwrap();
+        let pty = pty
+            .as_mut()
+            .ok_or_else(|| Error::Process(format!("session {id} has exited")))?;
+        pty.writer
             .write_all(data)
             .map_err(|error| Error::Process(error.to_string()))?;
         Ok(())
@@ -315,6 +355,7 @@ impl ProcessSupervisor {
             .lock()
             .unwrap()
             .iter()
+            .filter(|(_, app)| app.shared.exited.lock().unwrap().is_none())
             .map(|(id, app)| (id.clone(), app.pid))
             .collect()
     }
@@ -360,49 +401,109 @@ impl ProcessSupervisor {
         }
     }
 
+    /// For quitting, where there's no runtime left to wait on.
     pub fn stop_all(&self) -> Result<()> {
         let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
-        self.stop_sessions(ids)
+        for id in &ids {
+            let _ = self.stop_session(id);
+        }
+        let started = std::time::Instant::now();
+        while started.elapsed() < STOP_GRACE && !self.all_exited(&ids) {
+            thread::sleep(STOP_POLL);
+        }
+        self.kill_survivors(&ids);
+        Ok(())
     }
 
-    pub fn workspace_has_session(&self, workspace_id: &str) -> bool {
+    fn workspace_session_ids(&self, workspace_id: &str) -> Vec<String> {
+        let prefix = format!("{workspace_id}-");
         self.sessions
             .lock()
             .unwrap()
             .keys()
-            .any(|id| id.as_str() == workspace_id || id.starts_with(&format!("{workspace_id}-")))
-    }
-
-    pub fn stop_workspace_sessions(&self, workspace_id: &str) -> Result<()> {
-        let ids: Vec<String> = self
-            .sessions
-            .lock()
-            .unwrap()
-            .keys()
-            .filter(|id| id.as_str() == workspace_id || id.starts_with(&format!("{workspace_id}-")))
+            .filter(|id| id.as_str() == workspace_id || id.starts_with(&prefix))
             .cloned()
-            .collect();
-        self.stop_sessions(ids)
+            .collect()
     }
 
-    fn stop_sessions(&self, ids: Vec<String>) -> Result<()> {
+    pub fn workspace_has_session(&self, workspace_id: &str) -> bool {
+        !self.workspace_session_ids(workspace_id).is_empty()
+    }
+
+    pub async fn stop_workspace_sessions(&self, workspace_id: &str) -> Result<()> {
+        let ids = self.workspace_session_ids(workspace_id);
         for id in &ids {
             let _ = self.stop_session(id);
         }
-        thread::sleep(Duration::from_millis(200));
+        let started = std::time::Instant::now();
+        while started.elapsed() < STOP_GRACE && !self.all_exited(&ids) {
+            tokio::time::sleep(STOP_POLL).await;
+        }
+        self.kill_survivors(&ids);
+        Ok(())
+    }
+
+    fn all_exited(&self, ids: &[String]) -> bool {
+        ids.iter().all(|id| self.exit_code(id).is_some())
+    }
+
+    fn kill_survivors(&self, ids: &[String]) {
         for id in ids {
-            if self.exit_code(&id).is_none() {
-                let _ = self.kill_session(&id);
+            if self.exit_code(id).is_none() {
+                let _ = self.kill_session(id);
             }
         }
-        Ok(())
+    }
+
+    /// Drop everything kept for a workspace that's gone: sessions, buffered logs, log files.
+    pub fn forget_workspace(&self, workspace_id: &str) {
+        let prefix = format!("{workspace_id}-");
+        let belongs = |id: &str| id == workspace_id || id.starts_with(&prefix);
+        let mut ids: Vec<String> = Vec::new();
+        self.sessions.lock().unwrap().retain(|id, _| {
+            let keep = !belongs(id);
+            if !keep {
+                ids.push(id.clone());
+            }
+            keep
+        });
+        self.logs.lock().unwrap().retain(|id, _| {
+            let keep = !belongs(id);
+            if !keep {
+                ids.push(id.clone());
+            }
+            keep
+        });
+        for id in ids {
+            let _ = std::fs::remove_file(log_path(&id));
+        }
     }
 }
 
 impl SessionShared {
+    fn new(log: File, activity: Arc<Notify>) -> Self {
+        Self {
+            lines: Mutex::new(VecDeque::new()),
+            pending: Mutex::new(Vec::new()),
+            fragment: Mutex::new(String::new()),
+            log: Mutex::new(log),
+            log_bytes: AtomicU64::new(0),
+            exited: Mutex::new(None),
+            killed: AtomicBool::new(false),
+            activity,
+        }
+    }
+
     fn push_bytes(&self, bytes: &[u8]) {
         let text = String::from_utf8_lossy(bytes);
         if let Ok(mut log) = self.log.lock() {
+            let written = self
+                .log_bytes
+                .fetch_add(text.len() as u64, Ordering::Relaxed);
+            if written >= LOG_FILE_CAP {
+                let _ = log.set_len(0);
+                self.log_bytes.store(0, Ordering::Relaxed);
+            }
             let _ = log.write_all(text.as_bytes());
         }
         let mut fragment = self.fragment.lock().unwrap();
@@ -417,6 +518,7 @@ impl SessionShared {
             }
             self.push_line(line);
         }
+        keep_tail(&mut fragment, FRAGMENT_CAP);
     }
 
     fn push_line(&self, line: String) {
@@ -431,8 +533,27 @@ impl SessionShared {
             }
             lines.push_back(line.clone());
         }
-        self.pending.lock().unwrap().push(line);
+        {
+            // Nobody drains this until the Output tab opens, and the ring is all it replays.
+            let mut pending = self.pending.lock().unwrap();
+            if pending.len() >= RING_CAP * 2 {
+                pending.drain(..RING_CAP);
+            }
+            pending.push(line);
+        }
+        self.activity.notify_waiters();
     }
+}
+
+fn keep_tail(text: &mut String, cap: usize) {
+    if text.len() <= cap {
+        return;
+    }
+    let mut start = text.len() - cap;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    text.drain(..start);
 }
 
 pub fn detect_port(output: &str) -> Option<u16> {
@@ -553,13 +674,50 @@ mod tests {
     }
 
     #[test]
+    fn caps_what_a_session_can_buffer() {
+        let proc = supervisor();
+        for line in 0..RING_CAP * 3 {
+            proc.append_log_line("capped", line.to_string());
+        }
+        assert!(proc.drain_pending("capped").len() <= RING_CAP * 2);
+
+        let mut fragment = "é".repeat(100);
+        keep_tail(&mut fragment, 11);
+        assert_eq!(fragment, "é".repeat(5));
+    }
+
+    #[test]
+    fn exited_sessions_leave_metrics_and_forgetting_clears_them() {
+        let proc = supervisor();
+        proc.spawn_session("ws-setup-1", "true", &[], None, &[])
+            .unwrap();
+        proc.append_log_line("ws", "hello");
+        proc.wait_exit_session("ws-setup-1", Duration::from_secs(5))
+            .unwrap();
+        let started = std::time::Instant::now();
+        while !proc.pids().is_empty() && started.elapsed() < Duration::from_secs(5) {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(proc.pids().is_empty());
+        // Monitors still read the exit code after the process is gone.
+        assert_eq!(proc.exit_code("ws-setup-1"), Some(0));
+        assert!(proc.workspace_has_session("ws"));
+
+        proc.forget_workspace("ws");
+        assert!(!proc.workspace_has_session("ws"));
+        assert!(proc.take_log_snapshot("ws").is_empty());
+        assert!(!log_path("ws").exists());
+        assert!(!log_path("ws-setup-1").exists());
+    }
+
+    #[test]
     fn collapses_runs_of_blank_lines() {
         let proc = supervisor();
         for line in ["a", "", "", "\x1b[1;1H\x1b[0J", "b"] {
-            proc.append_log_line("ws", line);
+            proc.append_log_line("blank-runs", line);
         }
-        assert_eq!(proc.take_log_snapshot("ws"), vec!["a", "", "b"]);
-        assert!(proc.drain_pending("ws").is_empty());
+        assert_eq!(proc.take_log_snapshot("blank-runs"), vec!["a", "", "b"]);
+        assert!(proc.drain_pending("blank-runs").is_empty());
     }
 
     #[test]

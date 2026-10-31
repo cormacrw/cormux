@@ -59,16 +59,7 @@ pub fn sync_dock_badge(app: &AppHandle, state: &AppState) {
 }
 
 fn pending_approvals(state: &AppState) -> usize {
-    let stored = state
-        .store
-        .snapshot()
-        .map(|snap| {
-            snap.approvals
-                .iter()
-                .filter(|row| row.status == "pending")
-                .count()
-        })
-        .unwrap_or(0);
+    let stored = state.store.pending_approval_count().unwrap_or(0);
     stored.max(state.approvals.pending_count())
 }
 

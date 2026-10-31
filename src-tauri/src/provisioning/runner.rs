@@ -64,16 +64,11 @@ pub async fn retry_provisioning(app: AppHandle, workspace_id: String) {
         Some(row) => row.clone(),
         None => return,
     };
-    let goal = snapshot
-        .timeline
-        .iter()
-        .find(|event| event.thread_id == thread.id && event.kind == "message")
-        .and_then(|event| serde_json::from_str::<serde_json::Value>(&event.payload).ok())
-        .and_then(|value| {
-            value
-                .get("text")
-                .and_then(|text| text.as_str().map(str::to_string))
-        })
+    let goal = state
+        .store
+        .first_message_text(&thread.id)
+        .ok()
+        .flatten()
         .unwrap_or_default();
 
     let _ = state
@@ -128,16 +123,11 @@ pub async fn skip_provisioning_setup(app: AppHandle, workspace_id: String) {
         Some(row) => row.clone(),
         None => return,
     };
-    let goal = snapshot
-        .timeline
-        .iter()
-        .find(|event| event.thread_id == thread.id && event.kind == "message")
-        .and_then(|event| serde_json::from_str::<serde_json::Value>(&event.payload).ok())
-        .and_then(|value| {
-            value
-                .get("text")
-                .and_then(|text| text.as_str().map(str::to_string))
-        })
+    let goal = state
+        .store
+        .first_message_text(&thread.id)
+        .ok()
+        .flatten()
         .unwrap_or_default();
 
     let _ = state

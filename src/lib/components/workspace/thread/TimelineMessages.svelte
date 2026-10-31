@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { hideFindingsBlock } from '$lib/findings/findings-block'
-  import { splitTaskCards } from '$lib/tasks/task-cards-block'
+  import { replyParts } from '$lib/thread/reply-parts'
+  import { SvelteSet } from 'svelte/reactivity'
   import TaskDraftCards from './TaskDraftCards.svelte'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
@@ -61,6 +61,8 @@
     glasses = false,
     entries,
     liveReplyId = null,
+    activeThoughtId = null,
+    activeRunId = null,
     onOpenFindings,
     onFocusComposer,
   }: {
@@ -78,6 +80,10 @@
     entries?: EntryScope
     /** The reply the agent is still writing keeps its typing cursor. */
     liveReplyId?: string | null
+    /** The newest thought while it's still being written. */
+    activeThoughtId?: string | null
+    /** The run the agent is still in stays open; it folds once the agent moves on. */
+    activeRunId?: string | null
     onOpenFindings: () => void
     onFocusComposer?: () => void
   } = $props()
@@ -88,21 +94,13 @@
     workspaceRecords.getRecord(workspaceId)?.worktreePath,
   )
 
-  // The newest thought is still being written while the live row trails it.
-  const activeThoughtId = $derived.by(() => {
-    const items = rows.flatMap((row) => (row.kind === 'item' ? [row.item] : []))
-    if (items.at(-1)?.kind !== 'live') return null
-    const last = items.at(-2)
-    return last?.kind === 'thought' && last.role === 'thought' ? last.id : null
-  })
+  // What's folded isn't rendered: a thought re-renders its markdown on every chunk otherwise.
+  const openFolds = new SvelteSet<string>()
 
-  // The run the agent is still in stays open; it folds once the agent moves on.
-  const activeRunId = $derived.by(() => {
-    const items = rows.flatMap((row) => (row.kind === 'item' ? [row.item] : []))
-    if (items.at(-1)?.kind !== 'live') return null
-    const last = items.at(-2)
-    return last?.kind === 'toolRun' ? last.id : null
-  })
+  function foldToggled(id: string, event: Event) {
+    if ((event.currentTarget as HTMLDetailsElement).open) openFolds.add(id)
+    else openFolds.delete(id)
+  }
 
   function planDone(statuses: string[]) {
     return statuses.filter((status) => status === 'completed').length
@@ -456,7 +454,11 @@
           You{clock ? ` · ${clock}` : ''}
         </p>
       {:else if item.kind === 'thought' && item.role === 'thought'}
-        <details class="group/thought max-w-[42rem]">
+        <details
+          class="group/thought max-w-[42rem]"
+          data-lazy-fold
+          ontoggle={(event) => foldToggled(item.id, event)}
+        >
           <summary
             class="inline-flex cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden"
           >
@@ -470,14 +472,16 @@
               Thought
             {/if}
           </summary>
-          <div
-            class="mt-1 border-l-2 border-border pl-3 text-sm text-muted-foreground"
-          >
-            <ThoughtMarkdown text={item.text} media {workdir} />
-          </div>
+          {#if openFolds.has(item.id)}
+            <div
+              class="mt-1 border-l-2 border-border pl-3 text-sm text-muted-foreground"
+            >
+              <ThoughtMarkdown text={item.text} media {workdir} />
+            </div>
+          {/if}
         </details>
-      {:else if item.kind === 'thought' && hideFindingsBlock(item.text)}
-        {@const taskSplit = splitTaskCards(hideFindingsBlock(item.text))}
+      {:else if item.kind === 'thought' && replyParts(item.text)}
+        {@const taskSplit = replyParts(item.text)!}
         {@const replyText = taskSplit.text}
         <div class="group max-w-[42rem]">
           {#if replyText}
@@ -514,7 +518,12 @@
       {:else if item.kind === 'toolRun'}
         {#if item.steps.length >= COLLAPSE_RUN_AT && item.id !== activeRunId}
           {@const edited = editedPaths(item.steps)}
-          <details class="group/run" data-od-id="tool-run-summary">
+          <details
+            class="group/run"
+            data-od-id="tool-run-summary"
+            data-lazy-fold
+            ontoggle={(event) => foldToggled(item.id, event)}
+          >
             <summary
               class="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none hover:text-foreground"
             >
@@ -524,9 +533,11 @@
               />
               <span class="truncate">{toolRunSummary(item.steps)}</span>
             </summary>
-            <div class="mt-1.5 border-l-2 border-border pl-3">
-              {@render runSteps(item.steps)}
-            </div>
+            {#if openFolds.has(item.id)}
+              <div class="mt-1.5 border-l-2 border-border pl-3">
+                {@render runSteps(item.steps)}
+              </div>
+            {/if}
           </details>
           {#if edited.length}
             <ul class="mt-1.5 flex flex-wrap gap-1" data-od-id="files-touched">

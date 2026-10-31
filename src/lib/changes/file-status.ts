@@ -36,10 +36,30 @@ export function isTestPath(path: string): boolean {
   return TEST_DIR.test(path) || TEST_FILE.test(path)
 }
 
-/** A file is folded if the user folded it, or by default when it's a test. */
+const GENERATED_FILE =
+  /(^|\/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb?|Cargo\.lock|Gemfile\.lock|poetry\.lock|uv\.lock|composer\.lock|go\.sum)$|\.(min\.(js|css)|map|snap)$|\.generated\.[^/]+$|(^|\/)__generated__\//
+
+/** Lockfiles and build output: nobody reads these line by line. */
+export function isGeneratedPath(path: string): boolean {
+  return GENERATED_FILE.test(path)
+}
+
+/** Past this many changed lines a diff starts folded and isn't syntax highlighted. */
+export const LARGE_DIFF_LINES = 1500
+
+export function isLargeDiff(
+  file: Pick<DiffFile, 'added' | 'deleted'>,
+): boolean {
+  return file.added + file.deleted > LARGE_DIFF_LINES
+}
+
+/** A file is folded if the user folded it, or by default when it's a test, generated or huge. */
 export function isDiffCollapsed(
   collapsed: Record<string, boolean>,
-  path: string,
+  file: Pick<DiffFile, 'path' | 'added' | 'deleted'>,
 ): boolean {
-  return collapsed[path] ?? isTestPath(path)
+  return (
+    collapsed[file.path] ??
+    (isTestPath(file.path) || isGeneratedPath(file.path) || isLargeDiff(file))
+  )
 }

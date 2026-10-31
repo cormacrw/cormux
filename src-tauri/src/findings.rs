@@ -115,6 +115,9 @@ pub async fn send_workspace_findings(
         picked.push(row);
     }
 
+    // The thread may have no engine: it was reaped while idle, or the app restarted.
+    crate::provisioning::ensure_thread_engine(&state, thread_id, &thread.engine, workspace_id)
+        .await?;
     state.store.mark_findings_sent(&finding_ids, thread_id)?;
     state.store.set_setting(
         &findings_batch_key(thread_id),

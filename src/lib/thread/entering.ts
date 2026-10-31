@@ -39,6 +39,20 @@ export function liveReplyId(items: TimelineItem[]): string | null {
   return last?.kind === 'thought' && last.role === 'agent' ? last.id : null
 }
 
+/** The thought still being written: the one right before the live row, if any. */
+export function liveThoughtId(items: TimelineItem[]): string | null {
+  if (items.at(-1)?.kind !== 'live') return null
+  const last = items.at(-2)
+  return last?.kind === 'thought' && last.role === 'thought' ? last.id : null
+}
+
+/** The run the agent is still in: the one right before the live row, if any. */
+export function liveRunId(items: TimelineItem[]): string | null {
+  if (items.at(-1)?.kind !== 'live') return null
+  const last = items.at(-2)
+  return last?.kind === 'toolRun' ? last.id : null
+}
+
 export type PopInParams = {
   entries: EntryScope | undefined
   /** Omit for rows that animate some other way (a tool run's steps pop, a reply types in). */

@@ -22,6 +22,7 @@
         'bg-info motion-safe:animate-[status-blink_1.2s_ease-in-out_infinite]',
       variant === 'paused' && 'bg-warning',
       variant === 'waiting' && 'status-flash bg-yellow-400',
+      variant === 'ready' && 'bg-yellow-400',
     )}
   ></span>
 </span>

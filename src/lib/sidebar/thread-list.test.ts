@@ -4,7 +4,7 @@ import {
   nestThreadList,
   sortThreadList,
   splitThreadList,
-  threadActivityMs,
+  isThreadActivity,
   threadUrgency,
 } from './thread-list'
 
@@ -14,21 +14,12 @@ const end: AgentEvent = { type: 'turnEnd', stop_reason: 'end', error: null }
 
 describe('thread activity', () => {
   it('ignores streamed output', () => {
-    expect(
-      threadActivityMs([
-        { atMs: 10, event: user },
-        { atMs: 20, event: chunk },
-      ]),
-    ).toBe(10)
+    expect(isThreadActivity(chunk)).toBe(false)
   })
 
-  it('counts a finished turn', () => {
-    expect(
-      threadActivityMs([
-        { atMs: 10, event: user },
-        { atMs: 30, event: end },
-      ]),
-    ).toBe(30)
+  it('counts your messages and a finished turn', () => {
+    expect(isThreadActivity(user)).toBe(true)
+    expect(isThreadActivity(end)).toBe(true)
   })
 })
 

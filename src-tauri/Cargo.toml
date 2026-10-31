@@ -38,7 +38,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 base64 = "0.22"
 notify = "8"
 ignore = "0.4"
-sysinfo = "0.33"
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
@@ -50,3 +50,13 @@ lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
+
+# The hot path parses and stores every event, so these stay fast in a size-tuned build.
+[profile.release.package.serde_json]
+opt-level = 3
+
+[profile.release.package.libsqlite3-sys]
+opt-level = 3
+
+[profile.release.package.tokio]
+opt-level = 3

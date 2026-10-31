@@ -1,3 +1,15 @@
+/** Ids only ever grow, so a row keeps its element as older lines fall off the top. */
+export type OutputLine = { id: number; text: string }
+
+export const OUTPUT_LINE_CAP = 500
+
+export function appendOutputLines(
+  lines: OutputLine[],
+  added: OutputLine[],
+): OutputLine[] {
+  return [...lines, ...added].slice(-OUTPUT_LINE_CAP)
+}
+
 export type OutputLineStyle =
   'cmd' | 'out' | 'dim' | 'ok' | 'warn' | 'sep' | 'blank'
 

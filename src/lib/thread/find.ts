@@ -39,6 +39,18 @@ export function rowSearchText(row: TimelineRow): string {
   }
 }
 
+// Rows keep their object while unchanged, so a search over a long thread only reads the new ones.
+const searchTexts = new WeakMap<TimelineRow, string>()
+
+function lowerSearchText(row: TimelineRow) {
+  let text = searchTexts.get(row)
+  if (text === undefined) {
+    text = rowSearchText(row).toLocaleLowerCase()
+    searchTexts.set(row, text)
+  }
+  return text
+}
+
 function occurrences(text: string, needle: string): number {
   if (!needle) return 0
   let count = 0
@@ -56,7 +68,7 @@ export function findMatches(rows: TimelineRow[], query: string): FindMatch[] {
   if (!needle) return []
   return rows.flatMap((row, index) =>
     Array.from(
-      { length: occurrences(rowSearchText(row).toLocaleLowerCase(), needle) },
+      { length: occurrences(lowerSearchText(row), needle) },
       (_, occurrence) => ({ row: index, occurrence }),
     ),
   )

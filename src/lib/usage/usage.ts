@@ -108,7 +108,12 @@ const TREND_POINTS = 40
 
 /** How full the context was at each report, latest last. */
 export function usageTrend(events: { event: AgentEvent }[]): number[] {
-  return events
-    .flatMap(({ event }) => (event.type === 'usage' ? [event.used_tokens] : []))
-    .slice(-TREND_POINTS)
+  const points: number[] = []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!.event
+    if (event.type !== 'usage') continue
+    points.unshift(event.used_tokens)
+    if (points.length === TREND_POINTS) break
+  }
+  return points
 }

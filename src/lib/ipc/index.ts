@@ -6,6 +6,7 @@ export {
   events,
   type AgentChunk,
   type AgentEvent,
+  type StreamedEvent,
   type MessageRole,
   type PlanStep,
   type ToolCallStatus,
@@ -24,7 +25,6 @@ export {
 } from './bindings'
 
 export {
-  subscribeAgentChunks,
   subscribeAgentEvents,
   subscribeDiffs,
   subscribePty,
@@ -53,12 +53,12 @@ export async function fetchSnapshot(): Promise<Snapshot> {
 export function listenForStateChanges(options: {
   lastVersion: () => number
   onEvent: (payload: StateChanged) => void
-  onSnapshot: (snapshot: Snapshot) => void
+  onGap: () => void
 }) {
-  return events.stateChanged.listen(async (event) => {
+  return events.stateChanged.listen((event) => {
     const payload = event.payload
     if (hasVersionGap(options.lastVersion(), payload.version)) {
-      options.onSnapshot(await fetchSnapshot())
+      options.onGap()
       return
     }
     options.onEvent(payload)

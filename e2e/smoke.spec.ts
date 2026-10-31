@@ -5,7 +5,7 @@ test.describe('browser harness UI', () => {
   test('opens New workspace and keeps the footer on the dialog', async ({
     page,
   }) => {
-    await page.goto('/')
+    await page.goto('/?slowReply=1')
     await expect(page.locator('html')).toHaveAttribute(
       'data-cormux-harness',
       'browser',

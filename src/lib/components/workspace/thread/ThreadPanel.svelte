@@ -16,10 +16,14 @@
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import { enterConversation } from '$lib/thread/conversation-motion'
-  import { createEntryScope, liveReplyId } from '$lib/thread/entering'
+  import {
+    createEntryScope,
+    liveReplyId,
+    liveRunId,
+    liveThoughtId,
+  } from '$lib/thread/entering'
   import { liveSubtitle, liveTitle } from '$lib/thread/map-events-to-timeline'
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
-  import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
   import { createVirtualizer } from '@tanstack/svelte-virtual'
   import Pause from '@lucide/svelte/icons/pause'
   import AgentSpinner from './AgentSpinner.svelte'
@@ -37,6 +41,7 @@
     thread: Thread
   } = $props()
 
+  const threadId = $derived(thread.id)
   let scrollEl: HTMLElement | undefined = $state()
   let contentEl: HTMLElement | undefined = $state()
   // Whether the reader is at the bottom; streamed replies grow a row without adding one,
@@ -81,24 +86,49 @@
 
   const useVirtual = $derived(rows.length > 150)
   const typingReplyId = $derived(liveReplyId(items))
+  const activeThoughtId = $derived(liveThoughtId(items))
+  const activeRunId = $derived(liveRunId(items))
 
   // Earlier conversations in this thread (since new sessions), to resume.
   const conversations = $derived(threadTimeline.conversations(thread.id))
   const conversationId = $derived(conversations.current.id)
+  // Until its history is read a thread is blank, not empty.
+  const loaded = $derived(threadTimeline.isLoaded(thread.id))
+  const hasOlder = $derived(threadTimeline.olderByThread[thread.id] ?? false)
   // An empty conversation shows a greeting instead of the last one's messages.
-  const showHero = $derived(items.length === 0)
+  const showHero = $derived(loaded && items.length === 0)
 
   // The backdrop's wordmark is away while a conversation's going (it only
   // animates when one starts or is cleared; see glideWordmark).
   $effect(() => {
-    appearance.wordmarkAway = !showHero
+    if (loaded) appearance.wordmarkAway = !showHero
   })
+
+  // The greeting offers earlier conversations to resume, however far back they are.
+  $effect(() => {
+    if (showHero && hasOlder) void threadTimeline.loadOlder(threadId)
+  })
+
+  let loadingOlder = $state(false)
+
+  async function showEarlier() {
+    const scroller = scrollEl
+    if (!scroller || loadingOlder) return
+    loadingOlder = true
+    pinnedToBottom = false
+    const height = scroller.scrollHeight
+    const top = scroller.scrollTop
+    await threadTimeline.loadOlder(threadId)
+    await tick()
+    // Stays on the same message as the rows above it appear.
+    scroller.scrollTop = top + scroller.scrollHeight - height
+    loadingOlder = false
+  }
   onDestroy(() => appearance.resetWordmark())
 
   // Snapshot what the thread already shows when it opens, or switches to another
   // conversation; only rows after that animate. The thread object is replaced on
   // every status change, so depend on the ids alone.
-  const threadId = $derived(thread.id)
   // Switching conversation within a thread (new session, resume) rises the new one in.
   let shownConversation = ''
   $effect(() => {
@@ -112,6 +142,9 @@
   const entries = $derived.by(() => {
     void threadId
     void conversationId
+    // Rows read from the store were already there; older pages also renumber what's on screen.
+    void loaded
+    void threadTimeline.historyGeneration[threadId]
     return untrack(() => createEntryScope(rows))
   })
 
@@ -161,8 +194,8 @@
   })
 
   $effect(() => {
-    if (thread.id !== prevThreadId) {
-      prevThreadId = thread.id
+    if (threadId !== prevThreadId) {
+      prevThreadId = threadId
       pinnedToBottom = true
       scrollToEndNext = true
       prevItemCount = 0
@@ -204,10 +237,9 @@
   })
 
   $effect(() => {
-    if (!thread.id) return
-    return bindVisibleThreadEvents(thread.id, (event) => {
-      threadTimeline.applyEvent(thread.id, event)
-    })
+    const id = threadId
+    if (!id) return
+    return threadTimeline.watch(id)
   })
 
   $effect(() => {
@@ -254,7 +286,7 @@
 
   // WebKit drops resize notifications when rows re-measure in the same frame, so once
   // something grows, re-check every frame until the end has held still for a moment.
-  const SETTLE_FRAMES = 30
+  const SETTLE_FRAMES = 8
   let followFrame = 0
   let stillFrames = 0
 
@@ -359,7 +391,9 @@
             : 'pb-4',
       ]}
     >
-      {#if showHero}
+      {#if !loaded}
+        <!-- Reads in a moment; a greeting here would flash before the conversation. -->
+      {:else if showHero}
         <ThreadHero
           {thread}
           {workspace}
@@ -370,6 +404,20 @@
       {:else}
         <div data-conversation-part>
           <ThreadIntro {thread} {workspace} {nowMs} />
+        </div>
+      {/if}
+
+      {#if hasOlder && !showHero}
+        <div class="mt-3 flex justify-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            data-od-id="thread-show-earlier"
+            disabled={loadingOlder}
+            onclick={showEarlier}
+          >
+            Show earlier messages
+          </Button>
         </div>
       {/if}
 
@@ -405,6 +453,8 @@
                     glasses={thread.role === 'Reviewer'}
                     {entries}
                     liveReplyId={typingReplyId}
+                    {activeThoughtId}
+                    {activeRunId}
                     onOpenFindings={openFindingsTab}
                     onFocusComposer={() => focusComposer?.()}
                   />
@@ -426,6 +476,8 @@
             glasses={thread.role === 'Reviewer'}
             {entries}
             liveReplyId={typingReplyId}
+            {activeThoughtId}
+            {activeRunId}
             onOpenFindings={openFindingsTab}
             onFocusComposer={() => focusComposer?.()}
           />

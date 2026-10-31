@@ -71,7 +71,6 @@ pub enum StateChangeKind {
     PrSync,
     Toast,
     BehindCounts,
-    Metrics,
     Environment,
     WorkspaceApp,
 }

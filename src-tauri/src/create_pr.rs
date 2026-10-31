@@ -15,7 +15,7 @@ use crate::ipc::types::{
     CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
     StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone,
 };
-use crate::pr_draft::{PR_PROMPT_KEY, draft_why, extract_goal_from_events, pr_prompt};
+use crate::pr_draft::{PR_PROMPT_KEY, draft_why, pr_prompt};
 use crate::state::AppState;
 use crate::store::types::PrRow;
 
@@ -37,13 +37,7 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
     let diff = pr_diff(state, workspace_id, worktree, &base, &record.base).await;
 
     let lead_id = lead_thread_id(state, workspace_id)?;
-    let events: Vec<_> = snapshot
-        .timeline
-        .iter()
-        .filter(|row| row.thread_id == lead_id)
-        .cloned()
-        .collect();
-    let goal = extract_goal_from_events(&events);
+    let goal = state.store.first_user_goal(&lead_id)?;
     let transcript = state.store.transcript_summary(&lead_id, 24)?;
     let instructions = pr_prompt(state.store.get_setting(PR_PROMPT_KEY)?);
 

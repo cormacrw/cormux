@@ -2,11 +2,11 @@ import { Channel } from '@tauri-apps/api/core'
 import {
   commands,
   type AgentChunk,
-  type AgentEvent,
   type DiffUpdate,
   type Error as CoreError,
   type PtyChunk,
   type Result,
+  type StreamedEvent,
 } from './bindings'
 
 /**
@@ -36,19 +36,9 @@ function subscribe<T>(
   }
 }
 
-export function subscribeAgentChunks(
-  threadId: string,
-  onChunk: (chunk: AgentChunk) => void,
-) {
-  return subscribe(
-    (channel) => commands.subscribeAgentChunks(threadId, channel),
-    onChunk,
-  )
-}
-
 export function subscribeAgentEvents(
   threadId: string,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: StreamedEvent) => void,
 ) {
   return subscribe(
     (channel) => commands.subscribeAgentEvents(threadId, channel),

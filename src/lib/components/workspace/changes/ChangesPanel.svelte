@@ -61,7 +61,7 @@
   const allCollapsed = $derived(
     files.length > 0 &&
       files.every((file) =>
-        isDiffCollapsed(workspaceUi.collapsedDiffPaths, file.path),
+        isDiffCollapsed(workspaceUi.collapsedDiffPaths, file),
       ),
   )
 
@@ -98,11 +98,12 @@
   // A file link (conversation, findings) expands that file and scrolls to it, or to its line.
   $effect(() => {
     const path = workspaceUi.revealDiffPath
-    if (!path || !files.some((file) => file.path === path)) return
+    const target = path && files.find((file) => file.path === path)
+    if (!path || !target) return
     const line = workspaceUi.revealDiffLine
     workspaceUi.revealDiffPath = null
     workspaceUi.revealDiffLine = null
-    if (isDiffCollapsed(workspaceUi.collapsedDiffPaths, path)) {
+    if (isDiffCollapsed(workspaceUi.collapsedDiffPaths, target)) {
       workspaceUi.collapsedDiffPaths = {
         ...workspaceUi.collapsedDiffPaths,
         [path]: false,
@@ -284,6 +285,7 @@
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div
           bind:this={scrollEl}
+          data-diff-scroller
           class="min-h-0 flex-1 overflow-y-auto [contain:strict]"
           tabindex="0"
           role="region"

@@ -724,7 +724,8 @@ pub async fn submit_workspace_review(
         .iter()
         .find(|row| row.id == workspace.repo_id)
         .ok_or_else(|| Error::Git(format!("unknown repo {}", workspace.repo_id)))?;
-    let (owner, repo_name) = parse_repo_slug(&repo.path, workspace.pr_html_url.as_deref())?;
+    let (owner, repo_name) =
+        parse_repo_slug(&state, &repo.path, workspace.pr_html_url.as_deref()).await?;
 
     let token = auth::resolve_token(&state.shell_env)
         .await
@@ -848,7 +849,11 @@ pub async fn submit_workspace_review(
     Ok(())
 }
 
-fn parse_repo_slug(repo_path: &str, pr_html_url: Option<&str>) -> Result<(String, String)> {
+async fn parse_repo_slug(
+    state: &AppState,
+    repo_path: &str,
+    pr_html_url: Option<&str>,
+) -> Result<(String, String)> {
     if let Some(url) = pr_html_url
         && let Some(rest) = url.strip_prefix("https://github.com/")
     {
@@ -857,12 +862,12 @@ fn parse_repo_slug(repo_path: &str, pr_html_url: Option<&str>) -> Result<(String
             return Ok((parts[0].to_string(), parts[1].to_string()));
         }
     }
-    let origin = std::process::Command::new("git")
-        .args(["-C", repo_path, "remote", "get-url", "origin"])
-        .output()
+    let origin = state
+        .git
+        .remote_origin_url(std::path::Path::new(repo_path))
+        .await
         .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .flatten()
         .unwrap_or_default();
     let slug = crate::github::parse_origin_url(origin.trim())
         .ok_or_else(|| Error::Github("could not resolve repo owner/name".into()))?;
