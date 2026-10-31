@@ -54,8 +54,7 @@
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { settings } from '$lib/state/settings.svelte'
-  import { contextPercent, usageSummary, usageTrend } from '$lib/usage/usage'
-  import UsageSparkline from './UsageSparkline.svelte'
+  import { contextPercent, usageSummary } from '$lib/usage/usage'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { sendThreadMessage } from '$lib/thread/send-message'
   import {
@@ -128,9 +127,6 @@
   // Only how full the context is; tokens and cost are in the thread tab's tooltip.
   const contextFill = $derived(contextPercent(thread.usage))
   const usageDetail = $derived(usageSummary(thread.usage).detail)
-  const usagePoints = $derived(
-    usageTrend(threadTimeline.eventsByThread[thread.id] ?? []),
-  )
   const canStartNewSession = $derived(
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
@@ -838,9 +834,6 @@
           </Button>
         {/if}
         {#if contextFill != null}
-          {#if usagePoints.length >= 3}
-            <UsageSparkline points={usagePoints} />
-          {/if}
           <span
             class="shrink-0 font-mono text-[10px] text-muted-foreground/80 tabular-nums"
             data-od-id="composer-usage"
