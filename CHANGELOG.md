@@ -2,6 +2,19 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.18
+
+- When an agent asks you something, the question appears in a card with options to pick from and a box for your own answer.
+- Threads keep running while background subagents work, and Stop ends those subagents too.
+- Deleting a workspace only asks for confirmation when the worktree has uncommitted changes, and a branch holding commits that exist nowhere else is kept by default.
+- The composer's base branch picker is gone. Threads start from the repo's default branch, and the agent moves to another branch if your first message asks for it.
+- New branches get a descriptive name from Haiku before the worktree is created.
+- Claude threads can list closed threads and read their transcripts to pick up earlier work.
+- Agents screenshot visible changes without being asked.
+- A child thread finishing after its parent was killed no longer brings the parent back.
+- Agent names and clay faces are gone; threads show their role instead. The context growth sparkline is gone from the prompt bar, and the teardown toast no longer appears.
+- Codex and Gemini are removed. Existing threads from either carry on as Claude threads, starting a fresh session.
+
 ## 0.1.17
 
 - Claude threads can hand work to other threads. An agent can start a new thread on its own branch and worktree, check on threads in the same repo, and send follow-ups to the ones it started. Those threads report back on their own when they finish a turn, get blocked or fail setup.
