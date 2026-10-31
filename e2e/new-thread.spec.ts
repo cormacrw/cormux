@@ -133,6 +133,41 @@ test('the sidebar is a flat list that says where each thread lives', async ({
   await expect(page.locator('#side-repo-label')).toHaveCount(0)
 })
 
+test('a working thread only moves to Working once you leave it', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const threads = page.locator('[data-od-id="thread-list"]')
+  const toggle = page.locator('[data-od-id="working-toggle"]')
+  await threads.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.evaluate(() =>
+    (
+      window as unknown as {
+        __HARNESS_SET_STATUS__: (name: string, status: string) => void
+      }
+    ).__HARNESS_SET_STATUS__('OAuth login', 'running'),
+  )
+
+  const row = page.getByRole('button', { name: /^OAuth login,/ })
+  await expect(threads.locator(row)).toHaveAttribute('data-urgency', 'quiet')
+  await expect(toggle).toHaveCount(0)
+
+  await page.locator('[data-od-id="nav-new-thread"]').click()
+  await expect(toggle).toContainText('1')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(row).toHaveCount(0)
+
+  await toggle.click()
+  await expect(
+    page.locator('[data-od-id="working-list"]').locator(row),
+  ).toBeVisible()
+
+  // Opening it brings it back up, so the thread you're on is always in sight.
+  await page.locator('[data-od-id="working-list"]').locator(row).click()
+  await expect(threads.locator(row)).toBeVisible()
+  await expect(toggle).toHaveCount(0)
+})
+
 test('a thread flashes unless it is working, and carries no status text', async ({
   page,
 }) => {
@@ -159,8 +194,10 @@ test('a thread flashes unless it is working, and carries no status text', async 
       [name, status],
     )
 
-  // Working goes quiet and sinks below what's waiting, with no words either way.
+  // Working goes quiet and moves below what's waiting, with no words either way.
   await setStatus('OAuth login', 'running')
+  await expect(row).toHaveCount(0)
+  await page.locator('[data-od-id="working-toggle"]').click()
   await expect(row).toHaveAttribute('data-urgency', 'quiet')
   await expect(row.locator('[data-od-id="thread-row-spinner"]')).toBeVisible()
   await expect(row.locator('.opacity-50')).toBeVisible()

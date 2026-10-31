@@ -45,6 +45,21 @@ export function threadUrgency(input: {
 }
 
 /**
+ * Working threads step out of the way into their own section, except the one you're on: it stays
+ * put under you, and only moves once you leave it. Read-only leftovers are quiet but not working.
+ */
+export function splitThreadList<
+  T extends { id: string; urgency: ThreadUrgency; workspace: unknown },
+>(items: T[], currentId: string | null): { threads: T[]; working: T[] } {
+  const isParked = (item: T) =>
+    item.urgency === 'quiet' && item.workspace != null && item.id !== currentId
+  return {
+    threads: items.filter((item) => !isParked(item)),
+    working: items.filter(isParked),
+  }
+}
+
+/**
  * Whatever needs you first, with what has waited longest on top. Below that, most recent
  * activity first. Ties keep their order, so rows don't swap for no reason.
  */

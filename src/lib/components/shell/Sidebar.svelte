@@ -8,7 +8,8 @@
   import { app, clickup, memory } from '$lib/state'
   import { cubicOut } from 'svelte/easing'
   import { flip } from 'svelte/animate'
-  import { fade, fly } from 'svelte/transition'
+  import { fade, fly, slide } from 'svelte/transition'
+  import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import Cpu from '@lucide/svelte/icons/cpu'
   import Kanban from '@lucide/svelte/icons/square-kanban'
   import Sparkle from '@lucide/svelte/icons/sparkle'
@@ -16,7 +17,13 @@
   import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus'
   import ThreadListRow from './ThreadListRow.svelte'
   import { motionMs } from '$lib/motion'
-  import { sidebarWorkspaces } from '$lib/state/sidebar-workspaces.svelte'
+  import {
+    sidebarWorkspaces,
+    type ThreadListItem,
+  } from '$lib/state/sidebar-workspaces.svelte'
+  import { cn } from '$lib/utils'
+
+  const WORKING_OPEN_KEY = 'cormux-sidebar-working-open'
 
   function startWindowDrag(event: MouseEvent) {
     if (event.button !== 0) return
@@ -25,6 +32,29 @@
 
   // Full screen hides the traffic lights, so their row collapses and the sidebar moves up.
   let fullscreen = $state(false)
+
+  // Working threads are out of the way until you ask to see them.
+  let workingOpen = $state(rememberedWorkingOpen())
+
+  function rememberedWorkingOpen() {
+    try {
+      return globalThis.localStorage?.getItem(WORKING_OPEN_KEY) === 'true'
+    } catch {
+      return false
+    }
+  }
+
+  function toggleWorking() {
+    workingOpen = !workingOpen
+    try {
+      globalThis.localStorage?.setItem(WORKING_OPEN_KEY, String(workingOpen))
+    } catch {
+      // Optional: the section just starts collapsed next time.
+    }
+  }
+
+  const threadRows = $derived(sidebarWorkspaces.sections.threads)
+  const workingRows = $derived(sidebarWorkspaces.sections.working)
 
   // Keeps the rows' ages current.
   let nowMs = $state(Date.now())
@@ -55,6 +85,18 @@
     }
   })
 </script>
+
+{#snippet rows(items: ThreadListItem[])}
+  {#each items as item (item.id)}
+    <li
+      animate:flip={{ duration: motionMs(320), easing: cubicOut }}
+      in:fly={{ y: -10, duration: motionMs(240), easing: cubicOut }}
+      out:fade={{ duration: motionMs(140) }}
+    >
+      <ThreadListRow {item} {nowMs} />
+    </li>
+  {/each}
+{/snippet}
 
 <nav
   class="sidebar-nav grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-3.5 pb-3.5"
@@ -129,7 +171,7 @@
       >
         <span>Threads</span>
         <span class="font-mono tracking-normal normal-case"
-          >{sidebarWorkspaces.items.length}</span
+          >{threadRows.length}</span
         >
       </div>
       {#if sidebarWorkspaces.items.length === 0}
@@ -141,16 +183,40 @@
           aria-labelledby="side-threads-label"
           data-od-id="thread-list"
         >
-          {#each sidebarWorkspaces.items as item (item.id)}
-            <li
-              animate:flip={{ duration: motionMs(320), easing: cubicOut }}
-              in:fly={{ y: -10, duration: motionMs(240), easing: cubicOut }}
-              out:fade={{ duration: motionMs(140) }}
-            >
-              <ThreadListRow {item} {nowMs} />
-            </li>
-          {/each}
+          {@render rows(threadRows)}
         </ul>
+      {/if}
+      {#if workingRows.length > 0}
+        <button
+          type="button"
+          class="mt-3 flex items-center gap-1 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+          id="side-working-label"
+          aria-expanded={workingOpen}
+          data-od-id="working-toggle"
+          onclick={toggleWorking}
+        >
+          <ChevronRight
+            class={cn(
+              'size-3 shrink-0 transition-transform duration-(--dur-fast)',
+              workingOpen && 'rotate-90',
+            )}
+            aria-hidden="true"
+          />
+          <span class="flex-1">Working</span>
+          <span class="font-mono tracking-normal normal-case"
+            >{workingRows.length}</span
+          >
+        </button>
+        {#if workingOpen}
+          <ul
+            class="grid list-none gap-1 p-0"
+            aria-labelledby="side-working-label"
+            data-od-id="working-list"
+            transition:slide={{ duration: motionMs(200), easing: cubicOut }}
+          >
+            {@render rows(workingRows)}
+          </ul>
+        {/if}
       {/if}
     </div>
   </ScrollArea.Root>

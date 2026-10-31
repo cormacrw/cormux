@@ -1,9 +1,11 @@
 import {
   sortThreadList,
+  splitThreadList,
   threadActivityMs,
   threadUrgency,
   type ThreadUrgency,
 } from '$lib/sidebar/thread-list'
+import { app } from './app.svelte'
 import { repos } from './repos.svelte'
 import { scratches } from './scratches.svelte'
 import { threadTimeline } from './thread-timeline.svelte'
@@ -24,8 +26,8 @@ export type ThreadListItem = {
 }
 
 /**
- * The sidebar's list: every thread, what needs you first. ⌘1–⌘9 and the Ctrl+Tab list follow
- * the workspaces in it.
+ * The sidebar's list: every thread, what needs you first, with working threads in a section of
+ * their own. ⌘1–⌘9 and the Ctrl+Tab list follow the workspaces in it, collapsed or not.
  */
 class ThreadList {
   readonly items = $derived.by((): ThreadListItem[] => {
@@ -66,8 +68,17 @@ class ThreadList {
     return sortThreadList([...rows, ...legacy])
   })
 
+  readonly sections = $derived(
+    splitThreadList(
+      this.items,
+      app.view === 'workspace' ? app.workspaceId : null,
+    ),
+  )
+
   readonly ordered = $derived(
-    this.items.flatMap((item) => (item.workspace ? [item.workspace] : [])),
+    [...this.sections.threads, ...this.sections.working].flatMap((item) =>
+      item.workspace ? [item.workspace] : [],
+    ),
   )
 }
 

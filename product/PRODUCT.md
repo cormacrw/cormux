@@ -38,7 +38,7 @@ Success means the user can keep several workspaces moving at once and always kno
 ## Operating Context
 
 - Work is organized by **repo**, then **thread**. Every thread has its own worktree and branch: a workspace and its one thread are the same thing to the user.
-- The **sidebar** is a flat list of threads, each showing its repo and branch. Any thread that isn't working flashes an orange dot and sits on top, longest wait first, because it should be prompted or closed. Working threads follow by recent activity. Rows animate as they move.
+- The **sidebar** is a flat list of threads, each showing its repo and branch. Any thread that isn't working flashes an orange dot and sits on top, longest wait first, because it should be prompted or closed. Working threads move into a collapsible Working section below, by recent activity, but only once you leave them: the thread you're on stays in the main list. Rows animate as they move.
 - The **first page is an empty thread**. There is no creation dialog: typing the first message there, with a repo and base branch picked in the prompt bar, spawns the worktree and opens the thread.
 - Repo pages and PR reviews open from the command palette.
 - Inside a thread, the **agent conversation is the main surface**. Git, Output and Findings are buttons in the header that slide out over it. The file tree and editor are deliberately secondary for now.

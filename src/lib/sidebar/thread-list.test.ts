@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentEvent } from '$lib/ipc/bindings'
-import { sortThreadList, threadActivityMs, threadUrgency } from './thread-list'
+import {
+  sortThreadList,
+  splitThreadList,
+  threadActivityMs,
+  threadUrgency,
+} from './thread-list'
 
 const user: AgentEvent = { type: 'messageChunk', role: 'user', text: 'hi' }
 const chunk: AgentEvent = { type: 'messageChunk', role: 'agent', text: 'yo' }
@@ -73,5 +78,26 @@ describe('thread order', () => {
       { id: 'early', urgency: 'attention' as const, activityAtMs: 3 },
     ])
     expect(sorted.map((row) => row.id)).toEqual(['early', 'late', 'new', 'old'])
+  })
+})
+
+describe('thread sections', () => {
+  const waiting = { id: 'a', urgency: 'attention' as const, workspace: {} }
+  const working = { id: 'b', urgency: 'quiet' as const, workspace: {} }
+  const leftover = { id: 'c', urgency: 'quiet' as const, workspace: null }
+  const items = [waiting, working, leftover]
+
+  it('moves working threads out of the list', () => {
+    expect(splitThreadList(items, null)).toEqual({
+      threads: [waiting, leftover],
+      working: [working],
+    })
+  })
+
+  it('leaves the thread you are on where it is', () => {
+    expect(splitThreadList(items, 'b')).toEqual({
+      threads: items,
+      working: [],
+    })
   })
 })
