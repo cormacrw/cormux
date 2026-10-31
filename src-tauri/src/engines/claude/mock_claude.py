@@ -3,6 +3,7 @@
 
 import json
 import sys
+import time
 
 
 def emit(obj):
@@ -47,6 +48,23 @@ for raw in sys.stdin:
                     },
                 }
             )
+        elif text.startswith("background"):
+            # Shaped like the real CLI: the turn's result lands first, then the finished
+            # agent starts a turn of its own.
+            agent = {"task_id": "agent-1", "task_type": "local_agent"}
+            emit({"type": "system", "subtype": "background_tasks_changed", "tasks": [agent]})
+            result = {
+                "type": "result",
+                "subtype": "success",
+                "session_id": SESSION,
+                "is_error": False,
+                "result": "launched",
+            }
+            emit(result)
+            time.sleep(0.6)
+            emit({"type": "system", "subtype": "background_tasks_changed", "tasks": []})
+            emit({"type": "system", "subtype": "init", "session_id": SESSION})
+            emit(result)
         elif text.startswith("second"):
             emit(
                 {

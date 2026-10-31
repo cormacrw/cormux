@@ -12,7 +12,8 @@ use tokio::time::timeout;
 use super::protocol::user_message;
 use super::protocol::{
     Event, PermissionDecision, StdinMessage, decode_event, encode_line, initialize_request,
-    interrupt_request, mcp_response, permission_response, set_model_request, user_prompt_message,
+    interrupt_request, mcp_response, permission_response, set_model_request, stop_task_request,
+    user_prompt_message,
 };
 use crate::engines::claude_argv;
 use crate::engines::prompt::Prompt;
@@ -218,6 +219,12 @@ impl ClaudeSession {
         let request_id = self.alloc_request_id("int");
         self.write_message(&interrupt_request(&request_id)).await?;
         Ok(request_id)
+    }
+
+    pub async fn stop_task(&mut self, task_id: String) -> Result<()> {
+        let request_id = self.alloc_request_id("stop");
+        self.write_message(&stop_task_request(&request_id, task_id))
+            .await
     }
 
     pub async fn set_model(&mut self, model: Option<String>) -> Result<String> {

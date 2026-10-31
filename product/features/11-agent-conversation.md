@@ -42,7 +42,7 @@ When the speaker changes from the user to the agent, a small header row appears:
 | **Plan** | Card headed `Proposed plan` with a numbered list of steps. |
 | **Approval** | Card with a warning icon, title, a `Needs approval` chip, what and why, and two buttons. See [13](13-approvals.md). |
 | **Review findings** | Card headed `Review findings` showing counts per severity and an **Open findings** button. See [20](20-review-findings.md). |
-| **Live row** | Last item while the agent is working: a spinner (or pause icon), a title and a rotating subtitle. |
+| **Live row** | Last item while the agent is working, background subagents included: a spinner (or pause icon), a title and a rotating subtitle. Stop ends them too. |
 
 ### Steps inside a tool run
 

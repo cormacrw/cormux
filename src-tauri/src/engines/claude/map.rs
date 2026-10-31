@@ -29,6 +29,21 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
                 output: result.output.clone(),
             })
             .collect(),
+        Event::TaskEnded {
+            tool_use_id,
+            failed,
+        } => vec![AgentEvent::ToolCallUpdate {
+            id: tool_use_id.clone(),
+            title: None,
+            kind: None,
+            status: Some(if *failed {
+                ToolCallStatus::Failed
+            } else {
+                ToolCallStatus::Completed
+            }),
+            locations: Vec::new(),
+            output: None,
+        }],
         Event::CanUseTool(req) => vec![map_permission(req)],
         Event::Result {
             is_error,
@@ -43,9 +58,10 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
             },
             error: if *is_error { result.clone() } else { None },
         }],
-        Event::McpMessage { .. } | Event::ControlResponse { .. } | Event::Other { .. } => {
-            Vec::new()
-        }
+        Event::McpMessage { .. }
+        | Event::ControlResponse { .. }
+        | Event::BackgroundAgents { .. }
+        | Event::Other { .. } => Vec::new(),
     }
 }
 

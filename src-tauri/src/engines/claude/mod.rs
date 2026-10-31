@@ -14,10 +14,14 @@
 //! - An `sdk` server in `--mcp-config`, also named as `sdkMcpServers` in `initialize`, is
 //!   answered by the host: each JSON-RPC message arrives as a `control_request` with
 //!   `subtype: mcp_message`, and every one needs a `control_response`.
+//! - A turn's `result` lands while background subagents run. `system`/`background_tasks_changed`
+//!   lists what is live, and each agent that finishes starts a turn of its own with a new
+//!   `system`/`init`. One stopped with `stop_task` starts none. Interrupt doesn't reach them.
 
 pub mod map;
 mod protocol;
 mod session;
+pub mod turn_gate;
 
 pub use protocol::{CanUseTool, Event, PermissionDecision};
 pub use session::{ClaudeSession, SpawnOptions};

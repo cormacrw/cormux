@@ -7,6 +7,7 @@ use tokio::sync::{RwLock, broadcast, mpsc};
 
 use super::acp;
 use super::claude::map as claude_map;
+use super::claude::turn_gate::TurnGate;
 use super::claude::{CanUseTool, ClaudeSession, Event, PermissionDecision, SpawnOptions};
 use super::command::EngineCommand;
 use super::detect::{self, EngineStatus};
@@ -550,7 +551,9 @@ async fn run_claude(
     let (mcp_tx, mut mcp_rx) = mpsc::unbounded_channel::<(String, serde_json::Value)>();
     // Claude's running cost for this process, so each turn adds only what it cost.
     let mut process_cost = 0.0_f64;
+    let mut gate = TurnGate::default();
     loop {
+        let release_at = gate.release_at();
         tokio::select! {
             command = commands.recv() => {
                 match command {
@@ -561,6 +564,15 @@ async fn run_claude(
                     }
                     Some(EngineCommand::Cancel) => {
                         let _ = session.interrupt().await;
+                        for task_id in gate.running_agents() {
+                            if let Err(error) = session.stop_task(task_id).await {
+                                log::warn!("claude stop task: {error}");
+                            }
+                        }
+                        if let Some(held) = gate.release() {
+                            persist_event(&store, &thread_id, &held);
+                            let _ = events.send(held);
+                        }
                     }
                     Some(EngineCommand::SetModel(model)) => {
                         if let Err(error) = session.set_model(model).await {
@@ -643,9 +655,12 @@ async fn run_claude(
                             )
                             .await;
                         } else {
+                            gate.observe(&raw);
                             for mapped in claude_map::map_claude_event(&raw) {
-                                persist_event(&store, &thread_id, &mapped);
-                                let _ = events.send(mapped);
+                                if let Some(mapped) = gate.pass(mapped) {
+                                    persist_event(&store, &thread_id, &mapped);
+                                    let _ = events.send(mapped);
+                                }
                             }
                         }
                     }
@@ -660,6 +675,12 @@ async fn run_claude(
                         });
                         break;
                     }
+                }
+            }
+            _ = tokio::time::sleep_until(release_at.unwrap_or_else(tokio::time::Instant::now)), if release_at.is_some() => {
+                if let Some(held) = gate.release() {
+                    persist_event(&store, &thread_id, &held);
+                    let _ = events.send(held);
                 }
             }
             Some((request_id, answer)) = mcp_rx.recv() => {
@@ -834,6 +855,133 @@ mod tests {
         )
     }
 
+    /// Starts a real Haiku session and has it launch one background agent, returning the
+    /// session's events once they begin.
+    async fn live_background_agent(
+        thread_id: &str,
+    ) -> (EngineRegistry, broadcast::Receiver<AgentEvent>) {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .upsert_thread(&crate::store::types::ThreadRow {
+                id: thread_id.into(),
+                workspace_id: "live-workspace".into(),
+                title: "Lead".into(),
+                engine: "claude".into(),
+                session_id: None,
+                status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
+            })
+            .unwrap();
+        store.set_thread_model(thread_id, Some("haiku")).unwrap();
+        let engines = EngineRegistry::new(
+            Arc::new(RwLock::new(ShellEnv::new())),
+            Arc::new(ApprovalBroker::new()),
+            store.clone(),
+            test_mcp(store),
+            broadcast::channel(4).0,
+            broadcast::channel(8).0,
+        );
+        engines
+            .spawn(SpawnSpec {
+                thread_id: thread_id.into(),
+                kind: EngineKind::Claude,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: None,
+                auto_approve_readonly: false,
+                auto_approve_all: true,
+                read_only: false,
+            })
+            .await
+            .unwrap();
+        let events = engines.subscribe(thread_id).unwrap();
+        engines
+            .prompt(
+                thread_id,
+                "Use the Agent tool with run_in_background set to true and subagent_type \
+                 general-purpose. Its prompt: run the Bash command \
+                 `python3 -c \"import time; time.sleep(15)\"` in the foreground, then reply ok. \
+                 Once it is launched, end your turn with the single word launched.",
+            )
+            .unwrap();
+        (engines, events)
+    }
+
+    async fn next_live_event(events: &mut broadcast::Receiver<AgentEvent>) -> AgentEvent {
+        tokio::time::timeout(Duration::from_secs(120), events.recv())
+            .await
+            .expect("an event within 120s")
+            .unwrap()
+    }
+
+    /// Needs a signed-in `claude` on PATH, and spends a few small Haiku turns.
+    #[tokio::test]
+    #[ignore]
+    async fn live_claude_holds_the_turn_for_a_background_agent() {
+        let (engines, mut events) = live_background_agent("live-bg").await;
+        let mut agent = None;
+        let mut agent_finished = false;
+        loop {
+            match next_live_event(&mut events).await {
+                AgentEvent::ToolCall { id, name, .. } if name.as_deref() == Some("Agent") => {
+                    agent = Some(id);
+                }
+                AgentEvent::ToolCallUpdate { id, status, .. }
+                    if Some(&id) == agent.as_ref() && status.is_some() =>
+                {
+                    agent_finished = true;
+                }
+                AgentEvent::TurnEnd { .. } => break,
+                _ => {}
+            }
+        }
+        engines.stop("live-bg").await.unwrap();
+        assert!(agent.is_some(), "never launched an agent");
+        assert!(agent_finished, "turn ended before its agent did");
+    }
+
+    /// Needs a signed-in `claude` on PATH, and spends a few small Haiku turns.
+    #[tokio::test]
+    #[ignore]
+    async fn live_claude_stop_reaches_a_background_agent() {
+        let (engines, mut events) = live_background_agent("live-stop").await;
+        let mut agent = None;
+        // The agent's first step means it is under way and the main turn is wrapping up.
+        loop {
+            match next_live_event(&mut events).await {
+                AgentEvent::ToolCall { id, name, .. } if name.as_deref() == Some("Agent") => {
+                    agent = Some(id);
+                }
+                AgentEvent::ToolCall { parent_id, .. } if parent_id.is_some() => break,
+                AgentEvent::TurnEnd { .. } => panic!("turn ended before its agent did"),
+                _ => {}
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        engines.cancel("live-stop").unwrap();
+        // A foreground sleep this long would still be going if nothing reached the agent.
+        let stopped = tokio::time::timeout(Duration::from_secs(8), async {
+            loop {
+                if let AgentEvent::ToolCallUpdate { id, status, .. } =
+                    next_live_event(&mut events).await
+                    && Some(&id) == agent.as_ref()
+                    && status.is_some()
+                {
+                    break;
+                }
+            }
+        })
+        .await;
+        engines.stop("live-stop").await.unwrap();
+        assert!(stopped.is_ok(), "the agent kept running after Stop");
+    }
+
     /// Needs a signed-in `claude` on PATH, and spends one small Haiku turn.
     #[tokio::test]
     #[ignore]
@@ -944,6 +1092,45 @@ mod tests {
             .expect("turn end within 10s")
             .unwrap();
         assert_eq!(thread_id, "t-idle");
+    }
+
+    #[tokio::test]
+    async fn a_turn_ends_only_after_its_background_agents_do() {
+        let env = Arc::new(RwLock::new(ShellEnv::new()));
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        let (turn_end_notify, mut turn_ends) = broadcast::channel(8);
+        let engines = EngineRegistry::new(
+            env,
+            Arc::new(ApprovalBroker::new()),
+            store.clone(),
+            test_mcp(store),
+            broadcast::channel(4).0,
+            turn_end_notify,
+        );
+        engines
+            .spawn(SpawnSpec {
+                thread_id: "t-bg".into(),
+                kind: EngineKind::Claude,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: Some(mock_claude_argv()),
+                auto_approve_readonly: true,
+                auto_approve_all: true,
+                read_only: false,
+            })
+            .await
+            .unwrap();
+        engines.prompt("t-bg", "background agent").unwrap();
+        // The mock's first turn finishes at once; its agent takes a moment longer.
+        let early =
+            tokio::time::timeout(std::time::Duration::from_millis(300), turn_ends.recv()).await;
+        assert!(early.is_err(), "turn ended with an agent still running");
+        let thread_id = tokio::time::timeout(std::time::Duration::from_secs(10), turn_ends.recv())
+            .await
+            .expect("turn end within 10s")
+            .unwrap();
+        assert_eq!(thread_id, "t-bg");
     }
 
     #[test]
