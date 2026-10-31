@@ -54,8 +54,7 @@
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { settings } from '$lib/state/settings.svelte'
-  import { contextPercent, usageSummary, usageTrend } from '$lib/usage/usage'
-  import UsageSparkline from './UsageSparkline.svelte'
+  import { contextPercent, usageSummary } from '$lib/usage/usage'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { sendThreadMessage } from '$lib/thread/send-message'
   import {
@@ -67,7 +66,6 @@
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
-  import { agentName } from '$lib/agent-name'
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import FileText from '@lucide/svelte/icons/file-text'
@@ -122,7 +120,6 @@
   /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
   let historyIndex = $state<number | null>(null)
 
-  const name = $derived(agentName(thread.id))
   const draft = $derived(composerDrafts.textFor(thread.id))
   const showPause = $derived(composerShowsPauseControl(thread.status))
   const pauseLabel = $derived(composerPauseLabel(thread.status, thread.paused))
@@ -130,9 +127,6 @@
   // Only how full the context is; tokens and cost are in the thread tab's tooltip.
   const contextFill = $derived(contextPercent(thread.usage))
   const usageDetail = $derived(usageSummary(thread.usage).detail)
-  const usagePoints = $derived(
-    usageTrend(threadTimeline.eventsByThread[thread.id] ?? []),
-  )
   const canStartNewSession = $derived(
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
@@ -144,7 +138,7 @@
   const canAttach = $derived(!onSubmit)
   let draggingFiles = $state(false)
 
-  // Typing `/` anywhere opens the skill picker. Skills are Claude Code's, so other engines skip it.
+  // Typing `/` anywhere opens the skill picker.
   let skills = $state<Skill[] | null>(null)
   let skillsThreadId: string | null = null
   let pickerIndex = $state(0)
@@ -152,11 +146,7 @@
   let pickerDismissed = $state(false)
   /** Where the caret is in the draft; the picker follows the `/` or `@` word it's in. */
   let caret = $state(0)
-  const token = $derived(
-    thread.engine === 'claude'
-      ? skillToken(draft, Math.min(caret, draft.length))
-      : null,
-  )
+  const token = $derived(skillToken(draft, Math.min(caret, draft.length)))
   const query = $derived(token?.query ?? null)
   const skillMatches = $derived(
     query !== null && skills ? filterSkills(skills, query) : [],
@@ -798,7 +788,7 @@
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      placeholder={placeholder ?? `Message ${name}…`}
+      placeholder={placeholder ?? `Message ${thread.role}…`}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'composer-picker' : undefined}
@@ -844,9 +834,6 @@
           </Button>
         {/if}
         {#if contextFill != null}
-          {#if usagePoints.length >= 3}
-            <UsageSparkline points={usagePoints} />
-          {/if}
           <span
             class="shrink-0 font-mono text-[10px] text-muted-foreground/80 tabular-nums"
             data-od-id="composer-usage"
@@ -894,9 +881,7 @@
         class="composer-hint text-[10px] text-muted-foreground/80"
         aria-hidden="true"
       >
-        {#if thread.engine === 'claude'}
-          <kbd class="rounded border border-border/60 px-1">/</kbd> skills
-        {/if}
+        <kbd class="rounded border border-border/60 px-1">/</kbd> skills
         {#if repos.items.length}
           <kbd class="rounded border border-border/60 px-1">@</kbd> repos
         {/if}

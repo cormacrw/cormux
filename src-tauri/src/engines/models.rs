@@ -7,7 +7,7 @@ use super::events::EngineKind;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelOption {
-    /// What the engine is told: a `--model` alias for Claude, an ACP config value otherwise.
+    /// What the engine is told: a `--model` alias for Claude.
     pub id: String,
     pub label: String,
 }
@@ -21,7 +21,6 @@ pub struct ThreadModels {
 }
 
 /// Claude Code takes these aliases for `--model` and resolves them to the latest of each family.
-/// ACP engines list their own models once a session starts.
 pub fn static_models(kind: EngineKind) -> Vec<ModelOption> {
     match kind {
         EngineKind::Claude => [
@@ -36,6 +35,5 @@ pub fn static_models(kind: EngineKind) -> Vec<ModelOption> {
             label: label.into(),
         })
         .collect(),
-        EngineKind::Codex | EngineKind::Gemini => Vec::new(),
     }
 }

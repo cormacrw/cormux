@@ -55,8 +55,6 @@ Starting parallel work must be fast and safe. One dialog covers everything neede
    | Engine | Hint |
    | --- | --- |
    | Claude Code | `Edits files directly and asks before risky steps` |
-   | Codex CLI | `Works through the task in a sandbox and proposes a diff` |
-   | Gemini CLI | `Reads widely across the repo before suggesting changes` |
 
 **Row 4 (full width, last):**
 
@@ -151,7 +149,7 @@ title        workspace name
 branch       branch name
 repo         selected repo id
 base         base branch
-engine       'claude' | 'codex' | 'gemini'
+engine       'claude'
 goal         the initial prompt
 status       'provisioning'
 activity     'Running worktree setup…'

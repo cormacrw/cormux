@@ -60,6 +60,9 @@ pub enum ControlRequest {
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<String>,
     },
+    /// Interrupting only reaches the main turn; a background task has to be stopped by name.
+    #[serde(rename = "stop_task")]
+    StopTask { task_id: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -138,6 +141,15 @@ pub enum Event {
     ControlResponse {
         request_id: String,
         ok: bool,
+    },
+    /// The background subagents still running, re-sent whole each time the set changes.
+    BackgroundAgents {
+        task_ids: Vec<String>,
+    },
+    /// A background task finished, naming the tool call that started it.
+    TaskEnded {
+        tool_use_id: String,
+        failed: bool,
     },
     Other {
         type_name: String,
@@ -219,6 +231,13 @@ pub fn set_model_request(request_id: impl Into<String>, model: Option<String>) -
     }
 }
 
+pub fn stop_task_request(request_id: impl Into<String>, task_id: String) -> StdinMessage {
+    StdinMessage::ControlRequest {
+        request_id: request_id.into(),
+        request: ControlRequest::StopTask { task_id },
+    }
+}
+
 pub fn permission_response(
     request_id: impl Into<String>,
     decision: PermissionDecision,
@@ -263,6 +282,26 @@ pub fn decode_event(line: &str) -> Result<Event> {
                     .get("permissionMode")
                     .and_then(Value::as_str)
                     .map(str::to_string),
+            })
+        }
+        "system"
+            if value.get("subtype").and_then(Value::as_str) == Some("background_tasks_changed") =>
+        {
+            Ok(Event::BackgroundAgents {
+                task_ids: background_agent_ids(&value),
+            })
+        }
+        "system"
+            if value.get("subtype").and_then(Value::as_str) == Some("task_notification")
+                && value.get("tool_use_id").is_some_and(Value::is_string) =>
+        {
+            Ok(Event::TaskEnded {
+                tool_use_id: value
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                failed: value.get("status").and_then(Value::as_str) == Some("failed"),
             })
         }
         "assistant" => Ok(Event::Assistant {
@@ -420,7 +459,31 @@ fn assistant_blocks(value: &Value) -> Vec<AssistantBlock> {
         .collect()
 }
 
+/// Only agents count: a background shell can be a dev server that never exits.
+fn background_agent_ids(value: &Value) -> Vec<String> {
+    let tasks = value.get("tasks").and_then(Value::as_array);
+    tasks
+        .into_iter()
+        .flatten()
+        .filter(|task| {
+            task.get("task_type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind.ends_with("_agent"))
+        })
+        .filter_map(|task| Some(task.get("task_id")?.as_str()?.to_string()))
+        .collect()
+}
+
 fn tool_results(value: &Value) -> Vec<ToolResult> {
+    // A background agent answers its tool call as soon as it launches. Its step is still
+    // running, and `Event::TaskEnded` closes it.
+    if value
+        .pointer("/tool_use_result/status")
+        .and_then(Value::as_str)
+        == Some("async_launched")
+    {
+        return Vec::new();
+    }
     content_blocks(value)
         .iter()
         .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_result"))
@@ -676,5 +739,50 @@ mod tests {
         assert!(output.len() <= TOOL_OUTPUT_LIMIT);
         assert!(output.ends_with("é summary"));
         assert_eq!(tool_output(Some(&json!(""))), None);
+    }
+
+    #[test]
+    fn only_background_agents_count_as_running() {
+        let event = decode_event(
+            r#"{"type":"system","subtype":"background_tasks_changed","tasks":[
+                {"task_id":"a1","task_type":"local_agent"},
+                {"task_id":"b1","task_type":"local_bash"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            event,
+            Event::BackgroundAgents {
+                task_ids: vec!["a1".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_background_agent_stays_open_until_its_notification() {
+        let launched = decode_event(
+            r#"{"type":"user","tool_use_result":{"status":"async_launched"},"message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"launched"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(launched, Event::ToolResults(Vec::new()));
+
+        let ended = decode_event(
+            r#"{"type":"system","subtype":"task_notification","task_id":"a1","tool_use_id":"toolu_1","status":"failed"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            ended,
+            Event::TaskEnded {
+                tool_use_id: "toolu_1".into(),
+                failed: true,
+            }
+        );
+    }
+
+    #[test]
+    fn stopping_a_task_names_it() {
+        let line = encode_line(&stop_task_request("stop-1", "a1".into())).unwrap();
+        let value: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(value["request"]["subtype"], "stop_task");
+        assert_eq!(value["request"]["task_id"], "a1");
     }
 }

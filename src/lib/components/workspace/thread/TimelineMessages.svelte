@@ -4,7 +4,6 @@
   import TaskDraftCards from './TaskDraftCards.svelte'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
-  import Buddy from '$lib/components/buddy/Buddy.svelte'
   import ThoughtMarkdown from './ThoughtMarkdown.svelte'
   import {
     formatThreadTime,
@@ -30,6 +29,7 @@
   import StreamingText from './StreamingText.svelte'
   import { openDiffForPath } from './open-changes'
   import ApprovalCard from './ApprovalCard.svelte'
+  import QuestionCard from './QuestionCard.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import Check from '@lucide/svelte/icons/check'
   import Clock from '@lucide/svelte/icons/clock'
@@ -57,8 +57,6 @@
     liveTitle,
     liveSubtitle,
     paused,
-    buddyColor,
-    glasses = false,
     entries,
     liveReplyId = null,
     onOpenFindings,
@@ -72,8 +70,6 @@
     liveTitle: string
     liveSubtitle: string
     paused: boolean
-    buddyColor: string
-    glasses?: boolean
     /** Rows new to this thread pop in and replies type out; omit to render without motion. */
     entries?: EntryScope
     /** The reply the agent is still writing keeps its typing cursor. */
@@ -395,13 +391,6 @@
       data-row-key={row.id}
       use:popIn={{ entries, key: row.id }}
     >
-      <Buddy
-        mood="running"
-        color={buddyColor}
-        {glasses}
-        breathe={false}
-        size={20}
-      />
       {#if row.role}
         <span class="font-medium text-foreground">{row.role}</span>
         <span>{engine}</span>
@@ -603,6 +592,14 @@
             </ol>
           </Card.Content>
         </Card.Root>
+      {:else if item.kind === 'approval' && item.questions.length > 0}
+        <QuestionCard
+          {item}
+          {nowMs}
+          timeLabel={timeLabel(item.atMs)}
+          timeTitle={timeTitle(item.atMs)}
+          {onFocusComposer}
+        />
       {:else if item.kind === 'approval'}
         <ApprovalCard
           {item}

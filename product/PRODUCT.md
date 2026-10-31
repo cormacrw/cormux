@@ -30,7 +30,7 @@ Success means the user can keep several workspaces moving at once and always kno
 
 **(inferred, unconfirmed)** Cormux sits above individual agent CLIs rather than competing with them:
 
-- **Engine-agnostic:** every thread picks an engine. Cormux drives the CLIs the user already has installed and signed in to, so it never handles their model accounts. **For now:** Claude Code only. Cursor CLI was dropped; the Codex and Gemini ACP adapters stay in the core but aren't offered in the app.
+- **Engine-agnostic:** every thread picks an engine. Cormux drives the CLIs the user already has installed and signed in to, so it never handles their model accounts. **For now:** Claude Code only. Cursor CLI was dropped.
 - **Isolation by default:** one worktree and branch per workspace, so parallel agents never share a checkout.
 - **The whole lifecycle in one place:** worktree setup, running the app, diffs, PR creation, PR review and teardown, not just the chat.
 - **Local and light:** a small native app (about 10 MB) that runs everything on the user's machine with their own git and credentials.
@@ -39,7 +39,7 @@ Success means the user can keep several workspaces moving at once and always kno
 
 - Work is organized by **repo**, then **thread**. Every thread has its own worktree and branch: a workspace and its one thread are the same thing to the user.
 - The **sidebar** is a flat list of threads, each showing its repo and branch. Any thread that isn't working flashes an orange dot and sits on top, longest wait first, because it should be prompted or closed. Working threads move into a collapsible Working section below, by recent activity, but only once you leave them: the thread you're on stays in the main list. Rows animate as they move.
-- The **first page is an empty thread**. There is no creation dialog: typing the first message there, with a repo and base branch picked in the prompt bar, spawns the worktree and opens the thread.
+- The **first page is an empty thread**. There is no creation dialog: typing the first message there, with a repo picked in the prompt bar, spawns the worktree off the repo's default branch and opens the thread. If the prompt names another branch or earlier work, the agent starts from that instead.
 - Repo pages and PR reviews open from the command palette.
 - Inside a thread, the **agent conversation is the main surface**. Git, Output and Findings are buttons in the header that slide out over it. The file tree and editor are deliberately secondary for now.
 - Threads from before this model (a workspace's older threads, and old scratches) stay readable but can't be continued.
@@ -61,7 +61,7 @@ The confirmed stack. Details, module boundaries and the feature-by-feature check
 
 What this means for the product:
 
-- **Agents are driven through structured protocols, not a terminal.** Each thread's CLI talks to Cormux in JSON (the Agent Client Protocol, or Claude Code's stream-JSON), which is what lets Cormux show tool steps, edits, plans and approval cards instead of raw terminal output. Setup and run commands do run in a terminal-like PTY, so the Output tab shows real colourised output.
+- **Agents are driven through structured protocols, not a terminal.** Each thread's CLI talks to Cormux in JSON (Claude Code's stream-JSON), which is what lets Cormux show tool steps, edits, plans and approval cards instead of raw terminal output. Setup and run commands do run in a terminal-like PTY, so the Output tab shows real colourised output.
 - **Cormux uses the user's own tools and credentials.** It runs the system `git` with the user's config and SSH keys, spawns commands in the user's login shell environment (so `nvm`, `asdf`, `pnpm` and `uv` work), and keeps the GitHub token in the macOS Keychain.
 - **The Rust core owns the truth.** The interface can reload without losing work, and agent sessions resume after Cormux restarts where the engine allows it.
 - **Memory is mostly the agents.** The core is light, but each agent CLI uses 150 to 400 MB. The memory meter reports that honestly.
@@ -70,13 +70,13 @@ What this means for the product:
 
 Shown in the prototype, all simulated there, and all supported by the stack:
 
-- Create a workspace from a repo, base branch, engine and an initial prompt. The workspace name and branch are drafted from the prompt.
+- Create a workspace from a repo, engine and an initial prompt. The workspace name and branch are drafted from the prompt, then Haiku replaces both with better ones; the branch is settled before its worktree is created.
 - Per-repo config: worktree setup commands (one per line, run in order before the agent starts) and a run command.
 - Run, restart and stop the app from the workspace header, with output in an Output tab. Each workspace's app gets its own port.
 - Switch a workspace's branch, which is locked while any agent is running. Pull and rebase onto the base branch.
 - Create PR, with the "why is this change necessary" text drafted by a small model call.
 - Review a PR in its own workspace, pick findings to fix, and submit the review.
-- Teardown, optionally deleting the branch (on by default).
+- Teardown, optionally deleting the branch (on by default, unless it holds commits nothing else has). It only asks first when the worktree has uncommitted changes.
 - A command palette, and Settings for Agents, Repos, General and Skills.
 
 Required by a real build, and missing from the prototype:
@@ -100,7 +100,7 @@ Recorded from the shipped build (epic COR-31). Technical detail in [`ARCHITECTUR
 
 | ID | Decision |
 | --- | --- |
-| COR-207 | **Engines at launch:** Claude Code only. Cursor CLI was dropped; existing Cursor threads carry on as Claude threads. The Codex and Gemini ACP adapters are in the core but not offered in the app. |
+| COR-207 | **Engines at launch:** Claude Code only. Cursor CLI was dropped; existing Cursor threads carry on as Claude threads. |
 | COR-208 | **GitHub:** Personal access token in macOS Keychain (Settings), with optional fallback to `gh auth token` when no PAT is stored. Submit review posts **line comments** for findings that have file and line; others go in the review body. |
 | COR-209 | **Small model:** One-shot calls through the installed Claude CLI (`haiku`) using the user's existing Claude sign-in. Optional Anthropic API key in Keychain if set. No separate API key required for MVP. |
 | COR-210 | **Quit:** On exit, the process supervisor runs `stop_all` (app and setup PTYs). Agent engines get a **5s graceful shutdown** on workspace teardown; nothing is left running in the background after Cormux quits. |

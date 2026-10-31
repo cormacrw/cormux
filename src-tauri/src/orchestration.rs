@@ -11,6 +11,7 @@ use crate::ipc::types::CreateWorkspaceInput;
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::{ThreadRow, WorkspaceRow};
+use crate::workspace::WorkspaceLifecycle;
 
 /// A parent's children still doing something, past which `create_thread` refuses.
 pub const MAX_ACTIVE_CHILDREN: usize = 5;
@@ -18,6 +19,8 @@ pub const MAX_ACTIVE_CHILDREN: usize = 5;
 const REPLY_LIMIT: usize = 8_000;
 const READ_PAGE_EVENTS: i64 = 200;
 const READ_PAGE_CHARS: usize = 20_000;
+
+const CLOSED_THREADS_LIMIT: i64 = 50;
 
 const FAILED: &str = "provisioningFailed";
 
@@ -52,7 +55,9 @@ fn caller_repo(store: &Store, caller: &ThreadRow) -> Result<String> {
 }
 
 fn thread_status(thread: &ThreadRow, workspace: &WorkspaceRow) -> String {
-    if workspace.status == FAILED {
+    if workspace.archived_at.is_some() {
+        "closed".into()
+    } else if workspace.status == FAILED {
         FAILED.into()
     } else {
         thread.status.clone()
@@ -72,9 +77,25 @@ pub fn list_threads(store: &Store, caller_id: &str, scope: Option<&str>) -> Resu
     let children_only = match scope.unwrap_or("children") {
         "children" => true,
         "repo" => false,
+        "closed" => {
+            let threads: Vec<Value> = store
+                .closed_threads(&repo, CLOSED_THREADS_LIMIT)?
+                .into_iter()
+                .map(|(thread, workspace)| {
+                    json!({
+                        "id": thread.id,
+                        "title": workspace.name,
+                        "status": thread_status(&thread, &workspace),
+                        "branch": workspace.branch,
+                        "closedAt": workspace.archived_at,
+                    })
+                })
+                .collect();
+            return Ok(json!({ "threads": threads }));
+        }
         other => {
             return Err(Error::Mcp(format!(
-                "scope must be children or repo, not {other}"
+                "scope must be children, repo or closed, not {other}"
             )));
         }
     };
@@ -254,14 +275,7 @@ fn draft_branch(goal: &str, taken: &[String]) -> String {
     } else {
         "feat"
     };
-    let name = format!("{prefix}/{}", slug(goal));
-    let mut candidate = name.clone();
-    let mut n = 2;
-    while taken.contains(&candidate) {
-        candidate = format!("{name}-{n}");
-        n += 1;
-    }
-    candidate
+    crate::naming::unique_branch(&format!("{prefix}/{}", slug(goal)), taken)
 }
 
 pub struct NewThread {
@@ -321,7 +335,7 @@ pub async fn create_thread(app: &AppHandle, caller_id: &str, new: NewThread) -> 
         &started.thread_id,
         &format!("Started by {title}"),
     );
-    Ok(json!({ "id": started.thread_id, "branch": started.branch, "base": started.base }))
+    Ok(json!({ "id": started.thread_id, "base": started.base }))
 }
 
 pub async fn send_to_thread(
@@ -508,16 +522,38 @@ pub async fn on_provisioning_failed(
     Ok(())
 }
 
+/// The thread, unless it's retired or its workspace was closed.
+fn continuing_thread(store: &Store, thread_id: &str) -> Option<ThreadRow> {
+    let thread = store.thread_by_id(thread_id).ok()??;
+    let workspace = store.workspace_by_id(&thread.workspace_id).ok()??;
+    (!thread.retired && workspace.archived_at.is_none()).then_some(thread)
+}
+
+/// The parent to report to, having dropped its reports if it can't continue. Teardown stops the
+/// engine well before it archives the workspace, and a report must not start a new one.
+async fn reportable_parent(state: &AppState, parent_id: &str) -> Option<ThreadRow> {
+    let parent = continuing_thread(&state.store, parent_id);
+    let tearing_down = match &parent {
+        Some(parent) => state
+            .workspace
+            .get(&parent.workspace_id)
+            .await
+            .is_some_and(|row| row.status == WorkspaceLifecycle::TearingDown),
+        None => false,
+    };
+    if parent.is_none() || tearing_down {
+        state.reports.take(parent_id);
+        return None;
+    }
+    parent
+}
+
 /// One prompt for everything waiting, once the parent is idle. A busy parent gets it from its
 /// own turn end; one that can't continue never will, so its reports are dropped.
 async fn deliver(app: &AppHandle, parent_id: &str) {
     let state = app.state::<AppState>();
-    let parent = match state.store.thread_by_id(parent_id) {
-        Ok(Some(parent)) if !parent.retired => parent,
-        _ => {
-            state.reports.take(parent_id);
-            return;
-        }
+    let Some(parent) = reportable_parent(&state, parent_id).await else {
+        return;
     };
     if parent.status != "idle" {
         return;
@@ -550,6 +586,11 @@ mod tests {
 
     fn store() -> Store {
         let store = Store::new();
+        seed(&store);
+        store
+    }
+
+    fn seed(store: &Store) {
         store.open_in_memory().unwrap();
         for repo in ["r1", "r2"] {
             store
@@ -564,7 +605,6 @@ mod tests {
                 })
                 .unwrap();
         }
-        store
     }
 
     fn add_thread(store: &Store, id: &str, repo: &str, parent: Option<&str>, status: &str) {
@@ -662,6 +702,31 @@ mod tests {
         let thread = get_thread(&store, "parent", "child").unwrap();
         assert_eq!(thread["lastReply"], "All done.");
         assert_eq!(thread["status"], FAILED);
+    }
+
+    #[test]
+    fn closed_threads_stay_listed_and_readable_in_their_repo() {
+        let store = store();
+        add_thread(&store, "me", "r1", None, "idle");
+        add_thread(&store, "done", "r1", None, "idle");
+        add_thread(&store, "open", "r1", None, "idle");
+        add_thread(&store, "elsewhere", "r2", None, "idle");
+        store.archive_workspace("w-done").unwrap();
+        store.archive_workspace("w-elsewhere").unwrap();
+
+        let listed = list_threads(&store, "me", Some("closed")).unwrap();
+        let threads = listed["threads"].as_array().unwrap();
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0]["id"], "done");
+        assert_eq!(threads[0]["branch"], "feat/done");
+        assert_eq!(threads[0]["status"], "closed");
+        assert!(threads[0]["closedAt"].is_string());
+
+        assert_eq!(
+            get_thread(&store, "me", "done").unwrap()["status"],
+            "closed"
+        );
+        assert!(read_thread(&store, "me", "done", 0).is_ok());
     }
 
     #[test]
@@ -785,6 +850,75 @@ mod tests {
         let bodies: Vec<String> = queue.take("p").into_iter().map(|row| row.body).collect();
         assert_eq!(bodies, ["other", "second"]);
         assert!(queue.take("p").is_empty());
+    }
+
+    #[test]
+    fn only_a_thread_that_can_continue_takes_reports() {
+        let store = store();
+        add_thread(&store, "open", "r1", None, "idle");
+        add_thread(&store, "running", "r1", None, "running");
+        add_thread(&store, "killed", "r1", None, "running");
+        add_thread(&store, "retired", "r1", None, "idle");
+        store.archive_workspace("w-killed").unwrap();
+        let mut retired = store.thread_by_id("retired").unwrap().unwrap();
+        retired.retired = true;
+        store.upsert_thread(&retired).unwrap();
+
+        assert!(continuing_thread(&store, "open").is_some());
+        assert!(continuing_thread(&store, "running").is_some());
+        assert!(continuing_thread(&store, "killed").is_none());
+        assert!(continuing_thread(&store, "retired").is_none());
+        assert!(continuing_thread(&store, "unknown").is_none());
+    }
+
+    /// `deliver` needs an `AppHandle`, so this runs the check it starts with, then the engine
+    /// start that check now keeps it from.
+    async fn assert_no_ghost(state: &AppState) {
+        assert!(reportable_parent(state, "parent").await.is_none());
+        let engine =
+            crate::provisioning::ensure_thread_engine(state, "parent", "claude", "w-parent").await;
+        assert!(engine.is_err());
+        assert!(!state.engines.has_thread("parent"));
+        assert!(state.reports.take("parent").is_empty());
+    }
+
+    fn family(state: &AppState) {
+        seed(&state.store);
+        add_thread(&state.store, "parent", "r1", None, "idle");
+        add_thread(&state.store, "child", "r1", Some("parent"), "idle");
+        state.reports.push("parent", report("child", "done"));
+    }
+
+    #[tokio::test]
+    async fn a_child_finishing_after_its_parent_was_killed_leaves_no_ghost() {
+        let state = AppState::new();
+        family(&state);
+        state.store.archive_workspace("w-parent").unwrap();
+        assert_no_ghost(&state).await;
+        assert!(state.workspace.list().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_child_finishing_while_its_parent_is_killed_starts_no_engine() {
+        let state = AppState::new();
+        family(&state);
+        let row = state.store.workspace_by_id("w-parent").unwrap().unwrap();
+        let mut record = crate::git_workspace::resolve_record(&state, "w-parent", &row)
+            .await
+            .unwrap();
+        record.status = WorkspaceLifecycle::TearingDown;
+        state.workspace.remember(record).await;
+        assert_no_ghost(&state).await;
+    }
+
+    #[tokio::test]
+    async fn reports_wait_for_a_parent_that_can_continue() {
+        let state = AppState::new();
+        seed(&state.store);
+        add_thread(&state.store, "parent", "r1", None, "running");
+        state.reports.push("parent", report("child", "done"));
+        assert!(reportable_parent(&state, "parent").await.is_some());
+        assert_eq!(state.reports.take("parent").len(), 1);
     }
 
     #[test]

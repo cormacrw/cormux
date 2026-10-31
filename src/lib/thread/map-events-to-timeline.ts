@@ -144,6 +144,8 @@ function approvalFromPermission(
     noLabel: payload?.noLabel ?? 'Deny',
     state,
     doneAtMs: payload?.resolvedAtMs ?? null,
+    questions: payload?.questions ?? [],
+    answers: payload?.answers ?? {},
     seq,
     atMs,
   }
@@ -276,11 +278,11 @@ function withRunResult(
   return run ? { ...step, run, output } : step
 }
 
-// ACP engines title a shell step with the whole command in backticks; Claude titles it `Bash`.
+// A shell step's title is its command, unless it only repeats the tool's name.
 function commandText(event: Extract<AgentEvent, { type: 'toolCall' }>): string {
   const title = event.title.trim()
   if (event.name && title === event.name) return ''
-  return title.replace(/^`+|`+$/g, '').trim()
+  return title
 }
 
 function commandStep(
@@ -326,7 +328,7 @@ function flushRun(
 
 type TimelineEvent = MapTimelineInput['events'][number] & { output?: string }
 
-// Engines fill in a tool call after announcing it (an ACP edit's path comes later),
+// Engines fill in a tool call after announcing it,
 // so fold each update into the call it belongs to.
 function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
   const merged: TimelineEvent[] = []
@@ -334,8 +336,8 @@ function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
   for (const entry of events) {
     const { event } = entry
     if (event.type === 'toolCall') {
-      // A repeated id is the same call again (a session/load replay stored before that was
-      // fixed); keep the first so step ids, which key the rendered list, stay unique.
+      // A repeated id is the same call again (a replay stored by an older
+      // build); keep the first so step ids, which key the rendered list, stay unique.
       if (callIndex.has(event.id)) continue
       callIndex.set(event.id, merged.length)
       merged.push(entry)
@@ -434,7 +436,9 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
           break
         }
         // The plan's own row stands for the request to leave plan mode.
-        if ((event.name ?? event.title) === 'ExitPlanMode') break
+        const toolName = event.name ?? event.title
+        // Both show up as their approval card, never as a step.
+        if (toolName === 'ExitPlanMode' || toolName === 'AskUserQuestion') break
         if (!toolKindIsRunStep(event.kind)) break
         if (!run.length) runSeq = seq
         const scratchRead =
@@ -533,7 +537,7 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
 
   flushRun(run, items, runSeq, nextId)
 
-  // An ACP engine can stream the answer inside the thought, then again as the reply.
+  // A thought right before the reply can hold the answer too, so the reply stands alone.
   const visible = items.filter((item, index) => {
     const next = items[index + 1]
     return !(

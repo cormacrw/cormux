@@ -2,9 +2,6 @@
   import { formatRelativeAge } from '$lib/homebase/relative-time'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import Buddy from '$lib/components/buddy/Buddy.svelte'
-  import { agentName } from '$lib/agent-name'
-  import { buddyColor, buddyMoodForThread } from '$lib/buddy'
   import { engineDisplayName } from '$lib/sidebar/engine'
   let {
     thread,
@@ -17,9 +14,6 @@
   } = $props()
 
   const isLead = $derived(thread.role === 'Lead')
-  const mood = $derived(buddyMoodForThread(thread))
-  const color = $derived(buddyColor(thread.id))
-  const name = $derived(agentName(thread.id))
   const engineName = $derived(engineDisplayName(thread.engine))
 
   const summaryAge = $derived.by(() => {
@@ -29,14 +23,9 @@
 </script>
 
 <header class="thread-intro space-y-4 pb-2" data-od-id="thread-intro">
-  <div class="flex items-start gap-3">
-    <Buddy {mood} {color} glasses={thread.role === 'Reviewer'} size={36} />
-    <div class="min-w-0 space-y-1">
-      <h2 class="text-lg font-semibold tracking-tight">{name}</h2>
-      <p class="text-sm text-muted-foreground">
-        {engineName} · {thread.role}
-      </p>
-    </div>
+  <div class="min-w-0 space-y-1">
+    <h2 class="text-lg font-semibold tracking-tight">{thread.role}</h2>
+    <p class="text-sm text-muted-foreground">{engineName}</p>
   </div>
 
   {#if isLead && workspace.summary?.trim()}

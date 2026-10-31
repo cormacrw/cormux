@@ -165,6 +165,14 @@ async resolveApproval(id: string, approved: boolean, denyReason: string | null) 
     else return { status: "error", error: e  as any };
 }
 },
+async answerQuestion(id: string, answers: Partial<{ [key in string]: string }>) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("answer_question", { id, answers }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async resolveAllApprovals(threadId: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_all_approvals", { threadId, approved, denyReason }) };
@@ -824,9 +832,9 @@ export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff
 export type DismissWorkspaceFindingsInput = { workspaceId: string; findingIds: string[]; dismissed: boolean }
 export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean }
 /**
- * Engines Harness can spawn. Launch is Claude; Codex and Gemini share ACP.
+ * Engines Harness can spawn.
  */
-export type EngineKind = "claude" | "codex" | "gemini"
+export type EngineKind = "claude"
 export type EngineStatus = { kind: EngineKind; installed: boolean; binary: string | null; version: string | null; signedIn: boolean | null }
 /**
  * Shared error type for the Rust core. Serialised as a tagged union so the
@@ -856,7 +864,7 @@ export type MessageRole = "user" | "agent" | "thought"
  */
 export type ModelOption = { 
 /**
- * What the engine is told: a `--model` alias for Claude, an ACP config value otherwise.
+ * What the engine is told: a `--model` alias for Claude.
  */
 id: string; label: string }
 export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
@@ -1021,7 +1029,7 @@ threadId: string | null }
 export type ToastTone = "ok" | "bad" | "default"
 export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
 /**
- * ACP `ToolKind`, owned so adapters and IPC do not depend on the protocol crate.
+ * What a tool call does, whichever tool made it.
  */
 export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other"
 export type WorkspaceAppControlAction = "run" | "restart" | "stop" | "clear"

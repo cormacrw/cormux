@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
-test('the composer picks a model per thread when the engine lists some', async ({
-  page,
-}) => {
+test('the composer picks a model per thread', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   mkdirSync('e2e/output', { recursive: true })

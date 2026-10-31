@@ -39,7 +39,6 @@ Parallel work creates clutter: worktrees on disk, stale branches, idle agents ho
    - The workspace is removed from the list.
    - If Homebase is showing, the card fades out over about 150ms first.
    - If the torn-down workspace was open, the app navigates to Homebase; otherwise the current view re-renders.
-   - Toast (danger tone): `Tore down <name> and deleted <branch>` or `Tore down <name>`.
 3. On **Cancel**, `Esc`, × or backdrop click: nothing happens.
 
 ### Side effects elsewhere

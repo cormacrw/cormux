@@ -14,17 +14,25 @@
 //! - An `sdk` server in `--mcp-config`, also named as `sdkMcpServers` in `initialize`, is
 //!   answered by the host: each JSON-RPC message arrives as a `control_request` with
 //!   `subtype: mcp_message`, and every one needs a `control_response`.
+//! - A turn's `result` lands while background subagents run. `system`/`background_tasks_changed`
+//!   lists what is live, and each agent that finishes starts a turn of its own with a new
+//!   `system`/`init`. One stopped with `stop_task` starts none. Interrupt doesn't reach them.
 
 pub mod map;
 mod protocol;
 mod session;
+pub mod turn_gate;
 
 pub use protocol::{CanUseTool, Event, PermissionDecision};
 pub use session::{ClaudeSession, SpawnOptions};
 
 /// Argument vector for a streaming Claude Code session (binary not included).
 pub fn claude_argv(resume: Option<&str>, model: Option<&str>, orchestrate: bool) -> Vec<String> {
-    let mut brief = crate::engines::MEDIA_INSTRUCTION.to_string();
+    let mut brief = format!(
+        "{}\n\n{}",
+        crate::engines::BRANCH_INSTRUCTION,
+        crate::engines::MEDIA_INSTRUCTION
+    );
     if orchestrate {
         brief.push_str("\n\n");
         brief.push_str(crate::mcp::ORCHESTRATION_INSTRUCTION);
@@ -83,7 +91,8 @@ mod tests {
             .iter()
             .position(|arg| arg == "--append-system-prompt")
             .expect("system prompt flag");
-        assert_eq!(args[at + 1], crate::engines::MEDIA_INSTRUCTION);
+        assert!(args[at + 1].contains(crate::engines::BRANCH_INSTRUCTION));
+        assert!(args[at + 1].contains(crate::engines::MEDIA_INSTRUCTION));
     }
 
     #[test]

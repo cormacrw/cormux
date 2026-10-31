@@ -1,3 +1,10 @@
+export type AgentQuestion = {
+  question: string
+  header: string
+  options: { label: string; description: string }[]
+  multiSelect: boolean
+}
+
 export type ApprovalPayload = {
   title: string
   what: string
@@ -7,6 +14,10 @@ export type ApprovalPayload = {
   effect?: string
   resolvedAtMs?: number
   denyReason?: string
+  /** What the agent asked; absent on an ordinary permission request. */
+  questions?: AgentQuestion[]
+  /** The user's answers, keyed by question text. */
+  answers?: Record<string, string>
   /** The markdown plan an agent handed over for approval. */
   plan?: string
 }
@@ -29,8 +40,16 @@ export function approvalResolvedChip(
 ): string {
   const at = payload.resolvedAtMs ?? nowMs
   const label = formatRelativeApprovalTime(at, nowMs)
+  if (payload.questions?.length) {
+    return `${state === 'approved' ? 'Answered' : 'Skipped'} · ${label}`
+  }
   if (state === 'approved') return `Approved by you · ${label}`
   return `${payload.noLabel} · ${label}`
+}
+
+/** One question's answer: the options picked, then anything typed. */
+export function composeAnswer(selected: string[], typed: string): string {
+  return [...selected, typed.trim()].filter(Boolean).join(', ')
 }
 
 function formatRelativeApprovalTime(atMs: number, nowMs: number): string {

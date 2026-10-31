@@ -1,4 +1,5 @@
 import type { ToolCallStatus, ToolKind } from '$lib/ipc/bindings'
+import type { AgentQuestion } from '$lib/approvals/payload'
 import type { RunSummary } from './run-summary'
 
 export type ChipTone = 'success' | 'warning' | 'muted'
@@ -91,6 +92,9 @@ export type TimelineItem =
       noLabel: string
       state: 'pending' | 'approved' | 'denied'
       doneAtMs: number | null
+      /** Set when the agent is asking something rather than seeking permission. */
+      questions: AgentQuestion[]
+      answers: Record<string, string>
       seq: number
       atMs: number
     }

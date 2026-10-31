@@ -192,6 +192,25 @@ impl WorkspaceManager {
         Ok(record)
     }
 
+    /// Moves a workspace onto another branch before its worktree exists, keeping the folder
+    /// named after the branch.
+    pub async fn retarget_provisioning(
+        &self,
+        workspace_id: &str,
+        branch: &str,
+    ) -> Result<WorkspaceRecord> {
+        let mut inner = self.inner.write().await;
+        let workspace = inner
+            .workspaces
+            .get_mut(workspace_id)
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        let worktree = Path::new(&workspace.worktree_path).with_file_name(branch_slug(branch));
+        workspace.branch = branch.to_string();
+        workspace.worktree_path = worktree.to_string_lossy().to_string();
+        workspace.version += 1;
+        Ok(workspace.clone())
+    }
+
     pub async fn add_review_worktree(
         &self,
         workspace_id: &str,
@@ -573,6 +592,28 @@ mod tests {
         assert_eq!(
             path,
             PathBuf::from("/Users/dev/.harness/worktrees/my-app/feat-login")
+        );
+    }
+
+    #[tokio::test]
+    async fn retargeting_moves_the_branch_and_its_folder() {
+        let manager = manager().await;
+        let (_dir, repo) = init_repo();
+        let base = tempfile::tempdir().unwrap();
+        manager
+            .register_provisioning("w", "r", &repo, "Name", "feat/draft", "main", base.path())
+            .await
+            .unwrap();
+        let record = manager
+            .retarget_provisioning("w", "fix/oauth-login")
+            .await
+            .unwrap();
+        assert_eq!(record.branch, "fix/oauth-login");
+        assert!(record.worktree_path.ends_with("/fix-oauth-login"));
+        assert_eq!(
+            Path::new(&record.worktree_path).parent(),
+            WorkspaceManager::worktree_path(base.path(), repo_dir_name(&repo), "feat/draft")
+                .parent()
         );
     }
 

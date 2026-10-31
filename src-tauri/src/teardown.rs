@@ -3,10 +3,9 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
 use crate::error::{Error, Result};
-use crate::feedback::{emit_toast, emit_toast_parts};
 use crate::ipc::commands::emit_workspace_status;
 use crate::ipc::events::StateChanged;
-use crate::ipc::types::{StateChangeKind, ToastPart, ToastTone};
+use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
 use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
 use tauri_specta::Event;
@@ -56,34 +55,30 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     let worktree = PathBuf::from(&record.worktree_path);
     let repo_name = repo_dir_name(&repo_path);
 
-    let engine_label = lead_engine_label(state, workspace_id);
     let uncommitted_files = count_uncommitted_files(state, &worktree, row.modified_files).await;
     let unpushed_commits = if worktree.is_dir() {
         state
             .git
-            .unpushed_commit_count(&worktree, &record.branch)
+            .commits_only_here(&worktree, &record.base)
             .await
-            .unwrap_or(0)
+            // Unknown counts as at risk: the default then keeps the branch.
+            .unwrap_or(1)
     } else {
         0
     };
-    let remote_exists = state
-        .git
-        .remote_branch_exists(&repo_path, &record.branch)
-        .await
-        .unwrap_or(false);
-    let has_data_loss = uncommitted_files > 0 || (!remote_exists && unpushed_commits > 0);
-    let warning = data_loss_warning(uncommitted_files, unpushed_commits, remote_exists);
+    let has_data_loss = uncommitted_files > 0 || unpushed_commits > 0;
+    let warning = data_loss_warning(uncommitted_files, unpushed_commits);
 
     let branch = record.branch.clone();
     Ok(TeardownPreview {
         workspace_id: workspace_id.to_string(),
         workspace_name: row.name,
-        engine_label,
+        engine_label: "Claude Code".into(),
         branch: branch.clone(),
         worktree_path: display_worktree_path(repo_name, &branch),
         app_running: state.process.workspace_has_session(workspace_id),
-        delete_branch_default: row.pr_number.is_none(),
+        // A branch holding the only copy of its commits stays, so a later thread can pick it up.
+        delete_branch_default: row.pr_number.is_none() && unpushed_commits == 0,
         data_loss: TeardownDataLoss {
             uncommitted_files,
             unpushed_commits,
@@ -155,8 +150,6 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
         kind: StateChangeKind::WorkspaceStatus,
     }
     .emit(app);
-
-    emit_teardown_toast(app, &row.name, &record.branch, input.delete_branch);
 
     Ok(())
 }
@@ -249,32 +242,7 @@ async fn count_uncommitted_files(state: &AppState, worktree: &Path, fallback: i6
     }
 }
 
-fn lead_engine_label(state: &AppState, workspace_id: &str) -> String {
-    let Ok(snapshot) = state.store.snapshot() else {
-        return "the agent".into();
-    };
-    let engine = snapshot
-        .threads
-        .iter()
-        .find(|thread| thread.workspace_id == workspace_id)
-        .map(|thread| thread.engine.as_str())
-        .unwrap_or("claude");
-    engine_display(engine)
-}
-
-fn engine_display(engine: &str) -> String {
-    match engine.to_lowercase().as_str() {
-        "codex" => "Codex CLI".into(),
-        "gemini" => "Gemini CLI".into(),
-        _ => "Claude Code".into(),
-    }
-}
-
-fn data_loss_warning(
-    uncommitted_files: u32,
-    unpushed_commits: u32,
-    remote_exists: bool,
-) -> Option<String> {
+fn data_loss_warning(uncommitted_files: u32, unpushed_commits: u32) -> Option<String> {
     let mut parts = Vec::new();
     if uncommitted_files > 0 {
         let label = if uncommitted_files == 1 {
@@ -284,13 +252,13 @@ fn data_loss_warning(
         };
         parts.push(format!("{label} will be discarded."));
     }
-    if unpushed_commits > 0 && !remote_exists {
+    if unpushed_commits > 0 {
         let label = if unpushed_commits == 1 {
             "1 unpushed commit".into()
         } else {
             format!("{unpushed_commits} unpushed commits")
         };
-        parts.push(format!("{label} will be lost."));
+        parts.push(format!("{label} will be lost if you delete the branch."));
     }
     if parts.is_empty() {
         return None;
@@ -324,49 +292,19 @@ fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn emit_teardown_toast(app: &AppHandle, name: &str, branch: &str, deleted_branch: bool) {
-    if deleted_branch {
-        emit_toast_parts(
-            app,
-            ToastTone::Bad,
-            vec![
-                ToastPart::Text {
-                    value: format!("Tore down {name} and deleted local branch "),
-                },
-                ToastPart::Code {
-                    value: branch.to_string(),
-                },
-            ],
-            None,
-        );
-        return;
-    }
-    emit_toast(
-        app,
-        crate::ipc::types::ToastRaisedPayload {
-            tone: ToastTone::Bad,
-            parts: vec![ToastPart::Text {
-                value: format!("Tore down {name}"),
-            }],
-            workspace_id: None,
-            thread_id: None,
-        },
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn data_loss_message_covers_uncommitted_and_unpushed() {
-        let message = data_loss_warning(2, 3, false).unwrap();
+        let message = data_loss_warning(2, 3).unwrap();
         assert!(message.contains("2 uncommitted file changes"));
         assert!(message.contains("3 unpushed commits"));
     }
 
     #[test]
-    fn no_warning_when_remote_has_branch_and_clean() {
-        assert!(data_loss_warning(0, 2, true).is_none());
+    fn no_warning_when_nothing_is_at_risk() {
+        assert!(data_loss_warning(0, 0).is_none());
     }
 }

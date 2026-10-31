@@ -81,11 +81,12 @@
 
   const order = takeOrder()
 
-  // Replies that were already in the thread when it opened show in full, and
-  // one seen before under another id picks up where it left off.
+  // Only a reply the agent is writing right now types. One that was already in the thread when
+  // it opened, or that a snapshot delivered after the fact, shows in full; one seen before under
+  // another id picks up where it left off.
   let shown = $state(
     untrack(() =>
-      entries?.claim(key) && !prefersReducedMotion()
+      entries?.claim(key) && live && !prefersReducedMotion()
         ? alreadyShown(text)
         : text.length,
     ),
@@ -136,7 +137,7 @@
     const length = text.length
     untrack(() => {
       if (length <= shown || frame) return
-      if (!startTyping(order, finish)) {
+      if (!live || !startTyping(order, finish)) {
         shown = length
         return
       }

@@ -82,7 +82,6 @@ export async function runBang(bangId: string, extra = '') {
   if (!bang) return
   await startThread({
     repoId: resolveDefaultRepoId(repos.items, settings.defaultRepo),
-    base: null,
     prompt: bangPromptWithExtra(bang.prompt, extra),
   })
 }

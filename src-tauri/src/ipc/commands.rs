@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -785,24 +786,45 @@ pub async fn resolve_approval(
         .resolve(&id, approved, deny_message.clone())
         .await?;
     let hints = crate::approvals::apply_harness_effects(&state, &row, &payload, approved)?;
+    notify_approval_resolved(&app, &state);
     if !approved && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
         let _ = state
             .engines
             .prompt(&row.thread_id, format!("Approval denied: {reason}"));
     }
-    emit_approval_counts(&app, &state);
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(&app);
     if let Some(payload) = toast_for_approval(&row.tool, approved) {
         emit_toast(&app, payload);
     }
     Ok(ResolveApprovalResult {
         focus_composer: hints.focus_composer,
     })
+}
+
+fn notify_approval_resolved(app: &AppHandle, state: &AppState) {
+    emit_approval_counts(app, state);
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(app);
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_question(
+    app: AppHandle,
+    id: String,
+    answers: BTreeMap<String, String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::approvals::mark_answered(&state.store, &id, answers.clone())?;
+    state.approvals.complete(
+        &id,
+        crate::approvals::ApprovalDecision::Answered { answers },
+    )?;
+    notify_approval_resolved(&app, &state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -816,7 +838,11 @@ pub async fn resolve_all_approvals(
 ) -> Result<ResolveApprovalResult> {
     let pending = state.store.pending_approvals_for_thread(&thread_id)?;
     let mut focus_composer = false;
-    for row in pending {
+    // Approving a question would answer it with nothing, so those wait for the user.
+    for row in pending
+        .into_iter()
+        .filter(|row| !approved || row.tool != crate::approvals::QUESTION_TOOL)
+    {
         let result = resolve_approval(
             app.clone(),
             row.id,
@@ -1166,7 +1192,6 @@ pub async fn create_workspace(
 pub struct StartedWorkspace {
     pub workspace_id: String,
     pub thread_id: String,
-    pub branch: String,
     pub base: String,
 }
 
@@ -1194,8 +1219,8 @@ pub async fn start_workspace(
         )));
     }
 
-    // With no name given, the prompt drafts one and Haiku improves it below. A workspace
-    // started without a prompt is numbered.
+    // With no name given, the prompt drafts one and Haiku improves it below, along with the
+    // drafted branch. A workspace started without a prompt is numbered.
     let goal_text = input.goal.trim();
     let auto_named = input.name.trim().is_empty() && !goal_text.is_empty();
     let name = match input.name.trim() {
@@ -1275,14 +1300,6 @@ pub async fn start_workspace(
     if !goal.is_empty() {
         persist_user_message(&state.store, &thread_id, &goal)?;
     }
-    let worktree_step = serde_json::json!({
-        "icon": "branch",
-        "title": "Created worktree",
-        "detail": format!("{} ← {}", input.branch, input.base),
-    });
-    state
-        .store
-        .append_event(&thread_id, "tool", &worktree_step.to_string())?;
 
     let version = state.bump_event_version();
     let _ = StateChanged {
@@ -1308,12 +1325,35 @@ pub async fn start_workspace(
     let started = StartedWorkspace {
         workspace_id: workspace_id.clone(),
         thread_id: thread_id.clone(),
-        branch: input.branch.clone(),
         base: input.base.clone(),
     };
     let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
 
+    let draft_branch = input.branch.clone();
+    let base = input.base.clone();
+
     tauri::async_runtime::spawn(async move {
+        use tauri::Manager;
+        if auto_named && let Err(error) = name_branch(&app_handle, &workspace_id_bg, &goal).await {
+            log::warn!("keeping the drafted branch {draft_branch}: {error}");
+        }
+        let state = app_handle.state::<AppState>();
+        let branch = match state.workspace.get(&workspace_id_bg).await {
+            Some(record) => record.branch,
+            None => draft_branch,
+        };
+        let worktree_step = serde_json::json!({
+            "icon": "branch",
+            "title": "Created worktree",
+            "detail": format!("{branch} ← {base}"),
+        });
+        if let Err(error) =
+            state
+                .store
+                .append_event(&thread_id_bg, "tool", &worktree_step.to_string())
+        {
+            log::warn!("could not record the worktree step: {error}");
+        }
         crate::provisioning::run_workspace_provisioning(
             app_handle,
             crate::provisioning::LeadProvisionJob {
@@ -1330,6 +1370,51 @@ pub async fn start_workspace(
     });
 
     Ok(started)
+}
+
+/// Swaps the drafted branch for Haiku's while nothing on disk uses it yet. The draft stands if
+/// Haiku is slow or has nothing usable, since the agent shouldn't wait long for a name.
+async fn name_branch(app: &AppHandle, workspace_id: &str, prompt: &str) -> Result<()> {
+    use tauri::Manager;
+    let state = app.state::<AppState>();
+    let generated = tokio::time::timeout(
+        crate::naming::BRANCH_NAME_TIMEOUT,
+        crate::naming::generate_branch(&state.llm, prompt),
+    )
+    .await;
+    let Ok(Some(branch)) = generated else {
+        return Ok(());
+    };
+    let Some(record) = state.workspace.get(workspace_id).await else {
+        return Ok(());
+    };
+    let repo_path = PathBuf::from(&record.repo_path);
+    let mut taken = state.git.list_local_branches(&repo_path).await?;
+    taken.extend(state.git.list_remote_branches(&repo_path, "origin").await?);
+    taken.extend(
+        state
+            .store
+            .snapshot()?
+            .workspaces
+            .into_iter()
+            .filter(|row| row.repo_id == record.repo_id && row.id != workspace_id)
+            .map(|row| row.branch),
+    );
+    let branch = crate::naming::unique_branch(&branch, &taken);
+    let record = state
+        .workspace
+        .retarget_provisioning(workspace_id, &branch)
+        .await?;
+    state
+        .store
+        .set_workspace_checkout(workspace_id, &record.branch, &record.worktree_path)?;
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(app);
+    Ok(())
 }
 
 /// Swaps the drafted name for Haiku's unless the workspace was renamed or deleted meanwhile.

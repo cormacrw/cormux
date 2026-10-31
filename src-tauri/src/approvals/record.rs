@@ -1,4 +1,8 @@
-use super::payload::{ApprovalPayload, payload_from_permission, payload_with_option_labels};
+use std::collections::BTreeMap;
+
+use super::payload::{
+    AgentQuestion, ApprovalPayload, QUESTION_TOOL, payload_from_permission, payload_with_questions,
+};
 use crate::engines::AgentEvent;
 use crate::store::Store;
 use crate::store::types::ApprovalRow;
@@ -7,11 +11,18 @@ pub fn record_pending_permission(
     store: &Store,
     thread_id: &str,
     event: &AgentEvent,
-    option_labels: Option<(Option<String>, Option<String>)>,
 ) -> Result<(), crate::error::Error> {
-    record_pending(store, thread_id, event, |payload| match option_labels {
-        Some((ok, no)) => payload_with_option_labels(payload, ok, no),
-        None => payload,
+    record_pending(store, thread_id, event, |payload| payload)
+}
+
+pub fn record_pending_question(
+    store: &Store,
+    thread_id: &str,
+    event: &AgentEvent,
+    questions: Vec<AgentQuestion>,
+) -> Result<(), crate::error::Error> {
+    record_pending(store, thread_id, event, |payload| {
+        payload_with_questions(payload, questions)
     })
 }
 
@@ -33,6 +44,11 @@ fn record_pending(
 
     let (payload, tool_key) = payload_from_permission(event);
     let payload = shape(payload);
+    let tool_key = if payload.questions.is_empty() {
+        tool_key
+    } else {
+        QUESTION_TOOL.into()
+    };
     let payload_json = serde_json::to_string(&payload)
         .map_err(|error| crate::error::Error::Store(error.to_string()))?;
 
@@ -54,6 +70,28 @@ pub fn mark_resolved(
     approved: bool,
     deny_reason: Option<String>,
 ) -> Result<(ApprovalRow, ApprovalPayload), crate::error::Error> {
+    let status = if approved { "approved" } else { "denied" };
+    finish(store, id, status, |payload| {
+        if !approved {
+            payload.deny_reason = deny_reason.filter(|value| !value.trim().is_empty());
+        }
+    })
+}
+
+pub fn mark_answered(
+    store: &Store,
+    id: &str,
+    answers: BTreeMap<String, String>,
+) -> Result<(ApprovalRow, ApprovalPayload), crate::error::Error> {
+    finish(store, id, "approved", |payload| payload.answers = answers)
+}
+
+fn finish(
+    store: &Store,
+    id: &str,
+    status: &str,
+    apply: impl FnOnce(&mut ApprovalPayload),
+) -> Result<(ApprovalRow, ApprovalPayload), crate::error::Error> {
     let row = store
         .get_approval(id)?
         .ok_or_else(|| crate::error::Error::Approval(format!("unknown approval {id}")))?;
@@ -64,12 +102,9 @@ pub fn mark_resolved(
     }
     let mut payload: ApprovalPayload = serde_json::from_str(&row.payload).unwrap_or_default();
     payload.resolved_at_ms = Some(chrono_ms());
-    if !approved {
-        payload.deny_reason = deny_reason.filter(|value| !value.trim().is_empty());
-    }
+    apply(&mut payload);
     let payload_json = serde_json::to_string(&payload)
         .map_err(|error| crate::error::Error::Store(error.to_string()))?;
-    let status = if approved { "approved" } else { "denied" };
     let updated = ApprovalRow {
         status: status.into(),
         payload: payload_json,

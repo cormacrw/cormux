@@ -52,7 +52,7 @@ The skill pairs with whatever skill or workflow you already use to draft and cre
 
 ## Screenshots and recordings in the thread
 
-Agents can show their work visually: a local image or recording referenced in a reply's markdown (`![caption](/path/to/shot.png)`, `[caption](/path/to/flow.webm)`) renders inline in the thread, which is how a screenshot from a browser tool becomes something you can actually look at. Cormux copies the file into its own media folder first, so it survives worktree teardown, and only that folder is served to the webview. No skill or setup is needed: every engine is told once, when it starts, that the thread renders media this way — Claude through its system prompt, the ACP engines on their first prompt — so agents embed captures instead of only naming the path in prose.
+Agents can show their work visually: a local image or recording referenced in a reply's markdown (`![caption](/path/to/shot.png)`, `[caption](/path/to/flow.webm)`) renders inline in the thread, which is how a screenshot from a browser tool becomes something you can actually look at. Cormux copies the file into its own media folder first, so it survives worktree teardown, and only that folder is served to the webview. No skill or setup is needed: Claude is told once, when it starts, through its system prompt that the thread renders media this way, so agents embed captures instead of only naming the path in prose.
 
 ## Releasing
 

@@ -9,14 +9,13 @@ import {
 } from '$lib/state'
 
 /**
- * Spawns a thread: a new worktree on a branch drafted from the prompt, with the prompt as its
- * first message. The core names it and sets it up in the background. Resolves the new
- * workspace's id, or null (after toasting) if it couldn't start.
+ * Spawns a thread: a new worktree off the repo's default branch, with the prompt as its first
+ * message. If the prompt asks for other work to start from, the agent brings it in. The branch
+ * drafted here is a stand-in: the core names the workspace and its branch and sets it up in the
+ * background. Resolves the new workspace's id, or null (after toasting) if it couldn't start.
  */
 export async function startThread(input: {
   repoId: string
-  /** Null branches off the repo's default branch. */
-  base: string | null
   prompt: string
   /** Null leaves the engine's default. */
   model?: string | null
@@ -33,10 +32,7 @@ export async function startThread(input: {
     repoId,
     name: '',
     branch: uniqueBranchName(draftBranchName(prompt), taken),
-    base:
-      input.base?.trim() ||
-      repos.getById(repoId)?.defaultBranch?.trim() ||
-      'main',
+    base: repos.getById(repoId)?.defaultBranch?.trim() || 'main',
     engine: settings.defaultEngine,
     goal: prompt,
     model: input.model ?? null,
