@@ -19,6 +19,8 @@ const REPLY_LIMIT: usize = 8_000;
 const READ_PAGE_EVENTS: i64 = 200;
 const READ_PAGE_CHARS: usize = 20_000;
 
+const CLOSED_THREADS_LIMIT: i64 = 50;
+
 const FAILED: &str = "provisioningFailed";
 
 /// The target of a tool call: any thread in the caller's repo. Anything else reads as unknown.
@@ -52,7 +54,9 @@ fn caller_repo(store: &Store, caller: &ThreadRow) -> Result<String> {
 }
 
 fn thread_status(thread: &ThreadRow, workspace: &WorkspaceRow) -> String {
-    if workspace.status == FAILED {
+    if workspace.archived_at.is_some() {
+        "closed".into()
+    } else if workspace.status == FAILED {
         FAILED.into()
     } else {
         thread.status.clone()
@@ -72,9 +76,25 @@ pub fn list_threads(store: &Store, caller_id: &str, scope: Option<&str>) -> Resu
     let children_only = match scope.unwrap_or("children") {
         "children" => true,
         "repo" => false,
+        "closed" => {
+            let threads: Vec<Value> = store
+                .closed_threads(&repo, CLOSED_THREADS_LIMIT)?
+                .into_iter()
+                .map(|(thread, workspace)| {
+                    json!({
+                        "id": thread.id,
+                        "title": workspace.name,
+                        "status": thread_status(&thread, &workspace),
+                        "branch": workspace.branch,
+                        "closedAt": workspace.archived_at,
+                    })
+                })
+                .collect();
+            return Ok(json!({ "threads": threads }));
+        }
         other => {
             return Err(Error::Mcp(format!(
-                "scope must be children or repo, not {other}"
+                "scope must be children, repo or closed, not {other}"
             )));
         }
     };
@@ -662,6 +682,31 @@ mod tests {
         let thread = get_thread(&store, "parent", "child").unwrap();
         assert_eq!(thread["lastReply"], "All done.");
         assert_eq!(thread["status"], FAILED);
+    }
+
+    #[test]
+    fn closed_threads_stay_listed_and_readable_in_their_repo() {
+        let store = store();
+        add_thread(&store, "me", "r1", None, "idle");
+        add_thread(&store, "done", "r1", None, "idle");
+        add_thread(&store, "open", "r1", None, "idle");
+        add_thread(&store, "elsewhere", "r2", None, "idle");
+        store.archive_workspace("w-done").unwrap();
+        store.archive_workspace("w-elsewhere").unwrap();
+
+        let listed = list_threads(&store, "me", Some("closed")).unwrap();
+        let threads = listed["threads"].as_array().unwrap();
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0]["id"], "done");
+        assert_eq!(threads[0]["branch"], "feat/done");
+        assert_eq!(threads[0]["status"], "closed");
+        assert!(threads[0]["closedAt"].is_string());
+
+        assert_eq!(
+            get_thread(&store, "me", "done").unwrap()["status"],
+            "closed"
+        );
+        assert!(read_thread(&store, "me", "done", 0).is_ok());
     }
 
     #[test]

@@ -283,7 +283,6 @@ State lives in class-based rune stores (`$state` fields, `$derived` getters) hyd
 | --- | --- |
 | Command palette | `Command` inside `Dialog` |
 | New workspace, Create PR, Teardown confirm | `Dialog`, `AlertDialog` |
-| Base branch typeahead | `Combobox` pattern (`Popover` + `Command`) |
 | ⋯ menu, branch picker | `DropdownMenu` (with `RadioGroup` items for branches) |
 | Row overflow menus (spec gap) | `ContextMenu` |
 | Thread, Findings and Output tabs | `Tabs` (roving focus and arrow keys built in) |

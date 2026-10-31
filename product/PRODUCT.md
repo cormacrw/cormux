@@ -39,7 +39,7 @@ Success means the user can keep several workspaces moving at once and always kno
 
 - Work is organized by **repo**, then **thread**. Every thread has its own worktree and branch: a workspace and its one thread are the same thing to the user.
 - The **sidebar** is a flat list of threads, each showing its repo and branch. Any thread that isn't working flashes an orange dot and sits on top, longest wait first, because it should be prompted or closed. Working threads move into a collapsible Working section below, by recent activity, but only once you leave them: the thread you're on stays in the main list. Rows animate as they move.
-- The **first page is an empty thread**. There is no creation dialog: typing the first message there, with a repo and base branch picked in the prompt bar, spawns the worktree and opens the thread.
+- The **first page is an empty thread**. There is no creation dialog: typing the first message there, with a repo picked in the prompt bar, spawns the worktree off the repo's default branch and opens the thread. If the prompt names another branch or earlier work, the agent starts from that instead.
 - Repo pages and PR reviews open from the command palette.
 - Inside a thread, the **agent conversation is the main surface**. Git, Output and Findings are buttons in the header that slide out over it. The file tree and editor are deliberately secondary for now.
 - Threads from before this model (a workspace's older threads, and old scratches) stay readable but can't be continued.
@@ -70,13 +70,13 @@ What this means for the product:
 
 Shown in the prototype, all simulated there, and all supported by the stack:
 
-- Create a workspace from a repo, base branch, engine and an initial prompt. The workspace name and branch are drafted from the prompt.
+- Create a workspace from a repo, engine and an initial prompt. The workspace name and branch are drafted from the prompt.
 - Per-repo config: worktree setup commands (one per line, run in order before the agent starts) and a run command.
 - Run, restart and stop the app from the workspace header, with output in an Output tab. Each workspace's app gets its own port.
 - Switch a workspace's branch, which is locked while any agent is running. Pull and rebase onto the base branch.
 - Create PR, with the "why is this change necessary" text drafted by a small model call.
 - Review a PR in its own workspace, pick findings to fix, and submit the review.
-- Teardown, optionally deleting the branch (on by default).
+- Teardown, optionally deleting the branch (on by default, unless it holds commits nothing else has). It only asks first when the worktree has uncommitted changes.
 - A command palette, and Settings for Agents, Repos, General and Skills.
 
 Required by a real build, and missing from the prototype:

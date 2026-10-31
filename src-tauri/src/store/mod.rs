@@ -244,6 +244,37 @@ impl Store {
         })
     }
 
+    /// A repo's torn down workspaces with their threads, most recently closed first.
+    pub fn closed_threads(
+        &self,
+        repo_id: &str,
+        limit: i64,
+    ) -> Result<Vec<(ThreadRow, WorkspaceRow)>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
+                        summary, summary_at, summary_source, kind, pr_number, pr_html_url,
+                        modified_files, archived_at
+                 FROM workspaces WHERE repo_id = ?1 AND archived_at IS NOT NULL
+                 ORDER BY archived_at DESC, rowid DESC LIMIT ?2",
+            )?;
+            let workspaces = stmt
+                .query_map(rusqlite::params![repo_id, limit], row_to_workspace)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| Error::Store(error.to_string()))?;
+            let mut stmt = conn.prepare(&format!("{THREAD_COLUMNS} WHERE workspace_id = ?1"))?;
+            let mut closed = Vec::new();
+            for workspace in workspaces {
+                let threads = stmt
+                    .query_map([&workspace.id], row_to_thread)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(|error| Error::Store(error.to_string()))?;
+                closed.extend(threads.into_iter().map(|row| (row, workspace.clone())));
+            }
+            Ok(closed)
+        })
+    }
+
     pub fn workspace_by_id(&self, workspace_id: &str) -> Result<Option<WorkspaceRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(

@@ -5,7 +5,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { tick, untrack } from 'svelte'
-  import BaseBranchPicker from '$lib/components/new-workspace/BaseBranchPicker.svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Select from '$lib/components/ui/select'
   import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
@@ -13,8 +12,7 @@
   import ThreadModelPicker from '$lib/components/workspace/thread/ThreadModelPicker.svelte'
   import { commands } from '$lib/ipc'
   import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
-  import { workspaceBranchesForRepo } from '$lib/new-workspace/validation'
-  import { app, repos, settings, workspaceRecords } from '$lib/state'
+  import { app, repos, settings } from '$lib/state'
   import type { Thread } from '$lib/state/threads.svelte'
   import { NO_USAGE } from '$lib/usage/usage'
   import {
@@ -57,41 +55,18 @@
   })
 
   let repoId = $state('')
-  let baseBranch = $state('')
   let model = $state<string | null>(null)
-  let repoBranches = $state<string[]>([])
   let focusComposer = $state<(() => void) | null>(null)
   let titleEl: HTMLHeadingElement | undefined = $state()
 
   const repo = $derived(repos.getById(repoId))
-  const repoWorkspaceBranches = $derived(
-    workspaceBranchesForRepo(workspaceRecords.records, repoId),
-  )
-  const branchList = $derived([
-    ...repoBranches,
-    ...repoWorkspaceBranches.filter((branch) => !repoBranches.includes(branch)),
-  ])
-
-  function pickRepo(id: string) {
-    repoId = id
-    baseBranch = repos.getById(id)?.defaultBranch?.trim() || 'main'
-    repoBranches = []
-    if (!id) return
-    void commands.listRepoBranches(id).then((result) => {
-      if (result.status === 'ok' && repoId === id) {
-        repoBranches = result.data.branches
-      }
-    })
-  }
 
   // Repos arrive with the first snapshot, and the chosen one can be removed in Settings.
   $effect(() => {
     const items = repos.items
     untrack(() => {
       if (!items.some((row) => row.id === repoId)) {
-        pickRepo(
-          resolveDefaultRepoId(items, lastRepo() || settings.defaultRepo),
-        )
+        repoId = resolveDefaultRepoId(items, lastRepo() || settings.defaultRepo)
       }
     })
   })
@@ -107,7 +82,6 @@
     const id = repoId
     const workspaceId = await startThread({
       repoId: id,
-      base: baseBranch,
       prompt: text,
       model,
     })
@@ -215,7 +189,7 @@
             type="single"
             value={repoId}
             onValueChange={(value) => {
-              if (value) pickRepo(value)
+              if (value) repoId = value
             }}
           >
             <Select.Trigger
@@ -236,13 +210,6 @@
               {/each}
             </Select.Content>
           </Select.Root>
-          <label class="sr-only" for="new-thread-base">Base branch</label>
-          <BaseBranchPicker
-            id="new-thread-base"
-            bind:value={baseBranch}
-            branches={branchList}
-            workspaceBranches={repoWorkspaceBranches}
-          />
           <ThreadModelPicker
             thread={draftThread}
             draft

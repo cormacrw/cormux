@@ -60,19 +60,15 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     let unpushed_commits = if worktree.is_dir() {
         state
             .git
-            .unpushed_commit_count(&worktree, &record.branch)
+            .commits_only_here(&worktree, &record.base)
             .await
-            .unwrap_or(0)
+            // Unknown counts as at risk: the default then keeps the branch.
+            .unwrap_or(1)
     } else {
         0
     };
-    let remote_exists = state
-        .git
-        .remote_branch_exists(&repo_path, &record.branch)
-        .await
-        .unwrap_or(false);
-    let has_data_loss = uncommitted_files > 0 || (!remote_exists && unpushed_commits > 0);
-    let warning = data_loss_warning(uncommitted_files, unpushed_commits, remote_exists);
+    let has_data_loss = uncommitted_files > 0 || unpushed_commits > 0;
+    let warning = data_loss_warning(uncommitted_files, unpushed_commits);
 
     let branch = record.branch.clone();
     Ok(TeardownPreview {
@@ -82,7 +78,8 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
         branch: branch.clone(),
         worktree_path: display_worktree_path(repo_name, &branch),
         app_running: state.process.workspace_has_session(workspace_id),
-        delete_branch_default: row.pr_number.is_none(),
+        // A branch holding the only copy of its commits stays, so a later thread can pick it up.
+        delete_branch_default: row.pr_number.is_none() && unpushed_commits == 0,
         data_loss: TeardownDataLoss {
             uncommitted_files,
             unpushed_commits,
@@ -267,11 +264,7 @@ fn engine_display(engine: &str) -> String {
     }
 }
 
-fn data_loss_warning(
-    uncommitted_files: u32,
-    unpushed_commits: u32,
-    remote_exists: bool,
-) -> Option<String> {
+fn data_loss_warning(uncommitted_files: u32, unpushed_commits: u32) -> Option<String> {
     let mut parts = Vec::new();
     if uncommitted_files > 0 {
         let label = if uncommitted_files == 1 {
@@ -281,13 +274,13 @@ fn data_loss_warning(
         };
         parts.push(format!("{label} will be discarded."));
     }
-    if unpushed_commits > 0 && !remote_exists {
+    if unpushed_commits > 0 {
         let label = if unpushed_commits == 1 {
             "1 unpushed commit".into()
         } else {
             format!("{unpushed_commits} unpushed commits")
         };
-        parts.push(format!("{label} will be lost."));
+        parts.push(format!("{label} will be lost if you delete the branch."));
     }
     if parts.is_empty() {
         return None;
@@ -327,13 +320,13 @@ mod tests {
 
     #[test]
     fn data_loss_message_covers_uncommitted_and_unpushed() {
-        let message = data_loss_warning(2, 3, false).unwrap();
+        let message = data_loss_warning(2, 3).unwrap();
         assert!(message.contains("2 uncommitted file changes"));
         assert!(message.contains("3 unpushed commits"));
     }
 
     #[test]
-    fn no_warning_when_remote_has_branch_and_clean() {
-        assert!(data_loss_warning(0, 2, true).is_none());
+    fn no_warning_when_nothing_is_at_risk() {
+        assert!(data_loss_warning(0, 0).is_none());
     }
 }

@@ -243,12 +243,17 @@ impl EngineRegistry {
                 prompt.text
             );
         }
-        // ACP has no system-prompt channel, so its engines hear how the thread
-        // renders media on their first prompt instead. Never shown in the thread:
+        // ACP has no system-prompt channel, so its engines hear about the branch and how
+        // the thread renders media on their first prompt instead. Never shown in the thread:
         // the conversation keeps the user's own text. Claude is briefed through
         // `--append-system-prompt` and is skipped here.
         if self.take_brief(thread_id) {
-            prompt.text = format!("{}\n\n{}", prompt.text, super::MEDIA_INSTRUCTION);
+            prompt.text = format!(
+                "{}\n\n{}\n\n{}",
+                prompt.text,
+                super::BRANCH_INSTRUCTION,
+                super::MEDIA_INSTRUCTION
+            );
         }
         self.send(thread_id, EngineCommand::Prompt(prompt))
     }

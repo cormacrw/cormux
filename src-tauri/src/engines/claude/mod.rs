@@ -24,7 +24,11 @@ pub use session::{ClaudeSession, SpawnOptions};
 
 /// Argument vector for a streaming Claude Code session (binary not included).
 pub fn claude_argv(resume: Option<&str>, model: Option<&str>, orchestrate: bool) -> Vec<String> {
-    let mut brief = crate::engines::MEDIA_INSTRUCTION.to_string();
+    let mut brief = format!(
+        "{}\n\n{}",
+        crate::engines::BRANCH_INSTRUCTION,
+        crate::engines::MEDIA_INSTRUCTION
+    );
     if orchestrate {
         brief.push_str("\n\n");
         brief.push_str(crate::mcp::ORCHESTRATION_INSTRUCTION);
@@ -83,7 +87,8 @@ mod tests {
             .iter()
             .position(|arg| arg == "--append-system-prompt")
             .expect("system prompt flag");
-        assert_eq!(args[at + 1], crate::engines::MEDIA_INSTRUCTION);
+        assert!(args[at + 1].contains(crate::engines::BRANCH_INSTRUCTION));
+        assert!(args[at + 1].contains(crate::engines::MEDIA_INSTRUCTION));
     }
 
     #[test]

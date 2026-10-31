@@ -18,3 +18,19 @@ test('deleting a workspace takes its agents out of the sidebar with it', async (
 
   await expect(row).toHaveCount(0)
 })
+
+test('a clean worktree is deleted without asking', async ({ page }) => {
+  await page.addInitScript(() => {
+    ;(
+      window as { __HARNESS_CLEAN_TEARDOWN__?: string }
+    ).__HARNESS_CLEAN_TEARDOWN__ = 'ws-auth'
+  })
+  await page.goto('/')
+  const row = page.getByRole('button', { name: /^OAuth login,/ })
+  await row.click()
+  await page.keyboard.press('ControlOrMeta+d')
+
+  await expect(row).toHaveCount(0)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'New thread' })).toBeVisible()
+})

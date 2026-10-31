@@ -719,12 +719,23 @@ export function installBrowserHarness() {
         worktreePath: '/tmp/cormux-fixture/oauth',
         appRunning: false,
         deleteBranchDefault: true,
-        dataLoss: {
-          uncommittedFiles: 0,
-          unpushedCommits: 0,
-          hasDataLoss: false,
-          warning: null,
-        },
+        dataLoss:
+          args.workspaceId ===
+          (window as { __HARNESS_CLEAN_TEARDOWN__?: string })
+            .__HARNESS_CLEAN_TEARDOWN__
+            ? {
+                uncommittedFiles: 0,
+                unpushedCommits: 0,
+                hasDataLoss: false,
+                warning: null,
+              }
+            : {
+                uncommittedFiles: 2,
+                unpushedCommits: 0,
+                hasDataLoss: true,
+                warning:
+                  "2 uncommitted file changes will be discarded. This can't be undone.",
+              },
       }
     }
     if (cmd === 'list_repo_branches') {
