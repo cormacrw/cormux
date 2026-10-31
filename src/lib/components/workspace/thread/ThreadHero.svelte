@@ -12,9 +12,6 @@
   import { formatRelativeAge } from '$lib/homebase/relative-time'
   import { heroLine, type Conversation } from '$lib/thread/conversations'
   import { resumeConversation } from '$lib/thread/resume-conversation'
-  import Buddy from '$lib/components/buddy/Buddy.svelte'
-  import { agentName } from '$lib/agent-name'
-  import { buddyColor, buddyMoodForThread } from '$lib/buddy'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import GitBranch from '@lucide/svelte/icons/git-branch'
@@ -79,15 +76,7 @@
       class="hero-who -mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground"
       data-od-id="thread-hero-who"
     >
-      <span class="flex items-center gap-1.5 font-medium text-foreground">
-        <Buddy
-          mood={buddyMoodForThread(thread)}
-          color={buddyColor(thread.id)}
-          glasses={thread.role === 'Reviewer'}
-          size={20}
-        />
-        {agentName(thread.id)}
-      </span>
+      <span class="font-medium text-foreground">{thread.role}</span>
       <span aria-hidden="true">·</span>
       <span class="flex min-w-0 items-center gap-1 font-mono text-xs">
         <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />

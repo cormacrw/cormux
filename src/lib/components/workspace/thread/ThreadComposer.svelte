@@ -67,7 +67,6 @@
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
-  import { agentName } from '$lib/agent-name'
   import ThreadModelPicker from './ThreadModelPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import FileText from '@lucide/svelte/icons/file-text'
@@ -122,7 +121,6 @@
   /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
   let historyIndex = $state<number | null>(null)
 
-  const name = $derived(agentName(thread.id))
   const draft = $derived(composerDrafts.textFor(thread.id))
   const showPause = $derived(composerShowsPauseControl(thread.status))
   const pauseLabel = $derived(composerPauseLabel(thread.status, thread.paused))
@@ -798,7 +796,7 @@
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      placeholder={placeholder ?? `Message ${name}…`}
+      placeholder={placeholder ?? `Message ${thread.role}…`}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'composer-picker' : undefined}

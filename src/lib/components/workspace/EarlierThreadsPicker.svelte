@@ -1,6 +1,5 @@
 <script lang="ts">
   import * as Select from '$lib/components/ui/select'
-  import { agentName } from '$lib/agent-name'
   import { app, threads } from '$lib/state'
   import History from '@lucide/svelte/icons/history'
 
@@ -30,13 +29,13 @@
     </Select.Trigger>
     <Select.Content>
       {#if live}
-        <Select.Item value={live.id} label={agentName(live.id)}>
-          {agentName(live.id)} (current)
+        <Select.Item value={live.id} label="Current thread">
+          Current thread
         </Select.Item>
       {/if}
-      {#each earlier as thread (thread.id)}
-        <Select.Item value={thread.id} label={agentName(thread.id)}>
-          {agentName(thread.id)}
+      {#each earlier as thread, index (thread.id)}
+        <Select.Item value={thread.id} label="Earlier thread {index + 1}">
+          Earlier thread {index + 1}
         </Select.Item>
       {/each}
     </Select.Content>

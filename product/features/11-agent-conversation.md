@@ -30,7 +30,7 @@ The old status badge in the intro was removed; the tab's dot carries status.
 
 ### Speaker headers
 
-When the speaker changes from the user to the agent, a small header row appears: the engine mark, the role in bold, the engine name, and the time (`· 8m`). Consecutive agent items share one header.
+When the speaker changes from the user to the agent, a small header row appears: the role in bold, the engine name, and the time (`· 8m`). Consecutive agent items share one header.
 
 ### Message types
 
