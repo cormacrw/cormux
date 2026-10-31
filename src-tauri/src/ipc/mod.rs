@@ -33,7 +33,6 @@ pub fn builder() -> Builder {
             commands::refresh_workspace_diff,
             commands::set_workspace_diff_target,
             commands::discard_workspace_changes,
-            commands::start_streaming_spike,
             commands::summarise_workspace,
             commands::sync_pull_requests,
             commands::set_clickup_api_key,
@@ -93,7 +92,6 @@ pub fn builder() -> Builder {
         .events(tauri_specta::collect_events![
             events::StateChanged,
             events::MemorySampled,
-            events::WorkspaceStatusChanged,
             events::ToastRaised
         ])
 }

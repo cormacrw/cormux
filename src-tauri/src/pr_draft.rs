@@ -3,29 +3,9 @@ use crate::git::WorktreeDiff;
 use crate::llm::LlmClient;
 use crate::store::types::WorkspaceRow;
 
-const CANNED: &[(&str, &str)] = &[
-    (
-        "auth session timeout",
-        "Sessions never expire while the cookie is valid, so a forgotten or stolen session stays usable indefinitely. This adds a 30-minute sliding idle timeout and a 12-hour absolute cap: stale sessions are rejected in getSession() and the user is sent back to /login.",
-    ),
-    (
-        "stripe webhook",
-        "Stripe signature checks are failing because the webhook parses the JSON body before verifying it, which changes the signed payload. Verifying against the raw request body lets legitimate events through again and keeps forged ones out.",
-    ),
-    (
-        "dashboard perf",
-        "The /dashboard first paint waits on every chart widget loading, even ones below the fold. Lazy-loading the charts lets the page render sooner without changing what users see once it settles.",
-    ),
-];
-
+/// A description built from what's known when the model can't be asked: the goal the thread
+/// was started with (or the workspace name) and the first sentence of the card summary.
 pub fn fallback_why(workspace: &WorkspaceRow, goal: &str) -> String {
-    let name_key = workspace.name.to_lowercase();
-    for (needle, text) in CANNED {
-        if name_key.contains(needle) {
-            return (*text).into();
-        }
-    }
-
     let goal_trimmed = goal.trim().trim_end_matches('.').trim();
     let goal_source = if goal_trimmed.is_empty() {
         workspace.name.trim().trim_end_matches('.').trim()
@@ -150,10 +130,15 @@ mod tests {
         assert_eq!(pr_prompt(Some(" Be brief. ".into())), "Be brief.");
     }
 
+    /// The fallback only ever says what the thread and summary say; a workspace that happens
+    /// to be named after a common topic gets no invented story about it.
     #[test]
-    fn fallback_uses_canned_auth_copy() {
+    fn fallback_never_invents_details() {
         let text = fallback_why(&workspace("Auth session timeout"), "");
-        assert!(text.contains("30-minute"));
+        assert_eq!(
+            text,
+            "This change is needed to auth session timeout. Adds idle timeout."
+        );
     }
 
     #[test]

@@ -19,7 +19,7 @@
     hydrateFromSnapshot,
     memory,
     patchFromEvent,
-    refreshSnapshot,
+    resyncAfterGap,
     settings,
     shellDialogs,
   } from '$lib/state'
@@ -45,6 +45,9 @@
   import * as Tooltip from '$lib/components/ui/tooltip'
   import Workspace from './routes/Workspace.svelte'
 
+  /** How long the first paint waits for the web fonts before showing the window anyway. */
+  const FONT_WAIT_MS = 300
+
   onMount(() => {
     let unlisten: (() => void) | undefined
 
@@ -55,9 +58,13 @@
         console.warn('snapshot unavailable, using empty stores', error)
       }
       // The window starts hidden (tauri.conf.json) and appears once the first
-      // snapshot has painted, so it never shows half-drawn. The core shows it
-      // anyway after a few seconds, should this never run.
-      void tick().then(() =>
+      // snapshot has painted in the app's own fonts, so it never shows half-drawn
+      // or swaps typefaces as it opens. The core shows it anyway after a few
+      // seconds, should this never run.
+      void Promise.race([
+        tick().then(() => document.fonts.ready),
+        new Promise((resolve) => window.setTimeout(resolve, FONT_WAIT_MS)),
+      ]).then(() =>
         requestAnimationFrame(() =>
           requestAnimationFrame(() => {
             const win = getCurrentWindow()
@@ -69,7 +76,11 @@
         ),
       )
 
-      window.setTimeout(preloadLazyViews, 1000)
+      // Off the first screen, fetched once the main thread has nothing better to do.
+      // WebKit has no requestIdleCallback, so a timer stands in there.
+      const idle = window.requestIdleCallback?.bind(window)
+      if (idle) idle(preloadLazyViews, { timeout: 3000 })
+      else window.setTimeout(preloadLazyViews, 1000)
 
       const unlistenMenu = await bindNativeMenu()
       const unlistenFeedback = await bindFeedbackEvents()
@@ -87,7 +98,7 @@
       const unlistenState = await listenForStateChanges({
         lastVersion: () => app.version,
         onEvent: patchFromEvent,
-        onGap: () => void refreshSnapshot(),
+        onGap: () => void resyncAfterGap(),
       })
       const unlistenMemory = await events.memorySampled.listen(({ payload }) =>
         memory.hydrate(payload.sample),

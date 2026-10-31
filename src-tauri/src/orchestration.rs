@@ -203,20 +203,10 @@ fn check_can_spawn(store: &Store, caller: &ThreadRow) -> Result<()> {
             "a thread started by another thread can't start threads of its own".into(),
         ));
     }
-    let snapshot = store.snapshot()?;
-    let active = snapshot
-        .threads
-        .iter()
-        .filter(|thread| thread.parent_thread_id.as_deref() == Some(&caller.id))
-        .filter(|thread| {
-            matches!(
-                thread.status.as_str(),
-                "provisioning" | "running" | "waiting" | "paused"
-            ) && !snapshot
-                .workspaces
-                .iter()
-                .any(|row| row.id == thread.workspace_id && row.status == FAILED)
-        })
+    let active = store
+        .active_children(&caller.id)?
+        .into_iter()
+        .filter(|(_, workspace_status)| workspace_status != FAILED)
         .count();
     if active >= MAX_ACTIVE_CHILDREN {
         return Err(Error::Mcp(format!(
@@ -289,21 +279,20 @@ pub async fn create_thread(app: &AppHandle, caller_id: &str, new: NewThread) -> 
     let caller = caller_thread(&state.store, caller_id)?;
     check_can_spawn(&state.store, &caller)?;
     let repo_id = caller_repo(&state.store, &caller)?;
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .iter()
-        .find(|row| row.id == repo_id)
+    let repo = state
+        .store
+        .repo_by_id(&repo_id)?
         .ok_or_else(|| Error::Mcp(format!("unknown repo {repo_id}")))?;
     let repo_path = crate::ipc::commands::expand_tilde(&repo.path);
     let mut taken = state.git.list_local_branches(&repo_path).await?;
     taken.extend(state.git.list_remote_branches(&repo_path, "origin").await?);
     taken.extend(
-        snapshot
-            .workspaces
-            .iter()
+        state
+            .store
+            .live_workspaces()?
+            .into_iter()
             .filter(|row| row.repo_id == repo_id)
-            .map(|row| row.branch.clone()),
+            .map(|row| row.branch),
     );
     let base = new
         .base
@@ -501,10 +490,11 @@ pub async fn on_provisioning_failed(
     message: &str,
 ) -> Result<()> {
     let state = app.state::<AppState>();
-    let child =
-        state.store.snapshot()?.threads.into_iter().find(|thread| {
-            thread.workspace_id == workspace_id && thread.parent_thread_id.is_some()
-        });
+    let child = state
+        .store
+        .threads_for_workspace(workspace_id)?
+        .into_iter()
+        .find(|thread| thread.parent_thread_id.is_some());
     if let Some(child) = child
         && let Some(parent_id) = child.parent_thread_id.clone()
     {

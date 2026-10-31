@@ -5,6 +5,7 @@ import type {
 } from '$lib/ipc/bindings'
 import { commands, type CoreError } from '$lib/ipc'
 import { coreErrorText } from '$lib/feedback/core-error'
+import { deepEqual } from '$lib/deep-equal'
 import { showToast } from '$lib/feedback/show-toast'
 import { settings } from './settings.svelte'
 import {
@@ -69,9 +70,11 @@ export class ClickupStore {
   hydrate(configured: boolean, rows: SettingRow[]) {
     const folderId =
       rows.find((row) => row.key === CLICKUP_FOLDER_KEY)?.value ?? ''
-    this.hiddenStatuses = parseHiddenStatuses(
+    const hidden = parseHiddenStatuses(
       rows.find((row) => row.key === CLICKUP_HIDDEN_STATUSES_KEY)?.value,
     )
+    // Only a real change: a new array here would rebuild every lane on every snapshot.
+    if (!deepEqual(hidden, this.hiddenStatuses)) this.hiddenStatuses = hidden
     const changed = configured !== this.configured || folderId !== this.folderId
     this.configured = configured
     this.folderId = folderId

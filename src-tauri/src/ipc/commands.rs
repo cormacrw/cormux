@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use tauri::{AppHandle, State, ipc::Channel};
-use tauri_specta::Event;
 use uuid::Uuid;
 
 use crate::clickup::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
@@ -13,7 +12,6 @@ use crate::composer::{
 use crate::engines::{EngineKind, StreamedEvent, ThreadModels};
 use crate::error::{Error, Result};
 use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
-use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
@@ -21,15 +19,15 @@ use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::workspace::ThreadActivity;
 
 use super::types::{
-    AddRepoInput, AgentChunk, AgentEvent, BranchDeletion, ControlWorkspaceAppInput,
-    CreateWorkspaceBranchInput, CreateWorkspaceInput, CreateWorkspacePullRequestInput,
-    CreateWorkspacePullRequestResult, CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult,
-    LocalBranchRow, LocalBranchesResult, PtyChunk, RemoveRepoInput, RenameWorkspaceInput,
-    RepoBranchesResult, RepoGitRuntime, ResolveApprovalResult, ResumeThreadSessionInput,
-    SendWorkspaceFindingsInput, SetRepoDefaultBranchInput, SetRepoRunCommandInput,
-    SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, SetSettingInput, Snapshot,
-    SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
-    TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
+    AddRepoInput, AgentEvent, BranchDeletion, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
+    CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
+    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, LocalBranchRow, LocalBranchesResult,
+    PtyChunk, RemoveRepoInput, RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime,
+    ResolveApprovalResult, ResumeThreadSessionInput, SendWorkspaceFindingsInput,
+    SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput,
+    SetRepoSingleInstanceInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
+    TeardownInput, TeardownPreview, TestRepoSetupInput, TestRepoSetupResult,
+    WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 use crate::app::WorkspaceAppAction;
 use crate::store::types::RepoRecord;
@@ -48,7 +46,8 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         .filter(|value| !value.is_empty());
 
     let persisted = state.store.blocking(|store| store.snapshot()).await?;
-    let workspace_ids: Vec<String> = if state.workspace.list().await.is_empty() {
+    let workspaces = state.workspace.list().await;
+    let workspace_ids: Vec<String> = if workspaces.is_empty() {
         persisted
             .workspaces
             .iter()
@@ -56,21 +55,15 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
             .map(|row| row.id.clone())
             .collect()
     } else {
-        state
-            .workspace
-            .list()
-            .await
-            .into_iter()
-            .map(|row| row.id)
-            .collect()
+        workspaces.iter().map(|row| row.id.clone()).collect()
     };
-    let workspace_git = crate::git_workspace::git_runtime_snapshot(&state, &workspace_ids);
+    let workspace_git = crate::git_workspace::git_runtime_snapshot(&state, &workspace_ids).await;
 
     Ok(Snapshot {
         version: state.snapshot_version(),
         view: super::types::AppView::Homebase,
         persisted,
-        workspaces: state.workspace.list().await,
+        workspaces,
         workspace_git,
         memory,
         pending_live_approvals: state.approvals.pending_count(),
@@ -107,13 +100,16 @@ fn repo_paths_match(left: &str, right: &Path) -> bool {
 
 fn upsert_repo_record(app: &AppHandle, state: &AppState, repo: RepoRecord) -> Result<()> {
     state.store.upsert_repo(&repo)?;
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
     Ok(())
+}
+
+/// A registered repo, or the error every repo command gives for an unknown id.
+fn repo_record(state: &AppState, repo_id: &str) -> Result<RepoRecord> {
+    state
+        .store
+        .repo_by_id(repo_id)?
+        .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))
 }
 
 #[tauri::command]
@@ -123,27 +119,12 @@ pub async fn set_repo_run_command(
     input: SetRepoRunCommandInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let repos = state.store.snapshot()?.repos;
-    let Some(mut repo) = repos.into_iter().find(|row| row.id == input.repo_id) else {
-        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
-    };
+    let mut repo = repo_record(&state, &input.repo_id)?;
     repo.run_command = input
         .run_command
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    upsert_repo_record(
-        &app,
-        &state,
-        RepoRecord {
-            id: repo.id,
-            path: repo.path,
-            name: repo.name,
-            default_branch: repo.default_branch,
-            setup_commands: repo.setup_commands,
-            run_command: repo.run_command,
-            single_instance: repo.single_instance,
-        },
-    )
+    upsert_repo_record(&app, &state, repo)
 }
 
 #[tauri::command]
@@ -153,10 +134,7 @@ pub async fn set_repo_single_instance(
     input: SetRepoSingleInstanceInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let repos = state.store.snapshot()?.repos;
-    let Some(mut repo) = repos.into_iter().find(|row| row.id == input.repo_id) else {
-        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
-    };
+    let mut repo = repo_record(&state, &input.repo_id)?;
     repo.single_instance = input.single_instance;
     upsert_repo_record(&app, &state, repo)
 }
@@ -168,24 +146,9 @@ pub async fn set_repo_setup_commands(
     input: SetRepoSetupCommandsInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let repos = state.store.snapshot()?.repos;
-    let Some(mut repo) = repos.into_iter().find(|row| row.id == input.repo_id) else {
-        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
-    };
+    let mut repo = repo_record(&state, &input.repo_id)?;
     repo.setup_commands = input.setup_commands;
-    upsert_repo_record(
-        &app,
-        &state,
-        RepoRecord {
-            id: repo.id,
-            path: repo.path,
-            name: repo.name,
-            default_branch: repo.default_branch,
-            setup_commands: repo.setup_commands,
-            run_command: repo.run_command,
-            single_instance: repo.single_instance,
-        },
-    )
+    upsert_repo_record(&app, &state, repo)
 }
 
 #[tauri::command]
@@ -195,22 +158,16 @@ pub async fn set_repo_default_branch(
     input: SetRepoDefaultBranchInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let snapshot = state.store.snapshot()?;
-    let Some(mut repo) = snapshot
-        .repos
-        .into_iter()
-        .find(|row| row.id == input.repo_id)
-    else {
-        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
-    };
+    let mut repo = repo_record(&state, &input.repo_id)?;
     let branch = input.default_branch.trim().to_string();
     if branch.is_empty() {
         return Err(Error::Workspace("Pick a default branch".into()));
     }
-    if let Some(workspace) = snapshot
-        .workspaces
+    if let Some(workspace) = state
+        .store
+        .live_workspaces()?
         .iter()
-        .find(|row| row.repo_id == repo.id && row.archived_at.is_none() && row.branch == branch)
+        .find(|row| row.repo_id == repo.id && row.branch == branch)
     {
         return Err(Error::Workspace(format!(
             "{} has {branch} checked out. Switch it to another branch first.",
@@ -221,23 +178,19 @@ pub async fn set_repo_default_branch(
     upsert_repo_record(&app, &state, repo)
 }
 
-/// Fast-forward the repo checkout's default branch from origin.
 /// Commits each repo's default branch is behind and ahead of `origin`, against the last
 /// fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
 #[tauri::command]
 #[specta::specta]
 pub async fn get_repo_git(state: State<'_, AppState>) -> Result<Vec<RepoGitRuntime>> {
     let mut rows = Vec::new();
-    for repo in state.store.snapshot()?.repos {
+    for repo in state.store.repos()? {
         let path = expand_tilde(&repo.path);
         let branch = repo.default_branch_or_main();
-        let behind = state
+        // One `rev-list --left-right` gives both counts, instead of a process per direction.
+        let (ahead, behind) = state
             .git
-            .rev_list_count(&path, &format!("{branch}..origin/{branch}"))
-            .await?;
-        let ahead = state
-            .git
-            .rev_list_count(&path, &format!("origin/{branch}..{branch}"))
+            .ahead_behind(&path, branch, &format!("origin/{branch}"))
             .await?;
         rows.push(RepoGitRuntime {
             repo_id: repo.id,
@@ -248,6 +201,7 @@ pub async fn get_repo_git(state: State<'_, AppState>) -> Result<Vec<RepoGitRunti
     Ok(rows)
 }
 
+/// Fast-forward the repo checkout's default branch from origin.
 #[tauri::command]
 #[specta::specta]
 pub async fn pull_repo_default_branch(
@@ -255,12 +209,7 @@ pub async fn pull_repo_default_branch(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .into_iter()
-        .find(|row| row.id == repo_id)
-        .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))?;
+    let repo = repo_record(&state, &repo_id)?;
     let branch = repo.default_branch_or_main().to_string();
     let pulled = state
         .git
@@ -270,12 +219,7 @@ pub async fn pull_repo_default_branch(
     // Workspaces count how far behind origin/<base> they are, which the pull just moved.
     let updates = state.fetch.tick().await?;
     crate::git_workspace::apply_behind_updates(&state, &updates).await;
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::BehindCounts,
-    }
-    .emit(&app);
+    state.notify(&app, StateChangeKind::BehindCounts);
 
     let summary = match pulled {
         0 => " is up to date".to_string(),
@@ -323,15 +267,14 @@ pub async fn add_repo(
         .map_err(|_| Error::Git("That folder is not a git repository".into()))?;
     let display_path = crate::harness_config::path_for_display(&toplevel);
 
-    let snapshot = state.store.snapshot()?;
-    if snapshot
-        .repos
+    let repos = state.store.repos()?;
+    if repos
         .iter()
         .any(|row| repo_paths_match(&row.path, &toplevel))
     {
         return Err(Error::Workspace("That folder is already added".into()));
     }
-    if snapshot.repos.iter().any(|row| row.id == id) {
+    if repos.iter().any(|row| row.id == id) {
         return Err(Error::Workspace(format!(
             "A repo named {id} is already added"
         )));
@@ -381,14 +324,7 @@ pub async fn remove_repo(
     input: RemoveRepoInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let snapshot = state.store.snapshot()?;
-    let Some(repo) = snapshot
-        .repos
-        .into_iter()
-        .find(|row| row.id == input.repo_id)
-    else {
-        return Err(Error::Workspace(format!("unknown repo {}", input.repo_id)));
-    };
+    let repo = repo_record(&state, &input.repo_id)?;
 
     let used = state.store.count_active_workspaces_for_repo(&repo.id)?;
     if used > 0 {
@@ -404,12 +340,7 @@ pub async fn remove_repo(
     }
 
     state.store.delete_repo(&repo.id)?;
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(&app);
+    state.notify(&app, StateChangeKind::WorkspaceStatus);
 
     emit_toast(
         &app,
@@ -443,12 +374,7 @@ pub async fn test_repo_setup(
     input: TestRepoSetupInput,
     state: State<'_, AppState>,
 ) -> Result<TestRepoSetupResult> {
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .into_iter()
-        .find(|row| row.id == input.repo_id)
-        .ok_or_else(|| Error::Workspace(format!("unknown repo {}", input.repo_id)))?;
+    let repo = repo_record(&state, &input.repo_id)?;
     let repo_path = expand_tilde(&repo.path);
     let setup_raw = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
     let commands = crate::provisioning::parse_setup_commands(&setup_raw);
@@ -521,12 +447,7 @@ pub async fn set_setting(
         return Err(Error::Store("setting key required".into()));
     }
     state.store.set_setting(key, &input.value)?;
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(&app);
+    state.notify(&app, StateChangeKind::WorkspaceStatus);
     Ok(())
 }
 
@@ -534,12 +455,7 @@ pub async fn set_setting(
 #[specta::specta]
 pub async fn reload_environment(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.shell_env.write().await.reload().await?;
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::Environment,
-    }
-    .emit(&app);
+    state.notify(&app, StateChangeKind::Environment);
     Ok(())
 }
 
@@ -579,12 +495,7 @@ pub async fn get_thread_events(
 }
 
 fn emit_settings_changed(app: &AppHandle, state: &AppState) {
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 }
 
 /// Checks the key with ClickUp, then saves it to `~/.cormux/credentials.json`.
@@ -714,19 +625,25 @@ pub fn subscribe_agent_events(
     Ok(id)
 }
 
-/// Wait for the thread's engine session to exist, giving up if the subscription is cancelled first.
+/// Wait for the thread's engine session to exist, giving up if the subscription is cancelled
+/// first. An idle thread on screen has no engine until its next prompt, so this waits on the
+/// registry's spawn signal rather than polling.
 async fn subscribe_thread(
     engines: &crate::engines::EngineRegistry,
     thread_id: &str,
     sub: &mut SubscriptionHandle,
 ) -> Option<tokio::sync::broadcast::Receiver<StreamedEvent>> {
     loop {
+        // Armed before the check, so a spawn landing between the two still wakes this.
+        let spawned = engines.spawned().notified();
+        tokio::pin!(spawned);
+        spawned.as_mut().enable();
         if let Ok(rx) = engines.subscribe(thread_id) {
             return Some(rx);
         }
         tokio::select! {
             _ = sub.stopped() => return None,
-            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+            () = spawned => {}
         }
     }
 }
@@ -784,12 +701,7 @@ pub async fn resolve_approval(
 
 fn notify_approval_resolved(app: &AppHandle, state: &AppState) {
     emit_approval_counts(app, state);
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 }
 
 #[tauri::command]
@@ -929,11 +841,7 @@ pub async fn refresh_workspace_diff(
     use std::path::Path;
 
     let workspace = crate::git_workspace::load_workspace(&state, &workspace_id).await?;
-    if let Ok(snapshot) = state.store.snapshot()
-        && let Some(row) = snapshot
-            .workspaces
-            .iter()
-            .find(|row| row.id == workspace_id)
+    if let Ok(Some(row)) = state.store.workspace_by_id(&workspace_id)
         && row.kind.as_deref() == Some("review")
     {
         state.diffs.default_diff_target(
@@ -1026,12 +934,10 @@ pub async fn summarise_workspace(
     use crate::error::Error;
     use crate::summaries::{self, SUMMARY_MODEL_LABEL};
 
-    let snapshot = state.store.snapshot()?;
-    let workspace = snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == workspace_id)
-        .cloned()
+    let workspace = state
+        .store
+        .workspace_by_id(&workspace_id)?
+        .filter(|row| row.archived_at.is_none())
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
 
     if let (Some(summary), Some(at)) = (&workspace.summary, &workspace.summary_at)
@@ -1046,12 +952,7 @@ pub async fn summarise_workspace(
         });
     }
 
-    let threads: Vec<_> = snapshot
-        .threads
-        .iter()
-        .filter(|thread| thread.workspace_id == workspace_id)
-        .cloned()
-        .collect();
+    let threads = state.store.threads_for_workspace(&workspace_id)?;
 
     let prompt = summaries::build_summary_prompt(&workspace, &threads);
     let (summary, from_llm) = match state.llm.summarise(&workspace_id, &prompt).await {
@@ -1083,16 +984,15 @@ pub async fn list_repo_branches(
     repo_id: String,
     state: State<'_, AppState>,
 ) -> Result<RepoBranchesResult> {
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .into_iter()
-        .find(|row| row.id == repo_id)
-        .ok_or_else(|| Error::Git(format!("unknown repo {repo_id}")))?;
+    let repo = repo_record(&state, &repo_id)?;
     let repo_path = expand_tilde(&repo.path);
-    let mut names = state.git.list_local_branches(&repo_path).await?;
     // Branches that only exist on GitHub can be checked out too; `git switch` tracks them.
-    names.extend(state.git.list_remote_branches(&repo_path, "origin").await?);
+    let (local, remote) = tokio::try_join!(
+        state.git.list_local_branches(&repo_path),
+        state.git.list_remote_branches(&repo_path, "origin"),
+    )?;
+    let mut names = local;
+    names.extend(remote);
     names.sort();
     names.dedup();
     Ok(RepoBranchesResult { branches: names })
@@ -1104,22 +1004,14 @@ pub async fn list_repo_local_branches(
     repo_id: String,
     state: State<'_, AppState>,
 ) -> Result<LocalBranchesResult> {
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .into_iter()
-        .find(|row| row.id == repo_id)
-        .ok_or_else(|| Error::Git(format!("unknown repo {repo_id}")))?;
+    let repo = repo_record(&state, &repo_id)?;
     let repo_path = expand_tilde(&repo.path);
-    let head = state
-        .git
-        .current_branch(&repo_path)
-        .await
-        .unwrap_or_default();
-    let branches = state
-        .git
-        .list_local_branch_tips(&repo_path)
-        .await?
+    let (head, tips) = tokio::join!(
+        state.git.current_branch(&repo_path),
+        state.git.list_local_branch_tips(&repo_path),
+    );
+    let head = head.unwrap_or_default();
+    let branches = tips?
         .into_iter()
         .map(|tip| LocalBranchRow {
             name: tip.name,
@@ -1142,17 +1034,13 @@ pub async fn delete_local_branch(
     if branch.is_empty() {
         return Err(Error::Git("missing branch name".into()));
     }
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .iter()
-        .find(|row| row.id == repo_id)
-        .ok_or_else(|| Error::Git(format!("unknown repo {repo_id}")))?;
+    let repo = repo_record(&state, &repo_id)?;
     if branch == repo.default_branch_or_main() {
         return Err(Error::Git(format!("{branch} is the default branch")));
     }
-    if let Some(workspace) = snapshot
-        .workspaces
+    if let Some(workspace) = state
+        .store
+        .live_workspaces()?
         .iter()
         .find(|row| row.repo_id == repo_id && row.branch == branch)
     {
@@ -1205,11 +1093,9 @@ pub async fn start_workspace(
     parent_thread_id: Option<String>,
 ) -> Result<StartedWorkspace> {
     let app = app.clone();
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .into_iter()
-        .find(|row| row.id == input.repo_id)
+    let repo = state
+        .store
+        .repo_by_id(&input.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
     repo.ensure_not_default_branch(&input.branch)?;
     let repo_path = expand_tilde(&repo.path);
@@ -1225,9 +1111,10 @@ pub async fn start_workspace(
     let goal_text = input.goal.trim();
     let auto_named = input.name.trim().is_empty() && !goal_text.is_empty();
     let name = match input.name.trim() {
-        "" if goal_text.is_empty() => crate::naming::next_workspace_name(
-            snapshot.workspaces.iter().map(|row| row.name.as_str()),
-        ),
+        "" if goal_text.is_empty() => {
+            let live = state.store.live_workspaces()?;
+            crate::naming::next_workspace_name(live.iter().map(|row| row.name.as_str()))
+        }
         "" => crate::naming::draft_title(goal_text, crate::naming::WORKSPACE_NAME_MAX),
         given => given
             .chars()
@@ -1302,12 +1189,7 @@ pub async fn start_workspace(
         persist_user_message(&state.store, &thread_id, &goal)?;
     }
 
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(&app);
+    state.notify(&app, StateChangeKind::WorkspaceStatus);
 
     if auto_named {
         spawn_auto_name(
@@ -1390,13 +1272,16 @@ async fn name_branch(app: &AppHandle, workspace_id: &str, prompt: &str) -> Resul
         return Ok(());
     };
     let repo_path = PathBuf::from(&record.repo_path);
-    let mut taken = state.git.list_local_branches(&repo_path).await?;
-    taken.extend(state.git.list_remote_branches(&repo_path, "origin").await?);
+    let (local, remote) = tokio::try_join!(
+        state.git.list_local_branches(&repo_path),
+        state.git.list_remote_branches(&repo_path, "origin"),
+    )?;
+    let mut taken = local;
+    taken.extend(remote);
     taken.extend(
         state
             .store
-            .snapshot()?
-            .workspaces
+            .live_workspaces()?
             .into_iter()
             .filter(|row| row.repo_id == record.repo_id && row.id != workspace_id)
             .map(|row| row.branch),
@@ -1409,12 +1294,7 @@ async fn name_branch(app: &AppHandle, workspace_id: &str, prompt: &str) -> Resul
     state
         .store
         .set_workspace_checkout(workspace_id, &record.branch, &record.worktree_path)?;
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
     Ok(())
 }
 
@@ -1445,12 +1325,7 @@ fn spawn_auto_name(app: AppHandle, workspace_id: String, draft: String, prompt: 
         {
             return;
         }
-        let version = state.bump_event_version();
-        let _ = StateChanged {
-            version,
-            kind: StateChangeKind::WorkspaceStatus,
-        }
-        .emit(&app);
+        state.notify(&app, StateChangeKind::WorkspaceStatus);
     });
 }
 
@@ -1485,12 +1360,7 @@ pub async fn rename_workspace(
     }
     state.store.set_workspace_name(&input.workspace_id, name)?;
     state.workspace.rename(&input.workspace_id, name).await?;
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(&app);
+    state.notify(&app, StateChangeKind::WorkspaceStatus);
     Ok(())
 }
 
@@ -1734,7 +1604,12 @@ pub async fn submit_thread_prompt(
         .app_data_dir()
         .map_err(|error| Error::Workspace(error.to_string()))?;
     let folder = crate::data_dir(app_data).join("attachments");
-    let (prompt, text) = crate::attachments::build_prompt(&folder, &text, &attachments)?;
+    // Reads and encodes the attached files, so it stays off the async workers.
+    let (prompt, text) = tokio::task::spawn_blocking(move || {
+        crate::attachments::build_prompt(&folder, &text, &attachments)
+    })
+    .await
+    .map_err(|error| Error::Workspace(error.to_string()))??;
     let thread = snapshot_thread(state, &thread_id)?;
     let held = thread.status == "paused";
     if !held && !state.engines.has_thread(&thread_id) {
@@ -1955,20 +1830,28 @@ pub async fn resolve_thread_media(
         .app_data_dir()
         .map_err(|error| Error::Workspace(error.to_string()))?;
     let media_dir = crate::data_dir(app_data).join("media");
-    crate::thread_media::resolve(
-        &media_dir,
-        &source,
-        workdir.as_deref().map(std::path::Path::new),
-    )
+    // Copies a file of up to hundreds of megabytes; not on an async worker.
+    tokio::task::spawn_blocking(move || {
+        crate::thread_media::resolve(
+            &media_dir,
+            &source,
+            workdir.as_deref().map(std::path::Path::new),
+        )
+    })
+    .await
+    .map_err(|error| Error::Workspace(error.to_string()))?
 }
 
 /// A thumbnail for an image attached by path, for the composer.
 #[tauri::command]
 #[specta::specta]
 pub async fn image_preview(path: String) -> Result<Option<String>> {
-    Ok(crate::attachments::image_preview(std::path::Path::new(
-        &path,
-    )))
+    // Up to 5 MB read and base64-encoded: not on an async worker.
+    tokio::task::spawn_blocking(move || {
+        crate::attachments::image_preview(std::path::Path::new(&path))
+    })
+    .await
+    .map_err(|error| Error::Workspace(error.to_string()))
 }
 
 /// Dismissed findings stay listed but aren't sent to an agent or posted with the review.
@@ -1995,49 +1878,6 @@ pub async fn end_scratch(
     state: State<'_, AppState>,
 ) -> Result<()> {
     crate::scratch::end(&app, &state, &scratch_id).await
-}
-
-/// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.
-#[tauri::command]
-#[specta::specta]
-pub fn start_streaming_spike(agent: Channel<AgentChunk>, pty: Channel<PtyChunk>) -> Result<()> {
-    tauri::async_runtime::spawn(async move {
-        let started = std::time::Instant::now();
-        let mut n = 0u32;
-        while started.elapsed() < std::time::Duration::from_secs(6) {
-            n += 1;
-            let _ = agent.send(AgentChunk {
-                thread_id: "spike".into(),
-                text: format!("token-{n} "),
-            });
-            let _ = pty.send(PtyChunk {
-                workspace_id: "spike".into(),
-                line: format!("[{n}] app log line at 100hz"),
-            });
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    });
-    Ok(())
-}
-
-pub fn emit_workspace_status(
-    app: &AppHandle,
-    state: &AppState,
-    workspace_id: &str,
-    status: crate::workspace::WorkspaceLifecycle,
-) {
-    let version = state.bump_event_version();
-    let _ = WorkspaceStatusChanged {
-        version,
-        workspace_id: workspace_id.to_string(),
-        status,
-    }
-    .emit(app);
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
 }
 
 pub fn harness_home() -> PathBuf {
@@ -2100,12 +1940,7 @@ async fn set_workspace_thread(state: &AppState, thread: &ThreadRow, activity: Th
 }
 
 fn emit_composer_snapshot(app: &AppHandle, state: &AppState) {
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 }
 
 pub(crate) fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {

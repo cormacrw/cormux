@@ -1,5 +1,6 @@
 import type { AgentEvent, ApprovalRow, ToolKind } from '$lib/ipc/bindings'
 import { parseApprovalPayload } from '$lib/approvals/payload'
+import { deepEqual } from '$lib/deep-equal'
 import { memoByText } from './memo'
 import { summarizeRun } from './run-summary'
 import type {
@@ -106,14 +107,24 @@ function editVerb(
 }
 
 function approvalState(
-  id: string,
-  approvals: ApprovalRow[],
+  row: ApprovalRow | undefined,
 ): 'pending' | 'approved' | 'denied' {
-  const row = approvals.find((entry) => entry.id === id)
   if (!row) return 'pending'
   if (row.status === 'approved') return 'approved'
   if (row.status === 'denied' || row.status === 'dismissed') return 'denied'
   return 'pending'
+}
+
+// Looked up by id once per list, rather than scanned for every permission in the thread.
+const approvalIndexes = new WeakMap<ApprovalRow[], Map<string, ApprovalRow>>()
+
+function approvalById(approvals: ApprovalRow[], id: string) {
+  let index = approvalIndexes.get(approvals)
+  if (!index) {
+    index = new Map(approvals.map((row) => [row.id, row]))
+    approvalIndexes.set(approvals, index)
+  }
+  return index.get(id)
 }
 
 // Approval labels quote the raw tool name ("Use mcp__github__get_pr"); show it as words.
@@ -131,9 +142,9 @@ function approvalFromPermission(
   atMs: number,
   approvals: ApprovalRow[],
 ) {
-  const row = approvals.find((entry) => entry.id === event.id)
+  const row = approvalById(approvals, event.id)
   const payload = row ? parsedApproval(row.payload) : null
-  const state = approvalState(event.id, approvals)
+  const state = approvalState(row)
   return {
     kind: 'approval' as const,
     id: event.id,
@@ -717,7 +728,7 @@ export class TimelineBuilder {
     const items = this.fold(input).map((item) => {
       const old = before.get(item.id)
       if (!old || old === item) return item
-      if (JSON.stringify(old) !== JSON.stringify(item)) return item
+      if (!deepEqual(old, item)) return item
       reused.set(item, old)
       return old
     })

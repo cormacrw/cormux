@@ -68,7 +68,7 @@ export function fixtureClickupBoard(): ClickupBoard {
         'to do',
         '#87909e',
         3,
-        [teammate],
+        [me, teammate],
       ),
       task(
         't2',
@@ -96,7 +96,7 @@ export function fixtureClickupBoard(): ClickupBoard {
         'to do',
         '#87909e',
         null,
-        [],
+        [me],
       ),
       task(
         't5',

@@ -649,7 +649,9 @@ export function installBrowserHarness() {
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {
     if (cmd === 'get_snapshot') {
       fixtureSnapshot.persisted.threadActivity = threadActivityRows()
-      return fixtureSnapshot
+      // A copy, as the real IPC deserialises one: the stores keep rows whose contents didn't
+      // change, so handing them the fixture's own objects would hide the harness's edits.
+      return structuredClone(fixtureSnapshot)
     }
     if (cmd === 'get_thread_events') return threadEventPage(args)
     if (cmd === 'get_workspace_stack') return stackFor(String(args.workspaceId))

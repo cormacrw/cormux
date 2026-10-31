@@ -77,6 +77,15 @@ impl ApprovalBroker {
         Ok(())
     }
 
+    /// Forgets a request nothing will answer any more: the engine's turn ended or it exited.
+    /// The waiter sees its channel close and the dock badge stops counting it.
+    pub fn cancel(&self, id: &str) -> bool {
+        self.pending
+            .lock()
+            .map(|mut pending| pending.remove(id).is_some())
+            .unwrap_or(false)
+    }
+
     pub fn pending_count(&self) -> usize {
         self.pending.lock().map(|map| map.len()).unwrap_or(0)
     }
@@ -97,6 +106,17 @@ mod tests {
         broker.resolve("a1", true, None).await.unwrap();
         assert_eq!(rx.await.unwrap(), ApprovalDecision::Approved);
         assert_eq!(broker.pending_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn cancel_drops_the_request_and_wakes_its_waiter() {
+        let broker = ApprovalBroker::new();
+        let rx = broker.register("a1");
+        assert!(broker.cancel("a1"));
+        assert!(!broker.cancel("a1"));
+        assert!(rx.await.is_err());
+        assert_eq!(broker.pending_count(), 0);
+        assert!(broker.resolve("a1", true, None).await.is_err());
     }
 
     #[tokio::test]

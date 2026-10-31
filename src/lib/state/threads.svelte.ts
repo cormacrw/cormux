@@ -1,3 +1,5 @@
+// Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
+/* eslint-disable svelte/prefer-svelte-reactivity */
 import type { ThreadUsage } from '$lib/usage/usage'
 import { reuseRows } from './reuse-rows'
 import { workspaces } from './workspaces.svelte'
@@ -20,8 +22,37 @@ export type Thread = {
   scratchId?: string
 }
 
+const NO_THREADS: Thread[] = []
+
 export class ThreadsStore {
   items = $state.raw<Thread[]>([])
+
+  // Lookups are indexed once per list, not scanned per caller: the sidebar, header, palette
+  // and composer all ask by id or workspace on every snapshot.
+  private readonly byId = $derived(
+    new Map(this.items.map((thread) => [thread.id, thread])),
+  )
+
+  private readonly byWorkspace = $derived.by(() => {
+    const map = new Map<string, Thread[]>()
+    for (const thread of this.items) {
+      const list = map.get(thread.workspaceId)
+      if (list) list.push(thread)
+      else map.set(thread.workspaceId, [thread])
+    }
+    return map
+  })
+
+  private readonly byParent = $derived.by(() => {
+    const map = new Map<string, Thread[]>()
+    for (const thread of this.items) {
+      if (!thread.parentThreadId) continue
+      const list = map.get(thread.parentThreadId)
+      if (list) list.push(thread)
+      else map.set(thread.parentThreadId, [thread])
+    }
+    return map
+  })
 
   /**
    * Live workspace threads only. Scratches and retired threads stay out of agent counts, and
@@ -43,8 +74,9 @@ export class ThreadsStore {
     this.items = reuseRows(this.items, items)
   }
 
-  forWorkspace(workspaceId: string) {
-    return this.items.filter((thread) => thread.workspaceId === workspaceId)
+  /** The workspace's threads in creation order; the same array until the list changes. */
+  forWorkspace(workspaceId: string): Thread[] {
+    return this.byWorkspace.get(workspaceId) ?? NO_THREADS
   }
 
   /** The workspace's one thread that can still be messaged. */
@@ -53,8 +85,8 @@ export class ThreadsStore {
   }
 
   /** The threads this one started. */
-  childrenOf(threadId: string) {
-    return this.items.filter((thread) => thread.parentThreadId === threadId)
+  childrenOf(threadId: string): Thread[] {
+    return this.byParent.get(threadId) ?? NO_THREADS
   }
 
   /** The workspace's older threads, kept to read. */
@@ -63,26 +95,21 @@ export class ThreadsStore {
   }
 
   getById(id: string) {
-    return this.items.find((thread) => thread.id === id)
+    return this.byId.get(id)
   }
 
   setStatus(id: string, status: string) {
-    this.items = this.items.map((thread) => {
-      if (thread.id !== id) return thread
-      const activity =
-        status === 'running'
-          ? 'Working'
-          : status === 'idle'
-            ? 'Idle'
-            : thread.activity
-      return { ...thread, status, paused: status === 'paused', activity }
-    })
+    const thread = this.byId.get(id)
+    if (!thread) return
+    const activity =
+      status === 'running'
+        ? 'Working'
+        : status === 'idle'
+          ? 'Idle'
+          : thread.activity
+    const next = { ...thread, status, paused: status === 'paused', activity }
+    this.items = this.items.map((row) => (row === thread ? next : row))
   }
-
-  /** All threads in workspace list order, then thread list order. */
-  readonly sidebarAgents = $derived.by(() => {
-    return this.agents
-  })
 }
 
 export const threads = new ThreadsStore()

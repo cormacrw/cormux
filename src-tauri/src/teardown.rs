@@ -3,12 +3,9 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
 use crate::error::{Error, Result};
-use crate::ipc::commands::emit_workspace_status;
-use crate::ipc::events::StateChanged;
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
 use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
-use tauri_specta::Event;
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -113,20 +110,13 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
         .workspace
         .set_status(&input.workspace_id, WorkspaceLifecycle::TearingDown)
         .await;
-    emit_workspace_status(
-        app,
-        state,
-        &input.workspace_id,
-        WorkspaceLifecycle::TearingDown,
-    );
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 
     let thread_ids: Vec<String> = state
         .store
-        .snapshot()?
-        .threads
-        .iter()
-        .filter(|thread| thread.workspace_id == input.workspace_id)
-        .map(|thread| thread.id.clone())
+        .threads_for_workspace(&input.workspace_id)?
+        .into_iter()
+        .map(|thread| thread.id)
         .collect();
 
     if let Err(error) = run_teardown_steps(state, &record, input.delete_branch, &thread_ids).await {
@@ -134,7 +124,7 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
             .workspace
             .set_status(&input.workspace_id, previous_status)
             .await;
-        emit_workspace_status(app, state, &input.workspace_id, previous_status);
+        state.notify(app, StateChangeKind::WorkspaceStatus);
         return Err(error);
     }
 
@@ -145,12 +135,7 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
     state.workspace.remove(&input.workspace_id).await;
     state.workspace.sync_fetch_targets().await;
 
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 
     Ok(())
 }
@@ -192,11 +177,9 @@ async fn resolve_record(
         return Ok(record);
     }
 
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .iter()
-        .find(|repo| repo.id == row.repo_id)
+    let repo = state
+        .store
+        .repo_by_id(&row.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", row.repo_id)))?;
     let repo_path = expand_tilde(&repo.path);
     let base = repo.default_branch.clone().unwrap_or_else(|| "main".into());

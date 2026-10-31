@@ -91,8 +91,12 @@
         : text.length,
     ),
   )
+  // What's been shown is recorded when the reveal lands, and on the way out: a remount (a
+  // virtual list scrolling, a row re-keyed by the store) picks up from there. Recording on
+  // every frame instead scanned the whole list of shown replies per frame.
   $effect(() => {
-    const visible = text.slice(0, shown)
+    if (shown < text.length) return
+    const visible = text
     untrack(() => rememberShown(visible))
   })
   let frame = 0
@@ -150,6 +154,7 @@
   onDestroy(() => {
     cancelAnimationFrame(frame)
     stopTyping(order)
+    rememberShown(text.slice(0, shown))
   })
 </script>
 

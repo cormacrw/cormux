@@ -241,17 +241,6 @@ async discardWorkspaceChanges(workspaceId: string, paths: string[]) : Promise<Re
 }
 },
 /**
- * Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.
- */
-async startStreamingSpike(agent: TAURI_CHANNEL<AgentChunk>, pty: TAURI_CHANNEL<PtyChunk>) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("start_streaming_spike", { agent, pty }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
  * Generate or return a cached workspace card summary (debounced LLM + local fallback).
  */
 async summariseWorkspace(workspaceId: string) : Promise<Result<WorkspaceSummaryResult, Error>> {
@@ -622,6 +611,9 @@ async setRepoDefaultBranch(input: SetRepoDefaultBranchInput) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Fast-forward the repo checkout's default branch from origin.
+ */
 async pullRepoDefaultBranch(repoId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("pull_repo_default_branch", { repoId }) };
@@ -631,7 +623,6 @@ async pullRepoDefaultBranch(repoId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Fast-forward the repo checkout's default branch from origin.
  * Commits each repo's default branch is behind and ahead of `origin`, against the last
  * fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
  */
@@ -736,13 +727,11 @@ async endScratch(scratchId: string) : Promise<Result<null, Error>> {
 export const events = __makeEvents__<{
 memorySampled: MemorySampled,
 stateChanged: StateChanged,
-toastRaised: ToastRaised,
-workspaceStatusChanged: WorkspaceStatusChanged
+toastRaised: ToastRaised
 }>({
 memorySampled: "memory-sampled",
 stateChanged: "state-changed",
-toastRaised: "toast-raised",
-workspaceStatusChanged: "workspace-status-changed"
+toastRaised: "toast-raised"
 })
 
 /** user-defined constants **/
@@ -752,7 +741,6 @@ workspaceStatusChanged: "workspace-status-changed"
 /** user-defined types **/
 
 export type AddRepoInput = { path: string }
-export type AgentChunk = { threadId: string; text: string }
 /**
  * One internal event every adapter translates into (COR-56).
  */
@@ -982,6 +970,10 @@ export type StackStatus =
  * `gh` or the gh-stack extension is missing, or stacks are off for this repo.
  */
 "unavailable"
+/**
+ * What changed. The webview refetches its snapshot for every kind but `Toast`, and also
+ * refreshes the repo rows for `BehindCounts`; the rest only name the change for logs.
+ */
 export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "environment" | "workspaceApp"
 /**
  * Low-volume core → UI notification. `version` is monotonic; a gap means the
@@ -1088,7 +1080,6 @@ currentNeedsRebase: boolean;
  * Bottom of the stack (closest to the trunk) first.
  */
 branches: StackBranch[] }
-export type WorkspaceStatusChanged = { version: number; workspaceId: string; status: WorkspaceLifecycle }
 export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
 export type WorktreeDiff = { workspaceId: string; 
 /**

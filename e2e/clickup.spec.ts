@@ -67,6 +67,15 @@ test.describe('clickup', () => {
     await expect(
       page.getByRole('heading', { name: 'Sprint 14', level: 1 }),
     ).toBeVisible()
+    // The view is still rising in; a click into a moving board scrolls it to the end,
+    // which puts the first lane under the sidebar for the drag below.
+    await page
+      .locator('[data-od-id="sprint-view"]')
+      .evaluate((view) =>
+        Promise.all(
+          view.getAnimations().map((animation) => animation.finished),
+        ),
+      )
     await page.locator('[data-task-id="t2"]').click()
     const panel = page.locator('[data-od-id="sprint-task-panel"]')
     await expect(
@@ -99,6 +108,9 @@ test.describe('clickup', () => {
       page.getByRole('button', { name: 'Open t4 in ClickUp' }),
     ).toBeAttached()
 
+    // The board is yours: a teammate's task isn't on it.
+    await expect(page.locator('[data-task-id="t5"]')).toHaveCount(0)
+
     // Unpointed tasks stand out on the board and in the header.
     const unpointed = page.locator('[data-unpointed]')
     await expect(unpointed).toHaveCount(2)
@@ -111,7 +123,7 @@ test.describe('clickup', () => {
     const progress = page.locator('[data-od-id="sprint-progress"]')
     await expect(progress).toHaveAttribute(
       'aria-valuetext',
-      '1 of 11 points done',
+      '1 of 9 points done',
     )
 
     // Estimating from the pane clears the highlight and grows the total.
@@ -119,7 +131,7 @@ test.describe('clickup', () => {
     await expect(unpointed).toHaveCount(1)
     await expect(progress).toHaveAttribute(
       'aria-valuetext',
-      '1 of 14 points done',
+      '1 of 12 points done',
     )
     await expect(
       panel.getByRole('button', { name: '3 points', exact: true }),
@@ -142,7 +154,7 @@ test.describe('clickup', () => {
       page
         .getByRole('navigation', { name: 'Harness' })
         .getByRole('button', { name: /Sprint/ }),
-    ).toContainText('5')
+    ).toContainText('4')
 
     expect(await calls(page)).toEqual([
       {

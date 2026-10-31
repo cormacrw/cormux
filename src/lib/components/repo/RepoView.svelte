@@ -21,6 +21,7 @@
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import { openUrl } from '@tauri-apps/plugin-opener'
+  import { getCurrentWindow } from '@tauri-apps/api/window'
 
   let titleEl = $state<HTMLHeadingElement | null>(null)
   let branches = $state<LocalBranchRow[]>([])
@@ -116,6 +117,14 @@
     branches = branches.filter((row) => row.name !== name)
   }
 
+  function startHeaderDrag(event: MouseEvent) {
+    if (event.button !== 0) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (target.closest('button, a, input, textarea')) return
+    void getCurrentWindow().startDragging()
+  }
+
   function onUnpushedKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && unpushed) {
       event.preventDefault()
@@ -130,7 +139,13 @@
 >
   {#if repo}
     <div class="mx-auto flex w-full max-w-[760px] flex-col gap-10 p-6">
-      <header class="grid gap-3">
+      <!-- The title block is the page's title bar: empty space in it drags the window. -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <header
+        class="grid gap-3"
+        data-tauri-drag-region
+        onmousedown={startHeaderDrag}
+      >
         <h1
           bind:this={titleEl}
           tabindex="-1"

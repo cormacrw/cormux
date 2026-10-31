@@ -703,7 +703,7 @@
     </ul>
   {/if}
   <form
-    class="composer glass-pane mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-[18px] transition-[border-color,box-shadow] duration-(--dur-fast) focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25"
+    class="composer glass-pane @container mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-[18px] transition-[border-color,box-shadow] duration-(--dur-fast) focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25"
     id="composer"
     data-od-id="composer"
     class:composer-dropping={draggingFiles}
@@ -878,8 +878,9 @@
         {/if}
       </div>
 
+      <!-- Beside a pinned pane the bar is narrow; the chips go before they'd overlap the buttons. -->
       <span
-        class="composer-hint text-[10px] text-muted-foreground/80"
+        class="composer-hint hidden text-[10px] text-muted-foreground/80 @[34rem]:inline"
         aria-hidden="true"
       >
         <kbd class="rounded border border-border/60 px-1">/</kbd> skills

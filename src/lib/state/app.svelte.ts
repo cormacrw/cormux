@@ -1,4 +1,4 @@
-import type { AppView, Snapshot } from '$lib/ipc'
+import type { Snapshot } from '$lib/ipc'
 import { workspaceUi } from './workspace-ui.svelte'
 import { workspaces } from './workspaces.svelte'
 import { threads } from './threads.svelte'
@@ -134,25 +134,6 @@ export class AppStore {
   requestCommandPalette() {
     this.commandPaletteRequested = true
     window.dispatchEvent(new CustomEvent('cormux:command-palette'))
-  }
-
-  applyView(view: AppView) {
-    this.scratchId = null
-    this.repoId = null
-    if (view === 'homebase') {
-      this.view = 'newThread'
-      this.workspaceId = null
-      this.threadId = null
-      return
-    }
-    if (view === 'settings') {
-      this.view = 'settings'
-      this.workspaceId = null
-      this.threadId = null
-      return
-    }
-    this.view = 'workspace'
-    this.workspaceId = view.workspace.id
   }
 }
 

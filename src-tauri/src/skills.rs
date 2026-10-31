@@ -71,14 +71,15 @@ pub async fn for_thread(state: &AppState, thread_id: &str) -> Result<Vec<Skill>>
 
 /// Skills a new thread off this repo will have, before its worktree exists.
 pub async fn for_repo(state: &AppState, repo_id: &str) -> Result<Vec<Skill>> {
+    list_in_background(repo_path(state, repo_id)?).await
+}
+
+fn repo_path(state: &AppState, repo_id: &str) -> Result<PathBuf> {
     let repo = state
         .store
-        .snapshot()?
-        .repos
-        .into_iter()
-        .find(|row| row.id == repo_id)
+        .repo_by_id(repo_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))?;
-    list_in_background(expand_tilde(&repo.path)).await
+    Ok(expand_tilde(&repo.path))
 }
 
 /// Reads every skill's file, so it stays off the threads running everything else.
@@ -93,14 +94,7 @@ async fn list_in_background(cwd: PathBuf) -> Result<Vec<Skill>> {
 
 fn thread_cwd(state: &AppState, thread_id: &str) -> Result<PathBuf> {
     if let Some(scratch) = state.store.scratch_for_thread(thread_id)? {
-        let repo = state
-            .store
-            .snapshot()?
-            .repos
-            .into_iter()
-            .find(|row| row.id == scratch.repo_id)
-            .ok_or_else(|| Error::Workspace(format!("unknown repo {}", scratch.repo_id)))?;
-        return Ok(expand_tilde(&repo.path));
+        return repo_path(state, &scratch.repo_id);
     }
     let thread = state
         .store

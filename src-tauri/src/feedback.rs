@@ -1,17 +1,12 @@
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
-use crate::ipc::events::{StateChanged, ToastRaised};
+use crate::ipc::events::ToastRaised;
 use crate::ipc::types::{StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
 
 pub fn emit_approval_counts(app: &AppHandle, state: &AppState) {
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::ApprovalCounts,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::ApprovalCounts);
     sync_dock_badge(app, state);
 }
 
@@ -32,18 +27,10 @@ pub fn emit_toast_parts(
     );
 }
 
+/// A toast carries its own payload, so it needs no `StateChanged`: the webview showed it from
+/// `ToastRaised` and ignored the matching `Toast` state event anyway.
 pub fn emit_toast(app: &AppHandle, payload: ToastRaisedPayload) {
     let _ = ToastRaised { payload }.emit(app);
-    let version = state_bump(app);
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::Toast,
-    }
-    .emit(app);
-}
-
-fn state_bump(app: &AppHandle) -> u64 {
-    app.state::<AppState>().bump_event_version()
 }
 
 pub fn sync_dock_badge(app: &AppHandle, state: &AppState) {
@@ -63,27 +50,20 @@ fn pending_approvals(state: &AppState) -> usize {
     stored.max(state.approvals.pending_count())
 }
 
+/// The toast an approval earns once it's granted, if any. Only cross-thread effects get one;
+/// an edit or delete already shows as resolved on its card.
 pub fn toast_for_approval(tool: &str, approved: bool) -> Option<ToastRaisedPayload> {
     if !approved {
         return None;
     }
-    let (tone, parts) = match tool {
-        "edit" | "delete_file" => (
-            ToastTone::Ok,
-            vec![ToastPart::Text {
-                value: "Deleted legacy-cookie.ts in worktree".into(),
-            }],
-        ),
-        "send_suggestions" | "review_suggestions" => (
-            ToastTone::Ok,
-            vec![ToastPart::Text {
-                value: "Review suggestions sent to Lead".into(),
-            }],
-        ),
+    let parts = match tool {
+        "send_suggestions" | "review_suggestions" => vec![ToastPart::Text {
+            value: "Review suggestions sent to Lead".into(),
+        }],
         _ => return None,
     };
     Some(ToastRaisedPayload {
-        tone,
+        tone: ToastTone::Ok,
         parts,
         workspace_id: None,
         thread_id: None,
@@ -102,7 +82,9 @@ mod tests {
     }
 
     #[test]
-    fn denied_approval_has_no_toast() {
+    fn edits_deletes_and_denials_have_no_toast() {
         assert!(toast_for_approval("edit", false).is_none());
+        assert!(toast_for_approval("edit", true).is_none());
+        assert!(toast_for_approval("delete_file", true).is_none());
     }
 }

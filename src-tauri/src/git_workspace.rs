@@ -2,11 +2,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 
 use crate::error::{Error, Result};
 use crate::feedback::emit_toast;
-use crate::ipc::events::StateChanged;
+use crate::ipc::commands::expand_tilde;
 use crate::ipc::types::{
     GitConflictOperation, GitConflictState, StateChangeKind, ToastPart, ToastRaisedPayload,
     ToastTone, WorkspaceGitRuntime,
@@ -61,14 +60,12 @@ pub async fn resolve_record(
         return Ok(record);
     }
 
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .iter()
-        .find(|repo| repo.id == row.repo_id)
+    let repo = state
+        .store
+        .repo_by_id(&row.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", row.repo_id)))?;
     let repo_path = expand_tilde(&repo.path);
-    let base = repo.default_branch.clone().unwrap_or_else(|| "main".into());
+    let base = repo.default_branch_or_main().to_string();
     let status = parse_lifecycle(&row.status);
 
     Ok(WorkspaceRecord {
@@ -89,23 +86,17 @@ pub async fn resolve_record(
 }
 
 fn ensure_not_default_branch(state: &AppState, repo_id: &str, branch: &str) -> Result<()> {
-    match state
-        .store
-        .snapshot()?
-        .repos
-        .iter()
-        .find(|repo| repo.id == repo_id)
-    {
+    match state.store.repo_by_id(repo_id)? {
         Some(repo) => repo.ensure_not_default_branch(branch),
         None => Ok(()),
     }
 }
 
-pub fn git_runtime_snapshot(
+pub async fn git_runtime_snapshot(
     state: &AppState,
     workspace_ids: &[String],
 ) -> Vec<WorkspaceGitRuntime> {
-    let stats = state.workspace.git_stats_snapshot();
+    let stats = state.workspace.git_stats_snapshot().await;
     workspace_ids
         .iter()
         .map(|id| {
@@ -225,8 +216,8 @@ pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &st
                 );
             }
 
-            emit_pull_toast(app, &record.name, behind, &record.base, workspace_id);
-            emit_git_state(app, state).await;
+            emit_pull_toast(app, behind, &record.base, workspace_id);
+            emit_git_state(app, state);
             Ok(())
         }
         Err(Error::GitConflict { operation, paths }) => {
@@ -240,7 +231,7 @@ pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &st
                     },
                 )
                 .await;
-            emit_git_state(app, state).await;
+            emit_git_state(app, state);
             Err(Error::Git(
                 "merge stopped with conflicts — resolve or abort from the workspace header".into(),
             ))
@@ -296,7 +287,7 @@ pub async fn rebase_workspace(app: &AppHandle, state: &AppState, workspace_id: &
             }
 
             emit_rebase_toast(app, &record.branch, &record.base, workspace_id);
-            emit_git_state(app, state).await;
+            emit_git_state(app, state);
             Ok(())
         }
         Err(Error::GitConflict { operation, paths }) => {
@@ -310,7 +301,7 @@ pub async fn rebase_workspace(app: &AppHandle, state: &AppState, workspace_id: &
                     },
                 )
                 .await;
-            emit_git_state(app, state).await;
+            emit_git_state(app, state);
             Err(Error::Git(
                 "rebase stopped with conflicts — resolve or abort from the workspace header".into(),
             ))
@@ -348,7 +339,7 @@ pub async fn push_workspace_branch(
             thread_id: None,
         },
     );
-    emit_git_state(app, state).await;
+    emit_git_state(app, state);
     Ok(())
 }
 
@@ -379,7 +370,7 @@ pub async fn abort_workspace_git_conflict(
     state.workspace.clear_git_conflict(workspace_id).await;
     refresh_git_stats(state, workspace_id, &worktree, &record.base, &record.branch).await;
     let _ = state.diffs.compute(workspace_id, &worktree).await;
-    emit_git_state(app, state).await;
+    emit_git_state(app, state);
     Ok(())
 }
 
@@ -474,7 +465,7 @@ pub async fn adopt_checked_out_branch(
     refresh_git_stats(state, workspace_id, &worktree, &record.base, current).await;
     let _ = state.diffs.compute(workspace_id, &worktree).await;
     emit_workspace_refresh(app, state);
-    emit_git_state(app, state).await;
+    emit_git_state(app, state);
     Ok(current.clone())
 }
 
@@ -540,7 +531,8 @@ fn parse_conflict_op(raw: &str) -> GitConflictOperation {
     }
 }
 
-async fn refresh_git_stats(
+/// Recounts how far the worktree is behind its base and ahead of its own branch on origin.
+pub async fn refresh_git_stats(
     state: &AppState,
     workspace_id: &str,
     worktree: &Path,
@@ -562,32 +554,18 @@ async fn refresh_git_stats(
         .await;
 }
 
-async fn emit_git_state(app: &AppHandle, state: &AppState) {
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::BehindCounts,
-    }
-    .emit(app);
+fn emit_git_state(app: &AppHandle, state: &AppState) {
+    state.notify(app, StateChangeKind::BehindCounts);
 }
 
 fn emit_workspace_refresh(app: &AppHandle, state: &AppState) {
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 }
 
 pub fn lead_thread_id(state: &AppState, workspace_id: &str) -> Result<String> {
     state
         .store
-        .snapshot()?
-        .threads
-        .iter()
-        .find(|thread| thread.workspace_id == workspace_id && thread.title == "Lead")
-        .map(|thread| thread.id.clone())
+        .lead_thread_id(workspace_id)?
         .ok_or_else(|| Error::Workspace("no Lead thread for workspace".into()))
 }
 
@@ -632,13 +610,7 @@ fn emit_switch_toast(app: &AppHandle, workspace_name: &str, branch: &str, worksp
     );
 }
 
-fn emit_pull_toast(
-    app: &AppHandle,
-    _workspace_name: &str,
-    behind: u32,
-    base: &str,
-    workspace_id: &str,
-) {
+fn emit_pull_toast(app: &AppHandle, behind: u32, base: &str, workspace_id: &str) {
     emit_toast(
         app,
         ToastRaisedPayload {
@@ -700,13 +672,4 @@ fn parse_lifecycle(raw: &str) -> WorkspaceLifecycle {
         "provisioningFailed" => WorkspaceLifecycle::ProvisioningFailed,
         _ => WorkspaceLifecycle::Ready,
     }
-}
-
-fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(stripped) = path.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        return PathBuf::from(home).join(stripped);
-    }
-    PathBuf::from(path)
 }

@@ -1,3 +1,5 @@
+// Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
+/* eslint-disable svelte/prefer-svelte-reactivity */
 import { SvelteSet } from 'svelte/reactivity'
 import type { FindingRow } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc'
@@ -9,34 +11,53 @@ import {
   toggleFinding,
 } from '$lib/findings/selection'
 import { openFindings } from '$lib/findings/types'
+import { reuseRows } from './reuse-rows'
+
+function sameSet(a: Set<string>, b: Set<string>) {
+  if (a.size !== b.size) return false
+  for (const id of a) if (!b.has(id)) return false
+  return true
+}
+
+const NO_FINDINGS: FindingRow[] = []
 
 export class FindingsStore {
-  items = $state<FindingRow[]>([])
+  items = $state.raw<FindingRow[]>([])
   private selection = $state<Record<string, Set<string>>>({})
   private selectionTouched = $state<Record<string, boolean>>({})
   targetThreadId = $state<Record<string, string>>({})
 
+  private readonly byWorkspace = $derived.by(() => {
+    const map = new Map<string, FindingRow[]>()
+    for (const row of this.items) {
+      const list = map.get(row.workspaceId)
+      if (list) list.push(row)
+      else map.set(row.workspaceId, [row])
+    }
+    return map
+  })
+
   hydrate(items: FindingRow[]) {
-    this.items = items
-    const byWorkspace: Record<string, FindingRow[]> = {}
-    for (const row of items) {
-      const bucket = byWorkspace[row.workspaceId] ?? []
-      bucket.push(row)
-      byWorkspace[row.workspaceId] = bucket
-    }
-    for (const [workspaceId, rows] of Object.entries(byWorkspace)) {
+    const previous = this.items
+    this.items = reuseRows(previous, items)
+    if (this.items === previous) return
+    let selection: Record<string, Set<string>> | null = null
+    for (const [workspaceId, rows] of this.byWorkspace) {
       const touched = this.selectionTouched[workspaceId] ?? false
-      const merged = mergeSelection(
-        rows,
-        this.selection[workspaceId] ?? new SvelteSet(),
-        touched,
-      )
-      this.selection = { ...this.selection, [workspaceId]: merged }
+      const current = this.selection[workspaceId]
+      // An untouched selection follows the findings; a touched one is the user's.
+      if (touched && current) continue
+      const merged = mergeSelection(rows, current ?? new SvelteSet(), touched)
+      if (current && sameSet(current, merged)) continue
+      selection ??= { ...this.selection }
+      selection[workspaceId] = merged
     }
+    if (selection) this.selection = selection
   }
 
-  forWorkspace(workspaceId: string) {
-    return this.items.filter((row) => row.workspaceId === workspaceId)
+  /** The workspace's findings; the same array until the list changes. */
+  forWorkspace(workspaceId: string): FindingRow[] {
+    return this.byWorkspace.get(workspaceId) ?? NO_FINDINGS
   }
 
   openCount(workspaceId: string) {
@@ -65,7 +86,6 @@ export class FindingsStore {
   }
 
   toggle(workspaceId: string, findingId: string, checked: boolean) {
-    const rows = this.forWorkspace(workspaceId)
     const next = toggleFinding(
       this.selectedIds(workspaceId),
       findingId,
@@ -73,7 +93,6 @@ export class FindingsStore {
     )
     this.selection = { ...this.selection, [workspaceId]: next }
     this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
-    void rows
   }
 
   quickSelect(workspaceId: string, mode: QuickSelectMode) {
@@ -96,10 +115,10 @@ export class FindingsStore {
   }
 
   async sendSelected(workspaceId: string, threadId: string) {
-    const ids = [...this.selectedIds(workspaceId)].filter((id) => {
-      const row = this.items.find((item) => item.id === id)
-      return row?.status === 'open'
-    })
+    const open = new Set(
+      openFindings(this.forWorkspace(workspaceId)).map((row) => row.id),
+    )
+    const ids = [...this.selectedIds(workspaceId)].filter((id) => open.has(id))
     if (!ids.length) return
     const result = await commands.sendWorkspaceFindings({
       workspaceId,

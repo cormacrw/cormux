@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -43,6 +43,9 @@ pub struct EngineRegistry {
     turn_end_notify: tokio::sync::broadcast::Sender<String>,
     threads: Arc<Mutex<HashMap<String, ThreadSlot>>>,
     holds: Arc<Mutex<HashMap<String, HoldState>>>,
+    /// Woken whenever an engine is registered, so a subscriber waiting on a thread with no
+    /// engine yet needn't poll for one.
+    spawned: Arc<tokio::sync::Notify>,
 }
 
 struct ThreadSlot {
@@ -96,7 +99,14 @@ impl EngineRegistry {
             turn_end_notify,
             threads: Arc::new(Mutex::new(HashMap::new())),
             holds: Arc::new(Mutex::new(HashMap::new())),
+            spawned: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    /// Fires each time an engine is registered. Arm it (`notified().enable()`) before checking
+    /// `subscribe`, and no spawn in between is missed.
+    pub fn spawned(&self) -> &tokio::sync::Notify {
+        &self.spawned
     }
 
     pub async fn detect(&self) -> Result<Vec<EngineStatus>> {
@@ -177,6 +187,7 @@ impl EngineRegistry {
                     last_active,
                 },
             );
+        self.spawned.notify_waiters();
         Ok(())
     }
 
@@ -476,6 +487,59 @@ impl EngineRegistry {
     }
 }
 
+/// One engine's way out to the rest of the app: every event is saved, then broadcast, in the
+/// order the CLI sent it. It also keeps the approvals this engine is waiting on, so a turn that
+/// ends (or an engine that dies) with one still open can drop it instead of leaving the dock
+/// badge counting a request nothing will ever answer.
+struct Pump {
+    store: Store,
+    events: broadcast::Sender<StreamedEvent>,
+    approvals: Arc<ApprovalBroker>,
+    thread_id: String,
+    outstanding: HashSet<String>,
+}
+
+impl Pump {
+    /// Saves the event, then sends it with its row number. Not every event is saved (see
+    /// `persist_event`); those go out with no `seq`.
+    fn emit(&mut self, event: AgentEvent) {
+        let seq = persist_event(&self.store, &self.thread_id, &event);
+        if matches!(
+            event,
+            AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }
+        ) {
+            self.cancel_outstanding();
+        }
+        let _ = self.events.send(StreamedEvent { seq, event });
+    }
+
+    /// Sends without saving: an auto-approved permission, or a tool row the store already has.
+    fn send_unsaved(&self, event: AgentEvent) {
+        let _ = self.events.send(event.into());
+    }
+
+    fn expect_answer(&mut self, approval_id: &str) {
+        self.outstanding.insert(approval_id.to_string());
+    }
+
+    fn answered(&mut self, approval_id: &str) {
+        self.outstanding.remove(approval_id);
+    }
+
+    /// The CLI stops waiting for an answer once its turn ends, so neither should the broker.
+    fn cancel_outstanding(&mut self) {
+        for id in self.outstanding.drain() {
+            self.approvals.cancel(&id);
+        }
+    }
+}
+
+impl Drop for Pump {
+    fn drop(&mut self) {
+        self.cancel_outstanding();
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_claude(
     mut session: ClaudeSession,
@@ -488,8 +552,14 @@ async fn run_claude(
     session_id: Arc<Mutex<Option<String>>>,
     policy: ClaudePolicy,
     approval_notify: tokio::sync::broadcast::Sender<()>,
-    // Where leaving plan mode goes back to; a session that starts outside plan mode updates it.
 ) {
+    let mut pump = Pump {
+        store,
+        events,
+        approvals,
+        thread_id,
+        outstanding: HashSet::new(),
+    };
     let (answer_tx, mut answer_rx) = mpsc::unbounded_channel::<ClaudeAnswer>();
     // Tool calls run off the pump, which has to keep reading while they work.
     let (mcp_tx, mut mcp_rx) = mpsc::unbounded_channel::<(String, serde_json::Value)>();
@@ -514,8 +584,7 @@ async fn run_claude(
                             }
                         }
                         if let Some(held) = gate.release() {
-                            let seq = persist_event(&store, &thread_id, &held);
-                            let _ = events.send(StreamedEvent { seq, event: held });
+                            pump.emit(held);
                         }
                     }
                     Some(EngineCommand::SetModel(model)) => {
@@ -533,8 +602,10 @@ async fn run_claude(
                 match event {
                     Ok(Some(raw)) => {
                         if let Event::Init { session_id: id, .. } = &raw {
-                            *session_id.lock().unwrap() = Some(id.clone());
-                            let _ = store.set_thread_session(&thread_id, id);
+                            if let Ok(mut slot) = session_id.lock() {
+                                *slot = Some(id.clone());
+                            }
+                            let _ = pump.store.set_thread_session(&pump.thread_id, id);
                         }
                         if let Some(AgentEvent::Usage {
                             used_tokens,
@@ -542,8 +613,9 @@ async fn run_claude(
                             cost_usd,
                         }) = claude_map::usage_from_result(&raw)
                         {
-                            let saved = store
-                                .thread_by_id(&thread_id)
+                            let saved = pump
+                                .store
+                                .thread_by_id(&pump.thread_id)
                                 .ok()
                                 .flatten()
                                 .and_then(|thread| thread.cost_usd);
@@ -559,15 +631,13 @@ async fn run_claude(
                                 }
                                 None => saved,
                             };
-                            let usage = AgentEvent::Usage {
+                            pump.emit(AgentEvent::Usage {
                                 used_tokens,
                                 context_size,
                                 cost_usd,
-                            };
-                            let seq = persist_event(&store, &thread_id, &usage);
-                            let _ = events.send(StreamedEvent { seq, event: usage });
-                            let _ = store.set_thread_usage(
-                                &thread_id,
+                            });
+                            let _ = pump.store.set_thread_usage(
+                                &pump.thread_id,
                                 used_tokens,
                                 context_size,
                                 cost_usd,
@@ -576,7 +646,7 @@ async fn run_claude(
                         if let Event::McpMessage { request_id, message, server_name } = raw {
                             let reply = mcp_tx.clone();
                             let mcp = mcp.clone();
-                            let thread_id = thread_id.clone();
+                            let thread_id = pump.thread_id.clone();
                             tokio::spawn(async move {
                                 let answer = if server_name == crate::mcp::SERVER_NAME {
                                     mcp.handle_message(&thread_id, &message).await
@@ -589,10 +659,7 @@ async fn run_claude(
                             handle_claude_permission(
                                 &mut session,
                                 req,
-                                &events,
-                                &approvals,
-                                &store,
-                                &thread_id,
+                                &mut pump,
                                 &approval_notify,
                                 policy,
                                 answer_tx.clone(),
@@ -602,32 +669,30 @@ async fn run_claude(
                             gate.observe(&raw);
                             for mapped in claude_map::map_claude_event(&raw) {
                                 if let Some(mapped) = gate.pass(mapped) {
-                                    let seq = persist_event(&store, &thread_id, &mapped);
-                                    let _ = events.send(StreamedEvent { seq, event: mapped });
+                                    pump.emit(mapped);
                                 }
                             }
                         }
                     }
                     Ok(None) => {
-                        let _ = events.send(AgentEvent::EngineExited { code: None }.into());
+                        // Not saved: an engine reaped after sitting idle exits too, and that
+                        // isn't the thread moving. The turn-end handler marks the thread idle.
+                        pump.send_unsaved(AgentEvent::EngineExited { code: None });
                         break;
                     }
                     Err(error) => {
-                        let _ = events.send(
-                            AgentEvent::TurnEnd {
-                                stop_reason: "error".into(),
-                                error: Some(error.to_string()),
-                            }
-                            .into(),
-                        );
+                        // Saved, so after a reload the thread still says why its turn ended.
+                        pump.emit(AgentEvent::TurnEnd {
+                            stop_reason: "error".into(),
+                            error: Some(error.to_string()),
+                        });
                         break;
                     }
                 }
             }
             _ = tokio::time::sleep_until(release_at.unwrap_or_else(tokio::time::Instant::now)), if release_at.is_some() => {
                 if let Some(held) = gate.release() {
-                    let seq = persist_event(&store, &thread_id, &held);
-                    let _ = events.send(StreamedEvent { seq, event: held });
+                    pump.emit(held);
                 }
             }
             Some((request_id, answer)) = mcp_rx.recv() => {
@@ -637,6 +702,7 @@ async fn run_claude(
             }
             Some(answer) = answer_rx.recv() => {
                 let id = answer.request_id.clone();
+                pump.answered(&id);
                 let _ = session.answer_tool(&id, permission_decision(answer)).await;
             }
         }
@@ -675,14 +741,10 @@ struct ClaudePolicy {
     read_only: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_claude_permission(
     session: &mut ClaudeSession,
     req: &CanUseTool,
-    events: &broadcast::Sender<StreamedEvent>,
-    approvals: &Arc<ApprovalBroker>,
-    store: &Store,
-    thread_id: &str,
+    pump: &mut Pump,
     approval_notify: &tokio::sync::broadcast::Sender<()>,
     policy: ClaudePolicy,
     answer_tx: mpsc::UnboundedSender<ClaudeAnswer>,
@@ -711,9 +773,11 @@ async fn handle_claude_permission(
         if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;
         }
-        let _ = events.send(mapped.into());
-        let _ = events
-            .send(claude_map::tool_event_from_permission(req, ToolCallStatus::Completed).into());
+        pump.send_unsaved(mapped);
+        pump.send_unsaved(claude_map::tool_event_from_permission(
+            req,
+            ToolCallStatus::Completed,
+        ));
         let _ = session
             .answer_tool(
                 &req.request_id,
@@ -726,38 +790,42 @@ async fn handle_claude_permission(
         return;
     }
 
-    let _ = events.send(mapped.clone().into());
-    let _ =
-        events.send(claude_map::tool_event_from_permission(req, ToolCallStatus::Pending).into());
+    // Recorded and registered before the UI hears of it, so an answer can't arrive for a
+    // request the store and broker don't know yet.
     let recorded = if questions.is_empty() {
-        crate::approvals::record_pending_permission(store, thread_id, &mapped)
+        crate::approvals::record_pending_permission(&pump.store, &pump.thread_id, &mapped)
     } else {
-        crate::approvals::record_pending_question(store, thread_id, &mapped, questions)
+        crate::approvals::record_pending_question(&pump.store, &pump.thread_id, &mapped, questions)
     };
+    let id = req.request_id.clone();
+    let input = req.input.clone();
+    let rx = pump.approvals.register(id.clone());
+    pump.expect_answer(&id);
+    tokio::spawn(async move {
+        // A closed channel means the request was cancelled: the turn it belonged to is over,
+        // and the CLI isn't waiting for an answer any more.
+        if let Ok(decision) = rx.await {
+            let _ = answer_tx.send(ClaudeAnswer {
+                request_id: id,
+                decision,
+                input,
+            });
+        }
+    });
+
+    pump.send_unsaved(mapped);
+    pump.send_unsaved(claude_map::tool_event_from_permission(
+        req,
+        ToolCallStatus::Pending,
+    ));
     if let Err(error) = recorded {
         log::warn!("record approval: {error}");
     } else {
         let _ = approval_notify.send(());
     }
-    let _ = events.send(
-        AgentEvent::CurrentTool {
-            id: req.tool_use_id.clone(),
-            title: req.tool_name.clone(),
-        }
-        .into(),
-    );
-    let id = req.request_id.clone();
-    let input = req.input.clone();
-    let rx = approvals.register(id.clone());
-    tokio::spawn(async move {
-        let decision = rx.await.unwrap_or(ApprovalDecision::Denied {
-            message: "approval dropped".into(),
-        });
-        let _ = answer_tx.send(ClaudeAnswer {
-            request_id: id,
-            decision,
-            input,
-        });
+    pump.send_unsaved(AgentEvent::CurrentTool {
+        id: req.tool_use_id.clone(),
+        title: req.tool_name.clone(),
     });
 }
 

@@ -7,12 +7,10 @@ use tokio::sync::RwLock;
 
 use crate::error::Result;
 use crate::git::Git;
-use crate::ipc::events::StateChanged;
 use crate::ipc::types::StateChangeKind;
 use crate::shell_env::ShellEnv;
 use crate::state::AppState;
 use crate::store::types::PrRow;
-use tauri_specta::Event;
 
 use super::client::{self, FetchError};
 use super::r#match::load_repo_origins;
@@ -66,10 +64,9 @@ impl PrSyncScheduler {
 
         let repos: Vec<(String, String)> = state
             .store
-            .snapshot()?
-            .repos
-            .iter()
-            .map(|repo| (repo.id.clone(), repo.path.clone()))
+            .repos()?
+            .into_iter()
+            .map(|repo| (repo.id, repo.path))
             .collect();
         let origins = load_repo_origins(&self.git, &repos).await?;
         let items = match client::fetch_open_prs(&self.shell_env, &origins).await {
@@ -128,16 +125,12 @@ impl PrSyncScheduler {
         if !self.tick(&state).await? {
             return Ok(());
         }
-        let version = state.bump_event_version();
-        let _ = StateChanged {
-            version,
-            kind: StateChangeKind::PrSync,
-        }
-        .emit(app);
+        state.notify(app, StateChangeKind::PrSync);
         Ok(())
     }
 }
 
+/// Unix seconds, as the `githubPrSyncedAt` setting stores them.
 fn chrono_like_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()

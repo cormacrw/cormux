@@ -4,7 +4,6 @@ import { hasVersionGap } from './version'
 export {
   commands,
   events,
-  type AgentChunk,
   type AgentEvent,
   type StreamedEvent,
   type MessageRole,
@@ -24,12 +23,7 @@ export {
   type ToastRaisedPayload,
 } from './bindings'
 
-export {
-  subscribeAgentEvents,
-  subscribeDiffs,
-  subscribePty,
-  startStreamingSpike,
-} from './channels'
+export { subscribeAgentEvents, subscribeDiffs, subscribePty } from './channels'
 export { hasVersionGap }
 
 function unwrapSnapshot(

@@ -1,4 +1,4 @@
-import type { Snapshot, StateChanged } from '$lib/ipc'
+import type { Snapshot, StateChangeKind, StateChanged } from '$lib/ipc'
 import { onSnapshotSupervision } from '$lib/feedback/supervision'
 import { pullRequestFromRow } from '$lib/homebase/pr-from-payload'
 import { parseTimestampMs } from '$lib/homebase/relative-time'
@@ -50,6 +50,8 @@ export { findings } from './findings.svelte'
 export { switcher } from './switcher.svelte'
 export { threadTimeline } from './thread-timeline.svelte'
 
+type PersistedThread = Snapshot['persisted']['threads'][number]
+
 function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {
   if (
     lifecycle === 'running' ||
@@ -71,7 +73,7 @@ function pendingByThread(approvals: Snapshot['persisted']['approvals']) {
   return map
 }
 
-const LIFECYCLE_VALUES: WorkspaceLifecycle[] = [
+const LIFECYCLE_VALUES = new Set<WorkspaceLifecycle>([
   'creating',
   'provisioning',
   'ready',
@@ -81,18 +83,15 @@ const LIFECYCLE_VALUES: WorkspaceLifecycle[] = [
   'tearingDown',
   'gone',
   'provisioningFailed',
-]
+])
 
 function parseLifecycle(raw: string): WorkspaceLifecycle {
-  if (LIFECYCLE_VALUES.includes(raw as WorkspaceLifecycle)) {
-    return raw as WorkspaceLifecycle
-  }
-  return 'ready'
+  return LIFECYCLE_VALUES.has(raw as WorkspaceLifecycle)
+    ? (raw as WorkspaceLifecycle)
+    : 'ready'
 }
 
-function persistedWorkspaceRecord(
-  row: Snapshot['persisted']['workspaces'][number],
-): WorkspaceRecord {
+function persistedWorkspaceRecord(row: WorkspaceRow): WorkspaceRecord {
   return {
     id: row.id,
     repoId: row.repoId,
@@ -119,14 +118,32 @@ function workspaceRecordsFromSnapshot(snapshot: Snapshot): WorkspaceRecord[] {
   return [...snapshot.workspaces, ...saved]
 }
 
-function persistedById(snapshot: Snapshot): Map<string, WorkspaceRow> {
-  return new Map(snapshot.persisted.workspaces.map((row) => [row.id, row]))
+function threadActivityLine(status: string): string {
+  switch (status) {
+    case 'running':
+      return 'Working'
+    case 'waiting':
+      return 'Waiting for approval'
+    case 'paused':
+      return 'Paused'
+    default:
+      return 'Idle'
+  }
 }
 
-function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
+/**
+ * Everything the stores need from one snapshot, read in a single pass: the workspace records,
+ * the workspace models built on them, and the thread models built on both.
+ */
+function modelsFromSnapshot(snapshot: Snapshot) {
+  const { persisted } = snapshot
+  const pendingThreads = pendingByThread(persisted.approvals)
+  const threadsByWs = new Map<string, PersistedThread[]>()
   const pendingByWs = new Map<string, number>()
-  const pendingThreads = pendingByThread(snapshot.persisted.approvals)
-  for (const thread of snapshot.persisted.threads) {
+  for (const thread of persisted.threads) {
+    const list = threadsByWs.get(thread.workspaceId)
+    if (list) list.push(thread)
+    else threadsByWs.set(thread.workspaceId, [thread])
     const count = pendingThreads.get(thread.id) ?? 0
     if (count > 0) {
       pendingByWs.set(
@@ -136,18 +153,12 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
     }
   }
 
-  const threadsByWs = new Map<string, typeof snapshot.persisted.threads>()
-  for (const thread of snapshot.persisted.threads) {
-    const list = threadsByWs.get(thread.workspaceId) ?? []
-    list.push(thread)
-    threadsByWs.set(thread.workspaceId, list)
-  }
-
-  const rows = persistedById(snapshot)
+  const rows = new Map(persisted.workspaces.map((row) => [row.id, row]))
   const records = workspaceRecordsFromSnapshot(snapshot)
+  const recordById = new Map(records.map((record) => [record.id, record]))
 
-  return records.map((workspace) => {
-    const persisted = rows.get(workspace.id)
+  const workspaceModels: Workspace[] = records.map((workspace) => {
+    const row = rows.get(workspace.id)
     const wsThreads = threadsByWs.get(workspace.id) ?? []
     const runningLike = wsThreads.filter(
       (t) =>
@@ -160,7 +171,7 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
       runningLike.length > 0 &&
       runningLike.every((t) => t.status === 'paused')
 
-    const kind = persisted?.kind === 'review' ? ('review' as const) : null
+    const kind = row?.kind === 'review' ? ('review' as const) : null
 
     // Waiting says what it's waiting for, not whatever the workspace was last doing.
     const activityText =
@@ -177,47 +188,27 @@ function buildWorkspaceModels(snapshot: Snapshot): Workspace[] {
       activityText,
       pendingApprovals: pendingByWs.get(workspace.id) ?? 0,
       cardStatus: mapCardStatus(workspace.status),
-      createdAtMs: parseTimestampMs(persisted?.createdAt),
-      summary: persisted?.summary ?? null,
-      summaryAtMs: parseTimestampMs(persisted?.summaryAt ?? null),
-      summarySource: persisted?.summarySource ?? 'Haiku 4.5',
+      createdAtMs: parseTimestampMs(row?.createdAt),
+      summary: row?.summary ?? null,
+      summaryAtMs: parseTimestampMs(row?.summaryAt ?? null),
+      summarySource: row?.summarySource ?? 'Haiku 4.5',
       kind,
-      prNumber: persisted?.prNumber ?? null,
-      prHtmlUrl: persisted?.prHtmlUrl ?? null,
-      modifiedFiles: persisted?.modifiedFiles ?? 0,
+      prNumber: row?.prNumber ?? null,
+      prHtmlUrl: row?.prHtmlUrl ?? null,
+      modifiedFiles: row?.modifiedFiles ?? 0,
       provStep: workspace.provStep ?? 0,
       setupFailedCommand: workspace.setupFailedCommand ?? null,
       setupFailedExitCode: workspace.setupFailedExitCode ?? null,
     }
   })
-}
 
-function threadActivityLine(status: string): string {
-  switch (status) {
-    case 'running':
-      return 'Working'
-    case 'waiting':
-      return 'Waiting for approval'
-    case 'paused':
-      return 'Paused'
-    default:
-      return 'Idle'
-  }
-}
-
-function buildThreadModels(snapshot: Snapshot) {
-  const pendingThreads = pendingByThread(snapshot.persisted.approvals)
-  const workspaceOrder = workspaceRecordsFromSnapshot(snapshot).map((w) => w.id)
-  const orderIndex = new Map(workspaceOrder.map((id, i) => [id, i]))
-
-  const records = workspaceRecordsFromSnapshot(snapshot)
-  const recordById = new Map(records.map((record) => [record.id, record]))
-  const workspaceModels = buildWorkspaceModels(snapshot)
   const activityByWs = new Map(
     workspaceModels.map((row) => [row.id, row.activityText]),
   )
-
-  const rows = snapshot.persisted.threads.map((thread) => {
+  // Threads keep the snapshot's creation order within a workspace: the first tab is the
+  // workspace's own thread (ids are random UUIDs, so sorting by id shuffled tabs).
+  const orderIndex = new Map(records.map((record, index) => [record.id, index]))
+  const workspaceThreads: Thread[] = persisted.threads.map((thread) => {
     const record = recordById.get(thread.workspaceId)
     const provStep = record?.provStep ?? 0
     const wsActivity = activityByWs.get(thread.workspaceId) ?? 'Idle'
@@ -242,22 +233,14 @@ function buildThreadModels(snapshot: Snapshot) {
       },
     }
   })
+  workspaceThreads.sort(
+    (a, b) =>
+      (orderIndex.get(a.workspaceId) ?? 0) -
+      (orderIndex.get(b.workspaceId) ?? 0),
+  )
 
-  rows.sort((a, b) => {
-    const wa = orderIndex.get(a.workspaceId) ?? 0
-    const wb = orderIndex.get(b.workspaceId) ?? 0
-    // Within a workspace keep the snapshot's creation order: the first tab is the
-    // workspace's own thread (ids are random UUIDs, so sorting by id shuffled tabs).
-    return wa - wb
-  })
-
-  return rows
-}
-
-/** A scratch's one thread, shaped like a workspace thread so the conversation and composer reuse it. */
-function buildScratchThreads(snapshot: Snapshot): Thread[] {
-  const pendingThreads = pendingByThread(snapshot.persisted.approvals)
-  return snapshot.persisted.scratches.map((row) => ({
+  // A scratch's one thread, shaped like a workspace thread so the conversation and composer reuse it.
+  const scratchThreads: Thread[] = persisted.scratches.map((row) => ({
     id: row.threadId,
     workspaceId: row.id,
     role: '',
@@ -270,14 +253,29 @@ function buildScratchThreads(snapshot: Snapshot): Thread[] {
     retired: true,
     scratchId: row.id,
   }))
+
+  return {
+    records,
+    workspaces: workspaceModels,
+    threads: [...workspaceThreads, ...scratchThreads],
+  }
 }
 
-export function hydrateFromSnapshot(snapshot: Snapshot) {
+export type HydrateOptions = {
+  /**
+   * Whether threads on screen should re-read the store for steps the core wrote itself (a pause,
+   * a pull, a new session), which aren't streamed. On by default; a state event that can't have
+   * written any turns it off.
+   */
+  refreshThreads?: boolean
+}
+
+export function hydrateFromSnapshot(
+  snapshot: Snapshot,
+  options: HydrateOptions = {},
+) {
   void onSnapshotSupervision(snapshot)
-  const threadModels = [
-    ...buildThreadModels(snapshot),
-    ...buildScratchThreads(snapshot),
-  ]
+  const models = modelsFromSnapshot(snapshot)
   settings.hydrate(
     {
       reduceMotion: snapshot.persisted.settings.some(
@@ -289,9 +287,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     },
     snapshot.persisted.settings,
   )
-  const recordList = workspaceRecordsFromSnapshot(snapshot)
-  const nextWorkspaces = buildWorkspaceModels(snapshot)
-  const aliveIds = new Set(nextWorkspaces.map((row) => row.id))
+  const aliveIds = new Set(models.workspaces.map((row) => row.id))
   if (app.workspaceId && !aliveIds.has(app.workspaceId)) {
     app.openNewThread()
   }
@@ -299,17 +295,18 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   if (app.scratchId && !scratches.getById(app.scratchId)) {
     app.openNewThread()
   }
-  workspaces.hydrate(nextWorkspaces)
-  threads.hydrate(threadModels)
+  workspaces.hydrate(models.workspaces)
+  threads.hydrate(models.threads)
   threadTimeline.hydrate({
-    threadIds: threadModels.map((thread) => thread.id),
+    threadIds: models.threads.map((thread) => thread.id),
     approvals: snapshot.persisted.approvals,
     settings: snapshot.persisted.settings,
     activity: snapshot.persisted.threadActivity,
+    refreshWatched: options.refreshThreads ?? true,
   })
   findings.hydrate(snapshot.persisted.findings)
   repos.hydrate(snapshot.persisted.repos)
-  workspaceRecords.hydrate(recordList)
+  workspaceRecords.hydrate(models.records)
   workspaceRecords.applyGitStats(snapshot.workspaceGit ?? [])
   workspaceRecords.applyApps(snapshot.workspaceApps ?? [])
   app.hydrate(snapshot)
@@ -328,9 +325,27 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   if (app.view === 'sprint' && !clickup.configured) app.openNewThread()
 }
 
+/**
+ * State changes that only touch what the snapshot carries, never a thread's events: a fetch,
+ * a PR sync, the shell environment, the dev app. The rest may have written a step into a
+ * thread (a pause, a pull, a new session), which only a re-read of the store brings on screen.
+ */
+const KINDS_WITHOUT_THREAD_EVENTS = new Set<StateChangeKind>([
+  'behindCounts',
+  'prSync',
+  'environment',
+  'workspaceApp',
+])
+
+// Set by events that may have written thread steps, consumed by the next snapshot applied.
+let threadRefreshDue = false
+
 /** Fetch and apply a snapshot. Calls that land during one share the next, not one each. */
 export const refreshSnapshot = coalesce(async () => {
-  hydrateFromSnapshot(await fetchSnapshot())
+  const snapshot = await fetchSnapshot()
+  const refreshThreads = threadRefreshDue
+  threadRefreshDue = false
+  hydrateFromSnapshot(snapshot, { refreshThreads })
 })
 
 export function patchFromEvent(event: StateChanged) {
@@ -338,5 +353,13 @@ export function patchFromEvent(event: StateChanged) {
   if (event.kind === 'toast') return
   // A fetch or pull moved `origin`, so the repo rows' counts are stale too.
   if (event.kind === 'behindCounts') void repos.refreshGit()
+  if (!KINDS_WITHOUT_THREAD_EVENTS.has(event.kind)) threadRefreshDue = true
   void refreshSnapshot()
+}
+
+/** After a missed event: anything may have happened, so threads on screen re-read the store too. */
+export function resyncAfterGap() {
+  threadRefreshDue = true
+  void repos.refreshGit()
+  return refreshSnapshot()
 }

@@ -43,13 +43,6 @@ pub struct ResolveApprovalResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentChunk {
-    pub thread_id: String,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
 pub struct PtyChunk {
     pub workspace_id: String,
     pub line: String,
@@ -63,7 +56,9 @@ pub struct DiffUpdate {
     pub diff: Option<WorktreeDiff>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+/// What changed. The webview refetches its snapshot for every kind but `Toast`, and also
+/// refreshes the repo rows for `BehindCounts`; the rest only name the change for logs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum StateChangeKind {
     WorkspaceStatus,

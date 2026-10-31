@@ -955,20 +955,25 @@ summary.reply-card-head::-webkit-details-marker {
   }
 }
 
-.app-shell {
+/* On the root, not the shell: the backdrop's wordmark centres on the content area beside it
+   (Backdrop.svelte), and AppShell writes the dragged width here. */
+:root {
   --sidebar-w: 256px;
+}
+
+@media (max-width: 1100px) {
+  :root {
+    --sidebar-w: 228px;
+  }
+}
+
+.app-shell {
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
 }
 
 /* The sidebar sits flush against the top, left and bottom window edges. */
 .app-shell > aside {
   width: var(--sidebar-w);
-}
-
-@media (max-width: 1100px) {
-  .app-shell {
-    --sidebar-w: 228px;
-  }
 }
 
 /* Loading placeholders: a soft highlight sweeping across muted bars. */
@@ -993,14 +998,6 @@ summary.reply-card-head::-webkit-details-marker {
   animation: skeleton-shimmer 1.4s linear infinite;
 }
 
-/* Text the user commented on in a plan (PlanPanel), via the CSS Custom Highlight API. */
-::highlight(plan-comment) {
-  background-color: color-mix(in oklch, var(--info) 22%, transparent);
-}
-::highlight(plan-comment-active) {
-  background-color: color-mix(in oklch, var(--info) 45%, transparent);
-}
-
 /* Find in conversation (ThreadFind): every match, and the one it's on. */
 ::highlight(thread-find) {
   background-color: color-mix(in oklch, var(--warning) 30%, transparent);
@@ -1008,6 +1005,15 @@ summary.reply-card-head::-webkit-details-marker {
 ::highlight(thread-find-current) {
   background-color: color-mix(in oklch, var(--warning) 70%, transparent);
   color: var(--background);
+}
+
+/*
+ * Toasts always stack expanded (ToastsRegion), so none is ever folded behind the front one.
+ * Sonner still measures a new toast while its folded rule applies, and with several raised
+ * in one tick that read the front toast's unset height as 0, so they drew on top of each other.
+ */
+#toasts [data-sonner-toast][data-expanded='false'][data-front='false'] {
+  height: auto;
 }
 
 /* Files dragged over the composer (ThreadComposer). */

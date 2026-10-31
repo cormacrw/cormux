@@ -14,12 +14,6 @@ export type WorkspaceSidebarInput = {
   activityText: string
 }
 
-export type ThreadSidebarInput = {
-  status: string
-  paused: boolean
-  activity: string
-}
-
 export function statusDotVariantForWorkspace(
   workspace: WorkspaceSidebarInput,
 ): StatusDotVariant {
@@ -33,16 +27,6 @@ export function statusDotVariantForWorkspace(
     return workspace.paused ? 'paused' : 'running'
   }
   if (workspace.lifecycle === 'waiting') return 'waiting'
-  return 'idle'
-}
-
-export function statusDotVariantForThread(
-  thread: ThreadSidebarInput,
-): StatusDotVariant {
-  if (thread.status === 'provisioning') return 'provisioning'
-  if (thread.status === 'paused' || thread.paused) return 'paused'
-  if (thread.status === 'running') return 'running'
-  if (thread.status === 'waiting') return 'waiting'
   return 'idle'
 }
 
@@ -65,15 +49,6 @@ export function workspaceStatusWord(workspace: WorkspaceSidebarInput): string {
     return workspace.paused ? 'Paused' : 'Running'
   }
   return workspace.activityText
-}
-
-export function threadActivityLine(thread: ThreadSidebarInput): string {
-  if (thread.status === 'paused' || thread.paused) return 'Paused'
-  return thread.activity
-}
-
-export function isActiveThread(thread: ThreadSidebarInput): boolean {
-  return thread.status === 'running' || thread.status === 'provisioning'
 }
 
 export function plural(

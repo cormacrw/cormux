@@ -1,7 +1,6 @@
 import { Channel } from '@tauri-apps/api/core'
 import {
   commands,
-  type AgentChunk,
   type DiffUpdate,
   type Error as CoreError,
   type PtyChunk,
@@ -64,15 +63,4 @@ export function subscribeDiffs(
     (channel) => commands.subscribeDiffs(workspaceId, channel),
     onUpdate,
   )
-}
-
-export async function startStreamingSpike(
-  onAgent: (chunk: AgentChunk) => void,
-  onPty: (chunk: PtyChunk) => void,
-) {
-  const agent = new Channel<AgentChunk>()
-  const pty = new Channel<PtyChunk>()
-  agent.onmessage = onAgent
-  pty.onmessage = onPty
-  return commands.startStreamingSpike(agent, pty)
 }

@@ -125,6 +125,22 @@ impl Store {
         })
     }
 
+    /// Every registered repo, without the rest of the snapshot.
+    pub fn repos(&self) -> Result<Vec<RepoRecord>> {
+        self.with_read(|conn| query_all(conn, REPO_COLUMNS, row_to_repo))
+    }
+
+    pub fn repo_by_id(&self, repo_id: &str) -> Result<Option<RepoRecord>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(&format!("{REPO_COLUMNS} WHERE r.id = ?1"))?;
+            let mut rows = stmt.query([repo_id])?;
+            match rows.next()? {
+                Some(row) => Ok(Some(row_to_repo(row)?)),
+                None => Ok(None),
+            }
+        })
+    }
+
     pub fn upsert_repo(&self, repo: &RepoRecord) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -307,46 +323,55 @@ impl Store {
         repo_id: &str,
         limit: i64,
     ) -> Result<Vec<(ThreadRow, WorkspaceRow)>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
-                        summary, summary_at, summary_source, kind, pr_number, pr_html_url,
-                        modified_files, archived_at
-                 FROM workspaces WHERE repo_id = ?1 AND archived_at IS NOT NULL
-                 ORDER BY archived_at DESC, rowid DESC LIMIT ?2",
+        self.with_read(|conn| {
+            // One query: the most recently archived workspaces of the repo, each joined to its
+            // threads, instead of a thread query per workspace.
+            let mut stmt = conn.prepare_cached(
+                "SELECT t.id, t.workspace_id, t.title, t.engine, t.session_id, t.status,
+                        t.used_tokens, t.context_size, t.cost_usd, t.transcript_readonly,
+                        t.retired, t.parent_thread_id,
+                        w.id, w.repo_id, w.name, w.branch, w.worktree_path, w.status, w.created_at,
+                        w.summary, w.summary_at, w.summary_source, w.kind, w.pr_number,
+                        w.pr_html_url, w.modified_files, w.archived_at
+                 FROM (
+                    SELECT rowid AS position, * FROM workspaces
+                    WHERE repo_id = ?1 AND archived_at IS NOT NULL
+                    ORDER BY archived_at DESC, rowid DESC LIMIT ?2
+                 ) w JOIN threads t ON t.workspace_id = w.id
+                 ORDER BY w.archived_at DESC, w.position DESC, t.rowid",
             )?;
-            let workspaces = stmt
-                .query_map(rusqlite::params![repo_id, limit], row_to_workspace)?
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(|error| Error::Store(error.to_string()))?;
-            let mut stmt = conn.prepare(&format!("{THREAD_COLUMNS} WHERE workspace_id = ?1"))?;
-            let mut closed = Vec::new();
-            for workspace in workspaces {
-                let threads = stmt
-                    .query_map([&workspace.id], row_to_thread)?
-                    .collect::<rusqlite::Result<Vec<_>>>()
-                    .map_err(|error| Error::Store(error.to_string()))?;
-                closed.extend(threads.into_iter().map(|row| (row, workspace.clone())));
-            }
-            Ok(closed)
+            let rows = stmt.query_map(rusqlite::params![repo_id, limit], |row| {
+                let thread = row_to_thread(row)?;
+                let workspace = WorkspaceRow {
+                    id: row.get(12)?,
+                    repo_id: row.get(13)?,
+                    name: row.get(14)?,
+                    branch: row.get(15)?,
+                    worktree_path: row.get(16)?,
+                    status: row.get(17)?,
+                    created_at: row.get(18)?,
+                    summary: row.get(19)?,
+                    summary_at: row.get(20)?,
+                    summary_source: row.get(21)?,
+                    kind: row.get(22)?,
+                    pr_number: row.get(23)?,
+                    pr_html_url: row.get(24)?,
+                    modified_files: row.get(25)?,
+                    archived_at: row.get(26)?,
+                };
+                Ok((thread, workspace))
+            })?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
         })
     }
 
     pub fn workspace_by_id(&self, workspace_id: &str) -> Result<Option<WorkspaceRow>> {
         self.with_read(|conn| {
-            let mut stmt = conn.prepare_cached(
-                "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
-                        summary, summary_at, summary_source, kind, pr_number, pr_html_url,
-                        modified_files, archived_at
-                 FROM workspaces WHERE id = ?1",
-            )?;
+            let mut stmt = conn.prepare_cached(&format!("{WORKSPACE_COLUMNS} WHERE id = ?1"))?;
             let mut rows = stmt.query([workspace_id])?;
-            if let Some(row) = rows.next()? {
-                Ok(Some(
-                    row_to_workspace(row).map_err(|error| Error::Store(error.to_string()))?,
-                ))
-            } else {
-                Ok(None)
+            match rows.next()? {
+                Some(row) => Ok(Some(row_to_workspace(row)?)),
+                None => Ok(None),
             }
         })
     }
@@ -356,12 +381,53 @@ impl Store {
         self.with_read(|conn| {
             query_all(
                 conn,
-                "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
-                        summary, summary_at, summary_source, kind, pr_number, pr_html_url,
-                        modified_files, archived_at
-                 FROM workspaces WHERE archived_at IS NULL",
+                &format!("{WORKSPACE_COLUMNS} WHERE archived_at IS NULL"),
                 row_to_workspace,
             )
+        })
+    }
+
+    /// The workspace's open threads in creation order, without the rest of the snapshot.
+    pub fn threads_for_workspace(&self, workspace_id: &str) -> Result<Vec<ThreadRow>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(&format!(
+                "{THREAD_COLUMNS} WHERE workspace_id = ?1 AND closed_at IS NULL
+                 ORDER BY created_at, rowid"
+            ))?;
+            let rows = stmt.query_map([workspace_id], row_to_thread)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// The threads a parent started that are still doing something, each with its workspace's
+    /// status, so a failed setup can be told from a live child.
+    pub fn active_children(&self, parent_id: &str) -> Result<Vec<(String, String)>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "SELECT t.id, w.status FROM threads t
+                 JOIN workspaces w ON w.id = t.workspace_id
+                 WHERE t.parent_thread_id = ?1 AND t.closed_at IS NULL
+                   AND w.archived_at IS NULL
+                   AND t.status IN ('provisioning', 'running', 'waiting', 'paused')",
+            )?;
+            let rows = stmt.query_map([parent_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// The id of the workspace's `Lead` thread, the one git steps are recorded in.
+    pub fn lead_thread_id(&self, workspace_id: &str) -> Result<Option<String>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "SELECT id FROM threads
+                 WHERE workspace_id = ?1 AND title = 'Lead' AND closed_at IS NULL
+                 ORDER BY created_at, rowid LIMIT 1",
+            )?;
+            let mut rows = stmt.query([workspace_id])?;
+            match rows.next()? {
+                Some(row) => Ok(Some(row.get(0)?)),
+                None => Ok(None),
+            }
         })
     }
 
@@ -543,19 +609,24 @@ impl Store {
         })
     }
 
+    /// Marks every finding sent, or none of them: a finding that isn't open fails the batch.
     pub fn mark_findings_sent(&self, finding_ids: &[String], thread_id: &str) -> Result<()> {
         self.with_conn(|conn| {
-            for id in finding_ids {
-                let changed = conn.execute(
-                    "UPDATE findings SET status = 'sent', sent_to_thread_id = ?1 WHERE id = ?2 AND status = 'open'",
-                    rusqlite::params![thread_id, id],
+            let tx = conn.unchecked_transaction()?;
+            {
+                let mut stmt = tx.prepare_cached(
+                    "UPDATE findings SET status = 'sent', sent_to_thread_id = ?1
+                     WHERE id = ?2 AND status = 'open'",
                 )?;
-                if changed == 0 {
-                    return Err(Error::Store(format!(
-                        "finding {id} is not open or does not exist"
-                    )));
+                for id in finding_ids {
+                    if stmt.execute(rusqlite::params![thread_id, id])? == 0 {
+                        return Err(Error::Store(format!(
+                            "finding {id} is not open or does not exist"
+                        )));
+                    }
                 }
             }
+            tx.commit()?;
             Ok(())
         })
     }
@@ -574,40 +645,41 @@ impl Store {
             ("dismissed", "open")
         };
         self.with_conn(|conn| {
+            let tx = conn.unchecked_transaction()?;
             let mut changed = 0;
-            for id in finding_ids {
-                changed += conn.execute(
-                    "UPDATE findings SET status = ?1 WHERE id = ?2 AND workspace_id = ?3 AND status = ?4",
-                    rusqlite::params![to, id, workspace_id, from],
+            {
+                let mut stmt = tx.prepare_cached(
+                    "UPDATE findings SET status = ?1
+                     WHERE id = ?2 AND workspace_id = ?3 AND status = ?4",
                 )?;
+                for id in finding_ids {
+                    changed += stmt.execute(rusqlite::params![to, id, workspace_id, from])?;
+                }
             }
+            tx.commit()?;
             Ok(changed)
         })
     }
 
     pub fn finding_by_id(&self, finding_id: &str) -> Result<Option<FindingRow>> {
         self.with_read(|conn| {
-            let mut stmt = conn.prepare_cached(
-                "SELECT id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id
-                 FROM findings WHERE id = ?1",
-            )?;
+            let mut stmt = conn.prepare_cached(&format!("{FINDING_COLUMNS} WHERE id = ?1"))?;
             let mut rows = stmt.query([finding_id])?;
-            if let Some(row) = rows.next()? {
-                Ok(Some(FindingRow {
-                    id: row.get(0)?,
-                    workspace_id: row.get(1)?,
-                    severity: row.get(2)?,
-                    title: row.get(3)?,
-                    file: row.get(4)?,
-                    line: row.get(5)?,
-                    explanation: row.get(6)?,
-                    status: row.get(7)?,
-                    commit_sha: row.get(8)?,
-                    sent_to_thread_id: row.get(9)?,
-                }))
-            } else {
-                Ok(None)
+            match rows.next()? {
+                Some(row) => Ok(Some(row_to_finding(row)?)),
+                None => Ok(None),
             }
+        })
+    }
+
+    /// The workspace's findings in the order they were reported, without the rest of the snapshot.
+    pub fn findings_for_workspace(&self, workspace_id: &str) -> Result<Vec<FindingRow>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(&format!(
+                "{FINDING_COLUMNS} WHERE workspace_id = ?1 ORDER BY rowid"
+            ))?;
+            let rows = stmt.query_map([workspace_id], row_to_finding)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
         })
     }
 
@@ -696,17 +768,19 @@ impl Store {
     /// Removes the scratch and its thread; events and approvals cascade with the thread.
     pub fn delete_scratch(&self, scratch_id: &str) -> Result<()> {
         self.with_conn(|conn| {
-            let thread_id: Option<String> = conn
+            let tx = conn.unchecked_transaction()?;
+            let thread_id: Option<String> = tx
                 .query_row(
                     "SELECT thread_id FROM scratches WHERE id = ?1",
                     [scratch_id],
                     |row| row.get(0),
                 )
                 .ok();
-            conn.execute("DELETE FROM scratches WHERE id = ?1", [scratch_id])?;
+            tx.execute("DELETE FROM scratches WHERE id = ?1", [scratch_id])?;
             if let Some(thread_id) = thread_id {
-                conn.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
+                tx.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
             }
+            tx.commit()?;
             Ok(())
         })
     }
@@ -861,17 +935,21 @@ impl Store {
         })
     }
 
+    /// Appends one event and returns its sequence number. The hot path for every streamed
+    /// chunk, so it's a single statement: the next `seq` is picked and the row written in one
+    /// go, which also leaves no window for two appenders to pick the same number.
     pub fn append_event(&self, thread_id: &str, kind: &str, payload: &str) -> Result<i64> {
         self.with_conn(|conn| {
             let seq: i64 = conn
                 .prepare_cached(
-                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_events WHERE thread_id = ?1",
+                    "INSERT INTO thread_events (thread_id, seq, kind, payload)
+                     SELECT ?1, COALESCE(MAX(seq), 0) + 1, ?2, ?3
+                     FROM thread_events WHERE thread_id = ?1
+                     RETURNING seq",
                 )?
-                .query_row([thread_id], |row| row.get(0))?;
-            conn.prepare_cached(
-                "INSERT INTO thread_events (thread_id, seq, kind, payload) VALUES (?1, ?2, ?3, ?4)",
-            )?
-            .execute(rusqlite::params![thread_id, seq, kind, payload])?;
+                .query_row(rusqlite::params![thread_id, kind, payload], |row| {
+                    row.get(0)
+                })?;
             Ok(seq)
         })
     }
@@ -1041,40 +1119,16 @@ impl Store {
     pub fn snapshot(&self) -> Result<PersistedSnapshot> {
         self.with_read(|conn| {
             Ok(PersistedSnapshot {
-                settings: query_all(
-                    conn,
-                    "SELECT key, value FROM settings",
-                    |row| {
-                        Ok(SettingRow {
-                            key: row.get(0)?,
-                            value: row.get(1)?,
-                        })
-                    },
-                )?,
-                repos: query_all(
-                    conn,
-                    "SELECT r.id, r.path, r.name, r.default_branch,
-                            COALESCE(c.setup_commands, ''), c.run_command,
-                            COALESCE(c.single_instance, 0) != 0
-                     FROM repos r LEFT JOIN repo_config c ON c.repo_id = r.id",
-                    |row| {
-                        Ok(RepoRecord {
-                            id: row.get(0)?,
-                            path: row.get(1)?,
-                            name: row.get(2)?,
-                            default_branch: row.get(3)?,
-                            setup_commands: row.get(4)?,
-                            run_command: row.get(5)?,
-                            single_instance: row.get(6)?,
-                        })
-                    },
-                )?,
+                settings: query_all(conn, "SELECT key, value FROM settings", |row| {
+                    Ok(SettingRow {
+                        key: row.get(0)?,
+                        value: row.get(1)?,
+                    })
+                })?,
+                repos: query_all(conn, REPO_COLUMNS, row_to_repo)?,
                 workspaces: query_all(
                     conn,
-                    "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
-                            summary, summary_at, summary_source, kind, pr_number, pr_html_url,
-                            modified_files, archived_at
-                     FROM workspaces WHERE archived_at IS NULL",
+                    &format!("{WORKSPACE_COLUMNS} WHERE archived_at IS NULL"),
                     row_to_workspace,
                 )?,
                 threads: query_all(
@@ -1093,6 +1147,9 @@ impl Store {
                     &format!("{SCRATCH_COLUMNS} ORDER BY s.created_at DESC, s.rowid DESC"),
                     row_to_scratch,
                 )?,
+                // The subquery's WHERE must stay word for word what the `thread_events_activity`
+                // partial index (migration 020) declares, or SQLite falls back to walking every
+                // streamed chunk of a thread mid-turn.
                 thread_activity: query_all(
                     conn,
                     "SELECT thread_id, created_at FROM (
@@ -1122,7 +1179,19 @@ impl Store {
                 )?,
                 approvals: query_all(
                     conn,
-                    "SELECT id, thread_id, status, tool, payload FROM approvals ORDER BY rowid",
+                    // Only the threads the snapshot lists; closed threads' answers stay in
+                    // the table for the record but never reach the webview.
+                    "SELECT id, thread_id, status, tool, payload FROM approvals
+                     WHERE thread_id IN (
+                        SELECT t.id FROM threads t
+                        WHERE t.closed_at IS NULL AND (
+                            t.workspace_id IN (
+                                SELECT id FROM workspaces WHERE archived_at IS NULL
+                            )
+                            OR t.id IN (SELECT thread_id FROM scratches)
+                        )
+                     )
+                     ORDER BY rowid",
                     |row| {
                         Ok(ApprovalRow {
                             id: row.get(0)?,
@@ -1135,25 +1204,12 @@ impl Store {
                 )?,
                 findings: query_all(
                     conn,
-                    "SELECT id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id
-                     FROM findings
-                     WHERE workspace_id IN (
-                        SELECT id FROM workspaces WHERE archived_at IS NULL
-                     )",
-                    |row| {
-                        Ok(FindingRow {
-                            id: row.get(0)?,
-                            workspace_id: row.get(1)?,
-                            severity: row.get(2)?,
-                            title: row.get(3)?,
-                            file: row.get(4)?,
-                            line: row.get(5)?,
-                            explanation: row.get(6)?,
-                            status: row.get(7)?,
-                            commit_sha: row.get(8)?,
-                            sent_to_thread_id: row.get(9)?,
-                        })
-                    },
+                    &format!(
+                        "{FINDING_COLUMNS} WHERE workspace_id IN (
+                            SELECT id FROM workspaces WHERE archived_at IS NULL
+                         ) ORDER BY rowid"
+                    ),
+                    row_to_finding,
                 )?,
                 pull_requests: query_all(conn, PR_COLUMNS, row_to_pr)?,
             })
@@ -1173,6 +1229,46 @@ fn tune(conn: &Connection) -> Result<()> {
 }
 
 const PR_COLUMNS: &str = "SELECT id, repo_id, number, title, payload FROM pr_cache";
+
+const FINDING_COLUMNS: &str = "SELECT id, workspace_id, severity, title, file, line, explanation,
+        status, commit_sha, sent_to_thread_id FROM findings";
+
+fn row_to_finding(row: &rusqlite::Row<'_>) -> rusqlite::Result<FindingRow> {
+    Ok(FindingRow {
+        id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        severity: row.get(2)?,
+        title: row.get(3)?,
+        file: row.get(4)?,
+        line: row.get(5)?,
+        explanation: row.get(6)?,
+        status: row.get(7)?,
+        commit_sha: row.get(8)?,
+        sent_to_thread_id: row.get(9)?,
+    })
+}
+
+const REPO_COLUMNS: &str = "SELECT r.id, r.path, r.name, r.default_branch,
+        COALESCE(c.setup_commands, ''), c.run_command, COALESCE(c.single_instance, 0) != 0
+     FROM repos r LEFT JOIN repo_config c ON c.repo_id = r.id";
+
+fn row_to_repo(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
+    Ok(RepoRecord {
+        id: row.get(0)?,
+        path: row.get(1)?,
+        name: row.get(2)?,
+        default_branch: row.get(3)?,
+        setup_commands: row.get(4)?,
+        run_command: row.get(5)?,
+        single_instance: row.get(6)?,
+    })
+}
+
+const WORKSPACE_COLUMNS: &str =
+    "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
+        summary, summary_at, summary_source, kind, pr_number, pr_html_url, modified_files,
+        archived_at
+     FROM workspaces";
 
 fn row_to_pr(row: &rusqlite::Row<'_>) -> rusqlite::Result<PrRow> {
     Ok(PrRow {
@@ -1886,5 +1982,157 @@ mod tests {
         let row = store.workspace_by_id("w1").unwrap().unwrap();
         assert_eq!(row.summary.as_deref(), Some("Working on login."));
         assert!(row.summary_at.is_some());
+
+        assert_eq!(store.repos().unwrap().len(), 1);
+        assert_eq!(store.repo_by_id("r1").unwrap().unwrap().name, "app");
+        assert!(store.repo_by_id("nope").unwrap().is_none());
+        assert_eq!(store.lead_thread_id("w1").unwrap().as_deref(), Some("t1"));
+        assert_eq!(store.lead_thread_id("w2").unwrap(), None);
+        let threads = store.threads_for_workspace("w1").unwrap();
+        assert_eq!(threads.len(), 1);
+        assert!(store.threads_for_workspace("w2").unwrap().is_empty());
+    }
+
+    #[test]
+    fn appended_events_number_from_one_per_thread() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        for id in ["a", "b"] {
+            store.upsert_thread(&thread(id, "w1", "idle")).unwrap();
+        }
+        assert_eq!(store.append_event("a", "tool", "{}").unwrap(), 1);
+        assert_eq!(store.append_event("a", "tool", "{}").unwrap(), 2);
+        assert_eq!(store.append_event("b", "tool", "{}").unwrap(), 1);
+        assert_eq!(store.append_event("a", "tool", "{}").unwrap(), 3);
+        assert_eq!(store.last_message_seq("a").unwrap(), 0);
+    }
+
+    #[test]
+    fn closed_threads_come_with_their_workspace_newest_first() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        for id in ["w1", "w2", "w3"] {
+            workspace(&store, id, "idle");
+            store
+                .upsert_thread(&thread(&format!("{id}-lead"), id, "idle"))
+                .unwrap();
+        }
+        store
+            .upsert_thread(&thread("w1-helper", "w1", "idle"))
+            .unwrap();
+        for id in ["w1", "w2"] {
+            store.archive_workspace(id).unwrap();
+        }
+        let closed = store.closed_threads("r1", 10).unwrap();
+        let ids: Vec<_> = closed
+            .iter()
+            .map(|(thread, workspace)| (thread.id.as_str(), workspace.id.as_str()))
+            .collect();
+        // w2 was archived last; w3 is still live so it stays out.
+        assert_eq!(
+            ids,
+            [("w2-lead", "w2"), ("w1-lead", "w1"), ("w1-helper", "w1")]
+        );
+        assert_eq!(store.closed_threads("r1", 1).unwrap().len(), 1);
+        assert!(store.closed_threads("other", 10).unwrap().is_empty());
+    }
+
+    /// The activity subquery in `snapshot` must keep matching migration 020's index word for
+    /// word, or every snapshot walks back through a working thread's streamed chunks.
+    #[test]
+    fn thread_activity_lookup_uses_its_partial_index() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        let plan = store
+            .with_read(|conn| {
+                let mut stmt = conn.prepare(
+                    "EXPLAIN QUERY PLAN SELECT e.created_at FROM thread_events e
+                     WHERE e.thread_id = 't' AND (
+                         e.kind IN ('turn_end', 'exit')
+                         OR (e.kind = 'message'
+                             AND json_extract(e.payload, '$.role') = 'user')
+                     )
+                     ORDER BY e.seq DESC LIMIT 1",
+                )?;
+                let rows = stmt.query_map([], |row| row.get::<_, String>(3))?;
+                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.join("\n"))
+            })
+            .unwrap();
+        assert!(
+            plan.contains("thread_events_activity"),
+            "activity lookup no longer uses its index: {plan}"
+        );
+    }
+
+    /// `cargo test --lib snapshot_timing -- --ignored --nocapture`: snapshot and paging cost on
+    /// a store the size of a busy week (50 threads × 5,000 events, one thread mid-turn).
+    #[test]
+    #[ignore = "benchmark; prints timings"]
+    fn snapshot_timing() {
+        use std::time::Instant;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new();
+        store.open(&dir.path().join("bench.db")).unwrap();
+        store
+            .with_conn(|conn| {
+                conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+                let tx = conn.unchecked_transaction()?;
+                for t in 0..50 {
+                    let id = format!("t{t}");
+                    tx.execute(
+                        "INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status)
+                         VALUES (?1, 'r', ?1, ?1, '/tmp', 'idle')",
+                        [&id],
+                    )?;
+                    tx.execute(
+                        "INSERT INTO threads (id, workspace_id, title, engine, status)
+                         VALUES (?1, ?1, 'Lead', 'claude', 'idle')",
+                        [&id],
+                    )?;
+                    let mut stmt = tx.prepare_cached(
+                        "INSERT INTO thread_events (thread_id, seq, kind, payload)
+                         VALUES (?1, ?2, ?3, ?4)",
+                    )?;
+                    let total = if t == 0 { 7000 } else { 5000 };
+                    for seq in 0..total {
+                        let (kind, payload) = match seq % 1000 {
+                            0 => ("message", r#"{"role":"user","text":"go"}"#),
+                            999 if seq < 5000 => ("turn_end", "{}"),
+                            n if n % 3 == 0 => ("tool", r#"{"type":"toolCall","title":"Read"}"#),
+                            _ => (
+                                "message",
+                                r#"{"type":"messageChunk","role":"agent","text":"a streamed chunk"}"#,
+                            ),
+                        };
+                        stmt.execute(rusqlite::params![id, seq + 1, kind, payload])?;
+                    }
+                }
+                tx.commit()?;
+                Ok(())
+            })
+            .unwrap();
+        for label in ["cold", "warm", "warm"] {
+            let start = Instant::now();
+            let snap = store.snapshot().unwrap();
+            eprintln!(
+                "{label} snapshot: {:?} ({} activity rows)",
+                start.elapsed(),
+                snap.thread_activity.len()
+            );
+        }
+        let start = Instant::now();
+        for _ in 0..20 {
+            store
+                .thread_event_page("t1", None, None, Some(2000))
+                .unwrap();
+        }
+        eprintln!("20 pages of 2000: {:?}", start.elapsed());
+        let start = Instant::now();
+        for i in 0..200 {
+            store
+                .append_event("t1", "tool", &format!("{{\"n\":{i}}}"))
+                .unwrap();
+        }
+        eprintln!("200 appends: {:?}", start.elapsed());
     }
 }

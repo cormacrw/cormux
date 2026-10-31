@@ -62,7 +62,7 @@
   $effect(() => {
     void query
     untrack(() => {
-      current = Math.max(0, findMatches(rows, query).length - 1)
+      current = Math.max(0, matches.length - 1)
     })
   })
 

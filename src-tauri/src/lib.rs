@@ -41,7 +41,7 @@ mod workspace;
 
 use std::time::Duration;
 
-use ipc::events::{MemorySampled, StateChanged};
+use ipc::events::MemorySampled;
 use ipc::types::StateChangeKind;
 use state::AppState;
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -92,12 +92,7 @@ pub fn run() {
                     match state.fetch.tick().await {
                         Ok(updates) => {
                             crate::git_workspace::apply_behind_updates(&state, &updates).await;
-                            let version = state.bump_event_version();
-                            let _ = StateChanged {
-                                version,
-                                kind: StateChangeKind::BehindCounts,
-                            }
-                            .emit(&app);
+                            state.notify(&app, StateChangeKind::BehindCounts);
                         }
                         Err(error) => log::warn!("focus fetch failed: {error}"),
                     }
@@ -225,12 +220,7 @@ pub fn run() {
                             )
                             .await;
                     }
-                    let version = state.bump_event_version();
-                    let _ = StateChanged {
-                        version,
-                        kind: StateChangeKind::WorkspaceStatus,
-                    }
-                    .emit(&turn_end_app);
+                    state.notify(&turn_end_app, StateChangeKind::WorkspaceStatus);
                     if let Err(error) =
                         crate::review::on_reviewer_turn_end(&turn_end_app, &thread_id).await
                     {

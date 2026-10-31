@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
   import * as Empty from '$lib/components/ui/empty'
@@ -156,6 +157,15 @@
     app.openSettings()
     settings.focusSection = 'clickup'
   }
+
+  // The header is the page's title bar: empty space in it drags the window.
+  function startHeaderDrag(event: MouseEvent) {
+    if (event.button !== 0) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (target.closest('button, a, input, textarea')) return
+    void getCurrentWindow().startDragging()
+  }
 </script>
 
 <section
@@ -166,8 +176,11 @@
   aria-labelledby="sprint-title"
   data-od-id="sprint-view"
 >
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <header
     class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-6 pt-6 pb-4"
+    data-tauri-drag-region
+    onmousedown={startHeaderDrag}
   >
     <div class="grid min-w-0 gap-1">
       <h1

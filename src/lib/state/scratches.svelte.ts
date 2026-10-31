@@ -1,5 +1,8 @@
+// Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
+/* eslint-disable svelte/prefer-svelte-reactivity */
 import type { ScratchRow } from '$lib/ipc/bindings'
 import { parseTimestampMs } from '$lib/homebase/relative-time'
+import { reuseRows } from './reuse-rows'
 
 /** A one-off conversation from before every thread had a worktree, kept to read. */
 export type Scratch = {
@@ -24,14 +27,18 @@ export function scratchFromRow(row: ScratchRow): Scratch {
 
 export class ScratchesStore {
   /** Newest first. */
-  items = $state<Scratch[]>([])
+  items = $state.raw<Scratch[]>([])
+
+  private readonly byId = $derived(
+    new Map(this.items.map((item) => [item.id, item])),
+  )
 
   hydrate(items: Scratch[]) {
-    this.items = items
+    this.items = reuseRows(this.items, items)
   }
 
   getById(id: string) {
-    return this.items.find((item) => item.id === id)
+    return this.byId.get(id)
   }
 }
 
