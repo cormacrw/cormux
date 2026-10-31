@@ -29,6 +29,7 @@
   import StreamingText from './StreamingText.svelte'
   import { openDiffForPath } from './open-changes'
   import ApprovalCard from './ApprovalCard.svelte'
+  import QuestionCard from './QuestionCard.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import Check from '@lucide/svelte/icons/check'
   import Clock from '@lucide/svelte/icons/clock'
@@ -591,6 +592,14 @@
             </ol>
           </Card.Content>
         </Card.Root>
+      {:else if item.kind === 'approval' && item.questions.length > 0}
+        <QuestionCard
+          {item}
+          {nowMs}
+          timeLabel={timeLabel(item.atMs)}
+          timeTitle={timeTitle(item.atMs)}
+          {onFocusComposer}
+        />
       {:else if item.kind === 'approval'}
         <ApprovalCard
           {item}

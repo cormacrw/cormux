@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -785,24 +786,45 @@ pub async fn resolve_approval(
         .resolve(&id, approved, deny_message.clone())
         .await?;
     let hints = crate::approvals::apply_harness_effects(&state, &row, &payload, approved)?;
+    notify_approval_resolved(&app, &state);
     if !approved && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
         let _ = state
             .engines
             .prompt(&row.thread_id, format!("Approval denied: {reason}"));
     }
-    emit_approval_counts(&app, &state);
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(&app);
     if let Some(payload) = toast_for_approval(&row.tool, approved) {
         emit_toast(&app, payload);
     }
     Ok(ResolveApprovalResult {
         focus_composer: hints.focus_composer,
     })
+}
+
+fn notify_approval_resolved(app: &AppHandle, state: &AppState) {
+    emit_approval_counts(app, state);
+    let version = state.bump_event_version();
+    let _ = StateChanged {
+        version,
+        kind: StateChangeKind::WorkspaceStatus,
+    }
+    .emit(app);
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_question(
+    app: AppHandle,
+    id: String,
+    answers: BTreeMap<String, String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    crate::approvals::mark_answered(&state.store, &id, answers.clone())?;
+    state.approvals.complete(
+        &id,
+        crate::approvals::ApprovalDecision::Answered { answers },
+    )?;
+    notify_approval_resolved(&app, &state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -816,7 +838,11 @@ pub async fn resolve_all_approvals(
 ) -> Result<ResolveApprovalResult> {
     let pending = state.store.pending_approvals_for_thread(&thread_id)?;
     let mut focus_composer = false;
-    for row in pending {
+    // Approving a question would answer it with nothing, so those wait for the user.
+    for row in pending
+        .into_iter()
+        .filter(|row| !approved || row.tool != crate::approvals::QUESTION_TOOL)
+    {
         let result = resolve_approval(
             app.clone(),
             row.id,

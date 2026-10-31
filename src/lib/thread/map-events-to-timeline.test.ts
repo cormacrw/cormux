@@ -442,6 +442,71 @@ describe('mapEventsToTimeline', () => {
     })
   })
 
+  it('shows a question only as its card, not as an AskUserQuestion step', () => {
+    const question = {
+      question: 'Which colour?',
+      header: 'Colour',
+      options: [{ label: 'Red', description: 'Warm' }],
+      multiSelect: false,
+    }
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          event: {
+            type: 'toolCall',
+            id: 'toolu_ask',
+            title: 'AskUserQuestion',
+            name: 'AskUserQuestion',
+            kind: 'other',
+            status: 'pending',
+            locations: [],
+            detail: null,
+            parent_id: null,
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: 'permission',
+            id: 'q1',
+            tool_call_id: 'toolu_ask',
+            title: 'Use AskUserQuestion',
+            tool_name: 'AskUserQuestion',
+            kind: 'other',
+            detail: null,
+            auto_approved: false,
+          },
+        },
+      ],
+      approvals: [
+        {
+          id: 'q1',
+          threadId: 't1',
+          status: 'pending',
+          tool: 'question',
+          payload: JSON.stringify({
+            title: 'Question',
+            what: 'Which colour?',
+            why: '',
+            okLabel: 'Send',
+            noLabel: 'Skip',
+            questions: [question],
+          }),
+        },
+      ],
+      findingsReady: false,
+      showLive: false,
+      liveToolTitle: null,
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      kind: 'approval',
+      questions: [question],
+      answers: {},
+    })
+  })
+
   it('shows a plan only as its approval, not as an ExitPlanMode step', () => {
     const items = mapEventsToTimeline({
       events: [

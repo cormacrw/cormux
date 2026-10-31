@@ -2,13 +2,16 @@ mod effects;
 mod payload;
 mod record;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
 use tokio::sync::oneshot;
 
 pub use effects::apply_harness_effects;
-pub use record::{mark_resolved, record_pending_permission};
+pub use payload::{QUESTION_TOOL, questions_from_input};
+pub use record::{
+    mark_answered, mark_resolved, record_pending_permission, record_pending_question,
+};
 
 use crate::error::{Error, Result};
 
@@ -22,7 +25,13 @@ pub struct ApprovalBroker {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalDecision {
     Approved,
-    Denied { message: String },
+    Denied {
+        message: String,
+    },
+    /// Answers to an `AskUserQuestion` call, keyed by question text.
+    Answered {
+        answers: BTreeMap<String, String>,
+    },
 }
 
 impl ApprovalBroker {

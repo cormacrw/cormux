@@ -35,6 +35,31 @@ for raw in sys.stdin:
                     },
                 }
             )
+        elif text.startswith("ask"):
+            emit(
+                {
+                    "type": "control_request",
+                    "request_id": "req_ask",
+                    "request": {
+                        "subtype": "can_use_tool",
+                        "tool_name": "AskUserQuestion",
+                        "input": {
+                            "questions": [
+                                {
+                                    "question": "Which colour?",
+                                    "header": "Colour",
+                                    "options": [
+                                        {"label": "Red", "description": "Warm"},
+                                        {"label": "Blue", "description": "Cool"},
+                                    ],
+                                    "multiSelect": False,
+                                }
+                            ]
+                        },
+                        "tool_use_id": "toolu_ask",
+                    },
+                }
+            )
         elif text.startswith("plan"):
             emit(
                 {

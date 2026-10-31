@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { approvalResolvedChip, parseApprovalPayload } from './payload'
+import {
+  approvalResolvedChip,
+  composeAnswer,
+  parseApprovalPayload,
+} from './payload'
 
 describe('parseApprovalPayload', () => {
   it('reads stored labels', () => {
@@ -13,6 +17,17 @@ describe('parseApprovalPayload', () => {
       }),
     )
     expect(payload?.okLabel).toBe('Approve delete')
+  })
+})
+
+describe('composeAnswer', () => {
+  it('keeps picked options and typed text together', () => {
+    expect(composeAnswer(['Red'], '')).toBe('Red')
+    expect(composeAnswer(['Red', 'Blue'], '  but darker ')).toBe(
+      'Red, Blue, but darker',
+    )
+    expect(composeAnswer([], 'Green')).toBe('Green')
+    expect(composeAnswer([], '   ')).toBe('')
   })
 })
 

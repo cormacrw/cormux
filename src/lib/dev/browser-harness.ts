@@ -135,6 +135,15 @@ export function installBrowserHarness() {
       ...injected,
     ]
   }
+  // Tests can inject approvals to go with those events.
+  const injectedApprovals = (
+    window as {
+      __HARNESS_APPROVALS__?: typeof fixtureSnapshot.persisted.approvals
+    }
+  ).__HARNESS_APPROVALS__
+  if (injectedApprovals) {
+    fixtureSnapshot.persisted.approvals = injectedApprovals
+  }
   // Tests can inject review findings; this makes the fixture workspace a finished review.
   const injectedFindings = (
     window as {
@@ -987,6 +996,27 @@ export function installBrowserHarness() {
         window as { __HARNESS_OPENED__?: string[] }
       ).__HARNESS_OPENED__ ??= [])
       opened.push(String(args.url))
+      return null
+    }
+    if (cmd === 'answer_question') {
+      const id = String(args.id)
+      const answers = args.answers as Record<string, string>
+      const answered = ((
+        window as { __HARNESS_ANSWERED__?: unknown[] }
+      ).__HARNESS_ANSWERED__ ??= [])
+      answered.push({ id, answers })
+      const row = fixtureSnapshot.persisted.approvals.find(
+        (entry) => entry.id === id,
+      )
+      if (row) {
+        row.status = 'approved'
+        row.payload = JSON.stringify({
+          ...JSON.parse(row.payload),
+          resolvedAtMs: Date.now(),
+          answers,
+        })
+      }
+      emitStateChanged()
       return null
     }
     if (cmd === 'resolve_approval') {

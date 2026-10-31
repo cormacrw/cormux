@@ -710,6 +710,14 @@ fn permission_decision(answer: ClaudeAnswer) -> PermissionDecision {
             updated_permissions: None,
         },
         ApprovalDecision::Denied { message } => PermissionDecision::Deny { message },
+        ApprovalDecision::Answered { answers } => {
+            let mut updated_input = answer.input;
+            updated_input["answers"] = serde_json::json!(answers);
+            PermissionDecision::Allow {
+                updated_input,
+                updated_permissions: None,
+            }
+        }
     }
 }
 
@@ -745,8 +753,14 @@ async fn handle_claude_permission(
             .await;
         return;
     }
+    // Only the user can answer a question, so no auto-approve setting applies to one.
+    let questions = if req.tool_name == "AskUserQuestion" {
+        crate::approvals::questions_from_input(&req.input)
+    } else {
+        Vec::new()
+    };
     let mut mapped = claude_map::map_permission(req);
-    if policy.auto_all || (policy.auto_ro && kind.is_readonly()) {
+    if questions.is_empty() && (policy.auto_all || (policy.auto_ro && kind.is_readonly())) {
         if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;
         }
@@ -772,8 +786,12 @@ async fn handle_claude_permission(
         req,
         ToolCallStatus::Pending,
     ));
-    if let Err(error) = crate::approvals::record_pending_permission(store, thread_id, &mapped, None)
-    {
+    let recorded = if questions.is_empty() {
+        crate::approvals::record_pending_permission(store, thread_id, &mapped, None)
+    } else {
+        crate::approvals::record_pending_question(store, thread_id, &mapped, questions)
+    };
+    if let Err(error) = recorded {
         log::warn!("record approval: {error}");
     } else {
         let _ = approval_notify.send(());
@@ -1055,6 +1073,100 @@ mod tests {
         engines.stop("live").await.unwrap();
         assert!(used_tool, "never called the tool: {reply}");
         assert!(reply.contains("unknown thread"), "{reply}");
+    }
+
+    #[tokio::test]
+    async fn questions_wait_for_answers_even_with_auto_approve_on() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .upsert_thread(&crate::store::types::ThreadRow {
+                id: "t-ask".into(),
+                workspace_id: "w1".into(),
+                title: "Lead".into(),
+                engine: "claude".into(),
+                session_id: None,
+                status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
+            })
+            .unwrap();
+        let approvals = Arc::new(ApprovalBroker::new());
+        let engines = EngineRegistry::new(
+            Arc::new(RwLock::new(ShellEnv::new())),
+            approvals.clone(),
+            store.clone(),
+            test_mcp(store.clone()),
+            broadcast::channel(4).0,
+            broadcast::channel(4).0,
+        );
+        engines
+            .spawn(SpawnSpec {
+                thread_id: "t-ask".into(),
+                kind: EngineKind::Claude,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: Some(mock_claude_argv()),
+                auto_approve_readonly: true,
+                auto_approve_all: true,
+                read_only: false,
+            })
+            .await
+            .unwrap();
+
+        let mut events = engines.subscribe("t-ask").unwrap();
+        engines.prompt("t-ask", "ask me something").unwrap();
+        let id = loop {
+            if let AgentEvent::Permission {
+                id, auto_approved, ..
+            } = events.recv().await.unwrap()
+            {
+                assert!(!auto_approved);
+                break id;
+            }
+        };
+
+        // The broker registers just after the event goes out.
+        while approvals.pending_count() == 0 {
+            tokio::task::yield_now().await;
+        }
+        let row = store.get_approval(&id).unwrap().unwrap();
+        assert_eq!(row.tool, crate::approvals::QUESTION_TOOL);
+        assert!(row.payload.contains("Which colour?"));
+
+        let answers = std::collections::BTreeMap::from([(
+            "Which colour?".to_string(),
+            "Green, my own".to_string(),
+        )]);
+        approvals
+            .complete(&id, ApprovalDecision::Answered { answers })
+            .unwrap();
+
+        // The mock echoes the decision back as a message.
+        let mut reply = String::new();
+        loop {
+            match events.recv().await.unwrap() {
+                AgentEvent::MessageChunk { text, .. } => reply.push_str(&text),
+                AgentEvent::TurnEnd { .. } => break,
+                AgentEvent::EngineExited { .. } => panic!("exited early"),
+                _ => {}
+            }
+        }
+        engines.stop("t-ask").await.unwrap();
+        let echoed: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(echoed["behavior"], "allow");
+        assert_eq!(
+            echoed["updatedInput"]["answers"]["Which colour?"],
+            "Green, my own"
+        );
+        assert_eq!(
+            echoed["updatedInput"]["questions"][0]["header"], "Colour",
+            "the CLI needs the original input back too"
+        );
     }
 
     #[tokio::test]

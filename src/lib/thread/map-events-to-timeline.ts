@@ -144,6 +144,8 @@ function approvalFromPermission(
     noLabel: payload?.noLabel ?? 'Deny',
     state,
     doneAtMs: payload?.resolvedAtMs ?? null,
+    questions: payload?.questions ?? [],
+    answers: payload?.answers ?? {},
     seq,
     atMs,
   }
@@ -434,7 +436,9 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
           break
         }
         // The plan's own row stands for the request to leave plan mode.
-        if ((event.name ?? event.title) === 'ExitPlanMode') break
+        const toolName = event.name ?? event.title
+        // Both show up as their approval card, never as a step.
+        if (toolName === 'ExitPlanMode' || toolName === 'AskUserQuestion') break
         if (!toolKindIsRunStep(event.kind)) break
         if (!run.length) runSeq = seq
         const scratchRead =
