@@ -2,6 +2,13 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.17
+
+- Claude threads can hand work to other threads. An agent can start a new thread on its own branch and worktree, check on threads in the same repo, and send follow-ups to the ones it started. Those threads report back on their own when they finish a turn, get blocked or fail setup.
+- Threads started by an agent sit under their parent in the sidebar, and the parent's header cost includes them. Starting a thread or messaging one asks for your approval as usual, and only you can answer a child thread's approvals.
+- Every thread now gets its own worktree, with a flat thread sidebar and an empty thread as the first page. Working threads move into a collapsible Working section once you leave them.
+- Finished replies render diagrams, charts, math, diffs and JSON as rich blocks, test runs are summed up, and the prompt bar shows context growth.
+
 ## 0.1.16
 
 - Screenshots and recordings an agent references in a reply now show inline in the thread, and they survive the worktree being torn down. Every engine is told at startup that the thread renders them, so agents embed captures instead of just naming the path.
