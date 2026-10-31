@@ -111,6 +111,32 @@ describe('TimelineBuilder', () => {
     )
   })
 
+  it('picks up a background agent reporting into a finished turn', () => {
+    const builder = new TimelineBuilder()
+    const events: AgentEvent[] = [
+      user('go'),
+      tool('agent', { kind: 'execute', name: 'Agent' }),
+      end,
+      user('next'),
+      tool('child', { kind: 'execute', parent_id: 'agent' }),
+      update('agent'),
+    ]
+    const entries = events.map((event, index) => ({
+      seq: index + 1,
+      atMs: index + 1,
+      event,
+    }))
+    for (let count = 3; count <= entries.length; count += 1) {
+      const next: MapTimelineInput = {
+        events: entries.slice(0, count),
+        approvals: [],
+        findingsReady: false,
+        showLive: false,
+      }
+      expect(builder.build(next)).toEqual(mapEventsToTimeline(next))
+    }
+  })
+
   it('rebuilds when an approval changes', () => {
     const permission = {
       type: 'permission',

@@ -12,15 +12,9 @@ test('the first page is a new thread, and typing into it spawns a workspace', as
   const composer = page.locator('#composer-input')
   await expect(composer).toBeFocused()
 
-  // The repo and base live in the prompt bar, the base as a search.
+  // The repo lives in the prompt bar; the base is the default unless the prompt says otherwise.
   await expect(page.locator('#new-thread-repo')).toHaveText('my-app')
-  const base = page.locator('#new-thread-base')
-  await expect(base).toContainText('main')
-  await base.click()
-  await expect(page.getByPlaceholder('Search branches…')).toBeFocused()
-  await page.keyboard.type('dev')
-  await page.keyboard.press('Enter')
-  await expect(base).toContainText('develop')
+  await expect(page.locator('#new-thread-base')).toHaveCount(0)
 
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/new-thread.png' })

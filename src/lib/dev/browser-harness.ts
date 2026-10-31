@@ -168,6 +168,15 @@ export function installBrowserHarness() {
     fixtureTimeline.length = 0
     fixtureTimeline.push(...others, ...injected)
   }
+  // Tests can inject approvals to go with those events.
+  const injectedApprovals = (
+    window as {
+      __HARNESS_APPROVALS__?: typeof fixtureSnapshot.persisted.approvals
+    }
+  ).__HARNESS_APPROVALS__
+  if (injectedApprovals) {
+    fixtureSnapshot.persisted.approvals = injectedApprovals
+  }
   // Tests can inject review findings; this makes the fixture workspace a finished review.
   const injectedFindings = (
     window as {
@@ -784,12 +793,23 @@ export function installBrowserHarness() {
         worktreePath: '/tmp/cormux-fixture/oauth',
         appRunning: false,
         deleteBranchDefault: true,
-        dataLoss: {
-          uncommittedFiles: 0,
-          unpushedCommits: 0,
-          hasDataLoss: false,
-          warning: null,
-        },
+        dataLoss:
+          args.workspaceId ===
+          (window as { __HARNESS_CLEAN_TEARDOWN__?: string })
+            .__HARNESS_CLEAN_TEARDOWN__
+            ? {
+                uncommittedFiles: 0,
+                unpushedCommits: 0,
+                hasDataLoss: false,
+                warning: null,
+              }
+            : {
+                uncommittedFiles: 2,
+                unpushedCommits: 0,
+                hasDataLoss: true,
+                warning:
+                  "2 uncommitted file changes will be discarded. This can't be undone.",
+              },
       }
     }
     if (cmd === 'list_repo_branches') {
@@ -900,34 +920,22 @@ export function installBrowserHarness() {
       ]
     }
     if (cmd === 'engine_models') {
-      return args.engine === 'claude'
-        ? [
-            { id: 'fable', label: 'Fable' },
-            { id: 'opus', label: 'Opus' },
-            { id: 'sonnet', label: 'Sonnet' },
-            { id: 'haiku', label: 'Haiku' },
-          ]
-        : []
+      return [
+        { id: 'fable', label: 'Fable' },
+        { id: 'opus', label: 'Opus' },
+        { id: 'sonnet', label: 'Sonnet' },
+        { id: 'haiku', label: 'Haiku' },
+      ]
     }
     if (cmd === 'thread_models') {
-      const engine = [
-        ...fixtureSnapshot.persisted.threads.map((row) => ({
-          threadId: row.id,
-          engine: row.engine,
-        })),
-        ...fixtureSnapshot.persisted.scratches,
-      ].find((row) => row.threadId === args.threadId)?.engine
       return {
         current: threadModels.get(String(args.threadId)) ?? null,
-        options:
-          engine === 'claude'
-            ? [
-                { id: 'fable', label: 'Fable' },
-                { id: 'opus', label: 'Opus' },
-                { id: 'sonnet', label: 'Sonnet' },
-                { id: 'haiku', label: 'Haiku' },
-              ]
-            : [],
+        options: [
+          { id: 'fable', label: 'Fable' },
+          { id: 'opus', label: 'Opus' },
+          { id: 'sonnet', label: 'Sonnet' },
+          { id: 'haiku', label: 'Haiku' },
+        ],
       }
     }
     if (cmd === 'set_thread_model') {
@@ -1047,6 +1055,27 @@ export function installBrowserHarness() {
         window as { __HARNESS_OPENED__?: string[] }
       ).__HARNESS_OPENED__ ??= [])
       opened.push(String(args.url))
+      return null
+    }
+    if (cmd === 'answer_question') {
+      const id = String(args.id)
+      const answers = args.answers as Record<string, string>
+      const answered = ((
+        window as { __HARNESS_ANSWERED__?: unknown[] }
+      ).__HARNESS_ANSWERED__ ??= [])
+      answered.push({ id, answers })
+      const row = fixtureSnapshot.persisted.approvals.find(
+        (entry) => entry.id === id,
+      )
+      if (row) {
+        row.status = 'approved'
+        row.payload = JSON.stringify({
+          ...JSON.parse(row.payload),
+          resolvedAtMs: Date.now(),
+          answers,
+        })
+      }
+      emitStateChanged()
       return null
     }
     if (cmd === 'resolve_approval') {

@@ -16,10 +16,11 @@
   import Trash2 from '@lucide/svelte/icons/trash-2'
 
   const workspaceId = $derived(shellDialogs.teardownWorkspaceId)
-  const open = $derived(workspaceId != null)
 
   let preview = $state<TeardownPreview | null>(null)
-  let loadingPreview = $state(false)
+  // Waits for the preview: a clean worktree never shows the dialog at all.
+  const open = $derived(workspaceId != null && preview != null)
+
   let deleteBranch = $state(true)
   let confirmRef = $state<HTMLButtonElement | null>(null)
 
@@ -32,17 +33,20 @@
   })
 
   async function loadPreview(id: string) {
-    loadingPreview = true
     preview = null
     const result = await commands.getTeardownPreview(id)
-    loadingPreview = false
+    if (shellDialogs.teardownWorkspaceId !== id) return
     if (result.status === 'error') {
       toastCoreError(JSON.stringify(result.error))
       shellDialogs.closeTeardown()
       return
     }
-    preview = result.data
     deleteBranch = result.data.deleteBranchDefault
+    if (result.data.dataLoss.uncommittedFiles === 0) {
+      confirmTeardown()
+      return
+    }
+    preview = result.data
     await tick()
     confirmRef?.focus()
   }
@@ -72,12 +76,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (
-      event.key === 'Enter' &&
-      (event.metaKey || event.ctrlKey) &&
-      preview &&
-      !loadingPreview
-    ) {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && preview) {
       event.preventDefault()
       confirmTeardown()
     }
@@ -94,13 +93,7 @@
   <AlertDialog.Content class="max-w-md sm:max-w-md" onkeydown={onKeydown}>
     <AlertDialog.Header>
       <AlertDialog.Title>Teardown & delete worktree?</AlertDialog.Title>
-      <AlertDialog.Description>
-        {#if loadingPreview}
-          Loading…
-        {:else}
-          {description}
-        {/if}
-      </AlertDialog.Description>
+      <AlertDialog.Description>{description}</AlertDialog.Description>
     </AlertDialog.Header>
 
     {#if preview}
@@ -135,7 +128,7 @@
       <AlertDialog.Action
         bind:ref={confirmRef}
         variant="destructive"
-        disabled={loadingPreview || !preview}
+        disabled={!preview}
         onclick={(event) => {
           event.preventDefault()
           confirmTeardown()

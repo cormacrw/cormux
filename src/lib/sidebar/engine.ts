@@ -1,18 +1,14 @@
-export type EngineMark = 'CC' | 'CX' | 'GM'
+export type EngineMark = 'CC'
 
 const ENGINE_MARKS: Record<string, EngineMark> = {
   claude: 'CC',
-  codex: 'CX',
-  gemini: 'GM',
 }
 
 const ENGINE_NAMES: Record<string, string> = {
   claude: 'Claude Code',
-  codex: 'Codex',
-  gemini: 'Gemini',
 }
 
-/** Takes an engine id (`codex`) or its display name (`Codex`). */
+/** Takes an engine id (`claude`) or its display name (`Claude Code`). */
 export function engineMark(engine: string): EngineMark {
   const kind =
     Object.keys(ENGINE_NAMES).find((key) => ENGINE_NAMES[key] === engine) ??

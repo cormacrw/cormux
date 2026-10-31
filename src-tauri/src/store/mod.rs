@@ -235,6 +235,21 @@ impl Store {
         })
     }
 
+    pub fn set_workspace_checkout(
+        &self,
+        workspace_id: &str,
+        branch: &str,
+        worktree_path: &str,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET branch = ?1, worktree_path = ?2 WHERE id = ?3",
+                rusqlite::params![branch, worktree_path, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn set_workspace_pr_number(
         &self,
         workspace_id: &str,
@@ -283,6 +298,37 @@ impl Store {
                 rusqlite::params![workspace_id],
             )?;
             Ok(())
+        })
+    }
+
+    /// A repo's torn down workspaces with their threads, most recently closed first.
+    pub fn closed_threads(
+        &self,
+        repo_id: &str,
+        limit: i64,
+    ) -> Result<Vec<(ThreadRow, WorkspaceRow)>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
+                        summary, summary_at, summary_source, kind, pr_number, pr_html_url,
+                        modified_files, archived_at
+                 FROM workspaces WHERE repo_id = ?1 AND archived_at IS NOT NULL
+                 ORDER BY archived_at DESC, rowid DESC LIMIT ?2",
+            )?;
+            let workspaces = stmt
+                .query_map(rusqlite::params![repo_id, limit], row_to_workspace)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| Error::Store(error.to_string()))?;
+            let mut stmt = conn.prepare(&format!("{THREAD_COLUMNS} WHERE workspace_id = ?1"))?;
+            let mut closed = Vec::new();
+            for workspace in workspaces {
+                let threads = stmt
+                    .query_map([&workspace.id], row_to_thread)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(|error| Error::Store(error.to_string()))?;
+                closed.extend(threads.into_iter().map(|row| (row, workspace.clone())));
+            }
+            Ok(closed)
         })
     }
 
@@ -445,16 +491,6 @@ impl Store {
             conn.execute(
                 "UPDATE threads SET model = ?1 WHERE id = ?2",
                 rusqlite::params![model, thread_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn set_thread_readonly(&self, thread_id: &str, readonly: bool) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE threads SET transcript_readonly = ?1 WHERE id = ?2",
-                rusqlite::params![readonly as i64, thread_id],
             )?;
             Ok(())
         })
@@ -1425,7 +1461,7 @@ mod tests {
                 id: "t1".into(),
                 workspace_id: "scratch-1".into(),
                 title: "Scratch".into(),
-                engine: "codex".into(),
+                engine: "claude".into(),
                 session_id: None,
                 status: "running".into(),
                 used_tokens: None,
@@ -1453,7 +1489,7 @@ mod tests {
         let snapshot = store.snapshot().unwrap();
         assert!(snapshot.threads.is_empty());
         assert_eq!(snapshot.scratches.len(), 1);
-        assert_eq!(snapshot.scratches[0].engine, "codex");
+        assert_eq!(snapshot.scratches[0].engine, "claude");
         assert_eq!(snapshot.scratches[0].status, "idle");
         assert_eq!(
             store.scratch_for_thread("t1").unwrap().unwrap().id,
@@ -1669,7 +1705,7 @@ mod tests {
                     id: id.into(),
                     workspace_id: "w1".into(),
                     title: title.into(),
-                    engine: "codex".into(),
+                    engine: "claude".into(),
                     session_id: None,
                     status: "running".into(),
                     used_tokens: None,

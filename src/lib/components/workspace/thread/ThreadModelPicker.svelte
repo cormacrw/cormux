@@ -27,7 +27,7 @@
   const options = $derived.by((): ModelOption[] => {
     if (!models) return []
     const { current, options } = models
-    // An ACP engine lists its models only while running; keep a saved pick visible meanwhile.
+    // Keep a saved pick visible even if it isn't one of the listed models.
     if (current && !options.some((option) => option.id === current)) {
       return [...options, { id: current, label: current }]
     }
@@ -37,11 +37,8 @@
     options.find((option) => option.id === models?.current)?.label ?? 'Default',
   )
 
-  // ACP engines report their models once a session starts, so look again when status changes.
   $effect(() => {
-    const threadId = thread.id
-    void thread.status
-    void load(threadId)
+    void load(thread.id)
   })
 
   $effect(() => {

@@ -16,7 +16,6 @@
     threads,
   } from '$lib/state'
   import type { Scratch } from '$lib/state/scratches.svelte'
-  import { buddyColor } from '$lib/buddy'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import {
@@ -242,7 +241,6 @@
               {liveTitle}
               {liveSubtitle}
               paused={thread.paused}
-              buddyColor={buddyColor(thread.id)}
               {entries}
               liveReplyId={liveReplyId(items)}
               activeThoughtId={liveThoughtId(items)}

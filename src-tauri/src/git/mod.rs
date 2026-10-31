@@ -823,6 +823,21 @@ impl Git {
         self.rev_list_count(worktree, &range).await
     }
 
+    /// Commits on HEAD that neither a remote nor `base` has, so removing the branch loses
+    /// them. Unlike [`Self::unpushed_commit_count`], this sees a branch that was never pushed.
+    pub async fn commits_only_here(&self, worktree: &Path, base: &str) -> Result<u32> {
+        let mut args = vec!["rev-list", "--count", "HEAD", "--not", "--remotes"];
+        if self.ref_exists(worktree, base).await? {
+            args.push(base);
+        }
+        let output = self.run(worktree, &args).await?;
+        Self::require_success(&output, "rev-list")?;
+        Self::stdout(&output)
+            .trim()
+            .parse()
+            .map_err(|error| Error::Git(format!("rev-list count: {error}")))
+    }
+
     pub async fn current_branch(&self, worktree: &Path) -> Result<String> {
         let output = self.run(worktree, &["branch", "--show-current"]).await?;
         Self::require_success(&output, "branch --show-current")?;
@@ -1377,6 +1392,30 @@ mod tests {
 
         let (_dir, alone) = init_repo();
         assert_eq!(git.latest_base(&alone, "main").await, "main");
+    }
+
+    #[tokio::test]
+    async fn counts_commits_only_this_branch_has_even_if_it_was_never_pushed() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let (_clone_dir, clone) = clone_of(&origin);
+        run_ok(&clone, &["git", "switch", "-q", "-c", "feat/new"]);
+        assert_eq!(git.commits_only_here(&clone, "main").await.unwrap(), 0);
+
+        commit(&clone, "one.txt");
+        commit(&clone, "two.txt");
+        assert_eq!(git.commits_only_here(&clone, "main").await.unwrap(), 2);
+
+        run_ok(&clone, &["git", "push", "-q", "-u", "origin", "feat/new"]);
+        assert_eq!(git.commits_only_here(&clone, "main").await.unwrap(), 0);
+        commit(&clone, "three.txt");
+        assert_eq!(git.commits_only_here(&clone, "main").await.unwrap(), 1);
+
+        // No remote at all: the base still counts as somewhere else.
+        let (_dir, alone) = init_repo();
+        run_ok(&alone, &["git", "switch", "-q", "-c", "feat/new"]);
+        commit(&alone, "one.txt");
+        assert_eq!(git.commits_only_here(&alone, "main").await.unwrap(), 1);
     }
 
     #[tokio::test]

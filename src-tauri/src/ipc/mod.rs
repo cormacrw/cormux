@@ -25,6 +25,7 @@ pub fn builder() -> Builder {
             commands::engine_models,
             commands::set_thread_model,
             commands::resolve_approval,
+            commands::answer_question,
             commands::resolve_all_approvals,
             commands::subscribe_pty,
             commands::subscribe_diffs,

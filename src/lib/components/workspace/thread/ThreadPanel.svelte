@@ -11,8 +11,6 @@
   import { appearance } from '$lib/state/appearance.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { agentName } from '$lib/agent-name'
-  import { buddyColor } from '$lib/buddy'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import { enterConversation } from '$lib/thread/conversation-motion'
@@ -79,7 +77,7 @@
   const rows = $derived(
     buildTimelineRows(
       live ? items.slice(0, -1) : items,
-      agentName(thread.id),
+      thread.role,
       engineDisplayName(thread.engine),
     ),
   )
@@ -213,7 +211,7 @@
   $effect(() => {
     const count = items.length
     if (count > prevItemCount && prevItemCount > 0) {
-      const text = newestAgentAnnouncement(items, agentName(thread.id))
+      const text = newestAgentAnnouncement(items, thread.role)
       if (text) announceText = text
       if (stillFollowing()) scrollToEndNext = true
     }
@@ -449,8 +447,6 @@
                     liveTitle={liveRowTitle}
                     liveSubtitle={liveRowSubtitle}
                     paused={thread.paused}
-                    buddyColor={buddyColor(thread.id)}
-                    glasses={thread.role === 'Reviewer'}
                     {entries}
                     liveReplyId={typingReplyId}
                     {activeThoughtId}
@@ -472,8 +468,6 @@
             liveTitle={liveRowTitle}
             liveSubtitle={liveRowSubtitle}
             paused={thread.paused}
-            buddyColor={buddyColor(thread.id)}
-            glasses={thread.role === 'Reviewer'}
             {entries}
             liveReplyId={typingReplyId}
             {activeThoughtId}

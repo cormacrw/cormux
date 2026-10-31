@@ -5,13 +5,13 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{RwLock, broadcast, mpsc};
 
-use super::acp;
 use super::claude::map as claude_map;
+use super::claude::turn_gate::TurnGate;
 use super::claude::{CanUseTool, ClaudeSession, Event, PermissionDecision, SpawnOptions};
 use super::command::EngineCommand;
 use super::detect::{self, EngineStatus};
 use super::events::{AgentEvent, EngineKind, StreamedEvent, ToolCallStatus, ToolKind};
-use super::models::{ModelOption, ThreadModels, static_models};
+use super::models::{ThreadModels, static_models};
 use super::prompt::Prompt;
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::error::{Error, Result};
@@ -46,16 +46,9 @@ pub struct EngineRegistry {
 }
 
 struct ThreadSlot {
-    kind: EngineKind,
     commands: mpsc::UnboundedSender<EngineCommand>,
     events: broadcast::Sender<StreamedEvent>,
     session_id: Arc<Mutex<Option<String>>>,
-    pending_seed: Arc<Mutex<Option<String>>>,
-    /// Whether this engine has been told the thread renders media. Claude hears it
-    /// in its system prompt instead, so this only ever flips for ACP engines.
-    briefed: Arc<Mutex<bool>>,
-    /// Models an ACP engine offered when its session started; empty until then.
-    models: Arc<Mutex<Vec<ModelOption>>>,
     /// When anything last went to or came from the engine.
     last_active: Arc<Mutex<Instant>>,
 }
@@ -166,32 +159,11 @@ impl EngineRegistry {
         let mut spec = spec;
         spec.resume = resume;
         let session_id = Arc::new(Mutex::new(spec.resume.clone()));
-        let pending_seed = Arc::new(Mutex::new(None));
-        let models = Arc::new(Mutex::new(Vec::new()));
         let model = self.store.thread_model(&spec.thread_id).ok().flatten();
         let env = self.env.read().await.clone();
-        let commands = match spec.kind {
-            EngineKind::Claude => {
-                self.spawn_claude(
-                    &spec,
-                    model,
-                    env,
-                    events.clone(),
-                    session_id.clone(),
-                    pending_seed.clone(),
-                )
-                .await?
-            }
-            EngineKind::Codex | EngineKind::Gemini => self.spawn_acp(
-                &spec,
-                model,
-                env,
-                events.clone(),
-                session_id.clone(),
-                pending_seed.clone(),
-                models.clone(),
-            ),
-        };
+        let commands = self
+            .spawn_claude(&spec, model, env, events.clone(), session_id.clone())
+            .await?;
 
         self.threads
             .lock()
@@ -199,34 +171,19 @@ impl EngineRegistry {
             .insert(
                 spec.thread_id.clone(),
                 ThreadSlot {
-                    kind: spec.kind,
                     commands,
                     events,
                     session_id,
-                    pending_seed,
-                    briefed: Arc::new(Mutex::new(false)),
-                    models,
                     last_active,
                 },
             );
         Ok(())
     }
 
-    /// The thread's picked model and what it can switch to. ACP engines only know their
-    /// models once a session is running, so an idle ACP thread lists none.
+    /// The thread's picked model and what it can switch to.
     pub fn thread_models(&self, thread_id: &str, kind: EngineKind) -> Result<ThreadModels> {
         let current = self.store.thread_model(thread_id)?;
-        let options = match kind {
-            EngineKind::Claude => static_models(kind),
-            EngineKind::Codex | EngineKind::Gemini => self
-                .threads
-                .lock()
-                .map_err(|error| Error::Engine(error.to_string()))?
-                .get(thread_id)
-                .filter(|slot| slot.kind == kind)
-                .and_then(|slot| slot.models.lock().ok().map(|models| models.clone()))
-                .unwrap_or_default(),
-        };
+        let options = static_models(kind);
         Ok(ThreadModels { current, options })
     }
 
@@ -269,57 +226,7 @@ impl EngineRegistry {
     }
 
     pub fn prompt(&self, thread_id: &str, prompt: impl Into<Prompt>) -> Result<()> {
-        let mut prompt = prompt.into();
-        if let Some(seed) = self.take_seed(thread_id)? {
-            prompt.text = format!(
-                "Previous session could not be resumed. Summary of the earlier transcript:\n{seed}\n\n---\n{}",
-                prompt.text
-            );
-        }
-        // ACP has no system-prompt channel, so its engines hear how the thread
-        // renders media on their first prompt instead. Never shown in the thread:
-        // the conversation keeps the user's own text. Claude is briefed through
-        // `--append-system-prompt` and is skipped here.
-        if self.take_brief(thread_id) {
-            prompt.text = format!("{}\n\n{}", prompt.text, super::MEDIA_INSTRUCTION);
-        }
-        self.send(thread_id, EngineCommand::Prompt(prompt))
-    }
-
-    /// True exactly once per ACP engine process: the first prompt it receives.
-    fn take_brief(&self, thread_id: &str) -> bool {
-        let Ok(threads) = self.threads.lock() else {
-            return false;
-        };
-        let Some(slot) = threads.get(thread_id) else {
-            return false;
-        };
-        if slot.kind == EngineKind::Claude {
-            return false;
-        }
-        let Ok(mut briefed) = slot.briefed.lock() else {
-            return false;
-        };
-        if *briefed {
-            return false;
-        }
-        *briefed = true;
-        true
-    }
-
-    fn take_seed(&self, thread_id: &str) -> Result<Option<String>> {
-        let threads = self
-            .threads
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?;
-        let Some(slot) = threads.get(thread_id) else {
-            return Ok(None);
-        };
-        Ok(slot
-            .pending_seed
-            .lock()
-            .ok()
-            .and_then(|mut seed| seed.take()))
+        self.send(thread_id, EngineCommand::Prompt(prompt.into()))
     }
 
     pub fn cancel(&self, thread_id: &str) -> Result<()> {
@@ -443,10 +350,9 @@ impl EngineRegistry {
         });
     }
 
-    /// Shuts down Claude engines nothing has touched for `idle_for`, returning their threads.
-    /// Only one with a saved session goes, since that's what the next prompt resumes. ACP
-    /// engines stay: their model list only exists while they run, and they report an exit
-    /// that would read as a finished turn.
+    /// Shuts down engines nothing has touched for `idle_for`, returning their threads. Only one
+    /// with a saved session goes, since that's what the next prompt resumes. A turn the gate is
+    /// holding for background agents keeps its thread running, so that never reads as idle.
     fn reap_idle(&self, idle_for: Duration) -> Vec<String> {
         let Ok(mut threads) = self.threads.lock() else {
             return Vec::new();
@@ -485,12 +391,7 @@ impl EngineRegistry {
             .store
             .pending_approvals_for_thread(thread_id)
             .map_or(true, |approvals| !approvals.is_empty());
-        slot.kind == EngineKind::Claude
-            && quiet
-            && resumable
-            && idle
-            && !unanswered
-            && !self.thread_is_held(thread_id)
+        quiet && resumable && idle && !unanswered && !self.thread_is_held(thread_id)
     }
 
     fn send(&self, thread_id: &str, command: EngineCommand) -> Result<()> {
@@ -507,7 +408,6 @@ impl EngineRegistry {
             .map_err(|_| Error::Engine("engine process is gone".into()))
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn spawn_claude(
         &self,
         spec: &SpawnSpec,
@@ -515,9 +415,7 @@ impl EngineRegistry {
         env: ShellEnv,
         events: broadcast::Sender<StreamedEvent>,
         session_id: Arc<Mutex<Option<String>>>,
-        pending_seed: Arc<Mutex<Option<String>>>,
     ) -> Result<mpsc::UnboundedSender<EngineCommand>> {
-        let _ = pending_seed;
         let (binary, extra_args, use_default_args) = if let Some(argv) = &spec.override_argv {
             let mut argv = argv.clone();
             let binary = PathBuf::from(argv.remove(0));
@@ -576,57 +474,6 @@ impl EngineRegistry {
         });
         Ok(tx)
     }
-
-    #[allow(clippy::too_many_arguments)]
-    fn spawn_acp(
-        &self,
-        spec: &SpawnSpec,
-        model: Option<String>,
-        env: ShellEnv,
-        events: broadcast::Sender<StreamedEvent>,
-        session_id: Arc<Mutex<Option<String>>>,
-        pending_seed: Arc<Mutex<Option<String>>>,
-        models: Arc<Mutex<Vec<ModelOption>>>,
-    ) -> mpsc::UnboundedSender<EngineCommand> {
-        let argv = spec
-            .override_argv
-            .clone()
-            .unwrap_or_else(|| resolved_acp_argv(spec.kind, &env));
-        acp::start(acp::AcpSpawn {
-            argv,
-            cwd: spec.cwd.clone(),
-            resume: spec.resume.clone(),
-            env,
-            events,
-            approvals: self.approvals.clone(),
-            auto_approve_readonly: spec.auto_approve_readonly,
-            auto_approve_all: spec.auto_approve_all,
-            read_only: spec.read_only,
-            session_id,
-            store: self.store.clone(),
-            thread_id: spec.thread_id.clone(),
-            pending_seed,
-            model,
-            models,
-            approval_notify: self.approval_notify.clone(),
-        })
-    }
-}
-
-pub fn default_acp_argv(kind: EngineKind) -> Vec<String> {
-    match kind {
-        EngineKind::Gemini => vec!["gemini".into(), "--acp".into()],
-        EngineKind::Codex => vec!["codex-acp".into()],
-        EngineKind::Claude => vec!["claude".into()],
-    }
-}
-
-fn resolved_acp_argv(kind: EngineKind, env: &ShellEnv) -> Vec<String> {
-    let mut argv = default_acp_argv(kind);
-    if let Some(binary) = detect::resolve_binary(env, kind.binaries()) {
-        argv[0] = binary.display().to_string();
-    }
-    argv
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -648,7 +495,9 @@ async fn run_claude(
     let (mcp_tx, mut mcp_rx) = mpsc::unbounded_channel::<(String, serde_json::Value)>();
     // Claude's running cost for this process, so each turn adds only what it cost.
     let mut process_cost = 0.0_f64;
+    let mut gate = TurnGate::default();
     loop {
+        let release_at = gate.release_at();
         tokio::select! {
             command = commands.recv() => {
                 match command {
@@ -659,6 +508,15 @@ async fn run_claude(
                     }
                     Some(EngineCommand::Cancel) => {
                         let _ = session.interrupt().await;
+                        for task_id in gate.running_agents() {
+                            if let Err(error) = session.stop_task(task_id).await {
+                                log::warn!("claude stop task: {error}");
+                            }
+                        }
+                        if let Some(held) = gate.release() {
+                            let seq = persist_event(&store, &thread_id, &held);
+                            let _ = events.send(StreamedEvent { seq, event: held });
+                        }
                     }
                     Some(EngineCommand::SetModel(model)) => {
                         if let Err(error) = session.set_model(model).await {
@@ -741,9 +599,12 @@ async fn run_claude(
                             )
                             .await;
                         } else {
+                            gate.observe(&raw);
                             for mapped in claude_map::map_claude_event(&raw) {
-                                let seq = persist_event(&store, &thread_id, &mapped);
-                                let _ = events.send(StreamedEvent { seq, event: mapped });
+                                if let Some(mapped) = gate.pass(mapped) {
+                                    let seq = persist_event(&store, &thread_id, &mapped);
+                                    let _ = events.send(StreamedEvent { seq, event: mapped });
+                                }
                             }
                         }
                     }
@@ -761,6 +622,12 @@ async fn run_claude(
                         );
                         break;
                     }
+                }
+            }
+            _ = tokio::time::sleep_until(release_at.unwrap_or_else(tokio::time::Instant::now)), if release_at.is_some() => {
+                if let Some(held) = gate.release() {
+                    let seq = persist_event(&store, &thread_id, &held);
+                    let _ = events.send(StreamedEvent { seq, event: held });
                 }
             }
             Some((request_id, answer)) = mcp_rx.recv() => {
@@ -790,6 +657,14 @@ fn permission_decision(answer: ClaudeAnswer) -> PermissionDecision {
             updated_permissions: None,
         },
         ApprovalDecision::Denied { message } => PermissionDecision::Deny { message },
+        ApprovalDecision::Answered { answers } => {
+            let mut updated_input = answer.input;
+            updated_input["answers"] = serde_json::json!(answers);
+            PermissionDecision::Allow {
+                updated_input,
+                updated_permissions: None,
+            }
+        }
     }
 }
 
@@ -825,8 +700,14 @@ async fn handle_claude_permission(
             .await;
         return;
     }
+    // Only the user can answer a question, so no auto-approve setting applies to one.
+    let questions = if req.tool_name == "AskUserQuestion" {
+        crate::approvals::questions_from_input(&req.input)
+    } else {
+        Vec::new()
+    };
     let mut mapped = claude_map::map_permission(req);
-    if policy.auto_all || (policy.auto_ro && kind.is_readonly()) {
+    if questions.is_empty() && (policy.auto_all || (policy.auto_ro && kind.is_readonly())) {
         if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;
         }
@@ -848,8 +729,12 @@ async fn handle_claude_permission(
     let _ = events.send(mapped.clone().into());
     let _ =
         events.send(claude_map::tool_event_from_permission(req, ToolCallStatus::Pending).into());
-    if let Err(error) = crate::approvals::record_pending_permission(store, thread_id, &mapped, None)
-    {
+    let recorded = if questions.is_empty() {
+        crate::approvals::record_pending_permission(store, thread_id, &mapped)
+    } else {
+        crate::approvals::record_pending_question(store, thread_id, &mapped, questions)
+    };
+    if let Err(error) = recorded {
         log::warn!("record approval: {error}");
     } else {
         let _ = approval_notify.send(());
@@ -940,7 +825,6 @@ mod tests {
         engines: &EngineRegistry,
         thread_id: &str,
         status: &str,
-        kind: EngineKind,
     ) -> mpsc::UnboundedReceiver<EngineCommand> {
         engines
             .store
@@ -963,13 +847,9 @@ mod tests {
         engines.threads.lock().unwrap().insert(
             thread_id.into(),
             ThreadSlot {
-                kind,
                 commands,
                 events: broadcast::channel(4).0,
                 session_id: Arc::new(Mutex::new(None)),
-                pending_seed: Arc::new(Mutex::new(None)),
-                briefed: Arc::new(Mutex::new(false)),
-                models: Arc::new(Mutex::new(Vec::new())),
                 last_active: Arc::new(Mutex::new(Instant::now())),
             },
         );
@@ -979,7 +859,7 @@ mod tests {
     #[tokio::test]
     async fn stop_returns_as_soon_as_the_engine_is_down() {
         let engines = registry();
-        let mut rx = fake_engine(&engines, "t1", "idle", EngineKind::Claude);
+        let mut rx = fake_engine(&engines, "t1", "idle");
         tokio::spawn(async move {
             while let Some(command) = rx.recv().await {
                 if matches!(command, EngineCommand::Shutdown) {
@@ -996,12 +876,11 @@ mod tests {
     #[test]
     fn only_a_quiet_resumable_idle_claude_engine_is_reaped() {
         let engines = registry();
-        let _idle = fake_engine(&engines, "idle", "idle", EngineKind::Claude);
-        let _running = fake_engine(&engines, "running", "running", EngineKind::Claude);
-        let _acp = fake_engine(&engines, "acp", "idle", EngineKind::Codex);
-        let _held = fake_engine(&engines, "held", "idle", EngineKind::Claude);
+        let _idle = fake_engine(&engines, "idle", "idle");
+        let _running = fake_engine(&engines, "running", "running");
+        let _held = fake_engine(&engines, "held", "idle");
         engines.hold_thread("held").unwrap();
-        let _asking = fake_engine(&engines, "asking", "idle", EngineKind::Claude);
+        let _asking = fake_engine(&engines, "asking", "idle");
         engines
             .store
             .upsert_approval(&crate::store::types::ApprovalRow {
@@ -1012,7 +891,7 @@ mod tests {
                 payload: "{}".into(),
             })
             .unwrap();
-        let _fresh = fake_engine(&engines, "fresh", "idle", EngineKind::Claude);
+        let _fresh = fake_engine(&engines, "fresh", "idle");
         engines
             .store
             .upsert_thread(&crate::store::types::ThreadRow {
@@ -1025,6 +904,134 @@ mod tests {
         assert_eq!(engines.reap_idle(Duration::ZERO), vec!["idle".to_string()]);
         assert!(!engines.has_thread("idle"));
         assert!(engines.has_thread("running"));
+    }
+
+    /// Starts a real Haiku session and has it launch one background agent, returning the
+    /// session's events once they begin.
+    async fn live_background_agent(
+        thread_id: &str,
+    ) -> (EngineRegistry, broadcast::Receiver<StreamedEvent>) {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .upsert_thread(&crate::store::types::ThreadRow {
+                id: thread_id.into(),
+                workspace_id: "live-workspace".into(),
+                title: "Lead".into(),
+                engine: "claude".into(),
+                session_id: None,
+                status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
+            })
+            .unwrap();
+        store.set_thread_model(thread_id, Some("haiku")).unwrap();
+        let engines = EngineRegistry::new(
+            Arc::new(RwLock::new(ShellEnv::new())),
+            Arc::new(ApprovalBroker::new()),
+            store.clone(),
+            test_mcp(store),
+            broadcast::channel(4).0,
+            broadcast::channel(8).0,
+        );
+        engines
+            .spawn(SpawnSpec {
+                thread_id: thread_id.into(),
+                kind: EngineKind::Claude,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: None,
+                auto_approve_readonly: false,
+                auto_approve_all: true,
+                read_only: false,
+            })
+            .await
+            .unwrap();
+        let events = engines.subscribe(thread_id).unwrap();
+        engines
+            .prompt(
+                thread_id,
+                "Use the Agent tool with run_in_background set to true and subagent_type \
+                 general-purpose. Its prompt: run the Bash command \
+                 `python3 -c \"import time; time.sleep(15)\"` in the foreground, then reply ok. \
+                 Once it is launched, end your turn with the single word launched.",
+            )
+            .unwrap();
+        (engines, events)
+    }
+
+    async fn next_live_event(events: &mut broadcast::Receiver<StreamedEvent>) -> AgentEvent {
+        tokio::time::timeout(Duration::from_secs(120), events.recv())
+            .await
+            .expect("an event within 120s")
+            .unwrap()
+            .event
+    }
+
+    /// Needs a signed-in `claude` on PATH, and spends a few small Haiku turns.
+    #[tokio::test]
+    #[ignore]
+    async fn live_claude_holds_the_turn_for_a_background_agent() {
+        let (engines, mut events) = live_background_agent("live-bg").await;
+        let mut agent = None;
+        let mut agent_finished = false;
+        loop {
+            match next_live_event(&mut events).await {
+                AgentEvent::ToolCall { id, name, .. } if name.as_deref() == Some("Agent") => {
+                    agent = Some(id);
+                }
+                AgentEvent::ToolCallUpdate { id, status, .. }
+                    if Some(&id) == agent.as_ref() && status.is_some() =>
+                {
+                    agent_finished = true;
+                }
+                AgentEvent::TurnEnd { .. } => break,
+                _ => {}
+            }
+        }
+        engines.stop("live-bg").await.unwrap();
+        assert!(agent.is_some(), "never launched an agent");
+        assert!(agent_finished, "turn ended before its agent did");
+    }
+
+    /// Needs a signed-in `claude` on PATH, and spends a few small Haiku turns.
+    #[tokio::test]
+    #[ignore]
+    async fn live_claude_stop_reaches_a_background_agent() {
+        let (engines, mut events) = live_background_agent("live-stop").await;
+        let mut agent = None;
+        // The agent's first step means it is under way and the main turn is wrapping up.
+        loop {
+            match next_live_event(&mut events).await {
+                AgentEvent::ToolCall { id, name, .. } if name.as_deref() == Some("Agent") => {
+                    agent = Some(id);
+                }
+                AgentEvent::ToolCall { parent_id, .. } if parent_id.is_some() => break,
+                AgentEvent::TurnEnd { .. } => panic!("turn ended before its agent did"),
+                _ => {}
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        engines.cancel("live-stop").unwrap();
+        // A foreground sleep this long would still be going if nothing reached the agent.
+        let stopped = tokio::time::timeout(Duration::from_secs(8), async {
+            loop {
+                if let AgentEvent::ToolCallUpdate { id, status, .. } =
+                    next_live_event(&mut events).await
+                    && Some(&id) == agent.as_ref()
+                    && status.is_some()
+                {
+                    break;
+                }
+            }
+        })
+        .await;
+        engines.stop("live-stop").await.unwrap();
+        assert!(stopped.is_ok(), "the agent kept running after Stop");
     }
 
     /// Needs a signed-in `claude` on PATH, and spends one small Haiku turn.
@@ -1104,6 +1111,100 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn questions_wait_for_answers_even_with_auto_approve_on() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .upsert_thread(&crate::store::types::ThreadRow {
+                id: "t-ask".into(),
+                workspace_id: "w1".into(),
+                title: "Lead".into(),
+                engine: "claude".into(),
+                session_id: None,
+                status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
+            })
+            .unwrap();
+        let approvals = Arc::new(ApprovalBroker::new());
+        let engines = EngineRegistry::new(
+            Arc::new(RwLock::new(ShellEnv::new())),
+            approvals.clone(),
+            store.clone(),
+            test_mcp(store.clone()),
+            broadcast::channel(4).0,
+            broadcast::channel(4).0,
+        );
+        engines
+            .spawn(SpawnSpec {
+                thread_id: "t-ask".into(),
+                kind: EngineKind::Claude,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: Some(mock_claude_argv()),
+                auto_approve_readonly: true,
+                auto_approve_all: true,
+                read_only: false,
+            })
+            .await
+            .unwrap();
+
+        let mut events = engines.subscribe("t-ask").unwrap();
+        engines.prompt("t-ask", "ask me something").unwrap();
+        let id = loop {
+            if let AgentEvent::Permission {
+                id, auto_approved, ..
+            } = events.recv().await.unwrap().event
+            {
+                assert!(!auto_approved);
+                break id;
+            }
+        };
+
+        // The broker registers just after the event goes out.
+        while approvals.pending_count() == 0 {
+            tokio::task::yield_now().await;
+        }
+        let row = store.get_approval(&id).unwrap().unwrap();
+        assert_eq!(row.tool, crate::approvals::QUESTION_TOOL);
+        assert!(row.payload.contains("Which colour?"));
+
+        let answers = std::collections::BTreeMap::from([(
+            "Which colour?".to_string(),
+            "Green, my own".to_string(),
+        )]);
+        approvals
+            .complete(&id, ApprovalDecision::Answered { answers })
+            .unwrap();
+
+        // The mock echoes the decision back as a message.
+        let mut reply = String::new();
+        loop {
+            match events.recv().await.unwrap().event {
+                AgentEvent::MessageChunk { text, .. } => reply.push_str(&text),
+                AgentEvent::TurnEnd { .. } => break,
+                AgentEvent::EngineExited { .. } => panic!("exited early"),
+                _ => {}
+            }
+        }
+        engines.stop("t-ask").await.unwrap();
+        let echoed: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(echoed["behavior"], "allow");
+        assert_eq!(
+            echoed["updatedInput"]["answers"]["Which colour?"],
+            "Green, my own"
+        );
+        assert_eq!(
+            echoed["updatedInput"]["questions"][0]["header"], "Colour",
+            "the CLI needs the original input back too"
+        );
+    }
+
+    #[tokio::test]
     async fn turn_end_is_forwarded_with_the_thread_id() {
         let env = Arc::new(RwLock::new(ShellEnv::new()));
         let store = Store::new();
@@ -1140,48 +1241,43 @@ mod tests {
         assert_eq!(thread_id, "t-idle");
     }
 
-    #[test]
-    fn first_prompt_briefs_acp_engines_once_and_claude_never() {
-        let engines = registry();
-        let insert = |id: &str, kind: EngineKind| {
-            let (commands, rx) = mpsc::unbounded_channel();
-            let (events, _) = broadcast::channel(4);
-            engines.threads.lock().unwrap().insert(
-                id.into(),
-                ThreadSlot {
-                    kind,
-                    commands,
-                    events,
-                    session_id: Arc::new(Mutex::new(None)),
-                    pending_seed: Arc::new(Mutex::new(None)),
-                    briefed: Arc::new(Mutex::new(false)),
-                    models: Arc::new(Mutex::new(Vec::new())),
-                    last_active: Arc::new(Mutex::new(Instant::now())),
-                },
-            );
-            rx
-        };
-        let sent_text =
-            |rx: &mut mpsc::UnboundedReceiver<EngineCommand>| match rx.try_recv().unwrap() {
-                EngineCommand::Prompt(prompt) => prompt.text,
-                _ => panic!("expected a prompt"),
-            };
-
-        // Codex (ACP): first prompt carries the instruction, the second doesn't.
-        let mut acp_rx = insert("t-acp", EngineKind::Codex);
-        engines.prompt("t-acp", "Fix the sidebar").unwrap();
-        let first = sent_text(&mut acp_rx);
-        assert!(first.starts_with("Fix the sidebar\n\n"));
-        assert!(first.ends_with(crate::engines::MEDIA_INSTRUCTION));
-        engines.prompt("t-acp", "Now the header").unwrap();
-        assert_eq!(sent_text(&mut acp_rx), "Now the header");
-
-        // Claude hears it via --append-system-prompt, so its prompts stay untouched.
-        let mut claude_rx = insert("t-claude", EngineKind::Claude);
-        engines.prompt("t-claude", "Fix the sidebar").unwrap();
-        assert_eq!(sent_text(&mut claude_rx), "Fix the sidebar");
-
-        assert!(!engines.take_brief("no-such-thread"));
+    #[tokio::test]
+    async fn a_turn_ends_only_after_its_background_agents_do() {
+        let env = Arc::new(RwLock::new(ShellEnv::new()));
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        let (turn_end_notify, mut turn_ends) = broadcast::channel(8);
+        let engines = EngineRegistry::new(
+            env,
+            Arc::new(ApprovalBroker::new()),
+            store.clone(),
+            test_mcp(store),
+            broadcast::channel(4).0,
+            turn_end_notify,
+        );
+        engines
+            .spawn(SpawnSpec {
+                thread_id: "t-bg".into(),
+                kind: EngineKind::Claude,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: Some(mock_claude_argv()),
+                auto_approve_readonly: true,
+                auto_approve_all: true,
+                read_only: false,
+            })
+            .await
+            .unwrap();
+        engines.prompt("t-bg", "background agent").unwrap();
+        // The mock's first turn finishes at once; its agent takes a moment longer.
+        let early =
+            tokio::time::timeout(std::time::Duration::from_millis(300), turn_ends.recv()).await;
+        assert!(early.is_err(), "turn ended with an agent still running");
+        let thread_id = tokio::time::timeout(std::time::Duration::from_secs(10), turn_ends.recv())
+            .await
+            .expect("turn end within 10s")
+            .unwrap();
+        assert_eq!(thread_id, "t-bg");
     }
 
     fn mock_claude_argv() -> Vec<String> {
@@ -1241,242 +1337,5 @@ mod tests {
         }
 
         engines.stop("t1").await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn acp_mock_session_permission_and_turn_end() {
-        let engines = registry();
-        let approvals = engines.approvals.clone();
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/acp/mock_acp.py");
-        engines
-            .spawn(SpawnSpec {
-                thread_id: "acp1".into(),
-                kind: EngineKind::Codex,
-                cwd: std::env::temp_dir(),
-                resume: None,
-                override_argv: Some(vec!["python3".into(), script.display().to_string()]),
-                auto_approve_readonly: false,
-                auto_approve_all: false,
-                read_only: false,
-            })
-            .await
-            .unwrap();
-
-        let mut events = engines.subscribe("acp1").unwrap();
-        engines.prompt("acp1", "touch spike-ok.txt").unwrap();
-
-        let permission_id = loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap()
-                .event;
-            if let AgentEvent::Permission { id, .. } = event {
-                break id;
-            }
-        };
-        approvals.resolve(&permission_id, true, None).await.unwrap();
-
-        loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap()
-                .event;
-            if let AgentEvent::TurnEnd { stop_reason, .. } = event {
-                assert_eq!(stop_reason, "end_turn");
-                break;
-            }
-        }
-        engines.stop("acp1").await.unwrap();
-    }
-
-    #[test]
-    fn acp_argv_for_codex_and_gemini() {
-        assert_eq!(
-            default_acp_argv(EngineKind::Gemini),
-            vec!["gemini".to_string(), "--acp".into()]
-        );
-        assert_eq!(
-            default_acp_argv(EngineKind::Codex),
-            vec!["codex-acp".to_string()]
-        );
-    }
-
-    #[test]
-    fn persisting_reports_where_the_store_put_an_event() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
-        seed_thread(&store, "t1", None);
-        let event = AgentEvent::MessageChunk {
-            role: super::super::events::MessageRole::Agent,
-            text: "hi".into(),
-        };
-        let first = persist_event(&store, "t1", &event).unwrap();
-        assert_eq!(persist_event(&store, "t1", &event), Some(first + 1));
-        // Unsaved events still reach the UI, just without a place in the store.
-        assert_eq!(persist_event(&store, "missing", &event), None);
-        let lagged = AgentEvent::StreamLagged { missed: 1 };
-        assert_eq!(persist_event(&store, "t1", &lagged), None);
-    }
-
-    fn seed_thread(store: &Store, thread_id: &str, session_id: Option<&str>) {
-        use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
-        store
-            .upsert_repo(&RepoRecord {
-                id: "r1".into(),
-                path: "/tmp/app".into(),
-                name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
-            })
-            .unwrap();
-        store
-            .upsert_workspace(&WorkspaceRow {
-                id: "w1".into(),
-                repo_id: "r1".into(),
-                name: "Login".into(),
-                branch: "feat".into(),
-                worktree_path: "/tmp/wt".into(),
-                status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
-            })
-            .unwrap();
-        store
-            .upsert_thread(&ThreadRow {
-                id: thread_id.into(),
-                workspace_id: "w1".into(),
-                title: "Lead".into(),
-                engine: "codex".into(),
-                session_id: session_id.map(str::to_string),
-                status: "idle".into(),
-                used_tokens: None,
-                context_size: None,
-                cost_usd: None,
-                transcript_readonly: false,
-                retired: false,
-                parent_thread_id: None,
-            })
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn acp_resumes_stored_session_and_emits_usage() {
-        let engines = registry();
-        seed_thread(&engines.store, "acp-resume", Some("sess-acp-1"));
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/acp/mock_acp.py");
-        engines
-            .spawn(SpawnSpec {
-                thread_id: "acp-resume".into(),
-                kind: EngineKind::Gemini,
-                cwd: std::env::temp_dir(),
-                resume: None,
-                override_argv: Some(vec!["python3".into(), script.display().to_string()]),
-                auto_approve_readonly: false,
-                auto_approve_all: false,
-                read_only: false,
-            })
-            .await
-            .unwrap();
-
-        let mut events = engines.subscribe("acp-resume").unwrap();
-        engines.prompt("acp-resume", "continue").unwrap();
-        let mut saw_usage = false;
-        loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap()
-                .event;
-            if let AgentEvent::MessageChunk { text, .. } = &event {
-                assert!(
-                    !text.starts_with("replayed"),
-                    "session/load replay leaked: {text}"
-                );
-            }
-            match event {
-                AgentEvent::Usage { used_tokens, .. } => {
-                    assert_eq!(used_tokens, 42);
-                    saw_usage = true;
-                }
-                AgentEvent::Permission { id, .. } => {
-                    engines.approvals.resolve(&id, true, None).await.unwrap();
-                }
-                AgentEvent::TurnEnd { .. } => break,
-                _ => {}
-            }
-        }
-        assert!(saw_usage);
-        let persisted = engines.store.transcript_summary("acp-resume", 100).unwrap();
-        assert!(
-            !persisted.contains("replayed"),
-            "replay was persisted: {persisted}"
-        );
-        engines.stop("acp-resume").await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn acp_failed_resume_seeds_next_prompt() {
-        let engines = registry();
-        seed_thread(&engines.store, "acp-miss", Some("missing-session"));
-        engines
-            .store
-            .append_event("acp-miss", "message", "{\"text\":\"hello from before\"}")
-            .unwrap();
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/acp/mock_acp.py");
-        engines
-            .spawn(SpawnSpec {
-                thread_id: "acp-miss".into(),
-                kind: EngineKind::Codex,
-                cwd: std::env::temp_dir(),
-                resume: None,
-                override_argv: Some(vec!["python3".into(), script.display().to_string()]),
-                auto_approve_readonly: false,
-                auto_approve_all: false,
-                read_only: false,
-            })
-            .await
-            .unwrap();
-
-        let mut events = engines.subscribe("acp-miss").unwrap();
-        // Times out and fails unless the session starts.
-        loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap()
-                .event;
-            if matches!(event, AgentEvent::SessionStarted { .. }) {
-                break;
-            }
-        }
-        engines.prompt("acp-miss", "next").unwrap();
-        loop {
-            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
-                .await
-                .unwrap()
-                .unwrap()
-                .event;
-            match event {
-                AgentEvent::Permission { id, .. } => {
-                    engines.approvals.resolve(&id, true, None).await.unwrap();
-                }
-                AgentEvent::TurnEnd { .. } => break,
-                _ => {}
-            }
-        }
-        let summary = engines.store.transcript_summary("acp-miss", 40).unwrap();
-        assert!(summary.contains("hello from before") || !summary.is_empty());
-        engines.stop("acp-miss").await.unwrap();
     }
 }

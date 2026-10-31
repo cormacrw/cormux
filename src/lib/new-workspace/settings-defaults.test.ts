@@ -12,9 +12,6 @@ describe('settings-defaults', () => {
     expect(readDefaultEngine([{ key: 'defaultEngine', value: 'cursor' }])).toBe(
       'claude',
     )
-    expect(readDefaultEngine([{ key: 'defaultEngine', value: 'codex' }])).toBe(
-      'claude',
-    )
   })
 
   it('reads booleans and strings', () => {

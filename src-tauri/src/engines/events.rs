@@ -1,21 +1,17 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-/// Engines Harness can spawn. Launch is Claude; Codex and Gemini share ACP.
+/// Engines Harness can spawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum EngineKind {
     Claude,
-    Codex,
-    Gemini,
 }
 
 impl EngineKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Claude => "claude",
-            Self::Codex => "codex",
-            Self::Gemini => "gemini",
         }
     }
 
@@ -23,8 +19,6 @@ impl EngineKind {
     pub fn binaries(self) -> &'static [&'static str] {
         match self {
             Self::Claude => &["claude"],
-            Self::Codex => &["codex-acp", "codex"],
-            Self::Gemini => &["gemini"],
         }
     }
 
@@ -38,11 +32,11 @@ impl EngineKind {
     }
 
     pub fn all() -> &'static [EngineKind] {
-        &[Self::Claude, Self::Codex, Self::Gemini]
+        &[Self::Claude]
     }
 }
 
-/// ACP `ToolKind`, owned so adapters and IPC do not depend on the protocol crate.
+/// What a tool call does, whichever tool made it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ToolKind {
@@ -204,7 +198,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn claude_tool_names_map_to_acp_kinds() {
+    fn claude_tool_names_map_to_kinds() {
         assert_eq!(ToolKind::from_claude_tool("Read"), ToolKind::Read);
         assert_eq!(ToolKind::from_claude_tool("Grep"), ToolKind::Search);
         assert_eq!(ToolKind::from_claude_tool("Bash"), ToolKind::Execute);

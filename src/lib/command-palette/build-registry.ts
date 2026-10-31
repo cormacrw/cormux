@@ -1,4 +1,3 @@
-import { agentName } from '$lib/agent-name'
 import type { RepoRecord, WorkspaceRecord } from '$lib/ipc/bindings'
 import { workspaceCardMetaText } from '$lib/homebase/card-status'
 import { plural } from '$lib/sidebar/status'
@@ -172,7 +171,7 @@ export function buildPaletteCommandsFromState(
       cmds.push({
         id: `thread-open-${thread.id}`,
         group: 'Threads',
-        label: `Open ${agentName(thread.id)} in ${workspace.name}`,
+        label: `Open ${thread.role} in ${workspace.name}`,
         meta: thread.activity,
         run: () => actions.openWorkspaceThread(workspace.id, thread.id),
       })

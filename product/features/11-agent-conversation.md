@@ -30,7 +30,7 @@ The old status badge in the intro was removed; the tab's dot carries status.
 
 ### Speaker headers
 
-When the speaker changes from the user to the agent, a small header row appears: the engine mark, the role in bold, the engine name, and the time (`· 8m`). Consecutive agent items share one header.
+When the speaker changes from the user to the agent, a small header row appears: the role in bold, the engine name, and the time (`· 8m`). Consecutive agent items share one header.
 
 ### Message types
 
@@ -42,7 +42,7 @@ When the speaker changes from the user to the agent, a small header row appears:
 | **Plan** | Card headed `Proposed plan` with a numbered list of steps. |
 | **Approval** | Card with a warning icon, title, a `Needs approval` chip, what and why, and two buttons. See [13](13-approvals.md). |
 | **Review findings** | Card headed `Review findings` showing counts per severity and an **Open findings** button. See [20](20-review-findings.md). |
-| **Live row** | Last item while the agent is working: a spinner (or pause icon), a title and a rotating subtitle. |
+| **Live row** | Last item while the agent is working, background subagents included: a spinner (or pause icon), a title and a rotating subtitle. Stop ends them too. |
 
 ### Steps inside a tool run
 
@@ -134,7 +134,7 @@ New items are inserted before the `live` item so it stays last.
 
 ## Simulated in the prototype
 
-- All agent output is scripted. A real build must translate each engine's native event stream (Claude Code's stream-JSON, Cursor CLI, Codex, Gemini) into these item kinds. That adapter layer is the core of the product.
+- All agent output is scripted. A real build must translate each engine's native event stream (Claude Code's stream-JSON) into these item kinds. That adapter layer is the core of the product.
 - Times are static strings (`12m`, `now`) and don't update.
 - The live subtitle rotates through a fixed list; a real build should show the current tool call.
 

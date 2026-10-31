@@ -1,5 +1,3 @@
-import type { AgentEvent } from '$lib/ipc/bindings'
-
 /** What an engine reported for a thread; null where it reported nothing. */
 export type ThreadUsage = {
   /** Tokens the latest turn's context held. */
@@ -102,18 +100,4 @@ export function costSince(
     else latest = event.cost_usd
   }
   return latest == null ? null : Math.max(0, latest - before)
-}
-
-const TREND_POINTS = 40
-
-/** How full the context was at each report, latest last. */
-export function usageTrend(events: { event: AgentEvent }[]): number[] {
-  const points: number[] = []
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]!.event
-    if (event.type !== 'usage') continue
-    points.unshift(event.used_tokens)
-    if (points.length === TREND_POINTS) break
-  }
-  return points
 }

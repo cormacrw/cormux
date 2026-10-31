@@ -31,8 +31,6 @@ Description: `How new agents start and what they can do without asking.`
 | Engine | Hint |
 | --- | --- |
 | Claude Code | Edits files directly and asks before risky steps |
-| Codex CLI | Works through the task in a sandbox and proposes a diff |
-| Gemini CLI | Reads widely across the repo before suggesting changes |
 
 Used as: the pre-selected engine in the New workspace dialog, and the engine for review workspaces.
 

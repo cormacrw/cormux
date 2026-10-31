@@ -1,6 +1,6 @@
 [package]
 name = "cormux"
-version = "0.1.17"
+version = "0.1.18"
 description = "Run many coding agents in parallel, each in its own git worktree"
 authors = ["Cormac Williamson"]
 license = "UNLICENSED"
@@ -31,7 +31,6 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 tauri-plugin-dialog = "2.8.0"
 tauri-plugin-opener = "2.6.0"
 tauri-plugin-notification = "2.5.0"
-agent-client-protocol = "2.2.0"
 portable-pty = "0.9.0"
 libc = "0.2"
 uuid = { version = "1", features = ["v4", "serde"] }

@@ -9,7 +9,6 @@
   import { Checkbox } from '$lib/components/ui/checkbox'
   import * as Select from '$lib/components/ui/select'
   import { app, findings, threads, workspaceUi, workspaces } from '$lib/state'
-  import { agentName } from '$lib/agent-name'
   import { engineDisplayName } from '$lib/sidebar/engine'
   import { selectionSummaryText } from '$lib/findings/format'
   import {
@@ -164,9 +163,7 @@
             Review findings
           </h2>
           <p class="text-sm text-muted-foreground">
-            {prLabel} · reviewed by {reviewer
-              ? agentName(reviewer.id)
-              : 'Reviewer'} with {engineName}
+            {prLabel} · reviewed by {reviewer ? reviewer.role : 'Reviewer'} with {engineName}
           </p>
         </div>
 
@@ -454,12 +451,12 @@
               }}
             >
               <Select.Trigger data-od-id="findings-target">
-                {targetThread ? agentName(targetThread.id) : 'Pick an agent'}
+                {targetThread ? targetThread.role : 'Pick an agent'}
               </Select.Trigger>
               <Select.Content>
                 {#each wsThreads as thread (thread.id)}
-                  <Select.Item value={thread.id} label={agentName(thread.id)}
-                    >{agentName(thread.id)}</Select.Item
+                  <Select.Item value={thread.id} label={thread.role}
+                    >{thread.role}</Select.Item
                   >
                 {/each}
               </Select.Content>
@@ -485,7 +482,7 @@
         >
           <ArrowRight class="size-4" aria-hidden="true" />
           {#if summary.total && targetThread}
-            Send {summary.total} to {agentName(targetThread.id)}
+            Send {summary.total} to {targetThread.role}
           {:else}
             Send to agent
           {/if}

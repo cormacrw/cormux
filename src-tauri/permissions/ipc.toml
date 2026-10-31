@@ -22,6 +22,7 @@ commands.allow = [
   "engine_models",
   "set_thread_model",
   "resolve_approval",
+  "answer_question",
   "resolve_all_approvals",
   "summarise_workspace",
   "set_github_token",

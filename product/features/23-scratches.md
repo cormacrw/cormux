@@ -113,7 +113,7 @@ Not on this page: thread tabs, a `+` for new threads, a branch picker, Changes, 
 
 The same renderer as a workspace thread ([11](11-agent-conversation.md)), with two scratch-specific differences:
 
-- The speaker line is the engine name only (`Claude Code`), with its two-letter mark. A workspace thread also shows the role (`Lead`).
+- The speaker line is the engine name only (`Claude Code`). A workspace thread also shows the role (`Lead`).
 - The screen-reader live region (`#sess-announce`) announces the newest agent item, not the whole thread. See Keyboard and accessibility.
 
 The column is the same centered reading width as a workspace thread. User messages are right-aligned bubbles. Agent text is plain. Tool rows group into one compact card. The sample tool rows carry the chip `Read-only, no worktree`.
@@ -441,7 +441,7 @@ id           'sess-' + base36 timestamp, or a sample id
 kind         'session'          // internal; UI says scratch
 title        string, required, drafted up to 40 chars, typed up to 64
 repo         repo id
-engine       'claude' | 'codex' | 'gemini'
+engine       'claude'
 status       'running' | 'idle'
 activity     string shown as the live-row title
 paused       boolean
