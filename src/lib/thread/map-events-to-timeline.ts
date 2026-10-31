@@ -1,5 +1,6 @@
 import type { AgentEvent, ApprovalRow, ToolKind } from '$lib/ipc/bindings'
 import { parseApprovalPayload } from '$lib/approvals/payload'
+import { summarizeRun } from './run-summary'
 import type {
   TimelineChip,
   TimelineItem,
@@ -265,6 +266,16 @@ function namedToolStep(
 
 const COMMAND_PREVIEW_CHARS = 50
 
+function withRunResult(
+  step: ToolRunStep,
+  event: Extract<AgentEvent, { type: 'toolCall' }>,
+  output: string | undefined,
+): ToolRunStep {
+  if (step.kind !== 'tool' || event.kind !== 'execute' || !output) return step
+  const run = summarizeRun(output)
+  return run ? { ...step, run, output } : step
+}
+
 // ACP engines title a shell step with the whole command in backticks; Claude titles it `Bash`.
 function commandText(event: Extract<AgentEvent, { type: 'toolCall' }>): string {
   const title = event.title.trim()
@@ -313,7 +324,7 @@ function flushRun(
   run.length = 0
 }
 
-type TimelineEvent = MapTimelineInput['events'][number]
+type TimelineEvent = MapTimelineInput['events'][number] & { output?: string }
 
 // Engines fill in a tool call after announcing it (an ACP edit's path comes later),
 // so fold each update into the call it belongs to.
@@ -339,6 +350,7 @@ function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
     if (index === undefined || call?.event.type !== 'toolCall') continue
     merged[index] = {
       ...call,
+      output: event.output ?? call.output,
       event: {
         ...call.event,
         title: event.title ?? call.event.title,
@@ -357,13 +369,17 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
   const items: TimelineItem[] = []
   const nextId = ordinalIds()
   const run: ToolRunStep[] = []
+  // A subagent's steps can land runs after the step that spawned them.
+  const stepsById = new Map<string, ToolRunStep>()
   let runSeq = 0
   let pendingAutoChip: TimelineChip | undefined
   let sealMessage = false
   // Set when the user sends the prompt; cleared when that turn ends.
   let runStartedAt = 0
 
-  for (const { seq, atMs = 0, event } of mergeToolUpdates(input.events)) {
+  for (const { seq, atMs = 0, event, output } of mergeToolUpdates(
+    input.events,
+  )) {
     switch (event.type) {
       case 'messageChunk': {
         flushRun(run, items, runSeq, nextId)
@@ -429,15 +445,43 @@ export function mapEventsToTimeline(input: MapTimelineInput): TimelineItem[] {
             ? [SCRATCH_CHIP]
             : undefined
         pendingAutoChip = undefined
-        run.push(toolStepFromCall(event, seq, atMs, chips))
+        const step = withRunResult(
+          toolStepFromCall(event, seq, atMs, chips),
+          event,
+          output,
+        )
+        stepsById.set(event.id, step)
+        const parent = event.parent_id
+          ? stepsById.get(event.parent_id)
+          : undefined
+        if (parent?.kind === 'tool') {
+          parent.children = [
+            ...(parent.children ?? []),
+            { ...step, status: event.status },
+          ]
+          break
+        }
+        run.push(step)
         break
       }
       case 'plan': {
         flushRun(run, items, runSeq, nextId)
+        const steps = event.entries.map((entry) => entry.content)
+        const statuses = event.entries.map((entry) => entry.status)
+        // An agent re-sends its list as it works: that ticks the turn's plan off, not a new one.
+        const lastUser = items.findLastIndex((row) => row.kind === 'user')
+        const current = items.findLastIndex((row) => row.kind === 'plan')
+        const plan = current > lastUser ? items[current] : undefined
+        if (plan?.kind === 'plan') {
+          plan.steps = steps
+          plan.statuses = statuses
+          break
+        }
         items.push({
           kind: 'plan',
           id: nextId('plan'),
-          steps: event.entries.map((entry) => entry.content),
+          steps,
+          statuses,
           seq,
           atMs,
         })
@@ -606,9 +650,9 @@ function flattenItemsToEvents(
         seq: item.seq,
         event: {
           type: 'plan',
-          entries: item.steps.map((content) => ({
+          entries: item.steps.map((content, index) => ({
             content,
-            status: 'pending',
+            status: item.statuses[index] ?? 'pending',
           })),
         },
       })

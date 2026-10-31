@@ -84,6 +84,7 @@ fn cross_thread_suggestions(
         .append_event(&lead.id, "message", &payload_json)?;
 
     let tool_event = AgentEvent::ToolCall {
+        parent_id: None,
         id: format!("review-{}", reviewer_row.id),
         title: "Suggestions sent".into(),
         name: None,

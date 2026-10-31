@@ -51,6 +51,7 @@ pub fn map_session_update(update: &SessionUpdate) -> Option<AgentEvent> {
         SessionUpdate::AgentThoughtChunk(chunk) => text_chunk(&chunk.content, MessageRole::Thought),
         SessionUpdate::ToolCall(call) => Some(map_tool_call(call)),
         SessionUpdate::ToolCallUpdate(update) => Some(AgentEvent::ToolCallUpdate {
+            output: None,
             id: update.tool_call_id.to_string(),
             title: update.fields.title.clone(),
             kind: update.fields.kind.map(map_tool_kind),
@@ -173,6 +174,7 @@ pub fn pick_permission_option(
 
 fn map_tool_call(call: &ToolCall) -> AgentEvent {
     AgentEvent::ToolCall {
+        parent_id: None,
         id: call.tool_call_id.to_string(),
         title: call.title.clone(),
         name: call.name.clone(),
@@ -273,6 +275,7 @@ mod tests {
         assert_eq!(
             map_session_update(&update),
             Some(AgentEvent::ToolCallUpdate {
+                output: None,
                 id: "edit-1".into(),
                 title: None,
                 kind: None,

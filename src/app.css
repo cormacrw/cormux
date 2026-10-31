@@ -46,6 +46,13 @@
   --warning: oklch(0.6 0.14 65);
   --info: oklch(0.58 0.16 250);
 
+  /* Chart series, in this order, checked for colour-blind separation against the surface. */
+  --viz-1: #3b82f6;
+  --viz-2: #10a37f;
+  --viz-3: #e0912f;
+  --viz-4: #d6455d;
+  --viz-5: #8b5cf6;
+
   --chart-1: oklch(0.6 0.16 250);
   --chart-2: oklch(0.58 0.15 155);
   --chart-3: oklch(0.6 0.14 65);
@@ -123,6 +130,12 @@
   --success: oklch(0.78 0.15 155);
   --warning: oklch(0.84 0.14 85);
   --info: oklch(0.74 0.14 250);
+
+  --viz-1: #4b8df8;
+  --viz-2: #18a883;
+  --viz-3: #c98424;
+  --viz-4: #e4568a;
+  --viz-5: #9670f2;
 
   --chart-1: oklch(0.72 0.14 250);
   --chart-2: oklch(0.74 0.15 155);
@@ -490,7 +503,7 @@
   color: var(--muted-foreground);
 }
 
-/* Only rich markdown (task descriptions) emits these. */
+/* Only rich markdown (task descriptions) emits headings, rules, strikethrough and checklists. */
 .agent-markdown :is(h1, h2, h3, h4, h5, h6) {
   font-weight: 600;
   line-height: 1.3;
@@ -527,23 +540,75 @@
   color: var(--muted-foreground);
 }
 
+/*
+ * Tables sit in the thread as a glass card, hairlines between rows only. A wide one scrolls by
+ * itself: `anywhere` would instead squeeze its columns to one letter.
+ */
 .agent-markdown table {
   display: block;
+  width: fit-content;
   max-width: 100%;
   overflow-x: auto;
   border-collapse: collapse;
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
+    var(--glass-shadow);
   font-size: 0.925em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+  overflow-wrap: normal;
+  scrollbar-width: thin;
+}
+
+.agent-markdown * + table,
+.agent-markdown table + * {
+  margin-top: 1.1em;
 }
 
 .agent-markdown :is(th, td) {
-  border: 1px solid var(--border);
-  padding: 0.35em 0.65em;
+  padding: 0.55rem 0.85rem;
   text-align: left;
+  vertical-align: top;
+}
+
+/* Otherwise a long prose column squeezes short values like `34 kB` onto two lines. Table cells
+   ignore min-width, but this holds the column open. */
+.agent-markdown td::before {
+  content: '';
+  display: block;
+  width: 4.5em;
+}
+
+.agent-markdown td code {
+  white-space: nowrap;
+}
+
+.agent-markdown :is(th, td)[align='center'] {
+  text-align: center;
+}
+
+.agent-markdown :is(th, td)[align='right'] {
+  text-align: right;
 }
 
 .agent-markdown th {
-  background: var(--muted);
+  padding-block: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.agent-markdown tbody tr {
+  border-top: 1px solid var(--border);
+  transition: background-color var(--dur-fast) var(--ease-out-snappy);
+}
+
+.agent-markdown tbody tr:hover {
+  background: var(--muted);
 }
 
 /* GFM task lists: the checkbox replaces the bullet. */
@@ -556,6 +621,295 @@
   margin-right: 0.5em;
   vertical-align: -0.1em;
   accent-color: var(--primary);
+}
+
+/* `> [!NOTE]` and `> **Warning:**`, tinted by what they're saying. */
+.agent-markdown .callout {
+  --callout: var(--info);
+  border-left-color: var(--callout);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: color-mix(in oklab, var(--callout) 9%, transparent);
+  padding: 0.5em 0.75em;
+  color: var(--foreground);
+}
+
+.agent-markdown .callout-tip {
+  --callout: var(--success);
+}
+
+.agent-markdown .callout-warning,
+.agent-markdown .callout-important {
+  --callout: var(--warning);
+}
+
+.agent-markdown .callout-caution {
+  --callout: var(--destructive);
+}
+
+.agent-markdown .callout-title {
+  display: block;
+  color: var(--callout);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* A file the agent named: opens it in Changes. */
+.file-ref {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35em;
+  border-radius: calc(var(--radius) * 0.6);
+  background: var(--muted);
+  padding: 0.1em 0.3em;
+  color: var(--primary);
+  font-family: var(--code-font-family);
+  font-size: var(--code-font-size);
+  transition: background-color var(--dur-fast) var(--ease-out-snappy);
+}
+
+.file-ref:hover {
+  background: var(--accent);
+}
+
+.file-ref code {
+  background: none;
+  padding: 0;
+}
+
+/* A GitHub PR or commit link, with what's known about it. */
+.agent-markdown a.ref-card {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25em 0.6em;
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
+  padding: 0.2em 0.6em;
+  color: var(--foreground);
+  font-size: 0.925em;
+  text-decoration: none;
+}
+
+.agent-markdown a.ref-card:hover {
+  background: var(--accent);
+}
+
+.ref-card-id {
+  color: var(--muted-foreground);
+  font-family: var(--code-font-family);
+  font-size: var(--code-font-size);
+}
+
+.ref-card-title {
+  font-weight: 500;
+}
+
+.ref-card-checks {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.ref-card-checks-pass {
+  color: var(--success);
+}
+
+.ref-card-checks-fail {
+  color: var(--destructive);
+}
+
+/* Replies' rich blocks share the glass card tables use. */
+.reply-card {
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
+    var(--glass-shadow);
+  font-size: 0.925em;
+}
+
+.agent-markdown > * + .reply-card,
+.agent-markdown > .reply-card + * {
+  margin-top: 1.1em;
+}
+
+.reply-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+summary.reply-card-head {
+  list-style: none;
+}
+
+summary.reply-card-head::-webkit-details-marker {
+  display: none;
+}
+
+.agent-markdown .reply-diff {
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+  padding-block: 0.35rem;
+  font-family: var(--code-font-family);
+  font-size: var(--code-font-size);
+  line-height: 1.5;
+  overflow-wrap: normal;
+  scrollbar-width: thin;
+}
+
+.reply-diff-line {
+  width: fit-content;
+  min-width: 100%;
+  padding-inline: 0.85rem;
+  white-space: pre;
+}
+
+.reply-diff-line[data-line='add'] {
+  background: color-mix(in oklab, var(--success) 14%, transparent);
+}
+
+.reply-diff-line[data-line='del'] {
+  background: color-mix(in oklab, var(--destructive) 14%, transparent);
+}
+
+.reply-diff-line[data-line='hunk'] {
+  color: var(--muted-foreground);
+}
+
+.reply-run-failures {
+  margin-top: 0.4em;
+  padding-left: 0.85rem;
+  color: var(--destructive);
+  font-size: var(--code-font-size);
+  list-style: none;
+}
+
+.agent-markdown ul.reply-run-failures {
+  padding-left: 0.85rem;
+  list-style: none;
+}
+
+.agent-markdown .reply-json {
+  padding: 0.6rem 0.85rem;
+  font-family: var(--code-font-family);
+  font-size: var(--code-font-size);
+  line-height: 1.6;
+}
+
+.agent-markdown .reply-mermaid {
+  display: flex;
+  justify-content: center;
+  padding: 0.85rem;
+}
+
+.reply-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Mermaid's styles are scoped by id, so matching the app's tokens takes !important. */
+.reply-mermaid
+  svg
+  :is(.node, .cluster)
+  :is(rect, polygon, circle, ellipse, path) {
+  fill: var(--muted) !important;
+  stroke: var(--input) !important;
+  filter: none !important;
+}
+
+.reply-mermaid
+  svg
+  :is(.flowchart-link, .messageLine0, .messageLine1, .relation) {
+  stroke: var(--muted-foreground) !important;
+}
+
+.reply-mermaid svg :is(.marker, .arrowheadPath) {
+  fill: var(--muted-foreground) !important;
+  stroke: var(--muted-foreground) !important;
+}
+
+.reply-mermaid svg text {
+  fill: var(--foreground) !important;
+}
+
+.agent-markdown .reply-math {
+  overflow-x: auto;
+  padding-block: 0.25em;
+  text-align: center;
+  overflow-wrap: normal;
+}
+
+.agent-markdown .reply-math code {
+  background: none;
+}
+
+.agent-markdown .reply-chart svg text {
+  font-family: var(--code-font-family);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-markdown .reply-chart table {
+  box-shadow: none;
+  background: none;
+}
+
+.agent-markdown ul.reply-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.85rem;
+  padding: 0 0.85rem 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  list-style: none;
+}
+
+.agent-markdown .reply-chart-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.reply-chart-tip {
+  position: absolute;
+  top: 0.5rem;
+  z-index: 1;
+  min-width: 7rem;
+  border-radius: var(--radius-md);
+  background: var(--popover);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  padding: 0.35rem 0.55rem;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.reply-compare-rule {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-1px);
+  background: var(--background-solid);
+  pointer-events: none;
+}
+
+.reply-compare-tag {
+  position: absolute;
+  top: 0.5rem;
+  border-radius: 999px;
+  background: var(--popover);
+  padding: 0.05rem 0.5rem;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
 }
 
 .agent-markdown .type-cursor {

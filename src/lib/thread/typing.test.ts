@@ -56,4 +56,23 @@ describe('stableMarkdown', () => {
       'See [the docs](https://example.com) now',
     )
   })
+
+  it('holds back a table until its header is written, then fills in row by row', () => {
+    const header = '| Name | Size |'
+    const rule = '|---|---|'
+    expect(stableMarkdown(`Sizes:\n\n| Na`)).toBe('Sizes:\n\n')
+    expect(stableMarkdown(`Sizes:\n\n${header}\n`)).toBe('Sizes:\n\n')
+    expect(stableMarkdown(`Sizes:\n\n${header}\n|--`)).toBe('Sizes:\n\n')
+    expect(stableMarkdown(`${header}\n${rule}\n`)).toBe(`${header}\n${rule}\n`)
+    expect(stableMarkdown(`${header}\n${rule}\n| a | **b`)).toBe(
+      `${header}\n${rule}\n| a | **b**`,
+    )
+  })
+
+  it('leaves pipes that aren’t a table alone', () => {
+    expect(stableMarkdown('Use a | b here')).toBe('Use a | b here')
+    expect(stableMarkdown('| not a table\n\nAnd on we go')).toBe(
+      '| not a table\n\nAnd on we go',
+    )
+  })
 })

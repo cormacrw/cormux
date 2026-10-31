@@ -10,7 +10,10 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
         Event::Init { session_id, .. } => vec![AgentEvent::SessionStarted {
             session_id: session_id.clone(),
         }],
-        Event::Assistant { blocks } => blocks.iter().filter_map(map_block).collect(),
+        Event::Assistant { blocks, parent_id } => blocks
+            .iter()
+            .filter_map(|block| map_block(block, parent_id.as_deref()))
+            .collect(),
         Event::ToolResults(results) => results
             .iter()
             .map(|result| AgentEvent::ToolCallUpdate {
@@ -23,6 +26,7 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
                     ToolCallStatus::Completed
                 }),
                 locations: Vec::new(),
+                output: result.output.clone(),
             })
             .collect(),
         Event::CanUseTool(req) => vec![map_permission(req)],
@@ -43,7 +47,7 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
     }
 }
 
-fn map_block(block: &AssistantBlock) -> Option<AgentEvent> {
+fn map_block(block: &AssistantBlock, parent_id: Option<&str>) -> Option<AgentEvent> {
     match block {
         AssistantBlock::Text(text) if !text.is_empty() => Some(AgentEvent::MessageChunk {
             role: MessageRole::Agent,
@@ -55,14 +59,35 @@ fn map_block(block: &AssistantBlock) -> Option<AgentEvent> {
                 text: text.clone(),
             })
         }
-        AssistantBlock::ToolUse { id, name, input } => Some(tool_call(id, name, input)),
+        AssistantBlock::ToolUse { input, name, .. } if name == "TodoWrite" => {
+            Some(todo_plan(input))
+        }
+        AssistantBlock::ToolUse { id, name, input } => Some(tool_call(id, name, input, parent_id)),
         _ => None,
+    }
+}
+
+/// Claude's todo list is its plan, re-sent whole each time a step moves on.
+fn todo_plan(input: &Value) -> AgentEvent {
+    let todos = input.get("todos").and_then(Value::as_array);
+    AgentEvent::Plan {
+        entries: todos
+            .into_iter()
+            .flatten()
+            .map(|todo| {
+                let field = |key: &str| todo.get(key).and_then(Value::as_str).unwrap_or_default();
+                PlanStep {
+                    content: field("content").to_string(),
+                    status: field("status").to_string(),
+                }
+            })
+            .collect(),
     }
 }
 
 /// A tool Claude started. Tools it runs without asking never reach `can_use_tool`, so this
 /// is the only place they show up; a later tool result marks them done.
-fn tool_call(id: &str, name: &str, input: &Value) -> AgentEvent {
+fn tool_call(id: &str, name: &str, input: &Value, parent_id: Option<&str>) -> AgentEvent {
     let kind = ToolKind::from_claude_tool(name);
     let field = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_string);
     let path = field("file_path").or_else(|| field("notebook_path"));
@@ -84,6 +109,7 @@ fn tool_call(id: &str, name: &str, input: &Value) -> AgentEvent {
         ),
     };
     AgentEvent::ToolCall {
+        parent_id: parent_id.map(str::to_string),
         id: id.to_string(),
         title,
         name: Some(name.to_string()),
@@ -121,6 +147,7 @@ pub fn map_permission(req: &CanUseTool) -> AgentEvent {
 pub fn tool_event_from_permission(req: &CanUseTool, status: ToolCallStatus) -> AgentEvent {
     let kind = ToolKind::from_claude_tool(&req.tool_name);
     AgentEvent::ToolCall {
+        parent_id: None,
         id: req
             .tool_use_id
             .clone()
@@ -178,6 +205,24 @@ pub fn plan_from_titles(titles: &[String]) -> AgentEvent {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_todo_list_is_the_plan_with_its_progress() {
+        let block = AssistantBlock::ToolUse {
+            id: "t".into(),
+            name: "TodoWrite".into(),
+            input: json!({ "todos": [{ "content": "Fix it", "status": "in_progress" }] }),
+        };
+        assert_eq!(
+            map_block(&block, None),
+            Some(AgentEvent::Plan {
+                entries: vec![PlanStep {
+                    content: "Fix it".into(),
+                    status: "in_progress".into(),
+                }],
+            })
+        );
+    }
 
     #[test]
     fn maps_assistant_blocks_and_tool_results_in_order() {

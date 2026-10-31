@@ -99,6 +99,8 @@ pub enum Event {
     /// One assistant message, its content blocks in order.
     Assistant {
         blocks: Vec<AssistantBlock>,
+        /// The tool call running the subagent that wrote this, if one did.
+        parent_id: Option<String>,
     },
     /// Tool results, which the CLI echoes back as a `user` message.
     ToolResults(Vec<ToolResult>),
@@ -139,6 +141,7 @@ pub enum AssistantBlock {
 pub struct ToolResult {
     pub tool_use_id: String,
     pub is_error: bool,
+    pub output: Option<String>,
 }
 
 pub fn encode_line(message: &StdinMessage) -> Result<String> {
@@ -232,6 +235,10 @@ pub fn decode_event(line: &str) -> Result<Event> {
             })
         }
         "assistant" => Ok(Event::Assistant {
+            parent_id: value
+                .get("parent_tool_use_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             blocks: assistant_blocks(&value),
         }),
         "user" => Ok(Event::ToolResults(tool_results(&value))),
@@ -384,9 +391,34 @@ fn tool_results(value: &Value) -> Vec<ToolResult> {
                     .get("is_error")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
+                output: tool_output(block.get("content")),
             })
         })
         .collect()
+}
+
+/// Enough of a command's output to sum it up. Test and build summaries print last, so the end
+/// is what's kept, and every tool result is stored with the thread, so it's capped.
+const TOOL_OUTPUT_LIMIT: usize = 8 * 1024;
+
+fn tool_output(content: Option<&Value>) -> Option<String> {
+    let text = match content? {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => return None,
+    };
+    if text.is_empty() {
+        return None;
+    }
+    let mut start = text.len().saturating_sub(TOOL_OUTPUT_LIMIT);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    Some(text[start..].to_string())
 }
 
 #[cfg(test)]
@@ -553,5 +585,23 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn keeps_a_subagents_parent_and_the_end_of_tool_output() {
+        let assistant = decode_event(
+            r#"{"type":"assistant","parent_tool_use_id":"toolu_task","message":{"content":[]}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            assistant,
+            Event::Assistant { parent_id: Some(ref id), .. } if id == "toolu_task"
+        ));
+
+        let long = format!("{}é summary", "x".repeat(TOOL_OUTPUT_LIMIT));
+        let output = tool_output(Some(&json!([{ "type": "text", "text": long }]))).unwrap();
+        assert!(output.len() <= TOOL_OUTPUT_LIMIT);
+        assert!(output.ends_with("é summary"));
+        assert_eq!(tool_output(Some(&json!(""))), None);
     }
 }

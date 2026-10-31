@@ -302,6 +302,7 @@ fn append_opened_pr_step(
     base: &str,
 ) -> Result<()> {
     let event = AgentEvent::ToolCall {
+        parent_id: None,
         id: format!("pr-open-{number}"),
         title: format!("Opened PR #{number}"),
         name: None,

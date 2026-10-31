@@ -24,6 +24,7 @@ pub fn persist_control_step_with_detail(
     detail: Option<String>,
 ) -> Result<()> {
     let event = AgentEvent::ToolCall {
+        parent_id: None,
         id: format!("control-{}", Uuid::new_v4()),
         title: title.to_string(),
         name: None,

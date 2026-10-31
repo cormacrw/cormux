@@ -291,7 +291,7 @@ State lives in class-based rune stores (`$state` fields, `$derived` getters) hyd
 ### Specialised rendering
 
 - **Diffs** ([14](features/14-changes-panel.md)): a custom Svelte renderer over hunks from the core. Syntax highlighting with **Shiki** (JavaScript regex engine, grammars loaded on demand); word-level ranges from **jsdiff**. Unified and split layouts share one data model. CodeMirror's merge view is the upgrade path if an in-app editor arrives.
-- **Conversation**: agent text rendered as markdown (`marked`), sanitised with **DOMPurify** before insertion. Threads longer than a few hundred items use a virtual list (`@tanstack/svelte-virtual`), or older tool runs collapse.
+- **Conversation**: agent text rendered as markdown (`marked`), sanitised with **DOMPurify** before insertion. Finished replies render diff, chart, JSON, math and test-output blocks as components, and **Mermaid** diagrams and **KaTeX** math load on demand. Threads longer than a few hundred items use a virtual list (`@tanstack/svelte-virtual`), or older tool runs collapse.
 - **Output log**: ANSI colour codes converted to styled spans (`anser`). The log is 500 lines, so no virtualisation. If full terminal emulation is ever needed, `xterm.js` drops into the same panel.
 
 ### Window and platform

@@ -19,8 +19,14 @@
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
   import { workspaceRecords } from '$lib/state/workspace-records.svelte'
   import { popIn, type EntryScope } from '$lib/thread/entering'
+  import {
+    COLLAPSE_RUN_AT,
+    editedPaths,
+    toolRunSummary,
+  } from '$lib/thread/tool-run-summary'
   import { cn } from '$lib/utils'
   import AgentSpinner from './AgentSpinner.svelte'
+  import RunSummaryCard from './RunSummaryCard.svelte'
   import StreamingText from './StreamingText.svelte'
   import { openDiffForPath } from './open-changes'
   import ApprovalCard from './ApprovalCard.svelte'
@@ -89,6 +95,18 @@
     const last = items.at(-2)
     return last?.kind === 'thought' && last.role === 'thought' ? last.id : null
   })
+
+  // The run the agent is still in stays open; it folds once the agent moves on.
+  const activeRunId = $derived.by(() => {
+    const items = rows.flatMap((row) => (row.kind === 'item' ? [row.item] : []))
+    if (items.at(-1)?.kind !== 'live') return null
+    const last = items.at(-2)
+    return last?.kind === 'toolRun' ? last.id : null
+  })
+
+  function planDone(statuses: string[]) {
+    return statuses.filter((status) => status === 'completed').length
+  }
 
   type StepSegment = { id: string; quiet: boolean; steps: ToolRunStep[] }
 
@@ -198,6 +216,176 @@
       .join(', ')
   }
 </script>
+
+{#snippet stepExtras(step: ToolRunStep)}
+  {#if step.kind === 'tool' && step.run && step.output}
+    <li class="ml-[1.125rem] max-w-[42rem] text-sm">
+      <RunSummaryCard summary={step.run} output={step.output} />
+    </li>
+  {/if}
+  {#if step.kind === 'tool' && step.children?.length}
+    <li
+      class="ml-1.5 border-l-2 border-border pl-3"
+      data-od-id="subagent-steps"
+    >
+      <ul class="space-y-1">
+        {#each step.children as child (child.id)}
+          {@const Icon = stepIcon(child)}
+          <li
+            class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+          >
+            <span
+              class={cn(
+                'size-1.5 shrink-0 rounded-full',
+                child.status === 'completed'
+                  ? 'bg-success'
+                  : child.status === 'failed'
+                    ? 'bg-destructive'
+                    : 'animate-pulse bg-primary',
+              )}
+              role="img"
+              aria-label={child.status ?? 'running'}
+            ></span>
+            <Icon class="size-3 shrink-0" aria-hidden="true" />
+            <span class="truncate"
+              >{child.kind === 'tool'
+                ? [child.title, child.detail].filter(Boolean).join(' ')
+                : `${child.verb} ${child.path}`}</span
+            >
+          </li>
+        {/each}
+      </ul>
+    </li>
+  {/if}
+{/snippet}
+
+{#snippet runSteps(steps: ToolRunStep[])}
+  <div class="space-y-1.5">
+    {#each segmentSteps(steps) as segment (segment.id)}
+      {#if segment.quiet}
+        <ul class="space-y-1.5">
+          {#each segment.steps as step, index (step.id)}
+            {@const Icon = stepIcon(step)}
+            {@const chips = newChips(step, segment.steps[index - 1])}
+            <li
+              class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+              title={timeTitle(step.atMs)}
+              use:popIn={{ entries, key: step.id }}
+            >
+              <Icon
+                class={cn(
+                  'size-3 shrink-0',
+                  step.kind === 'edit'
+                    ? 'text-primary'
+                    : 'text-muted-foreground/80',
+                )}
+                aria-hidden="true"
+              />
+              {#if step.kind === 'tool'}
+                <span class="shrink-0">{step.title}</span>
+                {#if step.detail && step.detail !== step.title}
+                  <span
+                    class="truncate font-mono text-muted-foreground/80"
+                    title={step.rawDetail}>{step.detail}</span
+                  >
+                {/if}
+                {#each chips as chip (chip.label)}
+                  <span class="shrink-0 text-muted-foreground/70"
+                    >· {chip.label}</span
+                  >
+                {/each}
+                {#if step.children?.length}
+                  <span class="shrink-0 text-muted-foreground/70"
+                    >· {step.children.length} steps</span
+                  >
+                {/if}
+              {:else if step.path}
+                {@const file = diffFiles.find((row) => row.path === step.path)}
+                <span class="shrink-0">{step.verb}</span>
+                <button
+                  type="button"
+                  class="truncate font-mono text-primary underline-offset-2 hover:underline"
+                  title={step.path}
+                  aria-label="View diff for {step.path}"
+                  onclick={() => openDiffForPath(step.path)}
+                >
+                  {step.path.split('/').pop()}
+                </button>
+                {#if file}
+                  <span class="shrink-0 font-mono"
+                    ><span class="text-success">+{file.added}</span>
+                    <span class="text-destructive">−{file.deleted}</span></span
+                  >
+                {/if}
+              {:else}
+                <span>{step.verb} a file</span>
+              {/if}
+            </li>
+            {@render stepExtras(step)}
+          {/each}
+        </ul>
+      {:else}
+        <!-- Notable steps: still a quiet line, set apart by weight and a tinted icon. -->
+        <ul class="space-y-1.5">
+          {#each segment.steps as step (step.id)}
+            {@const Icon = stepIcon(step)}
+            <li
+              class="tool-step flex min-w-0 items-start gap-2 text-[0.8rem] text-muted-foreground"
+              title={timeTitle(step.atMs)}
+              use:popIn={{ entries, key: step.id }}
+            >
+              <Icon
+                class={cn(
+                  'mt-[3px] size-3.5 shrink-0',
+                  step.kind === 'tool' && step.tone === 'success'
+                    ? 'text-success'
+                    : 'text-primary',
+                )}
+                aria-hidden="true"
+              />
+              <div class="min-w-0 flex-1">
+                {#if step.kind === 'tool'}
+                  <p class="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+                    <span class="font-medium text-foreground/90"
+                      >{step.title}</span
+                    >
+                    {#if step.detail}
+                      <span
+                        class="min-w-0 truncate font-mono text-[11px] text-muted-foreground/80"
+                        >{step.detail}</span
+                      >
+                    {/if}
+                    {#each step.chips ?? [] as chip (chip.label)}
+                      <span class="text-[11px] text-muted-foreground/75"
+                        >· {chip.label}</span
+                      >
+                    {/each}
+                  </p>
+                  {#if step.rawDetail}
+                    <details class="mt-0.5 text-xs text-muted-foreground">
+                      <summary
+                        class="cursor-pointer select-none hover:text-foreground"
+                        >Details</summary
+                      >
+                      <pre
+                        class="mt-1 max-h-40 overflow-auto rounded-lg bg-muted p-2 font-mono text-(length:--code-font-size) whitespace-pre-wrap">{step.rawDetail}</pre>
+                    </details>
+                  {/if}
+                {/if}
+              </div>
+              {#if timeLabel(step.atMs)}
+                <span class="shrink-0 text-[11px] text-muted-foreground/70"
+                  >{timeLabel(step.atMs)}</span
+                >
+              {/if}
+            </li>
+            {@render stepExtras(step)}
+          {/each}
+        </ul>
+      {/if}
+    {/each}
+  </div>
+{/snippet}
 
 {#each rows as row (row.kind === 'speaker' ? row.id : row.item.id)}
   {#if row.kind === 'speaker'}
@@ -324,135 +512,56 @@
           </div>
         </div>
       {:else if item.kind === 'toolRun'}
-        <div class="space-y-1.5">
-          {#each segmentSteps(item.steps) as segment (segment.id)}
-            {#if segment.quiet}
-              <ul class="space-y-1.5">
-                {#each segment.steps as step, index (step.id)}
-                  {@const Icon = stepIcon(step)}
-                  {@const chips = newChips(step, segment.steps[index - 1])}
-                  <li
-                    class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
-                    title={timeTitle(step.atMs)}
-                    use:popIn={{ entries, key: step.id }}
+        {#if item.steps.length >= COLLAPSE_RUN_AT && item.id !== activeRunId}
+          {@const edited = editedPaths(item.steps)}
+          <details class="group/run" data-od-id="tool-run-summary">
+            <summary
+              class="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none hover:text-foreground"
+            >
+              <ChevronRight
+                class="size-3 shrink-0 transition-transform group-open/run:rotate-90"
+                aria-hidden="true"
+              />
+              <span class="truncate">{toolRunSummary(item.steps)}</span>
+            </summary>
+            <div class="mt-1.5 border-l-2 border-border pl-3">
+              {@render runSteps(item.steps)}
+            </div>
+          </details>
+          {#if edited.length}
+            <ul class="mt-1.5 flex flex-wrap gap-1" data-od-id="files-touched">
+              {#each edited as path (path)}
+                {@const file = diffFiles.find((row) => row.path === path)}
+                <li>
+                  <button
+                    type="button"
+                    class="file-ref"
+                    title={path}
+                    aria-label="View diff for {path}"
+                    onclick={() => openDiffForPath(path)}
                   >
-                    <Icon
-                      class={cn(
-                        'size-3 shrink-0',
-                        step.kind === 'edit'
-                          ? 'text-primary'
-                          : 'text-muted-foreground/80',
-                      )}
-                      aria-hidden="true"
-                    />
-                    {#if step.kind === 'tool'}
-                      <span class="shrink-0">{step.title}</span>
-                      {#if step.detail && step.detail !== step.title}
-                        <span
-                          class="truncate font-mono text-muted-foreground/80"
-                          title={step.rawDetail}>{step.detail}</span
-                        >
-                      {/if}
-                      {#each chips as chip (chip.label)}
-                        <span class="shrink-0 text-muted-foreground/70"
-                          >· {chip.label}</span
-                        >
-                      {/each}
-                    {:else if step.path}
-                      {@const file = diffFiles.find(
-                        (row) => row.path === step.path,
-                      )}
-                      <span class="shrink-0">{step.verb}</span>
-                      <button
-                        type="button"
-                        class="truncate font-mono text-primary underline-offset-2 hover:underline"
-                        title={step.path}
-                        aria-label="View diff for {step.path}"
-                        onclick={() => openDiffForPath(step.path)}
-                      >
-                        {step.path.split('/').pop()}
-                      </button>
-                      {#if file}
-                        <span class="shrink-0 font-mono"
-                          ><span class="text-success">+{file.added}</span>
-                          <span class="text-destructive">−{file.deleted}</span
-                          ></span
-                        >
-                      {/if}
-                    {:else}
-                      <span>{step.verb} a file</span>
+                    {path.split('/').pop()}
+                    {#if file}
+                      <span class="text-success">+{file.added}</span>
+                      <span class="text-destructive">−{file.deleted}</span>
                     {/if}
-                  </li>
-                {/each}
-              </ul>
-            {:else}
-              <!-- Notable steps: still a quiet line, set apart by weight and a tinted icon. -->
-              <ul class="space-y-1.5">
-                {#each segment.steps as step (step.id)}
-                  {@const Icon = stepIcon(step)}
-                  <li
-                    class="tool-step flex min-w-0 items-start gap-2 text-[0.8rem] text-muted-foreground"
-                    title={timeTitle(step.atMs)}
-                    use:popIn={{ entries, key: step.id }}
-                  >
-                    <Icon
-                      class={cn(
-                        'mt-[3px] size-3.5 shrink-0',
-                        step.kind === 'tool' && step.tone === 'success'
-                          ? 'text-success'
-                          : 'text-primary',
-                      )}
-                      aria-hidden="true"
-                    />
-                    <div class="min-w-0 flex-1">
-                      {#if step.kind === 'tool'}
-                        <p
-                          class="flex min-w-0 flex-wrap items-baseline gap-x-1.5"
-                        >
-                          <span class="font-medium text-foreground/90"
-                            >{step.title}</span
-                          >
-                          {#if step.detail}
-                            <span
-                              class="min-w-0 truncate font-mono text-[11px] text-muted-foreground/80"
-                              >{step.detail}</span
-                            >
-                          {/if}
-                          {#each step.chips ?? [] as chip (chip.label)}
-                            <span class="text-[11px] text-muted-foreground/75"
-                              >· {chip.label}</span
-                            >
-                          {/each}
-                        </p>
-                        {#if step.rawDetail}
-                          <details class="mt-0.5 text-xs text-muted-foreground">
-                            <summary
-                              class="cursor-pointer select-none hover:text-foreground"
-                              >Details</summary
-                            >
-                            <pre
-                              class="mt-1 max-h-40 overflow-auto rounded-lg bg-muted p-2 font-mono text-(length:--code-font-size) whitespace-pre-wrap">{step.rawDetail}</pre>
-                          </details>
-                        {/if}
-                      {/if}
-                    </div>
-                    {#if timeLabel(step.atMs)}
-                      <span
-                        class="shrink-0 text-[11px] text-muted-foreground/70"
-                        >{timeLabel(step.atMs)}</span
-                      >
-                    {/if}
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          {/each}
-        </div>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        {:else}
+          {@render runSteps(item.steps)}
+        {/if}
       {:else if item.kind === 'plan'}
         <Card.Root class="bg-popover">
           <Card.Header class="flex-row items-center gap-2 space-y-0 pb-2">
             <List class="size-4 text-muted-foreground" aria-hidden="true" />
-            <Card.Title class="text-sm font-medium">Proposed plan</Card.Title>
+            <Card.Title class="text-sm font-medium"
+              >{item.statuses.some((status) => status !== 'pending')
+                ? `Plan · ${planDone(item.statuses)} of ${item.steps.length}`
+                : 'Proposed plan'}</Card.Title
+            >
             {#if timeLabel(item.atMs)}
               <span
                 class="ml-auto text-xs text-muted-foreground"
@@ -461,9 +570,35 @@
             {/if}
           </Card.Header>
           <Card.Content>
-            <ol class="list-decimal space-y-1 pl-4 text-sm">
+            <ol class="space-y-1 text-sm" data-od-id="plan-steps">
               {#each item.steps as step, index (index)}
-                <li>{step}</li>
+                {@const status = item.statuses[index]}
+                <li
+                  class={cn(
+                    'flex items-start gap-2',
+                    status === 'completed' && 'text-muted-foreground',
+                  )}
+                  data-status={status}
+                >
+                  {#if status === 'completed'}
+                    <Check
+                      class="mt-1 size-3.5 shrink-0 text-success"
+                      aria-label="Done"
+                    />
+                  {:else if status === 'in_progress'}
+                    <span
+                      class="mt-1.5 ml-1 size-2 shrink-0 animate-pulse rounded-full bg-primary"
+                      role="img"
+                      aria-label="In progress"
+                    ></span>
+                  {:else}
+                    <span
+                      class="w-3.5 shrink-0 text-center text-xs leading-5 text-muted-foreground"
+                      >{index + 1}</span
+                    >
+                  {/if}
+                  <span>{step}</span>
+                </li>
               {/each}
             </ol>
           </Card.Content>

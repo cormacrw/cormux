@@ -4,10 +4,25 @@
     renderRichMarkdown,
     renderSanitizedMarkdown,
   } from '$lib/thread/sanitize-markdown'
-  import { splitLocalMedia } from '$lib/thread/local-media'
+  import { enhanceMarkdown } from '$lib/thread/enhance-markdown'
+  import { splitLocalMedia, type MediaSegment } from '$lib/thread/local-media'
+  import {
+    pairBeforeAfter,
+    type CompareSegment,
+  } from '$lib/thread/media-compare'
+  import { splitReplyBlocks, type ReplyBlock } from '$lib/thread/reply-blocks'
+  import { prs } from '$lib/state'
   import { openUrl } from '@tauri-apps/plugin-opener'
+  import ChartBlock from './ChartBlock.svelte'
   import CodeCopyButton from './CodeCopyButton.svelte'
+  import DiffBlock from './DiffBlock.svelte'
+  import JsonTree from './JsonTree.svelte'
+  import MathBlock from './MathBlock.svelte'
+  import MediaCompare from './MediaCompare.svelte'
+  import MermaidBlock from './MermaidBlock.svelte'
+  import RunSummaryCard from './RunSummaryCard.svelte'
   import ThreadMedia from './ThreadMedia.svelte'
+  import { openDiffForPath } from './open-changes'
 
   let {
     text,
@@ -17,7 +32,7 @@
     workdir,
   }: {
     text: string
-    /** Documents (task descriptions) rather than chat: headings, tables and checklists too. */
+    /** Documents (task descriptions) rather than chat: headings and checklists too. */
     rich?: boolean
     /** A ▎ cursor, blinking at the end of the last line while a reply types. */
     cursor?: boolean
@@ -29,10 +44,25 @@
     workdir?: string
   } = $props()
 
-  // Local media references become components; the prose between them renders as before.
-  const rendered = $derived(
-    (media ? splitLocalMedia(text) : [{ kind: 'text' as const, text }]).map(
-      (segment) =>
+  // While a reply types out it's all prose: a half-written diagram or chart can't render, and
+  // only the finished reply is worth the parse. Local media references become components; the
+  // prose between them renders as before.
+  type Segment =
+    | Exclude<ReplyBlock, { kind: 'text' }>
+    | Exclude<MediaSegment, { kind: 'text' }>
+    | CompareSegment
+    | { kind: 'text'; text: string; html: string }
+
+  const rendered = $derived<Segment[]>(
+    (media && !cursor
+      ? splitReplyBlocks(text)
+      : [{ kind: 'text' as const, text }]
+    ).flatMap((block): Segment[] => {
+      if (block.kind !== 'text') return [block]
+      const segments = media
+        ? pairBeforeAfter(splitLocalMedia(block.text))
+        : [block]
+      return segments.map((segment) =>
         segment.kind === 'text'
           ? {
               ...segment,
@@ -41,12 +71,11 @@
                 : renderSanitizedMarkdown(segment.text),
             }
           : segment,
-    ),
+      )
+    }),
   )
   const html = $derived(
-    rendered
-      .map((segment) => (segment.kind === 'text' ? segment.html : ''))
-      .join(''),
+    rendered.map((segment) => ('html' in segment ? segment.html : '')).join(''),
   )
 
   let root: HTMLDivElement | undefined = $state()
@@ -68,9 +97,19 @@
       cursorEl.textContent = '▎'
       cursorEl.setAttribute('aria-hidden', 'true')
     }
-    const blocks = container.querySelectorAll('p, li, pre code, blockquote')
+    const blocks = container.querySelectorAll(
+      'p, li, pre code, blockquote, th, td',
+    )
     ;(blocks[blocks.length - 1] ?? container).append(cursorEl)
     for (const animation of cursorEl.getAnimations()) animation.currentTime = 0
+  })
+
+  // Chat replies only, and not mid-typing: this walks the whole reply, and it'd run every frame.
+  $effect(() => {
+    void html
+    const container = root
+    if (!container || cursor || !media) return
+    enhanceMarkdown(container, { workdir, prs: prs.items })
   })
 
   // {@html} replaces every node when the text changes, so each render gets fresh copy buttons.
@@ -95,9 +134,16 @@
   }
 
   function handleClick(event: MouseEvent) {
+    const clicked = event.target instanceof Element ? event.target : null
+    const file = clicked?.closest<HTMLElement>('.file-ref, .file-ref-link')
+    if (file?.dataset.path) {
+      event.preventDefault()
+      const line = file.dataset.line ? Number(file.dataset.line) : null
+      openDiffForPath(file.dataset.path, line)
+      return
+    }
     // Links can wrap <code>/<strong>, so find the anchor from whatever was clicked.
-    const target =
-      event.target instanceof Element ? event.target.closest('a') : null
+    const target = clicked?.closest('a') ?? null
     if (!target) return
     const href = target.getAttribute('href')
     if (!href || href.startsWith('#')) return
@@ -115,8 +161,24 @@
   {#each rendered as segment, index (index)}
     {#if segment.kind === 'text'}
       {@html segment.html}
-    {:else}
+    {:else if segment.kind === 'media'}
       <ThreadMedia source={segment.source} alt={segment.alt} {workdir} />
+    {:else if segment.kind === 'compare'}
+      <MediaCompare before={segment.before} after={segment.after} {workdir} />
+    {:else if segment.kind === 'diff'}
+      <DiffBlock code={segment.code} {workdir} />
+    {:else if segment.kind === 'mermaid'}
+      <MermaidBlock code={segment.code} />
+    {:else if segment.kind === 'chart'}
+      <ChartBlock spec={segment.spec} />
+    {:else if segment.kind === 'json'}
+      <div class="reply-card reply-json" data-od-id="reply-json">
+        <JsonTree value={segment.value} />
+      </div>
+    {:else if segment.kind === 'run'}
+      <RunSummaryCard summary={segment.summary} output={segment.code} />
+    {:else if segment.kind === 'math'}
+      <MathBlock tex={segment.tex} />
     {/if}
   {/each}
 </div>
