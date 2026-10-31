@@ -193,6 +193,21 @@ impl Store {
         })
     }
 
+    pub fn set_workspace_checkout(
+        &self,
+        workspace_id: &str,
+        branch: &str,
+        worktree_path: &str,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET branch = ?1, worktree_path = ?2 WHERE id = ?3",
+                rusqlite::params![branch, worktree_path, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn set_workspace_pr_number(
         &self,
         workspace_id: &str,

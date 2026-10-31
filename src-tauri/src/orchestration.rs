@@ -274,14 +274,7 @@ fn draft_branch(goal: &str, taken: &[String]) -> String {
     } else {
         "feat"
     };
-    let name = format!("{prefix}/{}", slug(goal));
-    let mut candidate = name.clone();
-    let mut n = 2;
-    while taken.contains(&candidate) {
-        candidate = format!("{name}-{n}");
-        n += 1;
-    }
-    candidate
+    crate::naming::unique_branch(&format!("{prefix}/{}", slug(goal)), taken)
 }
 
 pub struct NewThread {
@@ -341,7 +334,7 @@ pub async fn create_thread(app: &AppHandle, caller_id: &str, new: NewThread) -> 
         &started.thread_id,
         &format!("Started by {title}"),
     );
-    Ok(json!({ "id": started.thread_id, "branch": started.branch, "base": started.base }))
+    Ok(json!({ "id": started.thread_id, "base": started.base }))
 }
 
 pub async fn send_to_thread(

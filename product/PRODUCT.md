@@ -70,7 +70,7 @@ What this means for the product:
 
 Shown in the prototype, all simulated there, and all supported by the stack:
 
-- Create a workspace from a repo, engine and an initial prompt. The workspace name and branch are drafted from the prompt.
+- Create a workspace from a repo, engine and an initial prompt. The workspace name and branch are drafted from the prompt, then Haiku replaces both with better ones; the branch is settled before its worktree is created.
 - Per-repo config: worktree setup commands (one per line, run in order before the agent starts) and a run command.
 - Run, restart and stop the app from the workspace header, with output in an Output tab. Each workspace's app gets its own port.
 - Switch a workspace's branch, which is locked while any agent is running. Pull and rebase onto the base branch.
