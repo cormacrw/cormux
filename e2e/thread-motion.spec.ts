@@ -119,6 +119,34 @@ test('a long reply the agent sent all at once doesn’t take ages to type out', 
   expect(Date.now() - started).toBeLessThan(3000)
 })
 
+test('a reply that lands in a thread the agent isn’t writing in shows in full', async ({
+  page,
+}) => {
+  await page.goto('/?longThread=3')
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await expect(
+    page.locator('#timeline').getByText('Answer 3', { exact: true }),
+  ).toBeVisible()
+  // What a snapshot does on opening a thread that moved on while it was hidden.
+  const late = `Finished while you were away. ${'more words here '.repeat(60)}`
+  // Sample frames from the moment it lands: it never shows the typing cursor.
+  const typedFrames = await page.evaluate(
+    async (events) => {
+      ;(window as { __HARNESS_AGENT_EVENTS__?: (events: object[]) => void })
+        .__HARNESS_AGENT_EVENTS__!(events)
+      let typed = 0
+      for (let frame = 0; frame < 20; frame += 1) {
+        await new Promise((done) => requestAnimationFrame(done))
+        if (document.querySelector('#timeline .type-cursor')) typed += 1
+      }
+      return typed
+    },
+    [agentSays(late)],
+  )
+  expect(typedFrames).toBe(0)
+  expect(await replyLength(page)).toBeGreaterThanOrEqual(late.trim().length)
+})
+
 test('two replies never type at the same time', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()

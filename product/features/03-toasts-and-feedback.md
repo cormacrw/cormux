@@ -49,7 +49,6 @@ Each toast has a solid background in its tone's colour, the same in light and da
 | App running | `<name> is running on localhost:<port>` | ok |
 | App stopped | `Stopped the app in <name>` | default |
 | App restarting | `Restarting the app in <name>` | default |
-| Teardown | `Tore down <name>` or `Tore down <name> and deleted <branch>` | bad |
 | Repo added | `Added <repo>. Add its setup and run commands below.` | default |
 | Repo removed | `Removed <repo>. The folder on disk wasn't touched.` | default |
 | Approval: review suggestions sent | `Review suggestions sent to Lead` | ok |

@@ -3,10 +3,9 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
 use crate::error::{Error, Result};
-use crate::feedback::{emit_toast, emit_toast_parts};
 use crate::ipc::commands::emit_workspace_status;
 use crate::ipc::events::StateChanged;
-use crate::ipc::types::{StateChangeKind, ToastPart, ToastTone};
+use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
 use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
 use tauri_specta::Event;
@@ -155,8 +154,6 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
         kind: StateChangeKind::WorkspaceStatus,
     }
     .emit(app);
-
-    emit_teardown_toast(app, &row.name, &record.branch, input.delete_branch);
 
     Ok(())
 }
@@ -322,36 +319,6 @@ fn expand_tilde(path: &str) -> PathBuf {
         return PathBuf::from(home).join(rest);
     }
     PathBuf::from(path)
-}
-
-fn emit_teardown_toast(app: &AppHandle, name: &str, branch: &str, deleted_branch: bool) {
-    if deleted_branch {
-        emit_toast_parts(
-            app,
-            ToastTone::Bad,
-            vec![
-                ToastPart::Text {
-                    value: format!("Tore down {name} and deleted local branch "),
-                },
-                ToastPart::Code {
-                    value: branch.to_string(),
-                },
-            ],
-            None,
-        );
-        return;
-    }
-    emit_toast(
-        app,
-        crate::ipc::types::ToastRaisedPayload {
-            tone: ToastTone::Bad,
-            parts: vec![ToastPart::Text {
-                value: format!("Tore down {name}"),
-            }],
-            workspace_id: None,
-            thread_id: None,
-        },
-    );
 }
 
 #[cfg(test)]
