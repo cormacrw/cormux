@@ -7,7 +7,16 @@
   import type { Thread } from '$lib/state/threads.svelte'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
 
-  let { thread }: { thread: Thread } = $props()
+  let {
+    thread,
+    draft = false,
+    draftModel = $bindable(null),
+  }: {
+    thread: Thread
+    /** A thread that doesn't exist yet: the pick stays in `draftModel` until it's created. */
+    draft?: boolean
+    draftModel?: string | null
+  } = $props()
 
   /** The radio value for the engine's own default. */
   const DEFAULT = ''
@@ -40,6 +49,13 @@
   })
 
   async function load(threadId: string) {
+    if (draft) {
+      const listed = await commands.engineModels(thread.engine)
+      if (listed.status === 'ok') {
+        models = { current: draftModel, options: listed.data }
+      }
+      return
+    }
     const result = await commands.threadModels(threadId)
     if (result.status === 'ok' && threadId === thread.id) models = result.data
   }
@@ -51,6 +67,10 @@
     const model = value === DEFAULT ? null : value
     if (model === previous) return
     models = { ...models, current: model }
+    if (draft) {
+      draftModel = model
+      return
+    }
     const result = await commands.setThreadModel(threadId, model)
     if (result.status === 'error') {
       if (threadId === thread.id && models) {

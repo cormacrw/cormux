@@ -35,3 +35,14 @@ export function draftBranchName(prompt: string): string {
   const slug = slugify(trimmed)
   return `${prefix}/${slug || 'task'}`
 }
+
+/** `name`, or `name-2`, `name-3`… if that's taken. */
+export function uniqueBranchName(name: string, taken: string[]): string {
+  let candidate = name
+  let n = 2
+  while (taken.includes(candidate)) {
+    candidate = `${name}-${n}`
+    n += 1
+  }
+  return candidate
+}

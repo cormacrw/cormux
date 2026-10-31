@@ -26,15 +26,6 @@ pub struct LeadProvisionJob {
     pub review: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct JoinProvisionJob {
-    pub workspace_id: String,
-    pub thread_id: String,
-    pub engine: String,
-    pub branch: String,
-    pub agent_count: usize,
-}
-
 pub async fn run_workspace_provisioning(app: AppHandle, job: LeadProvisionJob) {
     let state = app.state::<AppState>();
     if let Err(error) = run_lead(&app, &state, job).await {
@@ -171,96 +162,6 @@ pub async fn skip_provisioning_setup(app: AppHandle, workspace_id: String) {
     if let Err(error) = finish_after_setup(&app, &state, &job, 0).await {
         mark_failed(&app, &state, &workspace_id, None, None, &error.to_string()).await;
     }
-}
-
-pub async fn join_thread_provisioning(app: AppHandle, job: JoinProvisionJob) {
-    let state = app.state::<AppState>();
-    if !workspace_alive(&state, &job.workspace_id).await {
-        return;
-    }
-    set_activity(
-        &state,
-        &job.workspace_id,
-        "Joining worktree…",
-        1,
-        None,
-        None,
-    )
-    .await;
-    persist_workspace_status(&state, &job.workspace_id, "provisioning");
-    emit_snapshot(&app, &state);
-
-    let joined = serde_json::json!({
-        "icon": "branch",
-        "title": "Joined worktree",
-        "detail": format!("{} · shared with {} agents", job.branch, job.agent_count),
-        "chip": "Worktree ready",
-    });
-    let _ = state
-        .store
-        .append_event(&job.thread_id, "tool", &joined.to_string());
-
-    tokio::time::sleep(Duration::from_millis(2400)).await;
-    if !workspace_alive(&state, &job.workspace_id).await {
-        return;
-    }
-
-    set_activity(
-        &state,
-        &job.workspace_id,
-        "Waiting for instructions…",
-        0,
-        None,
-        None,
-    )
-    .await;
-
-    if let Err(error) =
-        spawn_engine(&state, &job.thread_id, &job.engine, &job.workspace_id, None).await
-    {
-        mark_failed(
-            &app,
-            &state,
-            &job.workspace_id,
-            None,
-            None,
-            &error.to_string(),
-        )
-        .await;
-        return;
-    }
-
-    let _ = state.store.upsert_thread(&ThreadRow {
-        id: job.thread_id.clone(),
-        workspace_id: job.workspace_id.clone(),
-        title: snapshot_thread_title(&state, &job.thread_id),
-        engine: job.engine,
-        session_id: state.engines.session_id(&job.thread_id).ok().flatten(),
-        status: "running".into(),
-        used_tokens: None,
-        context_size: None,
-        cost_usd: None,
-        transcript_readonly: false,
-    });
-
-    let greeting = serde_json::json!({
-        "role": "assistant",
-        "text": "I'm in the same worktree as the Lead. Tell me which part to take on and I'll coordinate so we don't edit the same files.",
-    });
-    let _ = state
-        .store
-        .append_event(&job.thread_id, "message", &greeting.to_string());
-
-    state
-        .workspace
-        .set_thread(&job.thread_id, &job.workspace_id, ThreadActivity::Running)
-        .await;
-    let _ = state
-        .workspace
-        .set_status(&job.workspace_id, WorkspaceLifecycle::Running)
-        .await;
-    persist_workspace_status(&state, &job.workspace_id, "running");
-    emit_snapshot(&app, &state);
 }
 
 async fn run_lead(app: &AppHandle, state: &AppState, job: LeadProvisionJob) -> Result<()> {
@@ -479,6 +380,8 @@ async fn finish_after_setup(
         context_size: None,
         cost_usd: None,
         transcript_readonly: false,
+        retired: false,
+        parent_thread_id: None,
     });
 
     if start_agent {
@@ -711,6 +614,17 @@ async fn mark_failed(
             thread_id: None,
         },
     );
+    // Spawned: reporting can start an engine, and starting one can end up back here.
+    let app = app.clone();
+    let workspace_id = workspace_id.to_string();
+    let message = message.to_string();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) =
+            crate::orchestration::on_provisioning_failed(&app, &workspace_id, &message).await
+        {
+            log::warn!("reporting failed setup: {error}");
+        }
+    });
 }
 
 /// The worktree is checked out, setup has run, and the Reviewer has its prompt.
@@ -876,21 +790,6 @@ fn emit_snapshot(app: &AppHandle, state: &AppState) {
         kind: StateChangeKind::WorkspaceStatus,
     }
     .emit(app);
-}
-
-fn snapshot_thread_title(state: &AppState, thread_id: &str) -> String {
-    state
-        .store
-        .snapshot()
-        .ok()
-        .and_then(|snapshot| {
-            snapshot
-                .threads
-                .iter()
-                .find(|row| row.id == thread_id)
-                .map(|row| row.title.clone())
-        })
-        .unwrap_or_else(|| "Agent".into())
 }
 
 fn chrono_timestamp() -> String {

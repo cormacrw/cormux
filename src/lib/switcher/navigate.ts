@@ -10,7 +10,7 @@ import type { Place } from './places'
 export function currentPlace(): Place | null {
   if (app.view === 'workspace' && app.workspaceId)
     return { kind: 'workspace', id: app.workspaceId }
-  if (app.view === 'homebase' || app.view === 'week' || app.view === 'sprint')
+  if (app.view === 'newThread' || app.view === 'sprint')
     return { kind: app.view }
   return null
 }
@@ -21,8 +21,7 @@ export function openPlace(place: Place) {
     const stillThere =
       thread && threads.getById(thread)?.workspaceId === place.id
     app.openWorkspace(place.id, stillThere ? thread : undefined)
-  } else if (place.kind === 'homebase') app.openHomebase()
-  else if (place.kind === 'week') app.openWeek()
+  } else if (place.kind === 'newThread') app.openNewThread()
   else app.openSprint()
 }
 

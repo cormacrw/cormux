@@ -1,38 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { NO_USAGE } from '$lib/usage/usage'
-import { agentName } from '$lib/agent-name'
 import {
-  buildThreadBarTabOrder,
   findingsTabAriaLabel,
-  moveTabFocusIndex,
   outputTabAriaLabel,
   outputTabState,
   showFindingsTab,
-  threadTabAriaLabel,
 } from './thread-tabs'
 
-const sampleThread = {
-  id: 't1',
-  workspaceId: 'ws1',
-  role: 'Lead',
-  engine: 'claude',
-  status: 'running',
-  paused: false,
-  activity: 'Editing files',
-  pendingApprovals: 0,
-  usage: NO_USAGE,
-}
-
 describe('thread tab labels', () => {
-  it('formats thread aria labels with approvals', () => {
-    expect(threadTabAriaLabel(sampleThread)).toBe(
-      `${agentName('t1')}, Editing files`,
-    )
-    expect(threadTabAriaLabel({ ...sampleThread, pendingApprovals: 2 })).toBe(
-      `${agentName('t1')}, Editing files, 2 approvals waiting`,
-    )
-  })
-
   it('formats findings and output labels', () => {
     expect(findingsTabAriaLabel(3)).toBe('Review findings, 3 open findings')
     expect(
@@ -52,28 +26,7 @@ describe('thread tab labels', () => {
   })
 })
 
-describe('thread bar order', () => {
-  it('puts findings after threads, then changes and stack before output', () => {
-    const tabs = buildThreadBarTabOrder([sampleThread], true)
-    expect(tabs.map((tab) => tab.kind)).toEqual([
-      'thread',
-      'findings',
-      'changes',
-      'output',
-    ])
-  })
-
-  it('puts the plan right after the threads, before findings', () => {
-    const tabs = buildThreadBarTabOrder([sampleThread], true, true)
-    expect(tabs.map((tab) => tab.kind)).toEqual([
-      'thread',
-      'plan',
-      'findings',
-      'changes',
-      'output',
-    ])
-  })
-
+describe('findings', () => {
   it('shows findings tab when review is ready', () => {
     expect(
       showFindingsTab({
@@ -106,14 +59,5 @@ describe('thread bar order', () => {
         hasFindings: true,
       }),
     ).toBe(true)
-  })
-})
-
-describe('keyboard wrap', () => {
-  it('wraps arrow navigation', () => {
-    expect(moveTabFocusIndex(2, 3, 'ArrowRight')).toBe(0)
-    expect(moveTabFocusIndex(0, 3, 'ArrowLeft')).toBe(2)
-    expect(moveTabFocusIndex(1, 4, 'Home')).toBe(0)
-    expect(moveTabFocusIndex(1, 4, 'End')).toBe(3)
   })
 })

@@ -3,10 +3,10 @@ import { mkdirSync } from 'node:fs'
 
 async function openStack(page: Page, query = '') {
   await page.goto(`/${query}`)
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
-  await page.getByRole('tab', { name: /^Git/ }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.locator('#tray-changes').click()
   return page
-    .getByRole('tabpanel', { name: /^Git/ })
+    .getByRole('region', { name: 'Git', exact: true })
     .getByRole('navigation', { name: 'Stack' })
 }
 
@@ -167,7 +167,7 @@ test('the header links a PR opened outside Cormux for the checked-out branch', a
     ]
   })
   await page.goto('/?stack=none')
-  await page.getByRole('button', { name: /^OAuth login, Idle/ }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const button = page.getByRole('button', { name: 'PR #57 · Approved' })
   await expect(button).toBeVisible()
   await button.click()

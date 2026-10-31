@@ -241,8 +241,9 @@ impl WorkspaceManager {
                 .worktree_add_detached(&repo_path, &worktree, &workspace.branch)
                 .await?;
         } else {
+            let start = self.git.latest_base(&repo_path, &workspace.base).await;
             self.git
-                .worktree_add(&repo_path, &worktree, &workspace.branch, &workspace.base)
+                .worktree_add(&repo_path, &worktree, &workspace.branch, &start)
                 .await?;
         }
         self.diffs.watch(workspace_id, &worktree)?;
@@ -319,22 +320,6 @@ impl WorkspaceManager {
                 activity,
             },
         );
-        let activities: Vec<ThreadActivity> = inner
-            .threads
-            .values()
-            .filter(|thread| thread.workspace_id == workspace_id)
-            .map(|thread| thread.activity)
-            .collect();
-        if let Some(workspace) = inner.workspaces.get_mut(workspace_id) {
-            workspace.status = status_from_threads(workspace.status, activities.into_iter());
-            workspace.version += 1;
-        }
-    }
-
-    /// Forget a closed thread so it no longer counts toward the workspace's status.
-    pub async fn remove_thread(&self, thread_id: &str, workspace_id: &str) {
-        let mut inner = self.inner.write().await;
-        inner.threads.remove(thread_id);
         let activities: Vec<ThreadActivity> = inner
             .threads
             .values()

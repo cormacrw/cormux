@@ -1,9 +1,7 @@
 import { workspaceRunCommand } from '$lib/run-app/run-command'
 import Zap from '@lucide/svelte/icons/zap'
-import CalendarDays from '@lucide/svelte/icons/calendar-days'
 import Download from '@lucide/svelte/icons/download'
 import GitBranch from '@lucide/svelte/icons/git-branch'
-import Layers from '@lucide/svelte/icons/layers'
 import Kanban from '@lucide/svelte/icons/square-kanban'
 import MessageSquare from '@lucide/svelte/icons/message-square'
 import Play from '@lucide/svelte/icons/play'
@@ -17,6 +15,7 @@ import { clickup } from '$lib/state/clickup.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches } from '$lib/state/scratches.svelte'
 import { settings } from '$lib/state/settings.svelte'
+import { prs } from '$lib/state/prs.svelte'
 import { threads } from '$lib/state/threads.svelte'
 import { workspaceRecords } from '$lib/state/workspace-records.svelte'
 import { workspaces } from '$lib/state/workspaces.svelte'
@@ -27,7 +26,7 @@ import {
   openWorkspaceFindings,
   openWorkspaceThread,
   pullWorkspace,
-  requestNewThread,
+  reviewPullRequest,
   runBang,
   runWorkspaceApp,
   toggleReduceMotion,
@@ -36,9 +35,7 @@ import {
 const iconByCommandPrefix: Record<string, PaletteCommand['icon']> = {
   'action-new-workspace': Plus,
   'action-new-scratch': Plus,
-  'action-homebase': Layers,
   'action-sprint': Kanban,
-  'action-week': CalendarDays,
   'action-add-todo': Plus,
   'action-settings': SlidersHorizontal,
   'action-reduce-motion': SlidersHorizontal,
@@ -107,6 +104,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       bangs: settings.bangs,
       threads: threads.agents,
       repos: repos.items,
+      pullRequests: prs.items,
       records: workspaceRecords.records,
       runtimeFor: (id) => workspaceRecords.runtime(id),
       repoFor: (id) => repos.getById(id),
@@ -120,20 +118,18 @@ export function buildPaletteCommands(): PaletteCommand[] {
         ),
     },
     {
-      requestNewWorkspace: () => app.requestNewWorkspace(),
-      requestNewScratch: () => app.requestNewScratch(),
+      openNewThread: () => app.openNewThread(),
       openScratch: (id) => app.openScratch(id),
       runBang: (id, extra) => void runBang(id, extra),
-      openHomebase: () => app.openHomebase(),
+      openRepo: (id) => app.openRepo(id),
+      reviewPullRequest,
       openSprint: () => app.openSprint(),
-      openWeek: () => app.openWeek(),
       openSettings: () => app.openSettings(),
       openWorkspace: (id, threadId) => app.openWorkspace(id, threadId),
       toggleReduceMotion,
       openSettingsSection,
       openWorkspaceThread,
       openWorkspaceFindings,
-      requestNewThread,
       runWorkspaceApp,
       pullWorkspace,
     },

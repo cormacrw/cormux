@@ -6,7 +6,7 @@ test('copying a message swaps the icon to a check, then back', async ({
 }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/?longThread=1')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const copy = page
     .locator('#timeline')
     .getByRole('button', { name: 'Copy message' })

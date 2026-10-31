@@ -121,19 +121,6 @@ fn harness_tool_meta(
             },
         );
     }
-    if lower.contains("plan") || title.to_lowercase().contains("plan") {
-        return (
-            "execute_plan".into(),
-            LabelSet {
-                title: "Execute plan".into(),
-                what: detail.to_string(),
-                why: "Nothing is edited until you approve.".into(),
-                ok: "Approve plan".into(),
-                no: "Revise".into(),
-                effect: Some("execute_plan".into()),
-            },
-        );
-    }
     if kind == ToolKind::Execute || lower.contains("bash") || lower.contains("run") {
         return (
             "execute".into(),
@@ -158,18 +145,6 @@ fn harness_tool_meta(
             effect: None,
         },
     )
-}
-
-/// A plan to review in the Plan tab. Denying it sends the user's comments back.
-pub fn payload_with_plan(mut payload: ApprovalPayload, plan: String) -> ApprovalPayload {
-    payload.title = "Review plan".into();
-    payload.what = crate::plan_mode::plan_title(&plan);
-    payload.why = "Nothing is edited until you approve.".into();
-    payload.ok_label = "Approve plan".into();
-    payload.no_label = "Sent feedback".into();
-    payload.effect = Some("execute_plan".into());
-    payload.plan = Some(plan);
-    payload
 }
 
 pub fn payload_with_option_labels(

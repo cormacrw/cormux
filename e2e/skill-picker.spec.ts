@@ -9,11 +9,7 @@ test('typing / anywhere in a Claude composer offers skills and inserts the pick'
   mkdirSync('e2e/output', { recursive: true })
   await page.goto('/')
 
-  await page
-    .getByRole('button', {
-      name: 'Why the webhook signature fails, my-app, Idle',
-    })
-    .click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const input = page.locator('#composer-input')
   await input.fill('/')
   const picker = page.getByRole('listbox', { name: 'Skills' })
@@ -49,7 +45,7 @@ test('@ offers the repos set up in Cormux and sends the alias as the repo’s fo
   page,
 }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const input = page.locator('#composer-input')
   await input.click()
   await input.pressSequentially('Copy the toast from @my')
@@ -79,7 +75,7 @@ test('# offers the sprint’s tasks and sends one as its name, link and descript
     ;(window as { __HARNESS_CLICKUP__?: boolean }).__HARNESS_CLICKUP__ = true
   })
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const input = page.locator('#composer-input')
   await input.click()
   await input.pressSequentially('Fix #eng-19')
@@ -113,11 +109,7 @@ test('the picker opening under a still pointer keeps the first option highlighte
   page,
 }) => {
   await page.goto('/')
-  await page
-    .getByRole('button', {
-      name: 'Why the webhook signature fails, my-app, Idle',
-    })
-    .click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const input = page.locator('#composer-input')
   // Park the pointer just above the prompt bar, where the last option will open.
   const bar = (await page.locator('#composer').boundingBox())!

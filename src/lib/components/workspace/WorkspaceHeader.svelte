@@ -22,6 +22,8 @@
   import WorkspaceBranchTag from './WorkspaceBranchTag.svelte'
   import WorkspaceMoreMenu from './WorkspaceMoreMenu.svelte'
   import WorkspacePrimaryAction from './WorkspacePrimaryAction.svelte'
+  import EarlierThreadsPicker from './EarlierThreadsPicker.svelte'
+  import WorkspaceTrayButtons from './WorkspaceTrayButtons.svelte'
   import WorkspaceRunControls from './WorkspaceRunControls.svelte'
   import { formatCost, totalCost } from '$lib/usage/usage'
   import {
@@ -46,15 +48,22 @@
   const repo = $derived(record ? repos.getById(record.repoId) : undefined)
   const runtime = $derived(workspaceRecords.runtime(workspace.id))
   const wsThreads = $derived(threads.forWorkspace(workspace.id))
-  const cost = $derived(totalCost(wsThreads.map((thread) => thread.usage)))
+  // What this work has cost, the threads it started included.
+  const cost = $derived(
+    totalCost(
+      [
+        ...wsThreads,
+        ...wsThreads.flatMap((thread) => threads.childrenOf(thread.id)),
+      ].map((thread) => thread.usage),
+    ),
+  )
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runDisabled = $derived(
     provisioning || workspace.lifecycle === 'provisioningFailed',
   )
+  // A review runs in the workspace's one thread, so it waits for that thread to finish.
   const reviewing = $derived(
-    wsThreads.some(
-      (thread) => thread.role === 'Reviewer' && thread.status === 'running',
-    ),
+    wsThreads.some((thread) => thread.status === 'running'),
   )
 
   const headerSignature = $derived(
@@ -120,7 +129,7 @@
     if (event.button !== 0) return
     const target = event.target
     if (!(target instanceof Element)) return
-    if (target.closest('button, a, input, textarea, [role="tab"]')) return
+    if (target.closest('button, a, input, textarea')) return
     void getCurrentWindow().startDragging()
   }
 </script>
@@ -165,6 +174,7 @@
       {#if repo?.name}
         <p class="truncate text-xs text-muted-foreground">{repo.name}</p>
       {/if}
+      <EarlierThreadsPicker workspaceId={workspace.id} />
       {#if cost != null}
         <p
           class="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
@@ -180,6 +190,7 @@
       class="flex flex-wrap items-center justify-end gap-2 max-md:w-full"
       data-od-id="ws-actions"
     >
+      <WorkspaceTrayButtons {workspace} />
       <WorkspaceRunControls
         workspaceId={workspace.id}
         repoId={record?.repoId ?? ''}

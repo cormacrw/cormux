@@ -184,9 +184,9 @@ test('findings: dismiss one or the selection, and restore it', async ({
     .getByRole('button', { name: /OAuth login/ })
     .first()
     .click()
-  await page.locator('#thread-tab-findings').click()
+  await page.locator('#tray-findings').click()
   const panel = page.locator('#findings-panel')
-  const tab = page.locator('#thread-tab-findings')
+  const tab = page.locator('#tray-findings')
   await expect(tab).toHaveAccessibleName(/3 open findings/)
 
   // One at a time: the row stays, dimmed, and can't be selected.

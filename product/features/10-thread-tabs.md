@@ -1,5 +1,7 @@
 # 10 · Thread tabs
 
+> Superseded: every thread now has its own worktree and each workspace has one thread. See [PRODUCT.md](../PRODUCT.md).
+
 ## Summary
 
 Directly under the header, a tab bar holds one tab per agent thread in the workspace, a **+** to start another thread, a **Findings** tab once a review has finished, and an **Output** tab pinned to the right for the running app. Each thread tab shows live status and a count of approvals waiting, so the user can see which thread needs them without opening it.

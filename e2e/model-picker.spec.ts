@@ -9,11 +9,7 @@ test('the composer picks a model per thread when the engine lists some', async (
   mkdirSync('e2e/output', { recursive: true })
   await page.goto('/')
 
-  await page
-    .getByRole('button', {
-      name: 'Why the webhook signature fails, my-app, Idle',
-    })
-    .click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const picker = page.getByRole('button', { name: 'Model: Default' })
   await expect(picker).toBeVisible()
   await picker.click()

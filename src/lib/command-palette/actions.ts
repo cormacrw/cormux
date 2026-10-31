@@ -1,13 +1,14 @@
-import { coreErrorText } from '$lib/feedback/core-error'
-import { showToast } from '$lib/feedback/show-toast'
-import { commands, fetchSnapshot } from '$lib/ipc'
 import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
 import { bangPromptWithExtra } from '$lib/settings/bangs'
-import { hydrateFromSnapshot } from '$lib/state'
+import { startReviewWorkspace } from '$lib/review/start-review'
 import { app } from '$lib/state/app.svelte'
+import type { PullRequest } from '$lib/state/prs.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { settings } from '$lib/state/settings.svelte'
+import { workspaceRecords } from '$lib/state/workspace-records.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
+import { workspaces } from '$lib/state/workspaces.svelte'
+import { startThread } from '$lib/workspace/start-thread'
 
 /** Hooks for COR-15 / COR-17 — palette closes before these run. */
 export function runWorkspaceApp(
@@ -40,10 +41,16 @@ export function abortWorkspaceGit(workspaceId: string) {
   )
 }
 
-export function requestNewThread(workspaceId: string) {
-  window.dispatchEvent(
-    new CustomEvent('cormux:new-thread', { detail: { workspaceId } }),
+/** One review workspace per PR: reopens it rather than starting a duplicate. */
+export function reviewPullRequest(pr: PullRequest) {
+  const existing = workspaces.items.find(
+    (row) =>
+      row.kind === 'review' &&
+      row.prNumber === pr.num &&
+      (!pr.repoId || workspaceRecords.getRecord(row.id)?.repoId === pr.repoId),
   )
+  if (existing) app.openWorkspace(existing.id)
+  else void startReviewWorkspace(pr)
 }
 
 export function openSettingsSection(section: string) {
@@ -67,34 +74,15 @@ export function toggleReduceMotion() {
 }
 
 /**
- * Starts a scratch from a bang in the default repo without leaving the current view.
+ * Starts a thread from a bang in the default repo without leaving the current view.
  * `extra` is what was typed after `!name` in the palette, added to the prompt.
  */
 export async function runBang(bangId: string, extra = '') {
   const bang = settings.bangs.find((row) => row.id === bangId)
   if (!bang) return
-  const title = `!${bang.name}`
-  const result = await commands.createScratch({
-    title,
+  await startThread({
     repoId: resolveDefaultRepoId(repos.items, settings.defaultRepo),
+    base: null,
     prompt: bangPromptWithExtra(bang.prompt, extra),
-  })
-  if (result.status === 'error') {
-    showToast({
-      tone: 'bad',
-      parts: [
-        {
-          type: 'text',
-          value: coreErrorText(result.error, 'Could not start the scratch'),
-        },
-      ],
-    })
-    return
-  }
-  hydrateFromSnapshot(await fetchSnapshot())
-  showToast({
-    tone: 'ok',
-    parts: [{ type: 'text', value: `Started ${title}` }],
-    scratchId: result.data.scratchId,
   })
 }

@@ -116,6 +116,8 @@ mod tests {
                 context_size: None,
                 cost_usd: None,
                 transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
             }],
         );
         assert!(text.contains("#482"));

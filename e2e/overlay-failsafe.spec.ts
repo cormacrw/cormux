@@ -62,7 +62,7 @@ test('the app stays clickable when a closed dialog leaves the body locked', asyn
 
 test('an open menu keeps the body locked', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await page.locator('[data-od-id="ws-branch"]').click()
   await expect(page.getByRole('menu', { name: 'Switch branch' })).toBeVisible()
   await expect

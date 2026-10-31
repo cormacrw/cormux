@@ -6,7 +6,7 @@ test('Esc stops the agent; ↑/↓ cycle past prompts from an empty composer', a
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/?longThread=2')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const input = page.locator('#composer-input')
   const stop = page.locator('[data-od-id="composer-stop"]')
 

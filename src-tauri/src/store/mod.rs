@@ -4,44 +4,33 @@ pub mod types;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 
 use crate::error::{Error, Result};
 use types::{
     ApprovalRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow, SettingRow,
-    SprintPlanRow, ThreadEventRow, ThreadRow, TodoRow, WorkspaceRow,
+    ThreadEventRow, ThreadRow, WorkspaceRow,
 };
 
 /// SQLite persistence in the app data directory.
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Option<Connection>>>,
-    /// Beside the database: one Markdown file per TODO, for agents to read (todo_files.rs).
-    tasks_dir: Arc<Mutex<Option<std::path::PathBuf>>>,
 }
 
 impl Store {
     pub fn new() -> Self {
         Self {
             conn: Arc::new(Mutex::new(None)),
-            tasks_dir: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn open(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
-            if let Ok(mut dir) = self.tasks_dir.lock() {
-                *dir = Some(parent.join("tasks"));
-            }
         }
         let conn = Connection::open(path)?;
         self.configure(conn)
-    }
-
-    /// Where the TODO files live, once the database is open.
-    pub fn tasks_dir(&self) -> Option<std::path::PathBuf> {
-        self.tasks_dir.lock().ok()?.clone()
     }
 
     #[cfg(test)]
@@ -298,6 +287,34 @@ impl Store {
         })
     }
 
+    /// Approvals nothing can answer any more: the turn that asked has ended. Left pending,
+    /// they would hold the thread in "needs attention" for good.
+    pub fn deny_stale_approvals(&self, thread_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE approvals SET status = 'denied'
+                 WHERE status = 'pending' AND thread_id = ?1",
+                [thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// No agent survives the app closing, so a turn in flight then is over. Provisioning is
+    /// left alone: it has its own retry.
+    pub fn reset_interrupted_turns(&self) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute_batch(
+                "UPDATE approvals SET status = 'denied' WHERE status = 'pending';
+                 UPDATE threads SET status = 'idle'
+                 WHERE status IN ('running', 'waiting', 'paused');
+                 UPDATE workspaces SET status = 'idle'
+                 WHERE status IN ('running', 'waiting');",
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn mark_thread_idle(&self, thread_id: &str) -> Result<()> {
         self.set_thread_status(thread_id, "idle")?;
         let snapshot = self.snapshot()?;
@@ -517,12 +534,14 @@ impl Store {
         self.with_conn(|conn| {
             conn.execute(
                 "INSERT INTO threads (id, workspace_id, title, engine, session_id, status,
-                    used_tokens, context_size, cost_usd, transcript_readonly)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                    used_tokens, context_size, cost_usd, transcript_readonly, retired,
+                    parent_thread_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(id) DO UPDATE SET title = excluded.title, engine = excluded.engine,
                     session_id = excluded.session_id, status = excluded.status,
                     used_tokens = excluded.used_tokens, context_size = excluded.context_size,
-                    cost_usd = excluded.cost_usd, transcript_readonly = excluded.transcript_readonly",
+                    cost_usd = excluded.cost_usd, transcript_readonly = excluded.transcript_readonly,
+                    retired = excluded.retired",
                 rusqlite::params![
                     thread.id,
                     thread.workspace_id,
@@ -534,6 +553,8 @@ impl Store {
                     thread.context_size,
                     thread.cost_usd,
                     thread.transcript_readonly as i64,
+                    thread.retired as i64,
+                    thread.parent_thread_id,
                 ],
             )?;
             Ok(())
@@ -552,6 +573,7 @@ impl Store {
         })
     }
 
+    #[cfg(test)]
     pub fn insert_scratch(&self, scratch: &ScratchRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -562,16 +584,6 @@ impl Store {
                     scratch.title,
                     scratch.thread_id
                 ],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn set_scratch_title(&self, scratch_id: &str, title: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE scratches SET title = ?1 WHERE id = ?2",
-                rusqlite::params![title, scratch_id],
             )?;
             Ok(())
         })
@@ -599,30 +611,6 @@ impl Store {
         })
     }
 
-    /// Close a thread tab. It drops out of the snapshot; its events stay in the database.
-    pub fn close_thread(&self, thread_id: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE threads SET closed_at = datetime('now'), status = 'idle' WHERE id = ?1",
-                [thread_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    /// The workspace's own thread (Lead, Planner or Reviewer): its first, which can't be closed.
-    pub fn first_thread_id(&self, workspace_id: &str) -> Result<Option<String>> {
-        self.with_conn(|conn| {
-            Ok(conn
-                .query_row(
-                    "SELECT id FROM threads WHERE workspace_id = ?1 ORDER BY created_at, rowid LIMIT 1",
-                    [workspace_id],
-                    |row| row.get(0),
-                )
-                .ok())
-        })
-    }
-
     /// Removes the scratch and its thread; events and approvals cascade with the thread.
     pub fn delete_scratch(&self, scratch_id: &str) -> Result<()> {
         self.with_conn(|conn| {
@@ -637,119 +625,6 @@ impl Store {
             if let Some(thread_id) = thread_id {
                 conn.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
             }
-            Ok(())
-        })
-    }
-
-    /// Inserts a todo with the next free number, and returns that number.
-    pub fn insert_todo(&self, todo: &TodoRow) -> Result<i64> {
-        self.with_conn(|conn| {
-            let number: i64 = conn.query_row(
-                "SELECT COALESCE(MAX(number), 0) + 1 FROM todos",
-                [],
-                |row| row.get(0),
-            )?;
-            conn.execute(
-                "INSERT INTO todos (id, number, title, pinned, description, planned_on, done_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                rusqlite::params![
-                    todo.id,
-                    number,
-                    todo.title,
-                    todo.pinned,
-                    todo.description,
-                    todo.planned_on,
-                    todo.done_at
-                ],
-            )?;
-            Ok(number)
-        })
-    }
-
-    pub fn update_todo(&self, todo_id: &str, title: &str, description: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE todos SET title = ?2, description = ?3 WHERE id = ?1",
-                rusqlite::params![todo_id, title, description],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn plan_todo(&self, todo_id: &str, planned_on: Option<&str>) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE todos SET planned_on = ?2 WHERE id = ?1",
-                rusqlite::params![todo_id, planned_on],
-            )?;
-            Ok(())
-        })
-    }
-
-    /// Returns the stored `done_at`, which is `None` once reopened.
-    pub fn set_todo_done(&self, todo_id: &str, done: bool) -> Result<Option<String>> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE todos SET done_at = CASE WHEN ?2 THEN COALESCE(done_at, datetime('now')) END
-                 WHERE id = ?1",
-                rusqlite::params![todo_id, done],
-            )?;
-            let done_at = conn
-                .query_row(
-                    "SELECT done_at FROM todos WHERE id = ?1",
-                    [todo_id],
-                    |row| row.get(0),
-                )
-                .optional()?
-                .flatten();
-            Ok(done_at)
-        })
-    }
-
-    pub fn plan_sprint_task(
-        &self,
-        task_id: &str,
-        planned_on: Option<&str>,
-    ) -> Result<SprintPlanRow> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO sprint_plan (task_id, planned_on) VALUES (?1, ?2)
-                 ON CONFLICT(task_id) DO UPDATE SET
-                    planned_on = excluded.planned_on,
-                    updated_at = datetime('now')",
-                rusqlite::params![task_id, planned_on],
-            )?;
-            sprint_plan_row(conn, task_id)
-        })
-    }
-
-    pub fn set_sprint_task_done(&self, task_id: &str, done: bool) -> Result<SprintPlanRow> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO sprint_plan (task_id, done_at)
-                 VALUES (?1, CASE WHEN ?2 THEN datetime('now') END)
-                 ON CONFLICT(task_id) DO UPDATE SET
-                    done_at = CASE WHEN ?2 THEN COALESCE(done_at, datetime('now')) END,
-                    updated_at = datetime('now')",
-                rusqlite::params![task_id, done],
-            )?;
-            sprint_plan_row(conn, task_id)
-        })
-    }
-
-    pub fn delete_todo(&self, todo_id: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute("DELETE FROM todos WHERE id = ?1", [todo_id])?;
-            Ok(())
-        })
-    }
-
-    pub fn set_todo_pinned(&self, todo_id: &str, pinned: bool) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE todos SET pinned = ?2 WHERE id = ?1",
-                rusqlite::params![todo_id, pinned],
-            )?;
             Ok(())
         })
     }
@@ -776,6 +651,39 @@ impl Store {
                 }
             }
             Ok(reply)
+        })
+    }
+
+    /// Where the thread's conversation last moved, so a turn is only reported once.
+    pub fn last_message_seq(&self, thread_id: &str) -> Result<i64> {
+        self.with_conn(|conn| {
+            Ok(conn.query_row(
+                "SELECT COALESCE(MAX(seq), 0) FROM thread_events
+                 WHERE thread_id = ?1 AND kind = 'message'",
+                [thread_id],
+                |row| row.get(0),
+            )?)
+        })
+    }
+
+    /// A page of the transcript after `since`, oldest first, as `(seq, kind, payload)`.
+    pub fn thread_events_after(
+        &self,
+        thread_id: &str,
+        since: i64,
+        limit: i64,
+    ) -> Result<Vec<(i64, String, String)>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT seq, kind, payload FROM thread_events
+                 WHERE thread_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
+            )?;
+            let rows = stmt
+                .query_map(rusqlite::params![thread_id, since, limit], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows)
         })
     }
 
@@ -973,17 +881,6 @@ impl Store {
                     &format!("{SCRATCH_COLUMNS} ORDER BY s.created_at DESC, s.rowid DESC"),
                     row_to_scratch,
                 )?,
-                todos: query_all(
-                    conn,
-                    "SELECT id, number, title, pinned, description, planned_on, done_at
-                     FROM todos ORDER BY created_at, rowid",
-                    row_to_todo,
-                )?,
-                sprint_plan: query_all(
-                    conn,
-                    &format!("{SPRINT_PLAN_COLUMNS} ORDER BY updated_at, rowid"),
-                    row_to_sprint_plan,
-                )?,
                 timeline: query_all(
                     conn,
                     "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events
@@ -1054,7 +951,7 @@ impl Store {
 }
 
 const THREAD_COLUMNS: &str = "SELECT id, workspace_id, title, engine, session_id, status,
-        used_tokens, context_size, cost_usd, transcript_readonly
+        used_tokens, context_size, cost_usd, transcript_readonly, retired, parent_thread_id
      FROM threads";
 
 fn row_to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
@@ -1069,6 +966,8 @@ fn row_to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
         context_size: row.get(7)?,
         cost_usd: row.get(8)?,
         transcript_readonly: row.get::<_, i64>(9)? != 0,
+        retired: row.get::<_, i64>(10)? != 0,
+        parent_thread_id: row.get(11)?,
     })
 }
 
@@ -1086,53 +985,6 @@ fn row_to_scratch(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScratchRow> {
         status: row.get(5)?,
         created_at: row.get(6)?,
     })
-}
-
-fn row_to_todo(row: &rusqlite::Row<'_>) -> rusqlite::Result<TodoRow> {
-    Ok(TodoRow {
-        id: row.get(0)?,
-        number: row.get(1)?,
-        title: row.get(2)?,
-        pinned: row.get::<_, i64>(3)? != 0,
-        description: row.get(4)?,
-        planned_on: row.get(5)?,
-        done_at: row.get(6)?,
-    })
-}
-
-/// A day the Week page can plan onto: `YYYY-MM-DD` with a real month and day.
-pub fn is_plan_date(value: &str) -> bool {
-    let parts: Vec<&str> = value.split('-').collect();
-    let [year, month, day] = parts.as_slice() else {
-        return false;
-    };
-    let digits = |part: &str, len: usize| {
-        part.len() == len && part.bytes().all(|byte| byte.is_ascii_digit())
-    };
-    if !(digits(year, 4) && digits(month, 2) && digits(day, 2)) {
-        return false;
-    }
-    let month: u32 = month.parse().unwrap_or(0);
-    let day: u32 = day.parse().unwrap_or(0);
-    (1..=12).contains(&month) && (1..=31).contains(&day)
-}
-
-const SPRINT_PLAN_COLUMNS: &str = "SELECT task_id, planned_on, done_at FROM sprint_plan";
-
-fn row_to_sprint_plan(row: &rusqlite::Row<'_>) -> rusqlite::Result<SprintPlanRow> {
-    Ok(SprintPlanRow {
-        task_id: row.get(0)?,
-        planned_on: row.get(1)?,
-        done_at: row.get(2)?,
-    })
-}
-
-fn sprint_plan_row(conn: &Connection, task_id: &str) -> Result<SprintPlanRow> {
-    Ok(conn.query_row(
-        &format!("{SPRINT_PLAN_COLUMNS} WHERE task_id = ?1"),
-        [task_id],
-        row_to_sprint_plan,
-    )?)
 }
 
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
@@ -1180,122 +1032,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn todos_round_trip_in_creation_order() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
-        for (id, title) in [("a", "Ship it"), ("b", "Write docs")] {
-            store
-                .insert_todo(&TodoRow {
-                    id: id.into(),
-                    number: 0,
-                    title: title.into(),
-                    pinned: false,
-                    description: String::new(),
-                    planned_on: None,
-                    done_at: None,
-                })
-                .unwrap();
-        }
-        store.set_todo_pinned("b", true).unwrap();
-        store.delete_todo("a").unwrap();
-
-        let todos = store.snapshot().unwrap().todos;
-        assert_eq!(todos.len(), 1);
-        assert_eq!((todos[0].id.as_str(), todos[0].pinned), ("b", true));
-        // Numbers count up from 1 and aren't reused once a todo is deleted.
-        assert_eq!(todos[0].number, 2);
-        let next = store
-            .insert_todo(&TodoRow {
-                id: "c".into(),
-                number: 0,
-                title: "Third".into(),
-                pinned: false,
-                description: String::new(),
-                planned_on: None,
-                done_at: None,
-            })
-            .unwrap();
-        assert_eq!(next, 3);
-    }
-
-    #[test]
-    fn todos_keep_their_week_plan() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
-        store
-            .insert_todo(&TodoRow {
-                id: "a".into(),
-                number: 0,
-                title: "Ship it".into(),
-                pinned: false,
-                description: String::new(),
-                planned_on: None,
-                done_at: None,
-            })
-            .unwrap();
-        store
-            .update_todo("a", "Ship it today", "Tag, then publish")
-            .unwrap();
-        store.plan_todo("a", Some("2026-10-21")).unwrap();
-        let done_at = store.set_todo_done("a", true).unwrap();
-        assert!(done_at.is_some());
-        // Marking it done again keeps the first completion time.
-        assert_eq!(store.set_todo_done("a", true).unwrap(), done_at);
-
-        let todo = store.snapshot().unwrap().todos.remove(0);
-        assert_eq!(todo.title, "Ship it today");
-        assert_eq!(todo.description, "Tag, then publish");
-        assert_eq!(todo.planned_on.as_deref(), Some("2026-10-21"));
-        assert_eq!(todo.done_at, done_at);
-
-        assert_eq!(store.set_todo_done("a", false).unwrap(), None);
-        store.plan_todo("a", None).unwrap();
-        let todo = store.snapshot().unwrap().todos.remove(0);
-        assert_eq!((todo.planned_on, todo.done_at), (None, None));
-    }
-
-    #[test]
-    fn plan_dates_are_iso_days() {
-        assert!(is_plan_date("2026-10-21"));
-        for bad in [
-            "2026-1-21",
-            "2026-13-01",
-            "2026-10-00",
-            "21/10/2026",
-            "",
-            "2026-10-21T00",
-        ] {
-            assert!(!is_plan_date(bad), "{bad}");
-        }
-    }
-
-    #[test]
-    fn sprint_plan_rows_upsert_and_reach_the_snapshot() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
-
-        let row = store.set_sprint_task_done("t1", true).unwrap();
-        assert_eq!(row.planned_on, None);
-        assert!(row.done_at.is_some());
-
-        let row = store.plan_sprint_task("t1", Some("2026-10-22")).unwrap();
-        assert_eq!(row.planned_on.as_deref(), Some("2026-10-22"));
-        assert!(row.done_at.is_some(), "planning keeps the done state");
-
-        store.plan_sprint_task("t2", Some("2026-10-23")).unwrap();
-        let row = store.set_sprint_task_done("t1", false).unwrap();
-        assert_eq!(row.done_at, None);
-
-        let plan = store.snapshot().unwrap().sprint_plan;
-        assert_eq!(plan.len(), 2);
-        let t1 = plan.iter().find(|row| row.task_id == "t1").unwrap();
-        assert_eq!(
-            (t1.planned_on.as_deref(), t1.done_at.as_deref()),
-            (Some("2026-10-22"), None)
-        );
-    }
-
-    #[test]
     fn scratch_keeps_its_thread_out_of_workspace_lists() {
         let store = Store::new();
         store.open_in_memory().unwrap();
@@ -1311,6 +1047,8 @@ mod tests {
                 context_size: None,
                 cost_usd: None,
                 transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
         store
@@ -1393,6 +1131,8 @@ mod tests {
                 context_size: None,
                 cost_usd: None,
                 transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
         store.append_event("t1", "message", "{}").unwrap();
@@ -1470,6 +1210,8 @@ mod tests {
                 context_size: None,
                 cost_usd: None,
                 transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
         let events = [
@@ -1503,7 +1245,7 @@ mod tests {
     }
 
     #[test]
-    fn closed_thread_leaves_the_snapshot_but_keeps_its_events() {
+    fn thread_session_and_model_survive_an_upsert() {
         let store = Store::new();
         store.open_in_memory().unwrap();
         store
@@ -1536,7 +1278,7 @@ mod tests {
                 archived_at: None,
             })
             .unwrap();
-        for (id, title) in [("lead", "Lead"), ("helper", "Agent 2")] {
+        for (id, title) in std::iter::once(("lead", "Lead")) {
             store
                 .upsert_thread(&ThreadRow {
                     id: id.into(),
@@ -1549,24 +1291,12 @@ mod tests {
                     context_size: None,
                     cost_usd: None,
                     transcript_readonly: false,
+                    retired: false,
+                    parent_thread_id: None,
                 })
                 .unwrap();
             store.append_event(id, "message", "{}").unwrap();
         }
-        assert_eq!(
-            store.first_thread_id("w1").unwrap().as_deref(),
-            Some("lead")
-        );
-
-        store.close_thread("helper").unwrap();
-        let snapshot = store.snapshot().unwrap();
-        let ids: Vec<_> = snapshot.threads.iter().map(|row| row.id.as_str()).collect();
-        assert_eq!(ids, ["lead"]);
-        assert!(snapshot.timeline.iter().all(|row| row.thread_id == "lead"));
-        let closed = store.thread_by_id("helper").unwrap().unwrap();
-        assert_eq!(closed.status, "idle");
-        assert!(!store.transcript_summary("helper", 10).unwrap().is_empty());
-
         store.set_thread_session("lead", "sess-1").unwrap();
         store
             .set_thread_usage("lead", 900, 1000, Some(0.5))
@@ -1584,6 +1314,34 @@ mod tests {
         let lead = store.thread_by_id("lead").unwrap().unwrap();
         assert_eq!((lead.used_tokens, lead.context_size), (None, None));
         assert_eq!(store.snapshot().unwrap().timeline.len(), 1);
+    }
+
+    #[test]
+    fn a_restart_ends_the_turns_that_were_running() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .with_conn(|conn| {
+                conn.execute_batch(
+                    "PRAGMA foreign_keys = OFF;
+                     INSERT INTO threads (id, workspace_id, title, engine, status) VALUES
+                        ('busy', 'w', 'Lead', 'claude', 'running'),
+                        ('setup', 'w2', 'Lead', 'claude', 'provisioning');
+                     INSERT INTO approvals (id, thread_id, status, tool, payload) VALUES
+                        ('stale', 'busy', 'pending', 'execute', '{}'),
+                        ('done', 'busy', 'approved', 'execute', '{}');",
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        store.reset_interrupted_turns().unwrap();
+
+        let snapshot = store.snapshot().unwrap();
+        assert!(snapshot.approvals.iter().all(|row| row.status != "pending"));
+        let status = |id: &str| store.thread_by_id(id).unwrap().unwrap().status;
+        assert_eq!(status("busy"), "idle");
+        assert_eq!(status("setup"), "provisioning");
     }
 
     #[test]
@@ -1633,6 +1391,8 @@ mod tests {
                 context_size: None,
                 cost_usd: None,
                 transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
         store

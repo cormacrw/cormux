@@ -55,7 +55,7 @@
 
   $effect(() => {
     if (app.view !== 'repo' || !app.repoId) return
-    if (!repos.getById(app.repoId)) app.openHomebase()
+    if (!repos.getById(app.repoId)) app.openNewThread()
   })
 
   $effect(() => {

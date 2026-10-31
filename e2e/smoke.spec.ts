@@ -10,7 +10,9 @@ test.describe('browser harness UI', () => {
       'data-cormux-harness',
       'browser',
     )
-    await expect(page.getByRole('heading', { name: 'Homebase' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'New thread' }),
+    ).toBeVisible()
     await expect(page.locator('.traffic, .tl-close')).toHaveCount(0)
 
     await page.getByRole('button', { name: 'Settings' }).click()
@@ -29,9 +31,7 @@ test.describe('browser harness UI', () => {
       path: 'e2e/output/agents-settings.png',
       fullPage: true,
     })
-    await page.getByRole('button', { name: 'Homebase' }).click()
-
-    await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+    await page.getByRole('button', { name: /^OAuth login,/ }).click()
     await expect(
       page.getByRole('heading', { name: 'OAuth login' }),
     ).toBeVisible()
@@ -56,88 +56,10 @@ test.describe('browser harness UI', () => {
       path: 'e2e/output/workspace.png',
       fullPage: true,
     })
-    await page.getByRole('button', { name: 'Homebase' }).click()
-    await expect(page.getByRole('heading', { name: 'Homebase' })).toBeVisible()
-    await expect(
-      page.getByRole('button', { name: 'Go to Workspace' }),
-    ).toHaveCount(0)
-    await page.screenshot({
-      path: 'e2e/output/homebase.png',
-      fullPage: true,
-    })
-    await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
-    await expect(
-      page.getByRole('heading', { name: 'OAuth login' }),
-    ).toBeVisible()
-    await page.getByRole('button', { name: 'Homebase' }).click()
-
-    await expect(page.locator('#home-title')).toBeVisible()
     await page.keyboard.press('ControlOrMeta+n')
-
-    const dialog = page.getByRole('dialog', { name: 'New workspace' })
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('No repositories yet')).toHaveCount(0)
-    await expect(dialog.locator('#nw-repo')).toBeVisible()
-    // Claude is the only engine, so there is nothing to pick.
-    await expect(dialog.locator('#nw-engine')).toHaveCount(0)
     await expect(
-      dialog.getByText('Describe the task so the agent knows where to start.'),
-    ).toHaveCount(0)
-    await expect(
-      dialog.getByText(
-        'Optional. Leave blank and the thread waits until you send a message.',
-      ),
+      page.getByRole('heading', { name: 'New thread' }),
     ).toBeVisible()
-
-    const footerHint = dialog.getByRole('button', { name: /Cancel/ })
-    await expect(footerHint).toBeVisible()
-
-    const dialogBox = await dialog.boundingBox()
-    const footerBox = await footerHint.boundingBox()
-    expect(dialogBox).toBeTruthy()
-    expect(footerBox).toBeTruthy()
-    if (!dialogBox || !footerBox) return
-
-    expect(footerBox.x).toBeGreaterThanOrEqual(dialogBox.x - 1)
-    expect(footerBox.y).toBeGreaterThanOrEqual(dialogBox.y - 1)
-    expect(footerBox.x + footerBox.width).toBeLessThanOrEqual(
-      dialogBox.x + dialogBox.width + 1,
-    )
-    expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(
-      dialogBox.y + dialogBox.height + 1,
-    )
-
-    mkdirSync('e2e/output', { recursive: true })
-    await page.screenshot({
-      path: 'e2e/output/new-workspace.png',
-      fullPage: true,
-    })
-  })
-
-  test('hides the engine select when only one agent is installed', async ({
-    page,
-  }) => {
-    await page.goto('/')
-    await page.evaluate(() => {
-      ;(window as { __HARNESS_ENGINES__?: unknown }).__HARNESS_ENGINES__ = [
-        {
-          kind: 'claude',
-          installed: true,
-          binary: '/usr/local/bin/claude',
-          version: '1.0.0',
-          signedIn: true,
-        },
-      ]
-    })
-    await expect(page.locator('#home-title')).toBeVisible()
-    await page.keyboard.press('ControlOrMeta+n')
-    const dialog = page.getByRole('dialog', { name: 'New workspace' })
-    await expect(dialog).toBeVisible()
-    await expect(dialog.locator('#nw-engine')).toHaveCount(0)
-    await expect(
-      dialog.locator('[title="The agent provider to use"]'),
-    ).toHaveCount(0)
-    await expect(dialog.locator('#nw-repo')).toBeVisible()
-    await page.screenshot({ path: 'e2e/output/new-workspace-one-engine.png' })
+    await expect(page.locator('#new-thread-repo')).toBeVisible()
   })
 })

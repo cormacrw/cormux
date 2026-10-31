@@ -187,15 +187,21 @@ Holds every pending permission request as a oneshot channel keyed by approval id
 
 ### Harness MCP server (`mcp`)
 
-A small MCP server inside the core (the `rmcp` crate) that every engine is given at session start. It turns things the specs need as structure into tool calls, so Harness never parses prose:
+A small MCP server inside the core. Claude threads reach it over their existing stream-JSON connection rather than a separate process: `--mcp-config` declares an `sdk` server, the same name goes in `sdkMcpServers` on `initialize`, and each JSON-RPC message then arrives as a `mcp_message` control request. The session a message came through identifies the caller, so a tool can't act as another thread. Codex and Gemini threads, and read-only scratches, don't get these tools.
 
-| Tool | Used by | Purpose |
+| Tool | Approval | Purpose |
 | --- | --- | --- |
-| `report_finding` | Reviewer threads | Severity, title, file, line, explanation ([20](features/20-review-findings.md)). Validated before display. |
-| `finish_review` | Reviewer threads | Marks the review done and shows the Findings tab. |
-| `mark_finding_fixed` | Fixing threads | Ties a fix to a finding id and commit. |
-| `read_app_output` | Any thread | Lets the agent see the Output log (an open question in [15](features/15-run-app-and-output.md)). |
-| `restart_app` | Any thread | Optional; gated behind an approval. |
+| `create_thread` | Yes | Starts a new branch, worktree and child thread on a goal, and returns its id at once. |
+| `list_threads` | No | The caller's children, or every thread in the repo, with status and branch. |
+| `get_thread` | No | One thread's status, last reply, modified files, PR and pending approvals. |
+| `read_thread` | No | The transcript, a page at a time. |
+| `send_to_thread` | Yes | A follow-up message to a thread the caller started. |
+
+Threads are visible within a repo only. A child can't start threads of its own, a parent has at most five active children, and only the user can answer a child's approvals.
+
+Children report by push (`orchestration`): when one finishes a turn, is blocked on an approval or fails setup, its parent gets a `<thread_report>` prompt once it is idle, with waiting reports merged into one turn. Reports wait in memory, so one still queued at quit is lost; `list_threads` and `get_thread` recover the state.
+
+`report_finding`, `finish_review`, `mark_finding_fixed`, `read_app_output` and `restart_app` exist in `CormuxMcp::call` but aren't offered to any engine yet. Review findings currently come from the reviewer's reply.
 
 ### Process supervisor (`process`)
 
@@ -291,7 +297,7 @@ State lives in class-based rune stores (`$state` fields, `$derived` getters) hyd
 ### Specialised rendering
 
 - **Diffs** ([14](features/14-changes-panel.md)): a custom Svelte renderer over hunks from the core. Syntax highlighting with **Shiki** (JavaScript regex engine, grammars loaded on demand); word-level ranges from **jsdiff**. Unified and split layouts share one data model. CodeMirror's merge view is the upgrade path if an in-app editor arrives.
-- **Conversation**: agent text rendered as markdown (`marked`), sanitised with **DOMPurify** before insertion. Threads longer than a few hundred items use a virtual list (`@tanstack/svelte-virtual`), or older tool runs collapse.
+- **Conversation**: agent text rendered as markdown (`marked`), sanitised with **DOMPurify** before insertion. Finished replies render diff, chart, JSON, math and test-output blocks as components, and **Mermaid** diagrams and **KaTeX** math load on demand. Threads longer than a few hundred items use a virtual list (`@tanstack/svelte-virtual`), or older tool runs collapse.
 - **Output log**: ANSI colour codes converted to styled spans (`anser`). The log is 500 lines, so no virtualisation. If full terminal emulation is ever needed, `xterm.js` drops into the same panel.
 
 ### Window and platform

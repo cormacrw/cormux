@@ -1,5 +1,7 @@
 # 23 · Scratches
 
+> Superseded: every thread now has its own worktree and each workspace has one thread. See [PRODUCT.md](../PRODUCT.md).
+
 ## Summary
 
 A scratch is a titled, one-off conversation against a single repo. It has no worktree and no branch. On Homebase, scratches sit in a row of thin cards above the workspace cards. Opening a card shows that scratch on its own page: a title, the repo path, one conversation, and a composer. The prompt is optional. Starting with a prompt gets a short read-only answer. Starting blank opens an empty conversation with the cursor in the message box.

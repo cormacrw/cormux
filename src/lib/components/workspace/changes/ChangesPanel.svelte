@@ -160,8 +160,8 @@
 
 <div
   id="changes-panel"
-  role="tabpanel"
-  aria-labelledby="thread-tab-changes"
+  role="region"
+  aria-label="Git"
   data-od-id="changes-panel"
   class="flex min-h-0 flex-1"
 >

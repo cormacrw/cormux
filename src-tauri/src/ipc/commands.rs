@@ -16,7 +16,7 @@ use crate::ipc::events::{StateChanged, WorkspaceStatusChanged};
 use crate::ipc::subscriptions::SubscriptionHandle;
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
-use crate::store::types::{SprintPlanRow, ThreadRow, TodoRow, WorkspaceRow};
+use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::workspace::ThreadActivity;
 
 use super::types::{
@@ -74,11 +74,6 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         workspace_git,
         memory,
         pending_live_approvals: state.approvals.pending_count(),
-        tasks_dir: state
-            .store
-            .tasks_dir()
-            .map(|dir| dir.display().to_string())
-            .unwrap_or_default(),
         github_auth_configured,
         pr_synced_at,
         clickup_configured: state.clickup.is_configured(),
@@ -790,15 +785,7 @@ pub async fn resolve_approval(
         .resolve(&id, approved, deny_message.clone())
         .await?;
     let hints = crate::approvals::apply_harness_effects(&state, &row, &payload, approved)?;
-    // Plan feedback already reaches Claude with the denial, which keeps it planning.
-    let is_plan = payload.effect.as_deref() == Some("execute_plan");
-    if is_plan {
-        crate::plan_mode::resume_after_review(&state, &row.thread_id).await?;
-    }
-    if !approved
-        && !is_plan
-        && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty())
-    {
+    if !approved && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
         let _ = state
             .engines
             .prompt(&row.thread_id, format!("Approval denied: {reason}"));
@@ -1170,6 +1157,28 @@ pub async fn create_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CreateWorkspaceResult> {
+    let started = start_workspace(&app, &state, input, None).await?;
+    Ok(CreateWorkspaceResult {
+        workspace_id: started.workspace_id,
+    })
+}
+
+pub struct StartedWorkspace {
+    pub workspace_id: String,
+    pub thread_id: String,
+    pub branch: String,
+    pub base: String,
+}
+
+/// A new worktree and its thread, provisioned in the background. `parent_thread_id` is the
+/// thread that asked for it, when an agent did.
+pub async fn start_workspace(
+    app: &AppHandle,
+    state: &AppState,
+    input: CreateWorkspaceInput,
+    parent_thread_id: Option<String>,
+) -> Result<StartedWorkspace> {
+    let app = app.clone();
     let snapshot = state.store.snapshot()?;
     let repo = snapshot
         .repos
@@ -1185,12 +1194,19 @@ pub async fn create_workspace(
         )));
     }
 
-    // The dialog sends no name; each new workspace is numbered.
+    // With no name given, the prompt drafts one and Haiku improves it below. A workspace
+    // started without a prompt is numbered.
+    let goal_text = input.goal.trim();
+    let auto_named = input.name.trim().is_empty() && !goal_text.is_empty();
     let name = match input.name.trim() {
-        "" => crate::naming::next_workspace_name(
+        "" if goal_text.is_empty() => crate::naming::next_workspace_name(
             snapshot.workspaces.iter().map(|row| row.name.as_str()),
         ),
-        given => given.chars().take(48).collect(),
+        "" => crate::naming::draft_title(goal_text, crate::naming::WORKSPACE_NAME_MAX),
+        given => given
+            .chars()
+            .take(crate::naming::WORKSPACE_NAME_MAX)
+            .collect(),
     };
     let input = CreateWorkspaceInput { name, ..input };
 
@@ -1248,13 +1264,16 @@ pub async fn create_workspace(
         context_size: None,
         cost_usd: None,
         transcript_readonly: false,
+        retired: false,
+        parent_thread_id,
     })?;
+    // Stored before provisioning starts, since the engine reads it when it spawns.
+    if let Some(model) = input.model.as_deref() {
+        state.store.set_thread_model(&thread_id, Some(model))?;
+    }
     let goal = input.goal.trim().to_string();
     if !goal.is_empty() {
-        let message = serde_json::json!({ "role": "user", "text": &goal });
-        state
-            .store
-            .append_event(&thread_id, "message", &message.to_string())?;
+        persist_user_message(&state.store, &thread_id, &goal)?;
     }
     let worktree_step = serde_json::json!({
         "icon": "branch",
@@ -1272,36 +1291,27 @@ pub async fn create_workspace(
     }
     .emit(&app);
 
+    if auto_named {
+        spawn_auto_name(
+            app.clone(),
+            workspace_id.clone(),
+            input.name.clone(),
+            goal.clone(),
+        );
+    }
+
     let app_handle = app.clone();
-    let name = input.name.clone();
     let workspace_id_bg = workspace_id.clone();
     let thread_id_bg = thread_id.clone();
     let engine = input.engine.clone();
     let repo_name = repo.name.clone();
+    let started = StartedWorkspace {
+        workspace_id: workspace_id.clone(),
+        thread_id: thread_id.clone(),
+        branch: input.branch.clone(),
+        base: input.base.clone(),
+    };
     let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
-
-    emit_toast(
-        &app,
-        crate::ipc::types::ToastRaisedPayload {
-            tone: crate::ipc::types::ToastTone::Ok,
-            parts: vec![
-                crate::ipc::types::ToastPart::Text {
-                    value: format!("Created {name} on "),
-                },
-                crate::ipc::types::ToastPart::Code {
-                    value: input.branch.clone(),
-                },
-                crate::ipc::types::ToastPart::Text {
-                    value: " from ".into(),
-                },
-                crate::ipc::types::ToastPart::Code {
-                    value: input.base.clone(),
-                },
-            ],
-            workspace_id: Some(workspace_id.clone()),
-            thread_id: Some(thread_id.clone()),
-        },
-    );
 
     tauri::async_runtime::spawn(async move {
         crate::provisioning::run_workspace_provisioning(
@@ -1319,7 +1329,43 @@ pub async fn create_workspace(
         .await;
     });
 
-    Ok(CreateWorkspaceResult { workspace_id })
+    Ok(started)
+}
+
+/// Swaps the drafted name for Haiku's unless the workspace was renamed or deleted meanwhile.
+fn spawn_auto_name(app: AppHandle, workspace_id: String, draft: String, prompt: String) {
+    tauri::async_runtime::spawn(async move {
+        use tauri::Manager;
+        let state = app.state::<AppState>();
+        let Some(name) = crate::naming::generate_title(
+            &state.llm,
+            &prompt,
+            "task",
+            crate::naming::WORKSPACE_NAME_MAX,
+        )
+        .await
+        else {
+            return;
+        };
+        match state.store.workspace_by_id(&workspace_id) {
+            Ok(Some(row)) if row.name == draft => {}
+            _ => return,
+        }
+        if state
+            .store
+            .set_workspace_name(&workspace_id, &name)
+            .is_err()
+            || state.workspace.rename(&workspace_id, &name).await.is_err()
+        {
+            return;
+        }
+        let version = state.bump_event_version();
+        let _ = StateChanged {
+            version,
+            kind: StateChangeKind::WorkspaceStatus,
+        }
+        .emit(&app);
+    });
 }
 
 #[tauri::command]
@@ -1541,105 +1587,14 @@ pub async fn teardown_workspace(
     crate::teardown::execute(&app, &state, &input).await
 }
 
+/// Skills the `/` picker offers on the new thread page.
 #[tauri::command]
 #[specta::specta]
-pub async fn join_workspace_thread(
-    input: super::types::JoinWorkspaceThreadInput,
-    app: AppHandle,
+pub async fn list_repo_skills(
+    repo_id: String,
     state: State<'_, AppState>,
-) -> Result<super::types::JoinWorkspaceThreadResult> {
-    let thread_id = Uuid::new_v4().to_string();
-    let snapshot = state.store.snapshot()?;
-    let workspace_row = snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == input.workspace_id)
-        .cloned()
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", input.workspace_id)))?;
-    let agent_count = snapshot
-        .threads
-        .iter()
-        .filter(|row| row.workspace_id == input.workspace_id)
-        .count()
-        + 1;
-
-    state.store.upsert_thread(&ThreadRow {
-        id: thread_id.clone(),
-        workspace_id: input.workspace_id.clone(),
-        title: input.title.clone(),
-        engine: input.engine.clone(),
-        session_id: None,
-        status: "provisioning".into(),
-        used_tokens: None,
-        context_size: None,
-        cost_usd: None,
-        transcript_readonly: false,
-    })?;
-
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(&app);
-
-    let thread_id_return = thread_id.clone();
-    let app_handle = app.clone();
-    let workspace_id = input.workspace_id.clone();
-    let engine = input.engine.clone();
-    let branch = workspace_row.branch.clone();
-    tauri::async_runtime::spawn(async move {
-        crate::provisioning::join_thread_provisioning(
-            app_handle,
-            crate::provisioning::JoinProvisionJob {
-                workspace_id,
-                thread_id,
-                engine,
-                branch,
-                agent_count,
-            },
-        )
-        .await;
-    });
-
-    Ok(super::types::JoinWorkspaceThreadResult {
-        thread_id: thread_id_return,
-    })
-}
-
-/// Close a thread tab: stop its agent and hide it. The workspace's first thread stays open.
-#[tauri::command]
-#[specta::specta]
-pub async fn close_workspace_thread(
-    app: AppHandle,
-    thread_id: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    let thread = snapshot_thread(&state, &thread_id)?;
-    if state.store.scratch_for_thread(&thread_id)?.is_some() {
-        return Err(Error::Workspace(
-            "a scratch's thread can't be closed".into(),
-        ));
-    }
-    if state
-        .store
-        .first_thread_id(&thread.workspace_id)?
-        .as_deref()
-        == Some(thread_id.as_str())
-    {
-        return Err(Error::Workspace(format!(
-            "{} can't be closed",
-            thread.title
-        )));
-    }
-    let _ = state.engines.stop(&thread_id).await;
-    state.store.close_thread(&thread_id)?;
-    state
-        .workspace
-        .remove_thread(&thread_id, &thread.workspace_id)
-        .await;
-    emit_composer_snapshot(&app, &state);
-    Ok(())
+) -> Result<Vec<crate::skills::Skill>> {
+    crate::skills::for_repo(&state, &repo_id)
 }
 
 /// Skills the `/` picker offers for this thread's agent.
@@ -1661,9 +1616,31 @@ pub async fn send_thread_prompt(
     attachments: Vec<crate::attachments::PromptAttachment>,
     state: State<'_, AppState>,
 ) -> Result<()> {
+    submit_thread_prompt(&app, &state, &thread_id, text, attachments).await
+}
+
+/// A message into a thread, from the user or another thread: starts the engine if it isn't
+/// running, and queues the message if the thread is paused.
+pub async fn submit_thread_prompt(
+    app: &AppHandle,
+    state: &AppState,
+    thread_id: &str,
+    text: String,
+    attachments: Vec<crate::attachments::PromptAttachment>,
+) -> Result<()> {
+    let (app, thread_id) = (app.clone(), thread_id.to_string());
     let text = text.trim().to_string();
     if text.is_empty() && attachments.is_empty() {
         return Ok(());
+    }
+    if state
+        .store
+        .thread_by_id(&thread_id)?
+        .is_some_and(|thread| thread.retired)
+    {
+        return Err(Error::Workspace(
+            "this thread is read-only; start a new thread to carry on".into(),
+        ));
     }
     use tauri::Manager;
     let app_data = app
@@ -1672,14 +1649,11 @@ pub async fn send_thread_prompt(
         .map_err(|error| Error::Workspace(error.to_string()))?;
     let folder = crate::data_dir(app_data).join("attachments");
     let (prompt, text) = crate::attachments::build_prompt(&folder, &text, &attachments)?;
-    if let Some(scratch) = state.store.scratch_for_thread(&thread_id)? {
-        return crate::scratch::send(&app, &state, &scratch, prompt, text).await;
-    }
-    let thread = snapshot_thread(&state, &thread_id)?;
+    let thread = snapshot_thread(state, &thread_id)?;
     let held = thread.status == "paused";
     if !held && !state.engines.has_thread(&thread_id) {
         crate::provisioning::ensure_thread_engine(
-            &state,
+            state,
             &thread_id,
             &thread.engine,
             &thread.workspace_id,
@@ -1699,7 +1673,7 @@ pub async fn send_thread_prompt(
             .store
             .set_workspace_status(&thread.workspace_id, "running")?;
     }
-    emit_composer_snapshot(&app, &state);
+    emit_composer_snapshot(&app, state);
     Ok(())
 }
 
@@ -1772,6 +1746,15 @@ pub async fn thread_models(thread_id: String, state: State<'_, AppState>) -> Res
 }
 
 /// `None` goes back to the engine's default. A live engine switches before its next turn.
+/// The models an engine offers, for a thread that doesn't exist yet.
+#[tauri::command]
+#[specta::specta]
+pub async fn engine_models(engine: String) -> Result<Vec<crate::engines::ModelOption>> {
+    Ok(crate::engines::static_models(EngineKind::from_name(
+        &engine,
+    )))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn set_thread_model(
@@ -1781,39 +1764,6 @@ pub async fn set_thread_model(
 ) -> Result<()> {
     snapshot_thread(&state, &thread_id)?;
     state.engines.set_thread_model(&thread_id, model)
-}
-
-/// Plan mode: the agent plans without editing until the user approves. A live Claude session
-/// switches now; the setting also applies the next time the thread's agent starts.
-#[tauri::command]
-#[specta::specta]
-pub async fn set_thread_plan_mode(
-    app: AppHandle,
-    thread_id: String,
-    enabled: bool,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    let thread = snapshot_thread(&state, &thread_id)?;
-    if EngineKind::from_name(&thread.engine) != EngineKind::Claude {
-        return Err(Error::Workspace(
-            "only Claude threads have plan mode".into(),
-        ));
-    }
-    state.engines.set_thread_plan_mode(&thread_id, enabled)?;
-    if !enabled && crate::plan_mode::dismiss_waiting_plan(&state, &thread_id).await? {
-        emit_approval_counts(&app, &state);
-    }
-    persist_control_step(
-        &state.store,
-        &thread_id,
-        if enabled {
-            "Switched to plan mode"
-        } else {
-            "Left plan mode"
-        },
-    )?;
-    emit_composer_snapshot(&app, &state);
-    Ok(())
 }
 
 /// Like `/clear`: the agent forgets the conversation and the thread starts a
@@ -1950,16 +1900,6 @@ pub async fn dismiss_workspace_findings(
     Ok(())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn create_scratch(
-    app: AppHandle,
-    input: super::types::CreateScratchInput,
-    state: State<'_, AppState>,
-) -> Result<super::types::CreateScratchResult> {
-    crate::scratch::create(&app, &state, input).await
-}
-
 /// Discards the scratch's conversation. The repo is not changed.
 #[tauri::command]
 #[specta::specta]
@@ -1969,125 +1909,6 @@ pub async fn end_scratch(
     state: State<'_, AppState>,
 ) -> Result<()> {
     crate::scratch::end(&app, &state, &scratch_id).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn create_todo(title: String, state: State<'_, AppState>) -> Result<TodoRow> {
-    let title = title.trim();
-    if title.is_empty() {
-        return Err(Error::Store("a todo needs a title".into()));
-    }
-    let mut todo = TodoRow {
-        id: format!("todo-{}", Uuid::new_v4()),
-        number: 0,
-        title: title.to_string(),
-        pinned: false,
-        description: String::new(),
-        planned_on: None,
-        done_at: None,
-    };
-    todo.number = state.store.insert_todo(&todo)?;
-    crate::todo_files::sync(&state.store);
-    Ok(todo)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn delete_todo(todo_id: String, state: State<'_, AppState>) -> Result<()> {
-    state.store.delete_todo(&todo_id)?;
-    crate::todo_files::sync(&state.store);
-    Ok(())
-}
-
-/// Pinned todos show as cards at the top of Homebase.
-#[tauri::command]
-#[specta::specta]
-pub async fn set_todo_pinned(
-    todo_id: String,
-    pinned: bool,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    state.store.set_todo_pinned(&todo_id, pinned)
-}
-
-/// The Week page's details pane edits a todo's title and description.
-#[tauri::command]
-#[specta::specta]
-pub async fn update_todo(
-    todo_id: String,
-    title: String,
-    description: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    let title = title.trim();
-    if title.is_empty() {
-        return Err(Error::Store("a todo needs a title".into()));
-    }
-    state.store.update_todo(&todo_id, title, &description)?;
-    crate::todo_files::sync(&state.store);
-    Ok(())
-}
-
-fn plan_date(planned_on: Option<String>) -> Result<Option<String>> {
-    match planned_on {
-        Some(day) if !crate::store::is_plan_date(&day) => {
-            Err(Error::Store(format!("not a day to plan for: {day}")))
-        }
-        other => Ok(other),
-    }
-}
-
-/// Plans a todo onto a day (`YYYY-MM-DD`), or back into the Week page's loading area.
-#[tauri::command]
-#[specta::specta]
-pub async fn plan_todo(
-    todo_id: String,
-    planned_on: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    let planned_on = plan_date(planned_on)?;
-    state.store.plan_todo(&todo_id, planned_on.as_deref())?;
-    crate::todo_files::sync(&state.store);
-    Ok(())
-}
-
-/// Returns when it was completed, or `None` once reopened.
-#[tauri::command]
-#[specta::specta]
-pub async fn set_todo_done(
-    todo_id: String,
-    done: bool,
-    state: State<'_, AppState>,
-) -> Result<Option<String>> {
-    let done_at = state.store.set_todo_done(&todo_id, done)?;
-    crate::todo_files::sync(&state.store);
-    Ok(done_at)
-}
-
-/// Plans a ClickUp task onto a day locally. Nothing is written to ClickUp.
-#[tauri::command]
-#[specta::specta]
-pub async fn plan_sprint_task(
-    task_id: String,
-    planned_on: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<SprintPlanRow> {
-    let planned_on = plan_date(planned_on)?;
-    state
-        .store
-        .plan_sprint_task(&task_id, planned_on.as_deref())
-}
-
-/// Marks a ClickUp task done in the week plan only; its ClickUp status is untouched.
-#[tauri::command]
-#[specta::specta]
-pub async fn set_sprint_task_done(
-    task_id: String,
-    done: bool,
-    state: State<'_, AppState>,
-) -> Result<SprintPlanRow> {
-    state.store.set_sprint_task_done(&task_id, done)
 }
 
 /// Spike 5: stream agent chunks (~60hz) and PTY lines (100/s) for a few seconds.

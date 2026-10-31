@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import {
     app,
     findings,
-    plans,
     stacks,
     threads,
     workspaceRecords,
@@ -17,9 +16,7 @@
   import ProvisioningFailureBanner from './ProvisioningFailureBanner.svelte'
   import WorkspaceHeader from './WorkspaceHeader.svelte'
   import WorkspaceOutputPanel from './WorkspaceOutputPanel.svelte'
-  import ThreadTabBar from './ThreadTabBar.svelte'
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
-  import PlanPanel from './PlanPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
   import ChangesPanel from './changes/ChangesPanel.svelte'
 
@@ -31,6 +28,7 @@
   )
   const activeThread = $derived(
     workspaceThreads.find((thread) => thread.id === app.threadId) ??
+      workspaceThreads.find((thread) => !thread.retired) ??
       workspaceThreads[0],
   )
 
@@ -39,7 +37,7 @@
   let findingsHeading: HTMLHeadingElement | undefined = $state()
 
   // Opening a workspace on a thread leaves focus to its composer, ready to type; other
-  // tabs focus the title.
+  // panels focus the title.
   $effect(() => {
     if (app.focusTarget !== 'workspace') return
     void app.focusGeneration
@@ -66,14 +64,12 @@
     workspace ? (workspaceRecords.getRecord(workspace.id)?.repoId ?? '') : '',
   )
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
-  const planTabActive = $derived(workspaceUi.activeTab === 'plan')
   // A pinned tray sits beside the conversation as a pane, and both stay usable.
   const pinnedTray = $derived(workspaceUi.pinnedTray)
   const gitVisible = $derived(workspaceUi.gitVisible)
   const outputVisible = $derived(workspaceUi.outputVisible)
-  // Git and Output slide over the panel underneath, which stays mounted so
-  // closing them is instant and the conversation keeps its scroll.
-  const baseTab = $derived(workspaceUi.baseTab)
+  // Everything else slides over the conversation, which stays mounted so
+  // closing it is instant and the conversation keeps its scroll.
   const slideOut = $derived(workspaceUi.slideOut)
   // Mounted on first open, then kept so reopening doesn't rebuild the diff or log.
   let changesMounted = $state(false)
@@ -101,7 +97,19 @@
     untrack(() => {
       changesMounted = changesArmed = gitVisible
       outputMounted = outputArmed = outputVisible
+      findingsShown = false
     })
+  })
+  // Holds its panel while it slides away.
+  let findingsShown = $state(false)
+  let findingsArmed = $state(false)
+  $effect(() => {
+    if (!findingsTabActive) {
+      findingsArmed = false
+      return
+    }
+    findingsShown = true
+    nextFrame(() => (findingsArmed = true))
   })
   const changesOpen = $derived(gitVisible && changesArmed)
   const outputOpen = $derived(outputVisible && outputArmed)
@@ -109,6 +117,12 @@
     'tray-pane glass-pane relative my-3 mr-3 flex max-w-[calc(100%-372px)] min-w-[320px] shrink-0 flex-col overflow-hidden rounded-[18px]'
   const SLIDE_CLASS =
     'slide-out glass-pane absolute inset-y-3 right-3 z-30 flex w-[min(var(--tray-w),calc(94%-12px))] flex-col overflow-hidden rounded-[18px]'
+
+  // Esc is a keyboard move, so the composer won't reclaim focus by itself; send it back.
+  function dismissSlideOut() {
+    workspaceUi.closeSlideOut()
+    void tick().then(() => document.getElementById('composer-input')?.focus())
+  }
 
   // Esc slides Git or Output away from anywhere in the workspace, unless a dialog,
   // menu or popover is open and wants the key for itself.
@@ -121,7 +135,7 @@
     )
       return
     event.preventDefault()
-    workspaceUi.closeSlideOut()
+    dismissSlideOut()
   }
 
   let paneRow: HTMLDivElement | undefined = $state()
@@ -152,12 +166,8 @@
   function onSlideOutKeydown(event: KeyboardEvent) {
     if (event.key !== 'Escape' || event.defaultPrevented) return
     event.preventDefault()
-    workspaceUi.closeSlideOut()
+    dismissSlideOut()
   }
-
-  const threadPanelLabelId = $derived(
-    activeThread ? `thread-tab-${activeThread.id}` : undefined,
-  )
 
   // Snapshots rebuild the workspace object; resubscribing on each one would clear the diff.
   const workspaceId = $derived(workspace?.id)
@@ -200,24 +210,6 @@
     ) {
       workspaceUi.openTab('thread')
     }
-  })
-
-  // A plan an agent hands over in this workspace opens in the Plan tab, ready to review.
-  $effect(() => {
-    const plan = plans.arrived
-    if (!plan || !workspaceId) return
-    untrack(() => {
-      if (threads.getById(plan.threadId)?.workspaceId !== workspaceId) return
-      plans.arrived = null
-      workspaceUi.openPlan(plan.threadId)
-    })
-  })
-
-  $effect(() => {
-    if (!planTabActive || !workspaceId) return
-    const ids = workspaceThreads.map((thread) => thread.id)
-    if (!plans.visibleFor(workspaceId, ids).length)
-      workspaceUi.openTab('thread')
   })
 
   onMount(() => {
@@ -291,8 +283,6 @@
       <ProvisioningFailureBanner {workspace} />
     {/if}
 
-    <ThreadTabBar {workspace} />
-
     {#if activeThread}
       <div
         bind:this={paneRow}
@@ -302,20 +292,7 @@
           class="workspace-main flex min-h-0 min-w-0 flex-1 flex-col"
           inert={slideOut != null}
         >
-          {#if baseTab === 'thread'}
-            <ThreadPanel
-              {workspace}
-              thread={activeThread}
-              panelLabelId={threadPanelLabelId}
-            />
-          {:else if baseTab === 'plan'}
-            <PlanPanel workspaceId={workspace.id} />
-          {:else if baseTab === 'findings'}
-            <WorkspaceFindingsPanel
-              workspaceId={workspace.id}
-              bind:headingRef={findingsHeading}
-            />
-          {/if}
+          <ThreadPanel {workspace} thread={activeThread} />
         </div>
 
         <!-- Clicking the dimmed conversation slides Git or Output away. -->
@@ -362,10 +339,11 @@
           </div>
         {/if}
         {#if outputMounted}
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
             id="output-panel"
-            role="tabpanel"
-            aria-labelledby="thread-tab-output"
+            role="region"
+            aria-label="Output"
             tabindex="-1"
             class={pinnedTray === 'output' ? PANE_CLASS : SLIDE_CLASS}
             style:--tray-w="720px"
@@ -384,6 +362,23 @@
               workspaceId={workspace.id}
               repoId={workspaceRepoId}
               {provisioning}
+            />
+          </div>
+        {/if}
+        {#if findingsShown}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class={SLIDE_CLASS}
+            style:--tray-w="760px"
+            data-open={findingsTabActive && findingsArmed}
+            data-od-id="findings-slide-out"
+            data-tray="findings"
+            inert={!findingsTabActive}
+            onkeydown={onSlideOutKeydown}
+          >
+            <WorkspaceFindingsPanel
+              workspaceId={workspace.id}
+              bind:headingRef={findingsHeading}
             />
           </div>
         {/if}

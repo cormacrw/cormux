@@ -21,7 +21,7 @@ test.describe('clickup', () => {
   test('stays hidden without an API key', async ({ page }) => {
     await page.goto('/')
     const nav = page.getByRole('navigation', { name: 'Harness' })
-    await expect(nav.getByRole('button', { name: /Week/ })).toBeVisible()
+    await expect(nav.getByRole('button', { name: /New thread/ })).toBeVisible()
     await expect(nav.getByRole('button', { name: /Sprint/ })).toHaveCount(0)
   })
 

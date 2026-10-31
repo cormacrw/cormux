@@ -7,11 +7,6 @@ import { fixtureClickupBoard, fixtureClickupDetail } from './fixture-clickup'
 
 type InvokeArgs = Record<string, unknown> | undefined
 
-/** SQLite's `datetime('now')`, as the core stamps `done_at`. */
-function sqliteNow() {
-  return new Date().toISOString().slice(0, 19).replace('T', ' ')
-}
-
 function isRealTauri(): boolean {
   const internals = (
     window as Window & {
@@ -25,61 +20,60 @@ function isRealTauri(): boolean {
  * Stubs Tauri IPC so `pnpm dev` and Playwright can drive the UI in Chromium.
  * No-ops when the real webview already injected internals.
  */
-type ScratchInput = { title: string; repoId: string; prompt: string | null }
+type WorkspaceInput = {
+  repoId: string
+  branch: string
+  base: string
+  goal: string
+  model: string | null
+}
 
-let nextScratch = 1
+let nextWorkspace = 1
 
-/** Mirrors `scratch::create`: the page opens with the prompt and an `Opened <repo>` row. */
-function createScratch(input: ScratchInput) {
-  const n = nextScratch++
-  const scratchId = `scratch-harness-${n}`
-  const threadId = `th-scratch-harness-${n}`
+/** Mirrors `create_workspace`, minus provisioning: the thread opens with the prompt in it. */
+function createWorkspace(input: WorkspaceInput) {
+  const n = nextWorkspace++
+  const workspaceId = `ws-harness-${n}`
+  const threadId = `th-harness-${n}`
   const persisted = fixtureSnapshot.persisted
   const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ')
-  const prompt = input.prompt?.trim()
-  persisted.scratches = [
-    {
-      id: scratchId,
-      repoId: input.repoId,
-      // The core drafts a blank title from the prompt; Haiku's rename is not stubbed.
-      title:
-        input.title.trim() ||
-        (prompt ? prompt.charAt(0).toUpperCase() + prompt.slice(1, 64) : '') ||
-        'Untitled scratch',
-      threadId,
-      engine: 'claude',
-      status: prompt ? 'running' : 'idle',
-      createdAt,
-    },
-    ...persisted.scratches,
-  ]
-  if (prompt) {
-    const repo = persisted.repos.find((row) => row.id === input.repoId)
-    const events = [
-      { type: 'messageChunk', role: 'user', text: prompt },
-      {
-        type: 'toolCall',
-        id: `open-${n}`,
-        title: `Opened ${input.repoId}`,
-        name: null,
-        kind: 'read',
-        status: 'completed',
-        locations: [],
-        detail: repo?.path ?? input.repoId,
-      },
-    ]
-    events.forEach((event, index) => {
-      persisted.timeline.push({
-        id: 1000 * n + index,
-        threadId,
-        seq: index + 1,
-        kind: event.type === 'toolCall' ? 'tool' : 'message',
-        payload: JSON.stringify(event),
-        createdAt,
-      })
-    })
-  }
-  return { scratchId, threadId }
+  const name = input.goal.slice(0, 48)
+  persisted.workspaces.push({
+    ...persisted.workspaces[0]!,
+    id: workspaceId,
+    repoId: input.repoId,
+    name,
+    branch: input.branch,
+    status: 'idle',
+    createdAt,
+  })
+  fixtureSnapshot.workspaces.push({
+    ...fixtureSnapshot.workspaces[0]!,
+    id: workspaceId,
+    repoId: input.repoId,
+    name,
+    branch: input.branch,
+    base: input.base,
+  })
+  persisted.threads.push({
+    ...persisted.threads[0]!,
+    id: threadId,
+    workspaceId,
+    status: 'idle',
+  })
+  persisted.timeline.push({
+    id: 1000 * n,
+    threadId,
+    seq: 1,
+    kind: 'message',
+    payload: JSON.stringify({
+      type: 'messageChunk',
+      role: 'user',
+      text: input.goal,
+    }),
+    createdAt,
+  })
+  return { workspaceId, threadId }
 }
 
 /** `?longThread=N` fills the Lead thread with N finished turns (virtualized timeline). */
@@ -120,78 +114,6 @@ function seedLongThread(turns: number) {
       detail: 'Checked out in this worktree',
     })
   }
-}
-
-/** A pending plan approval on the Lead thread, with the permission event the thread shows. */
-function addHarnessPlan(id: string, plan: string) {
-  const persisted = fixtureSnapshot.persisted
-  // The Lead's turn is on hold while the plan waits, and it's in plan mode, as the core marks it.
-  persisted.threads.find((thread) => thread.id === 'th-lead')!.status =
-    'waiting'
-  persisted.settings = [
-    ...persisted.settings.filter(
-      (row) => row.key !== 'thread:th-lead/planMode',
-    ),
-    { key: 'thread:th-lead/planMode', value: 'true' },
-  ]
-  const title = plan.match(/^#+\s*(?:Plan:)?\s*(.+)$/m)?.[1] ?? 'Plan'
-  persisted.approvals.push({
-    id,
-    threadId: 'th-lead',
-    status: 'pending',
-    tool: 'execute_plan',
-    payload: JSON.stringify({
-      title: 'Review plan',
-      what: title,
-      why: 'Nothing is edited until you approve.',
-      okLabel: 'Approve plan',
-      noLabel: 'Sent feedback',
-      effect: 'execute_plan',
-      plan,
-    }),
-  })
-  const seq =
-    Math.max(
-      0,
-      ...persisted.timeline
-        .filter((row) => row.threadId === 'th-lead')
-        .map((row) => row.seq),
-    ) + 1
-  // Claude announces the ExitPlanMode tool call before asking to run it.
-  persisted.timeline.push({
-    id: 700_000 + seq,
-    threadId: 'th-lead',
-    seq,
-    kind: 'tool',
-    payload: JSON.stringify({
-      type: 'toolCall',
-      id: `toolu-${id}`,
-      title: 'ExitPlanMode',
-      name: 'ExitPlanMode',
-      kind: 'other',
-      status: 'inProgress',
-      locations: [],
-      detail: null,
-    }),
-    createdAt: '2026-10-09 12:00:00',
-  })
-  persisted.timeline.push({
-    id: 700_000 + seq + 1,
-    threadId: 'th-lead',
-    seq: seq + 1,
-    kind: 'permission',
-    payload: JSON.stringify({
-      type: 'permission',
-      id,
-      tool_call_id: null,
-      title: 'Use ExitPlanMode',
-      tool_name: 'ExitPlanMode',
-      kind: 'other',
-      detail: null,
-      auto_approved: false,
-    }),
-    createdAt: '2026-10-09 12:00:00',
-  })
 }
 
 export function installBrowserHarness() {
@@ -289,15 +211,6 @@ export function installBrowserHarness() {
       createdAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
     })
   }
-  // Tests can inject a plan the Lead thread is waiting on, as Claude hands one over in plan mode.
-  const injectedPlan = (window as { __HARNESS_PLAN__?: string })
-    .__HARNESS_PLAN__
-  if (injectedPlan) {
-    fixtureSnapshot.persisted.threads.find(
-      (thread) => thread.id === 'th-lead',
-    )!.engine = 'claude'
-    addHarnessPlan('plan-1', injectedPlan)
-  }
 
   // Tests can inject synced PRs; this also flips GitHub to connected.
   const injectedPrs = (
@@ -351,34 +264,24 @@ export function installBrowserHarness() {
     )
   }
 
-  // The Week page's sample plan: one TODO on Monday, and with ClickUp on, a sprint task
-  // planned for today and a finished one on Monday.
-  const weekCalls: { cmd: string; args: InvokeArgs }[] = []
-  ;(
-    window as { __HARNESS_WEEK_CALLS__?: typeof weekCalls }
-  ).__HARNESS_WEEK_CALLS__ = weekCalls
-  {
-    const today = new Date()
-    const monday = new Date(today)
-    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
-    const day = (date: Date) =>
-      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-    const changelog = fixtureSnapshot.persisted.todos.find(
-      (row) => row.id === 'todo-changelog',
-    )
-    if (changelog) changelog.plannedOn = day(monday)
-    fixtureSnapshot.persisted.sprintPlan = [
-      { taskId: 't3', plannedOn: day(today), doneAt: null },
-      { taskId: 't6', plannedOn: day(monday), doneAt: null },
-    ]
-  }
-
   // Lets tests raise a toast of any tone without driving a flow that produces it.
   void import('$lib/feedback/show-toast').then(({ showToast }) => {
     ;(
       window as { __HARNESS_SHOW_TOAST__?: typeof showToast }
     ).__HARNESS_SHOW_TOAST__ = showToast
   })
+
+  // Lets tests set a thread's status without driving an agent.
+  ;(
+    window as {
+      __HARNESS_SET_STATUS__?: (name: string, status: string) => void
+    }
+  ).__HARNESS_SET_STATUS__ = (name, status) => {
+    for (const row of fixtureSnapshot.workspaces) {
+      if (row.name === name) row.status = status as typeof row.status
+    }
+    emitStateChanged()
+  }
 
   const callbacks = new Map<number, (...args: unknown[]) => void>()
   let nextCallbackId = 1
@@ -396,13 +299,6 @@ export function installBrowserHarness() {
     }
   }
 
-  // Lets tests have the Lead hand over a (revised) plan while the app is open.
-  ;(
-    window as { __HARNESS_ADD_PLAN__?: (id: string, plan: string) => void }
-  ).__HARNESS_ADD_PLAN__ = (id, plan) => {
-    addHarnessPlan(id, plan)
-    emitStateChanged()
-  }
   const resolvedApprovals: {
     id: string
     approved: boolean
@@ -712,69 +608,6 @@ export function installBrowserHarness() {
         fromLlm: false,
       }
     }
-    if (cmd === 'create_todo') {
-      const todos = fixtureSnapshot.persisted.todos
-      const todo = {
-        id: `todo-harness-${nextEventId++}`,
-        number: Math.max(0, ...todos.map((row) => row.number)) + 1,
-        title: String(args.title).trim(),
-        pinned: false,
-        description: '',
-        plannedOn: null,
-        doneAt: null,
-      }
-      fixtureSnapshot.persisted.todos.push(todo)
-      return todo
-    }
-    if (cmd === 'delete_todo') {
-      const persisted = fixtureSnapshot.persisted
-      persisted.todos = persisted.todos.filter((row) => row.id !== args.todoId)
-      return null
-    }
-    if (cmd === 'set_todo_pinned') {
-      const todo = fixtureSnapshot.persisted.todos.find(
-        (row) => row.id === args.todoId,
-      )
-      if (todo) todo.pinned = Boolean(args.pinned)
-      return null
-    }
-    if (
-      cmd === 'update_todo' ||
-      cmd === 'plan_todo' ||
-      cmd === 'set_todo_done'
-    ) {
-      weekCalls.push({ cmd, args })
-      const todo = fixtureSnapshot.persisted.todos.find(
-        (row) => row.id === args.todoId,
-      )
-      if (!todo) return null
-      if (cmd === 'update_todo') {
-        todo.title = String(args.title).trim()
-        todo.description = String(args.description)
-      } else if (cmd === 'plan_todo') {
-        todo.plannedOn = (args.plannedOn as string | null) ?? null
-      } else {
-        todo.doneAt = args.done ? (todo.doneAt ?? sqliteNow()) : null
-        return todo.doneAt
-      }
-      return null
-    }
-    if (cmd === 'plan_sprint_task' || cmd === 'set_sprint_task_done') {
-      weekCalls.push({ cmd, args })
-      const plan = fixtureSnapshot.persisted.sprintPlan
-      const taskId = String(args.taskId)
-      let row = plan.find((item) => item.taskId === taskId)
-      if (!row) {
-        row = { taskId, plannedOn: null, doneAt: null }
-        plan.push(row)
-      }
-      if (cmd === 'plan_sprint_task') {
-        row.plannedOn = (args.plannedOn as string | null) ?? null
-      } else {
-        row.doneAt = args.done ? (row.doneAt ?? sqliteNow()) : null
-      }
-      return { ...row }
-    }
     if (cmd === 'set_clickup_api_key') {
       if (!String(args.key).startsWith('pk_')) {
         throw { kind: 'Clickup', message: 'ClickUp rejected the API key' }
@@ -970,6 +803,12 @@ export function installBrowserHarness() {
       streamReply('th-lead', String(args.text))
       return null
     }
+    if (cmd === 'list_repo_skills') {
+      return [
+        { name: 'deploy', description: 'Ship it', source: 'project' },
+        { name: 'review', description: 'Review the diff', source: 'user' },
+      ]
+    }
     if (cmd === 'list_thread_skills') {
       return [
         {
@@ -988,6 +827,16 @@ export function installBrowserHarness() {
           source: 'user',
         },
       ]
+    }
+    if (cmd === 'engine_models') {
+      return args.engine === 'claude'
+        ? [
+            { id: 'fable', label: 'Fable' },
+            { id: 'opus', label: 'Opus' },
+            { id: 'sonnet', label: 'Sonnet' },
+            { id: 'haiku', label: 'Haiku' },
+          ]
+        : []
     }
     if (cmd === 'thread_models') {
       const engine = [
@@ -1072,32 +921,6 @@ export function installBrowserHarness() {
       emitStateChanged()
       return null
     }
-    if (cmd === 'join_workspace_thread') {
-      const input = args.input as {
-        workspaceId: string
-        title: string
-        engine: string
-      }
-      const threadId = `th-${Date.now()}`
-      const lead = fixtureSnapshot.persisted.threads[0]!
-      fixtureSnapshot.persisted.threads.push({
-        ...lead,
-        id: threadId,
-        workspaceId: input.workspaceId,
-        title: input.title,
-        status: 'idle',
-      })
-      emitStateChanged()
-      return { threadId }
-    }
-    if (cmd === 'close_workspace_thread') {
-      const persisted = fixtureSnapshot.persisted
-      persisted.threads = persisted.threads.filter(
-        (row) => row.id !== args.threadId,
-      )
-      emitStateChanged()
-      return null
-    }
     if (cmd === 'get_metrics') return fixtureSnapshot.memory
     if (cmd === 'set_setting') {
       const { key, value } = args.input as { key: string; value: string }
@@ -1108,8 +931,12 @@ export function installBrowserHarness() {
       ]
       return null
     }
-    if (cmd === 'create_scratch')
-      return createScratch(args.input as ScratchInput)
+    if (cmd === 'create_workspace') {
+      const input = args.input as WorkspaceInput
+      const created = createWorkspace(input)
+      threadModels.set(created.threadId, input.model)
+      return created
+    }
     if (cmd === 'end_scratch') {
       const persisted = fixtureSnapshot.persisted
       persisted.scratches = persisted.scratches.filter(
@@ -1193,30 +1020,6 @@ export function installBrowserHarness() {
         }
       }
       emitStateChanged()
-      return null
-    }
-    if (cmd === 'set_thread_plan_mode') {
-      const threadId = String(args.threadId)
-      const enabled = Boolean(args.enabled)
-      const key = `thread:${threadId}/planMode`
-      const persisted = fixtureSnapshot.persisted
-      persisted.settings = [
-        ...persisted.settings.filter((row) => row.key !== key),
-        { key, value: String(enabled) },
-      ]
-      // Leaving plan mode drops a waiting plan, as the core does.
-      const waiting = persisted.approvals.filter(
-        (row) =>
-          row.threadId === threadId &&
-          row.status === 'pending' &&
-          row.tool === 'execute_plan',
-      )
-      if (!enabled && waiting.length) {
-        for (const row of waiting) row.status = 'dismissed'
-        const thread = persisted.threads.find((entry) => entry.id === threadId)
-        if (thread?.status === 'waiting') thread.status = 'running'
-        emitStateChanged()
-      }
       return null
     }
     if (cmd === 'resolve_thread_media') {

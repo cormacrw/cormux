@@ -33,9 +33,25 @@ function countOutsideCode(text: string, marker: string): number {
 }
 
 /**
+ * Where a table still missing its header or `|---|` row starts, or null. Until both lines are
+ * written it can't parse as a table, so it would show as raw pipes.
+ */
+function unfinishedTableStart(text: string): number | null {
+  const lines = text.split('\n')
+  // A trailing newline leaves an empty last line: the row before it is the one to look at.
+  let first = lines.at(-1) === '' ? lines.length - 1 : lines.length
+  const end = first
+  while (first > 0 && /^ {0,3}\|/.test(lines[first - 1]!)) first -= 1
+  const finishedLines = lines.length - 1 - first
+  if (first === end || finishedLines >= 2) return null
+  return lines.slice(0, first).join('\n').length + (first > 0 ? 1 : 0)
+}
+
+/**
  * Half of a reply as markdown that renders the way the finished reply will: an unclosed code
  * fence, bold or inline code is closed for now, and a link still being written is held back,
- * so formatting doesn't flicker in as raw symbols and then jump.
+ * and so is a table until its header row is done, so formatting doesn't flicker in as raw symbols
+ * and then jump.
  */
 export function stableMarkdown(partial: string): string {
   const fences = partial.match(/^```/gm)?.length ?? 0
@@ -43,7 +59,8 @@ export function stableMarkdown(partial: string): string {
     // Inside a code block: show it as a block straight away.
     return partial.endsWith('\n') ? `${partial}\`\`\`` : `${partial}\n\`\`\``
   }
-  let text = partial
+  const table = unfinishedTableStart(partial)
+  let text = table === null ? partial : partial.slice(0, table)
   // A link whose target isn't finished yet, `[text](http…`, waits until it is.
   const link = /\[[^\]\n]*(\]\([^)\s]*)?$/.exec(text)
   if (link) text = text.slice(0, link.index)

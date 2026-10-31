@@ -25,8 +25,6 @@ pub struct Snapshot {
     /// True when a ClickUp API key is saved. Every ClickUp surface hides without one.
     pub clickup_configured: bool,
     pub workspace_apps: Vec<WorkspaceAppRuntime>,
-    /// Where each TODO is written as `CMUX-<n>.md`, for agents to read.
-    pub tasks_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -122,6 +120,8 @@ pub struct CreateWorkspaceInput {
     pub base: String,
     pub engine: String,
     pub goal: String,
+    /// The model to start on; `None` leaves the engine's default.
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -211,14 +211,6 @@ pub struct CreateWorkspaceBranchInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct JoinWorkspaceThreadInput {
-    pub workspace_id: String,
-    pub title: String,
-    pub engine: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
 pub struct SendWorkspaceFindingsInput {
     pub workspace_id: String,
     pub thread_id: String,
@@ -243,28 +235,6 @@ pub struct DismissWorkspaceFindingsInput {
     pub workspace_id: String,
     pub finding_ids: Vec<String>,
     pub dismissed: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct JoinWorkspaceThreadResult {
-    pub thread_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateScratchInput {
-    pub title: String,
-    pub repo_id: String,
-    /// Optional. Blank opens an empty conversation.
-    pub prompt: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateScratchResult {
-    pub scratch_id: String,
-    pub thread_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

@@ -128,6 +128,9 @@ pub enum AgentEvent {
         status: ToolCallStatus,
         locations: Vec<String>,
         detail: Option<String>,
+        /// The tool call that spawned this one, when a subagent made it.
+        #[serde(default)]
+        parent_id: Option<String>,
     },
     Plan {
         entries: Vec<PlanStep>,
@@ -148,6 +151,9 @@ pub enum AgentEvent {
         kind: Option<ToolKind>,
         status: Option<ToolCallStatus>,
         locations: Vec<String>,
+        /// The end of what the tool printed, capped, for summing up test and build runs.
+        #[serde(default)]
+        output: Option<String>,
     },
     CurrentTool {
         id: Option<String>,

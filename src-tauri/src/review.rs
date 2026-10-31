@@ -255,6 +255,8 @@ pub async fn create_review_workspace(
         context_size: None,
         cost_usd: None,
         transcript_readonly: false,
+        retired: false,
+        parent_thread_id: None,
     })?;
 
     let user_message = user_review_message(
@@ -436,7 +438,7 @@ pub async fn on_reviewer_turn_end(app: &AppHandle, thread_id: &str) -> Result<()
     } else {
         !review_is_ready(&state.store, &workspace.id)
     };
-    if workspace.archived_at.is_some() || thread.title != REVIEWER_TITLE || !pending {
+    if workspace.archived_at.is_some() || !pending {
         return Ok(());
     }
 
@@ -449,10 +451,10 @@ pub async fn on_reviewer_turn_end(app: &AppHandle, thread_id: &str) -> Result<()
         Err(error) => {
             let detail = match error {
                 crate::findings_block::BlockError::Missing => {
-                    "The reply didn’t end with a findings block. Ask the Reviewer to finish the review with its findings.".to_string()
+                    "The reply didn’t end with a findings block. Ask the agent to finish the review with its findings.".to_string()
                 }
                 crate::findings_block::BlockError::Invalid(reason) => {
-                    format!("The findings block wasn’t valid JSON ({reason}). Ask the Reviewer to send it again.")
+                    format!("The findings block wasn’t valid JSON ({reason}). Ask the agent to send it again.")
                 }
             };
             log::warn!("review {}: {detail}", workspace.id);
@@ -500,9 +502,9 @@ fn branch_review_running(store: &Store, workspace_id: &str) -> bool {
         == Some("running")
 }
 
-/// Review a regular workspace's own branch. A Reviewer thread (reused if one is open)
-/// reads the changes against the base, and its findings fill the workspace's Findings
-/// tab, from where they can be sent to the Lead. Returns the Reviewer's thread id.
+/// Review a regular workspace's own branch. The workspace's thread reads the changes against
+/// the base, and its findings fill the Findings panel, from where they can be sent back to
+/// the same thread to fix. Returns the thread's id.
 pub async fn start_branch_review(
     app: &AppHandle,
     state: &AppState,
@@ -519,36 +521,18 @@ pub async fn start_branch_review(
     }
     let record = crate::git_workspace::resolve_record(state, workspace_id, &workspace).await?;
 
-    let existing = state
+    let thread = state
         .store
         .snapshot()?
         .threads
         .into_iter()
-        .find(|row| row.workspace_id == workspace_id && row.title == REVIEWER_TITLE);
-    let thread = match existing {
-        Some(row) if row.status == "running" => {
-            return Err(Error::Workspace(
-                "the Reviewer is still working on the last review".into(),
-            ));
-        }
-        Some(row) => row,
-        None => {
-            let row = ThreadRow {
-                id: Uuid::new_v4().to_string(),
-                workspace_id: workspace_id.to_string(),
-                title: REVIEWER_TITLE.into(),
-                engine: default_engine(&state.store),
-                session_id: None,
-                status: "idle".into(),
-                used_tokens: None,
-                context_size: None,
-                cost_usd: None,
-                transcript_readonly: false,
-            };
-            state.store.upsert_thread(&row)?;
-            row
-        }
-    };
+        .find(|row| row.workspace_id == workspace_id && !row.retired)
+        .ok_or_else(|| Error::Workspace(format!("no thread in workspace {workspace_id}")))?;
+    if thread.status == "running" {
+        return Err(Error::Workspace(
+            "the agent is still working; review once it's done".into(),
+        ));
+    }
 
     crate::provisioning::ensure_thread_engine(state, &thread.id, &thread.engine, workspace_id)
         .await?;

@@ -68,14 +68,24 @@ const ALLOWED = {
     'a',
     'blockquote',
     'span',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
   ],
   // `start` keeps a list the agent continues (16., 17., …) from renumbering at 1.
-  ALLOWED_ATTR: ['href', 'rel', 'target', 'start', 'class'],
+  // `align` is how marked says what a table column's `:---:` asked for.
+  ALLOWED_ATTR: ['href', 'rel', 'target', 'start', 'class', 'align'],
 }
+
+// A private instance: hooks are per instance, and Mermaid sanitises with the shared one.
+const purify = DOMPurify(globalThis.window)
 
 // `class` is only for highlight.js tokens (hljs-title, function_, language-ts), so an agent
 // can't pull the app's own Tailwind classes into its reply.
-DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+purify.addHook('uponSanitizeAttribute', (_node, data) => {
   if (data.attrName !== 'class') return
   data.attrValue = data.attrValue
     .split(/\s+/)
@@ -83,12 +93,25 @@ DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
     .join(' ')
 })
 
-export function renderSanitizedMarkdown(source: string): string {
-  const raw = marked.parse(source, { async: false })
-  return DOMPurify.sanitize(raw, ALLOWED)
+// GitHub's `> [!NOTE]`, and the `> **Warning:**` agents write by habit.
+const CALLOUT =
+  /<blockquote>\s*<p>(?:\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:<br>)?|<strong>(Note|Tip|Important|Warning|Caution):?<\/strong>:?)\s*/gi
+
+/** Runs on sanitised output and adds only these fixed strings, so the classes are safe. */
+function markCallouts(html: string): string {
+  return html.replace(CALLOUT, (_match, tag?: string, word?: string) => {
+    const kind = (tag ?? word ?? '').toLowerCase()
+    const title = kind.charAt(0).toUpperCase() + kind.slice(1)
+    return `<blockquote class="callout callout-${kind}"><p><strong class="callout-title">${title}</strong>`
+  })
 }
 
-/** ClickUp task descriptions are written as documents, so they also get headings, tables and checklists. */
+export function renderSanitizedMarkdown(source: string): string {
+  const raw = marked.parse(source, { async: false })
+  return markCallouts(purify.sanitize(raw, ALLOWED))
+}
+
+/** ClickUp task descriptions are written as documents, so they also get headings and checklists. */
 const RICH = {
   ALLOWED_TAGS: [
     ...ALLOWED.ALLOWED_TAGS,
@@ -101,26 +124,14 @@ const RICH = {
     'hr',
     'del',
     's',
-    'table',
-    'thead',
-    'tbody',
-    'tr',
-    'th',
-    'td',
     'input',
   ],
-  ALLOWED_ATTR: [
-    ...ALLOWED.ALLOWED_ATTR,
-    'type',
-    'checked',
-    'disabled',
-    'align',
-  ],
+  ALLOWED_ATTR: [...ALLOWED.ALLOWED_ATTR, 'type', 'checked', 'disabled'],
 }
 
 export function renderRichMarkdown(source: string): string {
   const raw = marked.parse(source, { async: false })
-  const html = DOMPurify.sanitize(raw, RICH)
+  const html = purify.sanitize(raw, RICH)
   // GFM task lists are the only inputs marked emits; anything else is dropped.
   const doc = new DOMParser().parseFromString(html, 'text/html')
   doc.querySelectorAll('input').forEach((input) => {

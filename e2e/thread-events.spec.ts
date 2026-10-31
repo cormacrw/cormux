@@ -5,7 +5,7 @@ test('app events render as divider markers, one per row', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/?longThread=1')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const timeline = page.locator('#timeline')
   const markers = timeline.getByTitle(/Checked out in this worktree/)
   await expect(markers).toHaveCount(3)
@@ -23,7 +23,7 @@ test('New session clears the view to a greeting; an earlier conversation can be 
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/?longThread=2')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const timeline = page.locator('#timeline')
   const hero = page.locator('[data-od-id="thread-hero"]')
   const button = page.locator('[data-od-id="composer-new-session"]')
@@ -40,14 +40,7 @@ test('New session clears the view to a greeting; an earlier conversation can be 
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/thread-new-session.png' })
 
-  // Picking a task types a prompt for it, without sending it.
   const composer = page.locator('#composer-input')
-  await page.locator('[data-od-id="task-select"]').click()
-  await page.getByRole('option', { name: /Draft the 0\.4 changelog/ }).click()
-  await expect(composer).toHaveValue(/^Complete #CMUX-2: /)
-  await expect(composer).toBeFocused()
-  await expect(hero).toBeVisible()
-
   await composer.fill('Fresh question')
   await page.keyboard.press('Enter')
   await expect(hero).toHaveCount(0)

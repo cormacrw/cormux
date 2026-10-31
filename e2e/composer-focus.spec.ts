@@ -7,11 +7,7 @@ test('the composer gets focus back after the usual actions', async ({
   const composer = page.locator('#composer-input')
 
   // Opening a workspace is ready to type.
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
-  await expect(composer).toBeFocused()
-
-  // Plan and attach controls hand focus back.
-  await page.locator('[data-od-id="composer-plan-mode"]').click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(composer).toBeFocused()
 
   // Picking a model returns to the prompt, not the picker's button.
@@ -19,9 +15,9 @@ test('the composer gets focus back after the usual actions', async ({
   await page.getByRole('menuitemradio', { name: 'Opus' }).click()
   await expect(composer).toBeFocused()
 
-  // Back from another tab by clicking the thread's tab.
-  await page.locator('#thread-tab-changes').click()
-  await page.locator('#thread-tab-th-lead').click()
+  // Back from a slide-out.
+  await page.locator('#tray-changes').click()
+  await page.keyboard.press('Escape')
   await expect(composer).toBeFocused()
 
   // A click in the conversation drops focus; typing still lands in the prompt.
@@ -34,17 +30,8 @@ test('the composer gets focus back after the usual actions', async ({
   // Ctrl+Tab back into the workspace lands in the prompt too.
   await page
     .getByRole('navigation', { name: 'Harness' })
-    .getByRole('button', { name: /^Week/ })
+    .getByRole('button', { name: /^New thread/ })
     .click()
   await page.keyboard.press('Control+Tab')
   await expect(composer).toBeFocused()
-})
-
-test('arrow keys through the tabs keep focus on the tabs', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login', exact: true }).click()
-  await page.locator('#thread-tab-th-lead').focus()
-  await page.keyboard.press('ArrowRight')
-  await page.keyboard.press('ArrowLeft')
-  await expect(page.locator('#thread-tab-th-lead')).toBeFocused()
 })

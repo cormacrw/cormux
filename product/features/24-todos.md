@@ -1,5 +1,7 @@
 # 24 · TODOs
 
+> Removed from the app. The code is in git history if it comes back.
+
 > **Update:** the TODOs page and pinned TODOs on Homebase are gone. TODOs are added and planned on the Week page, or with **Add a task** in the command palette. Homebase now shows **Today**: the TODOs and sprint tasks planned for today, as the board's cards. Clicking a card on Homebase, Week or Sprint opens the **task flyout**, which slides out from the right over the page (drag its left edge to resize; Esc, ×, or a click elsewhere closes it). A TODO's flyout reads like a ClickUp task: an ID chip with Delete and close, the title as the heading, a Status row with **Mark complete**, and the description. The rest of this page describes the old design.
 
 

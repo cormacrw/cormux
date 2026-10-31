@@ -292,6 +292,7 @@ pub fn persist_tool_step(
     detail: Option<&str>,
 ) -> Result<()> {
     let event = AgentEvent::ToolCall {
+        parent_id: None,
         id: format!("finding-{}", Uuid::new_v4()),
         title: title.to_string(),
         name: None,

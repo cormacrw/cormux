@@ -22,7 +22,7 @@ mod mcp;
 mod menu;
 mod metrics;
 mod naming;
-mod plan_mode;
+mod orchestration;
 mod pr_draft;
 mod process;
 mod provisioning;
@@ -36,7 +36,6 @@ mod store;
 mod summaries;
 mod teardown;
 mod thread_media;
-mod todo_files;
 mod workspace;
 
 use std::time::Duration;
@@ -122,8 +121,7 @@ pub fn run() {
             let pr_app = app.handle().clone();
             let db_path = data_dir(app.path().app_data_dir()?).join("cormux.db");
             state.store.open(&db_path)?;
-            // TODO files are rewritten on every change; this catches up on the rest.
-            crate::todo_files::sync(&state.store);
+            state.store.reset_interrupted_turns()?;
             let approval_notify = state.approval_notify.clone();
             let turn_end_notify = state.turn_end_notify.clone();
             app.manage(state);
@@ -164,11 +162,12 @@ pub fn run() {
                         break;
                     }
                     let state = approval_app.state::<AppState>();
-                    if let Err(error) = crate::plan_mode::hold_threads_awaiting_review(&state).await
-                    {
-                        log::warn!("plan review status: {error}");
-                    }
                     crate::feedback::emit_approval_counts(&approval_app, &state);
+                    if let Err(error) =
+                        crate::orchestration::on_approval_requested(&approval_app).await
+                    {
+                        log::warn!("reporting a blocked thread failed: {error}");
+                    }
                 }
             });
 
@@ -185,6 +184,7 @@ pub fn run() {
                     };
                     let state = turn_end_app.state::<AppState>();
                     let _ = state.store.mark_thread_idle(&thread_id);
+                    let _ = state.store.deny_stale_approvals(&thread_id);
                     let is_scratch = state
                         .store
                         .scratch_for_thread(&thread_id)
@@ -213,6 +213,11 @@ pub fn run() {
                         crate::review::on_reviewer_turn_end(&turn_end_app, &thread_id).await
                     {
                         log::warn!("reading review findings failed: {error}");
+                    }
+                    if let Err(error) =
+                        crate::orchestration::on_turn_end(&turn_end_app, &thread_id).await
+                    {
+                        log::warn!("reporting a thread failed: {error}");
                     }
                 }
             });

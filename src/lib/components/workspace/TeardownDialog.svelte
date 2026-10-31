@@ -52,16 +52,14 @@
   }
 
   // Close immediately and let the teardown run in the background: the sidebar
-  // drops the workspace and its Homebase card shows Deleting until the core
+  // drops the workspace and its row shows Deleting until the core
   // finishes. The core toasts on success and we toast here on failure.
   function confirmTeardown() {
     if (!workspaceId) return
     const tornId = workspaceId
     workspaces.markDeleting(tornId)
     shellDialogs.closeTeardown()
-    if (app.view !== 'homebase') {
-      app.openHomebase()
-    }
+    app.openNewThread()
     void commands
       .teardownWorkspace({ workspaceId: tornId, deleteBranch })
       .then(async (result) => {

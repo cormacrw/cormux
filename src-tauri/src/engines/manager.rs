@@ -15,7 +15,7 @@ use super::models::{ModelOption, ThreadModels, static_models};
 use super::prompt::Prompt;
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::error::{Error, Result};
-use crate::plan_mode;
+use crate::mcp::CormuxMcp;
 use crate::shell_env::ShellEnv;
 use crate::store::Store;
 
@@ -33,6 +33,7 @@ pub struct EngineRegistry {
     env: Arc<RwLock<ShellEnv>>,
     approvals: Arc<ApprovalBroker>,
     pub(crate) store: Store,
+    mcp: CormuxMcp,
     approval_notify: tokio::sync::broadcast::Sender<()>,
     /// Thread ids whose turn just ended (or whose engine exited).
     turn_end_notify: tokio::sync::broadcast::Sender<String>,
@@ -75,6 +76,7 @@ impl EngineRegistry {
         env: Arc<RwLock<ShellEnv>>,
         approvals: Arc<ApprovalBroker>,
         store: Store,
+        mcp: CormuxMcp,
         approval_notify: tokio::sync::broadcast::Sender<()>,
         turn_end_notify: tokio::sync::broadcast::Sender<String>,
     ) -> Self {
@@ -82,6 +84,7 @@ impl EngineRegistry {
             env,
             approvals,
             store,
+            mcp,
             approval_notify,
             turn_end_notify,
             threads: Arc::new(Mutex::new(HashMap::new())),
@@ -211,15 +214,6 @@ impl EngineRegistry {
         self.store.set_thread_model(thread_id, model.as_deref())?;
         if self.has_thread(thread_id) {
             self.send(thread_id, EngineCommand::SetModel(model))?;
-        }
-        Ok(())
-    }
-
-    /// Saves the thread's plan mode for future spawns and switches a live Claude session now.
-    pub fn set_thread_plan_mode(&self, thread_id: &str, on: bool) -> Result<()> {
-        plan_mode::set_plan_mode(&self.store, thread_id, on)?;
-        if self.has_thread(thread_id) {
-            self.send(thread_id, EngineCommand::SetPlanMode(on))?;
         }
         Ok(())
     }
@@ -428,12 +422,8 @@ impl EngineRegistry {
         } else {
             let binary = detect::resolve_binary(&env, spec.kind.binaries())
                 .unwrap_or_else(|| PathBuf::from("claude"));
-            // Plan mode reads without asking and never edits. A scratch is always in it.
-            let extra = if spec.read_only || plan_mode::is_plan_mode(&self.store, &spec.thread_id) {
-                vec!["--permission-mode".into(), "plan".into()]
-            } else {
-                Vec::new()
-            };
+            // Nothing in the app could take a session back out of plan mode.
+            let extra = vec!["--disallowedTools".into(), "EnterPlanMode".into()];
             (binary, extra, true)
         };
 
@@ -444,6 +434,8 @@ impl EngineRegistry {
             model,
             extra_args,
             use_default_args,
+            // A read-only scratch has no workspace to start threads from.
+            orchestrate: use_default_args && !spec.read_only,
             env: Some(env.vars().clone()),
         };
         if options.env.as_ref().is_some_and(|vars| vars.is_empty()) {
@@ -459,7 +451,7 @@ impl EngineRegistry {
         let auto_all = spec.auto_approve_all;
         let read_only = spec.read_only;
         let approval_notify = self.approval_notify.clone();
-        let normal_mode = plan_mode::normal_mode(&self.store, &thread_id, &spec.cwd);
+        let mcp = self.mcp.clone();
         tokio::spawn(async move {
             run_claude(
                 session,
@@ -467,6 +459,7 @@ impl EngineRegistry {
                 events,
                 approvals,
                 store,
+                mcp,
                 thread_id,
                 session_id,
                 ClaudePolicy {
@@ -475,7 +468,6 @@ impl EngineRegistry {
                     read_only,
                 },
                 approval_notify,
-                normal_mode,
             )
             .await;
         });
@@ -541,14 +533,16 @@ async fn run_claude(
     events: broadcast::Sender<AgentEvent>,
     approvals: Arc<ApprovalBroker>,
     store: Store,
+    mcp: CormuxMcp,
     thread_id: String,
     session_id: Arc<Mutex<Option<String>>>,
     policy: ClaudePolicy,
     approval_notify: tokio::sync::broadcast::Sender<()>,
     // Where leaving plan mode goes back to; a session that starts outside plan mode updates it.
-    mut normal_mode: String,
 ) {
     let (answer_tx, mut answer_rx) = mpsc::unbounded_channel::<ClaudeAnswer>();
+    // Tool calls run off the pump, which has to keep reading while they work.
+    let (mcp_tx, mut mcp_rx) = mpsc::unbounded_channel::<(String, serde_json::Value)>();
     // Claude's running cost for this process, so each turn adds only what it cost.
     let mut process_cost = 0.0_f64;
     loop {
@@ -568,12 +562,6 @@ async fn run_claude(
                             log::warn!("claude set model: {error}");
                         }
                     }
-                    Some(EngineCommand::SetPlanMode(on)) => {
-                        let mode = if on { plan_mode::PLAN_MODE } else { &normal_mode };
-                        if let Err(error) = session.set_permission_mode(mode).await {
-                            log::warn!("claude set permission mode: {error}");
-                        }
-                    }
                     Some(EngineCommand::Shutdown) | None => {
                         let _ = session.shutdown().await;
                         break;
@@ -583,15 +571,9 @@ async fn run_claude(
             event = session.next_event() => {
                 match event {
                     Ok(Some(raw)) => {
-                        if let Event::Init { session_id: id, permission_mode } = &raw {
+                        if let Event::Init { session_id: id, .. } = &raw {
                             *session_id.lock().unwrap() = Some(id.clone());
                             let _ = store.set_thread_session(&thread_id, id);
-                            if let Some(mode) = permission_mode.as_deref()
-                                && mode != plan_mode::PLAN_MODE
-                            {
-                                normal_mode = mode.to_string();
-                                plan_mode::remember_normal_mode(&store, &thread_id, mode);
-                            }
                         }
                         if let Some(AgentEvent::Usage {
                             used_tokens,
@@ -630,7 +612,19 @@ async fn run_claude(
                                 cost_usd,
                             );
                         }
-                        if let Event::CanUseTool(req) = &raw {
+                        if let Event::McpMessage { request_id, message, server_name } = raw {
+                            let reply = mcp_tx.clone();
+                            let mcp = mcp.clone();
+                            let thread_id = thread_id.clone();
+                            tokio::spawn(async move {
+                                let answer = if server_name == crate::mcp::SERVER_NAME {
+                                    mcp.handle_message(&thread_id, &message).await
+                                } else {
+                                    crate::mcp::unknown_server_reply(&message, &server_name)
+                                };
+                                let _ = reply.send((request_id, answer));
+                            });
+                        } else if let Event::CanUseTool(req) = &raw {
                             handle_claude_permission(
                                 &mut session,
                                 req,
@@ -663,19 +657,14 @@ async fn run_claude(
                     }
                 }
             }
-            Some(answer) = answer_rx.recv() => {
-                // Declining a plan after the user left plan mode: switch modes first, so
-                // Claude carries on normally instead of planning again.
-                if answer.is_plan
-                    && matches!(answer.decision, ApprovalDecision::Denied { .. })
-                    && !plan_mode::is_plan_mode(&store, &thread_id)
-                {
-                    let _ = session.set_permission_mode(&normal_mode).await;
+            Some((request_id, answer)) = mcp_rx.recv() => {
+                if let Err(error) = session.answer_mcp(&request_id, answer).await {
+                    log::warn!("claude mcp answer: {error}");
                 }
+            }
+            Some(answer) = answer_rx.recv() => {
                 let id = answer.request_id.clone();
-                let _ = session
-                    .answer_tool(&id, permission_decision(answer, &normal_mode))
-                    .await;
+                let _ = session.answer_tool(&id, permission_decision(answer)).await;
             }
         }
     }
@@ -686,17 +675,13 @@ struct ClaudeAnswer {
     request_id: String,
     decision: ApprovalDecision,
     input: serde_json::Value,
-    /// An `ExitPlanMode` call: approving it takes Claude out of plan mode to carry the plan out.
-    is_plan: bool,
 }
 
-fn permission_decision(answer: ClaudeAnswer, normal_mode: &str) -> PermissionDecision {
+fn permission_decision(answer: ClaudeAnswer) -> PermissionDecision {
     match answer.decision {
         ApprovalDecision::Approved => PermissionDecision::Allow {
             updated_input: answer.input,
-            updated_permissions: answer
-                .is_plan
-                .then(|| plan_mode::leave_plan_mode_permissions(normal_mode)),
+            updated_permissions: None,
         },
         ApprovalDecision::Denied { message } => PermissionDecision::Deny { message },
     }
@@ -735,11 +720,7 @@ async fn handle_claude_permission(
         return;
     }
     let mut mapped = claude_map::map_permission(req);
-    // A plan is there to be read, so even Run everything waits for the user on one.
-    let plan = (req.tool_name == plan_mode::EXIT_PLAN_TOOL)
-        .then(|| plan_mode::plan_from_input(&req.input))
-        .flatten();
-    if plan.is_none() && (policy.auto_all || (policy.auto_ro && kind.is_readonly())) {
+    if policy.auto_all || (policy.auto_ro && kind.is_readonly()) {
         if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;
         }
@@ -765,17 +746,8 @@ async fn handle_claude_permission(
         req,
         ToolCallStatus::Pending,
     ));
-    let is_plan = plan.is_some();
-    let recorded = match plan {
-        Some(plan) => {
-            // Only plan mode hands over a plan, even one the agent entered by itself, so the
-            // composer's toggle shows it and leaving plan mode can drop the plan.
-            let _ = plan_mode::set_plan_mode(store, thread_id, true);
-            crate::approvals::record_pending_plan(store, thread_id, &mapped, plan)
-        }
-        None => crate::approvals::record_pending_permission(store, thread_id, &mapped, None),
-    };
-    if let Err(error) = recorded {
+    if let Err(error) = crate::approvals::record_pending_permission(store, thread_id, &mapped, None)
+    {
         log::warn!("record approval: {error}");
     } else {
         let _ = approval_notify.send(());
@@ -795,7 +767,6 @@ async fn handle_claude_permission(
             request_id: id,
             decision,
             input,
-            is_plan,
         });
     });
 }
@@ -827,6 +798,16 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_mcp(store: Store) -> CormuxMcp {
+        let env = Arc::new(RwLock::new(ShellEnv::new()));
+        CormuxMcp::new(
+            store,
+            crate::process::ProcessSupervisor::new(env),
+            Arc::new(ApprovalBroker::new()),
+            crate::app::WorkspaceAppService::new(),
+        )
+    }
     use crate::approvals::ApprovalBroker;
     use crate::shell_env::ShellEnv;
     use crate::store::Store;
@@ -841,10 +822,86 @@ mod tests {
         EngineRegistry::new(
             env,
             approvals,
-            store,
+            store.clone(),
+            test_mcp(store),
             approval_notify,
             broadcast::channel(8).0,
         )
+    }
+
+    /// Needs a signed-in `claude` on PATH, and spends one small Haiku turn.
+    #[tokio::test]
+    #[ignore]
+    async fn live_claude_reaches_the_cormux_tools() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store
+            .upsert_thread(&crate::store::types::ThreadRow {
+                id: "live".into(),
+                workspace_id: "live-workspace".into(),
+                title: "Lead".into(),
+                engine: "claude".into(),
+                session_id: None,
+                status: "idle".into(),
+                used_tokens: None,
+                context_size: None,
+                cost_usd: None,
+                transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
+            })
+            .unwrap();
+        store.set_thread_model("live", Some("haiku")).unwrap();
+        let engines = EngineRegistry::new(
+            Arc::new(RwLock::new(ShellEnv::new())),
+            Arc::new(ApprovalBroker::new()),
+            store.clone(),
+            test_mcp(store.clone()),
+            broadcast::channel(4).0,
+            broadcast::channel(8).0,
+        );
+        engines
+            .spawn(SpawnSpec {
+                thread_id: "live".into(),
+                kind: EngineKind::Claude,
+                cwd: std::env::temp_dir(),
+                resume: None,
+                override_argv: None,
+                auto_approve_readonly: false,
+                auto_approve_all: false,
+                read_only: false,
+            })
+            .await
+            .unwrap();
+        let mut events = engines.subscribe("live").unwrap();
+        engines
+            .prompt(
+                "live",
+                "Call mcp__cormux__get_thread with id \"nonexistent\", then quote its error.",
+            )
+            .unwrap();
+        let mut reply = String::new();
+        let mut used_tool = false;
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(90), events.recv())
+                .await
+                .expect("the turn timed out")
+                .unwrap();
+            match event {
+                AgentEvent::ToolCall {
+                    name: Some(name), ..
+                } => {
+                    used_tool |= name == "mcp__cormux__get_thread";
+                }
+                AgentEvent::Permission { .. } => panic!("a read tool asked for approval"),
+                AgentEvent::MessageChunk { text, .. } => reply.push_str(&text),
+                AgentEvent::TurnEnd { .. } => break,
+                _ => {}
+            }
+        }
+        engines.stop("live").await.unwrap();
+        assert!(used_tool, "never called the tool: {reply}");
+        assert!(reply.contains("unknown thread"), "{reply}");
     }
 
     #[tokio::test]
@@ -856,7 +913,8 @@ mod tests {
         let engines = EngineRegistry::new(
             env,
             Arc::new(ApprovalBroker::new()),
-            store,
+            store.clone(),
+            test_mcp(store),
             broadcast::channel(4).0,
             turn_end_notify,
         );
@@ -985,166 +1043,6 @@ mod tests {
         engines.stop("t1").await.unwrap();
     }
 
-    async fn next_agent_text(events: &mut broadcast::Receiver<AgentEvent>) -> String {
-        loop {
-            match events.recv().await.unwrap() {
-                AgentEvent::MessageChunk {
-                    role: crate::engines::MessageRole::Agent,
-                    text,
-                } => return text,
-                AgentEvent::EngineExited { .. } => panic!("exited early"),
-                _ => {}
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn claude_plan_waits_for_the_user_and_approving_leaves_plan_mode() {
-        let engines = registry();
-        // Approving goes back to the mode the thread works in, not plain default.
-        plan_mode::remember_normal_mode(&engines.store, "t1", "acceptEdits");
-        // Approvals belong to a stored thread.
-        engines
-            .store
-            .upsert_thread(&crate::store::types::ThreadRow {
-                id: "t1".into(),
-                workspace_id: "ws-1".into(),
-                title: "Lead".into(),
-                engine: "claude".into(),
-                session_id: None,
-                status: "running".into(),
-                used_tokens: None,
-                context_size: None,
-                cost_usd: None,
-                transcript_readonly: false,
-            })
-            .unwrap();
-        let approvals = engines.approvals.clone();
-        engines
-            .spawn(SpawnSpec {
-                thread_id: "t1".into(),
-                kind: EngineKind::Claude,
-                cwd: std::env::temp_dir(),
-                resume: None,
-                override_argv: Some(mock_claude_argv()),
-                auto_approve_readonly: true,
-                // Run everything still stops for a plan.
-                auto_approve_all: true,
-                read_only: false,
-            })
-            .await
-            .unwrap();
-        let mut events = engines.subscribe("t1").unwrap();
-
-        engines.set_thread_plan_mode("t1", true).unwrap();
-        assert!(plan_mode::is_plan_mode(&engines.store, "t1"));
-        assert_eq!(next_agent_text(&mut events).await, "mode:plan");
-
-        engines.prompt("t1", "plan: add retries").unwrap();
-        let permission_id = loop {
-            if let AgentEvent::Permission {
-                id, auto_approved, ..
-            } = events.recv().await.unwrap()
-            {
-                assert!(!auto_approved);
-                break id;
-            }
-        };
-        // The approval row is written before the current tool is announced.
-        while !matches!(events.recv().await.unwrap(), AgentEvent::CurrentTool { .. }) {}
-        let row = engines.store.get_approval(&permission_id).unwrap().unwrap();
-        assert_eq!(row.status, "pending");
-        let payload: serde_json::Value = serde_json::from_str(&row.payload).unwrap();
-        assert_eq!(payload["plan"], "# Plan: add retries\n\n1. Wrap the call");
-        assert_eq!(payload["what"], "add retries");
-        assert_eq!(payload["effect"], "execute_plan");
-
-        approvals.resolve(&permission_id, true, None).await.unwrap();
-        let sent: serde_json::Value =
-            serde_json::from_str(&next_agent_text(&mut events).await).unwrap();
-        assert_eq!(sent["behavior"], "allow");
-        assert_eq!(sent["updatedPermissions"][0]["type"], "setMode");
-        assert_eq!(sent["updatedPermissions"][0]["mode"], "acceptEdits");
-
-        engines.stop("t1").await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn claude_plan_feedback_is_a_denial_with_the_comments() {
-        let engines = registry();
-        let approvals = engines.approvals.clone();
-        engines
-            .spawn(SpawnSpec {
-                thread_id: "t1".into(),
-                kind: EngineKind::Claude,
-                cwd: std::env::temp_dir(),
-                resume: None,
-                override_argv: Some(mock_claude_argv()),
-                auto_approve_readonly: true,
-                auto_approve_all: false,
-                read_only: false,
-            })
-            .await
-            .unwrap();
-        let mut events = engines.subscribe("t1").unwrap();
-        engines.prompt("t1", "plan: add retries").unwrap();
-        let permission_id = loop {
-            if let AgentEvent::Permission { id, .. } = events.recv().await.unwrap() {
-                break id;
-            }
-        };
-        approvals
-            .resolve(&permission_id, false, Some("Cap the retries at 3".into()))
-            .await
-            .unwrap();
-        let sent: serde_json::Value =
-            serde_json::from_str(&next_agent_text(&mut events).await).unwrap();
-        assert_eq!(sent["behavior"], "deny");
-        assert_eq!(sent["message"], "Cap the retries at 3");
-        engines.stop("t1").await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn leaving_plan_mode_switches_claude_back_before_declining_the_plan() {
-        let engines = registry();
-        plan_mode::remember_normal_mode(&engines.store, "t1", "auto");
-        let approvals = engines.approvals.clone();
-        engines
-            .spawn(SpawnSpec {
-                thread_id: "t1".into(),
-                kind: EngineKind::Claude,
-                cwd: std::env::temp_dir(),
-                resume: None,
-                override_argv: Some(mock_claude_argv()),
-                auto_approve_readonly: true,
-                auto_approve_all: false,
-                read_only: false,
-            })
-            .await
-            .unwrap();
-        let mut events = engines.subscribe("t1").unwrap();
-        engines.prompt("t1", "plan: add retries").unwrap();
-        let permission_id = loop {
-            if let AgentEvent::Permission { id, .. } = events.recv().await.unwrap() {
-                break id;
-            }
-        };
-        while !matches!(events.recv().await.unwrap(), AgentEvent::CurrentTool { .. }) {}
-        // Handing over a plan means Claude is in plan mode, whoever switched it on.
-        assert!(plan_mode::is_plan_mode(&engines.store, "t1"));
-
-        plan_mode::set_plan_mode(&engines.store, "t1", false).unwrap();
-        approvals
-            .resolve(&permission_id, false, Some("Left plan mode".into()))
-            .await
-            .unwrap();
-        assert_eq!(next_agent_text(&mut events).await, "mode:auto");
-        let sent: serde_json::Value =
-            serde_json::from_str(&next_agent_text(&mut events).await).unwrap();
-        assert_eq!(sent["behavior"], "deny");
-        engines.stop("t1").await.unwrap();
-    }
-
     #[tokio::test]
     async fn acp_mock_session_permission_and_turn_end() {
         let engines = registry();
@@ -1247,6 +1145,8 @@ mod tests {
                 context_size: None,
                 cost_usd: None,
                 transcript_readonly: false,
+                retired: false,
+                parent_thread_id: None,
             })
             .unwrap();
     }

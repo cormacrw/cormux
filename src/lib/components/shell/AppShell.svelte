@@ -104,7 +104,7 @@
   <!-- Clipped: the closed task flyout waits past the right edge, and must not make the shell scrollable. -->
   <main class="main-area relative flex min-h-0 min-w-0 flex-col overflow-clip">
     {@render children()}
-    <!-- A task opened from Homebase, Week or Sprint slides out over the page. -->
+    <!-- A task opened on Sprint slides out over the page. -->
     <TaskFlyout />
   </main>
 </div>

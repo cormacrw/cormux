@@ -1,4 +1,5 @@
-import type { ToolKind } from '$lib/ipc/bindings'
+import type { ToolCallStatus, ToolKind } from '$lib/ipc/bindings'
+import type { RunSummary } from './run-summary'
 
 export type ChipTone = 'success' | 'warning' | 'muted'
 
@@ -42,6 +43,12 @@ export type ToolRunStep =
       seq: number
       atMs: number
       rawDetail?: string
+      /** What a test or build command came to, and the end of what it printed. */
+      run?: RunSummary
+      output?: string
+      /** What a subagent did, when this step spawned one. */
+      children?: ToolRunStep[]
+      status?: ToolCallStatus
     }
   | {
       kind: 'edit'
@@ -50,6 +57,7 @@ export type ToolRunStep =
       verb: 'Edited' | 'Created' | 'Deleted'
       seq: number
       atMs: number
+      status?: ToolCallStatus
     }
 
 export type TimelineItem =
@@ -64,7 +72,15 @@ export type TimelineItem =
       streaming?: boolean
     }
   | { kind: 'toolRun'; id: string; steps: ToolRunStep[]; seq: number }
-  | { kind: 'plan'; id: string; steps: string[]; seq: number; atMs: number }
+  | {
+      kind: 'plan'
+      id: string
+      steps: string[]
+      /** Each step's status, as the engine reports it: `pending`, `in_progress`, `completed`. */
+      statuses: string[]
+      seq: number
+      atMs: number
+    }
   | {
       kind: 'approval'
       id: string

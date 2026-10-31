@@ -7,7 +7,7 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
   mkdirSync('e2e/output', { recursive: true })
   await page.setViewportSize({ width: 1600, height: 800 })
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
 
   // Create PR has no button any more; ⌘P still opens it.
   await expect(page.getByRole('button', { name: 'Create PR' })).toHaveCount(0)
@@ -55,7 +55,7 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
 test('narrow windows fold the secondary actions into ⋯', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 720 })
   await page.goto('/')
-  await page.getByRole('button', { name: 'OAuth login, Idle' }).click()
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(
     page.getByRole('button', { name: 'Delete workspace' }),
   ).toHaveCount(0)
@@ -75,19 +75,18 @@ test('narrow windows fold the secondary actions into ⋯', async ({ page }) => {
   await page.screenshot({ path: 'e2e/output/workspace-header-narrow.png' })
 })
 
-test('End scratch has a keyboard shortcut', async ({ page }) => {
+test('Deleting a read-only scratch has a keyboard shortcut', async ({
+  page,
+}) => {
   await page.goto('/')
   await page
-    .locator('[data-od-id="home-sessions"]')
-    .getByRole('button', {
-      name: 'Why the webhook signature fails, my-app, Idle',
-    })
+    .getByRole('button', { name: /^Why the webhook signature fails,/ })
     .click()
   await expect(page.locator('#view-session')).toBeVisible()
   await page.screenshot({ path: 'e2e/output/scratch-header-shortcuts.png' })
 
   await page.keyboard.press('ControlOrMeta+e')
   await expect(
-    page.getByRole('alertdialog').getByText('End this scratch?'),
+    page.getByRole('alertdialog').getByText('Delete this scratch?'),
   ).toBeVisible()
 })

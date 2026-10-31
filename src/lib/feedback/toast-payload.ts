@@ -92,20 +92,6 @@ export function pullToast(
   }
 }
 
-export function newThreadToast(
-  name: string,
-  workspaceId: string,
-): ToastPayload {
-  return {
-    tone: 'ok',
-    workspaceId,
-    parts: [
-      { type: 'text', value: 'Started a new thread in ' },
-      { type: 'code', value: name },
-    ],
-  }
-}
-
 export function environmentReloadToast(): ToastPayload {
   return {
     tone: 'default',
