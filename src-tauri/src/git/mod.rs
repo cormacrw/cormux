@@ -619,7 +619,11 @@ impl Git {
     }
 
     pub async fn status_porcelain(&self, worktree: &Path) -> Result<String> {
-        let output = self.run(worktree, &["status", "--porcelain"]).await?;
+        // A read: don't take `index.lock` to refresh the index, which would stall behind
+        // (or trip up) an agent running its own git commands in the worktree.
+        let output = self
+            .run(worktree, &["--no-optional-locks", "status", "--porcelain"])
+            .await?;
         Self::require_success(&output, "status --porcelain")?;
         Ok(Self::stdout(&output))
     }
@@ -810,6 +814,25 @@ impl Git {
             .map_err(|error| Error::Git(format!("rev-list count: {error}")))
     }
 
+    /// Commits only `left` has and only `right` has, as `(ahead, behind)` from `left`'s point of
+    /// view, in one process. `(0, 0)` when either ref is missing.
+    pub async fn ahead_behind(
+        &self,
+        worktree: &Path,
+        left: &str,
+        right: &str,
+    ) -> Result<(u32, u32)> {
+        let range = format!("{left}...{right}");
+        let output = self
+            .run(worktree, &["rev-list", "--left-right", "--count", &range])
+            .await?;
+        if !output.status.success() {
+            return Ok((0, 0));
+        }
+        parse_left_right(&Self::stdout(&output))
+            .ok_or_else(|| Error::Git("rev-list --left-right: unexpected output".into()))
+    }
+
     pub async fn remote_branch_exists(&self, repo: &Path, branch: &str) -> Result<bool> {
         let reference = format!("refs/remotes/origin/{branch}");
         let output = self
@@ -884,6 +907,14 @@ impl Git {
         Self::require_success(&output, "diff --shortstat")?;
         Ok(parse_shortstat(&Self::stdout(&output)))
     }
+}
+
+/// `git rev-list --left-right --count` prints `left<TAB>right`.
+fn parse_left_right(text: &str) -> Option<(u32, u32)> {
+    let mut parts = text.split_whitespace();
+    let left = parts.next()?.parse().ok()?;
+    let right = parts.next()?.parse().ok()?;
+    Some((left, right))
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -1205,6 +1236,37 @@ mod tests {
         assert_eq!((stat.files, stat.added, stat.deleted), (1, 2, 0));
         assert!(git.ref_exists(&repo, "feat/a.v1").await.unwrap());
         assert!(!git.ref_exists(&repo, "origin/main").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn counts_ahead_and_behind_in_one_call() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let (_clone_dir, clone) = clone_of(&origin);
+        assert_eq!(
+            git.ahead_behind(&clone, "main", "origin/main")
+                .await
+                .unwrap(),
+            (0, 0)
+        );
+        commit(&clone, "local.txt");
+        commit(&origin, "remote-1.txt");
+        commit(&origin, "remote-2.txt");
+        run_ok(&clone, &["git", "fetch", "-q", "origin"]);
+        assert_eq!(
+            git.ahead_behind(&clone, "main", "origin/main")
+                .await
+                .unwrap(),
+            (1, 2)
+        );
+        assert_eq!(
+            git.ahead_behind(&clone, "main", "origin/nope")
+                .await
+                .unwrap(),
+            (0, 0)
+        );
+        assert_eq!(parse_left_right("3\t4\n"), Some((3, 4)));
+        assert_eq!(parse_left_right(""), None);
     }
 
     #[test]

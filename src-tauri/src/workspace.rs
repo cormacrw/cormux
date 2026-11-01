@@ -393,11 +393,11 @@ impl WorkspaceManager {
         Ok(())
     }
 
-    pub fn git_stats_snapshot(&self) -> HashMap<String, WorkspaceGitStats> {
-        match self.inner.try_read() {
-            Ok(inner) => inner.git_stats.clone(),
-            Err(_) => HashMap::new(),
-        }
+    /// Every workspace's counts and conflict state. Waits for the lock: a `try_read` here gave
+    /// an empty map whenever a count was being written, so a snapshot taken mid-pull showed
+    /// every workspace level and conflict-free.
+    pub async fn git_stats_snapshot(&self) -> HashMap<String, WorkspaceGitStats> {
+        self.inner.read().await.git_stats.clone()
     }
 
     pub async fn git_stats(&self, workspace_id: &str) -> WorkspaceGitStats {

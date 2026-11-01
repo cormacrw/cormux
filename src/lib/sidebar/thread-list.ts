@@ -57,15 +57,22 @@ export function nestThreadList<
   T extends { id: string; parentId: string | null },
 >(items: T[]): (T & { nested: boolean })[] {
   const ids = new Set(items.map((item) => item.id))
-  const isChild = (item: T) => item.parentId != null && ids.has(item.parentId)
-  return items
-    .filter((item) => !isChild(item))
-    .flatMap((item) => [
-      { ...item, nested: false },
-      ...items
-        .filter((child) => isChild(child) && child.parentId === item.id)
-        .map((child) => ({ ...child, nested: true })),
-    ])
+  const children = new Map<string, T[]>()
+  for (const item of items) {
+    if (item.parentId == null || !ids.has(item.parentId)) continue
+    const list = children.get(item.parentId)
+    if (list) list.push(item)
+    else children.set(item.parentId, [item])
+  }
+  const nested: (T & { nested: boolean })[] = []
+  for (const item of items) {
+    if (item.parentId != null && ids.has(item.parentId)) continue
+    nested.push({ ...item, nested: false })
+    for (const child of children.get(item.id) ?? []) {
+      nested.push({ ...child, nested: true })
+    }
+  }
+  return nested
 }
 
 /**

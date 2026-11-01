@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatMemoryGb,
-  isActiveThread,
   plural,
-  statusDotVariantForThread,
   statusDotVariantForWorkspace,
-  threadActivityLine,
   workspaceStatusWord,
   statusDotVariantForAttention,
 } from './status'
@@ -65,47 +62,6 @@ describe('workspaceStatusWord', () => {
         activityText: '',
       }),
     ).toBe('Running')
-  })
-})
-
-describe('thread sidebar helpers', () => {
-  it('shows Paused on the activity line', () => {
-    expect(
-      threadActivityLine({
-        status: 'paused',
-        paused: true,
-        activity: 'Editing files',
-      }),
-    ).toBe('Paused')
-  })
-
-  it('counts active threads', () => {
-    expect(
-      isActiveThread({ status: 'running', paused: false, activity: '' }),
-    ).toBe(true)
-    expect(
-      isActiveThread({ status: 'idle', paused: false, activity: '' }),
-    ).toBe(false)
-  })
-
-  it('maps thread dots', () => {
-    expect(
-      statusDotVariantForThread({
-        status: 'running',
-        paused: false,
-        activity: '',
-      }),
-    ).toBe('running')
-  })
-
-  it('shows a thread on hold for the user as waiting, not running', () => {
-    expect(
-      statusDotVariantForThread({
-        status: 'waiting',
-        paused: false,
-        activity: 'Plan ready for review',
-      }),
-    ).toBe('waiting')
   })
 })
 

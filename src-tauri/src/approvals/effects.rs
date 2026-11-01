@@ -47,19 +47,15 @@ fn cross_thread_suggestions(
     reviewer_row: &ApprovalRow,
     payload: &ApprovalPayload,
 ) -> Result<()> {
-    let snap = state.store.snapshot()?;
-    let reviewer = snap
-        .threads
-        .iter()
-        .find(|thread| thread.id == reviewer_row.thread_id)
+    let reviewer = state
+        .store
+        .thread_by_id(&reviewer_row.thread_id)?
         .ok_or_else(|| crate::error::Error::Store("reviewer thread missing".into()))?;
-    let lead = snap
-        .threads
-        .iter()
-        .find(|thread| {
-            thread.workspace_id == reviewer.workspace_id
-                && thread.title.eq_ignore_ascii_case("lead")
-        })
+    let lead = state
+        .store
+        .threads_for_workspace(&reviewer.workspace_id)?
+        .into_iter()
+        .find(|thread| thread.title.eq_ignore_ascii_case("lead"))
         .ok_or_else(|| crate::error::Error::Store("lead thread missing".into()))?;
 
     persist_control_step(

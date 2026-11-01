@@ -118,10 +118,15 @@ export function buildPaletteCommandsFromState(
     })
   }
 
+  const threadsByWorkspace = new Map<string, Thread[]>()
+  for (const thread of state.threads) {
+    const list = threadsByWorkspace.get(thread.workspaceId)
+    if (list) list.push(thread)
+    else threadsByWorkspace.set(thread.workspaceId, [thread])
+  }
+
   for (const workspace of state.workspaces) {
-    const wsThreads = state.threads.filter(
-      (t) => t.workspaceId === workspace.id,
-    )
+    const wsThreads = threadsByWorkspace.get(workspace.id) ?? []
     cmds.push({
       id: `ws-open-${workspace.id}`,
       group: 'Workspaces',
@@ -163,9 +168,7 @@ export function buildPaletteCommandsFromState(
   }
 
   for (const workspace of state.workspaces) {
-    const wsThreads = state.threads.filter(
-      (t) => t.workspaceId === workspace.id,
-    )
+    const wsThreads = threadsByWorkspace.get(workspace.id) ?? []
     // The workspace's own row opens its one thread; older ones are only here and in its header.
     for (const thread of wsThreads.filter((row) => row.retired)) {
       cmds.push({

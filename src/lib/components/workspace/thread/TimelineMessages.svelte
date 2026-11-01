@@ -1,6 +1,22 @@
+<script lang="ts" module>
+  import { SvelteSet } from 'svelte/reactivity'
+
+  // A registry nothing renders; the reactive state is the sets inside it.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const foldsByWorkspace = new Map<string, SvelteSet<string>>()
+
+  function foldsFor(workspaceId: string) {
+    let folds = foldsByWorkspace.get(workspaceId)
+    if (!folds) {
+      folds = new SvelteSet<string>()
+      foldsByWorkspace.set(workspaceId, folds)
+    }
+    return folds
+  }
+</script>
+
 <script lang="ts">
   import { replyParts } from '$lib/thread/reply-parts'
-  import { SvelteSet } from 'svelte/reactivity'
   import TaskDraftCards from './TaskDraftCards.svelte'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
@@ -84,14 +100,24 @@
     onFocusComposer?: () => void
   } = $props()
 
-  const diffFiles = $derived(workspaceDiff.filesByWorkspace[workspaceId] ?? [])
+  // By path, so each edit step's `+n −m` is one lookup rather than a scan of the diff.
+  const diffFileByPath = $derived(
+    new Map(
+      (workspaceDiff.filesByWorkspace[workspaceId] ?? []).map((file) => [
+        file.path,
+        file,
+      ]),
+    ),
+  )
   // Media an agent references in a reply resolves against its worktree.
   const workdir = $derived(
     workspaceRecords.getRecord(workspaceId)?.worktreePath,
   )
 
   // What's folded isn't rendered: a thought re-renders its markdown on every chunk otherwise.
-  const openFolds = new SvelteSet<string>()
+  // Kept per workspace rather than per instance: a long thread renders each row in its own
+  // instance and unmounts rows off screen, so a fold opened there would close on scrolling back.
+  const openFolds = $derived(foldsFor(workspaceId))
 
   function foldToggled(id: string, event: Event) {
     if ((event.currentTarget as HTMLDetailsElement).open) openFolds.add(id)
@@ -104,8 +130,13 @@
 
   type StepSegment = { id: string; quiet: boolean; steps: ToolRunStep[] }
 
+  // A run's steps array is replaced only when the run changes, so its segments are kept with it.
+  const segmentsByRun = new WeakMap<ToolRunStep[], StepSegment[]>()
+
   // Reads, searches, commands and edits are subtle lines; anything else stays in a card.
   function segmentSteps(steps: ToolRunStep[]): StepSegment[] {
+    const known = segmentsByRun.get(steps)
+    if (known) return known
     const segments: StepSegment[] = []
     for (const step of steps) {
       const quiet = step.kind === 'edit' || Boolean(step.quiet)
@@ -113,6 +144,7 @@
       if (last?.quiet === quiet) last.steps.push(step)
       else segments.push({ id: step.id, quiet, steps: [step] })
     }
+    segmentsByRun.set(steps, segments)
     return segments
   }
 
@@ -145,29 +177,30 @@
     return iconFor(step.icon)
   }
 
+  const ICONS: Record<ToolStepIcon, typeof Terminal> = {
+    file: FileText,
+    tool: Terminal,
+    branch: GitBranch,
+    check: Check,
+    terminal: Terminal,
+    database: Terminal,
+    pr: GitBranch,
+    download: ArrowRight,
+    list: List,
+    search: Search,
+    pencil: Pencil,
+    trash: Trash2,
+    pause: Pause,
+    play: Play,
+    stop: Square,
+    session: MessageSquarePlus,
+    clock: Clock,
+    globe: Globe,
+    skill: Sparkles,
+  }
+
   function iconFor(icon: ToolStepIcon) {
-    const map = {
-      file: FileText,
-      tool: Terminal,
-      branch: GitBranch,
-      check: Check,
-      terminal: Terminal,
-      database: Terminal,
-      pr: GitBranch,
-      download: ArrowRight,
-      list: List,
-      search: Search,
-      pencil: Pencil,
-      trash: Trash2,
-      pause: Pause,
-      play: Play,
-      stop: Square,
-      session: MessageSquarePlus,
-      clock: Clock,
-      globe: Globe,
-      skill: Sparkles,
-    } as const
-    return map[icon] ?? Terminal
+    return ICONS[icon] ?? Terminal
   }
 
   // Titles wrap branch names in backticks; odd parts render as code.
@@ -197,12 +230,15 @@
   }
 
   function findingSummary(items: FindingRow[]) {
-    const count = (severity: string) =>
-      items.filter((row) => row.severity === severity).length
+    const counts = { blocking: 0, suggestion: 0, nit: 0 }
+    for (const row of items) {
+      if (row.severity in counts)
+        counts[row.severity as keyof typeof counts] += 1
+    }
     const parts = [
-      [count('blocking'), 'blocking', 'blocking'],
-      [count('suggestion'), 'suggestion', 'suggestions'],
-      [count('nit'), 'nit', 'nits'],
+      [counts.blocking, 'blocking', 'blocking'],
+      [counts.suggestion, 'suggestion', 'suggestions'],
+      [counts.nit, 'nit', 'nits'],
     ] as const
     return parts
       .filter(([n]) => n > 0)
@@ -294,7 +330,7 @@
                   >
                 {/if}
               {:else if step.path}
-                {@const file = diffFiles.find((row) => row.path === step.path)}
+                {@const file = diffFileByPath.get(step.path)}
                 <span class="shrink-0">{step.verb}</span>
                 <button
                   type="button"
@@ -446,6 +482,7 @@
         <details
           class="group/thought max-w-[42rem]"
           data-lazy-fold
+          open={openFolds.has(item.id)}
           ontoggle={(event) => foldToggled(item.id, event)}
         >
           <summary
@@ -469,10 +506,11 @@
             </div>
           {/if}
         </details>
-      {:else if item.kind === 'thought' && replyParts(item.text)}
-        {@const taskSplit = replyParts(item.text)!}
-        {@const replyText = taskSplit.text}
-        <div class="group max-w-[42rem]">
+      {:else if item.kind === 'thought'}
+        {@const taskSplit = replyParts(item.text)}
+        {@const replyText = taskSplit?.text ?? ''}
+        <!-- A reply that was only a findings block has nothing to show. -->
+        <div class={['group max-w-[42rem]', !taskSplit && 'hidden']}>
           {#if replyText}
             <div class="text-sm text-foreground">
               <StreamingText
@@ -484,7 +522,7 @@
               />
             </div>
           {/if}
-          {#if taskSplit.drafts.length}
+          {#if taskSplit?.drafts.length}
             <TaskDraftCards drafts={taskSplit.drafts} />
           {/if}
           <!-- Under the reply, not over it, so it never covers the last words of a line. -->
@@ -511,6 +549,7 @@
             class="group/run"
             data-od-id="tool-run-summary"
             data-lazy-fold
+            open={openFolds.has(item.id)}
             ontoggle={(event) => foldToggled(item.id, event)}
           >
             <summary
@@ -531,7 +570,7 @@
           {#if edited.length}
             <ul class="mt-1.5 flex flex-wrap gap-1" data-od-id="files-touched">
               {#each edited as path (path)}
-                {@const file = diffFiles.find((row) => row.path === path)}
+                {@const file = diffFileByPath.get(path)}
                 <li>
                   <button
                     type="button"

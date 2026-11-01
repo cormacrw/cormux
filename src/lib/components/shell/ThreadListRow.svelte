@@ -95,6 +95,7 @@
   )}
   aria-current={isCurrent ? 'page' : undefined}
   aria-label={ariaLabel}
+  title={item.title}
   data-od-id="thread-row-{item.id}"
   data-urgency={item.urgency}
   onclick={open}

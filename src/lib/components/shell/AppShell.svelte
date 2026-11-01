@@ -63,11 +63,18 @@
     width = null
     writeSidebarWidth(null)
   }
+
+  // On the root rather than the shell, so the backdrop's wordmark (outside the shell) follows it.
+  $effect(() => {
+    const root = document.documentElement.style
+    if (width == null) root.removeProperty('--sidebar-w')
+    else root.setProperty('--sidebar-w', `${width}px`)
+    return () => root.removeProperty('--sidebar-w')
+  })
 </script>
 
 <div
   class="app-shell relative z-[1] grid h-dvh min-h-0 overflow-hidden bg-background text-foreground"
-  style:--sidebar-w={width == null ? undefined : `${width}px`}
 >
   <aside
     bind:this={aside}

@@ -1,5 +1,4 @@
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
@@ -9,7 +8,6 @@ use crate::github::review::{
     RestGithubClient, ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput,
 };
 use crate::ipc::commands::{expand_tilde, worktrees_base};
-use crate::ipc::events::StateChanged;
 use crate::ipc::types::StateChangeKind;
 use crate::ipc::types::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::provisioning::LeadProvisionJob;
@@ -137,10 +135,8 @@ pub fn find_existing_review_workspace(
     repo_id: &str,
     pr_number: i64,
 ) -> Option<WorkspaceRow> {
-    let snapshot = store.snapshot().ok()?;
-    snapshot.workspaces.into_iter().find(|row| {
-        row.archived_at.is_none()
-            && row.kind.as_deref() == Some("review")
+    store.live_workspaces().ok()?.into_iter().find(|row| {
+        row.kind.as_deref() == Some("review")
             && row.repo_id == repo_id
             && row.pr_number == Some(pr_number)
     })
@@ -178,11 +174,9 @@ pub async fn create_review_workspace(
         });
     }
 
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .into_iter()
-        .find(|row| row.id == input.repo_id)
+    let repo = state
+        .store
+        .repo_by_id(&input.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
     repo.ensure_not_default_branch(&input.head)?;
     let repo_path = expand_tilde(&repo.path);
@@ -194,7 +188,7 @@ pub async fn create_review_workspace(
     }
 
     let workspace_id = workspace_id_for_pr(input.pr_number);
-    if snapshot.workspaces.iter().any(|row| row.id == workspace_id) {
+    if state.store.workspace_by_id(&workspace_id)?.is_some() {
         return Err(Error::Workspace(format!(
             "workspace id {workspace_id} is already in use"
         )));
@@ -293,12 +287,7 @@ pub async fn create_review_workspace(
         .store
         .set_setting(&review_author_key(&workspace_id), &author_label);
 
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 
     emit_toast(
         app,
@@ -370,11 +359,9 @@ async fn remember_workspace_from_row(
     row: &WorkspaceRow,
     base: &str,
 ) -> Result<()> {
-    let snapshot = state.store.snapshot()?;
-    let repo = snapshot
-        .repos
-        .iter()
-        .find(|entry| entry.id == row.repo_id)
+    let repo = state
+        .store
+        .repo_by_id(&row.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", row.repo_id)))?;
     let repo_path = expand_tilde(&repo.path);
     state
@@ -523,10 +510,9 @@ pub async fn start_branch_review(
 
     let thread = state
         .store
-        .snapshot()?
-        .threads
+        .threads_for_workspace(workspace_id)?
         .into_iter()
-        .find(|row| row.workspace_id == workspace_id && !row.retired)
+        .find(|row| !row.retired)
         .ok_or_else(|| Error::Workspace(format!("no thread in workspace {workspace_id}")))?;
     if thread.status == "running" {
         return Err(Error::Workspace(
@@ -568,10 +554,9 @@ fn complete_branch_review(
         .set_setting(&review_status_key(&workspace.id), "ready")?;
     let found = state
         .store
-        .snapshot()?
-        .findings
+        .findings_for_workspace(&workspace.id)?
         .iter()
-        .any(|row| row.workspace_id == workspace.id && row.status == "open");
+        .any(|row| row.status == "open");
     if !found {
         emit_toast(
             app,
@@ -599,13 +584,7 @@ fn complete_branch_review(
 
 async fn complete_review(app: &AppHandle, workspace: &WorkspaceRow, thread_id: &str) -> Result<()> {
     let state = app.state::<AppState>();
-    let findings: Vec<FindingRow> = state
-        .store
-        .snapshot()?
-        .findings
-        .into_iter()
-        .filter(|row| row.workspace_id == workspace.id)
-        .collect();
+    let findings: Vec<FindingRow> = state.store.findings_for_workspace(&workspace.id)?;
 
     state
         .store
@@ -662,12 +641,7 @@ async fn complete_review(app: &AppHandle, workspace: &WorkspaceRow, thread_id: &
 }
 
 fn emit_state_changed(app: &AppHandle, state: &AppState) {
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 }
 
 fn count_findings(findings: &[FindingRow]) -> String {
@@ -705,12 +679,9 @@ pub async fn submit_workspace_review(
         return Err(Error::Workspace("Review already submitted".into()));
     }
 
-    let snapshot = state.store.snapshot()?;
-    let workspace = snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == input.workspace_id)
-        .cloned()
+    let workspace = state
+        .store
+        .workspace_by_id(&input.workspace_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", input.workspace_id)))?;
     if workspace.kind.as_deref() != Some("review") {
         return Err(Error::Workspace("Not a review workspace".into()));
@@ -719,10 +690,9 @@ pub async fn submit_workspace_review(
         .pr_number
         .ok_or_else(|| Error::Workspace("Review workspace has no PR number".into()))?;
 
-    let repo = snapshot
-        .repos
-        .iter()
-        .find(|row| row.id == workspace.repo_id)
+    let repo = state
+        .store
+        .repo_by_id(&workspace.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", workspace.repo_id)))?;
     let (owner, repo_name) =
         parse_repo_slug(&state, &repo.path, workspace.pr_html_url.as_deref()).await?;
@@ -731,10 +701,11 @@ pub async fn submit_workspace_review(
         .await
         .ok_or_else(|| Error::Github("GitHub is not signed in — run `gh auth login`".into()))?;
 
-    let open_findings: Vec<FindingRow> = snapshot
-        .findings
+    let open_findings: Vec<FindingRow> = state
+        .store
+        .findings_for_workspace(&input.workspace_id)?
         .into_iter()
-        .filter(|row| row.workspace_id == input.workspace_id && row.status == "open")
+        .filter(|row| row.status == "open")
         .collect();
 
     let mut body_lines = Vec::new();
@@ -782,10 +753,10 @@ pub async fn submit_workspace_review(
         )
         .await?;
 
-    let reviewer_thread = snapshot
-        .threads
+    let workspace_threads = state.store.threads_for_workspace(&input.workspace_id)?;
+    let reviewer_thread = workspace_threads
         .iter()
-        .find(|row| row.workspace_id == input.workspace_id && row.title == "Reviewer")
+        .find(|row| row.title == "Reviewer")
         .cloned()
         .ok_or_else(|| Error::Store("Reviewer thread missing".into()))?;
 
@@ -793,11 +764,7 @@ pub async fn submit_workspace_review(
         .store
         .set_setting(&review_submitted_key(&input.workspace_id), "true")?;
 
-    for thread in snapshot
-        .threads
-        .iter()
-        .filter(|row| row.workspace_id == input.workspace_id)
-    {
+    for thread in &workspace_threads {
         state.store.upsert_thread(&ThreadRow {
             status: "idle".into(),
             ..thread.clone()
@@ -840,12 +807,7 @@ pub async fn submit_workspace_review(
         },
     );
 
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
     Ok(())
 }
 

@@ -2,6 +2,16 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.20
+
+- Cormux stays quicker as your history grows: snapshots read about six times faster on large stores, and state updates cause far fewer refetches and less work per keystroke and per sort.
+- The window appears once fonts are ready, and the app ships about 167 kB less in fonts.
+- Agent threads are sturdier: a stray line of output no longer ends a thread's event stream, an approval left unanswered when a turn ends no longer leaves the dock badge stuck, and the agent CLI is always shut down fully.
+- Terminal and run-app output keeps multi-byte characters whole, and the run monitor does much less work once the app is running.
+- GitHub requests time out after 30 seconds instead of hanging, and PRs show real timestamps. Repos refresh in parallel.
+- UI fixes: toasts no longer stack on top of each other, the wordmark centres on the sidebar, command palette rows line up with or without an icon, the sprint, settings and repo headers drag the window, and composer hint chips hide when a pinned pane narrows the bar.
+- The credentials file is now created readable only by you.
+
 ## 0.1.19
 
 - Cormux starts much faster: the code loaded at launch is down from about 2 MB to under 400 kB, with the diff viewer and secondary views loading when you first need them.

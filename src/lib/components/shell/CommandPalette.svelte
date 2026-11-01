@@ -168,6 +168,9 @@
             <Command.Item value={command.id} onSelect={() => onSelect(command)}>
               {#if Icon}
                 <Icon class="text-muted-foreground" aria-hidden="true" />
+              {:else}
+                <!-- Holds the icon's place, so labels line up down the list. -->
+                <span class="size-4 shrink-0" aria-hidden="true"></span>
               {/if}
               {#if command.subtitle}
                 <span class="flex min-w-0 flex-1 flex-col">

@@ -47,9 +47,19 @@ fn update_in(path: &Path, change: impl FnOnce(&mut BTreeMap<String, String>)) ->
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(path, serde_json::to_string_pretty(&all)?)?;
+    // Created owner-only from the start, so the secret is never readable while being written.
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    io::Write::write_all(&mut file, serde_json::to_string_pretty(&all)?.as_bytes())?;
+    #[cfg(unix)]
+    {
+        // An existing file keeps its old mode on open; make sure it ends up owner-only too.
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
@@ -78,5 +88,11 @@ mod tests {
 
         assert_eq!(get_in(&path, "a"), None);
         assert_eq!(get_in(&path, "b").as_deref(), Some("2"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
     }
 }

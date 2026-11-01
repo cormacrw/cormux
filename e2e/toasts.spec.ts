@@ -46,9 +46,18 @@ test('toasts are filled green, red or yellow by tone', async ({ page }) => {
     new Set([await bg('ok'), await bg('bad'), await bg('default')]).size,
   ).toBe(3)
 
-  // Sonner stacks toasts; hover expands them so all three are in the shot.
-  await page.locator('[data-tone="default"]').hover()
+  // The toaster expands them: three raised at once each take their own row,
+  // newest at the bottom, with none drawn over another.
   await page.waitForTimeout(400)
+  const boxes = await Promise.all(
+    ['ok', 'bad', 'default'].map(
+      async (tone) =>
+        (await page.locator(`[data-tone="${tone}"]`).boundingBox())!,
+    ),
+  )
+  const [ok, bad, fallback] = boxes
+  expect(ok.y + ok.height).toBeLessThanOrEqual(bad.y + 1)
+  expect(bad.y + bad.height).toBeLessThanOrEqual(fallback.y + 1)
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/toasts.png' })
   expect(errors).toEqual([])

@@ -206,19 +206,6 @@ pub fn add_turn_cost(thread_total: f64, process_seen: f64, process_total: f64) -
     (thread_total + added, process_total)
 }
 
-#[allow(dead_code)]
-pub fn plan_from_titles(titles: &[String]) -> AgentEvent {
-    AgentEvent::Plan {
-        entries: titles
-            .iter()
-            .map(|content| PlanStep {
-                content: content.clone(),
-                status: "pending".into(),
-            })
-            .collect(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

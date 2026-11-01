@@ -9,6 +9,7 @@ import type {
   ThreadEventRow,
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc/bindings'
+import { deepEqual } from '$lib/deep-equal'
 import { isThreadActivity } from '$lib/sidebar/thread-list'
 import { createEventBatcher } from '$lib/thread/event-batcher'
 import { threadsToEvict } from '$lib/thread/evict-threads'
@@ -41,6 +42,7 @@ type ThreadMeta = {
 const PAGE = 2000
 // Threads kept in memory for an instant switch back, on top of the ones on screen.
 const LOADED_THREADS = 8
+const NO_APPROVALS: ApprovalRow[] = []
 
 type ThreadHistory = {
   /** The newest and oldest rows read from the store; events after `newestSeq` are local. */
@@ -102,21 +104,36 @@ export class ThreadTimelineStore {
     approvals: ApprovalRow[]
     settings: SettingRow[]
     activity: ThreadActivityRow[]
+    /** Whether watched threads re-read the store; off for events that can't have written to it. */
+    refreshWatched?: boolean
   }) {
     const alive = new Set(input.threadIds)
     for (const threadId of Object.keys(this.eventsByThread)) {
       if (!alive.has(threadId)) this.forget(threadId)
     }
-    if (JSON.stringify(input.approvals) !== JSON.stringify(this.approvals)) {
+    if (!deepEqual(input.approvals, this.approvals)) {
       this.approvals = input.approvals
     }
-    if (JSON.stringify(input.settings) !== JSON.stringify(this.settings)) {
+    if (!deepEqual(input.settings, this.settings)) {
       this.settings = input.settings
     }
     this.mergeActivity(input.activity)
     // Steps the core writes itself (a pause, a pull, a new session) aren't streamed.
-    for (const threadId of this.watched.keys()) void this.refresh(threadId)
+    if (input.refreshWatched ?? true) {
+      for (const threadId of this.watched.keys()) void this.refresh(threadId)
+    }
   }
+
+  // Grouped once per approvals list, so a timeline rebuild on every chunk doesn't scan them all.
+  private approvalsByThread = $derived.by(() => {
+    const map = new Map<string, ApprovalRow[]>()
+    for (const row of this.approvals) {
+      const list = map.get(row.threadId)
+      if (list) list.push(row)
+      else map.set(row.threadId, [row])
+    }
+    return map
+  })
 
   private mergeActivity(rows: ThreadActivityRow[]) {
     let next: Record<string, number> | null = null
@@ -142,9 +159,7 @@ export class ThreadTimelineStore {
   ): TimelineItem[] {
     // Only the conversation showing now; earlier ones can be resumed.
     const events = this.conversations(threadId).current.events
-    const threadApprovals = this.approvals.filter(
-      (row) => row.threadId === threadId,
-    )
+    const threadApprovals = this.approvalsByThread.get(threadId) ?? NO_APPROVALS
     let builder = this.builders.get(threadId)
     if (!builder) {
       builder = new TimelineBuilder()

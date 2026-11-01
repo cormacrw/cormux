@@ -2,12 +2,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 
 use crate::engines::{EngineKind, SpawnSpec};
 use crate::error::{Error, Result};
-use crate::ipc::commands::emit_workspace_status;
-use crate::ipc::events::StateChanged;
 use crate::ipc::types::StateChangeKind;
 use crate::process::ProcessSupervisor;
 use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
@@ -35,34 +32,8 @@ pub async fn run_workspace_provisioning(app: AppHandle, job: LeadProvisionJob) {
 
 pub async fn retry_provisioning(app: AppHandle, workspace_id: String) {
     let state = app.state::<AppState>();
-    let snapshot = match state.store.snapshot() {
-        Ok(snapshot) => snapshot,
-        Err(error) => {
-            log::warn!("retry snapshot: {error}");
-            return;
-        }
-    };
-    let workspace = match snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == workspace_id)
-    {
-        Some(row) => row.clone(),
-        None => return,
-    };
-    let thread = match snapshot.threads.iter().find(|row| {
-        row.workspace_id == workspace_id && (row.title == "Lead" || row.title == "Reviewer")
-    }) {
-        Some(row) => row.clone(),
-        None => return,
-    };
-    let repo = match snapshot
-        .repos
-        .iter()
-        .find(|row| row.id == workspace.repo_id)
-    {
-        Some(row) => row.clone(),
-        None => return,
+    let Some((workspace, thread, repo)) = provisioning_rows(&state, &workspace_id) else {
+        return;
     };
     let goal = state
         .store
@@ -97,31 +68,8 @@ pub async fn retry_provisioning(app: AppHandle, workspace_id: String) {
 
 pub async fn skip_provisioning_setup(app: AppHandle, workspace_id: String) {
     let state = app.state::<AppState>();
-    let snapshot = match state.store.snapshot() {
-        Ok(snapshot) => snapshot,
-        Err(_) => return,
-    };
-    let workspace = match snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == workspace_id)
-    {
-        Some(row) => row.clone(),
-        None => return,
-    };
-    let thread = match snapshot.threads.iter().find(|row| {
-        row.workspace_id == workspace_id && (row.title == "Lead" || row.title == "Reviewer")
-    }) {
-        Some(row) => row.clone(),
-        None => return,
-    };
-    let repo = match snapshot
-        .repos
-        .iter()
-        .find(|row| row.id == workspace.repo_id)
-    {
-        Some(row) => row.clone(),
-        None => return,
+    let Some((workspace, thread, repo)) = provisioning_rows(&state, &workspace_id) else {
+        return;
     };
     let goal = state
         .store
@@ -393,7 +341,7 @@ async fn finish_after_setup(
         )
         .await;
         persist_workspace_row(state, &job.workspace_id, "running", &record)?;
-        emit_workspace_status(app, state, &job.workspace_id, WorkspaceLifecycle::Running);
+        state.notify(app, StateChangeKind::WorkspaceStatus);
         if job.review {
             emit_review_started_toast(app, state, &job.workspace_id, &job.thread_id);
         }
@@ -413,7 +361,6 @@ async fn finish_after_setup(
             .unwrap_or(record);
         set_activity(state, &job.workspace_id, "", 0, None, None).await;
         persist_workspace_row(state, &job.workspace_id, "idle", &record)?;
-        emit_workspace_status(app, state, &job.workspace_id, WorkspaceLifecycle::Idle);
     }
     emit_snapshot(app, state);
     Ok(())
@@ -495,12 +442,9 @@ fn initial_running_activity(review: bool) -> &'static str {
 }
 
 async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Result<()> {
-    let snapshot = state.store.snapshot()?;
-    let workspace = snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == job.workspace_id)
-        .cloned()
+    let workspace = state
+        .store
+        .workspace_by_id(&job.workspace_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", job.workspace_id)))?;
     if workspace
         .summary
@@ -579,12 +523,7 @@ async fn mark_failed(
         .set_status(workspace_id, WorkspaceLifecycle::ProvisioningFailed)
         .await;
     persist_workspace_status(state, workspace_id, "provisioningFailed");
-    emit_workspace_status(
-        app,
-        state,
-        workspace_id,
-        WorkspaceLifecycle::ProvisioningFailed,
-    );
+    state.notify(app, StateChangeKind::WorkspaceStatus);
     emit_snapshot(app, state);
     crate::feedback::emit_toast(
         app,
@@ -717,20 +656,29 @@ async fn wait_session(
 }
 
 fn persist_workspace_status(state: &AppState, workspace_id: &str, status: &str) {
-    let Ok(snapshot) = state.store.snapshot() else {
-        return;
-    };
-    let Some(row) = snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == workspace_id)
-    else {
-        return;
-    };
-    let _ = state.store.upsert_workspace(&WorkspaceRow {
-        status: status.into(),
-        ..row.clone()
-    });
+    if let Err(error) = state.store.set_workspace_status(workspace_id, status) {
+        log::warn!("saving workspace status: {error}");
+    }
+}
+
+/// The rows a retry or skip needs: the workspace, its Lead or Reviewer thread, and its repo.
+fn provisioning_rows(
+    state: &AppState,
+    workspace_id: &str,
+) -> Option<(WorkspaceRow, ThreadRow, crate::store::types::RepoRecord)> {
+    let workspace = state
+        .store
+        .workspace_by_id(workspace_id)
+        .map_err(|error| log::warn!("reading workspace {workspace_id}: {error}"))
+        .ok()??;
+    let thread = state
+        .store
+        .threads_for_workspace(workspace_id)
+        .ok()?
+        .into_iter()
+        .find(|row| row.title == "Lead" || row.title == "Reviewer")?;
+    let repo = state.store.repo_by_id(&workspace.repo_id).ok()??;
+    Some((workspace, thread, repo))
 }
 
 fn persist_workspace_row(
@@ -739,40 +687,17 @@ fn persist_workspace_row(
     status: &str,
     record: &WorkspaceRecord,
 ) -> Result<()> {
-    let snapshot = state.store.snapshot()?;
-    let Some(row) = snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == workspace_id)
-    else {
+    if state.store.workspace_by_id(workspace_id)?.is_none() {
         return Ok(());
-    };
-    state.store.upsert_workspace(&WorkspaceRow {
-        id: row.id.clone(),
-        repo_id: row.repo_id.clone(),
-        name: row.name.clone(),
-        branch: record.branch.clone(),
-        worktree_path: record.worktree_path.clone(),
-        status: status.into(),
-        created_at: row.created_at.clone(),
-        summary: row.summary.clone(),
-        summary_at: row.summary_at.clone(),
-        summary_source: row.summary_source.clone(),
-        kind: row.kind.clone(),
-        pr_number: row.pr_number,
-        pr_html_url: row.pr_html_url.clone(),
-        modified_files: row.modified_files,
-        archived_at: row.archived_at.clone(),
-    })
+    }
+    state
+        .store
+        .set_workspace_checkout(workspace_id, &record.branch, &record.worktree_path)?;
+    state.store.set_workspace_status(workspace_id, status)
 }
 
 fn emit_snapshot(app: &AppHandle, state: &AppState) {
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 }
 
 fn chrono_timestamp() -> String {

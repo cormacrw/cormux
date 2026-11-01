@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::RwLock;
+use tokio::task::JoinSet;
 
 use crate::error::Result;
 use crate::git::Git;
@@ -59,29 +60,20 @@ impl FetchScheduler {
         repos.retain(|repo| !repo.workspaces.is_empty());
     }
 
+    /// Fetches every repo and recounts its workspaces. Repos fetch side by side: each has its
+    /// own git queue, and one slow remote shouldn't hold the others' counts back.
     pub async fn tick(&self) -> Result<Vec<BehindUpdate>> {
         let repos = self.repos.read().await.clone();
-        let mut updates = Vec::new();
+        let mut tasks = JoinSet::new();
         for repo in repos {
-            if let Err(error) = self.git.fetch(&repo.repo_path).await {
-                log::warn!("fetch {} failed: {error}", repo.repo_path.display());
-                continue;
-            }
-            for workspace in repo.workspaces {
-                match self
-                    .git
-                    .behind_count(&workspace.worktree_path, &workspace.base)
-                    .await
-                {
-                    Ok(behind) => updates.push(BehindUpdate {
-                        workspace_id: workspace.workspace_id,
-                        behind,
-                    }),
-                    Err(error) => log::warn!(
-                        "behind count {} failed: {error}",
-                        workspace.worktree_path.display()
-                    ),
-                }
+            let git = self.git.clone();
+            tasks.spawn(async move { fetch_repo(&git, repo).await });
+        }
+        let mut updates = Vec::new();
+        while let Some(result) = tasks.join_next().await {
+            match result {
+                Ok(repo_updates) => updates.extend(repo_updates),
+                Err(error) => log::warn!("fetch task failed: {error}"),
             }
         }
         Ok(updates)
@@ -100,6 +92,30 @@ impl FetchScheduler {
             }
         });
     }
+}
+
+async fn fetch_repo(git: &Git, repo: RepoFetchTarget) -> Vec<BehindUpdate> {
+    if let Err(error) = git.fetch(&repo.repo_path).await {
+        log::warn!("fetch {} failed: {error}", repo.repo_path.display());
+        return Vec::new();
+    }
+    let mut updates = Vec::with_capacity(repo.workspaces.len());
+    for workspace in repo.workspaces {
+        match git
+            .behind_count(&workspace.worktree_path, &workspace.base)
+            .await
+        {
+            Ok(behind) => updates.push(BehindUpdate {
+                workspace_id: workspace.workspace_id,
+                behind,
+            }),
+            Err(error) => log::warn!(
+                "behind count {} failed: {error}",
+                workspace.worktree_path.display()
+            ),
+        }
+    }
+    updates
 }
 
 #[cfg(test)]

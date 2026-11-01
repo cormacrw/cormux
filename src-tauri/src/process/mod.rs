@@ -36,6 +36,8 @@ struct SessionShared {
     lines: Mutex<VecDeque<String>>,
     pending: Mutex<Vec<String>>,
     fragment: Mutex<String>,
+    /// The tail of the last read that was only part of a character; the next read finishes it.
+    partial: Mutex<Vec<u8>>,
     log: Mutex<File>,
     log_bytes: AtomicU64,
     exited: Mutex<Option<i32>>,
@@ -197,6 +199,7 @@ impl ProcessSupervisor {
                 }
                 reader_shared.push_bytes(&buf[..n]);
             }
+            reader_shared.finish_bytes();
         });
 
         self.sessions.lock().unwrap().insert(
@@ -486,6 +489,7 @@ impl SessionShared {
             lines: Mutex::new(VecDeque::new()),
             pending: Mutex::new(Vec::new()),
             fragment: Mutex::new(String::new()),
+            partial: Mutex::new(Vec::new()),
             log: Mutex::new(log),
             log_bytes: AtomicU64::new(0),
             exited: Mutex::new(None),
@@ -494,8 +498,29 @@ impl SessionShared {
         }
     }
 
+    /// Reads land in 4 KiB pieces that can split a multi-byte character (an arrow or an accent
+    /// in a build banner), so the bytes of an unfinished one wait for the next read instead of
+    /// turning into replacement characters.
     fn push_bytes(&self, bytes: &[u8]) {
-        let text = String::from_utf8_lossy(bytes);
+        let mut partial = self.partial.lock().unwrap();
+        let mut buffer = std::mem::take(&mut *partial);
+        buffer.extend_from_slice(bytes);
+        let complete = complete_utf8_len(&buffer);
+        partial.extend_from_slice(&buffer[complete..]);
+        drop(partial);
+        buffer.truncate(complete);
+        self.push_text(&String::from_utf8_lossy(&buffer));
+    }
+
+    /// Whatever a closed stream left unfinished still shows, as best it can.
+    fn finish_bytes(&self) {
+        let rest = std::mem::take(&mut *self.partial.lock().unwrap());
+        if !rest.is_empty() {
+            self.push_text(&String::from_utf8_lossy(&rest));
+        }
+    }
+
+    fn push_text(&self, text: &str) {
         if let Ok(mut log) = self.log.lock() {
             let written = self
                 .log_bytes
@@ -507,7 +532,7 @@ impl SessionShared {
             let _ = log.write_all(text.as_bytes());
         }
         let mut fragment = self.fragment.lock().unwrap();
-        fragment.push_str(&text);
+        fragment.push_str(text);
         while let Some(index) = fragment.find('\n') {
             let mut line = fragment.drain(..=index).collect::<String>();
             if line.ends_with('\n') {
@@ -543,6 +568,28 @@ impl SessionShared {
         }
         self.activity.notify_waiters();
     }
+}
+
+/// How much of `bytes` can be decoded now: everything up to a trailing character that is
+/// still missing its last bytes. Only the tail is looked at, so invalid bytes earlier on are
+/// replaced by the lossy decode rather than holding everything after them back.
+fn complete_utf8_len(bytes: &[u8]) -> usize {
+    for back in 1..=bytes.len().min(3) {
+        let index = bytes.len() - back;
+        let byte = bytes[index];
+        if byte & 0xC0 == 0x80 {
+            continue;
+        }
+        let needed = match byte {
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF7 => 4,
+            // ASCII, or a byte that can't start a character and will be replaced.
+            _ => 1,
+        };
+        return if needed > back { index } else { bytes.len() };
+    }
+    bytes.len()
 }
 
 fn keep_tail(text: &mut String, cap: usize) {
@@ -708,6 +755,35 @@ mod tests {
         assert!(proc.take_log_snapshot("ws").is_empty());
         assert!(!log_path("ws").exists());
         assert!(!log_path("ws-setup-1").exists());
+    }
+
+    #[test]
+    fn a_character_split_across_reads_stays_whole() {
+        let proc = supervisor();
+        proc.append_log_line("split", "warm up");
+        let shared = proc.logs.lock().unwrap().get("split").unwrap().clone();
+        let text = "➜  Local: ready\n".as_bytes();
+        // The arrow is three bytes; cut it in the middle.
+        shared.push_bytes(&text[..2]);
+        shared.push_bytes(&text[2..]);
+        assert_eq!(
+            proc.take_log_snapshot("split"),
+            vec!["warm up", "➜  Local: ready"]
+        );
+        // Invalid bytes are replaced rather than waited for; a cut-off tail still shows at EOF.
+        assert_eq!(complete_utf8_len(b"ok\xff"), 3);
+        assert_eq!(complete_utf8_len("é".as_bytes()), 2);
+        assert_eq!(complete_utf8_len(&"é".as_bytes()[..1]), 0);
+        assert_eq!(complete_utf8_len(&"a😀".as_bytes()[..4]), 1);
+        assert_eq!(complete_utf8_len("a😀".as_bytes()), 5);
+        assert_eq!(complete_utf8_len(b"\xffok\xe2\x9e"), 3);
+        shared.push_bytes(&"end é".as_bytes()[..5]);
+        shared.finish_bytes();
+        shared.push_bytes(b"\n");
+        assert_eq!(
+            proc.take_log_snapshot("split").last().unwrap(),
+            "end \u{fffd}"
+        );
     }
 
     #[test]

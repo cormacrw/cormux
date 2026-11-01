@@ -237,7 +237,7 @@ impl ClaudeSession {
     }
 
     /// Cancel safe: `read_until` keeps partial reads in `pending`, so the pump can race this
-    /// against commands in `select!` without dropping half a line.
+    /// against commands in `select!` without dropping half a line. `None` once stdout closes.
     pub async fn next_event(&mut self) -> Result<Option<Event>> {
         loop {
             let read = self
@@ -248,17 +248,13 @@ impl ClaudeSession {
             if read == 0 && self.pending.is_empty() {
                 return Ok(None);
             }
-            let line = String::from_utf8_lossy(&self.pending);
-            let trimmed = line.trim();
-            let event = (!trimmed.is_empty()).then(|| decode_event(trimmed));
-            drop(line);
+            let event = decode_line(&String::from_utf8_lossy(&self.pending));
             // Kept between lines, but one huge payload doesn't stay allocated.
             self.pending.clear();
             self.pending.shrink_to(LINE_BUFFER_KEEP);
             let Some(event) = event else {
                 continue;
             };
-            let event = event?;
             if let Event::Init { session_id, .. } = &event {
                 self.session_id = Some(session_id.clone());
             }
@@ -283,14 +279,20 @@ impl ClaudeSession {
         }
     }
 
+    /// Closes stdin, asks the CLI's whole process group to stop, and kills whatever is left
+    /// after a few seconds. The group is the CLI's own (`process_group(0)`), so the shells and
+    /// servers it started go with it rather than outliving the thread.
     pub async fn shutdown(&mut self) -> Result<()> {
         let _ = self.stdin.shutdown().await;
-        if let Some(pid) = self.child.id() {
-            let _ = unsafe { libc::killpg(pid as i32, libc::SIGTERM) };
+        let pgid = self.child.id().map(|pid| pid as i32);
+        if let Some(pgid) = pgid {
+            let _ = unsafe { libc::killpg(pgid, libc::SIGTERM) };
         }
         let _ = timeout(Duration::from_secs(5), self.child.wait()).await;
-        if let Some(pid) = self.child.id() {
-            let _ = unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+        // The CLI exiting on SIGTERM doesn't mean its children did; `kill_on_drop` only
+        // reaches the CLI itself.
+        if let Some(pgid) = pgid {
+            let _ = unsafe { libc::killpg(pgid, libc::SIGKILL) };
         }
         let _ = self.child.kill().await;
         Ok(())
@@ -313,6 +315,24 @@ impl ClaudeSession {
         let id = format!("{prefix}-{}", self.next_request_id);
         self.next_request_id += 1;
         id
+    }
+}
+
+/// One line of the CLI's stdout as an event. Blank lines are skipped, and so is anything that
+/// isn't an event (a stray print, a truncated payload): one bad line must not take the session
+/// down with it, since the CLI keeps running and the next line is usually fine.
+fn decode_line(line: &str) -> Option<Event> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    match decode_event(trimmed) {
+        Ok(event) => Some(event),
+        Err(error) => {
+            let shown: String = trimmed.chars().take(200).collect();
+            log::warn!("claude: skipping a line that isn't an event ({error}): {shown}");
+            None
+        }
     }
 }
 
@@ -376,11 +396,9 @@ where
             if read == 0 {
                 return Ok(None);
             }
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
+            let Some(event) = decode_line(&line) else {
                 continue;
-            }
-            let event = decode_event(trimmed)?;
+            };
             if let Event::Init { session_id, .. } = &event {
                 self.session_id = Some(session_id.clone());
             }
@@ -421,6 +439,37 @@ mod tests {
         let mut line = String::new();
         reader.read_line(&mut line).await.unwrap();
         serde_json::from_str(line.trim_end()).unwrap()
+    }
+
+    #[test]
+    fn a_line_that_is_not_an_event_is_skipped_not_fatal() {
+        assert!(decode_line("").is_none());
+        assert!(decode_line("   \n").is_none());
+        assert!(decode_line("Warning: something the CLI printed").is_none());
+        assert!(decode_line(r#"{"type":"system","subtype":"init"}"#).is_none());
+        assert!(matches!(
+            decode_line(r#"{"type":"system","subtype":"init","session_id":"s"}"#),
+            Some(Event::Init { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_bad_line_mid_stream_does_not_end_the_session() {
+        let (_host_out, _mock_in) = duplex(4096);
+        let (mut mock_out, host_in) = duplex(4096);
+        let mut host = NdjsonPeer::new(host_in, _host_out);
+        mock_out
+            .write_all(b"not json at all\n{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}\n")
+            .await
+            .unwrap();
+        mock_out.flush().await.unwrap();
+        assert!(matches!(
+            host.next_event().await.unwrap(),
+            Some(Event::Result {
+                is_error: false,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]

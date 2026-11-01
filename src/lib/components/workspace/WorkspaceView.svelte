@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import {
     app,
     findings,
@@ -12,7 +12,6 @@
   import { bindWorkspaceDiffSubscription } from '$lib/state/workspace-diff.svelte'
   import RenameWorkspaceDialog from './RenameWorkspaceDialog.svelte'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
-  import { startStreamingSpike } from '$lib/ipc'
   import ProvisioningFailureBanner from './ProvisioningFailureBanner.svelte'
   import WorkspaceHeader from './WorkspaceHeader.svelte'
   import WorkspaceOutputPanel from './WorkspaceOutputPanel.svelte'
@@ -44,18 +43,6 @@
     if (untrack(() => workspaceUi.activeTab) !== 'thread')
       workspaceTitle?.focus()
   })
-
-  const isLoadSpike = $derived(app.workspaceId === 'spike-load')
-  const diffLines = Array.from(
-    { length: 5000 },
-    (_, i) => `${String(i + 1).padStart(4, ' ')}  const row = ${i}`,
-  )
-
-  let agentText = $state('')
-  let ptyLines = $state<string[]>([])
-  let fps = $state(0)
-  let frames = 0
-  let lastFpsAt = 0
 
   const provisioning = $derived(
     workspace ? isWorkspaceProvisioning(workspace.lifecycle) : false,
@@ -173,7 +160,7 @@
   const workspaceId = $derived(workspace?.id)
 
   $effect(() => {
-    if (!workspaceId || isLoadSpike) return
+    if (!workspaceId) return
     return bindWorkspaceDiffSubscription(workspaceId)
   })
 
@@ -181,7 +168,7 @@
 
   // Opening Changes again picks up commits made since the last look.
   $effect(() => {
-    if (!workspaceId || isLoadSpike) return
+    if (!workspaceId) return
     void workspaceBranch
     void gitVisible
     untrack(() => void stacks.load(workspaceId))
@@ -211,65 +198,12 @@
       workspaceUi.openTab('thread')
     }
   })
-
-  onMount(() => {
-    if (!isLoadSpike) return
-
-    let raf = 0
-    lastFpsAt = performance.now()
-    const tick = (now: number) => {
-      frames += 1
-      if (now - lastFpsAt >= 1000) {
-        fps = frames
-        frames = 0
-        lastFpsAt = now
-      }
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-
-    void startStreamingSpike(
-      (chunk) => {
-        agentText += chunk.text
-      },
-      (chunk) => {
-        ptyLines = [...ptyLines.slice(-499), chunk.line]
-      },
-    )
-
-    return () => cancelAnimationFrame(raf)
-  })
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
 
 <section class="flex min-h-0 flex-1 flex-col">
-  {#if isLoadSpike}
-    <header>
-      <h1
-        bind:this={workspaceTitle}
-        tabindex="-1"
-        class="text-xl font-semibold tracking-tight outline-none"
-      >
-        {workspace?.name ?? app.workspaceId ?? 'Workspace'}
-      </h1>
-      <p class="text-sm text-muted-foreground">
-        {fps} fps · {ptyLines.length} log lines · 5000-line diff
-      </p>
-    </header>
-    <div class="grid min-h-0 flex-1 grid-cols-3 gap-3 text-xs">
-      <pre
-        class="overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono">{agentText}</pre>
-      <pre
-        class="overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono">{ptyLines.join(
-          '\n',
-        )}</pre>
-      <pre
-        class="overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono">{diffLines.join(
-          '\n',
-        )}</pre>
-    </div>
-  {:else if workspace}
+  {#if workspace}
     <RenameWorkspaceDialog bind:workspaceId={renameWorkspaceId} />
     <WorkspaceHeader
       bind:titleRef={workspaceTitle}

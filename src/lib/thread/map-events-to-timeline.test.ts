@@ -3,7 +3,24 @@ import {
   mapEventsToTimeline,
   shouldShowLiveRow,
 } from './map-events-to-timeline'
-import { agentEventsForThread } from './parse-agent-event'
+import { parseAgentEventPayload } from './parse-agent-event'
+import { eventCreatedAtMs } from './thread-time'
+
+/** Rows from the store as timed events, the way the timeline store reads them. */
+function agentEventsForThread(
+  rows: { threadId: string; seq: number; payload: string; createdAt: string }[],
+  threadId: string,
+) {
+  return rows
+    .filter((row) => row.threadId === threadId)
+    .sort((a, b) => a.seq - b.seq)
+    .flatMap((row) => {
+      const event = parseAgentEventPayload(row.payload, row.seq)
+      return event
+        ? [{ seq: row.seq, atMs: eventCreatedAtMs(row.createdAt), event }]
+        : []
+    })
+}
 
 describe('mapEventsToTimeline', () => {
   it('shows tools Claude runs without asking, by command and path', () => {

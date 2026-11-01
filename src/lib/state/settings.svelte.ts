@@ -14,6 +14,8 @@ import {
   serializeBangs,
   type Bang,
 } from '$lib/settings/bangs'
+import { deepEqual } from '$lib/deep-equal'
+import { reuseRows } from './reuse-rows'
 
 const PR_PROMPT_KEY = 'prPrompt'
 
@@ -40,7 +42,8 @@ export class SettingsStore {
   prPrompt = $state('')
   /** App that Open in Terminal launches; empty means Terminal. */
   terminalApp = $state('')
-  rows = $state<SettingRow[]>([])
+  // Raw and reused: readers key off the whole list, so an unchanged snapshot must keep it.
+  rows = $state.raw<SettingRow[]>([])
   /** When set, Settings view scrolls/focuses this section (palette deep links). */
   focusSection = $state<string | null>(null)
   /** Expand this repo and focus its run command field (Output empty state). */
@@ -60,7 +63,9 @@ export class SettingsStore {
     if (settings.autoApproveReadOnly !== undefined) {
       this.autoApproveReadOnly = settings.autoApproveReadOnly
     }
-    this.rows = rows
+    const previous = this.rows
+    this.rows = reuseRows(previous, rows, (row) => row.key)
+    if (this.rows === previous) return
     if (rows.length > 0) {
       this.defaultEngine = readDefaultEngine(rows)
       this.defaultRepo = readStringSetting(rows, 'defaultRepo', '')
@@ -83,10 +88,11 @@ export class SettingsStore {
       this.runEverything = readBooleanSetting(rows, 'runEverything', false)
       this.prPrompt = readStringSetting(rows, PR_PROMPT_KEY, '')
       this.terminalApp = readStringSetting(rows, 'terminalApp', '')
-      this.bangs = parseBangs(
+      const bangs = parseBangs(
         rows.find((row) => row.key === BANGS_KEY)?.value,
         rows.find((row) => row.key === LEGACY_MACROS_KEY)?.value,
       )
+      if (!deepEqual(bangs, this.bangs)) this.bangs = bangs
     }
   }
 

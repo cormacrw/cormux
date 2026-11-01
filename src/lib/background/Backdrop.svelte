@@ -32,7 +32,8 @@
   $effect(() => {
     if (!appearance.showWordmark) return
     let cancelled = false
-    void import('@fontsource/pacifico/400.css')
+    // Only "cormux" is ever set in it, so the Latin subset alone.
+    void import('@fontsource/pacifico/latin-400.css')
       .then(() => document.fonts.load("100px 'Pacifico'", 'cormux'))
       .catch(() => undefined)
       .then(() => {
@@ -88,10 +89,10 @@
     transition: background-color var(--dur-slide) ease;
   }
 
-  /* The content area, right of the floating sidebar (its 256px column plus a little room). */
+  /* The content area, right of the sidebar at whatever width it's been dragged to, plus a little room. */
   .wordmark-area {
     position: absolute;
-    inset: 0 0 0 264px;
+    inset: 0 0 0 calc(var(--sidebar-w) + 8px);
   }
 
   /* A conversation's going: the camera tilts up and the word sinks out of view. */

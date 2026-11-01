@@ -1,3 +1,5 @@
+// Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
+/* eslint-disable svelte/prefer-svelte-reactivity */
 import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 import { reuseRows } from './reuse-rows'
 
@@ -30,15 +32,10 @@ export type Workspace = {
 export class WorkspacesStore {
   items = $state.raw<Workspace[]>([])
   /** Teardowns confirmed here but not yet reflected in a snapshot. */
-  deletingIds = $state<string[]>([])
+  deletingIds = $state.raw<string[]>([])
 
-  readonly workingCount = $derived(
-    this.items.filter((workspace) => workspace.cardStatus === 'working').length,
-  )
-
-  readonly needsAttentionCount = $derived(
-    this.items.filter((workspace) => workspace.cardStatus === 'needsAttention')
-      .length,
+  private readonly byId = $derived(
+    new Map(this.items.map((workspace) => [workspace.id, workspace])),
   )
 
   /** Workspaces not being deleted; the sidebar and palette hide the rest. */
@@ -46,14 +43,12 @@ export class WorkspacesStore {
     this.items.filter((workspace) => !this.isDeleting(workspace)),
   )
 
-  /** Newest workspaces first (sidebar spec). */
-  readonly sidebarItems = $derived([...this.liveItems].reverse())
-
   hydrate(items: Workspace[]) {
     this.items = reuseRows(this.items, items)
-    this.deletingIds = this.deletingIds.filter((id) =>
-      items.some((item) => item.id === id),
-    )
+    const alive = new Set(items.map((item) => item.id))
+    if (this.deletingIds.some((id) => !alive.has(id))) {
+      this.deletingIds = this.deletingIds.filter((id) => alive.has(id))
+    }
   }
 
   isDeleting(workspace: Workspace) {
@@ -69,22 +64,12 @@ export class WorkspacesStore {
   }
 
   clearDeleting(id: string) {
+    if (!this.deletingIds.includes(id)) return
     this.deletingIds = this.deletingIds.filter((item) => item !== id)
   }
 
-  upsert(workspace: Workspace) {
-    const index = this.items.findIndex((item) => item.id === workspace.id)
-    if (index === -1) {
-      this.items = [...this.items, workspace]
-      return
-    }
-    this.items = this.items.map((item) =>
-      item.id === workspace.id ? workspace : item,
-    )
-  }
-
   getById(id: string) {
-    return this.items.find((item) => item.id === id)
+    return this.byId.get(id)
   }
 
   patchName(id: string, name: string) {

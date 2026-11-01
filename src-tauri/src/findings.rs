@@ -7,13 +7,11 @@ use crate::composer::{persist_agent_event, persist_user_message};
 use crate::engines::{AgentEvent, ToolCallStatus, ToolKind};
 use crate::error::{Error, Result};
 use crate::feedback::emit_toast;
-use crate::ipc::events::StateChanged;
 use crate::ipc::types::{StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::FindingRow;
 use crate::workspace::ThreadActivity;
-use tauri_specta::Event;
 
 pub const SEVERITIES: &[&str] = &["blocking", "suggestion", "nit"];
 
@@ -63,13 +61,10 @@ pub fn validate_finding_location(
 }
 
 pub fn worktree_for_workspace(store: &Store, workspace_id: &str) -> Result<PathBuf> {
-    let snapshot = store.snapshot()?;
-    let workspace = snapshot
-        .workspaces
-        .iter()
-        .find(|row| row.id == workspace_id)
+    let workspace = store
+        .workspace_by_id(workspace_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    Ok(PathBuf::from(&workspace.worktree_path))
+    Ok(PathBuf::from(workspace.worktree_path))
 }
 
 pub fn findings_batch_key(thread_id: &str) -> String {
@@ -86,12 +81,9 @@ pub async fn send_workspace_findings(
         return Err(Error::Workspace("no findings selected".into()));
     }
     let state = app.state::<AppState>();
-    let snapshot = state.store.snapshot()?;
-    let thread = snapshot
-        .threads
-        .iter()
-        .find(|row| row.id == thread_id)
-        .cloned()
+    let thread = state
+        .store
+        .thread_by_id(thread_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown thread {thread_id}")))?;
     if thread.workspace_id != workspace_id {
         return Err(Error::Workspace(
@@ -183,12 +175,7 @@ pub async fn send_workspace_findings(
         },
     );
 
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
 
     Ok(())
 }
@@ -229,11 +216,10 @@ pub async fn on_finding_marked_fixed(app: &AppHandle, finding_id: &str) -> Resul
     if batch.is_empty() || !batch.contains(&finding.id) {
         return Ok(());
     }
-    let snapshot = state.store.snapshot()?;
-    let mut batch_rows = Vec::new();
+    let mut batch_rows = Vec::with_capacity(batch.len());
     for id in &batch {
-        if let Some(row) = snapshot.findings.iter().find(|item| &item.id == id) {
-            batch_rows.push(row.clone());
+        if let Some(row) = state.store.finding_by_id(id)? {
+            batch_rows.push(row);
         }
     }
     if !batch_rows.iter().all(|row| row.status == "fixed") {
@@ -263,11 +249,10 @@ pub async fn on_finding_marked_fixed(app: &AppHandle, finding_id: &str) -> Resul
     )?;
 
     state.store.set_thread_status(&thread_id, "idle")?;
-    let workspace_id = snapshot
-        .threads
-        .iter()
-        .find(|row| row.id == thread_id)
-        .map(|row| row.workspace_id.clone())
+    let workspace_id = state
+        .store
+        .thread_by_id(&thread_id)?
+        .map(|row| row.workspace_id)
         .unwrap_or_default();
     if !workspace_id.is_empty() {
         state
@@ -279,12 +264,7 @@ pub async fn on_finding_marked_fixed(app: &AppHandle, finding_id: &str) -> Resul
         .store
         .set_setting(&findings_batch_key(&thread_id), "[]")?;
 
-    let version = state.bump_event_version();
-    let _ = StateChanged {
-        version,
-        kind: StateChangeKind::WorkspaceStatus,
-    }
-    .emit(app);
+    state.notify(app, StateChangeKind::WorkspaceStatus);
     Ok(())
 }
 
