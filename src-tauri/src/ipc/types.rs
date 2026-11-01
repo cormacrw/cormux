@@ -116,6 +116,8 @@ pub struct CreateWorkspaceInput {
     pub goal: String,
     /// The model to start on; `None` leaves the engine's default.
     pub model: Option<String>,
+    /// The effort level to start on; `None` leaves the engine's default.
+    pub effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

@@ -1184,6 +1184,9 @@ pub async fn start_workspace(
     if let Some(model) = input.model.as_deref() {
         state.store.set_thread_model(&thread_id, Some(model))?;
     }
+    if let Some(effort) = input.effort.as_deref() {
+        state.store.set_thread_effort(&thread_id, Some(effort))?;
+    }
     let goal = input.goal.trim().to_string();
     if !goal.is_empty() {
         persist_user_message(&state.store, &thread_id, &goal)?;
@@ -1725,6 +1728,37 @@ pub async fn set_thread_model(
 ) -> Result<()> {
     snapshot_thread(&state, &thread_id)?;
     state.engines.set_thread_model(&thread_id, model)
+}
+
+/// The effort levels the thread's composer can pick from, and the current pick.
+#[tauri::command]
+#[specta::specta]
+pub async fn thread_efforts(thread_id: String, state: State<'_, AppState>) -> Result<ThreadModels> {
+    let thread = snapshot_thread(&state, &thread_id)?;
+    state
+        .engines
+        .thread_efforts(&thread_id, EngineKind::from_name(&thread.engine))
+}
+
+/// The effort levels an engine offers, for a thread that doesn't exist yet.
+#[tauri::command]
+#[specta::specta]
+pub async fn engine_efforts(engine: String) -> Result<Vec<crate::engines::ModelOption>> {
+    Ok(crate::engines::static_efforts(EngineKind::from_name(
+        &engine,
+    )))
+}
+
+/// `None` goes back to the engine's default. A live engine switches before its next turn.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_thread_effort(
+    thread_id: String,
+    effort: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    snapshot_thread(&state, &thread_id)?;
+    state.engines.set_thread_effort(&thread_id, effort)
 }
 
 /// Like `/clear`: the agent forgets the conversation and the thread starts a

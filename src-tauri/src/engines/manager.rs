@@ -11,7 +11,7 @@ use super::claude::{CanUseTool, ClaudeSession, Event, PermissionDecision, SpawnO
 use super::command::EngineCommand;
 use super::detect::{self, EngineStatus};
 use super::events::{AgentEvent, EngineKind, StreamedEvent, ToolCallStatus, ToolKind};
-use super::models::{ThreadModels, static_models};
+use super::models::{ThreadModels, static_efforts, static_models};
 use super::prompt::Prompt;
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::error::{Error, Result};
@@ -170,9 +170,17 @@ impl EngineRegistry {
         spec.resume = resume;
         let session_id = Arc::new(Mutex::new(spec.resume.clone()));
         let model = self.store.thread_model(&spec.thread_id).ok().flatten();
+        let effort = self.store.thread_effort(&spec.thread_id).ok().flatten();
         let env = self.env.read().await.clone();
         let commands = self
-            .spawn_claude(&spec, model, env, events.clone(), session_id.clone())
+            .spawn_claude(
+                &spec,
+                model,
+                effort,
+                env,
+                events.clone(),
+                session_id.clone(),
+            )
             .await?;
 
         self.threads
@@ -203,6 +211,22 @@ impl EngineRegistry {
         self.store.set_thread_model(thread_id, model.as_deref())?;
         if self.has_thread(thread_id) {
             self.send(thread_id, EngineCommand::SetModel(model))?;
+        }
+        Ok(())
+    }
+
+    /// The thread's picked effort level and what it can switch to.
+    pub fn thread_efforts(&self, thread_id: &str, kind: EngineKind) -> Result<ThreadModels> {
+        let current = self.store.thread_effort(thread_id)?;
+        let options = static_efforts(kind);
+        Ok(ThreadModels { current, options })
+    }
+
+    /// Saves the pick for future spawns and switches a live engine over now.
+    pub fn set_thread_effort(&self, thread_id: &str, effort: Option<String>) -> Result<()> {
+        self.store.set_thread_effort(thread_id, effort.as_deref())?;
+        if self.has_thread(thread_id) {
+            self.send(thread_id, EngineCommand::SetEffort(effort))?;
         }
         Ok(())
     }
@@ -423,6 +447,7 @@ impl EngineRegistry {
         &self,
         spec: &SpawnSpec,
         model: Option<String>,
+        effort: Option<String>,
         env: ShellEnv,
         events: broadcast::Sender<StreamedEvent>,
         session_id: Arc<Mutex<Option<String>>>,
@@ -444,6 +469,7 @@ impl EngineRegistry {
             cwd: Some(spec.cwd.clone()),
             resume: spec.resume.clone(),
             model,
+            effort,
             extra_args,
             use_default_args,
             // A read-only scratch has no workspace to start threads from.
@@ -590,6 +616,11 @@ async fn run_claude(
                     Some(EngineCommand::SetModel(model)) => {
                         if let Err(error) = session.set_model(model).await {
                             log::warn!("claude set model: {error}");
+                        }
+                    }
+                    Some(EngineCommand::SetEffort(effort)) => {
+                        if let Err(error) = session.set_effort(effort).await {
+                            log::warn!("claude set effort: {error}");
                         }
                     }
                     Some(EngineCommand::Shutdown) | None => {

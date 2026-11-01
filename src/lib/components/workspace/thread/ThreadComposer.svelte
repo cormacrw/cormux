@@ -66,7 +66,7 @@
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
-  import ThreadModelPicker from './ThreadModelPicker.svelte'
+  import ThreadOptionPicker from './ThreadOptionPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import FileText from '@lucide/svelte/icons/file-text'
   import Folder from '@lucide/svelte/icons/folder'
@@ -820,7 +820,8 @@
       >
         {@render pickers?.()}
         {#if canAttach}
-          <ThreadModelPicker {thread} />
+          <ThreadOptionPicker kind="model" {thread} />
+          <ThreadOptionPicker kind="effort" {thread} />
           <Button
             type="button"
             variant="ghost"

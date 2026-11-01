@@ -562,6 +562,29 @@ impl Store {
         })
     }
 
+    /// The effort level the user picked for the thread; `None` means the engine's default.
+    pub fn thread_effort(&self, thread_id: &str) -> Result<Option<String>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached("SELECT effort FROM threads WHERE id = ?1")?;
+            let mut rows = stmt.query([thread_id])?;
+            if let Some(row) = rows.next()? {
+                Ok(row.get(0)?)
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    pub fn set_thread_effort(&self, thread_id: &str, effort: Option<&str>) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET effort = ?1 WHERE id = ?2",
+                rusqlite::params![effort, thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn set_thread_usage(
         &self,
         thread_id: &str,
@@ -1828,6 +1851,15 @@ mod tests {
         assert_eq!(store.thread_model("lead").unwrap().as_deref(), Some("opus"));
         store.set_thread_model("lead", None).unwrap();
         assert_eq!(store.thread_model("lead").unwrap(), None);
+
+        assert_eq!(store.thread_effort("lead").unwrap(), None);
+        store.set_thread_effort("lead", Some("high")).unwrap();
+        assert_eq!(
+            store.thread_effort("lead").unwrap().as_deref(),
+            Some("high")
+        );
+        store.set_thread_effort("lead", None).unwrap();
+        assert_eq!(store.thread_effort("lead").unwrap(), None);
         let lead = store.thread_by_id("lead").unwrap().unwrap();
         assert_eq!((lead.used_tokens, lead.context_size), (None, None));
         assert_eq!(

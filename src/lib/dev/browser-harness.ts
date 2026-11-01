@@ -61,6 +61,7 @@ type WorkspaceInput = {
   base: string
   goal: string
   model: string | null
+  effort: string | null
 }
 
 let nextWorkspace = 1
@@ -157,6 +158,15 @@ export function installBrowserHarness() {
     new URLSearchParams(window.location.search).get('longThread'),
   )
   if (longThread > 0) seedLongThread(longThread)
+  // `?secondRepo` adds another repo, for anything that picks between them.
+  if (new URLSearchParams(window.location.search).has('secondRepo')) {
+    fixtureSnapshot.persisted.repos.push({
+      ...fixtureSnapshot.persisted.repos[0]!,
+      id: 'api',
+      name: 'api',
+      path: '/tmp/cormux-fixture/api',
+    })
+  }
   // Tests can inject a real thread's events (as exported from cormux.db) for the Lead thread.
   const injected = (
     window as {
@@ -645,6 +655,14 @@ export function installBrowserHarness() {
   }
 
   const threadModels = new Map<string, string | null>()
+  const threadEfforts = new Map<string, string | null>()
+  const efforts = [
+    { id: 'low', label: 'Low' },
+    { id: 'medium', label: 'Medium' },
+    { id: 'high', label: 'High' },
+    { id: 'xhigh', label: 'Extra high' },
+    { id: 'max', label: 'Max' },
+  ]
 
   const invoke = async (cmd: string, args: InvokeArgs = {}) => {
     if (cmd === 'get_snapshot') {
@@ -940,6 +958,17 @@ export function installBrowserHarness() {
         ],
       }
     }
+    if (cmd === 'engine_efforts') return efforts
+    if (cmd === 'thread_efforts') {
+      return {
+        current: threadEfforts.get(String(args.threadId)) ?? null,
+        options: efforts,
+      }
+    }
+    if (cmd === 'set_thread_effort') {
+      threadEfforts.set(String(args.threadId), (args.effort as string) ?? null)
+      return null
+    }
     if (cmd === 'set_thread_model') {
       threadModels.set(String(args.threadId), (args.model as string) ?? null)
       return null
@@ -1016,6 +1045,7 @@ export function installBrowserHarness() {
       const input = args.input as WorkspaceInput
       const created = createWorkspace(input)
       threadModels.set(created.threadId, input.model)
+      threadEfforts.set(created.threadId, input.effort)
       return created
     }
     if (cmd === 'end_scratch') {

@@ -12,8 +12,8 @@ use tokio::time::timeout;
 use super::protocol::user_message;
 use super::protocol::{
     Event, PermissionDecision, StdinMessage, decode_event, encode_line, initialize_request,
-    interrupt_request, mcp_response, permission_response, set_model_request, stop_task_request,
-    user_prompt_message,
+    interrupt_request, mcp_response, permission_response, set_effort_request, set_model_request,
+    stop_task_request, user_prompt_message,
 };
 use crate::engines::claude_argv;
 use crate::engines::prompt::Prompt;
@@ -29,6 +29,7 @@ pub struct SpawnOptions {
     pub cwd: Option<PathBuf>,
     pub resume: Option<String>,
     pub model: Option<String>,
+    pub effort: Option<String>,
     pub extra_args: Vec<String>,
     /// When false, only `extra_args` are passed (used by the mock CLI fixture).
     pub use_default_args: bool,
@@ -44,6 +45,7 @@ impl Default for SpawnOptions {
             cwd: None,
             resume: None,
             model: None,
+            effort: None,
             extra_args: Vec::new(),
             use_default_args: true,
             orchestrate: false,
@@ -72,6 +74,7 @@ impl ClaudeSession {
             claude_argv(
                 options.resume.as_deref(),
                 options.model.as_deref(),
+                options.effort.as_deref(),
                 options.orchestrate,
             )
         } else {
@@ -232,6 +235,13 @@ impl ClaudeSession {
     pub async fn set_model(&mut self, model: Option<String>) -> Result<String> {
         let request_id = self.alloc_request_id("model");
         self.write_message(&set_model_request(&request_id, model))
+            .await?;
+        Ok(request_id)
+    }
+
+    pub async fn set_effort(&mut self, effort: Option<String>) -> Result<String> {
+        let request_id = self.alloc_request_id("effort");
+        self.write_message(&set_effort_request(&request_id, effort))
             .await?;
         Ok(request_id)
     }
@@ -612,7 +622,7 @@ mod tests {
         assert!(saw_error_result);
 
         // Resume is a new process with --resume <id>; prove the argv and a second init.
-        let resume_args = crate::engines::claude_argv(host.session_id(), None, false);
+        let resume_args = crate::engines::claude_argv(host.session_id(), None, None, false);
         assert!(resume_args.windows(2).any(|w| w == ["--resume", "sess-1"]));
 
         let (host2_out, _mock2_in) = duplex(4096);

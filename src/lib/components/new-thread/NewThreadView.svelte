@@ -9,8 +9,14 @@
   import * as Select from '$lib/components/ui/select'
   import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
   import ThreadHero from '$lib/components/workspace/thread/ThreadHero.svelte'
-  import ThreadModelPicker from '$lib/components/workspace/thread/ThreadModelPicker.svelte'
+  import ThreadOptionPicker from '$lib/components/workspace/thread/ThreadOptionPicker.svelte'
   import { commands } from '$lib/ipc'
+  import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
+  import { isPickerShortcut } from '$lib/keyboard/header-shortcuts'
+  import {
+    claimWorkspacePopover,
+    releaseWorkspacePopover,
+  } from '$lib/keyboard/popover-registry'
   import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
   import { app, repos, settings } from '$lib/state'
   import type { Thread } from '$lib/state/threads.svelte'
@@ -55,7 +61,10 @@
   })
 
   let repoId = $state('')
+  let repoOpen = $state(false)
+  let repoTrigger = $state<HTMLButtonElement | null>(null)
   let model = $state<string | null>(null)
+  let effort = $state<string | null>(null)
   let focusComposer = $state<(() => void) | null>(null)
   let titleEl: HTMLHeadingElement | undefined = $state()
 
@@ -78,12 +87,32 @@
     else titleEl?.focus()
   })
 
+  // Opening one picker from the keyboard closes the others.
+  $effect(() => {
+    if (!repoOpen) return
+    const handle = {
+      close: () => (repoOpen = false),
+      restoreFocus: focusPromptAfterPicker,
+    }
+    claimWorkspacePopover(handle)
+    return () => releaseWorkspacePopover(handle)
+  })
+
+  function onWindowKeydown(event: KeyboardEvent) {
+    if (!isPickerShortcut(event, 'r') || !repos.items.length) return
+    event.preventDefault()
+    // The list takes its arrow keys and ↵ through the focused trigger.
+    repoTrigger?.focus()
+    repoOpen = !repoOpen
+  }
+
   async function submit(text: string, stay: boolean) {
     const id = repoId
     const workspaceId = await startThread({
       repoId: id,
       prompt: text,
       model,
+      effort,
     })
     if (!workspaceId) return false
     rememberRepo(id)
@@ -110,6 +139,8 @@
     void getCurrentWindow().startDragging()
   }
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <section
   class="flex min-h-0 flex-1 flex-col"
@@ -187,16 +218,22 @@
           <label class="sr-only" for="new-thread-repo">Repository</label>
           <Select.Root
             type="single"
+            bind:open={repoOpen}
+            onOpenChangeComplete={(open) => {
+              // Back to the prompt rather than the picker's button.
+              if (!open) focusPromptAfterPicker()
+            }}
             value={repoId}
             onValueChange={(value) => {
               if (value) repoId = value
             }}
           >
             <Select.Trigger
+              bind:ref={repoTrigger}
               id="new-thread-repo"
               size="sm"
               class="glass-well h-7 max-w-[168px] min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
-              title="The worktree is created from this repo"
+              title="The worktree is created from this repo (⌘⇧R)"
               data-od-id="new-thread-repo"
             >
               <Folder class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
@@ -210,10 +247,17 @@
               {/each}
             </Select.Content>
           </Select.Root>
-          <ThreadModelPicker
+          <ThreadOptionPicker
+            kind="model"
             thread={draftThread}
             draft
-            bind:draftModel={model}
+            bind:draftValue={model}
+          />
+          <ThreadOptionPicker
+            kind="effort"
+            thread={draftThread}
+            draft
+            bind:draftValue={effort}
           />
         {/if}
       {/snippet}

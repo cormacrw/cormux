@@ -19,6 +19,8 @@ export async function startThread(input: {
   prompt: string
   /** Null leaves the engine's default. */
   model?: string | null
+  /** Null leaves the engine's default. */
+  effort?: string | null
 }): Promise<string | null> {
   const { repoId, prompt } = input
   const listed = await commands.listRepoBranches(repoId)
@@ -36,6 +38,7 @@ export async function startThread(input: {
     engine: settings.defaultEngine,
     goal: prompt,
     model: input.model ?? null,
+    effort: input.effort ?? null,
   })
   if (result.status === 'error') {
     toastCoreError(result.error)

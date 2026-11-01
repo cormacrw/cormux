@@ -34,6 +34,17 @@ function overlayOpen(): boolean {
 }
 
 /**
+ * For a composer picker that has finished closing: back to the prompt, unless the next picker
+ * opened meanwhile, since one shortcut can swap one picker for another.
+ */
+export function focusPromptAfterPicker() {
+  const nextPicker = document.querySelector(
+    '[role="menu"][data-state="open"], [data-slot="select-content"][data-state="open"]',
+  )
+  if (!nextPicker) document.getElementById('composer-input')?.focus()
+}
+
+/**
  * Whether the composer may take focus now: not while another field has it, an overlay is
  * open, or the user just moved focus somewhere with the keyboard.
  */

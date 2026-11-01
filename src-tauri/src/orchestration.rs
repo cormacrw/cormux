@@ -303,6 +303,7 @@ pub async fn create_thread(app: &AppHandle, caller_id: &str, new: NewThread) -> 
         Some(model) => Some(model),
         None => state.store.thread_model(caller_id)?,
     };
+    let effort = state.store.thread_effort(caller_id)?;
     let started = start_workspace(
         app,
         &state,
@@ -314,6 +315,7 @@ pub async fn create_thread(app: &AppHandle, caller_id: &str, new: NewThread) -> 
             engine: caller.engine.clone(),
             goal: new.goal,
             model,
+            effort,
         },
         Some(caller_id.to_string()),
     )
