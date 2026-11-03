@@ -320,6 +320,7 @@ pub async fn create_thread(
             goal: new.goal,
             model,
             effort,
+            attachments: Vec::new(),
         },
         Some(caller_id.to_string()),
     )

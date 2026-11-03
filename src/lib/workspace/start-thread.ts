@@ -1,3 +1,7 @@
+import {
+  toPromptAttachment,
+  type ComposerAttachment,
+} from '$lib/composer/attachments'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
 import { commands, fetchSnapshot } from '$lib/ipc'
 import { draftBranchName, uniqueBranchName } from '$lib/new-workspace/draft'
@@ -21,6 +25,8 @@ export async function startThread(input: {
   model?: string | null
   /** Null leaves the engine's default. */
   effort?: string | null
+  /** Sent with the prompt as the first message's images and files. */
+  attachments?: ComposerAttachment[]
 }): Promise<string | null> {
   const { repoId, prompt } = input
   const listed = await commands.listRepoBranches(repoId)
@@ -39,6 +45,7 @@ export async function startThread(input: {
     goal: prompt,
     model: input.model ?? null,
     effort: input.effort ?? null,
+    attachments: (input.attachments ?? []).map(toPromptAttachment),
   })
   if (result.status === 'error') {
     toastCoreError(result.error)

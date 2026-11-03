@@ -61,6 +61,21 @@ pub async fn start_workspace(
     };
     let input = CreateWorkspaceInput { name, ..input };
 
+    // Read before anything is recorded, so an attachment that can't be read starts nothing.
+    let goal = input.goal.trim().to_string();
+    let (prompt, shown) = if input.attachments.is_empty() {
+        (None, goal.clone())
+    } else {
+        let folder = state.data_dir.join("attachments");
+        let (text, attachments) = (goal.clone(), input.attachments.clone());
+        let (prompt, shown) = tokio::task::spawn_blocking(move || {
+            crate::attachments::build_prompt(&folder, &text, &attachments)
+        })
+        .await
+        .map_err(|error| Error::Workspace(error.to_string()))??;
+        (Some(prompt), shown)
+    };
+
     let workspace_id = new_workspace_id();
     let thread_id = Uuid::new_v4().to_string();
     let repo_name = repo_path
@@ -125,9 +140,8 @@ pub async fn start_workspace(
     if let Some(effort) = input.effort.as_deref() {
         state.store.set_thread_effort(&thread_id, Some(effort))?;
     }
-    let goal = input.goal.trim().to_string();
-    if !goal.is_empty() {
-        persist_user_message(&state.store, &thread_id, &goal)?;
+    if !shown.is_empty() {
+        persist_user_message(&state.store, &thread_id, &shown)?;
     }
 
     state.notify(out, StateChangeKind::WorkspaceStatus);
@@ -183,6 +197,7 @@ pub async fn start_workspace(
                 setup_commands_raw: setup_commands,
                 engine,
                 goal,
+                prompt,
                 review: false,
             },
         )
@@ -395,6 +410,7 @@ esac
             goal: goal.into(),
             model: None,
             effort: None,
+            attachments: Vec::new(),
         }
     }
 
@@ -538,6 +554,51 @@ esac
         );
         let thread = store.thread_by_id(&started.thread_id).unwrap().unwrap();
         assert_eq!(thread.parent_thread_id.as_deref(), Some("parent"));
+    }
+
+    #[tokio::test]
+    async fn attachments_join_the_first_message_and_an_unreadable_one_starts_nothing() {
+        use crate::attachments::PromptAttachment;
+
+        let f = fixture().await;
+        let pasted = PromptAttachment {
+            name: "shot.png".into(),
+            path: None,
+            data_base64: Some("aGk=".into()),
+        };
+        let request = CreateWorkspaceInput {
+            attachments: vec![pasted],
+            ..input("", "feat/x", "Fix this")
+        };
+
+        let started = start_workspace(&f.out, &f.state, request, None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            f.state
+                .store
+                .first_message_text(&started.thread_id)
+                .unwrap()
+                .as_deref(),
+            Some("Fix this\n\nAttached: shot.png")
+        );
+        assert_eq!(workspace(&f.state, &started.workspace_id).name, "Fix this");
+
+        let missing = CreateWorkspaceInput {
+            attachments: vec![PromptAttachment {
+                name: "gone.txt".into(),
+                path: Some("/nonexistent/gone.txt".into()),
+                data_base64: None,
+            }],
+            ..input("", "feat/y", "Look")
+        };
+        let error = start_workspace(&f.out, &f.state, missing, None)
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("gone.txt"), "{error}");
+        assert_eq!(f.state.store.live_workspaces().unwrap().len(), 1);
     }
 
     #[tokio::test]

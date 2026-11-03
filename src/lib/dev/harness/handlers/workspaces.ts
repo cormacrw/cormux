@@ -1,3 +1,4 @@
+import { shownMessage } from '$lib/composer/attachments'
 import { fixtureSnapshot, fixtureTimeline } from '../../fixture-snapshot'
 import type { HarnessRuntime } from '../runtime'
 import type { HandlerSlice, Input } from '../types'
@@ -45,7 +46,10 @@ function createWorkspace(input: WorkspaceInput) {
     payload: JSON.stringify({
       type: 'messageChunk',
       role: 'user',
-      text: input.goal,
+      text: shownMessage(
+        input.goal,
+        (input.attachments ?? []).map((attachment) => attachment.name),
+      ),
     }),
     createdAt,
   })
@@ -58,6 +62,12 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
   return {
     create_workspace: ({ input }: Input<'create_workspace'>) => {
       const created = createWorkspace(input)
+      // The first prompt, as `send_thread_prompt` records a later one.
+      controls.prompts.push({
+        threadId: created.threadId,
+        text: input.goal,
+        attachments: input.attachments ?? [],
+      })
       runtime.threadModels.set(created.threadId, input.model)
       runtime.threadEfforts.set(created.threadId, input.effort)
       return created

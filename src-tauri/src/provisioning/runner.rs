@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::engines::prompt::Prompt;
 use crate::engines::{EngineKind, SpawnSpec};
 use crate::error::{Error, Result};
 use crate::feedback::Output;
@@ -20,6 +21,9 @@ pub struct LeadProvisionJob {
     pub setup_commands_raw: String,
     pub engine: String,
     pub goal: String,
+    /// What the engine is sent first, when it isn't just the goal: the goal with its
+    /// attachments. Lost on a retry, which sends the goal as the thread shows it.
+    pub prompt: Option<Prompt>,
     pub review: bool,
 }
 
@@ -57,6 +61,7 @@ pub async fn retry_provisioning(out: Output, state: AppState, workspace_id: Stri
         ),
         engine: thread.engine,
         goal,
+        prompt: None,
         review: workspace.kind.as_deref() == Some("review"),
     };
     if let Err(error) = run_lead(&out, &state, job).await {
@@ -92,6 +97,7 @@ pub async fn skip_provisioning_setup(out: Output, state: AppState, workspace_id:
         setup_commands_raw: String::new(),
         engine: thread.engine,
         goal,
+        prompt: None,
         review: workspace.kind.as_deref() == Some("review"),
     };
     if let Err(error) = finish_after_setup(&out, &state, &job, 0).await {
@@ -259,22 +265,24 @@ async fn finish_after_setup(
         return Ok(());
     }
 
-    let start_agent = job.review || !job.goal.trim().is_empty();
+    let start_agent = job.review || job.prompt.is_some() || !job.goal.trim().is_empty();
     if start_agent {
         set_activity(state, &job.workspace_id, "Starting agent…", 2, None, None).await;
         emit_snapshot(out, state);
 
-        let prompt = if job.review {
-            crate::review::reviewer_engine_prompt(&job.goal)
+        let prompt: Prompt = if job.review {
+            crate::review::reviewer_engine_prompt(&job.goal).into()
+        } else if let Some(prompt) = &job.prompt {
+            prompt.clone()
         } else {
-            job.goal.trim().to_string()
+            job.goal.trim().into()
         };
         spawn_engine(
             state,
             &job.thread_id,
             &job.engine,
             &job.workspace_id,
-            Some(&prompt),
+            Some(prompt),
         )
         .await?;
     }
@@ -383,7 +391,7 @@ async fn spawn_engine(
     thread_id: &str,
     engine: &str,
     workspace_id: &str,
-    goal: Option<&str>,
+    prompt: Option<Prompt>,
 ) -> Result<()> {
     if state.workspace.get(workspace_id).await.is_none() {
         let row = state
@@ -423,8 +431,10 @@ async fn spawn_engine(
             read_only: false,
         })
         .await?;
-    if let Some(text) = goal.filter(|value| !value.is_empty()) {
-        state.engines.prompt(thread_id, text)?;
+    if let Some(prompt) =
+        prompt.filter(|prompt| !prompt.text.is_empty() || !prompt.images.is_empty())
+    {
+        state.engines.prompt(thread_id, prompt)?;
     }
     Ok(())
 }

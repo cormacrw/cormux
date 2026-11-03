@@ -118,6 +118,9 @@ pub struct CreateWorkspaceInput {
     pub model: Option<String>,
     /// The effort level to start on; `None` leaves the engine's default.
     pub effort: Option<String>,
+    /// Images and files sent with the goal, as the first message's attachments.
+    #[serde(default)]
+    pub attachments: Vec<crate::attachments::PromptAttachment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

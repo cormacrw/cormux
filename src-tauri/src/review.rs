@@ -340,6 +340,7 @@ pub async fn create_review_workspace(
                 setup_commands_raw: setup_commands,
                 engine,
                 goal,
+                prompt: None,
                 review: true,
             },
         )

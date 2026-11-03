@@ -10,6 +10,7 @@
   import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
   import ThreadHero from '$lib/components/workspace/thread/ThreadHero.svelte'
   import ThreadOptionPicker from '$lib/components/workspace/thread/ThreadOptionPicker.svelte'
+  import type { ComposerAttachment } from '$lib/composer/attachments'
   import { commands } from '$lib/ipc'
   import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
   import { isPickerShortcut } from '$lib/keyboard/header-shortcuts'
@@ -106,13 +107,18 @@
     repoOpen = !repoOpen
   }
 
-  async function submit(text: string, stay: boolean) {
+  async function submit(
+    text: string,
+    stay: boolean,
+    attachments: ComposerAttachment[],
+  ) {
     const id = repoId
     const workspaceId = await startThread({
       repoId: id,
       prompt: text,
       model,
       effort,
+      attachments,
     })
     if (!workspaceId) return false
     rememberRepo(id)

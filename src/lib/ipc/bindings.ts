@@ -844,7 +844,11 @@ model: string | null;
 /**
  * The effort level to start on; `None` leaves the engine's default.
  */
-effort: string | null }
+effort: string | null; 
+/**
+ * Images and files sent with the goal, as the first message's attachments.
+ */
+attachments?: PromptAttachment[] }
 export type CreateWorkspacePullRequestInput = { workspaceId: string; body: string; title: string | null }
 export type CreateWorkspacePullRequestResult = { workspaceId: string; number: number; htmlUrl: string; title: string }
 export type CreateWorkspaceResult = { workspaceId: string }
