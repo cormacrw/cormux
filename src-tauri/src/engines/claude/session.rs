@@ -123,13 +123,18 @@ impl ClaudeSession {
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr);
-                let mut line = String::new();
+                // Bytes, not `read_line`: one non-UTF-8 byte (from a hook or MCP server the
+                // CLI passes through) would error and stop the drain, and a CLI writing to a
+                // full, unread stderr pipe blocks.
+                let mut line = Vec::new();
                 loop {
                     line.clear();
-                    match reader.read_line(&mut line).await {
-                        Ok(0) => break,
-                        Ok(_) => log::warn!("claude stderr: {}", line.trim_end()),
-                        Err(_) => break,
+                    match reader.read_until(b'\n', &mut line).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => log::warn!(
+                            "claude stderr: {}",
+                            String::from_utf8_lossy(&line).trim_end()
+                        ),
                     }
                 }
             });
@@ -287,6 +292,11 @@ impl ClaudeSession {
                 None => return Err(Error::Engine("claude exited before result".into())),
             }
         }
+    }
+
+    /// The CLI's pid, which is also its process group id (`process_group(0)`).
+    pub fn pid(&self) -> Option<u32> {
+        self.child.id()
     }
 
     /// Closes stdin, asks the CLI's whole process group to stop, and kills whatever is left

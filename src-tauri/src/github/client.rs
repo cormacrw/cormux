@@ -113,7 +113,12 @@ pub async fn fetch_open_prs(
                 .map(|error| error.message)
                 .collect::<Vec<_>>()
                 .join("; ");
-            return Err(FetchError::Other(Error::Github(message)));
+            // GitHub returns partial data plus errors (e.g. SAML-protected orgs the
+            // token can't see); keep what came back rather than dropping the sync.
+            if payload.data.is_none() {
+                return Err(FetchError::Other(Error::Github(message)));
+            }
+            log::warn!("gh api graphql returned partial results: {message}");
         }
 
         let data = payload

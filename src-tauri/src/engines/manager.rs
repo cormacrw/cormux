@@ -44,6 +44,10 @@ pub struct EngineRegistry {
     turn_end_notify: tokio::sync::broadcast::Sender<String>,
     threads: Arc<Mutex<HashMap<String, ThreadSlot>>>,
     holds: Arc<Mutex<HashMap<String, HoldState>>>,
+    /// One per thread, held from "no engine here" to the new one being registered, so two
+    /// callers can't both spawn a CLI for the same session (the second would replace the
+    /// first's slot and shut it down mid-prompt).
+    spawn_locks: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     /// Woken whenever an engine is registered, so a subscriber waiting on a thread with no
     /// engine yet needn't poll for one.
     spawned: Arc<tokio::sync::Notify>,
@@ -58,6 +62,8 @@ struct ThreadSlot {
     session_id: Arc<Mutex<Option<String>>>,
     /// When anything last went to or came from the engine.
     last_active: Arc<Mutex<Instant>>,
+    /// The CLI's process group, so quitting the app can take it down synchronously.
+    pgid: Option<u32>,
 }
 
 impl ThreadSlot {
@@ -103,6 +109,7 @@ impl EngineRegistry {
             turn_end_notify,
             threads: Arc::new(Mutex::new(HashMap::new())),
             holds: Arc::new(Mutex::new(HashMap::new())),
+            spawn_locks: Arc::new(Mutex::new(HashMap::new())),
             spawned: Arc::new(tokio::sync::Notify::new()),
             #[cfg(test)]
             refused: Arc::new(Mutex::new(HashSet::new())),
@@ -142,6 +149,7 @@ impl EngineRegistry {
                 events: broadcast::channel(4).0,
                 session_id: Arc::new(Mutex::new(None)),
                 last_active: Arc::new(Mutex::new(Instant::now())),
+                pgid: None,
             },
         );
         rx
@@ -199,7 +207,7 @@ impl EngineRegistry {
         let model = self.store.thread_model(&spec.thread_id).ok().flatten();
         let effort = self.store.thread_effort(&spec.thread_id).ok().flatten();
         let env = self.env.read().await.clone();
-        let commands = self
+        let (commands, pgid) = self
             .spawn_claude(
                 &spec,
                 model,
@@ -220,6 +228,7 @@ impl EngineRegistry {
                     events,
                     session_id,
                     last_active,
+                    pgid,
                 },
             );
         self.spawned.notify_waiters();
@@ -353,6 +362,37 @@ impl EngineRegistry {
         self.prompt(thread_id, prompt)
     }
 
+    /// Held while checking for and spawning a thread's engine; see `spawn_locks`.
+    pub async fn lock_spawn(&self, thread_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = self
+            .spawn_locks
+            .lock()
+            .unwrap()
+            .entry(thread_id.to_string())
+            .or_default()
+            .clone();
+        lock.lock_owned().await
+    }
+
+    /// Signals every live engine's process group. For app quit, which can't wait on the
+    /// pumps' graceful shutdown; without it the CLIs' shells and servers outlive the app.
+    pub fn kill_all(&self) {
+        let Ok(threads) = self.threads.lock() else {
+            return;
+        };
+        for slot in threads.values() {
+            let Some(pgid) = slot.pgid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                continue;
+            };
+            if pgid > 0 {
+                // SAFETY: killpg takes plain integers and has no memory-safety preconditions.
+                unsafe {
+                    libc::killpg(pgid, libc::SIGTERM);
+                }
+            }
+        }
+    }
+
     pub async fn stop(&self, thread_id: &str) -> Result<()> {
         let commands = {
             let mut threads = self
@@ -482,7 +522,7 @@ impl EngineRegistry {
         env: ShellEnv,
         events: broadcast::Sender<StreamedEvent>,
         session_id: Arc<Mutex<Option<String>>>,
-    ) -> Result<mpsc::UnboundedSender<EngineCommand>> {
+    ) -> Result<(mpsc::UnboundedSender<EngineCommand>, Option<u32>)> {
         let (binary, extra_args, use_default_args) = if let Some(argv) = &spec.override_argv {
             let mut argv = argv.clone();
             let binary = PathBuf::from(argv.remove(0));
@@ -512,6 +552,7 @@ impl EngineRegistry {
         }
 
         let session = ClaudeSession::spawn(options).await?;
+        let pgid = session.pid();
         let (tx, rx) = mpsc::unbounded_channel();
         let approvals = self.approvals.clone();
         let store = self.store.clone();
@@ -540,7 +581,7 @@ impl EngineRegistry {
             )
             .await;
         });
-        Ok(tx)
+        Ok((tx, pgid))
     }
 }
 
@@ -583,10 +624,15 @@ impl Pump {
         self.outstanding.remove(approval_id);
     }
 
-    /// The CLI stops waiting for an answer once its turn ends, so neither should the broker.
+    /// The CLI stops waiting for an answer once its turn ends, so neither should the broker,
+    /// nor the store: an engine shut down mid-question (new session, stop, replaced) sends no
+    /// turn end, so without this its row would stay `pending` and badge the thread forever.
     fn cancel_outstanding(&mut self) {
         for id in self.outstanding.drain() {
             self.approvals.cancel(&id);
+            if let Err(error) = self.store.deny_pending_approval(&id) {
+                log::warn!("denying abandoned approval {id}: {error}");
+            }
         }
     }
 }
@@ -740,6 +786,9 @@ async fn run_claude(
                         // Not saved: an engine reaped after sitting idle exits too, and that
                         // isn't the thread moving. The turn-end handler marks the thread idle.
                         pump.send_unsaved(AgentEvent::EngineExited { code: None });
+                        // The CLI's gone, but the shells and servers it started are in its
+                        // process group and outlive it unless the group is killed too.
+                        let _ = session.shutdown().await;
                         break;
                     }
                     Err(error) => {
@@ -748,6 +797,7 @@ async fn run_claude(
                             stop_reason: "error".into(),
                             error: Some(error.to_string()),
                         });
+                        let _ = session.shutdown().await;
                         break;
                     }
                 }

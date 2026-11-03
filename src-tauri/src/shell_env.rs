@@ -115,6 +115,9 @@ impl ShellEnv {
     ) -> Result<String> {
         let mut command = self.command(program);
         command.args(args);
+        // A caller that times out or is cancelled drops this future; don't
+        // leave the child running behind it.
+        command.kill_on_drop(true);
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
         }

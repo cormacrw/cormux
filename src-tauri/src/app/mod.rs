@@ -152,7 +152,7 @@ impl WorkspaceAppService {
             &repo_path,
         )
         .ok_or_else(|| Error::Process("no run command configured".into()))?;
-        let repo_for_env = repo.clone();
+        let repo_for_env = repo;
 
         let session_id = run_session_id(workspace_id);
         let _ = process.stop_session(&session_id);

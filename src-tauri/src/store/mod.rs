@@ -4,7 +4,7 @@ pub mod types;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
 use crate::workspace::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
@@ -78,6 +78,17 @@ impl Store {
         f(conn)
     }
 
+    /// Like `with_conn`, inside a transaction that commits only if `f` succeeds, so a write
+    /// of several statements lands whole or not at all.
+    fn with_tx<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        self.with_conn(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            let value = f(&tx)?;
+            tx.commit()?;
+            Ok(value)
+        })
+    }
+
     fn with_read<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
         let guard = self
             .reader
@@ -143,7 +154,7 @@ impl Store {
     }
 
     pub fn upsert_repo(&self, repo: &RepoRecord) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_tx(|conn| {
             conn.execute(
                 "INSERT INTO repos (id, path, name, default_branch) VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(id) DO UPDATE SET path = excluded.path, name = excluded.name,
@@ -455,10 +466,21 @@ impl Store {
         })
     }
 
+    /// One approval its engine stopped waiting on, so it no longer shows as needing an answer.
+    pub fn deny_pending_approval(&self, id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE approvals SET status = 'denied' WHERE status = 'pending' AND id = ?1",
+                [id],
+            )?;
+            Ok(())
+        })
+    }
+
     /// No agent survives the app closing, so a turn in flight then is over. Provisioning is
     /// left alone: it has its own retry.
     pub fn reset_interrupted_turns(&self) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_tx(|conn| {
             conn.execute_batch(
                 "UPDATE approvals SET status = 'denied' WHERE status = 'pending';
                  UPDATE threads SET status = 'idle'
@@ -473,7 +495,7 @@ impl Store {
     /// Writes the status and re-derives the workspace's from its threads (see
     /// `status_from_threads`), so the two can't disagree. An archived workspace stays as it is.
     pub fn set_thread_status(&self, thread_id: &str, status: ThreadStatus) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_tx(|conn| {
             conn.prepare_cached("UPDATE threads SET status = ?1 WHERE id = ?2")?
                 .execute(rusqlite::params![status.as_str(), thread_id])?;
             let workspace = conn
@@ -801,7 +823,7 @@ impl Store {
                     [scratch_id],
                     |row| row.get(0),
                 )
-                .ok();
+                .optional()?;
             tx.execute("DELETE FROM scratches WHERE id = ?1", [scratch_id])?;
             if let Some(thread_id) = thread_id {
                 tx.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
@@ -1066,40 +1088,49 @@ impl Store {
         })
     }
 
-    pub fn delete_findings_for_workspace(&self, workspace_id: &str) -> Result<()> {
+    /// Swaps a workspace's findings for `findings` in one transaction, so a failed insert
+    /// leaves the old set in place and a reader never sees it half replaced.
+    pub fn replace_findings(&self, workspace_id: &str, findings: &[FindingRow]) -> Result<()> {
         self.with_conn(|conn| {
-            conn.execute(
+            let tx = conn.unchecked_transaction()?;
+            tx.execute(
                 "DELETE FROM findings WHERE workspace_id = ?1",
                 [workspace_id],
             )?;
+            for finding in findings {
+                Self::write_finding(&tx, finding)?;
+            }
+            tx.commit()?;
             Ok(())
         })
     }
 
     pub fn upsert_finding(&self, finding: &FindingRow) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-                 ON CONFLICT(id) DO UPDATE SET severity = excluded.severity, title = excluded.title,
-                    explanation = excluded.explanation, file = excluded.file, line = excluded.line,
-                    status = excluded.status, commit_sha = excluded.commit_sha,
-                    sent_to_thread_id = excluded.sent_to_thread_id",
-                rusqlite::params![
-                    finding.id,
-                    finding.workspace_id,
-                    finding.severity,
-                    finding.title,
-                    finding.file,
-                    finding.line,
-                    finding.explanation,
-                    finding.status,
-                    finding.commit_sha,
-                    finding.sent_to_thread_id
-                ],
-            )?;
-            Ok(())
-        })
+        self.with_conn(|conn| Self::write_finding(conn, finding))
+    }
+
+    fn write_finding(conn: &Connection, finding: &FindingRow) -> Result<()> {
+        conn.execute(
+            "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(id) DO UPDATE SET severity = excluded.severity, title = excluded.title,
+                explanation = excluded.explanation, file = excluded.file, line = excluded.line,
+                status = excluded.status, commit_sha = excluded.commit_sha,
+                sent_to_thread_id = excluded.sent_to_thread_id",
+            rusqlite::params![
+                finding.id,
+                finding.workspace_id,
+                finding.severity,
+                finding.title,
+                finding.file,
+                finding.line,
+                finding.explanation,
+                finding.status,
+                finding.commit_sha,
+                finding.sent_to_thread_id
+            ],
+        )?;
+        Ok(())
     }
 
     pub fn upsert_pr(&self, pr: &PrRow) -> Result<()> {
@@ -1144,6 +1175,10 @@ impl Store {
 
     pub fn snapshot(&self) -> Result<PersistedSnapshot> {
         self.with_read(|conn| {
+            // One read transaction across every query, so a write landing midway can't hand
+            // back a thread whose workspace isn't in the same snapshot.
+            let tx = conn.unchecked_transaction()?;
+            let conn: &Connection = &tx;
             Ok(PersistedSnapshot {
                 settings: query_all(conn, "SELECT key, value FROM settings", |row| {
                     Ok(SettingRow {

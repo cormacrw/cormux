@@ -304,7 +304,7 @@ pub async fn create_review_workspace(
     });
 
     let (out_bg, state_bg) = (out.clone(), state.clone());
-    let goal = user_message.clone();
+    let goal = user_message;
     let pr_number = input.pr_number as u64;
     let base_branch = input.base.clone();
     let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
@@ -441,9 +441,9 @@ pub async fn on_reviewer_turn_end(out: &Output, state: &AppState, thread_id: &st
         }
     };
 
-    state.store.delete_findings_for_workspace(&workspace.id)?;
-    for finding in findings {
-        state.store.upsert_finding(&FindingRow {
+    let rows: Vec<FindingRow> = findings
+        .into_iter()
+        .map(|finding| FindingRow {
             id: Uuid::new_v4().to_string(),
             workspace_id: workspace.id.clone(),
             severity: finding.severity,
@@ -454,8 +454,9 @@ pub async fn on_reviewer_turn_end(out: &Output, state: &AppState, thread_id: &st
             status: "open".into(),
             commit_sha: None,
             sent_to_thread_id: None,
-        })?;
-    }
+        })
+        .collect();
+    state.store.replace_findings(&workspace.id, &rows)?;
     if branch_review {
         complete_branch_review(out, state, &workspace, thread_id)
     } else {
@@ -669,9 +670,7 @@ pub async fn submit_workspace_review(
     let (owner, repo_name) =
         parse_repo_slug(state, &repo.path, workspace.pr_html_url.as_deref()).await?;
 
-    let token = auth::resolve_token(&state.shell_env)
-        .await
-        .ok_or_else(|| Error::Github("GitHub is not signed in — run `gh auth login`".into()))?;
+    let token = auth::resolve_token(&state.shell_env).await?;
 
     let open_findings: Vec<FindingRow> = state
         .store
@@ -711,19 +710,38 @@ pub async fn submit_workspace_review(
         SubmitReviewVerdict::Comment => ReviewVerdict::Comment,
     };
 
-    RestGithubClient::new()
-        .submit_pull_request_review(
-            &token,
-            &owner,
-            &repo_name,
-            pr_number,
-            &SubmitPullRequestReviewInput {
-                verdict,
-                body,
-                comments: line_comments,
-            },
-        )
-        .await?;
+    let client = RestGithubClient::new();
+    let mut review = SubmitPullRequestReviewInput {
+        verdict,
+        body,
+        comments: line_comments,
+    };
+    let submitted = client
+        .submit_pull_request_review(&token, &owner, &repo_name, pr_number, &review)
+        .await;
+    if let Err(error) = submitted {
+        // GitHub rejects the whole review (422) when any inline comment sits outside the PR's
+        // diff hunks, e.g. a finding on an unchanged line. Rather than block the submit on
+        // one finding, post them all in the body instead.
+        if review.comments.is_empty() || !error.to_string().contains("422") {
+            return Err(error);
+        }
+        log::warn!("inline review comments rejected, moving them to the body: {error}");
+        let moved: Vec<String> = review
+            .comments
+            .drain(..)
+            .map(|comment| format!("- `{}:{}` {}", comment.path, comment.line, comment.body))
+            .collect();
+        review.body = format!("{}\n\n{}", review.body, moved.join("\n"));
+        client
+            .submit_pull_request_review(&token, &owner, &repo_name, pr_number, &review)
+            .await?;
+    }
+
+    // Straight after the POST, before anything that can fail: a retry must not post twice.
+    state
+        .store
+        .set_setting(&review_submitted_key(&input.workspace_id), "true")?;
 
     let workspace_threads = state.store.threads_for_workspace(&input.workspace_id)?;
     let reviewer_thread = workspace_threads
@@ -731,10 +749,6 @@ pub async fn submit_workspace_review(
         .find(|row| row.title == "Reviewer")
         .cloned()
         .ok_or_else(|| Error::Store("Reviewer thread missing".into()))?;
-
-    state
-        .store
-        .set_setting(&review_submitted_key(&input.workspace_id), "true")?;
 
     for thread in &workspace_threads {
         crate::turn::mark_idle(state, thread).await?;

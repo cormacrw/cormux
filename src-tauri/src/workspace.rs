@@ -224,8 +224,12 @@ impl WorkspaceManager {
         base: &str,
         worktrees_base: &Path,
     ) -> Result<WorkspaceRecord> {
+        crate::git::validate_ref_name(branch, "branch")?;
+        crate::git::validate_ref_name(base, "base")?;
         let repo_name = repo_dir_name(repo_path);
         let worktree = Self::worktree_path(worktrees_base, repo_name, branch);
+        let mut inner = self.inner.write().await;
+        ensure_worktree_free(&inner.workspaces, workspace_id, &worktree)?;
         if let Some(parent) = worktree.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -244,9 +248,7 @@ impl WorkspaceManager {
             setup_failed_command: None,
             setup_failed_exit_code: None,
         };
-        self.inner
-            .write()
-            .await
+        inner
             .workspaces
             .insert(workspace_id.to_string(), record.clone());
         Ok(record)
@@ -259,12 +261,20 @@ impl WorkspaceManager {
         workspace_id: &str,
         branch: &str,
     ) -> Result<WorkspaceRecord> {
+        crate::git::validate_ref_name(branch, "branch")?;
         let mut inner = self.inner.write().await;
+        let current = inner
+            .workspaces
+            .get(workspace_id)
+            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        let worktree = Path::new(&current.worktree_path).with_file_name(branch_slug(branch));
+        if worktree != Path::new(&current.worktree_path) {
+            ensure_worktree_free(&inner.workspaces, workspace_id, &worktree)?;
+        }
         let workspace = inner
             .workspaces
             .get_mut(workspace_id)
             .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-        let worktree = Path::new(&workspace.worktree_path).with_file_name(branch_slug(branch));
         workspace.branch = branch.to_string();
         workspace.worktree_path = worktree.to_string_lossy().to_string();
         workspace.version += 1;
@@ -527,6 +537,26 @@ impl WorkspaceManager {
 
 fn branch_slug(branch: &str) -> String {
     branch.replace('/', "-")
+}
+
+/// A new workspace gets a folder of its own. `feat/x` and `feat-x` slug to the same folder,
+/// and provisioning reuses a folder that's already there, so without this check two workspaces
+/// could share one checkout, and tearing one down would delete the other's work.
+fn ensure_worktree_free(
+    workspaces: &HashMap<String, WorkspaceRecord>,
+    workspace_id: &str,
+    worktree: &Path,
+) -> Result<()> {
+    let taken = workspaces
+        .values()
+        .any(|other| other.id != workspace_id && Path::new(&other.worktree_path) == worktree);
+    if taken || worktree.exists() {
+        return Err(Error::Workspace(format!(
+            "worktree folder already in use: {}",
+            worktree.display()
+        )));
+    }
+    Ok(())
 }
 
 fn repo_dir_name(repo_path: &Path) -> &str {

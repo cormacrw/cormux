@@ -181,7 +181,7 @@ async fn resolve_record(
         .repo_by_id(&row.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", row.repo_id)))?;
     let repo_path = expand_tilde(&repo.path);
-    let base = repo.default_branch.clone().unwrap_or_else(|| "main".into());
+    let base = repo.default_branch.unwrap_or_else(|| "main".into());
     let status = WorkspaceLifecycle::parse(&row.status);
 
     Ok(WorkspaceRecord {

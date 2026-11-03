@@ -99,7 +99,9 @@ pub async fn stop(out: &Output, state: &AppState, thread_id: &str) {
     let thread = thread_row(state, thread_id).ok();
     let _ = state.engines.cancel(thread_id);
     let _ = record_step(&state.store, thread_id, TimelineStep::AgentStopped);
-    let _ = settle(&state.store, thread_id);
+    // Stopping ends a pause too, and drops whatever queued behind it.
+    let _ = state.engines.release_thread(thread_id);
+    let _ = state.store.set_thread_status(thread_id, ThreadStatus::Idle);
     if let Some(thread) = thread {
         sync_manager(state, &thread, ThreadStatus::Idle).await;
     }
@@ -196,8 +198,22 @@ pub async fn mark_idle(state: &AppState, thread: &ThreadRow) -> Result<()> {
 /// The status half of a turn ending. An engine's pump calls this as the event goes out, so
 /// nobody who hears of the end can read the thread as still running; `ended` follows behind it
 /// and has to repeat it, because an engine that exits doesn't go through the pump's save.
+///
+/// A paused thread stays paused: pausing interrupts the CLI, which answers with a turn end of
+/// its own, and idling the thread then would strand its hold (Resume would do nothing and every
+/// later prompt would queue behind a pause nobody can see).
 pub fn settle(store: &Store, thread_id: &str) -> Result<()> {
+    if is_paused(store, thread_id) {
+        return Ok(());
+    }
     store.set_thread_status(thread_id, ThreadStatus::Idle)
+}
+
+fn is_paused(store: &Store, thread_id: &str) -> bool {
+    matches!(
+        store.thread_by_id(thread_id),
+        Ok(Some(thread)) if thread.has_status(ThreadStatus::Paused)
+    )
 }
 
 /// Everything a turn ending sets off, once per engine event (a turn end, or the engine exiting).
@@ -208,7 +224,9 @@ pub async fn ended(out: &Output, state: &AppState, thread_id: &str) {
     if let Err(error) = state.store.deny_stale_approvals(thread_id) {
         log::warn!("denying stale approvals on {thread_id}: {error}");
     }
-    if let Ok(Some(thread)) = state.store.thread_by_id(thread_id) {
+    if let Ok(Some(thread)) = state.store.thread_by_id(thread_id)
+        && !thread.has_status(ThreadStatus::Paused)
+    {
         sync_manager(state, &thread, ThreadStatus::Idle).await;
     }
     notify(out, state);

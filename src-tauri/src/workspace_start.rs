@@ -33,6 +33,9 @@ pub async fn start_workspace(
         .repo_by_id(&input.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
     repo.ensure_not_default_branch(&input.branch)?;
+    // Before any git call: `base` can come from an agent's `create_thread` call.
+    crate::git::validate_ref_name(&input.branch, "branch")?;
+    crate::git::validate_ref_name(&input.base, "base")?;
     let repo_path = expand_tilde(&repo.path);
     if !repo_path.is_dir() {
         return Err(Error::Git(format!(

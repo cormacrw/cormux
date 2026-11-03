@@ -126,6 +126,7 @@ pub async fn switch_workspace_branch(
     workspace_id: &str,
     branch: &str,
 ) -> Result<()> {
+    crate::git::validate_ref_name(branch, "branch")?;
     let row = state
         .store
         .workspace_by_id(workspace_id)?

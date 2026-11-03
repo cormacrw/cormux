@@ -366,6 +366,11 @@ pub async fn ensure_thread_engine(
     if state.engines.has_thread(thread_id) {
         return Ok(());
     }
+    // Two prompts can race here (a user message and a child's report); only one spawns.
+    let _spawning = state.engines.lock_spawn(thread_id).await;
+    if state.engines.has_thread(thread_id) {
+        return Ok(());
+    }
     spawn_engine(state, thread_id, engine, workspace_id, None).await
 }
 
@@ -481,7 +486,7 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
         status: workspace.status,
         created_at: workspace.created_at,
         summary: Some(summary),
-        summary_at: Some(now.clone()),
+        summary_at: Some(now),
         summary_source: workspace.summary_source,
         kind: workspace.kind,
         pr_number: workspace.pr_number,

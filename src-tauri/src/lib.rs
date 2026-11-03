@@ -218,6 +218,7 @@ pub fn run() {
         .run(|app, event| {
             if let RunEvent::ExitRequested { .. } = event {
                 let state = app.state::<AppState>();
+                state.engines.kill_all();
                 if let Err(error) = state.process.stop_all() {
                     log::warn!("stop_all on quit: {error}");
                 }

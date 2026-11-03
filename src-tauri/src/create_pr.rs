@@ -101,9 +101,7 @@ pub async fn create_workspace_pull_request(
         )));
     }
 
-    let token = auth::resolve_token(&state.shell_env)
-        .await
-        .ok_or_else(|| Error::Github("GitHub is not signed in — run `gh auth login`".into()))?;
+    let token = auth::resolve_token(&state.shell_env).await?;
 
     state
         .git
@@ -130,8 +128,12 @@ pub async fn create_workspace_pull_request(
         .remote_origin_url(worktree)
         .await?
         .ok_or_else(|| Error::Git("no origin remote configured for this repo".into()))?;
-    let slug = crate::github::parse_origin_url(&origin)
-        .ok_or_else(|| Error::Git(format!("could not parse origin URL {origin}")))?;
+    let slug = crate::github::parse_origin_url(&origin).ok_or_else(|| {
+        Error::Git(format!(
+            "could not parse origin URL {}",
+            crate::github::redact_origin_url(&origin)
+        ))
+    })?;
     let (owner, repo) = slug
         .split_once('/')
         .ok_or_else(|| Error::Git(format!("invalid origin slug {slug}")))?;
@@ -218,7 +220,7 @@ pub async fn create_workspace_pull_request(
             },
         ],
         workspace_id: Some(input.workspace_id.clone()),
-        thread_id: Some(lead_id.clone()),
+        thread_id: Some(lead_id),
     });
 
     // One refetch covers the new PR row and the workspace's PR number.

@@ -36,7 +36,12 @@ pub fn validate_finding_location(
         return Ok(());
     };
     let relative = path.trim_start_matches("./");
-    if relative.contains("..") {
+    // Only plain names: `..` climbs out, and an absolute path would replace the worktree
+    // entirely in `join`.
+    let inside = Path::new(relative)
+        .components()
+        .all(|part| matches!(part, std::path::Component::Normal(_)));
+    if !inside {
         return Err(Error::Mcp("file path must stay inside the worktree".into()));
     }
     let full = worktree.join(relative);
@@ -75,8 +80,12 @@ pub async fn send_workspace_findings(
     state: &AppState,
     workspace_id: &str,
     thread_id: &str,
-    finding_ids: Vec<String>,
+    mut finding_ids: Vec<String>,
 ) -> Result<()> {
+    // A repeated id would pass the "open" check twice, then fail the mark after the prompt
+    // had already gone out.
+    let mut seen = std::collections::HashSet::new();
+    finding_ids.retain(|id| seen.insert(id.clone()));
     if finding_ids.is_empty() {
         return Err(Error::Workspace("no findings selected".into()));
     }

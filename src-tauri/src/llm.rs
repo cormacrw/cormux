@@ -11,6 +11,8 @@ use crate::error::{Error, Result};
 use crate::shell_env::ShellEnv;
 
 const DEBOUNCE: Duration = Duration::from_secs(60);
+/// Upper bound on one `claude -p` call, so a hung CLI can't spin forever.
+const CALL_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -58,15 +60,18 @@ impl LlmClient {
 }
 
 async fn complete_via_claude(env: &Arc<RwLock<ShellEnv>>, prompt: &str) -> Result<LlmResult> {
-    let env = env.read().await;
-    let stdout = env
-        .run_with_stdin(
-            "claude",
-            &["-p", "--model", "haiku", "--output-format", "json"],
-            None,
-            Some(prompt),
-        )
+    // Snapshot the env and release the lock: holding a read guard for the whole
+    // CLI run would stall `reload` (write-preferring) and every git call behind it.
+    let env = env.read().await.clone();
+    let call = env.run_with_stdin(
+        "claude",
+        &["-p", "--model", "haiku", "--output-format", "json"],
+        None,
+        Some(prompt),
+    );
+    let stdout = tokio::time::timeout(CALL_TIMEOUT, call)
         .await
+        .map_err(|_| Error::Llm(format!("claude -p timed out after {CALL_TIMEOUT:?}")))?
         .map_err(|error| Error::Llm(error.to_string()))?;
     Ok(LlmResult {
         text: extract_text(&stdout),
