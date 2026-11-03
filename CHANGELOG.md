@@ -2,6 +2,16 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.21
+
+- New effort picker in the composer: effort is saved per thread, passed to Claude, and can be switched on a running session. ⌘⇧R, ⌘⇧M and ⌘⇧E open the repo, model and effort pickers from the keyboard.
+- The new thread screen takes attachments: attach, paste or drop files and images into your first message.
+- Images in a thread open over the workspace instead of behind the header, with pinch or ctrl-scroll zoom, drag to pan, and +, - and 0 shortcuts.
+- Deleting a workspace no longer holds up new threads while its files are removed.
+- Safer git handling: discarding a file can no longer delete a similarly named one, branch names are validated before reaching git, and two branches can no longer share a worktree folder.
+- Agent threads are sturdier: pausing no longer leaves a thread stuck running, racing prompts can't start two agents, abandoned approvals are denied instead of left pending, and the agent CLI is fully shut down when it exits or the app quits.
+- GitHub fixes: review comments GitHub rejects are moved into the review body, PR sync survives a missing repo folder, and the real `gh` auth error is shown.
+
 ## 0.1.20
 
 - Cormux stays quicker as your history grows: snapshots read about six times faster on large stores, and state updates cause far fewer refetches and less work per keystroke and per sort.
