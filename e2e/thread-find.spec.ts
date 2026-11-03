@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 const chunk = (seq: number, role: string, text: string) => ({
@@ -15,18 +16,14 @@ test('⌘F finds text in the thread, steps through matches and opens a collapsed
 }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.addInitScript(
-    (timeline) => {
-      ;(window as { __HARNESS_TIMELINE__?: unknown }).__HARNESS_TIMELINE__ =
-        timeline
-    },
-    [
+  await setScenario(page, {
+    timeline: [
       chunk(1, 'user', 'Why does the webhook retry forever?'),
       chunk(2, 'thought', 'The retry loop has no ceiling on attempts.'),
       chunk(3, 'user', 'Cap the retry at three attempts.'),
       chunk(4, 'agent', 'Done: it gives up after three.'),
     ],
-  )
+  })
   await page.goto('/')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const composer = page.locator('#composer-input')

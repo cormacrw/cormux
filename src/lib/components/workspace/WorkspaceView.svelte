@@ -202,7 +202,7 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<section class="flex min-h-0 flex-1 flex-col">
+<section class="relative flex min-h-0 flex-1 flex-col" data-media-lightbox-host>
   {#if workspace}
     <RenameWorkspaceDialog bind:workspaceId={renameWorkspaceId} />
     <WorkspaceHeader

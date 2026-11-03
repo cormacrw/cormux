@@ -5,15 +5,9 @@ test('toasts are filled green, red or yellow by tone', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await page.waitForFunction(
-    () => '__HARNESS_SHOW_TOAST__' in (window as object),
-  )
+  await page.waitForFunction(() => window.__HARNESS__?.showToast)
   await page.evaluate(() => {
-    const show = (
-      window as unknown as {
-        __HARNESS_SHOW_TOAST__: (payload: unknown) => void
-      }
-    ).__HARNESS_SHOW_TOAST__
+    const show = window.__HARNESS__!.showToast!
     show({
       tone: 'ok',
       parts: [
@@ -67,15 +61,9 @@ test('clicking a toast opens its workspace thread', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await page.waitForFunction(
-    () => '__HARNESS_SHOW_TOAST__' in (window as object),
-  )
+  await page.waitForFunction(() => window.__HARNESS__?.showToast)
   await page.evaluate(() => {
-    ;(
-      window as unknown as {
-        __HARNESS_SHOW_TOAST__: (payload: unknown) => void
-      }
-    ).__HARNESS_SHOW_TOAST__({
+    window.__HARNESS__!.showToast!({
       tone: 'ok',
       workspaceId: 'ws-auth',
       threadId: 'th-lead',

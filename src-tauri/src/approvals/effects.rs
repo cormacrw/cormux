@@ -1,8 +1,9 @@
-use crate::composer::persist_control_step;
-use crate::engines::{AgentEvent, MessageRole, ToolCallStatus, ToolKind};
+use crate::composer::persist_agent_event;
+use crate::engines::{AgentEvent, MessageRole};
 use crate::error::Result;
 use crate::state::AppState;
 use crate::store::types::ApprovalRow;
+use crate::timeline::{TimelineStep, record_step};
 
 use super::payload::ApprovalPayload;
 
@@ -25,14 +26,16 @@ pub fn apply_harness_effects(
     match payload.effect.as_deref() {
         Some("send_to_lead") => cross_thread_suggestions(state, row, payload)?,
         Some("delete_file") => {
-            persist_control_step(
+            record_step(
                 &state.store,
                 &row.thread_id,
-                &format!("Deleted {}", payload.what),
+                TimelineStep::FileDeleted {
+                    path: payload.what.clone(),
+                },
             )?;
         }
         Some("migration") => {
-            persist_control_step(&state.store, &row.thread_id, "Applied migration")?;
+            record_step(&state.store, &row.thread_id, TimelineStep::MigrationApplied)?;
         }
         _ => {}
     }
@@ -58,10 +61,10 @@ fn cross_thread_suggestions(
         .find(|thread| thread.title.eq_ignore_ascii_case("lead"))
         .ok_or_else(|| crate::error::Error::Store("lead thread missing".into()))?;
 
-    persist_control_step(
+    record_step(
         &state.store,
         &reviewer_row.thread_id,
-        "Sent suggestions to Lead",
+        TimelineStep::SuggestionsForwarded,
     )?;
 
     let thought = if payload.why.is_empty() {
@@ -73,27 +76,14 @@ fn cross_thread_suggestions(
         role: MessageRole::Thought,
         text: thought,
     };
-    let payload_json = serde_json::to_string(&event)
-        .map_err(|error| crate::error::Error::Store(error.to_string()))?;
-    state
-        .store
-        .append_event(&lead.id, "message", &payload_json)?;
+    persist_agent_event(&state.store, &lead.id, &event)?;
 
-    let tool_event = AgentEvent::ToolCall {
-        parent_id: None,
-        id: format!("review-{}", reviewer_row.id),
-        title: "Suggestions sent".into(),
-        name: None,
-        kind: ToolKind::Other,
-        status: ToolCallStatus::Completed,
-        locations: Vec::new(),
-        detail: Some(payload.what.clone()),
-    };
-    let tool_json = serde_json::to_string(&tool_event)
-        .map_err(|error| crate::error::Error::Store(error.to_string()))?;
-    state
-        .store
-        .append_event(&reviewer_row.thread_id, "tool", &tool_json)?;
-
-    Ok(())
+    record_step(
+        &state.store,
+        &reviewer_row.thread_id,
+        TimelineStep::SuggestionsSent {
+            approval_id: reviewer_row.id.clone(),
+            what: payload.what.clone(),
+        },
+    )
 }

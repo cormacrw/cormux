@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 test('typing / anywhere in a Claude composer offers skills and inserts the pick', async ({
@@ -57,11 +58,7 @@ test('@ offers the repos set up in Cormux and sends the alias as the repo’s fo
   await input.pressSequentially('and mail me@my-app.dev')
   await expect(picker).toHaveCount(0)
   await input.press('Enter')
-  const prompts = await page.evaluate(
-    () =>
-      (window as { __HARNESS_PROMPTS__?: { text: string }[] })
-        .__HARNESS_PROMPTS__,
-  )
+  const prompts = await page.evaluate(() => window.__HARNESS__!.prompts)
   // The fixture repo's folder; the email stays as typed.
   expect(prompts!.at(-1)!.text).toBe(
     'Copy the toast from /tmp/cormux-fixture/my-app and mail me@my-app.dev',
@@ -71,9 +68,7 @@ test('@ offers the repos set up in Cormux and sends the alias as the repo’s fo
 test('# offers the sprint’s tasks and sends one as its name, link and description', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_CLICKUP__?: boolean }).__HARNESS_CLICKUP__ = true
-  })
+  await setScenario(page, { clickup: true })
   await page.goto('/')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const input = page.locator('#composer-input')
@@ -93,11 +88,7 @@ test('# offers the sprint’s tasks and sends one as its name, link and descript
   await input.press('Enter')
   await expect
     .poll(async () => {
-      const prompts = await page.evaluate(
-        () =>
-          (window as { __HARNESS_PROMPTS__?: { text: string }[] })
-            .__HARNESS_PROMPTS__,
-      )
+      const prompts = await page.evaluate(() => window.__HARNESS__!.prompts)
       return prompts?.at(-1)?.text ?? ''
     })
     .toMatch(

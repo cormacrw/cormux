@@ -12,8 +12,8 @@ use tokio::time::timeout;
 use super::protocol::user_message;
 use super::protocol::{
     Event, PermissionDecision, StdinMessage, decode_event, encode_line, initialize_request,
-    interrupt_request, mcp_response, permission_response, set_model_request, stop_task_request,
-    user_prompt_message,
+    interrupt_request, mcp_response, permission_response, set_effort_request, set_model_request,
+    stop_task_request, user_prompt_message,
 };
 use crate::engines::claude_argv;
 use crate::engines::prompt::Prompt;
@@ -29,6 +29,7 @@ pub struct SpawnOptions {
     pub cwd: Option<PathBuf>,
     pub resume: Option<String>,
     pub model: Option<String>,
+    pub effort: Option<String>,
     pub extra_args: Vec<String>,
     /// When false, only `extra_args` are passed (used by the mock CLI fixture).
     pub use_default_args: bool,
@@ -44,6 +45,7 @@ impl Default for SpawnOptions {
             cwd: None,
             resume: None,
             model: None,
+            effort: None,
             extra_args: Vec::new(),
             use_default_args: true,
             orchestrate: false,
@@ -72,6 +74,7 @@ impl ClaudeSession {
             claude_argv(
                 options.resume.as_deref(),
                 options.model.as_deref(),
+                options.effort.as_deref(),
                 options.orchestrate,
             )
         } else {
@@ -120,13 +123,18 @@ impl ClaudeSession {
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr);
-                let mut line = String::new();
+                // Bytes, not `read_line`: one non-UTF-8 byte (from a hook or MCP server the
+                // CLI passes through) would error and stop the drain, and a CLI writing to a
+                // full, unread stderr pipe blocks.
+                let mut line = Vec::new();
                 loop {
                     line.clear();
-                    match reader.read_line(&mut line).await {
-                        Ok(0) => break,
-                        Ok(_) => log::warn!("claude stderr: {}", line.trim_end()),
-                        Err(_) => break,
+                    match reader.read_until(b'\n', &mut line).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => log::warn!(
+                            "claude stderr: {}",
+                            String::from_utf8_lossy(&line).trim_end()
+                        ),
                     }
                 }
             });
@@ -236,6 +244,13 @@ impl ClaudeSession {
         Ok(request_id)
     }
 
+    pub async fn set_effort(&mut self, effort: Option<String>) -> Result<String> {
+        let request_id = self.alloc_request_id("effort");
+        self.write_message(&set_effort_request(&request_id, effort))
+            .await?;
+        Ok(request_id)
+    }
+
     /// Cancel safe: `read_until` keeps partial reads in `pending`, so the pump can race this
     /// against commands in `select!` without dropping half a line. `None` once stdout closes.
     pub async fn next_event(&mut self) -> Result<Option<Event>> {
@@ -277,6 +292,11 @@ impl ClaudeSession {
                 None => return Err(Error::Engine("claude exited before result".into())),
             }
         }
+    }
+
+    /// The CLI's pid, which is also its process group id (`process_group(0)`).
+    pub fn pid(&self) -> Option<u32> {
+        self.child.id()
     }
 
     /// Closes stdin, asks the CLI's whole process group to stop, and kills whatever is left
@@ -612,7 +632,7 @@ mod tests {
         assert!(saw_error_result);
 
         // Resume is a new process with --resume <id>; prove the argv and a second init.
-        let resume_args = crate::engines::claude_argv(host.session_id(), None, false);
+        let resume_args = crate::engines::claude_argv(host.session_id(), None, None, false);
         assert!(resume_args.windows(2).any(|w| w == ["--resume", "sess-1"]));
 
         let (host2_out, _mock2_in) = duplex(4096);

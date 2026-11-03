@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 const finding = (
@@ -26,13 +27,8 @@ test('findings: selectable text, checkbox-only toggles, location opens Changes a
 }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.addInitScript(
-    (findings) => {
-      ;(
-        window as { __HARNESS_REVIEW_FINDINGS__?: unknown }
-      ).__HARNESS_REVIEW_FINDINGS__ = findings
-    },
-    [
+  await setScenario(page, {
+    reviewFindings: [
       finding(
         'f1',
         'blocking',
@@ -58,7 +54,7 @@ test('findings: selectable text, checkbox-only toggles, location opens Changes a
         'Group local imports after packages.',
       ),
     ],
-  )
+  })
   await page.goto('/')
   await page
     .getByRole('button', { name: /OAuth login/ })
@@ -131,12 +127,8 @@ test('the Reviewer’s findings block is hidden from the conversation', async ({
     payload: JSON.stringify({ type: 'messageChunk', role, text }),
     createdAt: '2026-09-29 12:00:00',
   })
-  await page.addInitScript(
-    (timeline) => {
-      ;(window as { __HARNESS_TIMELINE__?: unknown }).__HARNESS_TIMELINE__ =
-        timeline
-    },
-    [
+  await setScenario(page, {
+    timeline: [
       chunk(1, 'user', 'Review #2'),
       chunk(
         2,
@@ -149,7 +141,7 @@ test('the Reviewer’s findings block is hidden from the conversation', async ({
         'dings>\n[{"severity":"blocking","title":"Expiry skipped"}]\n</cormux-findings>',
       ),
     ],
-  )
+  })
   await page.goto('/')
   await page
     .getByRole('button', { name: /OAuth login/ })
@@ -167,18 +159,13 @@ test('the Reviewer’s findings block is hidden from the conversation', async ({
 test('findings: dismiss one or the selection, and restore it', async ({
   page,
 }) => {
-  await page.addInitScript(
-    (findings) => {
-      ;(
-        window as { __HARNESS_REVIEW_FINDINGS__?: unknown }
-      ).__HARNESS_REVIEW_FINDINGS__ = findings
-    },
-    [
+  await setScenario(page, {
+    reviewFindings: [
       finding('f1', 'blocking', 'Expiry not checked', 'a.ts', 4, 'Check it.'),
       finding('f2', 'suggestion', 'Add a test', null, null, 'Cover it.'),
       finding('f3', 'nit', 'Tidy imports', null, null, 'Group them.'),
     ],
-  )
+  })
   await page.goto('/')
   await page
     .getByRole('button', { name: /OAuth login/ })

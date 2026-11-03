@@ -97,12 +97,16 @@ fn normalize(item: RawFinding, worktree: &str) -> Option<ReviewFinding> {
 
 fn relative_path(path: &str, worktree: &str) -> String {
     let worktree = worktree.trim_end_matches('/');
-    let path = if !worktree.is_empty() {
-        path.strip_prefix(worktree)
-            .map(|rest| rest.trim_start_matches('/'))
-            .unwrap_or(path)
-    } else {
+    // By component, not string prefix: worktree `/x/feat-a` mustn't turn `/x/feat-ab/a.rs`
+    // into `b/a.rs`.
+    let path = if worktree.is_empty() {
         path
+    } else {
+        std::path::Path::new(path)
+            .strip_prefix(worktree)
+            .ok()
+            .and_then(|rest| rest.to_str())
+            .unwrap_or(path)
     };
     path.trim_start_matches("./").to_string()
 }

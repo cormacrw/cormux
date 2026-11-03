@@ -6,10 +6,12 @@ mod manager;
 mod models;
 pub mod prompt;
 
+#[cfg(test)]
+pub use command::EngineCommand;
 pub use detect::EngineStatus;
-pub use events::{AgentEvent, EngineKind, MessageRole, StreamedEvent, ToolCallStatus, ToolKind};
+pub use events::{AgentEvent, EngineKind, MessageRole, StreamedEvent, ToolKind};
 pub use manager::{EngineRegistry, SpawnSpec};
-pub use models::{ModelOption, ThreadModels, static_models};
+pub use models::{ModelOption, ThreadModels, static_efforts, static_models};
 
 pub use claude::claude_argv;
 

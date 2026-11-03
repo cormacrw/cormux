@@ -1,17 +1,18 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tauri::AppHandle;
 use uuid::Uuid;
 
 use crate::app::WorkspaceAppService;
 use crate::approvals::ApprovalBroker;
 use crate::error::{Error, Result};
+use crate::feedback::Output;
 use crate::orchestration;
 use crate::process::ProcessSupervisor;
+use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::FindingRow;
 
@@ -31,7 +32,9 @@ pub struct CormuxMcp {
     process: ProcessSupervisor,
     approvals: Arc<ApprovalBroker>,
     apps: WorkspaceAppService,
-    app: Arc<Mutex<Option<AppHandle>>>,
+    /// What the thread tools run workflows with. `AppState` owns this server, so it's handed
+    /// over once the state exists; both live as long as the process.
+    workflows: Arc<OnceLock<(Output, AppState)>>,
     /// Held across a spawn, so parallel `create_thread` calls can't both pass the limit.
     spawn_lock: Arc<tokio::sync::Mutex<()>>,
 }
@@ -62,15 +65,13 @@ impl CormuxMcp {
             process,
             approvals,
             apps,
-            app: Arc::new(Mutex::new(None)),
+            workflows: Arc::new(OnceLock::new()),
             spawn_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
-    pub fn attach_app(&self, app: AppHandle) {
-        if let Ok(mut slot) = self.app.lock() {
-            *slot = Some(app);
-        }
+    pub fn attach(&self, out: Output, state: AppState) {
+        let _ = self.workflows.set((out, state));
     }
 
     /// Answers one JSON-RPC message from `thread_id`'s engine. The caller is the session the
@@ -102,11 +103,10 @@ impl CormuxMcp {
         })
     }
 
-    fn attached_app(&self) -> Result<AppHandle> {
-        self.app
-            .lock()
-            .ok()
-            .and_then(|slot| slot.clone())
+    fn attached(&self) -> Result<(&Output, &AppState)> {
+        self.workflows
+            .get()
+            .map(|(out, state)| (out, state))
             .ok_or_else(|| Error::Mcp("Cormux is still starting".into()))
     }
 
@@ -140,14 +140,15 @@ impl CormuxMcp {
                     base: text("base"),
                     model: text("model"),
                 };
-                let app = self.attached_app()?;
+                let (out, state) = self.attached()?;
                 let _spawning = self.spawn_lock.lock().await;
-                orchestration::create_thread(&app, caller, new).await
+                orchestration::create_thread(out, state, caller, new).await
             }
             "send_to_thread" => {
                 let id = required_string(args, "id")?;
                 let body = required_string(args, "text")?;
-                orchestration::send_to_thread(&self.attached_app()?, caller, &id, body).await?;
+                let (out, state) = self.attached()?;
+                orchestration::send_to_thread(out, state, caller, &id, body).await?;
                 Ok(json!({ "sent": true }))
             }
             other => Err(Error::Mcp(format!("unknown tool {other}"))),
@@ -226,12 +227,10 @@ impl CormuxMcp {
         let id = required_string(args, "id")?;
         let commit = required_string(args, "commit")?;
         self.store.mark_finding_fixed(&id, &commit)?;
-        if let Ok(guard) = self.app.lock()
-            && let Some(app) = guard.clone()
-        {
+        if let Some((out, state)) = self.workflows.get().cloned() {
             let finding_id = id.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = crate::findings::on_finding_marked_fixed(&app, &finding_id).await;
+                let _ = crate::findings::on_finding_marked_fixed(&out, &state, &finding_id).await;
             });
         }
         Ok(McpToolResult {

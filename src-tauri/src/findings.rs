@@ -1,17 +1,16 @@
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Manager};
-use uuid::Uuid;
-
-use crate::composer::{persist_agent_event, persist_user_message};
-use crate::engines::{AgentEvent, ToolCallStatus, ToolKind};
+use crate::composer::persist_agent_event;
+use crate::engines::AgentEvent;
 use crate::error::{Error, Result};
-use crate::feedback::emit_toast;
-use crate::ipc::types::{StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone};
+use crate::feedback::Output;
+use crate::ipc::types::{
+    DismissWorkspaceFindingsInput, StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone,
+};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::FindingRow;
-use crate::workspace::ThreadActivity;
+use crate::timeline::{TimelineStep, record_step};
 
 pub const SEVERITIES: &[&str] = &["blocking", "suggestion", "nit"];
 
@@ -37,7 +36,12 @@ pub fn validate_finding_location(
         return Ok(());
     };
     let relative = path.trim_start_matches("./");
-    if relative.contains("..") {
+    // Only plain names: `..` climbs out, and an absolute path would replace the worktree
+    // entirely in `join`.
+    let inside = Path::new(relative)
+        .components()
+        .all(|part| matches!(part, std::path::Component::Normal(_)));
+    if !inside {
         return Err(Error::Mcp("file path must stay inside the worktree".into()));
     }
     let full = worktree.join(relative);
@@ -72,15 +76,19 @@ pub fn findings_batch_key(thread_id: &str) -> String {
 }
 
 pub async fn send_workspace_findings(
-    app: &AppHandle,
+    out: &Output,
+    state: &AppState,
     workspace_id: &str,
     thread_id: &str,
-    finding_ids: Vec<String>,
+    mut finding_ids: Vec<String>,
 ) -> Result<()> {
+    // A repeated id would pass the "open" check twice, then fail the mark after the prompt
+    // had already gone out.
+    let mut seen = std::collections::HashSet::new();
+    finding_ids.retain(|id| seen.insert(id.clone()));
     if finding_ids.is_empty() {
         return Err(Error::Workspace("no findings selected".into()));
     }
-    let state = app.state::<AppState>();
     let thread = state
         .store
         .thread_by_id(thread_id)?
@@ -107,15 +115,6 @@ pub async fn send_workspace_findings(
         picked.push(row);
     }
 
-    // The thread may have no engine: it was reaped while idle, or the app restarted.
-    crate::provisioning::ensure_thread_engine(&state, thread_id, &thread.engine, workspace_id)
-        .await?;
-    state.store.mark_findings_sent(&finding_ids, thread_id)?;
-    state.store.set_setting(
-        &findings_batch_key(thread_id),
-        &serde_json::to_string(&finding_ids).map_err(|error| Error::Store(error.to_string()))?,
-    )?;
-
     let count = picked.len();
     let count_label = if count == 1 {
         "1 review finding".into()
@@ -126,18 +125,22 @@ pub async fn send_workspace_findings(
         "Fix the {count_label} I selected. Keep each fix small, add a test where the finding asks for one, and don’t push yet.\n\nFinding ids: {}",
         finding_ids.join(", ")
     );
-    persist_user_message(&state.store, thread_id, &user_text)?;
+    // First, so findings that never reached the thread stay open to send again.
+    crate::turn::start(out, state, &thread, &user_text, build_fix_prompt(&picked)).await?;
+    state.store.mark_findings_sent(&finding_ids, thread_id)?;
+    state.store.set_setting(
+        &findings_batch_key(thread_id),
+        &serde_json::to_string(&finding_ids).map_err(|error| Error::Store(error.to_string()))?,
+    )?;
 
-    let titles = picked
-        .iter()
-        .map(|row| row.title.as_str())
-        .collect::<Vec<_>>()
-        .join(" · ");
-    persist_tool_step(
+    let titles = picked.iter().map(|row| row.title.clone()).collect();
+    record_step(
         &state.store,
         thread_id,
-        &format!("Received {count} findings from the review"),
-        Some(&titles),
+        TimelineStep::FindingsReceived {
+            count: count as u32,
+            titles,
+        },
     )?;
 
     let live_title = picked
@@ -149,34 +152,35 @@ pub async fn send_workspace_findings(
         .unwrap_or_else(|| format!("Fixing {count} findings…"));
     persist_current_tool(&state.store, thread_id, &live_title)?;
 
-    state.store.set_thread_status(thread_id, "running")?;
+    out.toast(ToastRaisedPayload {
+        tone: ToastTone::Ok,
+        parts: vec![
+            ToastPart::Text {
+                value: format!("Sent {count} findings to "),
+            },
+            ToastPart::Text {
+                value: thread.title.clone(),
+            },
+        ],
+        workspace_id: Some(workspace_id.to_string()),
+        thread_id: Some(thread_id.to_string()),
+    });
+
+    state.notify(out, StateChangeKind::WorkspaceStatus);
+
+    Ok(())
+}
+
+/// Dismissed findings stay listed but aren't sent to an agent or posted with the review.
+pub fn dismiss_findings(
+    out: &Output,
+    state: &AppState,
+    input: DismissWorkspaceFindingsInput,
+) -> Result<()> {
     state
-        .workspace
-        .set_thread(thread_id, workspace_id, ThreadActivity::Running)
-        .await;
-
-    let engine_prompt = build_fix_prompt(&picked);
-    let _ = state.engines.submit_prompt(thread_id, engine_prompt, false);
-
-    emit_toast(
-        app,
-        ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![
-                ToastPart::Text {
-                    value: format!("Sent {count} findings to "),
-                },
-                ToastPart::Text {
-                    value: thread.title.clone(),
-                },
-            ],
-            workspace_id: Some(workspace_id.to_string()),
-            thread_id: Some(thread_id.to_string()),
-        },
-    );
-
-    state.notify(app, StateChangeKind::WorkspaceStatus);
-
+        .store
+        .set_findings_dismissed(&input.workspace_id, &input.finding_ids, input.dismissed)?;
+    state.notify(out, StateChangeKind::WorkspaceStatus);
     Ok(())
 }
 
@@ -200,8 +204,11 @@ fn build_fix_prompt(findings: &[FindingRow]) -> String {
     lines.join("\n")
 }
 
-pub async fn on_finding_marked_fixed(app: &AppHandle, finding_id: &str) -> Result<()> {
-    let state = app.state::<AppState>();
+pub async fn on_finding_marked_fixed(
+    out: &Output,
+    state: &AppState,
+    finding_id: &str,
+) -> Result<()> {
     let Some(finding) = state.store.finding_by_id(finding_id)? else {
         return Ok(());
     };
@@ -240,51 +247,24 @@ pub async fn on_finding_marked_fixed(app: &AppHandle, finding_id: &str) -> Resul
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    let detail = files.join(", ");
-    persist_tool_step(
+    record_step(
         &state.store,
         &thread_id,
-        &format!("Fixed {count} findings"),
-        Some(&detail),
+        TimelineStep::FindingsFixed {
+            count: count as u32,
+            files,
+        },
     )?;
 
-    state.store.set_thread_status(&thread_id, "idle")?;
-    let workspace_id = state
-        .store
-        .thread_by_id(&thread_id)?
-        .map(|row| row.workspace_id)
-        .unwrap_or_default();
-    if !workspace_id.is_empty() {
-        state
-            .workspace
-            .set_thread(&thread_id, &workspace_id, ThreadActivity::Idle)
-            .await;
+    if let Some(thread) = state.store.thread_by_id(&thread_id)? {
+        crate::turn::mark_idle(state, &thread).await?;
     }
     state
         .store
         .set_setting(&findings_batch_key(&thread_id), "[]")?;
 
-    state.notify(app, StateChangeKind::WorkspaceStatus);
+    state.notify(out, StateChangeKind::WorkspaceStatus);
     Ok(())
-}
-
-pub fn persist_tool_step(
-    store: &Store,
-    thread_id: &str,
-    title: &str,
-    detail: Option<&str>,
-) -> Result<()> {
-    let event = AgentEvent::ToolCall {
-        parent_id: None,
-        id: format!("finding-{}", Uuid::new_v4()),
-        title: title.to_string(),
-        name: None,
-        kind: ToolKind::Other,
-        status: ToolCallStatus::Completed,
-        locations: Vec::new(),
-        detail: detail.map(str::to_string),
-    };
-    persist_agent_event(store, thread_id, &event)
 }
 
 pub fn persist_current_tool(store: &Store, thread_id: &str, title: &str) -> Result<()> {

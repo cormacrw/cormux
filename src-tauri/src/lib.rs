@@ -23,9 +23,11 @@ mod menu;
 mod metrics;
 mod naming;
 mod orchestration;
+mod paths;
 mod pr_draft;
 mod process;
 mod provisioning;
+mod repos;
 mod review;
 mod scratch;
 mod shell_env;
@@ -36,12 +38,15 @@ mod store;
 mod summaries;
 mod teardown;
 mod thread_media;
+mod timeline;
+mod turn;
 mod window_activity;
 mod workspace;
+mod workspace_start;
 
 use std::time::Duration;
 
-use ipc::events::MemorySampled;
+use ipc::events::{MemorySampled, output};
 use ipc::types::StateChangeKind;
 use state::AppState;
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -92,12 +97,12 @@ pub fn run() {
                     match state.fetch.tick().await {
                         Ok(updates) => {
                             crate::git_workspace::apply_behind_updates(&state, &updates).await;
-                            state.notify(&app, StateChangeKind::BehindCounts);
+                            state.notify(&output(&app), StateChangeKind::BehindCounts);
                         }
                         Err(error) => log::warn!("focus fetch failed: {error}"),
                     }
                     let state = app.state::<AppState>();
-                    if let Err(error) = state.pr_sync.sync_app(&app).await {
+                    if let Err(error) = state.pr_sync.sync_app(&output(&app), &state).await {
                         log::warn!("focus PR sync failed: {error}");
                     }
                     app.state::<WindowActivity>().finish_sync();
@@ -121,41 +126,37 @@ pub fn run() {
             app.set_menu(menu::build(app.handle())?)?;
 
             app.manage(WindowActivity::new());
-            let state = AppState::new();
+            let out = output(app.handle());
+            let state = AppState::new(data_dir(app.path().app_data_dir()?));
             state.diffs.start();
             state.fetch.spawn_loop();
 
             // PR sync shells out to `gh` and `git`, so it waits for the login-shell PATH.
             let env = state.shell_env.clone();
             let pr_sync = state.pr_sync.clone();
-            let pr_app = app.handle().clone();
-            let startup_app = app.handle().clone();
-            let db_path = data_dir(app.path().app_data_dir()?).join("cormux.db");
-            state.store.open(&db_path)?;
+            state.store.open(&state.data_dir.join("cormux.db"))?;
             state.store.reset_interrupted_turns()?;
             let approval_notify = state.approval_notify.clone();
-            let turn_end_notify = state.turn_end_notify.clone();
             state.engines.spawn_idle_reaper();
-            app.manage(state);
-            // Reads AppState from the handle, so it starts once the state is managed.
-            crate::git_workspace::spawn_branch_watch(app.handle().clone());
+            app.manage(state.clone());
+            crate::git_workspace::spawn_branch_watch(out.clone(), state.clone());
 
+            let (startup_out, startup) = (out.clone(), state.clone());
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = env.write().await.load_or_inherit().await {
                     log::warn!("shell env load failed: {error}");
                 }
-                let startup = startup_app.state::<AppState>();
                 startup.process.remove_stale_logs();
                 if let Err(error) = crate::git_workspace::restore_fetch_targets(&startup).await {
                     log::warn!("restoring fetch targets failed: {error}");
                 }
-                if let Err(error) = pr_sync.sync_app(&pr_app).await {
+                if let Err(error) = pr_sync.sync_app(&startup_out, &startup).await {
                     log::warn!("initial PR sync failed: {error}");
                 }
-                pr_sync.spawn_loop(pr_app);
+                pr_sync.spawn_loop(startup_out, startup);
             });
 
-            app.state::<AppState>().mcp.attach_app(app.handle().clone());
+            state.mcp.attach(out.clone(), state.clone());
 
             // The window starts hidden and the app shows it once it has painted. If
             // that never happens (a startup error), show it anyway rather than
@@ -171,68 +172,24 @@ pub fn run() {
                 }
             });
 
-            let approval_app = app.handle().clone();
+            let (approval_out, approval_state) = (out.clone(), state.clone());
             tauri::async_runtime::spawn(async move {
                 let mut rx = approval_notify.subscribe();
                 loop {
                     if rx.recv().await.is_err() {
                         break;
                     }
-                    let state = approval_app.state::<AppState>();
-                    crate::feedback::emit_approval_counts(&approval_app, &state);
+                    crate::feedback::emit_approval_counts(&approval_out, &approval_state);
                     if let Err(error) =
-                        crate::orchestration::on_approval_requested(&approval_app).await
+                        crate::orchestration::on_approval_requested(&approval_out, &approval_state)
+                            .await
                     {
                         log::warn!("reporting a blocked thread failed: {error}");
                     }
                 }
             });
 
-            // The engine pumps only update the database; keep the workspace's live status
-            // (what the sidebar shows) in step and tell the UI to refetch.
-            let turn_end_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let mut rx = turn_end_notify.subscribe();
-                loop {
-                    let thread_id = match rx.recv().await {
-                        Ok(thread_id) => thread_id,
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                    };
-                    let state = turn_end_app.state::<AppState>();
-                    let _ = state.store.mark_thread_idle(&thread_id);
-                    let _ = state.store.deny_stale_approvals(&thread_id);
-                    let is_scratch = state
-                        .store
-                        .scratch_for_thread(&thread_id)
-                        .ok()
-                        .flatten()
-                        .is_some();
-                    if let (false, Ok(Some(thread))) =
-                        (is_scratch, state.store.thread_by_id(&thread_id))
-                    {
-                        state
-                            .workspace
-                            .set_thread(
-                                &thread_id,
-                                &thread.workspace_id,
-                                crate::workspace::ThreadActivity::Idle,
-                            )
-                            .await;
-                    }
-                    state.notify(&turn_end_app, StateChangeKind::WorkspaceStatus);
-                    if let Err(error) =
-                        crate::review::on_reviewer_turn_end(&turn_end_app, &thread_id).await
-                    {
-                        log::warn!("reading review findings failed: {error}");
-                    }
-                    if let Err(error) =
-                        crate::orchestration::on_turn_end(&turn_end_app, &thread_id).await
-                    {
-                        log::warn!("reporting a thread failed: {error}");
-                    }
-                }
-            });
+            tauri::async_runtime::spawn(turn::listen(out, state));
 
             let metrics_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -247,7 +204,7 @@ pub fn run() {
                         continue;
                     }
                     let state = metrics_handle.state::<AppState>();
-                    if let Ok(sample) = ipc::commands::sample_metrics(&state).await {
+                    if let Ok(sample) = metrics::sample_processes(&state).await {
                         let _ = MemorySampled { sample }.emit(&metrics_handle);
                     }
                 }
@@ -261,6 +218,7 @@ pub fn run() {
         .run(|app, event| {
             if let RunEvent::ExitRequested { .. } = event {
                 let state = app.state::<AppState>();
+                state.engines.kill_all();
                 if let Err(error) = state.process.stop_all() {
                     log::warn!("stop_all on quit: {error}");
                 }

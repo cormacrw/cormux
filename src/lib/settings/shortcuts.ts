@@ -15,6 +15,9 @@ export const SETTINGS_SHORTCUTS: ShortcutReference[] = [
   { keys: '⌘,', description: 'Open settings' },
   { keys: '⌘L', description: 'Start a new session in the open thread' },
   { keys: '⌘F', description: 'Find in the conversation' },
+  { keys: '⌘⇧R', description: 'Pick the repo (new thread)' },
+  { keys: '⌘⇧M', description: 'Pick the model (thread)' },
+  { keys: '⌘⇧E', description: 'Pick the effort (thread)' },
   {
     keys: '⌘P',
     description: 'Create or open the PR, or submit a review (workspace)',

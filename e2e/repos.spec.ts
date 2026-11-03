@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 test.describe('repos', () => {
@@ -33,8 +34,8 @@ test.describe('repos', () => {
     page,
   }) => {
     mkdirSync('e2e/output', { recursive: true })
-    await page.addInitScript(() => {
-      ;(window as { __HARNESS_PRS__?: unknown }).__HARNESS_PRS__ = [
+    await setScenario(page, {
+      pullRequests: [
         {
           id: 'acme/app#12',
           repoId: 'my-app',
@@ -60,7 +61,7 @@ test.describe('repos', () => {
             repoId: 'my-app',
           }),
         },
-      ]
+      ],
     })
     await page.goto('/')
     await page.getByRole('button', { name: /Search or run a command/ }).click()

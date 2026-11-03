@@ -10,6 +10,7 @@
     attachmentFromFile,
     attachmentFromPath,
     isImageName,
+    type ComposerAttachment,
   } from '$lib/composer/attachments'
   import { Textarea } from '$lib/components/ui/textarea'
   import {
@@ -66,7 +67,7 @@
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
-  import ThreadModelPicker from './ThreadModelPicker.svelte'
+  import ThreadOptionPicker from './ThreadOptionPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import FileText from '@lucide/svelte/icons/file-text'
   import Folder from '@lucide/svelte/icons/folder'
@@ -107,7 +108,11 @@
      * Takes the message instead of the thread, for a composer whose thread doesn't exist yet.
      * Resolves false to put the draft back. `stay` is ⌘↵: send it off without leaving.
      */
-    onSubmit?: (text: string, stay: boolean) => Promise<boolean>
+    onSubmit?: (
+      text: string,
+      stay: boolean,
+      attachments: ComposerAttachment[],
+    ) => Promise<boolean>
     /** Controls for the start of the footer, before anything else. */
     pickers?: Snippet
     /** Reads the `/` picker's skills, for a composer whose thread doesn't exist yet. */
@@ -135,8 +140,6 @@
   const canSend = $derived(
     !disabled && (draft.trim().length > 0 || attachments.length > 0),
   )
-  // No thread yet means no model to pick and nowhere to keep attachments.
-  const canAttach = $derived(!onSubmit)
   let draggingFiles = $state(false)
 
   // Typing `/` anywhere opens the skill picker.
@@ -401,7 +404,7 @@
     onSent?.()
     const outgoing = await expandMessage(text)
     const sent = onSubmit
-      ? await onSubmit(outgoing, stay)
+      ? await onSubmit(outgoing, stay, sending)
       : await sendThreadMessage(threadId, outgoing, sending)
     if (!sent) {
       composerDrafts.setFor(threadId, text)
@@ -433,7 +436,7 @@
 
   function onPaste(event: ClipboardEvent) {
     const files = [...(event.clipboardData?.files ?? [])]
-    if (!files.length || !canAttach) return
+    if (!files.length) return
     event.preventDefault()
     void attachFiles(files)
   }
@@ -472,12 +475,12 @@
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type === 'over' || event.payload.type === 'enter') {
-          draggingFiles = canAttach
+          draggingFiles = true
         } else if (event.payload.type === 'leave') {
           draggingFiles = false
         } else if (event.payload.type === 'drop') {
           draggingFiles = false
-          if (!canAttach || !event.payload.paths.length) return
+          if (!event.payload.paths.length) return
           attachPaths(event.payload.paths)
         }
       })
@@ -712,13 +715,13 @@
       void sendMessage()
     }}
     ondragover={(event) => {
-      if (!hasFiles(event) || !canAttach) return
+      if (!hasFiles(event)) return
       event.preventDefault()
       draggingFiles = true
     }}
     ondragleave={() => (draggingFiles = false)}
     ondrop={(event) => {
-      if (!hasFiles(event) || !canAttach) return
+      if (!hasFiles(event)) return
       event.preventDefault()
       draggingFiles = false
       void attachFiles([...(event.dataTransfer?.files ?? [])])
@@ -819,21 +822,23 @@
         data-od-id="composer-meta"
       >
         {@render pickers?.()}
-        {#if canAttach}
-          <ThreadModelPicker {thread} />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            class="text-muted-foreground"
-            data-od-id="composer-attach"
-            aria-label="Attach images or files"
-            title="Attach images or files (you can also paste or drop them)"
-            onclick={() => void pickFiles()}
-          >
-            <Paperclip class="size-3.5" aria-hidden="true" />
-          </Button>
+        <!-- A new thread brings its own model and effort pickers: there's no thread to set yet. -->
+        {#if !onSubmit}
+          <ThreadOptionPicker kind="model" {thread} />
+          <ThreadOptionPicker kind="effort" {thread} />
         {/if}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          class="text-muted-foreground"
+          data-od-id="composer-attach"
+          aria-label="Attach images or files"
+          title="Attach images or files (you can also paste or drop them)"
+          onclick={() => void pickFiles()}
+        >
+          <Paperclip class="size-3.5" aria-hidden="true" />
+        </Button>
         {#if contextFill != null}
           <span
             class="shrink-0 font-mono text-[10px] text-muted-foreground/80 tabular-nums"

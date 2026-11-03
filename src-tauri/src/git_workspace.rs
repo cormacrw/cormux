@@ -1,18 +1,16 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager};
-
 use crate::error::{Error, Result};
-use crate::feedback::emit_toast;
-use crate::ipc::commands::expand_tilde;
+use crate::feedback::Output;
 use crate::ipc::types::{
-    GitConflictOperation, GitConflictState, StateChangeKind, ToastPart, ToastRaisedPayload,
-    ToastTone, WorkspaceGitRuntime,
+    GitConflictOperation, GitConflictState, RenameWorkspaceInput, StateChangeKind, ToastPart,
+    ToastRaisedPayload, ToastTone, WorkspaceGitRuntime,
 };
+use crate::paths::expand_tilde;
 use crate::state::AppState;
-use crate::store::Store;
 use crate::store::types::WorkspaceRow;
+use crate::timeline::{BranchChange, TimelineStep, record_step};
 use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
 
 /// Load a workspace persisted by an earlier launch and start its live diff watcher.
@@ -66,7 +64,7 @@ pub async fn resolve_record(
         .ok_or_else(|| Error::Git(format!("unknown repo {}", row.repo_id)))?;
     let repo_path = expand_tilde(&repo.path);
     let base = repo.default_branch_or_main().to_string();
-    let status = parse_lifecycle(&row.status);
+    let status = WorkspaceLifecycle::parse(&row.status);
 
     Ok(WorkspaceRecord {
         id: row.id.clone(),
@@ -123,11 +121,12 @@ pub async fn apply_behind_updates(state: &AppState, updates: &[crate::git::Behin
 }
 
 pub async fn switch_workspace_branch(
-    app: &AppHandle,
+    out: &Output,
     state: &AppState,
     workspace_id: &str,
     branch: &str,
 ) -> Result<()> {
+    crate::git::validate_ref_name(branch, "branch")?;
     let row = state
         .store
         .workspace_by_id(workspace_id)?
@@ -164,22 +163,25 @@ pub async fn switch_workspace_branch(
         .map_err(|error| log::warn!("diff refresh after branch switch: {error}"));
 
     if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
-        let _ = append_git_step(
+        let _ = record_step(
             &state.store,
             &thread_id,
-            "branch",
-            &format!("Switched to `{branch}`"),
-            &format!("Checked out {branch} in this worktree, previously {previous}"),
+            TimelineStep::BranchSwitched {
+                branch: branch.to_string(),
+                change: BranchChange::CheckedOut {
+                    previous: previous.to_string(),
+                },
+            },
         );
     }
 
-    emit_switch_toast(app, &record.name, branch, workspace_id);
+    emit_switch_toast(out, &record.name, branch, workspace_id);
 
-    emit_workspace_refresh(app, state);
+    emit_workspace_refresh(out, state);
     Ok(())
 }
 
-pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &str) -> Result<()> {
+pub async fn pull_workspace(out: &Output, state: &AppState, workspace_id: &str) -> Result<()> {
     let row = state
         .store
         .workspace_by_id(workspace_id)?
@@ -203,21 +205,19 @@ pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &st
             let _ = state.diffs.compute(workspace_id, &worktree).await;
 
             if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
-                let _ = append_git_step(
+                let _ = record_step(
                     &state.store,
                     &thread_id,
-                    "download",
-                    &format!(
-                        "Pulled {behind} commit{} from {}",
-                        if behind == 1 { "" } else { "s" },
-                        record.base
-                    ),
-                    &format!("Merged into {} with no conflicts", record.branch),
+                    TimelineStep::CommitsPulled {
+                        count: behind as u32,
+                        base: record.base.clone(),
+                        branch: record.branch.clone(),
+                    },
                 );
             }
 
-            emit_pull_toast(app, behind, &record.base, workspace_id);
-            emit_git_state(app, state);
+            emit_pull_toast(out, behind, &record.base, workspace_id);
+            emit_git_state(out, state);
             Ok(())
         }
         Err(Error::GitConflict { operation, paths }) => {
@@ -231,7 +231,7 @@ pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &st
                     },
                 )
                 .await;
-            emit_git_state(app, state);
+            emit_git_state(out, state);
             Err(Error::Git(
                 "merge stopped with conflicts — resolve or abort from the workspace header".into(),
             ))
@@ -240,7 +240,7 @@ pub async fn pull_workspace(app: &AppHandle, state: &AppState, workspace_id: &st
     }
 }
 
-pub async fn rebase_workspace(app: &AppHandle, state: &AppState, workspace_id: &str) -> Result<()> {
+pub async fn rebase_workspace(out: &Output, state: &AppState, workspace_id: &str) -> Result<()> {
     let row = state
         .store
         .workspace_by_id(workspace_id)?
@@ -274,20 +274,19 @@ pub async fn rebase_workspace(app: &AppHandle, state: &AppState, workspace_id: &
             let _ = state.diffs.compute(workspace_id, &worktree).await;
 
             if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
-                let _ = append_git_step(
+                let _ = record_step(
                     &state.store,
                     &thread_id,
-                    "branch",
-                    &format!("Rebased {} onto {}", record.branch, record.base),
-                    &format!(
-                        "Replayed local commits on top of {behind} new commit{} with no conflicts",
-                        if behind == 1 { "" } else { "s" }
-                    ),
+                    TimelineStep::BranchRebased {
+                        branch: record.branch.clone(),
+                        base: record.base.clone(),
+                        replayed_onto: behind as u32,
+                    },
                 );
             }
 
-            emit_rebase_toast(app, &record.branch, &record.base, workspace_id);
-            emit_git_state(app, state);
+            emit_rebase_toast(out, &record.branch, &record.base, workspace_id);
+            emit_git_state(out, state);
             Ok(())
         }
         Err(Error::GitConflict { operation, paths }) => {
@@ -301,7 +300,7 @@ pub async fn rebase_workspace(app: &AppHandle, state: &AppState, workspace_id: &
                     },
                 )
                 .await;
-            emit_git_state(app, state);
+            emit_git_state(out, state);
             Err(Error::Git(
                 "rebase stopped with conflicts — resolve or abort from the workspace header".into(),
             ))
@@ -311,7 +310,7 @@ pub async fn rebase_workspace(app: &AppHandle, state: &AppState, workspace_id: &
 }
 
 pub async fn push_workspace_branch(
-    app: &AppHandle,
+    out: &Output,
     state: &AppState,
     workspace_id: &str,
 ) -> Result<()> {
@@ -323,28 +322,25 @@ pub async fn push_workspace_branch(
     let worktree = PathBuf::from(&record.worktree_path);
     state.git.push(&worktree, &record.branch).await?;
     refresh_git_stats(state, workspace_id, &worktree, &record.base, &record.branch).await;
-    emit_toast(
-        app,
-        ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![
-                ToastPart::Text {
-                    value: "Pushed ".into(),
-                },
-                ToastPart::Code {
-                    value: record.branch.clone(),
-                },
-            ],
-            workspace_id: Some(workspace_id.to_string()),
-            thread_id: None,
-        },
-    );
-    emit_git_state(app, state);
+    out.toast(ToastRaisedPayload {
+        tone: ToastTone::Ok,
+        parts: vec![
+            ToastPart::Text {
+                value: "Pushed ".into(),
+            },
+            ToastPart::Code {
+                value: record.branch.clone(),
+            },
+        ],
+        workspace_id: Some(workspace_id.to_string()),
+        thread_id: None,
+    });
+    emit_git_state(out, state);
     Ok(())
 }
 
 pub async fn abort_workspace_git_conflict(
-    app: &AppHandle,
+    out: &Output,
     state: &AppState,
     workspace_id: &str,
 ) -> Result<()> {
@@ -370,12 +366,12 @@ pub async fn abort_workspace_git_conflict(
     state.workspace.clear_git_conflict(workspace_id).await;
     refresh_git_stats(state, workspace_id, &worktree, &record.base, &record.branch).await;
     let _ = state.diffs.compute(workspace_id, &worktree).await;
-    emit_git_state(app, state);
+    emit_git_state(out, state);
     Ok(())
 }
 
 pub async fn create_workspace_branch(
-    app: &AppHandle,
+    out: &Output,
     state: &AppState,
     workspace_id: &str,
     branch: &str,
@@ -405,29 +401,29 @@ pub async fn create_workspace_branch(
     refresh_git_stats(state, workspace_id, &worktree, &record.base, name).await;
     let _ = state.diffs.compute(workspace_id, &worktree).await;
     if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
-        let _ = append_git_step(
+        let _ = record_step(
             &state.store,
             &thread_id,
-            "branch",
-            &format!("Switched to `{name}`"),
-            &format!(
-                "Created and checked out {name}, previously {}",
-                record.branch
-            ),
+            TimelineStep::BranchSwitched {
+                branch: name.to_string(),
+                change: BranchChange::Created {
+                    previous: record.branch.clone(),
+                },
+            },
         );
     }
-    emit_switch_toast(app, &record.name, name, workspace_id);
-    emit_workspace_refresh(app, state);
+    emit_switch_toast(out, &record.name, name, workspace_id);
+    emit_workspace_refresh(out, state);
     Ok(())
 }
 
 /// Bring the workspace in line with whatever branch an outside tool (`gh stack`) left
 /// checked out and refresh its git stats and diff. Returns the branch.
 pub async fn adopt_checked_out_branch(
-    app: &AppHandle,
+    out: &Output,
     state: &AppState,
     workspace_id: &str,
-    detail: &str,
+    change: BranchChange,
 ) -> Result<String> {
     let row = state
         .store
@@ -447,15 +443,16 @@ pub async fn adopt_checked_out_branch(
             state.store.set_workspace_pr_number(workspace_id, None)?;
         }
         if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
-            let _ = append_git_step(
+            let _ = record_step(
                 &state.store,
                 &thread_id,
-                "branch",
-                &format!("Switched to `{branch}`"),
-                detail,
+                TimelineStep::BranchSwitched {
+                    branch: branch.clone(),
+                    change,
+                },
             );
         }
-        emit_switch_toast(app, &record.name, &branch, workspace_id);
+        emit_switch_toast(out, &record.name, &branch, workspace_id);
     }
     let current = if branch.is_empty() {
         &record.branch
@@ -464,8 +461,8 @@ pub async fn adopt_checked_out_branch(
     };
     refresh_git_stats(state, workspace_id, &worktree, &record.base, current).await;
     let _ = state.diffs.compute(workspace_id, &worktree).await;
-    emit_workspace_refresh(app, state);
-    emit_git_state(app, state);
+    emit_workspace_refresh(out, state);
+    emit_git_state(out, state);
     Ok(current.clone())
 }
 
@@ -474,24 +471,23 @@ const BRANCH_WATCH_INTERVAL: Duration = Duration::from_secs(3);
 
 /// The diff watcher only runs for the workspace on screen, so a checkout from a terminal or by
 /// an agent in any other worktree would go unnoticed. Reading `HEAD` costs no process.
-pub fn spawn_branch_watch(app: AppHandle) {
+pub fn spawn_branch_watch(out: Output, state: AppState) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(BRANCH_WATCH_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             interval.tick().await;
-            let state = app.state::<AppState>();
-            if let Err(error) = adopt_outside_checkouts(&app, &state).await {
+            if let Err(error) = adopt_outside_checkouts(&out, &state).await {
                 log::warn!("branch watch failed: {error}");
             }
         }
     });
 }
 
-async fn adopt_outside_checkouts(app: &AppHandle, state: &AppState) -> Result<()> {
+async fn adopt_outside_checkouts(out: &Output, state: &AppState) -> Result<()> {
     for row in state.store.live_workspaces()? {
         if !matches!(
-            parse_lifecycle(&row.status),
+            WorkspaceLifecycle::parse(&row.status),
             WorkspaceLifecycle::Ready
                 | WorkspaceLifecycle::Running
                 | WorkspaceLifecycle::Idle
@@ -514,11 +510,10 @@ async fn adopt_outside_checkouts(app: &AppHandle, state: &AppState) -> Result<()
         if branch.is_empty() || branch == row.branch {
             continue;
         }
-        let detail = format!(
-            "Checked out {branch} outside Cormux, previously {}",
-            row.branch
-        );
-        adopt_checked_out_branch(app, state, &row.id, &detail).await?;
+        let change = BranchChange::CheckedOutOutside {
+            previous: row.branch.clone(),
+        };
+        adopt_checked_out_branch(out, state, &row.id, change).await?;
     }
     Ok(())
 }
@@ -554,12 +549,12 @@ pub async fn refresh_git_stats(
         .await;
 }
 
-fn emit_git_state(app: &AppHandle, state: &AppState) {
-    state.notify(app, StateChangeKind::BehindCounts);
+fn emit_git_state(out: &Output, state: &AppState) {
+    state.notify(out, StateChangeKind::BehindCounts);
 }
 
-fn emit_workspace_refresh(app: &AppHandle, state: &AppState) {
-    state.notify(app, StateChangeKind::WorkspaceStatus);
+fn emit_workspace_refresh(out: &Output, state: &AppState) {
+    state.notify(out, StateChangeKind::WorkspaceStatus);
 }
 
 pub fn lead_thread_id(state: &AppState, workspace_id: &str) -> Result<String> {
@@ -569,107 +564,153 @@ pub fn lead_thread_id(state: &AppState, workspace_id: &str) -> Result<String> {
         .ok_or_else(|| Error::Workspace("no Lead thread for workspace".into()))
 }
 
-fn append_git_step(
-    store: &Store,
-    thread_id: &str,
-    icon: &str,
-    title: &str,
-    detail: &str,
-) -> Result<()> {
-    let step = serde_json::json!({
-        "icon": icon,
-        "title": title,
-        "detail": detail,
+fn emit_switch_toast(out: &Output, workspace_name: &str, branch: &str, workspace_id: &str) {
+    out.toast(ToastRaisedPayload {
+        tone: ToastTone::Ok,
+        parts: vec![
+            ToastPart::Text {
+                value: "Switched ".into(),
+            },
+            ToastPart::Code {
+                value: workspace_name.to_string(),
+            },
+            ToastPart::Text {
+                value: " to ".into(),
+            },
+            ToastPart::Code {
+                value: branch.to_string(),
+            },
+        ],
+        workspace_id: Some(workspace_id.to_string()),
+        thread_id: None,
     });
-    let _ = store.append_event(thread_id, "tool", &step.to_string())?;
+}
+
+fn emit_pull_toast(out: &Output, behind: u32, base: &str, workspace_id: &str) {
+    out.toast(ToastRaisedPayload {
+        tone: ToastTone::Ok,
+        parts: vec![
+            ToastPart::Text {
+                value: "Pulled ".into(),
+            },
+            ToastPart::Code {
+                value: behind.to_string(),
+            },
+            ToastPart::Text {
+                value: format!(" commit{} from ", if behind == 1 { "" } else { "s" }),
+            },
+            ToastPart::Code {
+                value: base.to_string(),
+            },
+        ],
+        workspace_id: Some(workspace_id.to_string()),
+        thread_id: None,
+    });
+}
+
+fn emit_rebase_toast(out: &Output, branch: &str, base: &str, workspace_id: &str) {
+    out.toast(ToastRaisedPayload {
+        tone: ToastTone::Ok,
+        parts: vec![
+            ToastPart::Text {
+                value: "Rebased ".into(),
+            },
+            ToastPart::Code {
+                value: branch.to_string(),
+            },
+            ToastPart::Text {
+                value: " onto ".into(),
+            },
+            ToastPart::Code {
+                value: base.to_string(),
+            },
+        ],
+        workspace_id: Some(workspace_id.to_string()),
+        thread_id: None,
+    });
+}
+
+pub async fn rename_workspace(
+    out: &Output,
+    state: &AppState,
+    input: RenameWorkspaceInput,
+) -> Result<()> {
+    let name = input.name.trim();
+    if name.is_empty() {
+        return Err(Error::Workspace("Workspace name is required".into()));
+    }
+    state.store.set_workspace_name(&input.workspace_id, name)?;
+    state.workspace.rename(&input.workspace_id, name).await?;
+    state.notify(out, StateChangeKind::WorkspaceStatus);
     Ok(())
 }
 
-fn emit_switch_toast(app: &AppHandle, workspace_name: &str, branch: &str, workspace_id: &str) {
-    emit_toast(
-        app,
-        ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![
-                ToastPart::Text {
-                    value: "Switched ".into(),
-                },
-                ToastPart::Code {
-                    value: workspace_name.to_string(),
-                },
-                ToastPart::Text {
-                    value: " to ".into(),
-                },
-                ToastPart::Code {
-                    value: branch.to_string(),
-                },
-            ],
-            workspace_id: Some(workspace_id.to_string()),
-            thread_id: None,
-        },
-    );
-}
-
-fn emit_pull_toast(app: &AppHandle, behind: u32, base: &str, workspace_id: &str) {
-    emit_toast(
-        app,
-        ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![
-                ToastPart::Text {
-                    value: "Pulled ".into(),
-                },
-                ToastPart::Code {
-                    value: behind.to_string(),
-                },
-                ToastPart::Text {
-                    value: format!(" commit{} from ", if behind == 1 { "" } else { "s" }),
-                },
-                ToastPart::Code {
-                    value: base.to_string(),
-                },
-            ],
-            workspace_id: Some(workspace_id.to_string()),
-            thread_id: None,
-        },
-    );
-}
-
-fn emit_rebase_toast(app: &AppHandle, branch: &str, base: &str, workspace_id: &str) {
-    emit_toast(
-        app,
-        ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![
-                ToastPart::Text {
-                    value: "Rebased ".into(),
-                },
-                ToastPart::Code {
-                    value: branch.to_string(),
-                },
-                ToastPart::Text {
-                    value: " onto ".into(),
-                },
-                ToastPart::Code {
-                    value: base.to_string(),
-                },
-            ],
-            workspace_id: Some(workspace_id.to_string()),
-            thread_id: None,
-        },
-    );
-}
-
-fn parse_lifecycle(raw: &str) -> WorkspaceLifecycle {
-    match raw {
-        "creating" => WorkspaceLifecycle::Creating,
-        "provisioning" => WorkspaceLifecycle::Provisioning,
-        "running" => WorkspaceLifecycle::Running,
-        "idle" => WorkspaceLifecycle::Idle,
-        "waiting" => WorkspaceLifecycle::Waiting,
-        "tearingDown" => WorkspaceLifecycle::TearingDown,
-        "gone" => WorkspaceLifecycle::Gone,
-        "provisioningFailed" => WorkspaceLifecycle::ProvisioningFailed,
-        _ => WorkspaceLifecycle::Ready,
+/// Force-refresh the live diff snapshot for one workspace (branch switch, pull, etc.).
+pub async fn refresh_diff(state: &AppState, workspace_id: &str) -> Result<()> {
+    let workspace = load_workspace(state, workspace_id).await?;
+    if let Ok(Some(row)) = state.store.workspace_by_id(workspace_id)
+        && row.kind.as_deref() == Some("review")
+    {
+        state.diffs.default_diff_target(
+            workspace_id,
+            crate::git::DiffTarget::head_against(workspace.base.clone()),
+        );
     }
+    state
+        .diffs
+        .compute(workspace_id, Path::new(&workspace.worktree_path))
+        .await?;
+    Ok(())
+}
+
+/// Point the Changes panel at uncommitted work (`None`) or a branch against its base.
+pub async fn set_diff_target(
+    state: &AppState,
+    workspace_id: &str,
+    target: Option<crate::git::DiffTarget>,
+) -> Result<()> {
+    let workspace = load_workspace(state, workspace_id).await?;
+    state.diffs.set_diff_target(workspace_id, target);
+    state
+        .diffs
+        .compute(workspace_id, Path::new(&workspace.worktree_path))
+        .await?;
+    Ok(())
+}
+
+/// Throw away uncommitted changes to `paths` (all of them when empty), then refresh Changes.
+pub async fn discard_changes(state: &AppState, workspace_id: &str, paths: &[String]) -> Result<()> {
+    let workspace = load_workspace(state, workspace_id).await?;
+    let worktree = Path::new(&workspace.worktree_path);
+    state.git.discard(worktree, paths).await?;
+    state.diffs.compute(workspace_id, worktree).await?;
+    Ok(())
+}
+
+/// Open the worktree in the terminal app picked in Settings (Terminal by default).
+pub async fn open_terminal(state: &AppState, workspace_id: &str) -> Result<()> {
+    let row = state
+        .store
+        .workspace_by_id(workspace_id)?
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    let terminal = terminal_app(state.store.get_setting("terminalApp")?);
+    let status = tokio::process::Command::new("open")
+        .args(["-a", &terminal, &row.worktree_path])
+        .status()
+        .await
+        .map_err(|error| Error::Process(format!("open {terminal}: {error}")))?;
+    if !status.success() {
+        return Err(Error::Process(format!(
+            "{terminal} couldn't open {}",
+            row.worktree_path
+        )));
+    }
+    Ok(())
+}
+
+fn terminal_app(setting: Option<String>) -> String {
+    setting
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Terminal".to_string())
 }

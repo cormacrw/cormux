@@ -374,7 +374,8 @@ impl ProcessSupervisor {
             return Ok(());
         };
         app.shared.killed.store(true, Ordering::SeqCst);
-        kill_group(app.pid, libc::SIGTERM)
+        let reaped = app.shared.exited.lock().unwrap().is_some();
+        kill_group(app.pid, libc::SIGTERM, reaped)
     }
 
     pub fn kill_session(&self, id: &str) -> Result<()> {
@@ -382,7 +383,8 @@ impl ProcessSupervisor {
         let Some(app) = sessions.get(id) else {
             return Ok(());
         };
-        kill_group(app.pid, libc::SIGKILL)
+        let reaped = app.shared.exited.lock().unwrap().is_some();
+        kill_group(app.pid, libc::SIGKILL, reaped)
     }
 
     #[cfg(test)]
@@ -665,10 +667,24 @@ fn is_blank(line: &str) -> bool {
     strip_ansi(line).trim().is_empty()
 }
 
-fn kill_group(pid: u32, signal: i32) -> Result<()> {
-    let pgid = pid as i32;
+/// Signals the session's process group, so its children go too.
+///
+/// Once the leader has been reaped (`reaped`), its pid is free for the OS to hand out again.
+/// The group id stays reserved only while members of the group survive, so `killpg` is still
+/// right for stragglers, but the plain-`kill` fallback would hit whatever process now has the
+/// pid, and is skipped.
+fn kill_group(pid: u32, signal: i32, reaped: bool) -> Result<()> {
+    // pid 0 or one past i32::MAX would make killpg signal our own group, or every process.
+    let Ok(pgid) = libc::pid_t::try_from(pid) else {
+        return Ok(());
+    };
+    if pgid <= 0 {
+        return Ok(());
+    }
+    // SAFETY: killpg takes plain integers and has no memory-safety preconditions.
     let result = unsafe { libc::killpg(pgid, signal) };
-    if result != 0 {
+    if result != 0 && !reaped {
+        // SAFETY: as above; the leader hasn't been reaped, so `pgid` is still our child's pid.
         unsafe {
             libc::kill(pgid, signal);
         }

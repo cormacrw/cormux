@@ -150,6 +150,39 @@ async setThreadModel(threadId: string, model: string | null) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The effort levels the thread's composer can pick from, and the current pick.
+ */
+async threadEfforts(threadId: string) : Promise<Result<ThreadModels, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("thread_efforts", { threadId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The effort levels an engine offers, for a thread that doesn't exist yet.
+ */
+async engineEfforts(engine: string) : Promise<Result<ModelOption[], Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("engine_efforts", { engine }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * `None` goes back to the engine's default. A live engine switches before its next turn.
+ */
+async setThreadEffort(threadId: string, effort: string | null) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_thread_effort", { threadId, effort }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved, denyReason }) };
@@ -749,13 +782,25 @@ export type AgentEvent =
  * Never saved: the UI fell behind the stream and dropped `missed` events, which it can
  * read back from the store.
  */
-{ type: "streamLagged"; missed: number } | { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null; parent_id?: string | null } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | 
+{ type: "streamLagged"; missed: number } | { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null; parent_id?: string | null } | 
+/**
+ * Something the core did in the thread rather than the agent; see [`TimelineStep`].
+ */
+{ type: "step"; id: string; title: string; detail: string | null; step: TimelineStep } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | 
 /**
  * Fields an engine fills in after the first `ToolCall`, such as an edit's path.
  */
 { type: "toolCallUpdate"; id: string; title: string | null; kind: ToolKind | null; status: ToolCallStatus | null; locations: string[]; output?: string | null } | { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
+/**
+ * How a workspace came to be on another branch.
+ */
+export type BranchChange = { kind: "checkedOut"; previous: string } | { kind: "created"; previous: string } | 
+/**
+ * Noticed on disk: something other than Cormux moved the worktree.
+ */
+{ kind: "checkedOutOutside"; previous: string } | { kind: "addedToStack"; on_top_of: string } | { kind: "stackPushed" } | { kind: "stackSynced" }
 /**
  * What happened to a local branch the user asked to delete.
  */
@@ -795,7 +840,15 @@ export type CreateWorkspaceInput = { repoId: string; name: string; branch: strin
 /**
  * The model to start on; `None` leaves the engine's default.
  */
-model: string | null }
+model: string | null; 
+/**
+ * The effort level to start on; `None` leaves the engine's default.
+ */
+effort: string | null; 
+/**
+ * Images and files sent with the goal, as the first message's attachments.
+ */
+attachments?: PromptAttachment[] }
 export type CreateWorkspacePullRequestInput = { workspaceId: string; body: string; title: string | null }
 export type CreateWorkspacePullRequestResult = { workspaceId: string; number: number; htmlUrl: string; title: string }
 export type CreateWorkspaceResult = { workspaceId: string }
@@ -856,11 +909,11 @@ export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[]
 export type MemorySampled = { sample: MemorySample }
 export type MessageRole = "user" | "agent" | "thought"
 /**
- * One entry in the composer's model picker.
+ * One entry in the composer's model or effort picker.
  */
 export type ModelOption = { 
 /**
- * What the engine is told: a `--model` alias for Claude.
+ * What the engine is told: a `--model` alias or `--effort` level for Claude.
  */
 id: string; label: string }
 export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
@@ -1025,7 +1078,8 @@ path: string;
  */
 previewUrl: string | null }
 /**
- * The models a thread can switch to, and the one it's on (`None` is the engine's default).
+ * The models or effort levels a thread can switch to, and the one it's on (`None` is the
+ * engine's default).
  */
 export type ThreadModels = { current: string | null; options: ModelOption[] }
 export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean; 
@@ -1037,6 +1091,19 @@ retired: boolean;
  * The thread that started this one through `create_thread`.
  */
 parentThreadId: string | null }
+/**
+ * Something the core did in a thread. New kinds need a row in the UI's `STEP_PRESENTATION`.
+ * Fields stay snake_case, like `AgentEvent`'s: specta exports them as written.
+ */
+export type TimelineStep = { kind: "agentStopped" } | { kind: "agentPaused" } | { kind: "agentResumed" } | 
+/**
+ * `ended_session` is what the conversation before it can be resumed from.
+ */
+{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | 
+/**
+ * On the Reviewer's thread, when approving suggestions hands them over.
+ */
+{ kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
 export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null; 

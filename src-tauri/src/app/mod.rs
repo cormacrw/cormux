@@ -8,10 +8,9 @@ use std::time::Duration;
 use kind::{AppKind, port_in_use_message};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{AppHandle, Manager};
 
 use crate::error::{Error, Result};
-use crate::feedback::emit_toast_parts;
+use crate::feedback::Output;
 use crate::ipc::types::{StateChangeKind, ToastPart, ToastTone};
 use crate::process::{ProcessSupervisor, detect_port, serves_https};
 use crate::state::AppState;
@@ -107,7 +106,7 @@ impl WorkspaceAppService {
 
     pub async fn control(
         &self,
-        app: &AppHandle,
+        out: &Output,
         state: &AppState,
         workspace_id: &str,
         action: WorkspaceAppAction,
@@ -115,19 +114,19 @@ impl WorkspaceAppService {
         match action {
             WorkspaceAppAction::Clear => {
                 state.process.clear_log(workspace_id);
-                self.emit_changed(app, state);
+                self.emit_changed(out, state);
                 Ok(())
             }
             WorkspaceAppAction::Stop => {
-                self.stop(app, state, workspace_id, false).await?;
+                self.stop(out, state, workspace_id, false).await?;
                 Ok(())
             }
             WorkspaceAppAction::Restart => {
-                self.restart(app, state, workspace_id).await?;
+                self.restart(out, state, workspace_id).await?;
                 Ok(())
             }
             WorkspaceAppAction::Run => {
-                self.run(app, state, workspace_id).await?;
+                self.run(out, state, workspace_id).await?;
                 Ok(())
             }
         }
@@ -145,7 +144,7 @@ impl WorkspaceAppService {
         let repo = store
             .repo_by_id(&workspace.repo_id)?
             .ok_or_else(|| Error::Workspace(format!("unknown repo {}", workspace.repo_id)))?;
-        let repo_path = crate::ipc::commands::expand_tilde(&repo.path);
+        let repo_path = crate::paths::expand_tilde(&repo.path);
         let run_command = crate::harness_config::workspace_run_command(
             store,
             workspace_id,
@@ -153,7 +152,7 @@ impl WorkspaceAppService {
             &repo_path,
         )
         .ok_or_else(|| Error::Process("no run command configured".into()))?;
-        let repo_for_env = repo.clone();
+        let repo_for_env = repo;
 
         let session_id = run_session_id(workspace_id);
         let _ = process.stop_session(&session_id);
@@ -175,9 +174,9 @@ impl WorkspaceAppService {
         Ok(())
     }
 
-    async fn run(&self, app: &AppHandle, state: &AppState, workspace_id: &str) -> Result<()> {
+    async fn run(&self, out: &Output, state: &AppState, workspace_id: &str) -> Result<()> {
         let (worktree, run_command, kind, name) = run_context(state, workspace_id).await?;
-        self.stop_other_instances(app, state, workspace_id).await?;
+        self.stop_other_instances(out, state, workspace_id).await?;
         let port = self.pick_port_with_log(&state.process, workspace_id, kind);
         let env = run_env(state, workspace_id, port).await?;
 
@@ -189,23 +188,22 @@ impl WorkspaceAppService {
 
         spawn_run(&state.process, workspace_id, &worktree, &run_command, &env)?;
 
-        let app_handle = app.clone();
+        let (out_bg, state_bg) = (out.clone(), state.clone());
         let workspace_id = workspace_id.to_string();
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
             service
-                .monitor(app_handle, workspace_id, name, generation)
+                .monitor(out_bg, state_bg, workspace_id, name, generation)
                 .await;
         });
 
-        self.emit_changed(app, state);
+        self.emit_changed(out, state);
         Ok(())
     }
 
-    async fn restart(&self, app: &AppHandle, state: &AppState, workspace_id: &str) -> Result<()> {
+    async fn restart(&self, out: &Output, state: &AppState, workspace_id: &str) -> Result<()> {
         let name = workspace_name(state, workspace_id).await?;
-        emit_toast_parts(
-            app,
+        out.toast_parts(
             ToastTone::Default,
             vec![
                 ToastPart::Text {
@@ -217,17 +215,17 @@ impl WorkspaceAppService {
             ],
             Some(workspace_id.to_string()),
         );
-        self.stop(app, state, workspace_id, true).await?;
+        self.stop(out, state, workspace_id, true).await?;
         state
             .process
             .append_log_line(workspace_id, "──── Restarting ────");
-        self.run(app, state, workspace_id).await?;
+        self.run(out, state, workspace_id).await?;
         Ok(())
     }
 
     async fn stop(
         &self,
-        app: &AppHandle,
+        out: &Output,
         state: &AppState,
         workspace_id: &str,
         quiet: bool,
@@ -240,8 +238,7 @@ impl WorkspaceAppService {
                 .process
                 .append_log_line(workspace_id, "──── App stopped ────");
             let name = workspace_name(state, workspace_id).await?;
-            emit_toast_parts(
-                app,
+            out.toast_parts(
                 ToastTone::Default,
                 vec![
                     ToastPart::Text {
@@ -253,14 +250,14 @@ impl WorkspaceAppService {
             );
         }
         self.set_status(workspace_id, WorkspaceAppStatus::Stopped, None, None);
-        self.emit_changed(app, state);
+        self.emit_changed(out, state);
         Ok(())
     }
 
     /// With the repo's "one instance at a time" on, stops its app in every other workspace.
     async fn stop_other_instances(
         &self,
-        app: &AppHandle,
+        out: &Output,
         state: &AppState,
         workspace_id: &str,
     ) -> Result<()> {
@@ -295,7 +292,7 @@ impl WorkspaceAppService {
                 .await
                 .is_some_and(|other| other.repo_id == workspace.repo_id);
             if same_repo {
-                self.stop(app, state, &other_id, false).await?;
+                self.stop(out, state, &other_id, false).await?;
             }
         }
         Ok(())
@@ -361,12 +358,12 @@ impl WorkspaceAppService {
 
     async fn monitor(
         &self,
-        app: AppHandle,
+        out: Output,
+        state: AppState,
         workspace_id: String,
         workspace_name: String,
         generation: u64,
     ) {
-        let state = app.state::<AppState>();
         let session_id = run_session_id(&workspace_id);
         let log_id = workspace_id.as_str();
         let started = std::time::Instant::now();
@@ -396,7 +393,7 @@ impl WorkspaceAppService {
                 } else {
                     self.set_status(&workspace_id, WorkspaceAppStatus::Stopped, None, None);
                 }
-                state.notify(&app, StateChangeKind::WorkspaceApp);
+                state.notify(&out, StateChangeKind::WorkspaceApp);
                 break;
             }
 
@@ -415,8 +412,7 @@ impl WorkspaceAppService {
                     self.set_https(&workspace_id, serves_https(&output, detected));
                     if !running_toast_sent {
                         running_toast_sent = true;
-                        emit_toast_parts(
-                            &app,
+                        out.toast_parts(
                             ToastTone::Ok,
                             vec![
                                 ToastPart::Code {
@@ -432,7 +428,7 @@ impl WorkspaceAppService {
                             Some(workspace_id.clone()),
                         );
                     }
-                    state.notify(&app, StateChangeKind::WorkspaceApp);
+                    state.notify(&out, StateChangeKind::WorkspaceApp);
                 }
             }
 
@@ -440,7 +436,7 @@ impl WorkspaceAppService {
                 self.set_status(&workspace_id, WorkspaceAppStatus::Crashed, None, Some(-1));
                 process.append_log_line(log_id, "──── Crashed (startup timed out) ────");
                 let _ = process.stop_session(&session_id);
-                state.notify(&app, StateChangeKind::WorkspaceApp);
+                state.notify(&out, StateChangeKind::WorkspaceApp);
                 break;
             }
 
@@ -486,8 +482,8 @@ impl WorkspaceAppService {
         }
     }
 
-    fn emit_changed(&self, app: &AppHandle, state: &AppState) {
-        state.notify(app, StateChangeKind::WorkspaceApp);
+    fn emit_changed(&self, out: &Output, state: &AppState) {
+        state.notify(out, StateChangeKind::WorkspaceApp);
     }
 }
 
@@ -555,7 +551,7 @@ async fn run_context(
         .store
         .repo_by_id(&workspace.repo_id)?
         .ok_or_else(|| Error::Workspace(format!("unknown repo {}", workspace.repo_id)))?;
-    let repo_path = crate::ipc::commands::expand_tilde(&repo.path);
+    let repo_path = crate::paths::expand_tilde(&repo.path);
     let run_command = crate::harness_config::workspace_run_command(
         &state.store,
         workspace_id,

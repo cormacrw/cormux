@@ -63,11 +63,7 @@ test('New session clears the view to a greeting; an earlier conversation can be 
   await expect(timeline.getByText('Answer 1')).toBeVisible()
   await expect(timeline.getByText('Fresh question')).toHaveCount(0)
   expect(
-    await page.evaluate(
-      () =>
-        (window as { __HARNESS_RESUMED__?: { conversationId: string } })
-          .__HARNESS_RESUMED__?.conversationId,
-    ),
+    await page.evaluate(() => window.__HARNESS__!.resumed?.conversationId),
   ).toBe('first')
   expect(errors).toEqual([])
 })

@@ -11,13 +11,14 @@ use super::claude::{CanUseTool, ClaudeSession, Event, PermissionDecision, SpawnO
 use super::command::EngineCommand;
 use super::detect::{self, EngineStatus};
 use super::events::{AgentEvent, EngineKind, StreamedEvent, ToolCallStatus, ToolKind};
-use super::models::{ThreadModels, static_models};
+use super::models::{ThreadModels, static_efforts, static_models};
 use super::prompt::Prompt;
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::error::{Error, Result};
 use crate::mcp::CormuxMcp;
 use crate::shell_env::ShellEnv;
 use crate::store::Store;
+use crate::workspace::ThreadStatus;
 
 const EVENT_CAP: usize = 256;
 /// Just over what a session gets to exit before it's killed.
@@ -43,9 +44,16 @@ pub struct EngineRegistry {
     turn_end_notify: tokio::sync::broadcast::Sender<String>,
     threads: Arc<Mutex<HashMap<String, ThreadSlot>>>,
     holds: Arc<Mutex<HashMap<String, HoldState>>>,
+    /// One per thread, held from "no engine here" to the new one being registered, so two
+    /// callers can't both spawn a CLI for the same session (the second would replace the
+    /// first's slot and shut it down mid-prompt).
+    spawn_locks: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     /// Woken whenever an engine is registered, so a subscriber waiting on a thread with no
     /// engine yet needn't poll for one.
     spawned: Arc<tokio::sync::Notify>,
+    /// Threads whose engine looks alive but fails every send, the way one dying mid-prompt does.
+    #[cfg(test)]
+    refused: Arc<Mutex<HashSet<String>>>,
 }
 
 struct ThreadSlot {
@@ -54,6 +62,8 @@ struct ThreadSlot {
     session_id: Arc<Mutex<Option<String>>>,
     /// When anything last went to or came from the engine.
     last_active: Arc<Mutex<Instant>>,
+    /// The CLI's process group, so quitting the app can take it down synchronously.
+    pgid: Option<u32>,
 }
 
 impl ThreadSlot {
@@ -99,7 +109,10 @@ impl EngineRegistry {
             turn_end_notify,
             threads: Arc::new(Mutex::new(HashMap::new())),
             holds: Arc::new(Mutex::new(HashMap::new())),
+            spawn_locks: Arc::new(Mutex::new(HashMap::new())),
             spawned: Arc::new(tokio::sync::Notify::new()),
+            #[cfg(test)]
+            refused: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -123,6 +136,28 @@ impl EngineRegistry {
             .get(thread_id)
             .ok_or_else(|| Error::Engine(format!("no engine for thread {thread_id}")))?;
         Ok(slot.events.subscribe())
+    }
+
+    /// Serves the thread with no process behind it; the receiver gets what it would be sent.
+    #[cfg(test)]
+    pub fn fake_thread(&self, thread_id: &str) -> mpsc::UnboundedReceiver<EngineCommand> {
+        let (commands, rx) = mpsc::unbounded_channel();
+        self.threads.lock().unwrap().insert(
+            thread_id.into(),
+            ThreadSlot {
+                commands,
+                events: broadcast::channel(4).0,
+                session_id: Arc::new(Mutex::new(None)),
+                last_active: Arc::new(Mutex::new(Instant::now())),
+                pgid: None,
+            },
+        );
+        rx
+    }
+
+    #[cfg(test)]
+    pub fn refuse_sends(&self, thread_id: &str) {
+        self.refused.lock().unwrap().insert(thread_id.into());
     }
 
     /// Whether a live engine serves the thread. An engine whose pump has ended (the CLI
@@ -170,9 +205,17 @@ impl EngineRegistry {
         spec.resume = resume;
         let session_id = Arc::new(Mutex::new(spec.resume.clone()));
         let model = self.store.thread_model(&spec.thread_id).ok().flatten();
+        let effort = self.store.thread_effort(&spec.thread_id).ok().flatten();
         let env = self.env.read().await.clone();
-        let commands = self
-            .spawn_claude(&spec, model, env, events.clone(), session_id.clone())
+        let (commands, pgid) = self
+            .spawn_claude(
+                &spec,
+                model,
+                effort,
+                env,
+                events.clone(),
+                session_id.clone(),
+            )
             .await?;
 
         self.threads
@@ -185,6 +228,7 @@ impl EngineRegistry {
                     events,
                     session_id,
                     last_active,
+                    pgid,
                 },
             );
         self.spawned.notify_waiters();
@@ -203,6 +247,22 @@ impl EngineRegistry {
         self.store.set_thread_model(thread_id, model.as_deref())?;
         if self.has_thread(thread_id) {
             self.send(thread_id, EngineCommand::SetModel(model))?;
+        }
+        Ok(())
+    }
+
+    /// The thread's picked effort level and what it can switch to.
+    pub fn thread_efforts(&self, thread_id: &str, kind: EngineKind) -> Result<ThreadModels> {
+        let current = self.store.thread_effort(thread_id)?;
+        let options = static_efforts(kind);
+        Ok(ThreadModels { current, options })
+    }
+
+    /// Saves the pick for future spawns and switches a live engine over now.
+    pub fn set_thread_effort(&self, thread_id: &str, effort: Option<String>) -> Result<()> {
+        self.store.set_thread_effort(thread_id, effort.as_deref())?;
+        if self.has_thread(thread_id) {
+            self.send(thread_id, EngineCommand::SetEffort(effort))?;
         }
         Ok(())
     }
@@ -302,6 +362,37 @@ impl EngineRegistry {
         self.prompt(thread_id, prompt)
     }
 
+    /// Held while checking for and spawning a thread's engine; see `spawn_locks`.
+    pub async fn lock_spawn(&self, thread_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = self
+            .spawn_locks
+            .lock()
+            .unwrap()
+            .entry(thread_id.to_string())
+            .or_default()
+            .clone();
+        lock.lock_owned().await
+    }
+
+    /// Signals every live engine's process group. For app quit, which can't wait on the
+    /// pumps' graceful shutdown; without it the CLIs' shells and servers outlive the app.
+    pub fn kill_all(&self) {
+        let Ok(threads) = self.threads.lock() else {
+            return;
+        };
+        for slot in threads.values() {
+            let Some(pgid) = slot.pgid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                continue;
+            };
+            if pgid > 0 {
+                // SAFETY: killpg takes plain integers and has no memory-safety preconditions.
+                unsafe {
+                    libc::killpg(pgid, libc::SIGTERM);
+                }
+            }
+        }
+    }
+
     pub async fn stop(&self, thread_id: &str) -> Result<()> {
         let commands = {
             let mut threads = self
@@ -397,7 +488,7 @@ impl EngineRegistry {
             .thread_by_id(thread_id)
             .ok()
             .flatten()
-            .is_some_and(|thread| thread.status == "idle");
+            .is_some_and(|thread| thread.has_status(ThreadStatus::Idle));
         let unanswered = self
             .store
             .pending_approvals_for_thread(thread_id)
@@ -406,6 +497,10 @@ impl EngineRegistry {
     }
 
     fn send(&self, thread_id: &str, command: EngineCommand) -> Result<()> {
+        #[cfg(test)]
+        if self.refused.lock().unwrap().contains(thread_id) {
+            return Err(Error::Engine("engine process is gone".into()));
+        }
         let threads = self
             .threads
             .lock()
@@ -423,10 +518,11 @@ impl EngineRegistry {
         &self,
         spec: &SpawnSpec,
         model: Option<String>,
+        effort: Option<String>,
         env: ShellEnv,
         events: broadcast::Sender<StreamedEvent>,
         session_id: Arc<Mutex<Option<String>>>,
-    ) -> Result<mpsc::UnboundedSender<EngineCommand>> {
+    ) -> Result<(mpsc::UnboundedSender<EngineCommand>, Option<u32>)> {
         let (binary, extra_args, use_default_args) = if let Some(argv) = &spec.override_argv {
             let mut argv = argv.clone();
             let binary = PathBuf::from(argv.remove(0));
@@ -444,6 +540,7 @@ impl EngineRegistry {
             cwd: Some(spec.cwd.clone()),
             resume: spec.resume.clone(),
             model,
+            effort,
             extra_args,
             use_default_args,
             // A read-only scratch has no workspace to start threads from.
@@ -455,6 +552,7 @@ impl EngineRegistry {
         }
 
         let session = ClaudeSession::spawn(options).await?;
+        let pgid = session.pid();
         let (tx, rx) = mpsc::unbounded_channel();
         let approvals = self.approvals.clone();
         let store = self.store.clone();
@@ -483,7 +581,7 @@ impl EngineRegistry {
             )
             .await;
         });
-        Ok(tx)
+        Ok((tx, pgid))
     }
 }
 
@@ -526,10 +624,15 @@ impl Pump {
         self.outstanding.remove(approval_id);
     }
 
-    /// The CLI stops waiting for an answer once its turn ends, so neither should the broker.
+    /// The CLI stops waiting for an answer once its turn ends, so neither should the broker,
+    /// nor the store: an engine shut down mid-question (new session, stop, replaced) sends no
+    /// turn end, so without this its row would stay `pending` and badge the thread forever.
     fn cancel_outstanding(&mut self) {
         for id in self.outstanding.drain() {
             self.approvals.cancel(&id);
+            if let Err(error) = self.store.deny_pending_approval(&id) {
+                log::warn!("denying abandoned approval {id}: {error}");
+            }
         }
     }
 }
@@ -590,6 +693,11 @@ async fn run_claude(
                     Some(EngineCommand::SetModel(model)) => {
                         if let Err(error) = session.set_model(model).await {
                             log::warn!("claude set model: {error}");
+                        }
+                    }
+                    Some(EngineCommand::SetEffort(effort)) => {
+                        if let Err(error) = session.set_effort(effort).await {
+                            log::warn!("claude set effort: {error}");
                         }
                     }
                     Some(EngineCommand::Shutdown) | None => {
@@ -678,6 +786,9 @@ async fn run_claude(
                         // Not saved: an engine reaped after sitting idle exits too, and that
                         // isn't the thread moving. The turn-end handler marks the thread idle.
                         pump.send_unsaved(AgentEvent::EngineExited { code: None });
+                        // The CLI's gone, but the shells and servers it started are in its
+                        // process group and outlive it unless the group is killed too.
+                        let _ = session.shutdown().await;
                         break;
                     }
                     Err(error) => {
@@ -686,6 +797,7 @@ async fn run_claude(
                             stop_reason: "error".into(),
                             error: Some(error.to_string()),
                         });
+                        let _ = session.shutdown().await;
                         break;
                     }
                 }
@@ -830,19 +942,7 @@ async fn handle_claude_permission(
 }
 
 fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) -> Option<i64> {
-    let kind = match event {
-        AgentEvent::SessionStarted { .. } => "session",
-        AgentEvent::MessageChunk { .. } => "message",
-        AgentEvent::ToolCall { .. } => "tool",
-        AgentEvent::Plan { .. } => "plan",
-        AgentEvent::Permission { .. } => "permission",
-        AgentEvent::ToolCallUpdate { .. } => "tool_update",
-        AgentEvent::CurrentTool { .. } => "current_tool",
-        AgentEvent::Usage { .. } => "usage",
-        AgentEvent::TurnEnd { .. } => "turn_end",
-        AgentEvent::EngineExited { .. } => "exit",
-        AgentEvent::StreamLagged { .. } => return None,
-    };
+    let kind = event.store_kind()?;
     let seq = serde_json::to_string(event)
         .ok()
         .and_then(|payload| store.append_event(thread_id, kind, &payload).ok());
@@ -850,7 +950,7 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) -> Option<i
         event,
         AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }
     ) {
-        let _ = store.mark_thread_idle(thread_id);
+        let _ = crate::turn::settle(store, thread_id);
     }
     seq
 }
@@ -911,17 +1011,7 @@ mod tests {
                 parent_thread_id: None,
             })
             .unwrap();
-        let (commands, rx) = mpsc::unbounded_channel();
-        engines.threads.lock().unwrap().insert(
-            thread_id.into(),
-            ThreadSlot {
-                commands,
-                events: broadcast::channel(4).0,
-                session_id: Arc::new(Mutex::new(None)),
-                last_active: Arc::new(Mutex::new(Instant::now())),
-            },
-        );
-        rx
+        engines.fake_thread(thread_id)
     }
 
     #[tokio::test]

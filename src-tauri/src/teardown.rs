@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use tauri::AppHandle;
-
 use crate::error::{Error, Result};
+use crate::feedback::Output;
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
 use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
@@ -85,7 +84,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     })
 }
 
-pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -> Result<()> {
+pub async fn execute(out: &Output, state: &AppState, input: &TeardownInput) -> Result<()> {
     let row = state
         .store
         .workspace_by_id(&input.workspace_id)?
@@ -110,7 +109,7 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
         .workspace
         .set_status(&input.workspace_id, WorkspaceLifecycle::TearingDown)
         .await;
-    state.notify(app, StateChangeKind::WorkspaceStatus);
+    state.notify(out, StateChangeKind::WorkspaceStatus);
 
     let thread_ids: Vec<String> = state
         .store
@@ -124,7 +123,7 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
             .workspace
             .set_status(&input.workspace_id, previous_status)
             .await;
-        state.notify(app, StateChangeKind::WorkspaceStatus);
+        state.notify(out, StateChangeKind::WorkspaceStatus);
         return Err(error);
     }
 
@@ -135,7 +134,7 @@ pub async fn execute(app: &AppHandle, state: &AppState, input: &TeardownInput) -
     state.workspace.remove(&input.workspace_id).await;
     state.workspace.sync_fetch_targets().await;
 
-    state.notify(app, StateChangeKind::WorkspaceStatus);
+    state.notify(out, StateChangeKind::WorkspaceStatus);
 
     Ok(())
 }
@@ -182,8 +181,8 @@ async fn resolve_record(
         .repo_by_id(&row.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", row.repo_id)))?;
     let repo_path = expand_tilde(&repo.path);
-    let base = repo.default_branch.clone().unwrap_or_else(|| "main".into());
-    let status = parse_lifecycle(&row.status);
+    let base = repo.default_branch.unwrap_or_else(|| "main".into());
+    let status = WorkspaceLifecycle::parse(&row.status);
 
     Ok(WorkspaceRecord {
         id: row.id.clone(),
@@ -200,20 +199,6 @@ async fn resolve_record(
         setup_failed_command: None,
         setup_failed_exit_code: None,
     })
-}
-
-fn parse_lifecycle(raw: &str) -> WorkspaceLifecycle {
-    match raw {
-        "creating" => WorkspaceLifecycle::Creating,
-        "provisioning" => WorkspaceLifecycle::Provisioning,
-        "running" => WorkspaceLifecycle::Running,
-        "idle" => WorkspaceLifecycle::Idle,
-        "waiting" => WorkspaceLifecycle::Waiting,
-        "tearingDown" => WorkspaceLifecycle::TearingDown,
-        "gone" => WorkspaceLifecycle::Gone,
-        "provisioningFailed" => WorkspaceLifecycle::ProvisioningFailed,
-        _ => WorkspaceLifecycle::Ready,
-    }
 }
 
 async fn count_uncommitted_files(state: &AppState, worktree: &Path, fallback: i64) -> u32 {

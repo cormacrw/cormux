@@ -27,7 +27,12 @@ pub use protocol::{CanUseTool, Event, PermissionDecision};
 pub use session::{ClaudeSession, SpawnOptions};
 
 /// Argument vector for a streaming Claude Code session (binary not included).
-pub fn claude_argv(resume: Option<&str>, model: Option<&str>, orchestrate: bool) -> Vec<String> {
+pub fn claude_argv(
+    resume: Option<&str>,
+    model: Option<&str>,
+    effort: Option<&str>,
+    orchestrate: bool,
+) -> Vec<String> {
     let mut brief = format!(
         "{}\n\n{}",
         crate::engines::BRANCH_INSTRUCTION,
@@ -66,6 +71,10 @@ pub fn claude_argv(resume: Option<&str>, model: Option<&str>, orchestrate: bool)
         args.push("--model".into());
         args.push(model.into());
     }
+    if let Some(effort) = effort {
+        args.push("--effort".into());
+        args.push(effort.into());
+    }
     args
 }
 
@@ -75,7 +84,7 @@ mod tests {
 
     #[test]
     fn argv_includes_print_and_stdio_permission_tool() {
-        let args = claude_argv(None, None, false);
+        let args = claude_argv(None, None, None, false);
         assert!(args.contains(&"-p".into()));
         assert!(
             args.windows(2)
@@ -86,7 +95,7 @@ mod tests {
 
     #[test]
     fn argv_tells_claude_the_thread_renders_media() {
-        let args = claude_argv(None, None, false);
+        let args = claude_argv(None, None, None, false);
         let at = args
             .iter()
             .position(|arg| arg == "--append-system-prompt")
@@ -97,7 +106,7 @@ mod tests {
 
     #[test]
     fn orchestrating_threads_get_the_cormux_server_and_its_brief() {
-        let args = claude_argv(None, None, true);
+        let args = claude_argv(None, None, None, true);
         let at = args.iter().position(|arg| arg == "--mcp-config").unwrap();
         assert!(args[at + 1].contains(r#""type":"sdk""#));
         let at = args.iter().position(|arg| arg == "--allowedTools").unwrap();
@@ -112,14 +121,21 @@ mod tests {
 
     #[test]
     fn argv_resume_appends_session_id() {
-        let args = claude_argv(Some("sess-1"), None, false);
+        let args = claude_argv(Some("sess-1"), None, None, false);
         assert!(args.windows(2).any(|w| w == ["--resume", "sess-1"]));
         assert!(!args.contains(&"--model".into()));
     }
 
     #[test]
     fn argv_model_appends_flag() {
-        let args = claude_argv(None, Some("opus"), false);
+        let args = claude_argv(None, Some("opus"), None, false);
         assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
+        assert!(!args.contains(&"--effort".into()));
+    }
+
+    #[test]
+    fn argv_effort_appends_flag() {
+        let args = claude_argv(None, None, Some("high"), false);
+        assert!(args.windows(2).any(|w| w == ["--effort", "high"]));
     }
 }

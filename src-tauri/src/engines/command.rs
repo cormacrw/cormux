@@ -4,6 +4,8 @@ use super::prompt::Prompt;
 pub enum EngineCommand {
     Prompt(Prompt),
     Cancel,
+    /// Switch the live session's effort level; `None` goes back to the engine's default.
+    SetEffort(Option<String>),
     /// Switch the live session's model; `None` goes back to the engine's default.
     SetModel(Option<String>),
     Shutdown,

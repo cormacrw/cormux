@@ -2,16 +2,16 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use serde_json::{Value, json};
-use tauri::{AppHandle, Manager};
 
-use crate::composer::persist_control_step;
 use crate::error::{Error, Result};
-use crate::ipc::commands::{start_workspace, submit_thread_prompt};
+use crate::feedback::Output;
 use crate::ipc::types::CreateWorkspaceInput;
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::{ThreadRow, WorkspaceRow};
-use crate::workspace::WorkspaceLifecycle;
+use crate::timeline::{TimelineStep, record_step};
+use crate::workspace::{ThreadStatus, WorkspaceLifecycle};
+use crate::workspace_start::start_workspace;
 
 /// A parent's children still doing something, past which `create_thread` refuses.
 pub const MAX_ACTIVE_CHILDREN: usize = 5;
@@ -222,7 +222,7 @@ fn check_can_send(store: &Store, caller_id: &str, id: &str) -> Result<ThreadRow>
         .thread_by_id(id)?
         .filter(|thread| thread.parent_thread_id.as_deref() == Some(caller_id))
         .ok_or_else(|| Error::Mcp(format!("{id} is not a thread you started")))?;
-    if thread.status == "provisioning" {
+    if thread.has_status(ThreadStatus::Provisioning) {
         return Err(Error::Mcp(
             "that thread is still being set up; its report will say when it's done".into(),
         ));
@@ -274,8 +274,12 @@ pub struct NewThread {
     pub model: Option<String>,
 }
 
-pub async fn create_thread(app: &AppHandle, caller_id: &str, new: NewThread) -> Result<Value> {
-    let state = app.state::<AppState>();
+pub async fn create_thread(
+    out: &Output,
+    state: &AppState,
+    caller_id: &str,
+    new: NewThread,
+) -> Result<Value> {
     let caller = caller_thread(&state.store, caller_id)?;
     check_can_spawn(&state.store, &caller)?;
     let repo_id = caller_repo(&state.store, &caller)?;
@@ -283,7 +287,7 @@ pub async fn create_thread(app: &AppHandle, caller_id: &str, new: NewThread) -> 
         .store
         .repo_by_id(&repo_id)?
         .ok_or_else(|| Error::Mcp(format!("unknown repo {repo_id}")))?;
-    let repo_path = crate::ipc::commands::expand_tilde(&repo.path);
+    let repo_path = crate::paths::expand_tilde(&repo.path);
     let mut taken = state.git.list_local_branches(&repo_path).await?;
     taken.extend(state.git.list_remote_branches(&repo_path, "origin").await?);
     taken.extend(
@@ -303,9 +307,10 @@ pub async fn create_thread(app: &AppHandle, caller_id: &str, new: NewThread) -> 
         Some(model) => Some(model),
         None => state.store.thread_model(caller_id)?,
     };
+    let effort = state.store.thread_effort(caller_id)?;
     let started = start_workspace(
-        app,
-        &state,
+        out,
+        state,
         CreateWorkspaceInput {
             repo_id,
             name: String::new(),
@@ -314,31 +319,37 @@ pub async fn create_thread(app: &AppHandle, caller_id: &str, new: NewThread) -> 
             engine: caller.engine.clone(),
             goal: new.goal,
             model,
+            effort,
+            attachments: Vec::new(),
         },
         Some(caller_id.to_string()),
     )
     .await?;
     let title = workspace_title(&state.store, &caller)?;
-    let _ = persist_control_step(
+    let _ = record_step(
         &state.store,
         &started.thread_id,
-        &format!("Started by {title}"),
+        TimelineStep::StartedByThread { workspace: title },
     );
     Ok(json!({ "id": started.thread_id, "base": started.base }))
 }
 
 pub async fn send_to_thread(
-    app: &AppHandle,
+    out: &Output,
+    state: &AppState,
     caller_id: &str,
     id: &str,
     text: String,
 ) -> Result<()> {
-    let state = app.state::<AppState>();
     check_can_send(&state.store, caller_id, id)?;
     let caller = caller_thread(&state.store, caller_id)?;
     let title = workspace_title(&state.store, &caller)?;
-    let _ = persist_control_step(&state.store, id, &format!("Message from {title}"));
-    submit_thread_prompt(app, &state, id, text, Vec::new()).await
+    let _ = record_step(
+        &state.store,
+        id,
+        TimelineStep::MessageFromThread { workspace: title },
+    );
+    crate::turn::submit(out, state, id, text, Vec::new()).await
 }
 
 fn workspace_title(store: &Store, thread: &ThreadRow) -> Result<String> {
@@ -438,8 +449,7 @@ fn report_for(store: &Store, child: &ThreadRow, status: &str, body: String) -> R
 
 /// Queue a finished child's report, then hand over whatever the thread that just went idle was
 /// waiting for. Both can apply: nothing stops a child being idle with reports of its own.
-pub async fn on_turn_end(app: &AppHandle, thread_id: &str) -> Result<()> {
-    let state = app.state::<AppState>();
+pub async fn on_turn_end(out: &Output, state: &AppState, thread_id: &str) -> Result<()> {
     if let Some(child) = state.store.thread_by_id(thread_id)?
         && let Some(parent_id) = child.parent_thread_id.clone()
     {
@@ -453,16 +463,15 @@ pub async fn on_turn_end(app: &AppHandle, thread_id: &str) -> Result<()> {
             };
             let report = report_for(&state.store, &child, "idle", body)?;
             state.reports.push(&parent_id, report);
-            deliver(app, &parent_id).await;
+            deliver(out, state, &parent_id).await;
         }
     }
-    deliver(app, thread_id).await;
+    deliver(out, state, thread_id).await;
     Ok(())
 }
 
 /// A child waiting on an approval can't go on, and only the user can answer it.
-pub async fn on_approval_requested(app: &AppHandle) -> Result<()> {
-    let state = app.state::<AppState>();
+pub async fn on_approval_requested(out: &Output, state: &AppState) -> Result<()> {
     for child in state.store.blocked_child_threads()? {
         let Some(parent_id) = child.parent_thread_id.clone() else {
             continue;
@@ -477,7 +486,7 @@ pub async fn on_approval_requested(app: &AppHandle) -> Result<()> {
             );
             let report = report_for(&state.store, &child, "blocked", body)?;
             state.reports.push(&parent_id, report);
-            deliver(app, &parent_id).await;
+            deliver(out, state, &parent_id).await;
         }
     }
     Ok(())
@@ -485,11 +494,11 @@ pub async fn on_approval_requested(app: &AppHandle) -> Result<()> {
 
 /// Setup failing never reaches a turn end, so it reports itself.
 pub async fn on_provisioning_failed(
-    app: &AppHandle,
+    out: &Output,
+    state: &AppState,
     workspace_id: &str,
     message: &str,
 ) -> Result<()> {
-    let state = app.state::<AppState>();
     let child = state
         .store
         .threads_for_workspace(workspace_id)?
@@ -500,7 +509,7 @@ pub async fn on_provisioning_failed(
     {
         let report = report_for(&state.store, &child, FAILED, message.to_string())?;
         state.reports.push(&parent_id, report);
-        deliver(app, &parent_id).await;
+        deliver(out, state, &parent_id).await;
     }
     Ok(())
 }
@@ -533,12 +542,11 @@ async fn reportable_parent(state: &AppState, parent_id: &str) -> Option<ThreadRo
 
 /// One prompt for everything waiting, once the parent is idle. A busy parent gets it from its
 /// own turn end; one that can't continue never will, so its reports are dropped.
-async fn deliver(app: &AppHandle, parent_id: &str) {
-    let state = app.state::<AppState>();
-    let Some(parent) = reportable_parent(&state, parent_id).await else {
+async fn deliver(out: &Output, state: &AppState, parent_id: &str) {
+    let Some(parent) = reportable_parent(state, parent_id).await else {
         return;
     };
-    if parent.status != "idle" {
+    if !parent.has_status(ThreadStatus::Idle) {
         return;
     }
     let reports = state.reports.take(parent_id);
@@ -547,15 +555,17 @@ async fn deliver(app: &AppHandle, parent_id: &str) {
     }
     let mut lines = Vec::new();
     for report in &reports {
-        let _ = persist_control_step(
+        let _ = record_step(
             &state.store,
             parent_id,
-            &format!("Report from {}", report.title),
+            TimelineStep::ReportFromThread {
+                title: report.title.clone(),
+            },
         );
         lines.push(report.render());
     }
     if let Err(error) =
-        submit_thread_prompt(app, &state, parent_id, lines.join("\n\n"), Vec::new()).await
+        crate::turn::submit(out, state, parent_id, lines.join("\n\n"), Vec::new()).await
     {
         log::warn!("reporting to thread {parent_id} failed: {error}");
         state.reports.restore(parent_id, reports);
@@ -565,7 +575,18 @@ async fn deliver(app: &AppHandle, parent_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engines::EngineCommand;
+    use crate::feedback::RecordingOutput;
+    use crate::ipc::types::StateChangeKind;
     use crate::store::types::RepoRecord;
+    use tokio::sync::mpsc::UnboundedReceiver;
+
+    fn prompt_text(engine: &mut UnboundedReceiver<EngineCommand>) -> String {
+        match engine.try_recv() {
+            Ok(EngineCommand::Prompt(prompt)) => prompt.text,
+            other => panic!("expected a prompt, got {other:?}"),
+        }
+    }
 
     fn store() -> Store {
         let store = Store::new();
@@ -854,15 +875,12 @@ mod tests {
         assert!(continuing_thread(&store, "unknown").is_none());
     }
 
-    /// `deliver` needs an `AppHandle`, so this runs the check it starts with, then the engine
-    /// start that check now keeps it from.
     async fn assert_no_ghost(state: &AppState) {
-        assert!(reportable_parent(state, "parent").await.is_none());
-        let engine =
-            crate::provisioning::ensure_thread_engine(state, "parent", "claude", "w-parent").await;
-        assert!(engine.is_err());
+        let (recording, out) = RecordingOutput::new();
+        deliver(&out, state, "parent").await;
         assert!(!state.engines.has_thread("parent"));
         assert!(state.reports.take("parent").is_empty());
+        assert!(recording.emitted().is_empty());
     }
 
     fn family(state: &AppState) {
@@ -874,7 +892,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_child_finishing_after_its_parent_was_killed_leaves_no_ghost() {
-        let state = AppState::new();
+        let state = AppState::new(std::env::temp_dir());
         family(&state);
         state.store.archive_workspace("w-parent").unwrap();
         assert_no_ghost(&state).await;
@@ -883,7 +901,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_child_finishing_while_its_parent_is_killed_starts_no_engine() {
-        let state = AppState::new();
+        let state = AppState::new(std::env::temp_dir());
         family(&state);
         let row = state.store.workspace_by_id("w-parent").unwrap().unwrap();
         let mut record = crate::git_workspace::resolve_record(&state, "w-parent", &row)
@@ -895,8 +913,85 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_idle_parent_is_prompted_with_its_reports_and_the_ui_told() {
+        let state = AppState::new(std::env::temp_dir());
+        family(&state);
+        let mut engine = state.engines.fake_thread("parent");
+        let (recording, out) = RecordingOutput::new();
+
+        deliver(&out, &state, "parent").await;
+
+        assert!(prompt_text(&mut engine).contains("<thread_report id=\"child\""));
+        assert_eq!(
+            state.store.thread_by_id("parent").unwrap().unwrap().status,
+            "running"
+        );
+        assert!(state.reports.take("parent").is_empty());
+        assert_eq!(
+            recording.state_changes(),
+            [StateChangeKind::WorkspaceStatus]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_busy_parent_keeps_its_reports_for_its_own_turn_end() {
+        let state = AppState::new(std::env::temp_dir());
+        family(&state);
+        let mut parent = state.store.thread_by_id("parent").unwrap().unwrap();
+        parent.status = "running".into();
+        state.store.upsert_thread(&parent).unwrap();
+        let mut engine = state.engines.fake_thread("parent");
+        let (recording, out) = RecordingOutput::new();
+
+        deliver(&out, &state, "parent").await;
+
+        assert!(engine.try_recv().is_err());
+        assert!(recording.emitted().is_empty());
+        assert_eq!(state.reports.take("parent").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_report_that_cannot_be_delivered_waits_for_the_next_try() {
+        let state = AppState::new(std::env::temp_dir());
+        family(&state);
+        let (recording, out) = RecordingOutput::new();
+
+        // No engine, and its worktree isn't there to start one in.
+        deliver(&out, &state, "parent").await;
+
+        assert!(!state.engines.has_thread("parent"));
+        assert_eq!(state.reports.take("parent").len(), 1);
+        assert!(recording.emitted().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_turn_end_reports_the_childs_reply_to_its_parent_once() {
+        let state = AppState::new(std::env::temp_dir());
+        seed(&state.store);
+        add_thread(&state.store, "parent", "r1", None, "idle");
+        add_thread(&state.store, "child", "r1", Some("parent"), "idle");
+        say(&state.store, "child", "agent", "All done.");
+        let mut engine = state.engines.fake_thread("parent");
+        let (recording, out) = RecordingOutput::new();
+
+        on_turn_end(&out, &state, "child").await.unwrap();
+
+        let prompt = prompt_text(&mut engine);
+        assert!(prompt.contains("status=\"idle\""));
+        assert!(prompt.contains("All done."));
+        assert_eq!(
+            recording.state_changes(),
+            [StateChangeKind::WorkspaceStatus]
+        );
+
+        on_turn_end(&out, &state, "child").await.unwrap();
+        assert!(engine.try_recv().is_err());
+        assert_eq!(recording.emitted().len(), 1);
+    }
+
+    #[tokio::test]
     async fn reports_wait_for_a_parent_that_can_continue() {
-        let state = AppState::new();
+        let state = AppState::new(std::env::temp_dir());
         seed(&state.store);
         add_thread(&state.store, "parent", "r1", None, "running");
         state.reports.push("parent", report("child", "done"));

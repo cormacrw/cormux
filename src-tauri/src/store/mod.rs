@@ -4,9 +4,10 @@ pub mod types;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
+use crate::workspace::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
 use types::{
     ApprovalRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow, SettingRow,
     ThreadActivityRow, ThreadEventPage, ThreadEventRow, ThreadRow, WorkspaceRow,
@@ -77,6 +78,17 @@ impl Store {
         f(conn)
     }
 
+    /// Like `with_conn`, inside a transaction that commits only if `f` succeeds, so a write
+    /// of several statements lands whole or not at all.
+    fn with_tx<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        self.with_conn(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            let value = f(&tx)?;
+            tx.commit()?;
+            Ok(value)
+        })
+    }
+
     fn with_read<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
         let guard = self
             .reader
@@ -142,7 +154,7 @@ impl Store {
     }
 
     pub fn upsert_repo(&self, repo: &RepoRecord) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_tx(|conn| {
             conn.execute(
                 "INSERT INTO repos (id, path, name, default_branch) VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(id) DO UPDATE SET path = excluded.path, name = excluded.name,
@@ -454,10 +466,21 @@ impl Store {
         })
     }
 
+    /// One approval its engine stopped waiting on, so it no longer shows as needing an answer.
+    pub fn deny_pending_approval(&self, id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE approvals SET status = 'denied' WHERE status = 'pending' AND id = ?1",
+                [id],
+            )?;
+            Ok(())
+        })
+    }
+
     /// No agent survives the app closing, so a turn in flight then is over. Provisioning is
     /// left alone: it has its own retry.
     pub fn reset_interrupted_turns(&self) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_tx(|conn| {
             conn.execute_batch(
                 "UPDATE approvals SET status = 'denied' WHERE status = 'pending';
                  UPDATE threads SET status = 'idle'
@@ -469,38 +492,40 @@ impl Store {
         })
     }
 
-    pub fn mark_thread_idle(&self, thread_id: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.prepare_cached("UPDATE threads SET status = 'idle' WHERE id = ?1")?
-                .execute([thread_id])?;
-            // Another thread's plan still waiting on the user keeps the workspace waiting.
-            conn.prepare_cached(
-                "UPDATE workspaces
-                 SET status = CASE
-                     WHEN EXISTS (
-                         SELECT 1 FROM threads
-                         WHERE workspace_id = workspaces.id AND closed_at IS NULL
-                             AND status = 'waiting'
-                     ) THEN 'waiting' ELSE 'idle' END
-                 WHERE archived_at IS NULL
-                     AND id = (SELECT workspace_id FROM threads WHERE id = ?1)
-                     AND NOT EXISTS (
-                         SELECT 1 FROM threads
-                         WHERE workspace_id = workspaces.id AND closed_at IS NULL
-                             AND status = 'running'
-                     )",
-            )?
-            .execute([thread_id])?;
-            Ok(())
-        })
-    }
-
-    pub fn set_thread_status(&self, thread_id: &str, status: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE threads SET status = ?1 WHERE id = ?2",
-                rusqlite::params![status, thread_id],
-            )?;
+    /// Writes the status and re-derives the workspace's from its threads (see
+    /// `status_from_threads`), so the two can't disagree. An archived workspace stays as it is.
+    pub fn set_thread_status(&self, thread_id: &str, status: ThreadStatus) -> Result<()> {
+        self.with_tx(|conn| {
+            conn.prepare_cached("UPDATE threads SET status = ?1 WHERE id = ?2")?
+                .execute(rusqlite::params![status.as_str(), thread_id])?;
+            let workspace = conn
+                .prepare_cached(
+                    "SELECT w.id, w.status FROM workspaces w
+                     JOIN threads t ON t.workspace_id = w.id
+                     WHERE t.id = ?1 AND w.archived_at IS NULL",
+                )?
+                .query_map([thread_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .next()
+                .transpose()?;
+            let Some((workspace_id, current)) = workspace else {
+                return Ok(());
+            };
+            let threads = conn
+                .prepare_cached(
+                    "SELECT status FROM threads WHERE workspace_id = ?1 AND closed_at IS NULL",
+                )?
+                .query_map([&workspace_id], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let derived = status_from_threads(
+                WorkspaceLifecycle::parse(&current),
+                threads.iter().map(|raw| ThreadStatus::parse(raw)),
+            );
+            if derived.as_str() != current {
+                conn.prepare_cached("UPDATE workspaces SET status = ?1 WHERE id = ?2")?
+                    .execute(rusqlite::params![derived.as_str(), workspace_id])?;
+            }
             Ok(())
         })
     }
@@ -557,6 +582,29 @@ impl Store {
             conn.execute(
                 "UPDATE threads SET model = ?1 WHERE id = ?2",
                 rusqlite::params![model, thread_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The effort level the user picked for the thread; `None` means the engine's default.
+    pub fn thread_effort(&self, thread_id: &str) -> Result<Option<String>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached("SELECT effort FROM threads WHERE id = ?1")?;
+            let mut rows = stmt.query([thread_id])?;
+            if let Some(row) = rows.next()? {
+                Ok(row.get(0)?)
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    pub fn set_thread_effort(&self, thread_id: &str, effort: Option<&str>) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET effort = ?1 WHERE id = ?2",
+                rusqlite::params![effort, thread_id],
             )?;
             Ok(())
         })
@@ -775,7 +823,7 @@ impl Store {
                     [scratch_id],
                     |row| row.get(0),
                 )
-                .ok();
+                .optional()?;
             tx.execute("DELETE FROM scratches WHERE id = ?1", [scratch_id])?;
             if let Some(thread_id) = thread_id {
                 tx.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
@@ -1040,40 +1088,49 @@ impl Store {
         })
     }
 
-    pub fn delete_findings_for_workspace(&self, workspace_id: &str) -> Result<()> {
+    /// Swaps a workspace's findings for `findings` in one transaction, so a failed insert
+    /// leaves the old set in place and a reader never sees it half replaced.
+    pub fn replace_findings(&self, workspace_id: &str, findings: &[FindingRow]) -> Result<()> {
         self.with_conn(|conn| {
-            conn.execute(
+            let tx = conn.unchecked_transaction()?;
+            tx.execute(
                 "DELETE FROM findings WHERE workspace_id = ?1",
                 [workspace_id],
             )?;
+            for finding in findings {
+                Self::write_finding(&tx, finding)?;
+            }
+            tx.commit()?;
             Ok(())
         })
     }
 
     pub fn upsert_finding(&self, finding: &FindingRow) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-                 ON CONFLICT(id) DO UPDATE SET severity = excluded.severity, title = excluded.title,
-                    explanation = excluded.explanation, file = excluded.file, line = excluded.line,
-                    status = excluded.status, commit_sha = excluded.commit_sha,
-                    sent_to_thread_id = excluded.sent_to_thread_id",
-                rusqlite::params![
-                    finding.id,
-                    finding.workspace_id,
-                    finding.severity,
-                    finding.title,
-                    finding.file,
-                    finding.line,
-                    finding.explanation,
-                    finding.status,
-                    finding.commit_sha,
-                    finding.sent_to_thread_id
-                ],
-            )?;
-            Ok(())
-        })
+        self.with_conn(|conn| Self::write_finding(conn, finding))
+    }
+
+    fn write_finding(conn: &Connection, finding: &FindingRow) -> Result<()> {
+        conn.execute(
+            "INSERT INTO findings (id, workspace_id, severity, title, file, line, explanation, status, commit_sha, sent_to_thread_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(id) DO UPDATE SET severity = excluded.severity, title = excluded.title,
+                explanation = excluded.explanation, file = excluded.file, line = excluded.line,
+                status = excluded.status, commit_sha = excluded.commit_sha,
+                sent_to_thread_id = excluded.sent_to_thread_id",
+            rusqlite::params![
+                finding.id,
+                finding.workspace_id,
+                finding.severity,
+                finding.title,
+                finding.file,
+                finding.line,
+                finding.explanation,
+                finding.status,
+                finding.commit_sha,
+                finding.sent_to_thread_id
+            ],
+        )?;
+        Ok(())
     }
 
     pub fn upsert_pr(&self, pr: &PrRow) -> Result<()> {
@@ -1118,6 +1175,10 @@ impl Store {
 
     pub fn snapshot(&self) -> Result<PersistedSnapshot> {
         self.with_read(|conn| {
+            // One read transaction across every query, so a write landing midway can't hand
+            // back a thread whose workspace isn't in the same snapshot.
+            let tx = conn.unchecked_transaction()?;
+            let conn: &Connection = &tx;
             Ok(PersistedSnapshot {
                 settings: query_all(conn, "SELECT key, value FROM settings", |row| {
                     Ok(SettingRow {
@@ -1497,17 +1558,29 @@ mod tests {
         store.upsert_thread(&thread("b", "w1", "running")).unwrap();
         let status = |store: &Store| store.workspace_by_id("w1").unwrap().unwrap().status;
 
-        store.mark_thread_idle("a").unwrap();
+        store.set_thread_status("a", ThreadStatus::Idle).unwrap();
         assert_eq!(status(&store), "running");
-        store.set_thread_status("b", "waiting").unwrap();
-        store.mark_thread_idle("a").unwrap();
-        assert_eq!(status(&store), "waiting");
-        store.mark_thread_idle("b").unwrap();
+        store.set_thread_status("b", ThreadStatus::Idle).unwrap();
         assert_eq!(status(&store), "idle");
+        store.set_thread_status("a", ThreadStatus::Running).unwrap();
+        assert_eq!(status(&store), "running");
 
         store.archive_workspace("w1").unwrap();
-        store.mark_thread_idle("a").unwrap();
+        store.set_thread_status("a", ThreadStatus::Idle).unwrap();
         assert_eq!(status(&store), "archived");
+    }
+
+    #[test]
+    fn a_thread_moving_leaves_a_workspace_in_setup_or_teardown_alone() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store.upsert_thread(&thread("a", "w1", "running")).unwrap();
+        for held in ["provisioning", "provisioningFailed", "tearingDown"] {
+            workspace(&store, "w1", held);
+            store.set_thread_status("a", ThreadStatus::Idle).unwrap();
+            store.set_thread_status("a", ThreadStatus::Running).unwrap();
+            assert_eq!(store.workspace_by_id("w1").unwrap().unwrap().status, held);
+        }
     }
 
     #[test]
@@ -1580,7 +1653,7 @@ mod tests {
             })
             .unwrap();
         store.append_event("t1", "message", "{}").unwrap();
-        store.mark_thread_idle("t1").unwrap();
+        store.set_thread_status("t1", ThreadStatus::Idle).unwrap();
 
         let snapshot = store.snapshot().unwrap();
         assert!(snapshot.threads.is_empty());
@@ -1828,6 +1901,15 @@ mod tests {
         assert_eq!(store.thread_model("lead").unwrap().as_deref(), Some("opus"));
         store.set_thread_model("lead", None).unwrap();
         assert_eq!(store.thread_model("lead").unwrap(), None);
+
+        assert_eq!(store.thread_effort("lead").unwrap(), None);
+        store.set_thread_effort("lead", Some("high")).unwrap();
+        assert_eq!(
+            store.thread_effort("lead").unwrap().as_deref(),
+            Some("high")
+        );
+        store.set_thread_effort("lead", None).unwrap();
+        assert_eq!(store.thread_effort("lead").unwrap(), None);
         let lead = store.thread_by_id("lead").unwrap().unwrap();
         assert_eq!((lead.used_tokens, lead.context_size), (None, None));
         assert_eq!(

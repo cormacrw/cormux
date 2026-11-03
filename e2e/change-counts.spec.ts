@@ -14,11 +14,7 @@ test('the Git tab counts fall away when the changes are committed', async ({
   await page.screenshot({ path: 'e2e/output/change-counts.png' })
 
   // Committing from a terminal, without opening the Git tab.
-  await page.evaluate(() =>
-    (
-      window as unknown as { __HARNESS_COMMIT__: () => void }
-    ).__HARNESS_COMMIT__(),
-  )
+  await page.evaluate(() => window.__HARNESS__!.commit())
   await expect(gitTab).not.toHaveAttribute('aria-label', before ?? '')
   await expect(counts).toHaveCount(0, { timeout: 10_000 })
 })

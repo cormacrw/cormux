@@ -18,6 +18,7 @@ pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTar
 
 /// A new thread waits this long at most for its base branch to fetch.
 const BASE_FETCH_TIMEOUT: Duration = Duration::from_secs(20);
+const BACKGROUND_FETCH_TIMEOUT: Duration = Duration::from_secs(120);
 /// New threads off the same base within this long share one fetch.
 const BASE_FETCH_TTL: Duration = Duration::from_secs(30);
 
@@ -52,6 +53,35 @@ pub struct LocalBranchTip {
     pub name: String,
     pub committed: String,
     pub subject: String,
+}
+
+/// Rejects a branch or base name git wouldn't accept as a ref, and any that git would read
+/// as an option (`--upload-pack=…`) where it's passed positionally. Names reach git from the
+/// webview and from agents (the `create_thread` tool's `base`), so they're checked here
+/// rather than trusted. Follows `git check-ref-format`'s rules.
+///
+/// # Errors
+///
+/// `Error::Git` naming `what` and the rejected value.
+pub fn validate_ref_name(name: &str, what: &str) -> Result<()> {
+    let bad = name.is_empty()
+        || name.starts_with('-')
+        || name.starts_with('/')
+        || name.ends_with('/')
+        || name.ends_with('.')
+        || name.ends_with(".lock")
+        || name == "@"
+        || name.contains("..")
+        || name.contains("//")
+        || name.contains("@{")
+        || name.split('/').any(|part| part.starts_with('.'))
+        || name
+            .chars()
+            .any(|c| c.is_ascii_control() || c.is_whitespace() || "~^:?*[\\".contains(c));
+    if bad {
+        return Err(Error::Git(format!("invalid {what} name: {name:?}")));
+    }
+    Ok(())
 }
 
 pub fn parse_local_branch_tips(stdout: &str) -> Vec<LocalBranchTip> {
@@ -191,6 +221,10 @@ impl Git {
             command.current_dir(cwd);
         }
         command.stdin(std::process::Stdio::null());
+        // No terminal to answer a credential prompt; fail instead of hanging. And a caller
+        // that times out (e.g. `fetch_base`) shouldn't leave git running behind it.
+        command.env("GIT_TERMINAL_PROMPT", "0");
+        command.kill_on_drop(true);
         let output = command
             .output()
             .await
@@ -326,7 +360,8 @@ impl Git {
         if fetched.is_some_and(|at| at.elapsed() < BASE_FETCH_TTL) {
             return;
         }
-        let args = ["fetch", "origin", base];
+        // `--` so a `base` that starts with `-` is a refspec, not an option.
+        let args = ["fetch", "origin", "--", base];
         let fetch = self.run_unlocked(Some(repo), &args);
         match tokio::time::timeout(BASE_FETCH_TIMEOUT, fetch).await {
             Ok(Ok(output)) if output.status.success() => *fetched = Some(Instant::now()),
@@ -358,14 +393,16 @@ impl Git {
         Self::require_success(&output, "fetch pull ref")
     }
 
+    /// Outside the repo's queue: deleting a worktree can take many seconds, and new threads
+    /// need that queue to add theirs. Git is fine with adds and removes overlapping.
     pub async fn worktree_remove(&self, repo: &Path, path: &Path, force: bool) -> Result<()> {
         let path_str = path.to_string_lossy().to_string();
-        let output = if force {
-            self.run(repo, &["worktree", "remove", "--force", &path_str])
-                .await?
-        } else {
-            self.run(repo, &["worktree", "remove", &path_str]).await?
-        };
+        let mut args = vec!["worktree", "remove"];
+        if force {
+            args.push("--force");
+        }
+        args.push(&path_str);
+        let output = self.run_unlocked(Some(repo), &args).await?;
         Self::require_success(&output, "worktree remove")
     }
 
@@ -379,8 +416,13 @@ impl Git {
             .map_err(|error| Error::Git(format!("behind count: {error}")))
     }
 
+    /// Outside the repo's queue, like `fetch_base`: a slow network shouldn't stop new threads
+    /// adding their worktrees, and a stuck fetch gives up rather than holding on forever.
     pub async fn fetch(&self, repo: &Path) -> Result<()> {
-        let output = self.run(repo, &["fetch", "--all", "--prune"]).await?;
+        let fetch = self.run_unlocked(Some(repo), &["fetch", "--all", "--prune"]);
+        let output = tokio::time::timeout(BACKGROUND_FETCH_TIMEOUT, fetch)
+            .await
+            .map_err(|_| Error::Git("fetch timed out".into()))??;
         Self::require_success(&output, "fetch")
     }
 
@@ -456,7 +498,7 @@ impl Git {
             let result = self
                 .uncommitted_changes_in(worktree, &index, with_patches)
                 .await;
-            let _ = std::fs::remove_file(&index);
+            let _ = tokio::fs::remove_file(&index).await;
             result
         })
         .await
@@ -500,7 +542,8 @@ impl Git {
             let patch = match patches.remove(stat.patch_header().as_str()) {
                 Some(patch) => patch.to_string(),
                 None => {
-                    let mut args = PATCH_ARGS.to_vec();
+                    let mut args = vec!["--literal-pathspecs"];
+                    args.extend(PATCH_ARGS);
                     args.extend(["HEAD", "--"]);
                     args.extend(stat.paths());
                     let output = self.run_with_env(Some(worktree), &args, &env).await?;
@@ -538,7 +581,16 @@ impl Git {
                     .await?;
                 return Self::require_success(&cleaned, "clean");
             }
-            let mut args = vec!["ls-files", "-z", "--others", "--exclude-standard", "--"];
+            // Paths are file names, not patterns: `app/[id]/page.tsx` must not also match
+            // `app/i/page.tsx`.
+            let mut args = vec![
+                "--literal-pathspecs",
+                "ls-files",
+                "-z",
+                "--others",
+                "--exclude-standard",
+                "--",
+            ];
             args.extend(paths.iter().map(String::as_str));
             let listed = self.run_unlocked(Some(worktree), &args).await?;
             Self::require_success(&listed, "ls-files")?;
@@ -553,13 +605,20 @@ impl Git {
                 .map(String::as_str)
                 .collect();
             if !tracked.is_empty() {
-                let mut args = vec!["restore", "--source=HEAD", "--staged", "--worktree", "--"];
+                let mut args = vec![
+                    "--literal-pathspecs",
+                    "restore",
+                    "--source=HEAD",
+                    "--staged",
+                    "--worktree",
+                    "--",
+                ];
                 args.extend(tracked);
                 let restored = self.run_unlocked(Some(worktree), &args).await?;
                 Self::require_success(&restored, "restore")?;
             }
             if !untracked.is_empty() {
-                let mut args = vec!["clean", "-f", "--"];
+                let mut args = vec!["--literal-pathspecs", "clean", "-f", "--"];
                 args.extend(untracked.iter().map(String::as_str));
                 let cleaned = self.run_unlocked(Some(worktree), &args).await?;
                 Self::require_success(&cleaned, "clean")?;
@@ -577,7 +636,9 @@ impl Git {
         Self::require_success(&output, "rev-parse --git-path index")?;
         let index = worktree.join(Self::stdout(&output).trim());
         let scratch = std::env::temp_dir().join(format!("cormux-index-{}", uuid::Uuid::new_v4()));
-        std::fs::copy(&index, &scratch).map_err(|error| Error::Git(error.to_string()))?;
+        tokio::fs::copy(&index, &scratch)
+            .await
+            .map_err(|error| Error::Git(error.to_string()))?;
         Ok(scratch)
     }
 
@@ -602,7 +663,8 @@ impl Git {
             let patch = match patches.remove(stat.patch_header().as_str()) {
                 Some(patch) => patch.to_string(),
                 None => {
-                    let mut args = PATCH_ARGS.to_vec();
+                    let mut args = vec!["--literal-pathspecs"];
+                    args.extend(PATCH_ARGS);
                     args.extend([range, "--"]);
                     args.extend(stat.paths());
                     let output = self.run(worktree, &args).await?;
@@ -781,11 +843,12 @@ impl Git {
 
     pub async fn unmerged_paths(&self, worktree: &Path) -> Result<Vec<String>> {
         let output = self
-            .run(worktree, &["diff", "--name-only", "--diff-filter=U"])
+            .run(worktree, &["diff", "--name-only", "-z", "--diff-filter=U"])
             .await?;
         Self::diff_ok(&output, "unmerged paths")?;
+        // `-z` so non-ASCII and odd paths come back as-is, not C-quoted.
         Ok(Self::stdout(&output)
-            .lines()
+            .split('\0')
             .filter(|line| !line.is_empty())
             .map(str::to_string)
             .collect())
@@ -1061,6 +1124,34 @@ fn parse_numstat_z(bytes: &[u8]) -> Vec<FileStat> {
 mod tests {
     use super::*;
     use crate::shell_env::ShellEnv;
+
+    #[test]
+    fn ref_names_that_git_would_read_as_options_are_rejected() {
+        for bad in [
+            "",
+            "-",
+            "--upload-pack=touch /tmp/x",
+            "--detach",
+            "feat/../x",
+            "..",
+            "feat x",
+            "a:b",
+            "x.lock",
+            "feat/.hidden",
+            "a@{1}",
+        ] {
+            assert!(
+                validate_ref_name(bad, "branch").is_err(),
+                "{bad:?} accepted"
+            );
+        }
+        for good in ["main", "feat/login-flow", "release/1.2", "cormux/review-12"] {
+            assert!(
+                validate_ref_name(good, "branch").is_ok(),
+                "{good:?} rejected"
+            );
+        }
+    }
 
     #[test]
     fn parses_local_branch_tips() {
@@ -1606,6 +1697,30 @@ mod tests {
 
         git.worktree_remove(&repo, &worktree, true).await.unwrap();
         git.branch_delete(&repo, "feature").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removing_a_worktree_does_not_wait_for_the_repo_queue() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        let worktree_dir = tempfile::tempdir().unwrap();
+        let worktree = worktree_dir.path().join("wt-feature");
+        git.worktree_add(&repo, &worktree, "feature", "main")
+            .await
+            .unwrap();
+
+        let removal = git.worktree_remove(&repo, &worktree, false);
+        let finished = git
+            .with_queue(&repo, || async {
+                Ok(tokio::time::timeout(Duration::from_secs(10), removal).await)
+            })
+            .await
+            .unwrap();
+
+        finished
+            .expect("removal waited for the repo queue")
+            .unwrap();
+        assert!(!worktree.exists());
     }
 
     #[tokio::test]

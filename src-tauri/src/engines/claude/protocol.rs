@@ -60,6 +60,9 @@ pub enum ControlRequest {
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<String>,
     },
+    /// Overlays settings on the live session. A null value clears that key.
+    #[serde(rename = "apply_flag_settings")]
+    ApplyFlagSettings { settings: serde_json::Value },
     /// Interrupting only reaches the main turn; a background task has to be stopped by name.
     #[serde(rename = "stop_task")]
     StopTask { task_id: String },
@@ -228,6 +231,15 @@ pub fn set_model_request(request_id: impl Into<String>, model: Option<String>) -
     StdinMessage::ControlRequest {
         request_id: request_id.into(),
         request: ControlRequest::SetModel { model },
+    }
+}
+
+pub fn set_effort_request(request_id: impl Into<String>, effort: Option<String>) -> StdinMessage {
+    StdinMessage::ControlRequest {
+        request_id: request_id.into(),
+        request: ControlRequest::ApplyFlagSettings {
+            settings: serde_json::json!({ "effortLevel": effort }),
+        },
     }
 }
 
@@ -555,6 +567,23 @@ mod tests {
                 {"type": "text", "text": "What's wrong here?"},
                 {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}}
             ])
+        );
+    }
+
+    #[test]
+    fn encodes_set_effort_and_clears_with_null() {
+        let line = encode_line(&set_effort_request("effort-1", Some("high".into()))).unwrap();
+        let value: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(
+            value["request"],
+            json!({"subtype": "apply_flag_settings", "settings": {"effortLevel": "high"}})
+        );
+
+        let line = encode_line(&set_effort_request("effort-2", None)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(
+            value["request"],
+            json!({"subtype": "apply_flag_settings", "settings": {"effortLevel": null}})
         );
     }
 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::git::Git;
-use crate::ipc::commands::expand_tilde;
+use crate::paths::expand_tilde;
 
 /// Normalised `owner/repo` slug used to match GitHub PRs to registered repos.
 pub fn parse_origin_url(raw: &str) -> Option<String> {
@@ -11,23 +11,45 @@ pub fn parse_origin_url(raw: &str) -> Option<String> {
         return None;
     }
 
-    if let Some(rest) = trimmed.strip_prefix("git@github.com:") {
-        return normalise_slug(strip_git_suffix(rest));
-    }
-    if let Some(rest) = trimmed.strip_prefix("ssh://git@github.com/") {
-        return normalise_slug(strip_git_suffix(rest));
-    }
+    // URL form (`scheme://[user[:token]@]host[:port]/owner/repo`) or bare `host/owner/repo`.
+    let (authority, path) = if let Some((_, rest)) = trimmed.split_once("://") {
+        rest.split_once('/')?
+    } else if let Some((host, rest)) = scp_parts(trimmed) {
+        // scp-like SSH form: `[user@]host:owner/repo`.
+        (host, rest)
+    } else {
+        trimmed.split_once('/')?
+    };
 
-    let without_scheme = trimmed
-        .strip_prefix("https://")
-        .or_else(|| trimmed.strip_prefix("http://"))
-        .unwrap_or(trimmed);
-
-    let path = without_scheme
-        .strip_prefix("github.com/")
-        .or_else(|| without_scheme.strip_prefix("www.github.com/"))?;
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    let host = host.split_once(':').map_or(host, |(host, _port)| host);
+    if !host.eq_ignore_ascii_case("github.com") && !host.eq_ignore_ascii_case("www.github.com") {
+        return None;
+    }
 
     normalise_slug(strip_git_suffix(path))
+}
+
+/// Splits `[user@]host:path` when the colon comes before any slash.
+fn scp_parts(raw: &str) -> Option<(&str, &str)> {
+    let (host, path) = raw.split_once(':')?;
+    (!host.contains('/')).then_some((host, path))
+}
+
+/// The origin URL with any embedded credentials removed, safe to show in errors.
+pub fn redact_origin_url(raw: &str) -> String {
+    match raw.split_once("://") {
+        Some((scheme, rest)) => {
+            let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+            match authority.rsplit_once('@') {
+                Some((_, host)) => format!("{scheme}://***@{host}/{path}"),
+                None => raw.to_string(),
+            }
+        }
+        None => raw.to_string(),
+    }
 }
 
 fn strip_git_suffix(path: &str) -> &str {
@@ -58,7 +80,14 @@ pub async fn load_repo_origins(
 ) -> Result<HashMap<String, String>> {
     let mut map = HashMap::new();
     for (repo_id, path) in repos {
-        let url = git.remote_origin_url(&expand_tilde(path)).await?;
+        // A moved or deleted repo shouldn't stop PR sync for every other repo.
+        let url = match git.remote_origin_url(&expand_tilde(path)).await {
+            Ok(url) => url,
+            Err(error) => {
+                log::warn!("skipping repo {repo_id} for PR sync: {error}");
+                continue;
+            }
+        };
         if let Some(url) = url
             && let Some(slug) = parse_origin_url(&url)
         {
@@ -93,6 +122,32 @@ mod tests {
         assert_eq!(
             parse_origin_url("ssh://git@github.com/org/repo"),
             Some("org/repo".into())
+        );
+    }
+
+    #[test]
+    fn parse_origin_with_credentials_and_port() {
+        assert_eq!(
+            parse_origin_url("https://x-access-token:ghp_secret@github.com/o/r.git"),
+            Some("o/r".into())
+        );
+        assert_eq!(
+            parse_origin_url("ssh://git@github.com:22/o/r.git"),
+            Some("o/r".into())
+        );
+        assert_eq!(parse_origin_url("github.com/o/r"), Some("o/r".into()));
+        assert_eq!(parse_origin_url("git@gitlab.com:o/r.git"), None);
+    }
+
+    #[test]
+    fn redact_strips_userinfo() {
+        assert_eq!(
+            redact_origin_url("https://x-access-token:ghp_secret@github.com/o/r.git"),
+            "https://***@github.com/o/r.git"
+        );
+        assert_eq!(
+            redact_origin_url("git@github.com:o/r.git"),
+            "git@github.com:o/r.git"
         );
     }
 

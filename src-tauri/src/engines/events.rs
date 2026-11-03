@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::timeline::TimelineStep;
+
 /// Engines Harness can spawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -111,6 +113,25 @@ pub struct StreamedEvent {
     pub event: AgentEvent,
 }
 
+impl AgentEvent {
+    /// The `kind` column of the row this event is saved under; `None` for one that's never saved.
+    pub fn store_kind(&self) -> Option<&'static str> {
+        Some(match self {
+            Self::SessionStarted { .. } => "session",
+            Self::MessageChunk { .. } => "message",
+            Self::ToolCall { .. } | Self::Step { .. } => "tool",
+            Self::Plan { .. } => "plan",
+            Self::Permission { .. } => "permission",
+            Self::ToolCallUpdate { .. } => "tool_update",
+            Self::CurrentTool { .. } => "current_tool",
+            Self::Usage { .. } => "usage",
+            Self::TurnEnd { .. } => "turn_end",
+            Self::EngineExited { .. } => "exit",
+            Self::StreamLagged { .. } => return None,
+        })
+    }
+}
+
 impl From<AgentEvent> for StreamedEvent {
     fn from(event: AgentEvent) -> Self {
         Self { seq: None, event }
@@ -144,6 +165,14 @@ pub enum AgentEvent {
         /// The tool call that spawned this one, when a subagent made it.
         #[serde(default)]
         parent_id: Option<String>,
+    },
+    /// Something the core did in the thread rather than the agent; see [`TimelineStep`].
+    Step {
+        id: String,
+        /// Display text only; the kind in `step` decides how the step looks.
+        title: String,
+        detail: Option<String>,
+        step: TimelineStep,
     },
     Plan {
         entries: Vec<PlanStep>,

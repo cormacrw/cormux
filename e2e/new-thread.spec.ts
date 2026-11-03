@@ -135,11 +135,7 @@ test('a working thread only moves to Working once you leave it', async ({
   const toggle = page.locator('[data-od-id="working-toggle"]')
   await threads.getByRole('button', { name: /^OAuth login,/ }).click()
   await page.evaluate(() =>
-    (
-      window as unknown as {
-        __HARNESS_SET_STATUS__: (name: string, status: string) => void
-      }
-    ).__HARNESS_SET_STATUS__('OAuth login', 'running'),
+    window.__HARNESS__!.setStatus('OAuth login', 'running'),
   )
 
   const row = page.getByRole('button', { name: /^OAuth login,/ })
@@ -181,12 +177,7 @@ test('a thread flashes only while waiting on you, and carries no status text', a
   await expect(rows).toHaveCount(3)
   const setStatus = (name: string, status: string) =>
     page.evaluate(
-      ([name, status]) =>
-        (
-          window as unknown as {
-            __HARNESS_SET_STATUS__: (name: string, status: string) => void
-          }
-        ).__HARNESS_SET_STATUS__(name!, status!),
+      ([name, status]) => window.__HARNESS__!.setStatus(name!, status!),
       [name, status],
     )
 
@@ -226,4 +217,74 @@ test('a thread flashes only while waiting on you, and carries no status text', a
   expect(Math.min(...opacities)).toBeLessThan(0.7)
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/thread-attention.png' })
+})
+
+test('⌘⇧R picks the repo with the arrow keys and ↵', async ({ page }) => {
+  mkdirSync('e2e/output', { recursive: true })
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/?secondRepo')
+  const composer = page.locator('#composer-input')
+  await expect(composer).toBeFocused()
+  const repo = page.locator('#new-thread-repo')
+  const list = page.locator('[data-slot="select-content"]')
+
+  await page.keyboard.press('ControlOrMeta+Shift+R')
+  await expect(list).toBeVisible()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: 'e2e/output/repo-shortcut.png' })
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(list).toHaveCount(0)
+  await expect(repo).toHaveText('api')
+  await expect(composer).toBeFocused()
+})
+
+test('the shortcuts swap one picker for another, keeping the arrow keys', async ({
+  page,
+}) => {
+  await page.goto('/?secondRepo')
+  const composer = page.locator('#composer-input')
+  await expect(composer).toBeFocused()
+  const menu = page.locator('[role="menu"][data-state="open"]')
+  const list = page.locator('[data-slot="select-content"]')
+
+  await page.keyboard.press('ControlOrMeta+Shift+R')
+  await expect(list).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+Shift+M')
+  await expect(menu).toContainText('Model')
+  // The closed picker hands focus back only after its animation.
+  await page.waitForTimeout(400)
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitemradio', { name: 'Fable' })).toBeFocused()
+
+  await page.keyboard.press('ControlOrMeta+Shift+E')
+  await expect(menu).toContainText('Effort')
+  await page.waitForTimeout(400)
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitemradio', { name: 'Low' })).toBeFocused()
+
+  await page.keyboard.press('ControlOrMeta+Shift+R')
+  await expect(list).toBeVisible()
+  await page.waitForTimeout(400)
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#new-thread-repo')).toHaveText('api')
+  await expect(composer).toBeFocused()
+})
+
+test('the new thread page starts on the picked model and effort', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  await page.locator('#composer-input').focus()
+  await page.keyboard.press('ControlOrMeta+Shift+E')
+  await page.getByRole('menuitemradio', { name: 'Low' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Effort: Low' })).toBeVisible()
+
+  await page.locator('#composer-input').fill('Tune the prompts')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Effort: Low' })).toBeVisible()
+  await expect(page.locator('[data-od-id="new-thread"]')).toHaveCount(0)
 })
