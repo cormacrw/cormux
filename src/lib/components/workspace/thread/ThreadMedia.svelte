@@ -4,7 +4,7 @@
     type ResolvedMedia,
   } from '$lib/thread/local-media'
   import FileWarning from '@lucide/svelte/icons/file-warning'
-  import X from '@lucide/svelte/icons/x'
+  import MediaLightbox from './MediaLightbox.svelte'
 
   let {
     source,
@@ -40,13 +40,7 @@
       .pop() ?? source,
   )
   const caption = $derived(alt && alt !== fileName ? alt : '')
-
-  function onKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') expanded = false
-  }
 </script>
-
-<svelte:window onkeydown={expanded ? onKeydown : undefined} />
 
 {#if resolved === undefined}
   <div
@@ -84,29 +78,12 @@
     {/if}
   </figure>
   {#if expanded}
-    <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-label={resolved.name}
-      onclick={() => (expanded = false)}
-      onkeydown={(event) => event.key === 'Escape' && (expanded = false)}
-      tabindex="-1"
-    >
-      <img
-        src={resolved.url}
-        alt={alt || resolved.name}
-        class="max-h-full max-w-full rounded-lg object-contain"
-      />
-      <button
-        type="button"
-        class="absolute top-4 right-4 inline-flex size-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-        aria-label="Close"
-        onclick={() => (expanded = false)}
-      >
-        <X class="size-4" aria-hidden="true" />
-      </button>
-    </div>
+    <MediaLightbox
+      src={resolved.url}
+      alt={alt || resolved.name}
+      name={resolved.name}
+      onClose={() => (expanded = false)}
+    />
   {/if}
 {:else}
   <figure class="my-2 max-w-[42rem]">
