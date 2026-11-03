@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
+use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -112,6 +113,23 @@ impl Default for Metrics {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Walks every process on the machine, so it stays off the main thread and the async workers.
+pub async fn sample_processes(state: &AppState) -> Result<MemorySample> {
+    let metrics = state.metrics.clone();
+    let trees = process_trees(state);
+    tokio::task::spawn_blocking(move || metrics.sample(&trees))
+        .await
+        .map_err(|error| Error::Metrics(error.to_string()))?
+}
+
+fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {
+    let mut trees: HashMap<String, Vec<u32>> = HashMap::new();
+    for (id, pid) in state.process.pids() {
+        trees.entry(id).or_default().push(pid);
+    }
+    trees.into_iter().collect()
 }
 
 #[cfg(test)]

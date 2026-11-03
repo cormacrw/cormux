@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::git::Git;
-use crate::ipc::commands::expand_tilde;
+use crate::paths::expand_tilde;
 
 /// Normalised `owner/repo` slug used to match GitHub PRs to registered repos.
 pub fn parse_origin_url(raw: &str) -> Option<String> {

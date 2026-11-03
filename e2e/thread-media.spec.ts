@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 
 test('media an agent references in a reply renders inline', async ({
   page,
@@ -11,12 +12,8 @@ test('media an agent references in a reply renders inline', async ({
     payload: JSON.stringify({ type: 'messageChunk', role, text }),
     createdAt: '2026-09-29 12:00:00',
   })
-  await page.addInitScript(
-    (timeline) => {
-      ;(window as { __HARNESS_TIMELINE__?: unknown }).__HARNESS_TIMELINE__ =
-        timeline
-    },
-    [
+  await setScenario(page, {
+    timeline: [
       chunk(1, 'user', 'Show me the new settings page'),
       chunk(
         2,
@@ -32,7 +29,7 @@ test('media an agent references in a reply renders inline', async ({
         ].join('\n'),
       ),
     ],
-  )
+  })
   await page.goto('/')
   await page
     .getByRole('button', { name: /OAuth login/ })

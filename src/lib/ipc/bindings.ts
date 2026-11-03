@@ -782,13 +782,25 @@ export type AgentEvent =
  * Never saved: the UI fell behind the stream and dropped `missed` events, which it can
  * read back from the store.
  */
-{ type: "streamLagged"; missed: number } | { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null; parent_id?: string | null } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | 
+{ type: "streamLagged"; missed: number } | { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null; parent_id?: string | null } | 
+/**
+ * Something the core did in the thread rather than the agent; see [`TimelineStep`].
+ */
+{ type: "step"; id: string; title: string; detail: string | null; step: TimelineStep } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | 
 /**
  * Fields an engine fills in after the first `ToolCall`, such as an edit's path.
  */
 { type: "toolCallUpdate"; id: string; title: string | null; kind: ToolKind | null; status: ToolCallStatus | null; locations: string[]; output?: string | null } | { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
 export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
+/**
+ * How a workspace came to be on another branch.
+ */
+export type BranchChange = { kind: "checkedOut"; previous: string } | { kind: "created"; previous: string } | 
+/**
+ * Noticed on disk: something other than Cormux moved the worktree.
+ */
+{ kind: "checkedOutOutside"; previous: string } | { kind: "addedToStack"; on_top_of: string } | { kind: "stackPushed" } | { kind: "stackSynced" }
 /**
  * What happened to a local branch the user asked to delete.
  */
@@ -1075,6 +1087,19 @@ retired: boolean;
  * The thread that started this one through `create_thread`.
  */
 parentThreadId: string | null }
+/**
+ * Something the core did in a thread. New kinds need a row in the UI's `STEP_PRESENTATION`.
+ * Fields stay snake_case, like `AgentEvent`'s: specta exports them as written.
+ */
+export type TimelineStep = { kind: "agentStopped" } | { kind: "agentPaused" } | { kind: "agentResumed" } | 
+/**
+ * `ended_session` is what the conversation before it can be resumed from.
+ */
+{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | 
+/**
+ * On the Reviewer's thread, when approving suggestions hands them over.
+ */
+{ kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
 export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null; 

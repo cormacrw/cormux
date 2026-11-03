@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 use crate::error::{Error, Result};
+use crate::workspace::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
 use types::{
     ApprovalRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow, SettingRow,
     ThreadActivityRow, ThreadEventPage, ThreadEventRow, ThreadRow, WorkspaceRow,
@@ -469,38 +470,40 @@ impl Store {
         })
     }
 
-    pub fn mark_thread_idle(&self, thread_id: &str) -> Result<()> {
+    /// Writes the status and re-derives the workspace's from its threads (see
+    /// `status_from_threads`), so the two can't disagree. An archived workspace stays as it is.
+    pub fn set_thread_status(&self, thread_id: &str, status: ThreadStatus) -> Result<()> {
         self.with_conn(|conn| {
-            conn.prepare_cached("UPDATE threads SET status = 'idle' WHERE id = ?1")?
-                .execute([thread_id])?;
-            // Another thread's plan still waiting on the user keeps the workspace waiting.
-            conn.prepare_cached(
-                "UPDATE workspaces
-                 SET status = CASE
-                     WHEN EXISTS (
-                         SELECT 1 FROM threads
-                         WHERE workspace_id = workspaces.id AND closed_at IS NULL
-                             AND status = 'waiting'
-                     ) THEN 'waiting' ELSE 'idle' END
-                 WHERE archived_at IS NULL
-                     AND id = (SELECT workspace_id FROM threads WHERE id = ?1)
-                     AND NOT EXISTS (
-                         SELECT 1 FROM threads
-                         WHERE workspace_id = workspaces.id AND closed_at IS NULL
-                             AND status = 'running'
-                     )",
-            )?
-            .execute([thread_id])?;
-            Ok(())
-        })
-    }
-
-    pub fn set_thread_status(&self, thread_id: &str, status: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE threads SET status = ?1 WHERE id = ?2",
-                rusqlite::params![status, thread_id],
-            )?;
+            conn.prepare_cached("UPDATE threads SET status = ?1 WHERE id = ?2")?
+                .execute(rusqlite::params![status.as_str(), thread_id])?;
+            let workspace = conn
+                .prepare_cached(
+                    "SELECT w.id, w.status FROM workspaces w
+                     JOIN threads t ON t.workspace_id = w.id
+                     WHERE t.id = ?1 AND w.archived_at IS NULL",
+                )?
+                .query_map([thread_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .next()
+                .transpose()?;
+            let Some((workspace_id, current)) = workspace else {
+                return Ok(());
+            };
+            let threads = conn
+                .prepare_cached(
+                    "SELECT status FROM threads WHERE workspace_id = ?1 AND closed_at IS NULL",
+                )?
+                .query_map([&workspace_id], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let derived = status_from_threads(
+                WorkspaceLifecycle::parse(&current),
+                threads.iter().map(|raw| ThreadStatus::parse(raw)),
+            );
+            if derived.as_str() != current {
+                conn.prepare_cached("UPDATE workspaces SET status = ?1 WHERE id = ?2")?
+                    .execute(rusqlite::params![derived.as_str(), workspace_id])?;
+            }
             Ok(())
         })
     }
@@ -1520,17 +1523,29 @@ mod tests {
         store.upsert_thread(&thread("b", "w1", "running")).unwrap();
         let status = |store: &Store| store.workspace_by_id("w1").unwrap().unwrap().status;
 
-        store.mark_thread_idle("a").unwrap();
+        store.set_thread_status("a", ThreadStatus::Idle).unwrap();
         assert_eq!(status(&store), "running");
-        store.set_thread_status("b", "waiting").unwrap();
-        store.mark_thread_idle("a").unwrap();
-        assert_eq!(status(&store), "waiting");
-        store.mark_thread_idle("b").unwrap();
+        store.set_thread_status("b", ThreadStatus::Idle).unwrap();
         assert_eq!(status(&store), "idle");
+        store.set_thread_status("a", ThreadStatus::Running).unwrap();
+        assert_eq!(status(&store), "running");
 
         store.archive_workspace("w1").unwrap();
-        store.mark_thread_idle("a").unwrap();
+        store.set_thread_status("a", ThreadStatus::Idle).unwrap();
         assert_eq!(status(&store), "archived");
+    }
+
+    #[test]
+    fn a_thread_moving_leaves_a_workspace_in_setup_or_teardown_alone() {
+        let store = Store::new();
+        store.open_in_memory().unwrap();
+        store.upsert_thread(&thread("a", "w1", "running")).unwrap();
+        for held in ["provisioning", "provisioningFailed", "tearingDown"] {
+            workspace(&store, "w1", held);
+            store.set_thread_status("a", ThreadStatus::Idle).unwrap();
+            store.set_thread_status("a", ThreadStatus::Running).unwrap();
+            assert_eq!(store.workspace_by_id("w1").unwrap().unwrap().status, held);
+        }
     }
 
     #[test]
@@ -1603,7 +1618,7 @@ mod tests {
             })
             .unwrap();
         store.append_event("t1", "message", "{}").unwrap();
-        store.mark_thread_idle("t1").unwrap();
+        store.set_thread_status("t1", ThreadStatus::Idle).unwrap();
 
         let snapshot = store.snapshot().unwrap();
         assert!(snapshot.threads.is_empty());

@@ -1,8 +1,5 @@
 import type { AgentEvent } from '$lib/ipc/bindings'
-import { NEW_SESSION_TITLE } from './new-session'
-
-/** Written by the core's `resume_thread_session`. */
-export const RESUME_TITLE = 'Resumed an earlier conversation'
+import { legacySessionBoundary } from './legacy-steps'
 
 type TimedEvent = { seq: number; atMs: number; event: AgentEvent }
 
@@ -23,24 +20,17 @@ export type Conversation = {
   sessionId: string | null
 }
 
-function stepDetail(event: AgentEvent): Record<string, unknown> | null {
-  if (event.type !== 'toolCall' || !event.detail) return null
-  try {
-    const parsed: unknown = JSON.parse(event.detail)
-    return parsed && typeof parsed === 'object'
-      ? (parsed as Record<string, unknown>)
-      : null
-  } catch {
-    return null
+/** What a step marking a new or resumed session says about the conversations around it. */
+function sessionBoundary(event: AgentEvent) {
+  if (event.type !== 'step') return legacySessionBoundary(event)
+  const { step } = event
+  if (step.kind === 'sessionStarted') {
+    return { ended: step.ended_session, conversation: null }
   }
-}
-
-function isStep(event: AgentEvent, title: string) {
-  return (
-    event.type === 'toolCall' &&
-    event.id.startsWith('control-') &&
-    event.title === title
-  )
+  if (step.kind === 'sessionResumed') {
+    return { ended: step.ended_session, conversation: step.conversation }
+  }
+  return null
 }
 
 /** The conversation showing now, and the earlier ones you can resume (newest first). */
@@ -67,13 +57,10 @@ export function splitConversations(events: TimedEvent[]): {
 
   for (const row of events) {
     const { event } = row
-    const starting = isStep(event, NEW_SESSION_TITLE)
-    const resuming = isStep(event, RESUME_TITLE)
-    if (starting || resuming) {
-      const detail = stepDetail(event)
-      const ended = detail?.endedSession
+    const boundary = sessionBoundary(event)
+    if (boundary) {
+      const { ended, conversation: target } = boundary
       if (typeof ended === 'string') current.sessionId = ended
-      const target = resuming ? detail?.conversation : null
       current =
         typeof target === 'string' && all.has(target)
           ? all.get(target)!

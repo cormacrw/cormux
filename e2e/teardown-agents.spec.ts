@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 
 test('deleting a workspace takes its agents out of the sidebar with it', async ({
   page,
@@ -20,11 +21,7 @@ test('deleting a workspace takes its agents out of the sidebar with it', async (
 })
 
 test('a clean worktree is deleted without asking', async ({ page }) => {
-  await page.addInitScript(() => {
-    ;(
-      window as { __HARNESS_CLEAN_TEARDOWN__?: string }
-    ).__HARNESS_CLEAN_TEARDOWN__ = 'ws-auth'
-  })
+  await setScenario(page, { cleanTeardown: 'ws-auth' })
   await page.goto('/')
   const row = page.getByRole('button', { name: /^OAuth login,/ })
   await row.click()

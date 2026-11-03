@@ -1,39 +1,30 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use tauri::{AppHandle, State, ipc::Channel};
-use uuid::Uuid;
 
+use crate::app::WorkspaceAppAction;
 use crate::clickup::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
-use crate::composer::{
-    persist_control_step, persist_control_step_with_detail, persist_user_message,
-};
 use crate::engines::{EngineKind, StreamedEvent, ThreadModels};
 use crate::error::{Error, Result};
-use crate::feedback::{emit_approval_counts, emit_toast, toast_for_approval};
-use crate::ipc::subscriptions::SubscriptionHandle;
+use crate::feedback::Output;
+use crate::ipc::events::output;
+use crate::ipc::subscriptions::{stream_agent_events, stream_diffs, stream_pty};
 use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
-use crate::store::types::{ThreadRow, WorkspaceRow};
-use crate::workspace::ThreadActivity;
+use crate::store::types::RepoRecord;
+use crate::turn::thread_row;
 
 use super::types::{
-    AddRepoInput, AgentEvent, BranchDeletion, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
+    AddRepoInput, BranchDeletion, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
     CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
-    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, LocalBranchRow, LocalBranchesResult,
-    PtyChunk, RemoveRepoInput, RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime,
+    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, LocalBranchesResult, PtyChunk,
+    RemoveRepoInput, RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime,
     ResolveApprovalResult, ResumeThreadSessionInput, SendWorkspaceFindingsInput,
     SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput,
     SetRepoSingleInstanceInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
     TeardownInput, TeardownPreview, TestRepoSetupInput, TestRepoSetupResult,
     WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
-use crate::app::WorkspaceAppAction;
-use crate::store::types::RepoRecord;
-
-/// Settings key for the ClickUp folder whose lists are the sprints.
-const CLICKUP_FOLDER_KEY: &str = "clickupFolderId";
 
 #[tauri::command]
 #[specta::specta]
@@ -89,27 +80,8 @@ pub async fn control_workspace_app(
     };
     state
         .apps
-        .control(&app, &state, &input.workspace_id, action)
+        .control(&output(&app), &state, &input.workspace_id, action)
         .await
-}
-
-fn repo_paths_match(left: &str, right: &Path) -> bool {
-    let left_path = expand_tilde(left);
-    left_path.canonicalize().ok() == right.canonicalize().ok()
-}
-
-fn upsert_repo_record(app: &AppHandle, state: &AppState, repo: RepoRecord) -> Result<()> {
-    state.store.upsert_repo(&repo)?;
-    state.notify(app, StateChangeKind::WorkspaceStatus);
-    Ok(())
-}
-
-/// A registered repo, or the error every repo command gives for an unknown id.
-fn repo_record(state: &AppState, repo_id: &str) -> Result<RepoRecord> {
-    state
-        .store
-        .repo_by_id(repo_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))
 }
 
 #[tauri::command]
@@ -119,12 +91,7 @@ pub async fn set_repo_run_command(
     input: SetRepoRunCommandInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let mut repo = repo_record(&state, &input.repo_id)?;
-    repo.run_command = input
-        .run_command
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    upsert_repo_record(&app, &state, repo)
+    crate::repos::set_run_command(&output(&app), &state, input)
 }
 
 #[tauri::command]
@@ -134,9 +101,7 @@ pub async fn set_repo_single_instance(
     input: SetRepoSingleInstanceInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let mut repo = repo_record(&state, &input.repo_id)?;
-    repo.single_instance = input.single_instance;
-    upsert_repo_record(&app, &state, repo)
+    crate::repos::set_single_instance(&output(&app), &state, input)
 }
 
 #[tauri::command]
@@ -146,9 +111,7 @@ pub async fn set_repo_setup_commands(
     input: SetRepoSetupCommandsInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let mut repo = repo_record(&state, &input.repo_id)?;
-    repo.setup_commands = input.setup_commands;
-    upsert_repo_record(&app, &state, repo)
+    crate::repos::set_setup_commands(&output(&app), &state, input)
 }
 
 #[tauri::command]
@@ -158,24 +121,7 @@ pub async fn set_repo_default_branch(
     input: SetRepoDefaultBranchInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let mut repo = repo_record(&state, &input.repo_id)?;
-    let branch = input.default_branch.trim().to_string();
-    if branch.is_empty() {
-        return Err(Error::Workspace("Pick a default branch".into()));
-    }
-    if let Some(workspace) = state
-        .store
-        .live_workspaces()?
-        .iter()
-        .find(|row| row.repo_id == repo.id && row.branch == branch)
-    {
-        return Err(Error::Workspace(format!(
-            "{} has {branch} checked out. Switch it to another branch first.",
-            workspace.name
-        )));
-    }
-    repo.default_branch = Some(branch);
-    upsert_repo_record(&app, &state, repo)
+    crate::repos::set_default_branch(&output(&app), &state, input)
 }
 
 /// Commits each repo's default branch is behind and ahead of `origin`, against the last
@@ -183,22 +129,7 @@ pub async fn set_repo_default_branch(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_repo_git(state: State<'_, AppState>) -> Result<Vec<RepoGitRuntime>> {
-    let mut rows = Vec::new();
-    for repo in state.store.repos()? {
-        let path = expand_tilde(&repo.path);
-        let branch = repo.default_branch_or_main();
-        // One `rev-list --left-right` gives both counts, instead of a process per direction.
-        let (ahead, behind) = state
-            .git
-            .ahead_behind(&path, branch, &format!("origin/{branch}"))
-            .await?;
-        rows.push(RepoGitRuntime {
-            repo_id: repo.id,
-            behind,
-            ahead,
-        });
-    }
-    Ok(rows)
+    crate::repos::git_runtime(&state).await
 }
 
 /// Fast-forward the repo checkout's default branch from origin.
@@ -209,39 +140,7 @@ pub async fn pull_repo_default_branch(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let repo = repo_record(&state, &repo_id)?;
-    let branch = repo.default_branch_or_main().to_string();
-    let pulled = state
-        .git
-        .pull_branch(&expand_tilde(&repo.path), &branch)
-        .await?;
-
-    // Workspaces count how far behind origin/<base> they are, which the pull just moved.
-    let updates = state.fetch.tick().await?;
-    crate::git_workspace::apply_behind_updates(&state, &updates).await;
-    state.notify(&app, StateChangeKind::BehindCounts);
-
-    let summary = match pulled {
-        0 => " is up to date".to_string(),
-        1 => ": pulled 1 commit".to_string(),
-        count => format!(": pulled {count} commits"),
-    };
-    emit_toast(
-        &app,
-        crate::ipc::types::ToastRaisedPayload {
-            tone: crate::ipc::types::ToastTone::Ok,
-            parts: vec![
-                crate::ipc::types::ToastPart::Text {
-                    value: format!("{} ", repo.name),
-                },
-                crate::ipc::types::ToastPart::Code { value: branch },
-                crate::ipc::types::ToastPart::Text { value: summary },
-            ],
-            workspace_id: None,
-            thread_id: None,
-        },
-    );
-    Ok(())
+    crate::repos::pull_default_branch(&output(&app), &state, &repo_id).await
 }
 
 #[tauri::command]
@@ -251,70 +150,7 @@ pub async fn add_repo(
     input: AddRepoInput,
     state: State<'_, AppState>,
 ) -> Result<RepoRecord> {
-    let (normalized, id) = crate::harness_config::validate_add_path(&input.path)?;
-    let expanded = expand_tilde(&normalized);
-    if !expanded.is_dir() {
-        return Err(Error::Git(format!(
-            "folder does not exist: {}",
-            expanded.display()
-        )));
-    }
-
-    let toplevel = state
-        .git
-        .show_toplevel(&expanded)
-        .await
-        .map_err(|_| Error::Git("That folder is not a git repository".into()))?;
-    let display_path = crate::harness_config::path_for_display(&toplevel);
-
-    let repos = state.store.repos()?;
-    if repos
-        .iter()
-        .any(|row| repo_paths_match(&row.path, &toplevel))
-    {
-        return Err(Error::Workspace("That folder is already added".into()));
-    }
-    if repos.iter().any(|row| row.id == id) {
-        return Err(Error::Workspace(format!(
-            "A repo named {id} is already added"
-        )));
-    }
-
-    let default_branch = state.git.default_branch(&toplevel).await.ok();
-    let committed = crate::harness_config::read_committed_config(&toplevel);
-    let suggested = crate::harness_config::suggest_commands(&toplevel);
-    let (setup_commands, run_command) =
-        crate::harness_config::merge_initial_config(committed, suggested);
-
-    let name = id.clone();
-    let record = RepoRecord {
-        id,
-        path: display_path.clone(),
-        name,
-        default_branch,
-        setup_commands,
-        run_command,
-        single_instance: false,
-    };
-    upsert_repo_record(&app, &state, record.clone())?;
-
-    emit_toast(
-        &app,
-        crate::ipc::types::ToastRaisedPayload {
-            tone: crate::ipc::types::ToastTone::Ok,
-            parts: vec![crate::ipc::types::ToastPart::Text {
-                value: format!(
-                    "Added {}. Add its setup and run commands below.",
-                    record.name
-                ),
-            }],
-            workspace_id: None,
-            thread_id: None,
-        },
-    );
-    resync_prs(&app);
-
-    Ok(record)
+    crate::repos::add(&output(&app), &state, input).await
 }
 
 #[tauri::command]
@@ -324,48 +160,7 @@ pub async fn remove_repo(
     input: RemoveRepoInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let repo = repo_record(&state, &input.repo_id)?;
-
-    let used = state.store.count_active_workspaces_for_repo(&repo.id)?;
-    if used > 0 {
-        let tear = if used == 1 { "it" } else { "them" };
-        return Err(Error::Workspace(format!(
-            "{} has {used} workspace{}. Tear {tear} down first.",
-            repo.name,
-            if used == 1 { "" } else { "s" }
-        )));
-    }
-    if state.store.repo_count()? <= 1 {
-        return Err(Error::Workspace("Harness needs at least one repo".into()));
-    }
-
-    state.store.delete_repo(&repo.id)?;
-    state.notify(&app, StateChangeKind::WorkspaceStatus);
-
-    emit_toast(
-        &app,
-        crate::ipc::types::ToastRaisedPayload {
-            tone: crate::ipc::types::ToastTone::Ok,
-            parts: vec![crate::ipc::types::ToastPart::Text {
-                value: format!("Removed {}. The folder on disk wasn't touched.", repo.name),
-            }],
-            workspace_id: None,
-            thread_id: None,
-        },
-    );
-    resync_prs(&app);
-    Ok(())
-}
-
-/// The PR list only shows registered repos, so re-sync when that set changes.
-fn resync_prs(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state = tauri::Manager::state::<AppState>(&app);
-        if let Err(error) = state.pr_sync.sync_app(&app).await {
-            log::warn!("PR sync after repo change failed: {error}");
-        }
-    });
+    crate::repos::remove(&output(&app), &state, input).await
 }
 
 #[tauri::command]
@@ -374,65 +169,7 @@ pub async fn test_repo_setup(
     input: TestRepoSetupInput,
     state: State<'_, AppState>,
 ) -> Result<TestRepoSetupResult> {
-    let repo = repo_record(&state, &input.repo_id)?;
-    let repo_path = expand_tilde(&repo.path);
-    let setup_raw = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
-    let commands = crate::provisioning::parse_setup_commands(&setup_raw);
-    if commands.is_empty() {
-        return Ok(TestRepoSetupResult {
-            ok: true,
-            message: "No setup commands to run.".into(),
-        });
-    }
-
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let harness_env = vec![
-        ("HARNESS_REPO_PATH".into(), repo.path.clone()),
-        (
-            "HARNESS_BRANCH".into(),
-            repo.default_branch.clone().unwrap_or_else(|| "main".into()),
-        ),
-    ];
-
-    for (index, command) in commands.iter().enumerate() {
-        let session_id = format!("test-setup-{}-{index}", repo.id);
-        state.process.spawn_session(
-            &session_id,
-            &shell,
-            &["-l", "-c", command],
-            Some(&repo_path),
-            &harness_env,
-        )?;
-        let deadline = std::time::Instant::now() + crate::provisioning::SETUP_COMMAND_TIMEOUT;
-        loop {
-            if let Some(code) = state.process.exit_code(&session_id) {
-                if code != 0 {
-                    return Ok(TestRepoSetupResult {
-                        ok: false,
-                        message: format!("Command failed ({code}): {command}"),
-                    });
-                }
-                break;
-            }
-            if std::time::Instant::now() >= deadline {
-                let _ = state.process.stop_session(&session_id);
-                return Ok(TestRepoSetupResult {
-                    ok: false,
-                    message: format!("Command timed out: {command}"),
-                });
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-    }
-
-    Ok(TestRepoSetupResult {
-        ok: true,
-        message: format!(
-            "Ran {} setup command{} in the repo checkout.",
-            commands.len(),
-            if commands.len() == 1 { "" } else { "s" }
-        ),
-    })
+    crate::repos::test_setup(&state, input).await
 }
 
 #[tauri::command]
@@ -447,7 +184,7 @@ pub async fn set_setting(
         return Err(Error::Store("setting key required".into()));
     }
     state.store.set_setting(key, &input.value)?;
-    state.notify(&app, StateChangeKind::WorkspaceStatus);
+    state.notify(&output(&app), StateChangeKind::WorkspaceStatus);
     Ok(())
 }
 
@@ -455,7 +192,7 @@ pub async fn set_setting(
 #[specta::specta]
 pub async fn reload_environment(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.shell_env.write().await.reload().await?;
-    state.notify(&app, StateChangeKind::Environment);
+    state.notify(&output(&app), StateChangeKind::Environment);
     Ok(())
 }
 
@@ -464,19 +201,9 @@ pub async fn reload_environment(app: AppHandle, state: State<'_, AppState>) -> R
 pub async fn get_metrics(state: State<'_, AppState>) -> Result<crate::metrics::MemorySample> {
     match state.metrics.latest() {
         Some(sample) => Ok(sample),
-        None => sample_metrics(&state).await,
+        None => crate::metrics::sample_processes(&state).await,
     }
 }
-
-/// Walks every process on the machine, so it stays off the main thread and the async workers.
-pub(crate) async fn sample_metrics(state: &AppState) -> Result<crate::metrics::MemorySample> {
-    let metrics = state.metrics.clone();
-    let trees = process_trees(state);
-    tokio::task::spawn_blocking(move || metrics.sample(&trees))
-        .await
-        .map_err(|error| crate::error::Error::Metrics(error.to_string()))?
-}
-
 /// A window of a thread's transcript: its newest rows by default, those after `after_seq` to
 /// catch up, or those before `before_seq` to scroll back.
 #[tauri::command]
@@ -494,8 +221,8 @@ pub async fn get_thread_events(
         .await
 }
 
-fn emit_settings_changed(app: &AppHandle, state: &AppState) {
-    state.notify(app, StateChangeKind::WorkspaceStatus);
+fn emit_settings_changed(out: &Output, state: &AppState) {
+    state.notify(out, StateChangeKind::WorkspaceStatus);
 }
 
 /// Checks the key with ClickUp, then saves it to `~/.cormux/credentials.json`.
@@ -507,7 +234,7 @@ pub async fn set_clickup_api_key(
     state: State<'_, AppState>,
 ) -> Result<()> {
     state.clickup.save_key(&key).await?;
-    emit_settings_changed(&app, &state);
+    emit_settings_changed(&output(&app), &state);
     Ok(())
 }
 
@@ -515,7 +242,7 @@ pub async fn set_clickup_api_key(
 #[specta::specta]
 pub async fn clear_clickup_api_key(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.clickup.clear_key()?;
-    emit_settings_changed(&app, &state);
+    emit_settings_changed(&output(&app), &state);
     Ok(())
 }
 
@@ -547,12 +274,7 @@ pub async fn clickup_folders(
 #[tauri::command]
 #[specta::specta]
 pub async fn clickup_board(state: State<'_, AppState>) -> Result<ClickupBoard> {
-    let folder_id = state
-        .store
-        .get_setting(CLICKUP_FOLDER_KEY)?
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| Error::Clickup("choose a sprint folder in Settings".into()))?;
-    state.clickup.board(&folder_id).await
+    state.clickup.chosen_board(&state.store).await
 }
 
 #[tauri::command]
@@ -587,7 +309,7 @@ pub async fn set_clickup_task_points(
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_pull_requests(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    state.pr_sync.sync_app(&app).await
+    state.pr_sync.sync_app(&output(&app), &state).await
 }
 
 /// High-volume ordered stream of normalised agent events for one thread.
@@ -598,56 +320,8 @@ pub fn subscribe_agent_events(
     channel: Channel<StreamedEvent>,
     state: State<'_, AppState>,
 ) -> Result<u32> {
-    let engines = state.engines.clone();
-    let mut sub = state.subscriptions.register();
-    let id = sub.id;
-    tauri::async_runtime::spawn(async move {
-        // A new session replaces the engine, so when one closes wait for the next.
-        while let Some(mut rx) = subscribe_thread(&engines, &thread_id, &mut sub).await {
-            loop {
-                let event = tokio::select! {
-                    _ = sub.stopped() => return,
-                    event = rx.recv() => event,
-                };
-                match event {
-                    Ok(event) => {
-                        let _ = channel.send(event);
-                    }
-                    // Every event is saved before it's sent, so the UI can read back what it missed.
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
-                        let _ = channel.send(AgentEvent::StreamLagged { missed }.into());
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        }
-    });
-    Ok(id)
+    Ok(stream_agent_events(&state, thread_id, channel))
 }
-
-/// Wait for the thread's engine session to exist, giving up if the subscription is cancelled
-/// first. An idle thread on screen has no engine until its next prompt, so this waits on the
-/// registry's spawn signal rather than polling.
-async fn subscribe_thread(
-    engines: &crate::engines::EngineRegistry,
-    thread_id: &str,
-    sub: &mut SubscriptionHandle,
-) -> Option<tokio::sync::broadcast::Receiver<StreamedEvent>> {
-    loop {
-        // Armed before the check, so a spawn landing between the two still wakes this.
-        let spawned = engines.spawned().notified();
-        tokio::pin!(spawned);
-        spawned.as_mut().enable();
-        if let Ok(rx) = engines.subscribe(thread_id) {
-            return Some(rx);
-        }
-        tokio::select! {
-            _ = sub.stopped() => return None,
-            () = spawned => {}
-        }
-    }
-}
-
 /// Stop the background task behind a `subscribe_*` channel.
 #[tauri::command]
 #[specta::specta]
@@ -673,37 +347,8 @@ pub async fn resolve_approval(
     deny_reason: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<ResolveApprovalResult> {
-    let (row, payload) =
-        crate::approvals::mark_resolved(&state.store, &id, approved, deny_reason.clone())?;
-    let deny_message = if approved {
-        None
-    } else {
-        deny_reason.or(payload.deny_reason.clone())
-    };
-    state
-        .approvals
-        .resolve(&id, approved, deny_message.clone())
-        .await?;
-    let hints = crate::approvals::apply_harness_effects(&state, &row, &payload, approved)?;
-    notify_approval_resolved(&app, &state);
-    if !approved && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
-        let _ = state
-            .engines
-            .prompt(&row.thread_id, format!("Approval denied: {reason}"));
-    }
-    if let Some(payload) = toast_for_approval(&row.tool, approved) {
-        emit_toast(&app, payload);
-    }
-    Ok(ResolveApprovalResult {
-        focus_composer: hints.focus_composer,
-    })
+    crate::approvals::resolve_approval(&output(&app), &state, &id, approved, deny_reason).await
 }
-
-fn notify_approval_resolved(app: &AppHandle, state: &AppState) {
-    emit_approval_counts(app, state);
-    state.notify(app, StateChangeKind::WorkspaceStatus);
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn answer_question(
@@ -712,13 +357,7 @@ pub async fn answer_question(
     answers: BTreeMap<String, String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::approvals::mark_answered(&state.store, &id, answers.clone())?;
-    state.approvals.complete(
-        &id,
-        crate::approvals::ApprovalDecision::Answered { answers },
-    )?;
-    notify_approval_resolved(&app, &state);
-    Ok(())
+    crate::approvals::answer_question(&output(&app), &state, &id, answers)
 }
 
 #[tauri::command]
@@ -730,24 +369,14 @@ pub async fn resolve_all_approvals(
     deny_reason: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<ResolveApprovalResult> {
-    let pending = state.store.pending_approvals_for_thread(&thread_id)?;
-    let mut focus_composer = false;
-    // Approving a question would answer it with nothing, so those wait for the user.
-    for row in pending
-        .into_iter()
-        .filter(|row| !approved || row.tool != crate::approvals::QUESTION_TOOL)
-    {
-        let result = resolve_approval(
-            app.clone(),
-            row.id,
-            approved,
-            deny_reason.clone(),
-            state.clone(),
-        )
-        .await?;
-        focus_composer |= result.focus_composer;
-    }
-    Ok(ResolveApprovalResult { focus_composer })
+    crate::approvals::resolve_all_approvals(
+        &output(&app),
+        &state,
+        &thread_id,
+        approved,
+        deny_reason,
+    )
+    .await
 }
 
 /// High-volume ordered stream of PTY output for a workspace's run/setup log.
@@ -758,36 +387,7 @@ pub fn subscribe_pty(
     channel: Channel<PtyChunk>,
     state: State<'_, AppState>,
 ) -> Result<u32> {
-    let process = state.process.clone();
-    let sub = state.subscriptions.register();
-    let id = sub.id;
-    tauri::async_runtime::spawn(async move {
-        // Replay the log so reopening the Output tab shows what already ran.
-        let mut lines = process.take_log_snapshot(&workspace_id);
-        let activity = process.activity();
-        let mut sub = sub;
-        while !sub.is_stopped() {
-            // Armed first, so a line landing just after the drain still wakes this loop.
-            let woken = activity.notified();
-            tokio::pin!(woken);
-            woken.as_mut().enable();
-            // Run and setup sessions are forwarded into the workspace log by their monitors.
-            lines.extend(process.drain_pending(&workspace_id));
-            for line in lines.drain(..) {
-                let _ = channel.send(PtyChunk {
-                    workspace_id: workspace_id.clone(),
-                    line,
-                });
-            }
-            tokio::select! {
-                () = woken => {}
-                () = sub.stopped() => break,
-            }
-            // Lets a burst of output arrive as one batch.
-            tokio::time::sleep(Duration::from_millis(30)).await;
-        }
-    });
-    Ok(id)
+    Ok(stream_pty(&state, workspace_id, channel))
 }
 
 /// High-volume ordered stream of live diff updates for a worktree.
@@ -798,37 +398,7 @@ pub async fn subscribe_diffs(
     channel: Channel<DiffUpdate>,
     state: State<'_, AppState>,
 ) -> Result<u32> {
-    if let Err(error) = crate::git_workspace::load_workspace(&state, &workspace_id).await {
-        log::warn!("diff watch for {workspace_id} failed: {error}");
-    }
-    let diffs = state.diffs.clone();
-    let mut sub = state.subscriptions.register();
-    let id = sub.id;
-    let subscription = diffs.subscribe(&workspace_id);
-    let mut updates = diffs.updates();
-    tauri::async_runtime::spawn(async move {
-        let _subscription = subscription;
-        let mut last = None;
-        loop {
-            if let Some(diff) = diffs.latest(&workspace_id)
-                && !last
-                    .as_ref()
-                    .is_some_and(|sent| std::sync::Arc::ptr_eq(sent, &diff))
-            {
-                let _ = channel.send(DiffUpdate {
-                    workspace_id: workspace_id.clone(),
-                    path: String::new(),
-                    diff: Some((*diff).clone()),
-                });
-                last = Some(diff);
-            }
-            tokio::select! {
-                _ = updates.changed() => {}
-                () = sub.stopped() => break,
-            }
-        }
-    });
-    Ok(id)
+    Ok(stream_diffs(&state, workspace_id, channel).await)
 }
 
 /// Force-refresh the live diff snapshot for one workspace (branch switch, pull, etc.).
@@ -838,22 +408,7 @@ pub async fn refresh_workspace_diff(
     workspace_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    use std::path::Path;
-
-    let workspace = crate::git_workspace::load_workspace(&state, &workspace_id).await?;
-    if let Ok(Some(row)) = state.store.workspace_by_id(&workspace_id)
-        && row.kind.as_deref() == Some("review")
-    {
-        state.diffs.default_diff_target(
-            &workspace_id,
-            crate::git::DiffTarget::head_against(workspace.base.clone()),
-        );
-    }
-    state
-        .diffs
-        .compute(&workspace_id, Path::new(&workspace.worktree_path))
-        .await?;
-    Ok(())
+    crate::git_workspace::refresh_diff(&state, &workspace_id).await
 }
 
 /// Point the Changes panel at uncommitted work (`None`) or a branch against its base.
@@ -864,15 +419,7 @@ pub async fn set_workspace_diff_target(
     target: Option<crate::git::DiffTarget>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    use std::path::Path;
-
-    let workspace = crate::git_workspace::load_workspace(&state, &workspace_id).await?;
-    state.diffs.set_diff_target(&workspace_id, target);
-    state
-        .diffs
-        .compute(&workspace_id, Path::new(&workspace.worktree_path))
-        .await?;
-    Ok(())
+    crate::git_workspace::set_diff_target(&state, &workspace_id, target).await
 }
 
 /// Throw away uncommitted changes to `paths` (all of them when empty), then refresh Changes.
@@ -883,13 +430,7 @@ pub async fn discard_workspace_changes(
     paths: Vec<String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    use std::path::Path;
-
-    let workspace = crate::git_workspace::load_workspace(&state, &workspace_id).await?;
-    let worktree = Path::new(&workspace.worktree_path);
-    state.git.discard(worktree, &paths).await?;
-    state.diffs.compute(&workspace_id, worktree).await?;
-    Ok(())
+    crate::git_workspace::discard_changes(&state, &workspace_id, &paths).await
 }
 
 #[tauri::command]
@@ -899,7 +440,7 @@ pub async fn create_review_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::review::CreateReviewWorkspaceResult> {
-    crate::review::create_review_workspace(&app, &state, input).await
+    crate::review::create_review_workspace(&output(&app), &state, input).await
 }
 
 #[tauri::command]
@@ -907,8 +448,9 @@ pub async fn create_review_workspace(
 pub async fn submit_workspace_review(
     input: crate::review::SubmitWorkspaceReviewInput,
     app: AppHandle,
+    state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::review::submit_workspace_review(&app, input).await
+    crate::review::submit_workspace_review(&output(&app), &state, input).await
 }
 
 /// Start a Reviewer on a regular workspace's own branch. Returns its thread id.
@@ -919,8 +461,9 @@ pub async fn start_branch_review(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String> {
-    let thread_id = crate::review::start_branch_review(&app, &state, &workspace_id).await?;
-    emit_composer_snapshot(&app, &state);
+    let out = output(&app);
+    let thread_id = crate::review::start_branch_review(&out, &state, &workspace_id).await?;
+    emit_composer_snapshot(&out, &state);
     Ok(thread_id)
 }
 
@@ -931,51 +474,7 @@ pub async fn summarise_workspace(
     workspace_id: String,
     state: State<'_, AppState>,
 ) -> Result<WorkspaceSummaryResult> {
-    use crate::error::Error;
-    use crate::summaries::{self, SUMMARY_MODEL_LABEL};
-
-    let workspace = state
-        .store
-        .workspace_by_id(&workspace_id)?
-        .filter(|row| row.archived_at.is_none())
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-
-    if let (Some(summary), Some(at)) = (&workspace.summary, &workspace.summary_at)
-        && !summary.is_empty()
-    {
-        return Ok(WorkspaceSummaryResult {
-            workspace_id,
-            summary: summary.clone(),
-            summary_at: at.clone(),
-            summary_source: workspace.summary_source.clone(),
-            from_llm: true,
-        });
-    }
-
-    let threads = state.store.threads_for_workspace(&workspace_id)?;
-
-    let prompt = summaries::build_summary_prompt(&workspace, &threads);
-    let (summary, from_llm) = match state.llm.summarise(&workspace_id, &prompt).await {
-        Ok(Some(result)) if !result.text.is_empty() => (result.text, true),
-        _ => (summaries::fallback_summary(&workspace, &threads), false),
-    };
-
-    state
-        .store
-        .set_workspace_summary(&workspace_id, &summary, SUMMARY_MODEL_LABEL)?;
-
-    let updated = state
-        .store
-        .workspace_by_id(&workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-
-    Ok(WorkspaceSummaryResult {
-        workspace_id,
-        summary,
-        summary_at: updated.summary_at.unwrap_or_else(|| "now".into()),
-        summary_source: updated.summary_source,
-        from_llm,
-    })
+    crate::summaries::summarise(&state, workspace_id).await
 }
 
 #[tauri::command]
@@ -984,18 +483,7 @@ pub async fn list_repo_branches(
     repo_id: String,
     state: State<'_, AppState>,
 ) -> Result<RepoBranchesResult> {
-    let repo = repo_record(&state, &repo_id)?;
-    let repo_path = expand_tilde(&repo.path);
-    // Branches that only exist on GitHub can be checked out too; `git switch` tracks them.
-    let (local, remote) = tokio::try_join!(
-        state.git.list_local_branches(&repo_path),
-        state.git.list_remote_branches(&repo_path, "origin"),
-    )?;
-    let mut names = local;
-    names.extend(remote);
-    names.sort();
-    names.dedup();
-    Ok(RepoBranchesResult { branches: names })
+    crate::repos::list_branches(&state, &repo_id).await
 }
 
 #[tauri::command]
@@ -1004,22 +492,7 @@ pub async fn list_repo_local_branches(
     repo_id: String,
     state: State<'_, AppState>,
 ) -> Result<LocalBranchesResult> {
-    let repo = repo_record(&state, &repo_id)?;
-    let repo_path = expand_tilde(&repo.path);
-    let (head, tips) = tokio::join!(
-        state.git.current_branch(&repo_path),
-        state.git.list_local_branch_tips(&repo_path),
-    );
-    let head = head.unwrap_or_default();
-    let branches = tips?
-        .into_iter()
-        .map(|tip| LocalBranchRow {
-            name: tip.name,
-            committed: tip.committed,
-            subject: tip.subject,
-        })
-        .collect();
-    Ok(LocalBranchesResult { head, branches })
+    crate::repos::list_local_branches(&state, &repo_id).await
 }
 
 #[tauri::command]
@@ -1030,39 +503,7 @@ pub async fn delete_local_branch(
     force: bool,
     state: State<'_, AppState>,
 ) -> Result<BranchDeletion> {
-    let branch = branch.trim();
-    if branch.is_empty() {
-        return Err(Error::Git("missing branch name".into()));
-    }
-    let repo = repo_record(&state, &repo_id)?;
-    if branch == repo.default_branch_or_main() {
-        return Err(Error::Git(format!("{branch} is the default branch")));
-    }
-    if let Some(workspace) = state
-        .store
-        .live_workspaces()?
-        .iter()
-        .find(|row| row.repo_id == repo_id && row.branch == branch)
-    {
-        return Err(Error::Git(format!(
-            "{branch} is checked out by {}",
-            workspace.name
-        )));
-    }
-    let repo_path = expand_tilde(&repo.path);
-    let head = state
-        .git
-        .current_branch(&repo_path)
-        .await
-        .unwrap_or_default();
-    if !head.is_empty() && head == branch {
-        return Err(Error::Git(format!("{branch} is checked out in the repo")));
-    }
-    if !force && !state.git.in_sync_with_origin(&repo_path, branch).await? {
-        return Ok(BranchDeletion::Unpushed);
-    }
-    state.git.branch_delete(&repo_path, branch).await?;
-    Ok(BranchDeletion::Deleted)
+    crate::repos::delete_local_branch(&state, &repo_id, &branch, force).await
 }
 
 #[tauri::command]
@@ -1072,280 +513,37 @@ pub async fn create_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CreateWorkspaceResult> {
-    let started = start_workspace(&app, &state, input, None).await?;
+    let started =
+        crate::workspace_start::start_workspace(&output(&app), &state, input, None).await?;
     Ok(CreateWorkspaceResult {
         workspace_id: started.workspace_id,
     })
 }
 
-pub struct StartedWorkspace {
-    pub workspace_id: String,
-    pub thread_id: String,
-    pub base: String,
-}
-
-/// A new worktree and its thread, provisioned in the background. `parent_thread_id` is the
-/// thread that asked for it, when an agent did.
-pub async fn start_workspace(
-    app: &AppHandle,
-    state: &AppState,
-    input: CreateWorkspaceInput,
-    parent_thread_id: Option<String>,
-) -> Result<StartedWorkspace> {
-    let app = app.clone();
-    let repo = state
-        .store
-        .repo_by_id(&input.repo_id)?
-        .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
-    repo.ensure_not_default_branch(&input.branch)?;
-    let repo_path = expand_tilde(&repo.path);
-    if !repo_path.is_dir() {
-        return Err(Error::Git(format!(
-            "repo path does not exist: {}",
-            repo_path.display()
-        )));
-    }
-
-    // With no name given, the prompt drafts one and Haiku improves it below, along with the
-    // drafted branch. A workspace started without a prompt is numbered.
-    let goal_text = input.goal.trim();
-    let auto_named = input.name.trim().is_empty() && !goal_text.is_empty();
-    let name = match input.name.trim() {
-        "" if goal_text.is_empty() => {
-            let live = state.store.live_workspaces()?;
-            crate::naming::next_workspace_name(live.iter().map(|row| row.name.as_str()))
-        }
-        "" => crate::naming::draft_title(goal_text, crate::naming::WORKSPACE_NAME_MAX),
-        given => given
-            .chars()
-            .take(crate::naming::WORKSPACE_NAME_MAX)
-            .collect(),
-    };
-    let input = CreateWorkspaceInput { name, ..input };
-
-    let workspace_id = new_workspace_id();
-    let thread_id = Uuid::new_v4().to_string();
-    let repo_name = repo_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("repo");
-    let worktrees_base = worktrees_base(&state.store)?;
-    let worktree_path = crate::workspace::WorkspaceManager::worktree_path(
-        &worktrees_base,
-        repo_name,
-        &input.branch,
-    );
-
-    state
-        .workspace
-        .register_provisioning(
-            &workspace_id,
-            &input.repo_id,
-            &repo_path,
-            &input.name,
-            &input.branch,
-            &input.base,
-            &worktrees_base,
-        )
-        .await?;
-
-    state.store.upsert_workspace(&WorkspaceRow {
-        id: workspace_id.clone(),
-        repo_id: input.repo_id.clone(),
-        name: input.name.clone(),
-        branch: input.branch.clone(),
-        worktree_path: worktree_path.to_string_lossy().to_string(),
-        status: "provisioning".into(),
-        created_at: String::new(),
-        summary: None,
-        summary_at: None,
-        summary_source: "Haiku 4.5".into(),
-        kind: None,
-        pr_number: None,
-        pr_html_url: None,
-        modified_files: 0,
-        archived_at: None,
-    })?;
-    state.store.upsert_thread(&ThreadRow {
-        id: thread_id.clone(),
-        workspace_id: workspace_id.clone(),
-        title: "Lead".into(),
-        engine: input.engine.clone(),
-        session_id: None,
-        status: "provisioning".into(),
-        used_tokens: None,
-        context_size: None,
-        cost_usd: None,
-        transcript_readonly: false,
-        retired: false,
-        parent_thread_id,
-    })?;
-    // Stored before provisioning starts, since the engine reads it when it spawns.
-    if let Some(model) = input.model.as_deref() {
-        state.store.set_thread_model(&thread_id, Some(model))?;
-    }
-    if let Some(effort) = input.effort.as_deref() {
-        state.store.set_thread_effort(&thread_id, Some(effort))?;
-    }
-    let goal = input.goal.trim().to_string();
-    if !goal.is_empty() {
-        persist_user_message(&state.store, &thread_id, &goal)?;
-    }
-
-    state.notify(&app, StateChangeKind::WorkspaceStatus);
-
-    if auto_named {
-        spawn_auto_name(
-            app.clone(),
-            workspace_id.clone(),
-            input.name.clone(),
-            goal.clone(),
-        );
-    }
-
-    let app_handle = app.clone();
-    let workspace_id_bg = workspace_id.clone();
-    let thread_id_bg = thread_id.clone();
-    let engine = input.engine.clone();
-    let repo_name = repo.name.clone();
-    let started = StartedWorkspace {
-        workspace_id: workspace_id.clone(),
-        thread_id: thread_id.clone(),
-        base: input.base.clone(),
-    };
-    let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
-
-    let draft_branch = input.branch.clone();
-    let base = input.base.clone();
-
-    tauri::async_runtime::spawn(async move {
-        use tauri::Manager;
-        if auto_named && let Err(error) = name_branch(&app_handle, &workspace_id_bg, &goal).await {
-            log::warn!("keeping the drafted branch {draft_branch}: {error}");
-        }
-        let state = app_handle.state::<AppState>();
-        let branch = match state.workspace.get(&workspace_id_bg).await {
-            Some(record) => record.branch,
-            None => draft_branch,
-        };
-        let worktree_step = serde_json::json!({
-            "icon": "branch",
-            "title": "Created worktree",
-            "detail": format!("{branch} ← {base}"),
-        });
-        if let Err(error) =
-            state
-                .store
-                .append_event(&thread_id_bg, "tool", &worktree_step.to_string())
-        {
-            log::warn!("could not record the worktree step: {error}");
-        }
-        crate::provisioning::run_workspace_provisioning(
-            app_handle,
-            crate::provisioning::LeadProvisionJob {
-                workspace_id: workspace_id_bg,
-                thread_id: thread_id_bg,
-                repo_name,
-                setup_commands_raw: setup_commands,
-                engine,
-                goal,
-                review: false,
-            },
-        )
-        .await;
-    });
-
-    Ok(started)
-}
-
-/// Swaps the drafted branch for Haiku's while nothing on disk uses it yet. The draft stands if
-/// Haiku is slow or has nothing usable, since the agent shouldn't wait long for a name.
-async fn name_branch(app: &AppHandle, workspace_id: &str, prompt: &str) -> Result<()> {
-    use tauri::Manager;
-    let state = app.state::<AppState>();
-    let generated = tokio::time::timeout(
-        crate::naming::BRANCH_NAME_TIMEOUT,
-        crate::naming::generate_branch(&state.llm, prompt),
-    )
-    .await;
-    let Ok(Some(branch)) = generated else {
-        return Ok(());
-    };
-    let Some(record) = state.workspace.get(workspace_id).await else {
-        return Ok(());
-    };
-    let repo_path = PathBuf::from(&record.repo_path);
-    let (local, remote) = tokio::try_join!(
-        state.git.list_local_branches(&repo_path),
-        state.git.list_remote_branches(&repo_path, "origin"),
-    )?;
-    let mut taken = local;
-    taken.extend(remote);
-    taken.extend(
-        state
-            .store
-            .live_workspaces()?
-            .into_iter()
-            .filter(|row| row.repo_id == record.repo_id && row.id != workspace_id)
-            .map(|row| row.branch),
-    );
-    let branch = crate::naming::unique_branch(&branch, &taken);
-    let record = state
-        .workspace
-        .retarget_provisioning(workspace_id, &branch)
-        .await?;
-    state
-        .store
-        .set_workspace_checkout(workspace_id, &record.branch, &record.worktree_path)?;
-    state.notify(app, StateChangeKind::WorkspaceStatus);
-    Ok(())
-}
-
-/// Swaps the drafted name for Haiku's unless the workspace was renamed or deleted meanwhile.
-fn spawn_auto_name(app: AppHandle, workspace_id: String, draft: String, prompt: String) {
-    tauri::async_runtime::spawn(async move {
-        use tauri::Manager;
-        let state = app.state::<AppState>();
-        let Some(name) = crate::naming::generate_title(
-            &state.llm,
-            &prompt,
-            "task",
-            crate::naming::WORKSPACE_NAME_MAX,
-        )
-        .await
-        else {
-            return;
-        };
-        match state.store.workspace_by_id(&workspace_id) {
-            Ok(Some(row)) if row.name == draft => {}
-            _ => return,
-        }
-        if state
-            .store
-            .set_workspace_name(&workspace_id, &name)
-            .is_err()
-            || state.workspace.rename(&workspace_id, &name).await.is_err()
-        {
-            return;
-        }
-        state.notify(&app, StateChangeKind::WorkspaceStatus);
-    });
-}
-
 #[tauri::command]
 #[specta::specta]
-pub async fn retry_workspace_provisioning(workspace_id: String, app: AppHandle) -> Result<()> {
+pub async fn retry_workspace_provisioning(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (out, state) = (output(&app), state.inner().clone());
     tauri::async_runtime::spawn(async move {
-        crate::provisioning::retry_provisioning(app, workspace_id).await;
+        crate::provisioning::retry_provisioning(out, state, workspace_id).await;
     });
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn skip_workspace_provisioning_setup(workspace_id: String, app: AppHandle) -> Result<()> {
+pub async fn skip_workspace_provisioning_setup(
+    workspace_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (out, state) = (output(&app), state.inner().clone());
     tauri::async_runtime::spawn(async move {
-        crate::provisioning::skip_provisioning_setup(app, workspace_id).await;
+        crate::provisioning::skip_provisioning_setup(out, state, workspace_id).await;
     });
     Ok(())
 }
@@ -1357,14 +555,7 @@ pub async fn rename_workspace(
     state: State<'_, AppState>,
     input: RenameWorkspaceInput,
 ) -> Result<()> {
-    let name = input.name.trim();
-    if name.is_empty() {
-        return Err(Error::Workspace("Workspace name is required".into()));
-    }
-    state.store.set_workspace_name(&input.workspace_id, name)?;
-    state.workspace.rename(&input.workspace_id, name).await?;
-    state.notify(&app, StateChangeKind::WorkspaceStatus);
-    Ok(())
+    crate::git_workspace::rename_workspace(&output(&app), &state, input).await
 }
 
 #[tauri::command]
@@ -1374,8 +565,13 @@ pub async fn switch_workspace_branch(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::switch_workspace_branch(&app, &state, &input.workspace_id, &input.branch)
-        .await
+    crate::git_workspace::switch_workspace_branch(
+        &output(&app),
+        &state,
+        &input.workspace_id,
+        &input.branch,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1385,7 +581,7 @@ pub async fn pull_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::pull_workspace(&app, &state, &workspace_id).await
+    crate::git_workspace::pull_workspace(&output(&app), &state, &workspace_id).await
 }
 
 #[tauri::command]
@@ -1395,7 +591,7 @@ pub async fn rebase_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::rebase_workspace(&app, &state, &workspace_id).await
+    crate::git_workspace::rebase_workspace(&output(&app), &state, &workspace_id).await
 }
 
 #[tauri::command]
@@ -1405,7 +601,7 @@ pub async fn push_workspace_branch(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::push_workspace_branch(&app, &state, &workspace_id).await
+    crate::git_workspace::push_workspace_branch(&output(&app), &state, &workspace_id).await
 }
 
 /// The PR prompt Settings shows until the user writes their own.
@@ -1431,7 +627,7 @@ pub async fn create_workspace_pull_request(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CreateWorkspacePullRequestResult> {
-    crate::create_pr::create_workspace_pull_request(&app, &state, input).await
+    crate::create_pr::create_workspace_pull_request(&output(&app), &state, input).await
 }
 
 #[tauri::command]
@@ -1441,7 +637,7 @@ pub async fn abort_workspace_git(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::abort_workspace_git_conflict(&app, &state, &workspace_id).await
+    crate::git_workspace::abort_workspace_git_conflict(&output(&app), &state, &workspace_id).await
 }
 
 #[tauri::command]
@@ -1451,8 +647,13 @@ pub async fn create_workspace_branch(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::create_workspace_branch(&app, &state, &input.workspace_id, &input.branch)
-        .await
+    crate::git_workspace::create_workspace_branch(
+        &output(&app),
+        &state,
+        &input.workspace_id,
+        &input.branch,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1471,7 +672,7 @@ pub async fn add_stack_branch(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::stack::add_branch(&app, &state, &input.workspace_id, &input.branch).await
+    crate::stack::add_branch(&output(&app), &state, &input.workspace_id, &input.branch).await
 }
 
 #[tauri::command]
@@ -1481,7 +682,7 @@ pub async fn push_stack(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::stack::push(&app, &state, &workspace_id).await
+    crate::stack::push(&output(&app), &state, &workspace_id).await
 }
 
 #[tauri::command]
@@ -1491,7 +692,7 @@ pub async fn sync_stack(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::stack::sync(&app, &state, &workspace_id).await
+    crate::stack::sync(&output(&app), &state, &workspace_id).await
 }
 
 #[tauri::command]
@@ -1510,32 +711,8 @@ pub async fn open_workspace_terminal(
     workspace_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let row = state
-        .store
-        .workspace_by_id(&workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    let terminal = terminal_app(state.store.get_setting("terminalApp")?);
-    let status = tokio::process::Command::new("open")
-        .args(["-a", &terminal, &row.worktree_path])
-        .status()
-        .await
-        .map_err(|error| Error::Process(format!("open {terminal}: {error}")))?;
-    if !status.success() {
-        return Err(Error::Process(format!(
-            "{terminal} couldn't open {}",
-            row.worktree_path
-        )));
-    }
-    Ok(())
+    crate::git_workspace::open_terminal(&state, &workspace_id).await
 }
-
-fn terminal_app(setting: Option<String>) -> String {
-    setting
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "Terminal".to_string())
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn teardown_workspace(
@@ -1543,7 +720,7 @@ pub async fn teardown_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::teardown::execute(&app, &state, &input).await
+    crate::teardown::execute(&output(&app), &state, &input).await
 }
 
 /// Skills the `/` picker offers on the new thread page.
@@ -1575,70 +752,7 @@ pub async fn send_thread_prompt(
     attachments: Vec<crate::attachments::PromptAttachment>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    submit_thread_prompt(&app, &state, &thread_id, text, attachments).await
-}
-
-/// A message into a thread, from the user or another thread: starts the engine if it isn't
-/// running, and queues the message if the thread is paused.
-pub async fn submit_thread_prompt(
-    app: &AppHandle,
-    state: &AppState,
-    thread_id: &str,
-    text: String,
-    attachments: Vec<crate::attachments::PromptAttachment>,
-) -> Result<()> {
-    let (app, thread_id) = (app.clone(), thread_id.to_string());
-    let text = text.trim().to_string();
-    if text.is_empty() && attachments.is_empty() {
-        return Ok(());
-    }
-    if state
-        .store
-        .thread_by_id(&thread_id)?
-        .is_some_and(|thread| thread.retired)
-    {
-        return Err(Error::Workspace(
-            "this thread is read-only; start a new thread to carry on".into(),
-        ));
-    }
-    use tauri::Manager;
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| Error::Workspace(error.to_string()))?;
-    let folder = crate::data_dir(app_data).join("attachments");
-    // Reads and encodes the attached files, so it stays off the async workers.
-    let (prompt, text) = tokio::task::spawn_blocking(move || {
-        crate::attachments::build_prompt(&folder, &text, &attachments)
-    })
-    .await
-    .map_err(|error| Error::Workspace(error.to_string()))??;
-    let thread = snapshot_thread(state, &thread_id)?;
-    let held = thread.status == "paused";
-    if !held && !state.engines.has_thread(&thread_id) {
-        crate::provisioning::ensure_thread_engine(
-            state,
-            &thread_id,
-            &thread.engine,
-            &thread.workspace_id,
-        )
-        .await?;
-    }
-    persist_user_message(&state.store, &thread_id, &text)?;
-    // A failed send must not mark the thread running: nothing would ever end that turn.
-    state.engines.submit_prompt(&thread_id, prompt, held)?;
-    if !held {
-        state.store.set_thread_status(&thread_id, "running")?;
-        state
-            .workspace
-            .set_thread(&thread_id, &thread.workspace_id, ThreadActivity::Running)
-            .await;
-        state
-            .store
-            .set_workspace_status(&thread.workspace_id, "running")?;
-    }
-    emit_composer_snapshot(&app, state);
-    Ok(())
+    crate::turn::submit(&output(&app), &state, &thread_id, text, attachments).await
 }
 
 #[tauri::command]
@@ -1648,14 +762,7 @@ pub async fn cancel_thread_turn(
     thread_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let thread = snapshot_thread(&state, &thread_id).ok();
-    let _ = state.engines.cancel(&thread_id);
-    let _ = persist_control_step(&state.store, &thread_id, "You stopped the agent");
-    let _ = state.store.mark_thread_idle(&thread_id);
-    if let Some(thread) = thread {
-        set_workspace_thread(&state, &thread, ThreadActivity::Idle).await;
-    }
-    emit_composer_snapshot(&app, &state);
+    crate::turn::stop(&output(&app), &state, &thread_id).await;
     Ok(())
 }
 
@@ -1666,16 +773,7 @@ pub async fn pause_thread(
     thread_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let thread = snapshot_thread(&state, &thread_id)?;
-    if thread.status != "running" {
-        return Ok(());
-    }
-    state.engines.hold_thread(&thread_id)?;
-    persist_control_step(&state.store, &thread_id, "You paused the agent")?;
-    state.store.set_thread_status(&thread_id, "paused")?;
-    set_workspace_thread(&state, &thread, ThreadActivity::Paused).await;
-    emit_composer_snapshot(&app, &state);
-    Ok(())
+    crate::turn::pause(&output(&app), &state, &thread_id).await
 }
 
 #[tauri::command]
@@ -1685,25 +783,14 @@ pub async fn resume_thread(
     thread_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let thread = snapshot_thread(&state, &thread_id)?;
-    if thread.status != "paused" {
-        return Ok(());
-    }
-    persist_control_step(&state.store, &thread_id, "You resumed the agent")?;
-    state.store.set_thread_status(&thread_id, "running")?;
-    set_workspace_thread(&state, &thread, ThreadActivity::Running).await;
-    if let Some(text) = state.engines.release_thread(&thread_id)? {
-        let _ = state.engines.prompt(&thread_id, text);
-    }
-    emit_composer_snapshot(&app, &state);
-    Ok(())
+    crate::turn::resume(&output(&app), &state, &thread_id).await
 }
 
 /// The models the thread's composer can pick from, and the current pick.
 #[tauri::command]
 #[specta::specta]
 pub async fn thread_models(thread_id: String, state: State<'_, AppState>) -> Result<ThreadModels> {
-    let thread = snapshot_thread(&state, &thread_id)?;
+    let thread = thread_row(&state, &thread_id)?;
     state
         .engines
         .thread_models(&thread_id, EngineKind::from_name(&thread.engine))
@@ -1726,7 +813,7 @@ pub async fn set_thread_model(
     model: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    snapshot_thread(&state, &thread_id)?;
+    thread_row(&state, &thread_id)?;
     state.engines.set_thread_model(&thread_id, model)
 }
 
@@ -1734,7 +821,7 @@ pub async fn set_thread_model(
 #[tauri::command]
 #[specta::specta]
 pub async fn thread_efforts(thread_id: String, state: State<'_, AppState>) -> Result<ThreadModels> {
-    let thread = snapshot_thread(&state, &thread_id)?;
+    let thread = thread_row(&state, &thread_id)?;
     state
         .engines
         .thread_efforts(&thread_id, EngineKind::from_name(&thread.engine))
@@ -1757,7 +844,7 @@ pub async fn set_thread_effort(
     effort: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    snapshot_thread(&state, &thread_id)?;
+    thread_row(&state, &thread_id)?;
     state.engines.set_thread_effort(&thread_id, effort)
 }
 
@@ -1771,25 +858,7 @@ pub async fn new_thread_session(
     thread_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let thread = snapshot_thread(&state, &thread_id)?;
-    if state.store.scratch_for_thread(&thread_id)?.is_some() {
-        return Err(Error::Workspace(
-            "a scratch can't start a new session".into(),
-        ));
-    }
-    let ended = state.store.thread_session(&thread_id)?;
-    state.engines.discard(&thread_id)?;
-    state.store.clear_thread_session(&thread_id)?;
-    persist_control_step_with_detail(
-        &state.store,
-        &thread_id,
-        "Started a new session",
-        Some(serde_json::json!({ "endedSession": ended }).to_string()),
-    )?;
-    state.store.mark_thread_idle(&thread_id)?;
-    set_workspace_thread(&state, &thread, ThreadActivity::Idle).await;
-    emit_composer_snapshot(&app, &state);
-    Ok(())
+    crate::turn::new_session(&output(&app), &state, &thread_id).await
 }
 
 /// Picks an earlier conversation in the thread back up: the agent resumes its
@@ -1802,33 +871,7 @@ pub async fn resume_thread_session(
     input: ResumeThreadSessionInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let thread_id = input.thread_id;
-    let thread = snapshot_thread(&state, &thread_id)?;
-    if state.store.scratch_for_thread(&thread_id)?.is_some() {
-        return Err(Error::Workspace("a scratch has only one session".into()));
-    }
-    let ended = state.store.thread_session(&thread_id)?;
-    state.engines.discard(&thread_id)?;
-    match input.session_id.as_deref() {
-        Some(session) => state.store.set_thread_session(&thread_id, session)?,
-        None => state.store.clear_thread_session(&thread_id)?,
-    }
-    persist_control_step_with_detail(
-        &state.store,
-        &thread_id,
-        "Resumed an earlier conversation",
-        Some(
-            serde_json::json!({
-                "conversation": input.conversation_id,
-                "endedSession": ended,
-            })
-            .to_string(),
-        ),
-    )?;
-    state.store.mark_thread_idle(&thread_id)?;
-    set_workspace_thread(&state, &thread, ThreadActivity::Idle).await;
-    emit_composer_snapshot(&app, &state);
-    Ok(())
+    crate::turn::resume_session(&output(&app), &state, input).await
 }
 
 #[tauri::command]
@@ -1838,14 +881,16 @@ pub async fn send_workspace_findings(
     input: SendWorkspaceFindingsInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
+    let out = output(&app);
     crate::findings::send_workspace_findings(
-        &app,
+        &out,
+        &state,
         &input.workspace_id,
         &input.thread_id,
         input.finding_ids,
     )
     .await?;
-    emit_composer_snapshot(&app, &state);
+    emit_composer_snapshot(&out, &state);
     Ok(())
 }
 
@@ -1896,11 +941,7 @@ pub async fn dismiss_workspace_findings(
     input: super::types::DismissWorkspaceFindingsInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    state
-        .store
-        .set_findings_dismissed(&input.workspace_id, &input.finding_ids, input.dismissed)?;
-    emit_composer_snapshot(&app, &state);
-    Ok(())
+    crate::findings::dismiss_findings(&output(&app), &state, input)
 }
 
 /// Discards the scratch's conversation. The repo is not changed.
@@ -1911,76 +952,9 @@ pub async fn end_scratch(
     scratch_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::scratch::end(&app, &state, &scratch_id).await
+    crate::scratch::end(&output(&app), &state, &scratch_id).await
 }
 
-pub fn harness_home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
-pub fn worktrees_base(store: &crate::store::Store) -> Result<PathBuf> {
-    Ok(store
-        .get_setting("worktreeRoot")?
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .map(|value| expand_tilde(&value))
-        .unwrap_or_else(|| {
-            crate::workspace::WorkspaceManager::default_worktrees_base(&harness_home())
-        }))
-}
-
-pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        return PathBuf::from(home).join(rest);
-    }
-    PathBuf::from(path)
-}
-
-fn new_workspace_id() -> String {
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
-    format!("ws{ms:x}")
-}
-
-/// Any thread, a scratch's included.
-fn snapshot_thread(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
-    state
-        .store
-        .thread_by_id(thread_id)?
-        .ok_or_else(|| Error::Store(format!("unknown thread {thread_id}")))
-}
-
-/// Workspace lifecycle bookkeeping. A scratch thread has no workspace, so it is skipped.
-async fn set_workspace_thread(state: &AppState, thread: &ThreadRow, activity: ThreadActivity) {
-    if state
-        .store
-        .scratch_for_thread(&thread.id)
-        .ok()
-        .flatten()
-        .is_some()
-    {
-        return;
-    }
-    state
-        .workspace
-        .set_thread(&thread.id, &thread.workspace_id, activity)
-        .await;
-}
-
-fn emit_composer_snapshot(app: &AppHandle, state: &AppState) {
-    state.notify(app, StateChangeKind::WorkspaceStatus);
-}
-
-pub(crate) fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {
-    let mut trees: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
-    for (id, pid) in state.process.pids() {
-        trees.entry(id).or_default().push(pid);
-    }
-    trees.into_iter().collect()
+fn emit_composer_snapshot(out: &Output, state: &AppState) {
+    state.notify(out, StateChangeKind::WorkspaceStatus);
 }

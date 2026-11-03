@@ -112,10 +112,14 @@ pub fn export_bindings(builder: &Builder) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     /// Tauri rejects any command missing from the allowlist, and the browser harness can't see it.
+    /// An entry with no command behind it is dead permission surface. Neither can be generated:
+    /// `tauri_build` would need the same list in `build.rs`, where `collect_commands!` can't reach.
     #[test]
     fn every_command_is_allowlisted() {
-        let registered = include_str!("mod.rs")
+        let registered: BTreeSet<_> = include_str!("mod.rs")
             .split(".events(")
             .next()
             .unwrap()
@@ -127,15 +131,27 @@ mod tests {
                     .unwrap()
             })
             .filter(|name| !name.is_empty())
-            .collect::<Vec<_>>();
-        let allowlist = include_str!("../../permissions/ipc.toml");
-        let missing: Vec<_> = registered
-            .into_iter()
-            .filter(|name| !allowlist.contains(&format!("\"{name}\"")))
             .collect();
+        let allowlisted: BTreeSet<_> = include_str!("../../permissions/ipc.toml")
+            .split("commands.allow = [")
+            .nth(1)
+            .expect("permissions/ipc.toml has a commands.allow list")
+            .split(']')
+            .next()
+            .unwrap()
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .collect();
+        let missing: Vec<_> = registered.difference(&allowlisted).collect();
         assert!(
             missing.is_empty(),
             "add to permissions/ipc.toml: {missing:?}"
+        );
+        let stale: Vec<_> = allowlisted.difference(&registered).collect();
+        assert!(
+            stale.is_empty(),
+            "remove from permissions/ipc.toml: {stale:?}"
         );
     }
 

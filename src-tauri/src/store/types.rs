@@ -81,6 +81,12 @@ pub struct ThreadRow {
     pub parent_thread_id: Option<String>,
 }
 
+impl ThreadRow {
+    pub fn has_status(&self, status: crate::workspace::ThreadStatus) -> bool {
+        self.status == status.as_str()
+    }
+}
+
 /// A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { setScenario } from './harness'
 
 const QUESTIONS = [
   {
@@ -22,53 +23,43 @@ const QUESTIONS = [
 ]
 
 async function openQuestion(page: Page, questions = QUESTIONS) {
-  await page.addInitScript(
-    ({ timeline, approvals }) => {
-      const win = window as {
-        __HARNESS_TIMELINE__?: unknown
-        __HARNESS_APPROVALS__?: unknown
-      }
-      win.__HARNESS_TIMELINE__ = timeline
-      win.__HARNESS_APPROVALS__ = approvals
-    },
-    {
-      timeline: [
-        {
-          id: 9101,
-          threadId: 'th-lead',
-          seq: 1,
-          kind: 'permission',
-          payload: JSON.stringify({
-            type: 'permission',
-            id: 'q1',
-            tool_call_id: 'toolu_ask',
-            title: 'Use AskUserQuestion',
-            tool_name: 'AskUserQuestion',
-            kind: 'other',
-            detail: null,
-            auto_approved: false,
-          }),
-          createdAt: '2026-10-30 12:00:00',
-        },
-      ],
-      approvals: [
-        {
+  await setScenario(page, {
+    timeline: [
+      {
+        id: 9101,
+        threadId: 'th-lead',
+        seq: 1,
+        kind: 'permission',
+        payload: JSON.stringify({
+          type: 'permission',
           id: 'q1',
-          threadId: 'th-lead',
-          status: 'pending',
-          tool: 'question',
-          payload: JSON.stringify({
-            title: 'Question',
-            what: questions[0].question,
-            why: '',
-            okLabel: 'Send',
-            noLabel: 'Skip',
-            questions,
-          }),
-        },
-      ],
-    },
-  )
+          tool_call_id: 'toolu_ask',
+          title: 'Use AskUserQuestion',
+          tool_name: 'AskUserQuestion',
+          kind: 'other',
+          detail: null,
+          auto_approved: false,
+        }),
+        createdAt: '2026-10-30 12:00:00',
+      },
+    ],
+    approvals: [
+      {
+        id: 'q1',
+        threadId: 'th-lead',
+        status: 'pending',
+        tool: 'question',
+        payload: JSON.stringify({
+          title: 'Question',
+          what: questions[0].question,
+          why: '',
+          okLabel: 'Send',
+          noLabel: 'Skip',
+          questions,
+        }),
+      },
+    ],
+  })
   await page.goto('/')
   await page
     .getByRole('button', { name: /OAuth login/ })
@@ -80,11 +71,7 @@ async function openQuestion(page: Page, questions = QUESTIONS) {
 }
 
 function answered(page: Page) {
-  return page.evaluate(
-    () =>
-      (window as { __HARNESS_ANSWERED__?: unknown[] }).__HARNESS_ANSWERED__ ??
-      [],
-  )
+  return page.evaluate(() => window.__HARNESS__!.answered)
 }
 
 test('picks options and types alongside them', async ({ page }) => {

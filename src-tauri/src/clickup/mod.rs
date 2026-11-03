@@ -13,11 +13,15 @@ use serde_json::{Value, json};
 
 use crate::credentials;
 use crate::error::{Error, Result};
+use crate::store::Store;
 use sprint::{current_sprint, parse_ms};
 use types::{
     ClickupBoard, ClickupOption, ClickupSprint, ClickupStatus, ClickupTag, ClickupTask,
     ClickupTaskDetail, ClickupUser,
 };
+
+/// Settings key for the ClickUp folder whose lists are the sprints.
+const FOLDER_KEY: &str = "clickupFolderId";
 
 const API: &str = "https://api.clickup.com/api/v2";
 /// Get Tasks returns 100 a page; a sprint past 1,000 tasks isn't a sprint.
@@ -165,6 +169,15 @@ impl ClickupClient {
             .into_iter()
             .map(Named::into_option)
             .collect())
+    }
+
+    /// The current sprint in the sprint folder chosen in Settings.
+    pub async fn chosen_board(&self, store: &Store) -> Result<ClickupBoard> {
+        let folder_id = store
+            .get_setting(FOLDER_KEY)?
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| Error::Clickup("choose a sprint folder in Settings".into()))?;
+        self.board(&folder_id).await
     }
 
     pub async fn board(&self, folder_id: &str) -> Result<ClickupBoard> {

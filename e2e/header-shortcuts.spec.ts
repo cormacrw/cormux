@@ -19,13 +19,7 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
   ).toBeVisible()
   await page.keyboard.press('ControlOrMeta+t')
   await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as { __HARNESS_OPENED_TERMINAL__?: unknown })
-            .__HARNESS_OPENED_TERMINAL__,
-      ),
-    )
+    .poll(() => page.evaluate(() => window.__HARNESS__!.openedTerminal))
     .toBe('ws-auth')
 
   await page.keyboard.press('ControlOrMeta+d')

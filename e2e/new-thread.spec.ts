@@ -135,11 +135,7 @@ test('a working thread only moves to Working once you leave it', async ({
   const toggle = page.locator('[data-od-id="working-toggle"]')
   await threads.getByRole('button', { name: /^OAuth login,/ }).click()
   await page.evaluate(() =>
-    (
-      window as unknown as {
-        __HARNESS_SET_STATUS__: (name: string, status: string) => void
-      }
-    ).__HARNESS_SET_STATUS__('OAuth login', 'running'),
+    window.__HARNESS__!.setStatus('OAuth login', 'running'),
   )
 
   const row = page.getByRole('button', { name: /^OAuth login,/ })
@@ -181,12 +177,7 @@ test('a thread flashes only while waiting on you, and carries no status text', a
   await expect(rows).toHaveCount(3)
   const setStatus = (name: string, status: string) =>
     page.evaluate(
-      ([name, status]) =>
-        (
-          window as unknown as {
-            __HARNESS_SET_STATUS__: (name: string, status: string) => void
-          }
-        ).__HARNESS_SET_STATUS__(name!, status!),
+      ([name, status]) => window.__HARNESS__!.setStatus(name!, status!),
       [name, status],
     )
 

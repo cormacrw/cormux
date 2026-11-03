@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { setScenario } from './harness'
 
 async function openReply(page: Page, reply: string) {
   const chunk = (seq: number, role: string, text: string) => ({
@@ -9,13 +10,12 @@ async function openReply(page: Page, reply: string) {
     payload: JSON.stringify({ type: 'messageChunk', role, text }),
     createdAt: '2026-09-29 12:00:00',
   })
-  await page.addInitScript(
-    (timeline) => {
-      ;(window as { __HARNESS_TIMELINE__?: unknown }).__HARNESS_TIMELINE__ =
-        timeline
-    },
-    [chunk(1, 'user', 'Compare the options'), chunk(2, 'agent', reply)],
-  )
+  await setScenario(page, {
+    timeline: [
+      chunk(1, 'user', 'Compare the options'),
+      chunk(2, 'agent', reply),
+    ],
+  })
   await page.goto('/')
   await page
     .getByRole('button', { name: /OAuth login/ })
@@ -265,19 +265,15 @@ test('a long tool run folds, and plans and subagents show progress', async ({
     tool('s2', 'execute', 'ls', { parent_id: 'a1', status: 'in_progress' }),
     { type: 'messageChunk', role: 'agent', text: 'All done.' },
   ]
-  await page.addInitScript(
-    (timeline) => {
-      ;(window as { __HARNESS_TIMELINE__?: unknown }).__HARNESS_TIMELINE__ =
-        timeline
-    },
-    events.map((payload, at) =>
+  await setScenario(page, {
+    timeline: events.map((payload, at) =>
       event(
         at + 1,
         payload,
         payload.type === 'messageChunk' ? 'message' : 'tool',
       ),
     ),
-  )
+  })
   await page.goto('/')
   await page
     .getByRole('button', { name: /OAuth login/ })

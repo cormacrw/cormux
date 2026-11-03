@@ -1,6 +1,7 @@
 mod effects;
 mod payload;
 mod record;
+mod resolve;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -12,6 +13,7 @@ pub use payload::{QUESTION_TOOL, questions_from_input};
 pub use record::{
     mark_answered, mark_resolved, record_pending_permission, record_pending_question,
 };
+pub use resolve::{answer_question, resolve_all_approvals, resolve_approval};
 
 use crate::error::{Error, Result};
 

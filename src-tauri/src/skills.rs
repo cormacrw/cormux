@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
-use crate::ipc::commands::expand_tilde;
+use crate::paths::expand_tilde;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]

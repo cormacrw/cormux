@@ -1,15 +1,16 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 test('usage: a thread shows its tokens, context fill and cost, totalled in the header', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_LEAD_USAGE__?: unknown }).__HARNESS_LEAD_USAGE__ = {
+  await setScenario(page, {
+    leadUsage: {
       usedTokens: 22_274,
       contextSize: 200_000,
       costUsd: 1.234,
-    }
+    },
   })
   await page.goto('/')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()

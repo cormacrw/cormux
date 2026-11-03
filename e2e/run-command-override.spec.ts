@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 async function openOutput(page: import('@playwright/test').Page) {
@@ -10,10 +11,7 @@ async function openOutput(page: import('@playwright/test').Page) {
 test('Output: override the repo’s run command for one workspace, then go back to it', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_RUN_COMMAND__?: string }).__HARNESS_RUN_COMMAND__ =
-      'pnpm dev'
-  })
+  await setScenario(page, { runCommand: 'pnpm dev' })
   await openOutput(page)
   const command = page.locator('[data-od-id="run-command"]')
   await expect(command).toHaveText(/^\s*pnpm dev\s*$/)
