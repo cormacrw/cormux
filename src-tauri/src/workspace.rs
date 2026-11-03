@@ -28,14 +28,74 @@ pub enum WorkspaceLifecycle {
     ProvisioningFailed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum ThreadActivity {
+impl WorkspaceLifecycle {
+    /// What the store and the webview call it, the same word serde writes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Creating => "creating",
+            Self::Provisioning => "provisioning",
+            Self::Ready => "ready",
+            Self::Running => "running",
+            Self::Idle => "idle",
+            Self::Waiting => "waiting",
+            Self::TearingDown => "tearingDown",
+            Self::Gone => "gone",
+            Self::ProvisioningFailed => "provisioningFailed",
+        }
+    }
+
+    /// A stored status. Anything unrecognised reads as `Ready`.
+    pub fn parse(raw: &str) -> Self {
+        match raw {
+            "creating" => Self::Creating,
+            "provisioning" => Self::Provisioning,
+            "running" => Self::Running,
+            "idle" => Self::Idle,
+            "waiting" => Self::Waiting,
+            "tearingDown" => Self::TearingDown,
+            "gone" => Self::Gone,
+            "provisioningFailed" => Self::ProvisioningFailed,
+            _ => Self::Ready,
+        }
+    }
+}
+
+/// What a thread is doing. `ThreadRow::status` stays a string, since that's what the webview
+/// is sent; these are the only values Rust writes to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadStatus {
     Provisioning,
     Running,
     Paused,
     Idle,
-    Waiting,
+}
+
+impl ThreadStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Provisioning => "provisioning",
+            Self::Running => "running",
+            Self::Paused => "paused",
+            Self::Idle => "idle",
+        }
+    }
+
+    /// A stored status. Anything else, such as the `waiting` older builds could leave behind,
+    /// isn't doing anything, so it reads as `Idle`.
+    pub fn parse(raw: &str) -> Self {
+        match raw {
+            "provisioning" => Self::Provisioning,
+            "running" => Self::Running,
+            "paused" => Self::Paused,
+            _ => Self::Idle,
+        }
+    }
+}
+
+impl From<ThreadStatus> for String {
+    fn from(status: ThreadStatus) -> Self {
+        status.as_str().to_string()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -59,7 +119,7 @@ pub struct WorkspaceRecord {
 #[derive(Debug, Clone)]
 struct ThreadSlot {
     workspace_id: String,
-    activity: ThreadActivity,
+    activity: ThreadStatus,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
@@ -330,7 +390,7 @@ impl WorkspaceManager {
         Ok(workspace.clone())
     }
 
-    pub async fn set_thread(&self, thread_id: &str, workspace_id: &str, activity: ThreadActivity) {
+    pub async fn set_thread(&self, thread_id: &str, workspace_id: &str, activity: ThreadStatus) {
         let mut inner = self.inner.write().await;
         inner.threads.insert(
             thread_id.to_string(),
@@ -339,7 +399,7 @@ impl WorkspaceManager {
                 activity,
             },
         );
-        let activities: Vec<ThreadActivity> = inner
+        let activities: Vec<ThreadStatus> = inner
             .threads
             .values()
             .filter(|thread| thread.workspace_id == workspace_id)
@@ -369,7 +429,7 @@ impl WorkspaceManager {
             thread.workspace_id == workspace_id
                 && matches!(
                     thread.activity,
-                    ThreadActivity::Running | ThreadActivity::Provisioning
+                    ThreadStatus::Running | ThreadStatus::Provisioning
                 )
         });
         if blocked {
@@ -476,9 +536,12 @@ fn repo_dir_name(repo_path: &Path) -> &str {
         .unwrap_or("repo")
 }
 
-fn status_from_threads(
+/// A workspace's status given its threads: the one derivation, for the live record and the
+/// stored row alike. Setup and teardown own the workspace until they finish, so their states
+/// are left alone.
+pub fn status_from_threads(
     current: WorkspaceLifecycle,
-    threads: impl Iterator<Item = ThreadActivity>,
+    threads: impl Iterator<Item = ThreadStatus>,
 ) -> WorkspaceLifecycle {
     if matches!(
         current,
@@ -491,15 +554,11 @@ fn status_from_threads(
         return current;
     }
     let threads: Vec<_> = threads.collect();
-    if threads.iter().any(|activity| {
-        matches!(
-            activity,
-            ThreadActivity::Running | ThreadActivity::Provisioning
-        )
-    }) {
+    if threads
+        .iter()
+        .any(|activity| matches!(activity, ThreadStatus::Running | ThreadStatus::Provisioning))
+    {
         WorkspaceLifecycle::Running
-    } else if threads.contains(&ThreadActivity::Waiting) {
-        WorkspaceLifecycle::Waiting
     } else if threads.is_empty() {
         WorkspaceLifecycle::Ready
     } else {
@@ -637,16 +696,94 @@ mod tests {
         assert_eq!(workspace.status, WorkspaceLifecycle::Ready);
         assert!(workspace.version >= 2);
 
-        mgr.set_thread("t1", &workspace.id, ThreadActivity::Running)
+        mgr.set_thread("t1", &workspace.id, ThreadStatus::Running)
             .await;
         assert!(mgr.can_switch_branch(&workspace.id).await.is_err());
 
-        mgr.set_thread("t1", &workspace.id, ThreadActivity::Idle)
+        mgr.set_thread("t1", &workspace.id, ThreadStatus::Idle)
             .await;
         mgr.can_switch_branch(&workspace.id).await.unwrap();
 
         let env = WorkspaceManager::harness_env(&workspace);
         assert!(env.iter().any(|(key, _)| key == "HARNESS_WORKTREE_PATH"));
+    }
+
+    const LIFECYCLES: [WorkspaceLifecycle; 9] = [
+        WorkspaceLifecycle::Creating,
+        WorkspaceLifecycle::Provisioning,
+        WorkspaceLifecycle::Ready,
+        WorkspaceLifecycle::Running,
+        WorkspaceLifecycle::Idle,
+        WorkspaceLifecycle::Waiting,
+        WorkspaceLifecycle::TearingDown,
+        WorkspaceLifecycle::Gone,
+        WorkspaceLifecycle::ProvisioningFailed,
+    ];
+
+    #[test]
+    fn every_lifecycle_survives_the_store_under_its_wire_name() {
+        for lifecycle in LIFECYCLES {
+            assert_eq!(WorkspaceLifecycle::parse(lifecycle.as_str()), lifecycle);
+            assert_eq!(
+                serde_json::to_value(lifecycle).unwrap(),
+                lifecycle.as_str(),
+                "the webview and the store must agree"
+            );
+        }
+        assert_eq!(
+            WorkspaceLifecycle::parse("archived"),
+            WorkspaceLifecycle::Ready
+        );
+    }
+
+    #[test]
+    fn thread_statuses_keep_their_stored_words() {
+        for (status, word) in [
+            (ThreadStatus::Provisioning, "provisioning"),
+            (ThreadStatus::Running, "running"),
+            (ThreadStatus::Paused, "paused"),
+            (ThreadStatus::Idle, "idle"),
+        ] {
+            assert_eq!(status.as_str(), word);
+            assert_eq!(ThreadStatus::parse(word), status);
+        }
+        assert_eq!(ThreadStatus::parse("waiting"), ThreadStatus::Idle);
+    }
+
+    #[test]
+    fn a_workspace_status_comes_from_its_threads() {
+        use ThreadStatus::{Idle, Paused, Provisioning, Running};
+        use WorkspaceLifecycle as Lifecycle;
+        for (threads, expected) in [
+            (vec![], Lifecycle::Ready),
+            (vec![Idle], Lifecycle::Idle),
+            (vec![Paused], Lifecycle::Idle),
+            (vec![Idle, Running], Lifecycle::Running),
+            (vec![Idle, Provisioning], Lifecycle::Running),
+        ] {
+            assert_eq!(
+                status_from_threads(Lifecycle::Running, threads.clone().into_iter()),
+                expected,
+                "{threads:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn setup_and_teardown_keep_their_status_whatever_the_threads_do() {
+        use WorkspaceLifecycle as Lifecycle;
+        for current in [
+            Lifecycle::Creating,
+            Lifecycle::Provisioning,
+            Lifecycle::TearingDown,
+            Lifecycle::Gone,
+            Lifecycle::ProvisioningFailed,
+        ] {
+            assert_eq!(
+                status_from_threads(current, [ThreadStatus::Running].into_iter()),
+                current
+            );
+        }
     }
 
     #[test]

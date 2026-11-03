@@ -11,6 +11,14 @@ import type {
 } from './timeline-types'
 import { toolKindIsEdit, toolKindIsRunStep } from './timeline-types'
 import {
+  isLegacyDivider,
+  legacyDividerIcon,
+  legacyToolChips,
+  legacyToolIcon,
+  legacyToolSucceeded,
+} from './legacy-steps'
+import { presentStep } from './timeline-step'
+import {
   humanizeIdentifier,
   parseMcpToolName,
   toolDisplayName,
@@ -55,11 +63,9 @@ function ordinalIds(counts: Map<string, number>): NextId {
 }
 
 function iconForTool(kind: ToolKind, title: string): ToolStepIcon {
+  const legacy = legacyToolIcon(title)
+  if (legacy) return legacy
   const lower = title.toLowerCase()
-  if (/received \d+ findings from the review/i.test(title)) return 'list'
-  if (/^fixed \d+ findings/i.test(title)) return 'check'
-  if (lower.includes('you paused')) return 'pause'
-  if (lower.includes('you resumed')) return 'play'
   if (kind === 'read') return 'file'
   if (kind === 'search') return 'search'
   if (kind === 'execute') return lower.includes('test') ? 'check' : 'terminal'
@@ -70,30 +76,6 @@ function iconForTool(kind: ToolKind, title: string): ToolStepIcon {
   if (lower.includes('pull') || lower.includes('pr')) return 'pr'
   if (lower.includes('database') || lower.includes('migration'))
     return 'database'
-  return 'tool'
-}
-
-// The core writes its own steps with these id prefixes; agent tool calls never use them.
-const APP_EVENT_ID = /^(control|legacy|pr-open|scratch-open|review)-/
-
-function isAppEvent(event: Extract<AgentEvent, { type: 'toolCall' }>): boolean {
-  return APP_EVENT_ID.test(event.id)
-}
-
-function iconForAppEvent(title: string): ToolStepIcon {
-  const lower = title.toLowerCase()
-  if (lower.includes('you paused')) return 'pause'
-  if (lower.includes('you resumed')) return 'play'
-  if (lower.includes('you stopped')) return 'stop'
-  if (lower.includes('new session')) return 'session'
-  if (/^pulled /i.test(title)) return 'download'
-  if (/^(switched|rebased)|worktree/i.test(title)) return 'branch'
-  if (/#\d+|suggestions/i.test(title)) return 'pr'
-  if (/^read \d+ changed/i.test(title)) return 'file'
-  if (/^deleted /i.test(title)) return 'trash'
-  if (lower.includes('migration')) return 'database'
-  if (lower.includes('approved')) return 'check'
-  if (/^opened /i.test(title)) return 'file'
   return 'tool'
 }
 
@@ -196,17 +178,8 @@ function toolStepFromCall(
       rawDetail: event.detail ?? undefined,
     }
   }
-  const fixedChips = /^Fixed \d+ findings/i.test(event.title)
-    ? ([
-        { label: 'Tests pass', tone: 'success' as const },
-        { label: 'Committed locally, not pushed', tone: 'muted' as const },
-      ] as TimelineChip[])
-    : undefined
-  const tone = event.status === 'completed' ? ('success' as const) : undefined
-  const openedPrChips =
-    /^Opened PR #\d+/.test(event.title) && !chips?.length
-      ? [{ label: 'Checks running' as const }]
-      : undefined
+  const succeeded =
+    event.status === 'completed' || legacyToolSucceeded(event.title)
   return {
     kind: 'tool',
     id: event.id,
@@ -214,13 +187,8 @@ function toolStepFromCall(
     // Claude titles these by tool name (`TodoWrite`); show it as words.
     title: humanizeIdentifier(event.title),
     detail: (event.detail ?? event.locations.join(', ')) || undefined,
-    chips: chips ?? fixedChips ?? openedPrChips,
-    tone:
-      tone ??
-      (/^Opened PR #\d+/.test(event.title) ||
-      /^Fixed \d+ findings/i.test(event.title)
-        ? 'success'
-        : undefined),
+    chips: chips ?? legacyToolChips(event.title),
+    tone: succeeded ? 'success' : undefined,
     quiet: event.kind === 'read' || event.kind === 'search',
     seq,
     atMs,
@@ -344,14 +312,14 @@ type TimelineEvent = MapTimelineInput['events'][number] & { output?: string }
 
 // Engines fill in a tool call after announcing it,
 // so fold each update into the call it belongs to.
+// A repeated id is the same call or step again (a replay stored by an older
+// build); keep the first so step ids, which key the rendered list, stay unique.
 function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
   const merged: TimelineEvent[] = []
   const callIndex = new Map<string, number>()
   for (const entry of events) {
     const { event } = entry
-    if (event.type === 'toolCall') {
-      // A repeated id is the same call again (a replay stored by an older
-      // build); keep the first so step ids, which key the rendered list, stay unique.
+    if (event.type === 'toolCall' || event.type === 'step') {
       if (callIndex.has(event.id)) continue
       callIndex.set(event.id, merged.length)
       merged.push(entry)
@@ -463,13 +431,48 @@ function foldEvent(
       }
       break
     }
-    case 'toolCall': {
-      if (isAppEvent(event)) {
+    case 'step': {
+      const { icon, row, chips } = presentStep(event.step)
+      const detail = event.detail || undefined
+      if (row === 'divider') {
         flushRun(run, items, state.runSeq, nextId)
         items.push({
           kind: 'event',
           id: event.id,
-          icon: iconForAppEvent(event.title),
+          icon,
+          title: event.title,
+          detail,
+          seq,
+          atMs,
+        })
+        break
+      }
+      if (!run.length) state.runSeq = seq
+      const step: ToolRunStep = {
+        kind: 'tool',
+        id: event.id,
+        icon,
+        title: event.title,
+        detail,
+        chips: state.pendingAutoChip ? [state.pendingAutoChip] : chips,
+        tone: 'success',
+        quiet: false,
+        seq,
+        atMs,
+        rawDetail: event.detail ?? undefined,
+      }
+      state.pendingAutoChip = undefined
+      stepsById.set(event.id, step)
+      run.push(step)
+      break
+    }
+    case 'toolCall': {
+      if (isLegacyDivider(event)) {
+        flushRun(run, items, state.runSeq, nextId)
+        items.push({
+          kind: 'event',
+          id: event.id,
+          icon: legacyDividerIcon(event.title),
           title: event.title,
           detail: event.detail ?? undefined,
           seq,
@@ -646,6 +649,7 @@ function sameApprovals(a: ApprovalRow[], b: ApprovalRow[]) {
 
 function touchesFinishedTurn(event: AgentEvent, callIds: Set<string>) {
   if (event.type === 'toolCallUpdate') return callIds.has(event.id)
+  if (event.type === 'step') return callIds.has(event.id)
   if (event.type !== 'toolCall') return false
   return (
     callIds.has(event.id) ||
@@ -705,7 +709,9 @@ export class TimelineBuilder {
       if (entry !== boundary) continue
       const callIds = new Set(turns?.callIds)
       for (const { event } of tail.slice(0, turnEnd + 1)) {
-        if (event.type === 'toolCall') callIds.add(event.id)
+        if (event.type === 'toolCall' || event.type === 'step') {
+          callIds.add(event.id)
+        }
       }
       this.finished = {
         count: start + turnEnd + 1,

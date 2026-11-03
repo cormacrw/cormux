@@ -1,10 +1,7 @@
 use std::path::Path;
 
-use tauri::AppHandle;
-
-use crate::engines::{AgentEvent, ToolCallStatus, ToolKind};
 use crate::error::{Error, Result};
-use crate::feedback::emit_toast;
+use crate::feedback::Output;
 use crate::git_workspace::{lead_thread_id, refresh_git_stats, resolve_record};
 use crate::github::auth;
 use crate::github::create::{CreatePullRequestInput, RestGithubClient};
@@ -16,6 +13,7 @@ use crate::ipc::types::{
 use crate::pr_draft::{PR_PROMPT_KEY, draft_why, pr_prompt};
 use crate::state::AppState;
 use crate::store::types::{PrRow, WorkspaceRow};
+use crate::timeline::{TimelineStep, record_step};
 
 /// A workspace that's still around, for the PR commands.
 fn live_workspace(state: &AppState, workspace_id: &str) -> Result<WorkspaceRow> {
@@ -61,7 +59,7 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
 }
 
 pub async fn create_workspace_pull_request(
-    app: &AppHandle,
+    out: &Output,
     state: &AppState,
     input: CreateWorkspacePullRequestInput,
 ) -> Result<CreateWorkspacePullRequestResult> {
@@ -209,25 +207,22 @@ pub async fn create_workspace_pull_request(
         &pr_base,
     )?;
 
-    emit_toast(
-        app,
-        ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![
-                ToastPart::Text {
-                    value: format!("Opened draft PR #{} for ", created.number),
-                },
-                ToastPart::Code {
-                    value: record.branch.clone(),
-                },
-            ],
-            workspace_id: Some(input.workspace_id.clone()),
-            thread_id: Some(lead_id.clone()),
-        },
-    );
+    out.toast(ToastRaisedPayload {
+        tone: ToastTone::Ok,
+        parts: vec![
+            ToastPart::Text {
+                value: format!("Opened draft PR #{} for ", created.number),
+            },
+            ToastPart::Code {
+                value: record.branch.clone(),
+            },
+        ],
+        workspace_id: Some(input.workspace_id.clone()),
+        thread_id: Some(lead_id.clone()),
+    });
 
     // One refetch covers the new PR row and the workspace's PR number.
-    state.notify(app, StateChangeKind::PrSync);
+    state.notify(out, StateChangeKind::PrSync);
 
     Ok(CreateWorkspacePullRequestResult {
         workspace_id: input.workspace_id,
@@ -279,19 +274,15 @@ fn append_opened_pr_step(
     branch: &str,
     base: &str,
 ) -> Result<()> {
-    let event = AgentEvent::ToolCall {
-        parent_id: None,
-        id: format!("pr-open-{number}"),
-        title: format!("Opened PR #{number}"),
-        name: None,
-        kind: ToolKind::Other,
-        status: ToolCallStatus::Completed,
-        locations: vec![],
-        detail: Some(format!("{branch} → {base}")),
-    };
-    let payload = serde_json::to_string(&event).map_err(|error| Error::Store(error.to_string()))?;
-    store.append_event(thread_id, "tool", &payload)?;
-    Ok(())
+    record_step(
+        store,
+        thread_id,
+        TimelineStep::PrOpened {
+            number,
+            branch: branch.to_string(),
+            base: base.to_string(),
+        },
+    )
 }
 
 /// Now, in the `YYYY-MM-DDTHH:MM:SSZ` form GitHub's `updatedAt` takes, so the PR row made here

@@ -35,7 +35,7 @@ pnpm test:e2e      # Playwright against Vite + mocked IPC (Chromium)
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-`pnpm test:e2e` is how UI changes get verified without the native window. It stubs Tauri invoke (see `src/lib/dev/browser-harness.ts`), clicks through the Svelte shell, and writes `e2e/output/*.png`. Overlay traffic lights still need `pnpm tauri dev`.
+`pnpm test:e2e` is how UI changes get verified without the native window. It stubs Tauri invoke (see `src/lib/dev/browser-harness.ts`, with one handler per command in `src/lib/dev/harness/`; specs pick a starting state with `setScenario` from `e2e/harness.ts`), clicks through the Svelte shell, and writes `e2e/output/*.png`. Overlay traffic lights still need `pnpm tauri dev`.
 
 ## Optional skill: task draft cards
 

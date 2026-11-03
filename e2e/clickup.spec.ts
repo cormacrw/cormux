@@ -1,20 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
-type Call = { cmd: string; args: Record<string, unknown> }
-
 async function enableClickup(page: Page) {
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_CLICKUP__?: boolean }).__HARNESS_CLICKUP__ = true
-  })
+  await setScenario(page, { clickup: true })
 }
 
 function calls(page: Page) {
-  return page.evaluate(
-    () =>
-      (window as { __HARNESS_CLICKUP_CALLS__?: Call[] })
-        .__HARNESS_CLICKUP_CALLS__ ?? [],
-  )
+  return page.evaluate(() => window.__HARNESS__!.clickupCalls)
 }
 
 test.describe('clickup', () => {

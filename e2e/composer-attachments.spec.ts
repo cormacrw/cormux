@@ -76,17 +76,7 @@ test('composer: paste and drop files, remove one, and send them with the message
   await composer.press('Enter')
   await expect(chips).toHaveCount(0)
 
-  const prompts = await page.evaluate(
-    () =>
-      (
-        window as {
-          __HARNESS_PROMPTS__?: {
-            text: string
-            attachments: { name: string; dataBase64: string | null }[]
-          }[]
-        }
-      ).__HARNESS_PROMPTS__,
-  )
+  const prompts = await page.evaluate(() => window.__HARNESS__!.prompts)
   const sent = prompts!.at(-1)!
   expect(sent.text).toBe('Why is this layout broken?')
   expect(sent.attachments.map((a) => a.name)).toEqual([

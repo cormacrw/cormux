@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentEvent } from '$lib/ipc/bindings'
-import { heroLine, RESUME_TITLE, splitConversations } from './conversations'
-import { NEW_SESSION_TITLE } from './new-session'
+import { heroLine, splitConversations } from './conversations'
+import { NEW_SESSION_TITLE, RESUME_TITLE } from './legacy-steps'
 
 let seq = 0
 const at = (event: AgentEvent) => ({ seq: ++seq, atMs: seq * 1000, event })

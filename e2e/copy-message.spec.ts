@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 
 test('copying a message swaps the icon to a check, then back', async ({
   page,
@@ -34,12 +35,8 @@ test('a code block copies just its code from the corner button', async ({
     payload: JSON.stringify({ type: 'messageChunk', role, text }),
     createdAt: '2026-09-29 12:00:00',
   })
-  await page.addInitScript(
-    (timeline) => {
-      ;(window as { __HARNESS_TIMELINE__?: unknown }).__HARNESS_TIMELINE__ =
-        timeline
-    },
-    [
+  await setScenario(page, {
+    timeline: [
       chunk(1, 'user', 'How do I install?'),
       chunk(
         2,
@@ -47,7 +44,7 @@ test('a code block copies just its code from the corner button', async ({
         'Run this:\n\n```sh\npnpm install\npnpm tauri dev\n```',
       ),
     ],
-  )
+  })
   await page.goto('/')
   await page
     .getByRole('button', { name: /OAuth login/ })
@@ -76,12 +73,8 @@ test('fenced code is syntax highlighted, and only highlight classes survive', as
     payload: JSON.stringify({ type: 'messageChunk', role, text }),
     createdAt: '2026-09-29 12:00:00',
   })
-  await page.addInitScript(
-    (timeline) => {
-      ;(window as { __HARNESS_TIMELINE__?: unknown }).__HARNESS_TIMELINE__ =
-        timeline
-    },
-    [
+  await setScenario(page, {
+    timeline: [
       chunk(1, 'user', 'Show me'),
       chunk(
         2,
@@ -89,7 +82,7 @@ test('fenced code is syntax highlighted, and only highlight classes survive', as
         'Like this:\n\n```ts\n// greet\nexport function greet(name: string) {\n  return `hi ${name}`\n}\n```\n\n```\nplain text\n```\n\n<span class="fixed inset-0 hljs-string">x</span>',
       ),
     ],
-  )
+  })
   await page.goto('/')
   await page
     .getByRole('button', { name: /OAuth login/ })

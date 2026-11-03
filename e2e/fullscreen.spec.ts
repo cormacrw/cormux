@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync, readFileSync } from 'node:fs'
 
 test('the sidebar keeps room for the traffic lights, with DEV in its footer', async ({
@@ -41,10 +42,7 @@ test('the sidebar keeps room for the traffic lights, with DEV in its footer', as
 test('full screen drops the traffic-light row so the sidebar moves up', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_FULLSCREEN__?: boolean }).__HARNESS_FULLSCREEN__ =
-      true
-  })
+  await setScenario(page, { fullscreen: true })
   await page.goto('/')
   const titlebar = page.locator('[data-od-id="sidebar-titlebar"]')
   await expect.poll(async () => (await titlebar.boundingBox())?.height).toBe(14)

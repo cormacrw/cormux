@@ -18,6 +18,7 @@ use crate::error::{Error, Result};
 use crate::mcp::CormuxMcp;
 use crate::shell_env::ShellEnv;
 use crate::store::Store;
+use crate::workspace::ThreadStatus;
 
 const EVENT_CAP: usize = 256;
 /// Just over what a session gets to exit before it's killed.
@@ -46,6 +47,9 @@ pub struct EngineRegistry {
     /// Woken whenever an engine is registered, so a subscriber waiting on a thread with no
     /// engine yet needn't poll for one.
     spawned: Arc<tokio::sync::Notify>,
+    /// Threads whose engine looks alive but fails every send, the way one dying mid-prompt does.
+    #[cfg(test)]
+    refused: Arc<Mutex<HashSet<String>>>,
 }
 
 struct ThreadSlot {
@@ -100,6 +104,8 @@ impl EngineRegistry {
             threads: Arc::new(Mutex::new(HashMap::new())),
             holds: Arc::new(Mutex::new(HashMap::new())),
             spawned: Arc::new(tokio::sync::Notify::new()),
+            #[cfg(test)]
+            refused: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -123,6 +129,27 @@ impl EngineRegistry {
             .get(thread_id)
             .ok_or_else(|| Error::Engine(format!("no engine for thread {thread_id}")))?;
         Ok(slot.events.subscribe())
+    }
+
+    /// Serves the thread with no process behind it; the receiver gets what it would be sent.
+    #[cfg(test)]
+    pub fn fake_thread(&self, thread_id: &str) -> mpsc::UnboundedReceiver<EngineCommand> {
+        let (commands, rx) = mpsc::unbounded_channel();
+        self.threads.lock().unwrap().insert(
+            thread_id.into(),
+            ThreadSlot {
+                commands,
+                events: broadcast::channel(4).0,
+                session_id: Arc::new(Mutex::new(None)),
+                last_active: Arc::new(Mutex::new(Instant::now())),
+            },
+        );
+        rx
+    }
+
+    #[cfg(test)]
+    pub fn refuse_sends(&self, thread_id: &str) {
+        self.refused.lock().unwrap().insert(thread_id.into());
     }
 
     /// Whether a live engine serves the thread. An engine whose pump has ended (the CLI
@@ -421,7 +448,7 @@ impl EngineRegistry {
             .thread_by_id(thread_id)
             .ok()
             .flatten()
-            .is_some_and(|thread| thread.status == "idle");
+            .is_some_and(|thread| thread.has_status(ThreadStatus::Idle));
         let unanswered = self
             .store
             .pending_approvals_for_thread(thread_id)
@@ -430,6 +457,10 @@ impl EngineRegistry {
     }
 
     fn send(&self, thread_id: &str, command: EngineCommand) -> Result<()> {
+        #[cfg(test)]
+        if self.refused.lock().unwrap().contains(thread_id) {
+            return Err(Error::Engine("engine process is gone".into()));
+        }
         let threads = self
             .threads
             .lock()
@@ -861,19 +892,7 @@ async fn handle_claude_permission(
 }
 
 fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) -> Option<i64> {
-    let kind = match event {
-        AgentEvent::SessionStarted { .. } => "session",
-        AgentEvent::MessageChunk { .. } => "message",
-        AgentEvent::ToolCall { .. } => "tool",
-        AgentEvent::Plan { .. } => "plan",
-        AgentEvent::Permission { .. } => "permission",
-        AgentEvent::ToolCallUpdate { .. } => "tool_update",
-        AgentEvent::CurrentTool { .. } => "current_tool",
-        AgentEvent::Usage { .. } => "usage",
-        AgentEvent::TurnEnd { .. } => "turn_end",
-        AgentEvent::EngineExited { .. } => "exit",
-        AgentEvent::StreamLagged { .. } => return None,
-    };
+    let kind = event.store_kind()?;
     let seq = serde_json::to_string(event)
         .ok()
         .and_then(|payload| store.append_event(thread_id, kind, &payload).ok());
@@ -881,7 +900,7 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) -> Option<i
         event,
         AgentEvent::TurnEnd { .. } | AgentEvent::EngineExited { .. }
     ) {
-        let _ = store.mark_thread_idle(thread_id);
+        let _ = crate::turn::settle(store, thread_id);
     }
     seq
 }
@@ -942,17 +961,7 @@ mod tests {
                 parent_thread_id: None,
             })
             .unwrap();
-        let (commands, rx) = mpsc::unbounded_channel();
-        engines.threads.lock().unwrap().insert(
-            thread_id.into(),
-            ThreadSlot {
-                commands,
-                events: broadcast::channel(4).0,
-                session_id: Arc::new(Mutex::new(None)),
-                last_active: Arc::new(Mutex::new(Instant::now())),
-            },
-        );
-        rx
+        engines.fake_thread(thread_id)
     }
 
     #[tokio::test]

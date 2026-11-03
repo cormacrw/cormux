@@ -358,14 +358,16 @@ impl Git {
         Self::require_success(&output, "fetch pull ref")
     }
 
+    /// Outside the repo's queue: deleting a worktree can take many seconds, and new threads
+    /// need that queue to add theirs. Git is fine with adds and removes overlapping.
     pub async fn worktree_remove(&self, repo: &Path, path: &Path, force: bool) -> Result<()> {
         let path_str = path.to_string_lossy().to_string();
-        let output = if force {
-            self.run(repo, &["worktree", "remove", "--force", &path_str])
-                .await?
-        } else {
-            self.run(repo, &["worktree", "remove", &path_str]).await?
-        };
+        let mut args = vec!["worktree", "remove"];
+        if force {
+            args.push("--force");
+        }
+        args.push(&path_str);
+        let output = self.run_unlocked(Some(repo), &args).await?;
         Self::require_success(&output, "worktree remove")
     }
 
@@ -1606,6 +1608,30 @@ mod tests {
 
         git.worktree_remove(&repo, &worktree, true).await.unwrap();
         git.branch_delete(&repo, "feature").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removing_a_worktree_does_not_wait_for_the_repo_queue() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        let worktree_dir = tempfile::tempdir().unwrap();
+        let worktree = worktree_dir.path().join("wt-feature");
+        git.worktree_add(&repo, &worktree, "feature", "main")
+            .await
+            .unwrap();
+
+        let removal = git.worktree_remove(&repo, &worktree, false);
+        let finished = git
+            .with_queue(&repo, || async {
+                Ok(tokio::time::timeout(Duration::from_secs(10), removal).await)
+            })
+            .await
+            .unwrap();
+
+        finished
+            .expect("removal waited for the repo queue")
+            .unwrap();
+        assert!(!worktree.exists());
     }
 
     #[tokio::test]

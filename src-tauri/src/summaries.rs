@@ -1,4 +1,8 @@
+use crate::error::{Error, Result};
+use crate::ipc::types::WorkspaceSummaryResult;
+use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
+use crate::workspace::ThreadStatus;
 
 pub const SUMMARY_MODEL_LABEL: &str = "Haiku 4.5";
 
@@ -45,7 +49,7 @@ pub fn fallback_summary(workspace: &WorkspaceRow, threads: &[ThreadRow]) -> Stri
     }
     let active = threads
         .iter()
-        .filter(|t| t.status == "running" || t.status == "provisioning")
+        .filter(|t| t.has_status(ThreadStatus::Running) || t.has_status(ThreadStatus::Provisioning))
         .count();
     if active > 0 {
         format!(
@@ -65,6 +69,52 @@ pub fn fallback_summary(workspace: &WorkspaceRow, threads: &[ThreadRow]) -> Stri
             workspace.modified_files
         )
     }
+}
+
+/// A cached workspace card summary, or a new one (debounced LLM + local fallback).
+pub async fn summarise(state: &AppState, workspace_id: String) -> Result<WorkspaceSummaryResult> {
+    let workspace = state
+        .store
+        .workspace_by_id(&workspace_id)?
+        .filter(|row| row.archived_at.is_none())
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+
+    if let (Some(summary), Some(at)) = (&workspace.summary, &workspace.summary_at)
+        && !summary.is_empty()
+    {
+        return Ok(WorkspaceSummaryResult {
+            workspace_id,
+            summary: summary.clone(),
+            summary_at: at.clone(),
+            summary_source: workspace.summary_source.clone(),
+            from_llm: true,
+        });
+    }
+
+    let threads = state.store.threads_for_workspace(&workspace_id)?;
+
+    let prompt = build_summary_prompt(&workspace, &threads);
+    let (summary, from_llm) = match state.llm.summarise(&workspace_id, &prompt).await {
+        Ok(Some(result)) if !result.text.is_empty() => (result.text, true),
+        _ => (fallback_summary(&workspace, &threads), false),
+    };
+
+    state
+        .store
+        .set_workspace_summary(&workspace_id, &summary, SUMMARY_MODEL_LABEL)?;
+
+    let updated = state
+        .store
+        .workspace_by_id(&workspace_id)?
+        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+
+    Ok(WorkspaceSummaryResult {
+        workspace_id,
+        summary,
+        summary_at: updated.summary_at.unwrap_or_else(|| "now".into()),
+        summary_source: updated.summary_source,
+        from_llm,
+    })
 }
 
 #[cfg(test)]

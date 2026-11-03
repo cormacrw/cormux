@@ -8,20 +8,20 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::Output as CommandOutput;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::AppHandle;
 
 use crate::error::{Error, Result};
-use crate::feedback::emit_toast;
+use crate::feedback::Output;
 use crate::git::ShortStat;
 use crate::git_workspace::{adopt_checked_out_branch, resolve_record};
 use crate::ipc::types::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
+use crate::timeline::BranchChange;
 use crate::workspace::WorkspaceRecord;
 
 /// How long GitHub's "no stack has this branch" stands before asking again.
@@ -127,7 +127,7 @@ enum View {
     Unavailable(String),
 }
 
-async fn gh_stack(state: &AppState, worktree: &Path, args: &[&str]) -> Result<Output> {
+async fn gh_stack(state: &AppState, worktree: &Path, args: &[&str]) -> Result<CommandOutput> {
     gh_stack_with_env(state, worktree, args, &[]).await
 }
 
@@ -136,7 +136,7 @@ async fn gh_stack_with_env(
     worktree: &Path,
     args: &[&str],
     extra_env: &[(&str, &str)],
-) -> Result<Output> {
+) -> Result<CommandOutput> {
     let mut full = vec!["stack"];
     full.extend_from_slice(args);
     // Never let gh or gh-stack wait on a prompt; there's no terminal to answer it.
@@ -153,7 +153,7 @@ async fn gh_stack_with_env(
         })
 }
 
-fn stderr_text(output: &Output) -> String {
+fn stderr_text(output: &CommandOutput) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let text = if stderr.trim().is_empty() {
         String::from_utf8_lossy(&output.stdout).to_string()
@@ -167,7 +167,7 @@ fn stderr_text(output: &Output) -> String {
         .join(" ")
 }
 
-fn extension_missing(output: &Output) -> bool {
+fn extension_missing(output: &CommandOutput) -> bool {
     stderr_says_extension_missing(&String::from_utf8_lossy(&output.stderr))
 }
 
@@ -177,11 +177,11 @@ fn stderr_says_extension_missing(stderr: &str) -> bool {
 }
 
 /// Turn a failed gh-stack run into an error the UI can show as-is.
-fn failure(output: &Output, action: &str) -> Error {
+fn failure(output: &CommandOutput, action: &str) -> Error {
     Error::Git(failure_message(output, action))
 }
 
-fn failure_message(output: &Output, action: &str) -> String {
+fn failure_message(output: &CommandOutput, action: &str) -> String {
     if extension_missing(output) {
         return format!("gh-stack isn't installed. Run: {INSTALL_HINT}");
     }
@@ -577,7 +577,7 @@ async fn checkout_remote_stack(
 /// start a stack first: on the trunk the new branch becomes its bottom, otherwise the
 /// checked-out branch is adopted as the bottom and the new branch goes on top of it.
 pub async fn add_branch(
-    app: &AppHandle,
+    out: &Output,
     state: &AppState,
     workspace_id: &str,
     branch: &str,
@@ -623,10 +623,12 @@ pub async fn add_branch(
     }
 
     adopt_checked_out_branch(
-        app,
+        out,
         state,
         workspace_id,
-        &format!("Added {name} to the stack on top of {}", record.branch),
+        BranchChange::AddedToStack {
+            on_top_of: record.branch.clone(),
+        },
     )
     .await?;
     Ok(())
@@ -634,20 +636,20 @@ pub async fn add_branch(
 
 /// Push every unmerged branch in the stack (`--force-with-lease` per branch). Pull
 /// requests stay manual: this never opens or edits one.
-pub async fn push(app: &AppHandle, state: &AppState, workspace_id: &str) -> Result<()> {
+pub async fn push(out: &Output, state: &AppState, workspace_id: &str) -> Result<()> {
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
     let output = gh_stack(state, &worktree, &["push", "--remote", "origin"]).await?;
     if !output.status.success() {
         return Err(failure(&output, "Push"));
     }
-    adopt_checked_out_branch(app, state, workspace_id, "Pushed the stack").await?;
-    toast(app, workspace_id, "Pushed the stack");
+    adopt_checked_out_branch(out, state, workspace_id, BranchChange::StackPushed).await?;
+    toast(out, workspace_id, "Pushed the stack");
     Ok(())
 }
 
 /// Fetch, rebase onto the trunk, push, and refresh pull request state.
-pub async fn sync(app: &AppHandle, state: &AppState, workspace_id: &str) -> Result<()> {
+pub async fn sync(out: &Output, state: &AppState, workspace_id: &str) -> Result<()> {
     let record = workspace_record(state, workspace_id).await?;
     state.workspace.remember(record.clone()).await;
     state.workspace.can_switch_branch(workspace_id).await?;
@@ -664,13 +666,13 @@ pub async fn sync(app: &AppHandle, state: &AppState, workspace_id: &str) -> Resu
         Ok(())
     };
     // A sync can rebase the checked-out branch even when it fails partway.
-    adopt_checked_out_branch(app, state, workspace_id, "Synced the stack").await?;
+    adopt_checked_out_branch(out, state, workspace_id, BranchChange::StackSynced).await?;
     result?;
-    toast(app, workspace_id, "Synced the stack with GitHub");
+    toast(out, workspace_id, "Synced the stack with GitHub");
     Ok(())
 }
 
-fn sync_aborted(output: &Output) -> bool {
+fn sync_aborted(output: &CommandOutput) -> bool {
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -707,16 +709,13 @@ pub async fn pr_base(state: &AppState, worktree: &Path, branch: &str, trunk: &st
         .unwrap_or_else(|| trunk.to_string())
 }
 
-fn toast(app: &AppHandle, workspace_id: &str, text: &str) {
-    emit_toast(
-        app,
-        ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![ToastPart::Text { value: text.into() }],
-            workspace_id: Some(workspace_id.to_string()),
-            thread_id: None,
-        },
-    );
+fn toast(out: &Output, workspace_id: &str, text: &str) {
+    out.toast(ToastRaisedPayload {
+        tone: ToastTone::Ok,
+        parts: vec![ToastPart::Text { value: text.into() }],
+        workspace_id: Some(workspace_id.to_string()),
+        thread_id: None,
+    });
 }
 
 /// Compare against the remote trunk when it exists, so the bottom branch doesn't
@@ -886,7 +885,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs gh with the gh-stack extension"]
     async fn adopts_a_stack_made_in_another_worktree() {
-        let state = AppState::new();
+        let state = AppState::new(std::env::temp_dir());
         state
             .shell_env
             .write()

@@ -1,13 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 const SPRINT_TITLE = /Sprint/
 const heading = (page: Page) => page.getByRole('heading', { level: 1 })
 
 async function visitNewThreadWorkspaceSprint(page: Page) {
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_CLICKUP__?: boolean }).__HARNESS_CLICKUP__ = true
-  })
+  await setScenario(page, { clickup: true })
   await page.goto('/')
   await expect(heading(page)).toHaveText('New thread')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()

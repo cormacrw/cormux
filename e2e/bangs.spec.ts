@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 test.describe('bangs', () => {
@@ -85,12 +86,12 @@ test.describe('bangs', () => {
   })
 
   test('scratch macros carry over as bangs', async ({ page }) => {
-    await page.addInitScript(() => {
-      ;(window as { __HARNESS_SETTINGS__?: unknown }).__HARNESS_SETTINGS__ = {
+    await setScenario(page, {
+      settings: {
         scratchMacros: JSON.stringify([
           { id: 'm1', name: 'Morning triage', prompt: 'Check CI' },
         ]),
-      }
+      },
     })
     await page.goto('/')
     await page

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { setScenario } from './harness'
 
 async function openStack(page: Page, query = '') {
   await page.goto(`/${query}`)
@@ -85,9 +86,9 @@ test('Stack says why the GitHub check failed and can check again', async ({
   await expect(
     panel.locator('[data-od-id="stack-check-failed"]'),
   ).toContainText('failed talking to GitHub')
-  await page.evaluate(
-    () => ((window as { __stackRemoteUp?: boolean }).__stackRemoteUp = true),
-  )
+  await page.evaluate(() => {
+    window.__HARNESS__!.stackRemoteUp = true
+  })
   await panel.getByRole('button', { name: 'Check GitHub' }).click()
   await expect(panel.locator('[data-stack-branch]')).toHaveCount(3)
   await expect(panel.locator('[data-od-id="stack-check-failed"]')).toHaveCount(
@@ -136,27 +137,27 @@ test('Create PR targets the branch below, and the header links an existing PR', 
 test('the header links a PR opened outside Cormux for the checked-out branch', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    const payload = {
-      num: 57,
-      title: 'OAuth login',
-      author: 'you',
-      rel: 'author',
-      head: 'feat/oauth-login',
-      base: 'main',
-      updatedAt: '2026-09-29T20:00:00Z',
-      checks: 'pass',
-      failing: null,
-      review: 'approved',
-      additions: 96,
-      deletions: 12,
-      files: 3,
-      isDraft: false,
-      htmlUrl: 'https://github.com/acme/app/pull/57',
-      repoFullName: 'acme/app',
-      repoId: 'my-app',
-    }
-    ;(window as { __HARNESS_PRS__?: unknown }).__HARNESS_PRS__ = [
+  const payload = {
+    num: 57,
+    title: 'OAuth login',
+    author: 'you',
+    rel: 'author',
+    head: 'feat/oauth-login',
+    base: 'main',
+    updatedAt: '2026-09-29T20:00:00Z',
+    checks: 'pass',
+    failing: null,
+    review: 'approved',
+    additions: 96,
+    deletions: 12,
+    files: 3,
+    isDraft: false,
+    htmlUrl: 'https://github.com/acme/app/pull/57',
+    repoFullName: 'acme/app',
+    repoId: 'my-app',
+  }
+  await setScenario(page, {
+    pullRequests: [
       {
         id: 'acme/app#57',
         repoId: 'my-app',
@@ -164,16 +165,14 @@ test('the header links a PR opened outside Cormux for the checked-out branch', a
         title: payload.title,
         payload: JSON.stringify(payload),
       },
-    ]
+    ],
   })
   await page.goto('/?stack=none')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
   const button = page.getByRole('button', { name: 'PR #57 · Approved' })
   await expect(button).toBeVisible()
   await button.click()
-  const opened = await page.evaluate(
-    () => (window as { __HARNESS_OPENED__?: string[] }).__HARNESS_OPENED__,
-  )
+  const opened = await page.evaluate(() => window.__HARNESS__!.opened)
   expect(opened).toEqual(['https://github.com/acme/app/pull/57'])
 })
 

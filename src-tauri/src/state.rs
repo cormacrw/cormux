@@ -1,15 +1,15 @@
+use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::AppHandle;
-use tauri_specta::Event;
 use tokio::sync::{RwLock, broadcast};
 
 use crate::app::WorkspaceAppService;
 use crate::clickup::ClickupClient;
+use crate::feedback::Output;
 use crate::git::{FetchScheduler, LiveDiffEngine};
-use crate::ipc::events::StateChanged;
 use crate::ipc::subscriptions::Subscriptions;
 use crate::ipc::types::StateChangeKind;
 use crate::orchestration::ReportQueue;
@@ -25,9 +25,23 @@ use crate::{
 /// in a quiet spell goes out at once, so nothing waits on the window.
 const CHANGE_WINDOW: Duration = Duration::from_millis(50);
 
-/// Process-wide core state. The webview never holds this; IPC commands borrow it.
-pub struct AppState {
+/// Process-wide core state. The webview never holds this; IPC commands borrow it. A handle to
+/// one shared [`Core`], so a workflow can clone it into the background tasks it spawns.
+#[derive(Clone)]
+pub struct AppState(Arc<Core>);
+
+impl Deref for AppState {
+    type Target = Core;
+
+    fn deref(&self) -> &Core {
+        &self.0
+    }
+}
+
+pub struct Core {
     pub event_version: AtomicU64,
+    /// The app's data folder, this build's own: see `crate::data_dir`.
+    pub data_dir: PathBuf,
     changes: Mutex<ChangeCoalescer>,
     pub shell_env: Arc<RwLock<ShellEnv>>,
     pub git: Git,
@@ -51,7 +65,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(data_dir: PathBuf) -> Self {
         let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
         let git = Git::new(shell_env.clone());
         let diffs = LiveDiffEngine::new(git.clone());
@@ -78,8 +92,9 @@ impl AppState {
             approval_notify.clone(),
             turn_end_notify.clone(),
         );
-        Self {
+        Self(Arc::new(Core {
             event_version: AtomicU64::new(0),
+            data_dir,
             changes: Mutex::new(ChangeCoalescer::default()),
             shell_env: shell_env.clone(),
             git,
@@ -100,7 +115,7 @@ impl AppState {
             turn_end_notify,
             subscriptions: Subscriptions::new(),
             reports: ReportQueue::default(),
-        }
+        }))
     }
 
     pub fn snapshot_version(&self) -> u64 {
@@ -118,39 +133,30 @@ impl AppState {
     /// The version only moves when an event goes out, so consecutive events are numbered
     /// consecutively: the webview treats a jump as a dropped event and does a full resync,
     /// which a merged burst must not look like.
-    pub fn notify(&self, app: &AppHandle, kind: StateChangeKind) {
+    pub fn notify(&self, out: &Output, kind: StateChangeKind) {
         let decision = match self.changes.lock() {
             Ok(mut changes) => changes.record(kind, Instant::now()),
             Err(_) => Decision::EmitNow(kind),
         };
         match decision {
             Decision::EmitNow(kind) => {
-                let version = self.bump_event_version();
-                let _ = StateChanged { version, kind }.emit(app);
+                out.state_changed(self.bump_event_version(), kind);
             }
             Decision::Schedule(delay) => {
-                let app = app.clone();
+                let (state, out) = (self.clone(), out.clone());
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(delay).await;
-                    let state = tauri::Manager::state::<AppState>(&app);
                     let kind = match state.changes.lock() {
                         Ok(mut changes) => changes.flush(Instant::now()),
                         Err(_) => Some(StateChangeKind::WorkspaceStatus),
                     };
                     if let Some(kind) = kind {
-                        let version = state.bump_event_version();
-                        let _ = StateChanged { version, kind }.emit(&app);
+                        out.state_changed(state.bump_event_version(), kind);
                     }
                 });
             }
             Decision::Merged => {}
         }
-    }
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -221,7 +227,24 @@ mod tests {
 
     #[test]
     fn constructs_without_async_runtime() {
-        let _state = AppState::new();
+        let _state = AppState::new(std::env::temp_dir());
+    }
+
+    #[tokio::test]
+    async fn a_burst_reaches_the_output_as_one_trailing_event_numbered_in_sequence() {
+        let state = AppState::new(std::env::temp_dir());
+        let (recording, out) = crate::feedback::RecordingOutput::new();
+        state.notify(&out, StateChangeKind::PrSync);
+        state.notify(&out, StateChangeKind::WorkspaceStatus);
+        state.notify(&out, StateChangeKind::BehindCounts);
+
+        tokio::time::sleep(CHANGE_WINDOW * 3).await;
+        assert_eq!(
+            recording.state_changes(),
+            [StateChangeKind::PrSync, StateChangeKind::BehindCounts]
+        );
+        assert_eq!(recording.versions(), [1, 2]);
+        assert_eq!(state.snapshot_version(), 2);
     }
 
     #[test]

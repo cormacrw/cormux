@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentEvent } from '$lib/ipc/bindings'
 import { mapEventsToTimeline } from './map-events-to-timeline'
-import { hasSessionToClear, NEW_SESSION_TITLE } from './new-session'
+import { hasSessionToClear } from './new-session'
+import { NEW_SESSION_TITLE } from './legacy-steps'
 
 const marker: AgentEvent = {
   type: 'toolCall',

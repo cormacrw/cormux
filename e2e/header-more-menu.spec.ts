@@ -1,14 +1,12 @@
 import { expect, test } from '@playwright/test'
+import { setScenario } from './harness'
 
 test('the header keeps actions in ⋯ at any width, beside an icon Run button', async ({
   page,
 }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.addInitScript(() => {
-    ;(window as { __HARNESS_RUN_COMMAND__?: string }).__HARNESS_RUN_COMMAND__ =
-      'pnpm dev'
-  })
+  await setScenario(page, { runCommand: 'pnpm dev' })
   await page.setViewportSize({ width: 1600, height: 700 })
   await page.goto('/')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()

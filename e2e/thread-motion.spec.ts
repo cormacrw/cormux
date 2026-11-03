@@ -105,9 +105,7 @@ test('a long reply the agent sent all at once doesn’t take ages to type out', 
   ).join('\n\n')
   const started = Date.now()
   await page.evaluate(
-    (events) =>
-      (window as { __HARNESS_AGENT_EVENTS__?: (events: object[]) => void })
-        .__HARNESS_AGENT_EVENTS__!(events),
+    (events) => window.__HARNESS__!.agentEvents(events),
     [agentSays(long)],
   )
   // About 2,200 characters: the old 100-a-second cap took over 20 seconds.
@@ -132,8 +130,7 @@ test('a reply that lands in a thread the agent isn’t writing in shows in full'
   // Sample frames from the moment it lands: it never shows the typing cursor.
   const typedFrames = await page.evaluate(
     async (events) => {
-      ;(window as { __HARNESS_AGENT_EVENTS__?: (events: object[]) => void })
-        .__HARNESS_AGENT_EVENTS__!(events)
+      window.__HARNESS__!.agentEvents(events)
       let typed = 0
       for (let frame = 0; frame < 20; frame += 1) {
         await new Promise((done) => requestAnimationFrame(done))
@@ -152,12 +149,7 @@ test('two replies never type at the same time', async ({ page }) => {
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(page.locator('#composer-input')).toBeVisible()
   const say = (events: object[]) =>
-    page.evaluate(
-      (events) =>
-        (window as { __HARNESS_AGENT_EVENTS__?: (events: object[]) => void })
-          .__HARNESS_AGENT_EVENTS__!(events),
-      events,
-    )
+    page.evaluate((events) => window.__HARNESS__!.agentEvents(events), events)
   // A reply, a skill's step, then the skill's own output straight after.
   await say([agentSays(`First reply. ${'more words here '.repeat(60)}`)])
   await say([

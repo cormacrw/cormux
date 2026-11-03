@@ -1,7 +1,5 @@
 import type { AgentEvent } from '$lib/ipc/bindings'
-
-/** Written by the core's `new_thread_session`; the timeline shows it as a divider. */
-export const NEW_SESSION_TITLE = 'Started a new session'
+import { isLegacyNewSession } from './legacy-steps'
 
 export const NEW_SESSION_SHORTCUT = '⌘L'
 
@@ -18,5 +16,6 @@ export function isNewSessionShortcut(event: KeyboardEvent) {
 export function hasSessionToClear(events: { event: AgentEvent }[]) {
   const last = events.at(-1)?.event
   if (!last) return false
-  return !(last.type === 'toolCall' && last.title === NEW_SESSION_TITLE)
+  if (last.type === 'step') return last.step.kind !== 'sessionStarted'
+  return !isLegacyNewSession(last)
 }
