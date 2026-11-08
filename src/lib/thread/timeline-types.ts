@@ -1,10 +1,10 @@
 import type {
+  AgentQuestion,
   PlanStepStatus,
   TimelineStep,
   ToolCallStatus,
   ToolRole,
 } from '$lib/ipc/bindings'
-import type { AgentQuestion } from '$lib/approvals/payload'
 import type { RunSummary } from './reply/blocks/run'
 
 /** A tool call the agent made, with whatever its later updates filled in. */

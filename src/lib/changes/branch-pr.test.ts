@@ -9,7 +9,6 @@ const basePr: PullRequest = {
   author: 'you',
   head: 'feat/x',
   base: 'main',
-  updatedAtMs: 0,
   checks: 'running',
   review: 'required',
   files: 1,

@@ -5,7 +5,6 @@ import type { ThreadUsage } from '$lib/usage/usage'
 import { onSnapshot } from '$lib/core/sync'
 import { threadActivity } from './activity'
 import { reuseRows } from './reuse-rows'
-import { workspaces } from './workspaces.svelte'
 
 export type Thread = {
   id: string
@@ -19,7 +18,6 @@ export type Thread = {
   engine: string
   status: ThreadStatus
   activity: string
-  pendingApprovals: number
   usage: ThreadUsage
   /** Readable but can't be continued: a workspace's older thread. */
   retired: boolean
@@ -30,11 +28,6 @@ export type Thread = {
 /** The snapshot's workspace threads, grouped in workspace order and created order within one. */
 export function threadsFromSnapshot(snapshot: Snapshot): Thread[] {
   const { persisted } = snapshot
-  const pending = new Map<string, number>()
-  for (const row of persisted.approvals) {
-    if (row.status !== 'pending') continue
-    pending.set(row.threadId, (pending.get(row.threadId) ?? 0) + 1)
-  }
   const records = new Map(
     snapshot.workspaces.map((ws, index) => [ws.id, { ws, index }]),
   )
@@ -50,7 +43,6 @@ export function threadsFromSnapshot(snapshot: Snapshot): Thread[] {
       engine: thread.engine,
       status: thread.status,
       activity: threadActivity(thread.status, ws?.activity),
-      pendingApprovals: pending.get(thread.id) ?? 0,
       retired: thread.retired,
       parentThreadId: thread.parentThreadId,
       usage: {
@@ -96,18 +88,6 @@ export class ThreadsStore {
     }
     return map
   })
-
-  /**
-   * Live threads only. Retired threads stay out of agent counts, and so do the agents of a
-   * workspace being deleted, like the workspace itself.
-   */
-  readonly agents = $derived(
-    this.items.filter((thread) => {
-      if (thread.retired) return false
-      const workspace = workspaces.getById(thread.workspaceId)
-      return !workspace || !workspaces.isDeleting(workspace)
-    }),
-  )
 
   hydrate(items: Thread[]) {
     this.items = reuseRows(this.items, items)

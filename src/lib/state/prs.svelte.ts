@@ -1,7 +1,6 @@
 import type { PrChecksState, PrReviewState } from '$lib/ipc/bindings'
 import type { PrRow } from '$lib/ipc/bindings'
 import { onSnapshot } from '$lib/core/sync'
-import { parseTimestampMs } from '$lib/format/relative-time'
 import { prForBranch } from './pr-lookup'
 import { reuseRows } from './reuse-rows'
 
@@ -14,7 +13,6 @@ export type PullRequest = {
   author: string
   head: string
   base: string
-  updatedAtMs: number
   checks: PrChecksState
   review: PrReviewState
   files: number
@@ -54,7 +52,6 @@ function pullRequestFromRow(row: PrRow): PullRequest {
     author: payload.author,
     head: payload.head,
     base: payload.base,
-    updatedAtMs: parseTimestampMs(payload.updatedAt) ?? 0,
     checks: payload.checks,
     review: payload.review,
     files: payload.files,

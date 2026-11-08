@@ -32,7 +32,6 @@ export const IDLE_RUNTIME: WorkspaceRuntime = Object.freeze({
 export type Workspace = {
   id: string
   repoId: string
-  repoPath: string
   worktreePath: string
   name: string
   branch: string
@@ -135,7 +134,6 @@ export function workspacesFromSnapshot(snapshot: Snapshot): Workspace[] {
     return {
       id: record.id,
       repoId: record.repoId,
-      repoPath: record.repoPath,
       worktreePath: record.worktreePath,
       name: record.name,
       branch: record.branch,

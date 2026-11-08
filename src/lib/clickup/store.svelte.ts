@@ -165,18 +165,6 @@ export class ClickupStore {
     return result
   }
 
-  private patchDetail(
-    taskId: string,
-    patch: Partial<ClickupTaskDetail['task']>,
-  ) {
-    const detail = this.details[taskId]
-    if (!detail) return
-    this.details = {
-      ...this.details,
-      [taskId]: { ...detail, task: { ...detail.task, ...patch } },
-    }
-  }
-
   async moveTask(
     taskId: string,
     statusName: string,
@@ -187,7 +175,6 @@ export class ClickupStore {
     if (!board || !status || !task || sameStatus(task.status, status.name))
       return null
     this.board = withTaskStatus(board, taskId, status)
-    this.patchDetail(taskId, { status: status.name, statusColor: status.color })
     const result = await this.write(() =>
       commands.setClickupTaskStatus(taskId, status.name),
     )
@@ -199,10 +186,6 @@ export class ClickupStore {
           name: task.status,
           color: task.statusColor,
         })
-      this.patchDetail(taskId, {
-        status: task.status,
-        statusColor: task.statusColor,
-      })
       return {
         error: result.error,
         doing: `Could not move the task to ${statusLabel(status.name)}`,
@@ -219,13 +202,11 @@ export class ClickupStore {
     const task = board?.tasks.find((row) => row.id === taskId)
     if (!board || !task || task.points === points) return null
     this.board = withTaskPoints(board, taskId, points)
-    this.patchDetail(taskId, { points })
     const result = await this.write(() =>
       commands.setClickupTaskPoints(taskId, points),
     )
     if (result.status === 'error') {
       this.board = this.board && withTaskPoints(this.board, taskId, task.points)
-      this.patchDetail(taskId, { points: task.points })
       return { error: result.error, doing: 'Could not set sprint points' }
     }
     return null
