@@ -1,9 +1,5 @@
 <script lang="ts">
   import { Toaster } from '$lib/components/ui/sonner'
-  import { setToastView } from '$lib/feedback/show-toast'
-  import ToastLine from './ToastLine.svelte'
-
-  setToastView(ToastLine)
 </script>
 
 <div
@@ -16,7 +12,6 @@
 >
   <Toaster
     position="bottom-right"
-    duration={3600}
     closeButton={false}
     expand={true}
     visibleToasts={8}
