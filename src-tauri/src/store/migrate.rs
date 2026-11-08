@@ -119,6 +119,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "022_thread_entities",
         sql: include_str!("../../migrations/022_thread_entities.sql"),
     },
+    Migration {
+        version: 23,
+        name: "023_workspace_base_kind_thread_role",
+        sql: include_str!("../../migrations/023_workspace_base_kind_thread_role.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -202,7 +207,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 22);
+        assert_eq!(version, 23);
 
         for expected in [
             "approvals",
@@ -443,5 +448,72 @@ mod tests {
             )
             .unwrap();
         assert_eq!(default, "claude");
+    }
+
+    #[test]
+    fn workspaces_get_a_base_and_kind_and_threads_a_role() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+        for migration in &MIGRATIONS[..22] {
+            apply(&conn, migration).unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO repos (id, path, name, default_branch) VALUES
+                ('dev', '/tmp/dev', 'dev', 'develop'),
+                ('plain', '/tmp/plain', 'plain', NULL);
+             INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status, kind) VALUES
+                ('lead', 'dev', 'Lead work', 'feat/x', '/tmp/x', 'waiting', NULL),
+                ('review', 'dev', 'PR #2 Review', 'pr-2', '/tmp/pr', 'idle', 'review'),
+                ('other', 'plain', 'Other', 'feat/y', '/tmp/y', 'ready', NULL);
+             INSERT INTO threads (id, workspace_id, title, engine, status) VALUES
+                ('l', 'lead', 'Lead', 'claude', 'waiting'),
+                ('r', 'review', 'Reviewer', 'claude', 'idle'),
+                ('h', 'other', 'Agent 2', 'claude', 'idle');",
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        let workspace = |id: &str| -> (String, String, String) {
+            conn.query_row(
+                "SELECT base, kind, status FROM workspaces WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            workspace("lead"),
+            ("develop".into(), "lead".into(), "idle".into())
+        );
+        assert_eq!(
+            workspace("review"),
+            ("develop".into(), "review".into(), "idle".into())
+        );
+        assert_eq!(
+            workspace("other"),
+            ("main".into(), "lead".into(), "ready".into())
+        );
+        let thread = |id: &str| -> (Option<String>, String, String) {
+            conn.query_row(
+                "SELECT role, title, status FROM threads WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            thread("l"),
+            (Some("lead".into()), "Lead".into(), "idle".into())
+        );
+        assert_eq!(thread("r").0.as_deref(), Some("reviewer"));
+        assert_eq!(thread("h"), (None, "Agent 2".into(), "idle".into()));
     }
 }
