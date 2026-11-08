@@ -90,6 +90,8 @@ pub struct StackBranch {
     pub queued: bool,
     pub needs_rebase: bool,
     pub pr: Option<StackPullRequest>,
+    /// Why this workspace can't check it out (another has it, or the repo's checkout).
+    pub hold: Option<crate::repos::BranchHold>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -392,6 +394,9 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
 
     let trunk_ref = state.git.freshest_ref(&worktree, &json.trunk).await;
     let parents = json.parents();
+    let holds = crate::repos::BranchHolds::read(state, state.store.repo(&record.repo_id)?)
+        .await?
+        .seen_from(workspace_id);
 
     let mut branches = Vec::with_capacity(json.branches.len());
     for (branch, parent) in json.branches.into_iter().zip(parents) {
@@ -425,6 +430,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         };
         branches.push(StackBranch {
             current: branch.name == json.current_branch,
+            hold: holds.of(&branch.name),
             name: branch.name,
             parent,
             files: stat.files,

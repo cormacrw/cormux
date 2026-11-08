@@ -25,7 +25,9 @@
     const result = await commands.listRepoBranches(id)
     if (id !== repoId) return
     loading = false
-    if (result.status === 'ok') branches = result.data.branches
+    if (result.status === 'ok') {
+      branches = result.data.branches.map((branch) => branch.name)
+    }
   }
 
   async function choose(branch: string) {

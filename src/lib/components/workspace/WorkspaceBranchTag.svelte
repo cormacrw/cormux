@@ -7,10 +7,7 @@
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import Plus from '@lucide/svelte/icons/plus'
-  import {
-    branchMetaLabel,
-    buildBranchPickerList,
-  } from '$lib/workspace/branch-picker'
+  import { buildBranchPickerList } from '$lib/workspace/branch-picker'
   import {
     switchWorkspaceBranch,
     createWorkspaceBranch,
@@ -20,7 +17,8 @@
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import ShortcutKbd from '$lib/primitives/ShortcutKbd.svelte'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { repos, workspaces } from '$lib/state'
+  import { workspaces } from '$lib/state'
+  import type { RepoBranch } from '$lib/ipc/bindings'
 
   let {
     workspaceId,
@@ -34,7 +32,7 @@
 
   let open = $state(false)
   let query = $state('')
-  let repoBranches = $state<string[]>([])
+  let repoBranches = $state<RepoBranch[]>([])
   let loadingBranches = $state(false)
   let triggerEl = $state<HTMLButtonElement | null>(null)
   let newBranchName = $state('')
@@ -44,17 +42,8 @@
   )
   const locked = $derived(lockReason != null)
 
-  const otherWorkspaceBranches = $derived(
-    workspaces.branchesInUse(repoId, workspaceId),
-  )
-
   const pickerItems = $derived(
-    buildBranchPickerList({
-      current: branch,
-      repoBranches,
-      otherWorkspaceBranches,
-      defaultBranch: repos.defaultBranch(repoId),
-    }),
+    buildBranchPickerList({ current: branch, branches: repoBranches }),
   )
 
   const filteredItems = $derived.by(() => {
@@ -178,7 +167,7 @@
           {:else}
             <Command.Group>
               {#each filteredItems as item (item.name)}
-                {@const meta = branchMetaLabel(item.meta)}
+                {@const meta = item.meta}
                 <Command.Item
                   value={item.name}
                   disabled={item.disabled}

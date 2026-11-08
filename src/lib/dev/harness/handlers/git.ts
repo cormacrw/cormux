@@ -49,6 +49,28 @@ export function gitHandlers({
     },
   ]
 
+  const REPO_HEAD = 'main'
+
+  /** Holds by the core's `BranchHolds`: the default branch, live workspaces' branches, the head. */
+  const holdOf = (
+    repoId: string,
+    name: string,
+    exceptWorkspaceId?: string,
+  ): BranchHold | null => {
+    const repo = db.snapshot.persisted.repos.find((row) => row.id === repoId)
+    if (name === repo?.defaultBranch) return { kind: 'defaultBranch' }
+    const names = db.snapshot.persisted.workspaces
+      .filter(
+        (row) =>
+          row.repoId === repoId &&
+          row.branch === name &&
+          row.id !== exceptWorkspaceId,
+      )
+      .map((row) => row.name)
+    if (names.length) return { kind: 'checkedOutBy', workspaces: names }
+    return name === REPO_HEAD ? { kind: 'repoHead' } : null
+  }
+
   const setFixtureBranch = (workspaceId: string, branch: string) => {
     const { row, record } = findWorkspace(workspaceId)
     if (row) row.branch = branch
@@ -107,6 +129,11 @@ export function gitHandlers({
         merged: false,
         queued: false,
         needsRebase: name === 'feat/oauth-ui',
+        hold: holdOf(
+          findWorkspace(workspaceId).row?.repoId ?? '',
+          name,
+          workspaceId,
+        ),
         pr: number
           ? {
               number,
@@ -164,29 +191,19 @@ export function gitHandlers({
       }
     },
     get_repo_git: () => [],
-    list_repo_branches: () => ({
-      branches: ['main', 'develop', 'feat/oauth-login'],
+    list_repo_branches: ({ repoId }: { repoId: string }) => ({
+      branches: ['main', 'develop', 'feat/oauth-login'].map((name) => ({
+        name,
+        hold: holdOf(repoId, name),
+      })),
     }),
-    // Holds by the core's `branch_hold`: the default branch, live workspaces' branches, the head.
-    list_repo_local_branches: ({ repoId }: { repoId: string }) => {
-      const head = 'main'
-      const repo = db.snapshot.persisted.repos.find((row) => row.id === repoId)
-      const hold = (name: string): BranchHold | null => {
-        if (name === repo?.defaultBranch) return { kind: 'defaultBranch' }
-        const names = db.snapshot.persisted.workspaces
-          .filter((row) => row.repoId === repoId && row.branch === name)
-          .map((row) => row.name)
-        if (names.length) return { kind: 'checkedOutBy', workspaces: names }
-        return name === head ? { kind: 'repoHead' } : null
-      }
-      return {
-        head,
-        branches: localBranches.map((row) => ({
-          ...row,
-          hold: hold(row.name),
-        })),
-      }
-    },
+    list_repo_local_branches: ({ repoId }: { repoId: string }) => ({
+      head: REPO_HEAD,
+      branches: localBranches.map((row) => ({
+        ...row,
+        hold: holdOf(repoId, row.name),
+      })),
+    }),
     delete_local_branch: ({
       branch: name,
       force,

@@ -18,7 +18,16 @@ use crate::store::types::RepoRecord;
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoBranchesResult {
-    pub branches: Vec<String>,
+    pub branches: Vec<RepoBranch>,
+}
+
+/// A branch a workspace can check out, local or only on `origin`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoBranch {
+    pub name: String,
+    /// Why no workspace can take it now.
+    pub hold: Option<BranchHold>,
 }
 
 /// A local branch tip. `committed` is git's relative date ("2 hours ago").
@@ -43,25 +52,51 @@ pub enum BranchHold {
     RepoHead,
 }
 
-/// Why `branch` can't be deleted from `repo`, whose checkout is on `head` ('' when detached).
-fn branch_hold(
-    repo: &RepoRecord,
-    live: &[crate::store::types::WorkspaceRow],
-    head: &str,
-    branch: &str,
-) -> Option<BranchHold> {
-    if branch == repo.default_branch {
-        return Some(BranchHold::DefaultBranch);
+/// What holds a repo's branches where they are: its default branch, the branches live
+/// workspaces have checked out, and the one its own checkout is on. A held branch can't be
+/// deleted, and no workspace can switch to it.
+pub struct BranchHolds {
+    repo: RepoRecord,
+    live: Vec<crate::store::types::WorkspaceRow>,
+    /// The branch the repo's checkout is on; '' when detached.
+    head: String,
+}
+
+impl BranchHolds {
+    pub async fn read(state: &AppState, repo: RepoRecord) -> Result<Self> {
+        let head = state
+            .git
+            .current_branch(&expand_tilde(&repo.path))
+            .await
+            .unwrap_or_default();
+        Ok(Self {
+            repo,
+            live: state.store.live_workspaces()?,
+            head,
+        })
     }
-    let workspaces: Vec<String> = live
-        .iter()
-        .filter(|row| row.repo_id == repo.id && row.branch == branch)
-        .map(|row| row.name.clone())
-        .collect();
-    if !workspaces.is_empty() {
-        return Some(BranchHold::CheckedOutBy { workspaces });
+
+    /// As `workspace_id` sees them: its own branch doesn't hold it.
+    pub fn seen_from(mut self, workspace_id: &str) -> Self {
+        self.live.retain(|row| row.id != workspace_id);
+        self
     }
-    (!head.is_empty() && head == branch).then_some(BranchHold::RepoHead)
+
+    pub fn of(&self, branch: &str) -> Option<BranchHold> {
+        if branch == self.repo.default_branch {
+            return Some(BranchHold::DefaultBranch);
+        }
+        let workspaces: Vec<String> = self
+            .live
+            .iter()
+            .filter(|row| row.repo_id == self.repo.id && row.branch == branch)
+            .map(|row| row.name.clone())
+            .collect();
+        if !workspaces.is_empty() {
+            return Some(BranchHold::CheckedOutBy { workspaces });
+        }
+        (!self.head.is_empty() && self.head == branch).then_some(BranchHold::RepoHead)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
@@ -476,28 +511,38 @@ pub async fn list_branches(state: &AppState, repo_id: &str) -> Result<RepoBranch
     names.extend(remote);
     names.sort();
     names.dedup();
-    Ok(RepoBranchesResult { branches: names })
+    let holds = BranchHolds::read(state, repo).await?;
+    let branches = names
+        .into_iter()
+        .map(|name| RepoBranch {
+            hold: holds.of(&name),
+            name,
+        })
+        .collect();
+    Ok(RepoBranchesResult { branches })
 }
 
 pub async fn list_local_branches(state: &AppState, repo_id: &str) -> Result<LocalBranchesResult> {
     let repo = state.store.repo(repo_id)?;
     let repo_path = expand_tilde(&repo.path);
-    let (head, tips) = tokio::join!(
-        state.git.current_branch(&repo_path),
+    let (holds, tips) = tokio::join!(
+        BranchHolds::read(state, repo),
         state.git.list_local_branch_tips(&repo_path),
     );
-    let head = head.unwrap_or_default();
-    let live = state.store.live_workspaces()?;
+    let holds = holds?;
     let branches = tips?
         .into_iter()
         .map(|tip| LocalBranchRow {
-            hold: branch_hold(&repo, &live, &head, &tip.name),
+            hold: holds.of(&tip.name),
             name: tip.name,
             committed: tip.committed,
             subject: tip.subject,
         })
         .collect();
-    Ok(LocalBranchesResult { head, branches })
+    Ok(LocalBranchesResult {
+        head: holds.head,
+        branches,
+    })
 }
 
 pub async fn delete_local_branch(
@@ -512,13 +557,7 @@ pub async fn delete_local_branch(
     }
     let repo = state.store.repo(repo_id)?;
     let repo_path = expand_tilde(&repo.path);
-    let head = state
-        .git
-        .current_branch(&repo_path)
-        .await
-        .unwrap_or_default();
-    let live = state.store.live_workspaces()?;
-    if let Some(hold) = branch_hold(&repo, &live, &head, branch) {
+    if let Some(hold) = BranchHolds::read(state, repo).await?.of(branch) {
         return Err(Error::Git(match hold {
             BranchHold::DefaultBranch => format!("{branch} is the default branch"),
             BranchHold::CheckedOutBy { workspaces } => {
@@ -821,6 +860,22 @@ mod tests {
             })
         );
         assert_eq!(hold("current"), Some(BranchHold::RepoHead));
+
+        // Bug: the branch picker worked holds out itself and missed the repo's own checkout,
+        // offering a branch `git switch` then refused. It gets the same holds now.
+        let picker = list_branches(&state, "app").await.unwrap();
+        let picked = |name: &str| {
+            picker
+                .branches
+                .iter()
+                .find(|row| row.name == name)
+                .unwrap()
+                .hold
+                .clone()
+        };
+        for name in ["main", "feat/x", "current"] {
+            assert_eq!(picked(name), hold(name), "{name}");
+        }
     }
 
     #[tokio::test]

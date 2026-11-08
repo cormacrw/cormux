@@ -22,6 +22,7 @@ function branch(name: string, extra: Partial<StackBranch> = {}): StackBranch {
     queued: false,
     needsRebase: false,
     pr: null,
+    hold: null,
     ...extra,
   }
 }

@@ -16,7 +16,7 @@
   import { diffComments } from '$lib/changes/diff-comments.svelte'
   import type { DiffTarget } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { prs, repos, workspaces } from '$lib/state'
+  import { prs, repos } from '$lib/state'
   import { stacks } from '$lib/changes/stacks.svelte'
   import { loadStack } from '$lib/changes/actions'
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
@@ -37,6 +37,7 @@
     syncStack,
   } from '$lib/workspace/git-actions'
   import { cn } from '$lib/utils'
+  import { branchHoldLabel } from '$lib/repo/branch-hold'
 
   let { workspace, repoId }: { workspace: Workspace; repoId: string } = $props()
 
@@ -59,9 +60,6 @@
       : !addable && topBranch
         ? `New branches go on top. Check out ${topBranch} first.`
         : `Create a branch on top of ${workspace.branch}`,
-  )
-  const otherWorkspaceBranches = $derived(
-    workspaces.branchesInUse(repoId, workspace.id),
   )
 
   // While a retarget loads, the highlight moves to where it is headed.
@@ -425,7 +423,7 @@
         {#each cards as card (card.name)}
           {@const switching = switchingTo === card.name}
           {@const pr = card.pr ?? syncedPr(card.name)}
-          {@const elsewhere = otherWorkspaceBranches.includes(card.name)}
+          {@const held = card.hold}
           {@const active = selected(card.name, card.parent)}
           <li class="relative flex gap-2 pb-2" data-stack-branch={card.name}>
             {@render dot(
@@ -504,9 +502,9 @@
                   size="icon-xs"
                   variant="ghost"
                   class="mr-1 shrink-0"
-                  disabled={locked || elsewhere || switchingTo != null}
-                  title={elsewhere
-                    ? 'Checked out in another workspace’s worktree'
+                  disabled={locked || held != null || switchingTo != null}
+                  title={held
+                    ? branchHoldLabel(held)
                     : locked
                       ? lockReason
                       : `Check out ${card.name} in this worktree`}

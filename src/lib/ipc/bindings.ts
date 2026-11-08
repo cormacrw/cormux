@@ -1030,7 +1030,15 @@ author: string; head: string; base: string; updatedAt: string; checks: PrChecksS
 export type QuestionOption = { label: string; description?: string }
 export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
-export type RepoBranchesResult = { branches: string[] }
+/**
+ * A branch a workspace can check out, local or only on `origin`.
+ */
+export type RepoBranch = { name: string; 
+/**
+ * Why no workspace can take it now.
+ */
+hold: BranchHold | null }
+export type RepoBranchesResult = { branches: RepoBranch[] }
 /**
  * A repo's committed setup, shown in Settings where its own is blank.
  */
@@ -1214,7 +1222,11 @@ export type StackBranch = { name: string;
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
  */
-parent: string; files: number; additions: number; deletions: number; commits: number; current: boolean; merged: boolean; queued: boolean; needsRebase: boolean; pr: StackPullRequest | null }
+parent: string; files: number; additions: number; deletions: number; commits: number; current: boolean; merged: boolean; queued: boolean; needsRebase: boolean; pr: StackPullRequest | null; 
+/**
+ * Why this workspace can't check it out (another has it, or the repo's checkout).
+ */
+hold: BranchHold | null }
 export type StackPrState = "open" | "merged" | "queued"
 export type StackPullRequest = { number: number; url: string | null; state: StackPrState }
 export type StackStatus = 

@@ -61,18 +61,6 @@ export class WorkspacesStore {
     return this.byId.get(id)?.runtime ?? IDLE_RUNTIME
   }
 
-  /** Branches the repo's other workspaces have checked out, which this one can't take. */
-  branchesInUse(repoId: string, exceptId: string): string[] {
-    return this.items
-      .filter(
-        (workspace) =>
-          workspace.repoId === repoId &&
-          workspace.id !== exceptId &&
-          workspace.branch,
-      )
-      .map((workspace) => workspace.branch)
-  }
-
   patchName(id: string, name: string) {
     this.patch(id, (workspace) => ({ ...workspace, name }))
   }
