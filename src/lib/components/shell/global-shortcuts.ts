@@ -8,7 +8,7 @@ import { focusPrompt } from '$lib/keyboard/focus-home'
 import { keyboardLayers } from '$lib/keyboard/layers.svelte'
 import { threadFind } from '$lib/thread/find-store.svelte'
 import { handleSwitcherKeydown } from '$lib/switcher/navigate'
-import { threadTimeline } from '$lib/thread/timeline-store.svelte'
+import { threads } from '$lib/state/threads.svelte'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
 import { sidebarWorkspaces } from '$lib/sidebar/thread-list-store.svelte'
@@ -81,7 +81,7 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   if (isShortcut(event, 'newSession') && onThread && nav.threadId && !gated) {
     event.preventDefault()
     const threadId = nav.threadId
-    if (threadTimeline.threadView(threadId).canClearSession) {
+    if (threads.getById(threadId)?.hasSession) {
       void switchConversation(threadId, 'new')
     }
     return

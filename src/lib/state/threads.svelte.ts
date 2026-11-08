@@ -18,6 +18,8 @@ export type Thread = {
   engine: string
   status: ThreadStatus
   activity: string
+  /** The engine has a session the thread would resume, so New session has something to forget. */
+  hasSession: boolean
   usage: ThreadUsage
   /** Readable but can't be continued: a workspace's older thread. */
   retired: boolean
@@ -43,6 +45,7 @@ export function threadsFromSnapshot(snapshot: Snapshot): Thread[] {
       engine: thread.engine,
       status: thread.status,
       activity: threadActivity(thread.status, ws?.activity),
+      hasSession: thread.sessionId != null,
       retired: thread.retired,
       parentThreadId: thread.parentThreadId,
       usage: {

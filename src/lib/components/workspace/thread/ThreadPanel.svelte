@@ -277,7 +277,7 @@
   />
 {/snippet}
 {#snippet composerTools()}
-  <ThreadComposerTools {thread} canClearSession={view.canClearSession} />
+  <ThreadComposerTools {thread} />
 {/snippet}
 
 <style>

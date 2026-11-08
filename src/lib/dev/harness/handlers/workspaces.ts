@@ -35,7 +35,10 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
     })
     db.snapshot.persisted.workspaces.push(row)
     db.snapshot.workspaces.push(record)
-    db.snapshot.persisted.threads.push(leadThreadFixture(threadId, workspaceId))
+    db.snapshot.persisted.threads.push({
+      ...leadThreadFixture(threadId, workspaceId),
+      sessionId: `session-${threadId}`,
+    })
     db.snapshot.workspaceOwnThreads.push({ workspaceId, threadId })
     // A new workspace runs what the fixture workspace runs, and is refused Run as it is.
     const like = <T extends { workspaceId: string }>(rows: T[]) =>

@@ -40,6 +40,7 @@ export function threadFixture(patch: Partial<Thread> = {}): Thread {
     engine: 'claude',
     status: 'idle',
     activity: 'Idle',
+    hasSession: false,
     usage: NO_USAGE,
     retired: false,
     parentThreadId: null,

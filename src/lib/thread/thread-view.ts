@@ -2,7 +2,6 @@ import type { ApprovalRow, ThreadStatus } from '$lib/ipc/bindings'
 import { promptHistory } from '$lib/composer/prompt-history'
 import { currentConversation, type CurrentConversation } from './conversations'
 import { activeIds, liveStatus, type LiveStatus } from './live-status'
-import { hasSessionToClear } from './new-session'
 import type { TimedEvent } from './timed-events'
 import { TimelineBuilder } from './timeline/builder'
 import type { TimelineItem } from './timeline-types'
@@ -17,8 +16,6 @@ export type ThreadView = {
   items: TimelineItem[]
   live: LiveStatus | null
   conversation: CurrentConversation
-  /** False when the agent has nothing to forget, so New session has nothing to do. */
-  canClearSession: boolean
   /** Your prompts, oldest first, for ↑/↓ in the composer. */
   readonly promptHistory: string[]
   /** What the agent is still writing: its reply, thought or run, while it works. */
@@ -122,7 +119,6 @@ export class ThreadViewBuilder {
           ? previous.live
           : live,
       conversation,
-      canClearSession: hasSessionToClear(events),
       get promptHistory() {
         return promptsOf(events)
       },

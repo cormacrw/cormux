@@ -167,7 +167,10 @@ export function threadHandlers(runtime: HarnessRuntime) {
         text,
       })
       const thread = findThread(args.threadId)
-      if (thread) thread.status = 'running'
+      if (thread) {
+        thread.status = 'running'
+        thread.sessionId ??= `session-${runtime.newId()}`
+      }
       emitStateChanged(CHANGE.state)
       streamReply(args.threadId, args.text)
       return { seq, text }
