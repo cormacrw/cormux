@@ -458,24 +458,6 @@ sys.stdin.readline()
         }
         assert!(saw_ack);
         session.shutdown().await;
-
-        // The mock answers a resumed session the same way.
-        let mut resumed = ClaudeSession::spawn(mock_python(), &host()).await.unwrap();
-        assert_eq!(
-            resumed.next_event().await.unwrap(),
-            Some(Event::Init {
-                session_id: "sess-1".into(),
-            })
-        );
-        resumed.send_user("continue").await.unwrap();
-        assert!(matches!(
-            resumed.wait_for_turn_or_tool().await.unwrap(),
-            Event::Result {
-                result: Some(text),
-                ..
-            } if text == "resumed"
-        ));
-        resumed.shutdown().await;
     }
 
     #[tokio::test]

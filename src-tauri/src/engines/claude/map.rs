@@ -319,16 +319,20 @@ mod tests {
     }
 
     #[test]
-    fn maps_usage_from_result() {
-        let usage = usage_from_result(&Event::Result {
+    fn a_result_without_usage_reports_none_and_an_unknown_window_reads_as_zero() {
+        let result = |used_tokens, context_size| Event::Result {
             session_id: None,
             is_error: false,
             subtype: Some("success".into()),
             result: None,
-            used_tokens: Some(120),
-            context_size: Some(200_000),
-            cost_usd: Some(0.02),
-        });
-        assert_eq!(usage, Some((120, 200_000, Some(0.02))));
+            used_tokens,
+            context_size,
+            cost_usd: None,
+        };
+        assert_eq!(usage_from_result(&result(None, Some(200_000))), None);
+        assert_eq!(
+            usage_from_result(&result(Some(120), None)),
+            Some((120, 0, None))
+        );
     }
 }

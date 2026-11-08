@@ -138,7 +138,7 @@ async fn next_event(events: &mut broadcast::Receiver<StreamedEvent>) -> AgentEve
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn stop_returns_as_soon_as_the_engine_is_down() {
     let fake = FakeEngines::default();
     let setup = setup(Arc::new(fake.clone()));
@@ -152,13 +152,13 @@ async fn stop_returns_as_soon_as_the_engine_is_down() {
             }
         }
     });
-    let started = Instant::now();
+    let started = tokio::time::Instant::now();
     setup
         .runtime
         .stop_threads(&["t1".to_string()])
         .await
         .unwrap();
-    assert!(started.elapsed() < Duration::from_secs(1));
+    assert!(started.elapsed() < STOP_GRACE, "stop waited out its grace");
     assert!(!setup.runtime.has_thread("t1"));
 }
 
@@ -305,7 +305,7 @@ async fn a_turn_end_drops_its_approvals_and_is_reported_once() {
     assert!(setup.turn_ends.try_recv().is_err());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_engine_that_never_launched_reports_no_turn_end() {
     let mut setup = setup(Arc::new(FakeEngines::default()));
     setup
@@ -421,16 +421,26 @@ async fn a_turn_ends_only_after_its_background_agents_do() {
     let (engines, _shim) = mock_claude();
     let mut setup = setup(engines);
     add_thread(&setup.store, "t-bg", "idle", None);
+    let mut events = setup.transcript.subscribe("t-bg");
     setup.runtime.ensure("t-bg", W).await.unwrap();
     setup.runtime.prompt("t-bg", "background agent").unwrap();
-    // The mock's first turn finishes at once; its agent takes a moment longer.
-    let early = tokio::time::timeout(Duration::from_millis(300), setup.turn_ends.recv()).await;
-    assert!(early.is_err(), "turn ended with an agent still running");
+    // The mock reports the turn's result while its agent runs, then the agent's follow-up
+    // turn starts a session of its own: the turn ends after that, not at the first result.
+    let mut sessions = 0;
+    loop {
+        match next_event(&mut events).await {
+            AgentEvent::SessionStarted { .. } => sessions += 1,
+            AgentEvent::TurnEnd { .. } => break,
+            _ => {}
+        }
+    }
+    assert_eq!(sessions, 2, "turn ended with an agent still running");
     let thread_id = tokio::time::timeout(Duration::from_secs(10), setup.turn_ends.recv())
         .await
         .expect("turn end within 10s")
         .unwrap();
     assert_eq!(thread_id, "t-bg");
+    assert!(setup.turn_ends.try_recv().is_err(), "one turn end");
 }
 
 #[tokio::test]
