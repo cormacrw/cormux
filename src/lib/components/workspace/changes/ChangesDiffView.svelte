@@ -10,6 +10,7 @@
   import { toDiffViewData } from '$lib/changes/diff-view-data'
   import { isLargeDiff } from '$lib/changes/file-status'
   import { appearance, workspaceUi } from '$lib/state'
+  import { isModEnter } from '$lib/keyboard/mod-enter'
   import { Button } from '$lib/components/ui/button'
   import { Textarea } from '$lib/components/ui/textarea'
   import { Kbd } from '$lib/components/ui/kbd'
@@ -126,7 +127,7 @@
             autofocus
             oninput={(event) => (drafts[key] = event.currentTarget.value)}
             onkeydown={(event) => {
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              if (isModEnter(event)) {
                 event.preventDefault()
                 event.currentTarget.form?.requestSubmit()
               } else if (event.key === 'Escape') {

@@ -1,4 +1,4 @@
-export type DiffBlockLine = {
+type DiffBlockLine = {
   kind: 'add' | 'del' | 'hunk' | 'meta' | 'context'
   text: string
 }

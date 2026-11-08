@@ -2,6 +2,7 @@ import {
   formatChangeCounts,
   type DiffLineTotals,
 } from '$lib/workspace/diff-totals'
+import { plural } from '$lib/format/plural'
 
 export function formatPrRouteLine(input: {
   branch: string
@@ -15,7 +16,7 @@ export function formatPrRouteLine(input: {
     fileCount === 0
       ? '· No file changes yet'
       : counts
-        ? `· ${fileCount} ${fileCount === 1 ? 'file' : 'files'} ${counts}`
-        : `· ${fileCount} ${fileCount === 1 ? 'file' : 'files'}`
+        ? `· ${plural(fileCount, 'file')} ${counts}`
+        : `· ${plural(fileCount, 'file')}`
   return `${branch} → ${base} ${changePart}`
 }

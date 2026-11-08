@@ -1,11 +1,11 @@
-export type BranchValidationContext = {
+type BranchValidationContext = {
   existingBranches: string[]
   workspaceBranches: string[]
   /** The repo's default branch, which stays in its own checkout. */
   defaultBranch?: string
 }
 
-export type BranchFieldError =
+type BranchFieldError =
   'required' | 'format' | 'default' | 'exists' | 'workspaceConflict'
 
 const BRANCH_FORMAT = /^[A-Za-z0-9._/-]+$/

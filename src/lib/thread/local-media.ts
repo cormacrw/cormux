@@ -8,7 +8,7 @@ import { commands, type ThreadMedia } from '$lib/ipc'
  * or a raw `<img>`/`<video>` tag. Remote sources are not media; the core copies
  * local ones into its own media folder before the webview may load them.
  */
-export type LocalMediaKind = 'image' | 'video'
+type LocalMediaKind = 'image' | 'video'
 
 export type MediaSegment =
   | { kind: 'text'; text: string }
@@ -23,7 +23,7 @@ function extensionOf(source: string): string {
 }
 
 /** Local means no remote scheme: an absolute path, a relative path, or a file URL. */
-export function isLocalSource(source: string): boolean {
+function isLocalSource(source: string): boolean {
   const trimmed = source.trim()
   if (!trimmed) return false
   if (trimmed.startsWith('file://')) return true

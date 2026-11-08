@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { plural, pluralWord } from '$lib/format/plural'
   import { onDestroy, onMount, tick, untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import {
@@ -535,7 +536,7 @@
               {/if}
               {#if agent.steps}
                 <span class="shrink-0 text-muted-foreground/70"
-                  >· {agent.steps} {agent.steps === 1 ? 'step' : 'steps'}</span
+                  >· {plural(agent.steps, 'step')}</span
                 >
               {/if}
             </li>
@@ -573,7 +574,7 @@
         {#if runningAgents.length}
           <span class="shrink-0 text-muted-foreground"
             >· {runningAgents.length}
-            {runningAgents.length === 1 ? 'agent' : 'agents'} running</span
+            {pluralWord(runningAgents.length, 'agent')} running</span
           >
         {/if}
       </div>

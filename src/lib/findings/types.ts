@@ -2,9 +2,6 @@ import type { FindingRow } from '$lib/ipc/bindings'
 
 export type FindingSeverity = 'blocking' | 'suggestion' | 'nit'
 
-/** Dismissed: the user decided not to act on it; it isn't sent or posted with the review. */
-export type FindingStatus = 'open' | 'sent' | 'fixed' | 'dismissed'
-
 export const FINDING_GROUPS: {
   severity: FindingSeverity
   label: string

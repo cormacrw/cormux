@@ -3,6 +3,7 @@
   sending the first message spawns one, in its own worktree, and opens it.
 -->
 <script lang="ts">
+  import { openSettingsSection } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
   import { tick, untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
@@ -188,8 +189,7 @@
             <Button
               variant="secondary"
               onclick={() => {
-                settings.focusSection = 'repos'
-                app.openSettings()
+                openSettingsSection('repos')
               }}
             >
               Add a repo

@@ -3,7 +3,7 @@ import type { Skill } from '$lib/ipc/bindings'
 const MAX_SHOWN = 8
 
 /** A `/skill` word in the draft: where it starts and ends, and what's typed before the caret. */
-export type SkillToken = { start: number; end: number; query: string }
+type SkillToken = { start: number; end: number; query: string }
 
 /**
  * The `/` word the caret is in, when it starts the draft or follows whitespace, or null.

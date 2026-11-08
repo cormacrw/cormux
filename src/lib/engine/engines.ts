@@ -1,8 +1,8 @@
 import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
 
-export type EngineMark = 'CC'
+type EngineMark = 'CC'
 
-export type EngineOption = {
+type EngineOption = {
   kind: EngineKind
   label: string
 }

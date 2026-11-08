@@ -21,6 +21,9 @@
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
   import { severitySummary } from '$lib/findings/format'
+  import { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
+  import { plural } from '$lib/format/plural'
+  import { onDestroy } from 'svelte'
   import ThoughtMarkdown from './ThoughtMarkdown.svelte'
   import {
     formatThreadTime,
@@ -203,15 +206,11 @@
     agent: Bot,
   }
 
-  function counted(count: number, one: string) {
-    return `${count} ${one}${count === 1 ? '' : 's'}`
-  }
-
   // How an agent step is doing: `running · 4 steps`, `4 steps`, `failed`.
   function agentState(step: ToolRunStep) {
     if (step.kind !== 'tool' || !step.agent) return ''
     const steps = step.children?.length
-      ? counted(step.children.length, 'step')
+      ? plural(step.children.length, 'step')
       : ''
     if (step.status === 'failed')
       return ['failed', steps].filter(Boolean).join(' · ')
@@ -242,20 +241,8 @@
     return [detail, timeTitle(atMs)].filter(Boolean).join('\n')
   }
 
-  // The copy button for this item shows a check until the timer clears it.
-  let copiedId = $state<string | null>(null)
-  let copiedTimer: ReturnType<typeof setTimeout> | undefined
-
-  async function copyText(id: string, text: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      return
-    }
-    copiedId = id
-    clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => (copiedId = null), 1500)
-  }
+  const clipboard = new CopyFeedback()
+  onDestroy(() => clipboard.dispose())
 </script>
 
 {#snippet stepExtras(step: ToolRunStep)}
@@ -479,9 +466,9 @@
             type="button"
             class="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded text-primary-foreground/70 opacity-0 transition hover:text-primary-foreground focus-visible:opacity-100 group-hover:opacity-100"
             aria-label="Copy message"
-            onclick={() => copyText(item.id, item.text)}
+            onclick={() => clipboard.copy(item.text, item.id)}
           >
-            {#if copiedId === item.id}
+            {#if clipboard.copied === item.id}
               <Check class="size-3" aria-hidden="true" />
             {:else}
               <Copy class="size-3" aria-hidden="true" />
@@ -549,9 +536,9 @@
               class="inline-flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
               aria-label="Copy message"
               title="Copy message"
-              onclick={() => copyText(item.id, replyText)}
+              onclick={() => clipboard.copy(replyText, item.id)}
             >
-              {#if copiedId === item.id}
+              {#if clipboard.copied === item.id}
                 <Check class="size-3" aria-hidden="true" />
               {:else}
                 <Copy class="size-3" aria-hidden="true" />

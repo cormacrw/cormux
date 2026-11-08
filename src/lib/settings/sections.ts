@@ -1,28 +1,12 @@
-export const SETTINGS_SECTIONS = [
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'general', label: 'General' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'prompts', label: 'Prompts' },
-  { id: 'github', label: 'GitHub' },
-  { id: 'clickup', label: 'ClickUp' },
-  { id: 'repos', label: 'Repos' },
-  { id: 'bangs', label: 'Bangs' },
-  { id: 'notifications', label: 'Notifications' },
-  { id: 'shortcuts', label: 'Keyboard shortcuts' },
-  { id: 'experimental', label: 'Experimental' },
-] as const
+// Sections that were renamed; old deep links still land on them.
+const RENAMED: Record<string, string> = { engines: 'agents', macros: 'bangs' }
 
-export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id']
-
-export function normalizeSettingsSection(section: string): SettingsSectionId {
-  if (section === 'engines') return 'agents'
-  if (section === 'macros') return 'bangs'
-  if (SETTINGS_SECTIONS.some((row) => row.id === section)) {
-    return section as SettingsSectionId
-  }
-  return 'agents'
-}
-
-export function settingsSectionDomId(section: SettingsSectionId) {
-  return `settings-${section}`
+/** The section a deep link means, or `fallback` for one that no longer exists. */
+export function normalizeSettingsSection<T extends string>(
+  section: string,
+  ids: readonly T[],
+  fallback: T,
+): T {
+  const id = RENAMED[section] ?? section
+  return ids.find((known) => known === id) ?? fallback
 }

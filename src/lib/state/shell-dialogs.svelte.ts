@@ -3,7 +3,7 @@ import { dismissOpenPopover } from '$lib/keyboard/popover-registry'
 import { workspaces } from './workspaces.svelte'
 
 /** The app's shell dialogs (mounted from `lazy-views.ts`), each with what it opens on. */
-export type ShellDialogArgs = {
+type ShellDialogArgs = {
   teardown: { workspaceId: string }
   createPr: { workspaceId: string }
   submitReview: { workspaceId: string }

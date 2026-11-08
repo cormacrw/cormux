@@ -8,7 +8,7 @@ import { clickup } from './clickup.svelte'
 import { appName } from '$lib/build-mode'
 import { resolveWindowTitle, type ViewId } from './window-title'
 
-export type FocusTarget =
+type FocusTarget =
   'newThread' | 'settings' | 'workspace' | 'scratch' | 'sprint' | 'repo'
 
 export class AppStore {

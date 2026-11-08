@@ -1,5 +1,6 @@
 import type { FindingRow } from '$lib/ipc/bindings'
 import { FINDING_GROUPS } from './types'
+import { plural } from '$lib/format/plural'
 
 export function severitySummary(rows: FindingRow[]): string {
   return FINDING_GROUPS.map(({ severity, label }) => {
@@ -12,17 +13,11 @@ export function severitySummary(rows: FindingRow[]): string {
     .join(', ')
 }
 
-function pluralFindings(count: number, adjective?: string): string {
-  const word = count === 1 ? 'finding' : 'findings'
-  if (!adjective) return `${count} ${word}`
-  return `${count} ${adjective} ${word}`
-}
-
 export function selectionSummaryText(input: {
   total: number
   blocking: number
 }): string {
   if (!input.total) return 'Select the findings you want fixed'
-  if (!input.blocking) return `${pluralFindings(input.total)} selected`
-  return `${pluralFindings(input.total)} selected · ${input.blocking} blocking`
+  if (!input.blocking) return `${plural(input.total, 'finding')} selected`
+  return `${plural(input.total, 'finding')} selected · ${input.blocking} blocking`
 }

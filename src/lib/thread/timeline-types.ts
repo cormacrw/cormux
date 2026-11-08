@@ -2,7 +2,7 @@ import type { ToolCallStatus, ToolKind } from '$lib/ipc/bindings'
 import type { AgentQuestion } from '$lib/approvals/payload'
 import type { RunSummary } from './run-summary'
 
-export type ChipTone = 'success' | 'warning' | 'muted'
+type ChipTone = 'success' | 'warning' | 'muted'
 
 export type TimelineChip = {
   label: string

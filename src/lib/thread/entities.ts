@@ -1,7 +1,7 @@
 /** What an attached entity is, judged from its URL, for its icon. */
 export type EntityKind = 'pullRequest' | 'issue' | 'ticket' | 'doc' | 'link'
 
-export interface EntityLook {
+interface EntityLook {
   kind: EntityKind
   /** Where it lives, under its name: `acme/app`, `linear.app`. */
   source: string

@@ -10,6 +10,7 @@
   import { bangName, newBangId, type Bang } from '$lib/settings/bangs'
   import { repos, settings } from '$lib/state'
   import { cn } from '$lib/utils'
+  import { debouncedSaves } from '$lib/primitives/debounced-saves'
 
   let nameDraft = $state('')
   let nameError = $state<string | null>(null)
@@ -21,7 +22,7 @@
     resolveDefaultRepoId(repos.items, settings.defaultRepo),
   )
 
-  let saveTimer: ReturnType<typeof setTimeout> | undefined
+  const saves = debouncedSaves()
 
   function isExpanded(id: string) {
     return id in drafts
@@ -54,18 +55,11 @@
   }
 
   function flushSave() {
-    if (!saveTimer) return
-    clearTimeout(saveTimer)
-    saveTimer = undefined
-    void settings.setBangs(withDrafts())
+    saves.flush('bangs')
   }
 
   function scheduleSave() {
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      saveTimer = undefined
-      void settings.setBangs(withDrafts())
-    }, 350)
+    saves.schedule('bangs', () => void settings.setBangs(withDrafts()))
   }
 
   function toggleConfigure(bang: Bang) {

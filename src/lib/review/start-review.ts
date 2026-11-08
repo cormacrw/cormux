@@ -9,7 +9,7 @@ import {
   workspaces,
 } from '$lib/state'
 
-export async function startReviewWorkspace(pr: PullRequest): Promise<boolean> {
+async function startReviewWorkspace(pr: PullRequest): Promise<boolean> {
   const result = await commands.createReviewWorkspace({
     repoId: pr.repoId ?? 'my-app',
     prNumber: pr.num,

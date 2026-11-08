@@ -1,14 +1,14 @@
 import { tick } from 'svelte'
 import { readPaneWidth, savePaneWidth } from '$lib/primitives/slide-out'
 
-export type WorkspacePanelTab = 'thread' | 'findings' | 'changes' | 'output'
+type WorkspacePanelTab = 'thread' | 'findings' | 'changes' | 'output'
 
 /** Everything but the conversation slides out over it instead of replacing it. */
-export type WorkspaceSlideOut = Exclude<WorkspacePanelTab, 'thread'>
+type WorkspaceSlideOut = Exclude<WorkspacePanelTab, 'thread'>
 /** Git and Output can also be pinned beside the conversation. */
 export type PinnableTray = 'changes' | 'output'
 
-export function isSlideOut(tab: WorkspacePanelTab): tab is WorkspaceSlideOut {
+function isSlideOut(tab: WorkspacePanelTab): tab is WorkspaceSlideOut {
   return tab !== 'thread'
 }
 

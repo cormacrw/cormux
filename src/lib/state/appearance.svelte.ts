@@ -23,7 +23,7 @@ export const THEMES = [
 
 export type ThemeId = (typeof THEMES)[number]['id']
 
-export const DEFAULT_THEME: ThemeId = 'blue'
+const DEFAULT_THEME: ThemeId = 'blue'
 
 export const UI_FONT_SIZES = [14, 15, 16, 17, 18] as const
 export const CODE_FONT_SIZES = [11, 12, 13, 14, 15, 16] as const

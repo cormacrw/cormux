@@ -8,7 +8,7 @@ import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 export type StatusDotVariant =
   'provisioning' | 'running' | 'waiting' | 'ready' | 'paused' | 'idle'
 
-export type WorkspaceSidebarInput = {
+type WorkspaceSidebarInput = {
   lifecycle: WorkspaceLifecycle
   paused: boolean
   activityText: string

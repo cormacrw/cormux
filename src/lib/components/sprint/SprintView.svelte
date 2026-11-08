@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openSettingsSection } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
@@ -12,7 +13,7 @@
   } from '$lib/clickup/board'
   import type { ClickupTask } from '$lib/ipc/bindings'
   import { plural } from '$lib/format/plural'
-  import { app, clickup, settings } from '$lib/state'
+  import { app, clickup } from '$lib/state'
   import { cn } from '$lib/utils'
   import Columns3 from '@lucide/svelte/icons/columns-3'
   import EyeOff from '@lucide/svelte/icons/eye-off'
@@ -154,8 +155,7 @@
   }
 
   function openClickupSettings() {
-    app.openSettings()
-    settings.focusSection = 'clickup'
+    openSettingsSection('clickup')
   }
 </script>
 

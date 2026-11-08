@@ -30,7 +30,7 @@ type Data<W extends WireCommand> = OkData<
  * names, so each handler annotates the fields it reads; `never` makes that annotation mandatory.
  * The return type does come from the bindings.
  */
-export type Handler<W extends WireCommand> = (
+type Handler<W extends WireCommand> = (
   args: never,
 ) => Data<W> | Promise<Data<W>>
 

@@ -5,6 +5,7 @@
   under each task. Creating stays with the agent in chat.
 -->
 <script lang="ts">
+  import { plural } from '$lib/format/plural'
   import { draftRollup, type TaskDraft } from '$lib/tasks/task-cards-block'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import Check from '@lucide/svelte/icons/check'
@@ -19,15 +20,11 @@
 
   const rollup = $derived(draftRollup(drafts))
 
-  function count(n: number, one: string, many: string) {
-    return `${n} ${n === 1 ? one : many}`
-  }
-
   const summary = $derived(
     [
-      rollup.epics ? count(rollup.epics, 'epic', 'epics') : null,
-      rollup.tasks ? count(rollup.tasks, 'task', 'tasks') : null,
-      rollup.subtasks ? count(rollup.subtasks, 'subtask', 'subtasks') : null,
+      rollup.epics ? plural(rollup.epics, 'epic', 'epics') : null,
+      rollup.tasks ? plural(rollup.tasks, 'task', 'tasks') : null,
+      rollup.subtasks ? plural(rollup.subtasks, 'subtask', 'subtasks') : null,
       rollup.points ? `${rollup.points} pts` : null,
     ].filter(Boolean),
   )
@@ -164,7 +161,7 @@
         {#if rollup.unestimatedLeaves}
           <span class="inline-flex items-center gap-1 text-warning">
             <CircleDashed class="size-3 shrink-0" aria-hidden="true" />
-            {count(rollup.unestimatedLeaves, 'task', 'tasks')} without points
+            {plural(rollup.unestimatedLeaves, 'task', 'tasks')} without points
           </span>
         {/if}
       </p>

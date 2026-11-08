@@ -11,7 +11,7 @@ export function trackKeyboardInput(target: Window) {
 }
 
 /** The user moved focus with the keyboard just now. */
-export function keyboardJustMoved(withinMs = 400): boolean {
+function keyboardJustMoved(withinMs = 400): boolean {
   return performance.now() - lastKeyAt < withinMs
 }
 

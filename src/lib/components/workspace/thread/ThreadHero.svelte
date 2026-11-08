@@ -8,6 +8,7 @@
   first prompt drops it out of view right behind the bar.
 -->
 <script lang="ts">
+  import { plural } from '$lib/format/plural'
   import * as Select from '$lib/components/ui/select'
   import { formatRelativeAge } from '$lib/format/relative-time'
   import { heroLine, type Conversation } from '$lib/thread/conversations'
@@ -42,7 +43,7 @@
   }
 
   function meta(conversation: Conversation) {
-    const count = `${conversation.prompts} ${conversation.prompts === 1 ? 'message' : 'messages'}`
+    const count = plural(conversation.prompts, 'message')
     return `${formatRelativeAge(conversation.lastAtMs, nowMs)} · ${count}`
   }
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { plural } from '$lib/format/plural'
+  import { debouncedSaves } from '$lib/primitives/debounced-saves'
   import { tick } from 'svelte'
   import { open } from '@tauri-apps/plugin-dialog'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
@@ -11,6 +13,7 @@
   import { Textarea } from '$lib/components/ui/textarea'
   import RepoDefaultBranchField from '$lib/components/settings/RepoDefaultBranchField.svelte'
   import { commands } from '$lib/ipc'
+  import { coreErrorText } from '$lib/feedback/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { showToast } from '$lib/feedback/show-toast'
   import {
@@ -44,20 +47,7 @@
     expandedIds = expandedIds.filter((id) => id !== repoId)
   }
 
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- timer handles, never rendered
-  const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
-  function debouncedSave(repoId: string, fn: () => void) {
-    const existing = saveTimers.get(repoId)
-    if (existing) clearTimeout(existing)
-    saveTimers.set(
-      repoId,
-      setTimeout(() => {
-        saveTimers.delete(repoId)
-        fn()
-      }, 350),
-    )
-  }
+  const saves = debouncedSaves()
 
   function effectiveRun(repo: { runCommand: string | null }) {
     return (repo.runCommand ?? '').trim()
@@ -101,13 +91,6 @@
       behavior: settings.reduceMotion ? 'auto' : 'smooth',
       block: 'start',
     })
-  }
-
-  function coreErrorMessage(error: unknown) {
-    if (typeof error === 'object' && error && 'message' in error) {
-      return String((error as { message: string }).message)
-    }
-    return String(error)
   }
 
   function patchRepo(
@@ -168,12 +151,12 @@
 
   function saveRunCommand(repoId: string, value: string) {
     drafts[`run-${repoId}`] = value
-    debouncedSave(repoId, () => void persistRunCommand(repoId, value))
+    saves.schedule(repoId, () => void persistRunCommand(repoId, value))
   }
 
   function saveSetupCommands(repoId: string, value: string) {
     drafts[`setup-${repoId}`] = value
-    debouncedSave(
+    saves.schedule(
       `setup-${repoId}`,
       () => void persistSetupCommands(repoId, value),
     )
@@ -181,12 +164,8 @@
 
   /** Leaving a field saves now and shows the saved value again. */
   async function finishField(timerKey: string, draftKey: string) {
-    const pending = saveTimers.get(timerKey)
+    const pending = saves.cancel(timerKey)
     const value = drafts[draftKey]
-    if (pending) {
-      clearTimeout(pending)
-      saveTimers.delete(timerKey)
-    }
     if (value === undefined) return
     const repoId = draftKey.replace(/^(run|setup)-/, '')
     if (pending) {
@@ -233,7 +212,7 @@
     const result = await commands.addRepo({ path: normalized })
     adding = false
     if (result.status === 'error') {
-      pathError = coreErrorMessage(result.error)
+      pathError = coreErrorText(result.error)
       document.getElementById('settings-repo-path')?.focus()
       return
     }
@@ -314,7 +293,7 @@
         </span>
         {#if used > 0}
           <span class="repo-use text-xs text-muted-foreground">
-            {used} workspace{used === 1 ? '' : 's'}
+            {plural(used, 'workspace')}
           </span>
         {/if}
         {#if !run}
@@ -420,8 +399,7 @@
             <Checkbox
               id="single-{repo.id}"
               class="mt-0.5"
-              checked={repos.items.find((row) => row.id === repo.id)
-                ?.singleInstance ?? repo.singleInstance}
+              checked={repo.singleInstance}
               aria-describedby="repo-single-hint-{key}"
               onCheckedChange={(next) => void saveSingleInstance(repo.id, next)}
             />

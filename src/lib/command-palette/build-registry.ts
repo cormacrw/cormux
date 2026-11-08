@@ -14,7 +14,7 @@ import type { Thread } from '$lib/state/threads.svelte'
 import type { Workspace } from '$lib/state/workspaces.svelte'
 import type { PaletteCommand } from './types'
 
-export type PaletteRegistryActions = {
+type PaletteRegistryActions = {
   openNewThread: () => void
   openScratch: (scratchId: string) => void
   runBang: (bangId: string, extra?: string) => void
@@ -31,7 +31,7 @@ export type PaletteRegistryActions = {
   pullWorkspace: (workspaceId: string) => void
 }
 
-export type PaletteRegistryState = {
+type PaletteRegistryState = {
   reduceMotion: boolean
   /** The Sprint page only exists once a ClickUp API key is stored. */
   clickupConfigured: boolean

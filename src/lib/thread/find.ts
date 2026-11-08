@@ -1,7 +1,7 @@
 import type { TimelineRow } from './timeline-types'
 
 /** One match: the row it's in, and which occurrence in that row's text it is. */
-export type FindMatch = { row: number; occurrence: number }
+type FindMatch = { row: number; occurrence: number }
 
 /** The key a row renders with (`data-row-key`), so a match can be found in the page. */
 export function rowKey(row: TimelineRow): string {

@@ -15,7 +15,7 @@ export function currentPlace(): Place | null {
   return null
 }
 
-export function openPlace(place: Place) {
+function openPlace(place: Place) {
   if (place.kind === 'workspace') {
     const thread = switcher.lastThread[place.id]
     const stillThere =

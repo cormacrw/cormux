@@ -1,4 +1,6 @@
-export type AddRepoValidationError =
+import { plural, pluralWord } from '$lib/format/plural'
+
+type AddRepoValidationError =
   'empty' | 'invalid-path' | 'duplicate-path' | 'duplicate-name'
 
 export function validateAddRepoPath(
@@ -55,8 +57,7 @@ export function removeRepoBlockReason(
   workspaceCount: number,
 ): string | null {
   if (workspaceCount > 0) {
-    const tear = workspaceCount === 1 ? 'it' : 'them'
-    return `${repo.name} has ${workspaceCount} workspace${workspaceCount === 1 ? '' : 's'}. Tear ${tear} down first.`
+    return `${repo.name} has ${plural(workspaceCount, 'workspace')}. Tear ${pluralWord(workspaceCount, 'it', 'them')} down first.`
   }
   if (repoCount <= 1) {
     return 'Harness needs at least one repo'

@@ -3,7 +3,7 @@ import type { RepoRecord } from '$lib/ipc/bindings'
 const MAX_SHOWN = 8
 
 /** An `@alias` word in the draft: where it starts and ends, and what's typed before the caret. */
-export type RepoToken = { start: number; end: number; query: string }
+type RepoToken = { start: number; end: number; query: string }
 
 type AliasRepo = Pick<RepoRecord, 'name' | 'path'>
 

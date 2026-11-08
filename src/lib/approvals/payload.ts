@@ -5,7 +5,7 @@ export type AgentQuestion = {
   multiSelect: boolean
 }
 
-export type ApprovalPayload = {
+type ApprovalPayload = {
   title: string
   what: string
   why: string

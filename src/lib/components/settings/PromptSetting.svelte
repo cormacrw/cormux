@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import { Textarea } from '$lib/components/ui/textarea'
+  import { debouncedSaves } from '$lib/primitives/debounced-saves'
 
   // One editable prompt in Settings › Prompts. Saves as you type; matching the
   // default saves nothing, so a later change to the default still applies.
@@ -30,10 +31,9 @@
     value.trim() !== '' && value.trim() !== defaultPrompt.trim(),
   )
 
-  let saveTimer: ReturnType<typeof setTimeout> | undefined
+  const saves = debouncedSaves()
 
   function save() {
-    saveTimer = undefined
     if (draft == null) return
     const trimmed = draft.trim()
     onSave(trimmed === defaultPrompt.trim() ? '' : trimmed)
@@ -41,23 +41,16 @@
 
   function onInput(event: Event) {
     draft = (event.currentTarget as HTMLTextAreaElement).value
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(save, 350)
+    saves.schedule(id, save)
   }
 
   function reset() {
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = undefined
+    saves.cancel(id)
     draft = null
     onSave('')
   }
 
-  onDestroy(() => {
-    if (saveTimer) {
-      clearTimeout(saveTimer)
-      save()
-    }
-  })
+  onDestroy(() => saves.flushAll())
 </script>
 
 <div

@@ -1,6 +1,6 @@
 // Files an agent names in a reply, like `src/lib/thread/typing.ts:40`.
 
-export type FileRef = {
+type FileRef = {
   /** Where in the text it starts, and how long it is. */
   index: number
   length: number

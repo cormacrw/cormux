@@ -4,7 +4,7 @@ import type {
   ClickupTask,
 } from '$lib/ipc/bindings'
 
-export type SprintLane = { status: ClickupStatus; tasks: ClickupTask[] }
+type SprintLane = { status: ClickupStatus; tasks: ClickupTask[] }
 
 /** Settings keys for the picked workspace, space and sprint folder. */
 export const CLICKUP_WORKSPACE_KEY = 'clickupWorkspaceId'

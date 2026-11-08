@@ -40,7 +40,7 @@ const SCRATCH_CHIP: TimelineChip = {
 }
 
 /** Under a minute: `Worked for 12s`. Otherwise `Worked for 2m 5s`. */
-export function workedForLabel(startMs: number, endMs: number): string {
+function workedForLabel(startMs: number, endMs: number): string {
   const elapsed = Math.max(0, endMs - startMs)
   const total = elapsed === 0 ? 0 : Math.max(1, Math.round(elapsed / 1000))
   const minutes = Math.floor(total / 60)

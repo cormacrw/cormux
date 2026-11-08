@@ -8,6 +8,8 @@
   import type { LocalBranchRow } from '$lib/ipc/bindings'
   import { coreErrorText } from '$lib/feedback/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { branchHoldReason, pullRequestForBranch } from '$lib/repo/branch-hold'
   import { workspaceStatusWord } from '$lib/sidebar/status'
   import {
@@ -31,6 +33,7 @@
   let deleting = $state<string | null>(null)
   /** A branch origin doesn't have as it is locally, awaiting a confirmed delete. */
   let unpushed = $state<string | null>(null)
+  shellDialogs.hold(() => unpushed != null)
   // Held after close so the copy doesn't change while the dialog animates out.
   let unpushedShown = $state('')
   $effect(() => {
@@ -117,12 +120,9 @@
     branches = branches.filter((row) => row.name !== name)
   }
 
-  function onUnpushedKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && unpushed) {
-      event.preventDefault()
-      void removeBranch(unpushed, true)
-    }
-  }
+  const onUnpushedKeydown = onModEnter(() => {
+    if (unpushed) void removeBranch(unpushed, true)
+  })
 </script>
 
 <div

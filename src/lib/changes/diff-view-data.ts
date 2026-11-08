@@ -23,7 +23,7 @@ const langByExt: Record<string, string> = {
 }
 
 /** highlight.js language for a path; git-diff-view highlights with lowlight. */
-export function languageForPath(path: string): string {
+function languageForPath(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
   return langByExt[ext] ?? 'plaintext'
 }

@@ -1,6 +1,6 @@
 import type { EngineStatus, Snapshot, ThreadEventRow } from '$lib/ipc/bindings'
 
-export const FIXTURE_REPO_ID = 'my-app'
+const FIXTURE_REPO_ID = 'my-app'
 
 export const fixtureEngines: EngineStatus[] = [
   {
