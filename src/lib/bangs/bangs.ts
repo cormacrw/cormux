@@ -6,7 +6,6 @@
 import type { Bang } from '$lib/ipc/bindings'
 export type { Bang }
 
-/** A name as a bang: no `!`, no spaces (they become `-`), lowercase. */
 export function bangName(raw: string): string {
   return raw
     .trim()
@@ -24,14 +23,12 @@ export function newBangId() {
   return `bang-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
 
-/** The usable bang with exactly this name (with or without its `!`). */
 function bangNamed(bangs: Bang[], name: string): Bang | undefined {
   const wanted = bangName(name)
   if (!wanted) return undefined
   return bangs.find((bang) => isUsableBang(bang) && bang.name === wanted)
 }
 
-/** Usable bangs whose name starts with the query, then those containing it. */
 export function filterBangs(bangs: Bang[], query: string): Bang[] {
   const needle = query.toLowerCase()
   const usable = bangs.filter(isUsableBang)
@@ -42,7 +39,6 @@ export function filterBangs(bangs: Bang[], query: string): Bang[] {
   return [...starts, ...contains]
 }
 
-/** The prompt's start on one line, for lists. */
 export function bangPreview(prompt: string, length = 48) {
   const flat = prompt.trim().replace(/\s+/g, ' ')
   return flat.length > length ? `${flat.slice(0, length).trimEnd()}…` : flat

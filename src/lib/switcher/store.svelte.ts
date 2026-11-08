@@ -41,7 +41,6 @@ class SwitcherStore {
     this.index = stepIndex(this.index, this.list.length, by)
   }
 
-  /** Closes the switcher, returning the place to go to. */
   commit(index = this.index): Place | null {
     if (!this.open) return null
     this.open = false

@@ -86,7 +86,6 @@ describe('timeline pipeline at scale', () => {
       new TimelineBuilder().build(input(events)),
     )
     builder.build(input(events))
-    // Streaming: 200 chunks appended to a reply at the end.
     let streamed = events
     const chunks = time('200 streamed chunks (rebuild each)', () => {
       streamed = events

@@ -280,7 +280,6 @@
     })
   })
 
-  // Coming back to the conversation lands on the newest message.
   $effect(() => {
     if (shown) untrack(followEnd)
   })

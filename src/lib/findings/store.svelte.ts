@@ -60,7 +60,6 @@ export class FindingsStore {
     )
   }
 
-  /** The threads findings can be sent to: the workspace's live ones. */
   targetThreads(workspaceId: string): Thread[] {
     return threads.forWorkspace(workspaceId).filter((thread) => !thread.retired)
   }
@@ -102,7 +101,6 @@ export class FindingsStore {
     )
   }
 
-  /** Sends the selected open findings to the target thread; resolves why the core refused, or null. */
   async sendSelected(workspaceId: string): Promise<CoreError | null> {
     const thread = this.targetThread(workspaceId)
     if (!thread) return null

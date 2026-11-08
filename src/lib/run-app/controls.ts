@@ -40,7 +40,6 @@ export function appControlsFor(input: {
   }
 }
 
-/** Whether `action` applies to an app with these controls right now. */
 export function appActionAllowed(
   controls: AppControls,
   action: WorkspaceAppControlAction,

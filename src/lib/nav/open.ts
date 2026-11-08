@@ -20,7 +20,6 @@ export function openWorkspace(
   })
 }
 
-/** Shows this thread's conversation, in its workspace. */
 export function openWorkspaceThread(workspaceId: string, threadId: string) {
   openWorkspace(workspaceId, { threadId, panel: 'thread' })
 }
@@ -36,7 +35,6 @@ export function showThread(threadId: string) {
   if (workspaceId) openWorkspace(workspaceId, { threadId })
 }
 
-/** Opens a workspace's Changes at a file, and at a line of it when given, on `threadId`. */
 export function revealFileInWorkspace(
   workspaceId: string,
   threadId: string | null,

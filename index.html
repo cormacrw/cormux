@@ -27,7 +27,6 @@
         ) {
           root.classList.add('dark')
         }
-        // Neutral has no attribute.
         const theme = read(tokens.keys.theme) || tokens.defaultTheme
         if (theme !== 'neutral') root.dataset.palette = theme
         // First paint in the theme's own gradient, matching Backdrop.svelte and

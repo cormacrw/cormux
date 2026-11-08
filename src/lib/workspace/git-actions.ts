@@ -19,7 +19,6 @@ export function pullWorkspace(workspaceId: string) {
   return runGit(() => commands.pullWorkspace(workspaceId))
 }
 
-/** Backs out of a conflicted merge or rebase. */
 export function abortWorkspaceGit(workspaceId: string) {
   return runGit(() => commands.abortWorkspaceGit(workspaceId))
 }

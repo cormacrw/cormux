@@ -1,6 +1,5 @@
 import type { PaletteCommand } from './types'
 
-// Lower-cased once per command object, not once per command per keystroke.
 const haystacks = new WeakMap<PaletteCommand, string>()
 
 function haystack(command: PaletteCommand): string {

@@ -22,7 +22,6 @@
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import { onMount } from 'svelte'
 
-  // The header's actions behind ⋯: Output, Run or Stop, Terminal, Review and Delete.
   let {
     workspaceId,
     canReview = false,

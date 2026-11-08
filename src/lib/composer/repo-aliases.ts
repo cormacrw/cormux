@@ -8,7 +8,6 @@ export function repoAlias(repo: Pick<RepoRecord, 'name'>): string {
   return repo.name.trim().replace(/\s+/g, '-')
 }
 
-/** Aliases starting with the query first, then names or paths containing it. */
 export function filterRepos<T extends AliasRepo>(
   repos: T[],
   query: string,
@@ -32,7 +31,6 @@ export function expandRepoAliases(text: string, repos: AliasRepo[]): string {
     repos.map((repo) => [repoAlias(repo).toLowerCase(), repo.path]),
   )
   if (!byAlias.size) return text
-  // Longest first, so `@web-admin` isn't read as `@web` followed by `-admin`.
   const aliases = [...byAlias.keys()].sort((a, b) => b.length - a.length)
   const pattern = new RegExp(
     `(^|[\\s(])@(${aliases.map(escapeRegExp).join('|')})(?![\\w-]|\\.\\w)`,

@@ -348,7 +348,6 @@ export function finishFold(state: FoldState): TimelineFold {
   return { items, agents: runningAgents(state.agents) }
 }
 
-/** Folds `events` into `state`, noting each turn end as it passes it. */
 export function foldEvents(
   state: FoldState,
   events: TimelineEvent[],

@@ -59,7 +59,6 @@ export type HarnessScenario = {
   clickup?: boolean
   /** The workspace whose teardown preview reports nothing to lose. */
   cleanTeardown?: string
-  /** Starts the window in full screen. */
   fullscreen?: boolean
 }
 

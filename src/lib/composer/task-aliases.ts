@@ -7,7 +7,6 @@ const DESCRIPTION_LIMIT = 2000
 
 type AliasTask = Pick<ClickupTask, 'id' | 'customId' | 'name' | 'url'>
 
-/** References starting with the query first, then names containing it. */
 export function filterTasks<T extends AliasTask>(
   tasks: T[],
   query: string,

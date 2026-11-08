@@ -206,7 +206,6 @@
     queueMicrotask(() => fitHeight())
   })
 
-  // Read the skill folders when the picker is first wanted, once per thread.
   $effect(() => {
     if (picker?.kind !== 'skill' || skillsThreadId === draftId) return
     const threadId = draftId
@@ -246,7 +245,6 @@
     if (inputEl) caret = inputEl.selectionStart
   }
 
-  // Arrows move through the picker, ↵ or ⇥ picks, Esc closes it. Returns whether it handled the key.
   function onPickerKeydown(event: KeyboardEvent): boolean {
     const count = pickerOptions.length
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -296,7 +294,7 @@
     void tick().then(takeFocus)
   })
 
-  // The conversation stays mounted under Git and Output, so closing them (or picking the
+  // The conversation stays mounted under the slide-outs, so closing one (or picking the
   // thread tab again) brings focus back here rather than to a fresh composer.
   $effect(() => {
     if (workspaceUi.activeTab !== 'thread') return
@@ -653,7 +651,6 @@
       >
         {#each attachments as attachment (attachment.id)}
           {#if attachment.previewUrl}
-            <!-- An image is its thumbnail; the name is in the tooltip. -->
             <li
               class="group relative"
               title={attachment.path ?? attachment.name}
@@ -858,7 +855,6 @@
 </div>
 
 <style>
-  /* The picker pops up from the prompt bar. */
   .composer-picker {
     transform-origin: bottom center;
     animation: composer-picker-in var(--dur-med) var(--ease-out-snappy);

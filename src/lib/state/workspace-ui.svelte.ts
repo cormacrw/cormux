@@ -105,7 +105,6 @@ class WorkspaceUiStore {
     else this.openTab(tray)
   }
 
-  /** Hides a tray, whichever way it is showing; a pinned one unpins as it goes. */
   closeTray(tray: WorkspaceSlideOut) {
     if (this.pinnedTray === tray) {
       layoutTransition(() => this.pinTray(null))

@@ -51,7 +51,6 @@ class ShellDialogsStore {
     this.openArgs = next
   }
 
-  /** What the dialog was opened on, or null while it's closed. */
   args<K extends ShellDialogId>(id: K): ShellDialogArgs[K] | null {
     return (this.openArgs[id] as ShellDialogArgs[K] | undefined) ?? null
   }

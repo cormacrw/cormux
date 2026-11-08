@@ -47,7 +47,6 @@ export class ScratchesStore {
     return this.byId.get(id)
   }
 
-  /** The scratch whose one thread this is. */
   forThread(threadId: string) {
     return this.byThread.get(threadId)
   }

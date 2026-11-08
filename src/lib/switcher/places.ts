@@ -10,7 +10,6 @@ export function placeKey(place: Place): string {
   return place.kind === 'workspace' ? `workspace:${place.id}` : place.kind
 }
 
-/** The history with `place` moved to the front: the most recent visit comes first. */
 export function visit(history: Place[], place: Place): Place[] {
   const key = placeKey(place)
   return [place, ...history.filter((entry) => placeKey(entry) !== key)].slice(
@@ -47,7 +46,6 @@ export function switcherPlaces(
   return list
 }
 
-/** Where the selection starts: the previous place when you're on the newest one, else the newest. */
 export function startIndex(list: Place[], current: Place | null): number {
   if (list.length < 2) return 0
   return current && placeKey(list[0]!) === placeKey(current) ? 1 : 0

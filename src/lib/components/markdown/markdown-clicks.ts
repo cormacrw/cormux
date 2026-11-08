@@ -31,7 +31,6 @@ export function addCopyButtons(container: HTMLElement) {
   }
 }
 
-/** Shows a check on the button whose code was just copied. */
 export function showCopied(container: HTMLElement, copied: string | null) {
   for (const button of container.querySelectorAll<HTMLElement>('.code-copy')) {
     const shown = button.dataset.copyKey === copied

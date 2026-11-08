@@ -10,14 +10,12 @@ export function trackKeyboardInput(target: Window) {
   return () => target.removeEventListener('keydown', onKey, true)
 }
 
-/** The user moved focus with the keyboard just now. */
 function keyboardJustMoved(withinMs = 400): boolean {
   return performance.now() - lastKeyAt < withinMs
 }
 
 const TEXT_INPUT = /^(text|search|url|email|password|number|tel)$/
 
-/** A field the user types in: a text input, textarea, select or contenteditable. */
 export function isEditable(element: Element | null): boolean {
   if (!element) return false
   if (element instanceof HTMLTextAreaElement) return true
@@ -26,7 +24,6 @@ export function isEditable(element: Element | null): boolean {
   return element instanceof HTMLElement && element.isContentEditable
 }
 
-/** The roles a dialog, menu or list renders while it's up. */
 const OVERLAY_ROLES = ['dialog', 'alertdialog', 'menu', 'listbox']
 
 /** A selector for any overlay, each role narrowed by `state` (`[data-state="open"]`, say). */
@@ -45,10 +42,9 @@ export function overlayOpen(): boolean {
   return !!document.querySelector(OPEN_OVERLAY)
 }
 
-/** The composer's textarea. */
 export const PROMPT_ID = 'composer-input'
 
-/** Puts focus in the conversation's prompt; false when none is on screen. */
+/** False when no prompt is on screen. */
 export function focusPrompt(): boolean {
   const prompt = document.getElementById(PROMPT_ID)
   prompt?.focus()
@@ -66,10 +62,6 @@ export function focusPromptAfterPicker() {
   if (!nextPicker) focusPrompt()
 }
 
-/**
- * Whether the composer may take focus now: not while another field has it, an overlay is
- * open, or the user just moved focus somewhere with the keyboard.
- */
 export function composerMayTakeFocus(composer: HTMLElement | null): boolean {
   const active = document.activeElement
   if (active === composer) return false
