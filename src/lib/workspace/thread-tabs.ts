@@ -1,4 +1,3 @@
-import type { WorkspaceKind } from '$lib/ipc/bindings'
 import type { AppStatusView } from '$lib/run-app/status'
 import { plural } from '$lib/format/plural'
 
@@ -19,14 +18,4 @@ export function outputTabAriaLabel(view: AppStatusView): string {
         ? `running on localhost:${view.port}`
         : view.phase
   return `App output, ${state}`
-}
-
-/** Review workspaces show it once the review is in; others once a branch review found something. */
-export function showFindingsTab(input: {
-  workspaceKind: WorkspaceKind
-  reviewReady: boolean
-  hasFindings: boolean
-}): boolean {
-  if (input.workspaceKind === 'review') return input.reviewReady
-  return input.hasFindings
 }
