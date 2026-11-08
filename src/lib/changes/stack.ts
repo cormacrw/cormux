@@ -1,6 +1,11 @@
 import type { DiffTarget, StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
 import { plural } from '$lib/format/plural'
 
+/** The branch a diff target's head names; `HEAD` is the checked-out one. */
+export function resolveHead(target: DiffTarget, currentBranch: string) {
+  return target.head === 'HEAD' ? currentBranch : target.head
+}
+
 /** Top of the stack first, the way it reads on screen with the trunk underneath. */
 export function stackCardsTopFirst(
   stack: WorkspaceStack | undefined,
@@ -26,8 +31,7 @@ export function isDiffTargetOf(
   currentBranch: string,
 ): boolean {
   if (!target || target.base !== base) return false
-  const head = target.head === 'HEAD' ? currentBranch : target.head
-  return head === branch
+  return resolveHead(target, currentBranch) === branch
 }
 
 export function diffTargetLabel(target: DiffTarget | null): string {
