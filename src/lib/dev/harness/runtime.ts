@@ -110,6 +110,25 @@ export function createRuntime(scenario: HarnessScenario) {
         append(LEAD_THREAD_ID, event as TranscriptEvent)
       }
     },
+    appRunning(workspaceId, lines) {
+      const apps = db.snapshot.workspaceApps.filter(
+        (row) => row.workspaceId !== workspaceId,
+      )
+      apps.push({
+        workspaceId,
+        status: 'running',
+        port: 5173,
+        https: false,
+        exitCode: null,
+      })
+      db.snapshot.workspaceApps = apps
+      emitStateChanged(CHANGE.state)
+      const channel = runtime.ptyChannels.get(workspaceId)
+      if (!channel) return
+      for (const text of lines) {
+        send(channel, { workspaceId, entry: { kind: 'output', text } })
+      }
+    },
     commit() {
       if (!runtime.diffChannel) return
       send(runtime.diffChannel, {
@@ -133,6 +152,8 @@ export function createRuntime(scenario: HarnessScenario) {
     findThread: (threadId: string) => findThread(db, threadId),
     findWorkspace: (workspaceId: string) => findWorkspace(db, workspaceId),
     agentChannels,
+    /** Output's subscriptions, by workspace. */
+    ptyChannels: new Map<string, HarnessChannel>(),
     /** Changes' subscription to the fixture workspace, once it has one. */
     diffChannel: null as HarnessChannel | null,
     controls,
