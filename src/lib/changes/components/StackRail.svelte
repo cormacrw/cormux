@@ -16,7 +16,8 @@
   import { diffComments } from '$lib/changes/diff-comments.svelte'
   import type { DiffTarget } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { prs, repos } from '$lib/state'
+  import { repos } from '$lib/state'
+  import { workspacePr } from '$lib/changes/workspace-pr'
   import { stacks } from '$lib/changes/stacks.svelte'
   import { loadStack } from '$lib/changes/actions'
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
@@ -90,14 +91,6 @@
 
   function selected(branch: string, base: string) {
     return isDiffTargetOf(shownTarget, branch, base, workspace.branch)
-  }
-
-  /** A PR opened by hand shows up here before gh-stack learns of it on the next Sync. */
-  function syncedPr(branch: string) {
-    const pr = prs.forBranch(repoId, branch)
-    return pr
-      ? { number: pr.num, url: pr.htmlUrl, state: 'open' as const }
-      : null
   }
 
   async function checkout(name: string) {
@@ -426,7 +419,7 @@
 
         {#each cards as card (card.name)}
           {@const switching = switchingTo === card.name}
-          {@const pr = card.pr ?? syncedPr(card.name)}
+          {@const pr = workspacePr(workspace, card.name)}
           {@const held = card.hold}
           {@const active = selected(card.name, card.parent)}
           <li class="relative flex gap-2 pb-2" data-stack-branch={card.name}>

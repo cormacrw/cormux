@@ -1,6 +1,5 @@
 import { keyboardLayers } from '$lib/keyboard/layers.svelte'
 import { isShortcut, type MatchedShortcutId } from '$lib/keyboard/shortcuts'
-import { workspaces } from './workspaces.svelte'
 
 /** The app's shell dialogs (mounted from `lazy-views.ts`), each with what it opens on. */
 type ShellDialogArgs = {
@@ -13,18 +12,6 @@ type ShellDialogArgs = {
 
 export type ShellDialogId = keyof ShellDialogArgs
 
-const guards: {
-  [K in ShellDialogId]?: (args: ShellDialogArgs[K]) => boolean
-} = {
-  // A PR comes from a workspace's own branch, once; review workspaces submit a review instead.
-  createPr: ({ workspaceId }) => {
-    const workspace = workspaces.getById(workspaceId)
-    return (
-      !!workspace && workspace.prNumber == null && workspace.kind !== 'review'
-    )
-  },
-}
-
 /**
  * The shell dialogs, opened through here with what they open on. Each is a modal layer from the
  * moment it's asked for (a teardown waits on its preview before it shows).
@@ -36,14 +23,9 @@ class ShellDialogsStore {
     keyboardLayers.hold('modal', () => Object.keys(this.openArgs).length > 0)
   }
 
-  /** Opens a dialog unless its guard says no; returns whether it opened. */
-  open<K extends ShellDialogId>(id: K, args: ShellDialogArgs[K]): boolean {
-    const guard = guards[id] as
-      ((args: ShellDialogArgs[K]) => boolean) | undefined
-    if (guard && !guard(args)) return false
+  open<K extends ShellDialogId>(id: K, args: ShellDialogArgs[K]) {
     keyboardLayers.closePopover()
     this.openArgs = { ...this.openArgs, [id]: args }
-    return true
   }
 
   close(id: ShellDialogId) {

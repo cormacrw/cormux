@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { branchPullRequest, primaryPrActionLabel } from './pr-header'
+import { branchPullRequest, primaryPrActionLabel } from './branch-pr'
 import type { PullRequest } from '$lib/state/prs.svelte'
 
 const basePr: PullRequest = {
@@ -34,13 +34,15 @@ describe('branchPullRequest', () => {
     items: [basePr],
     repoId: 'my-app',
     branch: 'feat/y',
-    prNumber: null,
-    prHtmlUrl: null,
+    opened: null,
     stackPr: null,
   }
 
   it('prefers the PR this workspace opened', () => {
-    const pr = branchPullRequest({ ...input, prNumber: 1, prHtmlUrl: 'stored' })
+    const pr = branchPullRequest({
+      ...input,
+      opened: { number: 1, url: 'stored' },
+    })
     expect(pr?.number).toBe(1)
     expect(pr?.url).toBe(basePr.htmlUrl)
   })
@@ -55,13 +57,28 @@ describe('branchPullRequest', () => {
   it('falls back to the PR gh-stack knows', () => {
     const pr = branchPullRequest({
       ...input,
-      stackPr: { number: 9, url: 'https://github.com/acme/app/pull/9' },
+      stackPr: {
+        number: 9,
+        url: 'https://github.com/acme/app/pull/9',
+        state: 'merged',
+      },
     })
     expect(pr).toEqual({
       number: 9,
       url: 'https://github.com/acme/app/pull/9',
+      state: 'merged',
       synced: undefined,
     })
+  })
+
+  it('prefers the synced PR over the one gh-stack knows, with its state', () => {
+    const pr = branchPullRequest({
+      ...input,
+      branch: 'feat/x',
+      stackPr: { number: 1, url: null, state: 'queued' },
+    })
+    expect(pr?.url).toBe(basePr.htmlUrl)
+    expect(pr?.state).toBe('queued')
   })
 
   it('is null when the branch has no PR', () => {
