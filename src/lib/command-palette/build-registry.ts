@@ -14,7 +14,7 @@ import type { PaletteCommand } from './types'
 type PaletteRegistryActions = {
   openNewThread: () => void
   openScratch: (scratchId: string) => void
-  runBang: (bangId: string, extra?: string) => void
+  runBang: (bangId: string) => void
   openRepo: (repoId: string) => void
   reviewPullRequest: (pr: PullRequest) => void
   openSprint: () => void

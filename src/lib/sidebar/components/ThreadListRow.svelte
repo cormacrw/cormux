@@ -9,7 +9,6 @@
     workspaceStatusWord,
   } from '$lib/sidebar/status'
   import { nav } from '$lib/core/nav.svelte'
-  import { workspaces } from '$lib/state/workspaces.svelte'
   import type { ThreadListRowItem } from '$lib/sidebar/thread-list-store.svelte'
   import { cn } from '$lib/utils'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -59,7 +58,7 @@
   )
 
   // The workspace's dev app, shown so a running server is findable without opening it.
-  const appRuntime = $derived(workspace && workspaces.runtime(item.id))
+  const appRuntime = $derived(workspace?.runtime)
   const appPort = $derived(
     appRuntime?.appStatus === 'running' ? appRuntime.port : null,
   )

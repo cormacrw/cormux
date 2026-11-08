@@ -6,11 +6,11 @@ import {
   threadUrgency,
   type ThreadUrgency,
 } from '$lib/sidebar/thread-list'
-import { repos } from '../state/repos.svelte'
-import { scratches } from '../state/scratches.svelte'
-import { threadTimeline } from '../thread/timeline-store.svelte'
-import { threads } from '../state/threads.svelte'
-import { workspaces, type Workspace } from '../state/workspaces.svelte'
+import { repos } from '$lib/state/repos.svelte'
+import { scratches } from '$lib/state/scratches.svelte'
+import { threadTimeline } from '$lib/thread/timeline-store.svelte'
+import { threads } from '$lib/state/threads.svelte'
+import { workspaces, type Workspace } from '$lib/state/workspaces.svelte'
 
 type ThreadListItem = {
   /** The workspace id, or the scratch id for a read-only scratch. */

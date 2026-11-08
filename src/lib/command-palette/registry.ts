@@ -33,7 +33,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
     {
       openNewThread: () => navigate({ view: 'newThread' }),
       openScratch: (id) => navigate({ view: 'scratch', scratchId: id }),
-      runBang: (id, extra) => void runBang(id, extra),
+      runBang: (id) => void runBang(id),
       openRepo: (id) => navigate({ view: 'repo', repoId: id }),
       reviewPullRequest,
       openSprint: () => navigate({ view: 'sprint' }),

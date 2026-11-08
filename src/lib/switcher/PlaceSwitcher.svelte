@@ -29,8 +29,7 @@
 
   function workspaceDetail(id: string): string {
     const workspace = workspaces.getById(id)
-    const repoId = workspaces.getById(id)?.repoId
-    const repo = repoId ? repos.getById(repoId)?.name : undefined
+    const repo = workspace ? repos.getById(workspace.repoId)?.name : undefined
     return [workspace?.branch, repo].filter(Boolean).join(' · ')
   }
 
