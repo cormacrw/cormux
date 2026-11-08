@@ -7,7 +7,7 @@
   import { openSettings } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
   import { readPref, writePref } from '$lib/primitives/local-pref'
-  import { tick, untrack } from 'svelte'
+  import { untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Select from '$lib/components/ui/select'
   import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
@@ -103,8 +103,8 @@
     firstPromptTransition(
       () => openWorkspace(workspaceId),
       () => wordmark.glide(),
+      enterConversation,
     )
-    void tick().then(enterConversation)
     return true
   }
 

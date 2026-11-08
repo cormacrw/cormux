@@ -45,12 +45,18 @@ export function enterConversation() {
  * The first prompt in an empty conversation: the greeting falls away as the
  * message pops in (styles in app.css). Plain update where unsupported. An update
  * that returns a promise holds the old screen until it settles. `onGreetingLeaves`
- * runs as the greeting starts to go, for whatever goes with it.
+ * runs as the greeting starts to go, for whatever goes with it; `onLanded` once the
+ * update is on the page, for motion on what it brought.
  */
 export function firstPromptTransition(
   update: () => void | Promise<void>,
   onGreetingLeaves: () => void,
+  onLanded?: () => void,
 ) {
+  const land = async () => {
+    await update()
+    await tick()
+  }
   const greeting = document.querySelector('[data-od-id="thread-hero"]')
   if (greeting) onGreetingLeaves()
   if (
@@ -58,18 +64,16 @@ export function firstPromptTransition(
     prefersReducedMotion() ||
     typeof document.startViewTransition !== 'function'
   ) {
-    void update()
+    void land().then(onLanded)
     return
   }
   // Only the greeting is snapshotted; the rest of the page stays live, so the
   // backdrop's wordmark sinks away smoothly underneath.
   const root = document.documentElement
   root.classList.add('first-prompt')
-  const transition = document.startViewTransition(async () => {
-    await update()
-    await tick()
-  })
-  // Cut short by another transition, the update still lands.
+  const transition = document.startViewTransition(land)
+  // The update has landed by then even when another transition cut this one short.
+  void transition.updateCallbackDone.then(onLanded)
   transition.ready.catch(() => {})
   transition.finished
     .catch(() => {})
