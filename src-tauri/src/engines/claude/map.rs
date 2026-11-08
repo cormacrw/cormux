@@ -44,26 +44,41 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
             locations: Vec::new(),
             output: None,
         }],
-        Event::Result {
-            is_error,
-            subtype,
-            result,
-            ..
-        } => vec![AgentEvent::TurnEnd {
-            stop_reason: if *is_error {
-                StopReason::failed(subtype.clone())
-            } else {
-                StopReason::EndTurn
-            },
-            error: if *is_error { result.clone() } else { None },
-        }],
-        Event::CanUseTool(_)
+        Event::Result { .. }
+        | Event::CanUseTool(_)
         | Event::McpMessage { .. }
         | Event::ControlResponse { .. }
         | Event::BackgroundAgents { .. }
         | Event::PromptTaken
         | Event::Other { .. } => Vec::new(),
     }
+}
+
+/// How a turn ended, as a `result` says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnEnd {
+    pub stop_reason: StopReason,
+    pub error: Option<String>,
+}
+
+pub fn turn_end(event: &Event) -> Option<TurnEnd> {
+    let Event::Result {
+        is_error,
+        subtype,
+        result,
+        ..
+    } = event
+    else {
+        return None;
+    };
+    Some(TurnEnd {
+        stop_reason: if *is_error {
+            StopReason::failed(subtype.clone())
+        } else {
+            StopReason::EndTurn
+        },
+        error: if *is_error { result.clone() } else { None },
+    })
 }
 
 fn map_block(block: &AssistantBlock, parent_id: Option<&str>) -> Option<AgentEvent> {

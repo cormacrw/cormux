@@ -39,7 +39,7 @@ describe('timed events', () => {
   })
 
   it('puts a signal after the newest saved event', () => {
-    const exited: TranscriptEvent = { type: 'engineExited', code: null }
+    const exited: TranscriptEvent = { type: 'engineExited' }
     const next = appendStreamed(
       [row(1), row(2)],
       [{ seq: null, conversation: 'first', event: exited }],

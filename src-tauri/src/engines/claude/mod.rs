@@ -40,8 +40,8 @@ use self::session::{ClaudeSession, SpawnOptions, ask_host};
 use self::turn_gate::TurnGate;
 use super::detect::{CLAUDE_BINARY, resolve_binary};
 use super::{
-    AgentEvent, EngineCommand, EngineHandle, EngineOutput, Engines, LaunchConfig, Launching,
-    PermissionAnswer, PermissionRequest,
+    EngineCommand, EngineHandle, EngineOutput, Engines, LaunchConfig, Launching, PermissionAnswer,
+    PermissionRequest,
 };
 use crate::model::StopReason;
 use crate::shell_env::ShellEnv;
@@ -173,7 +173,7 @@ async fn run(
                         }
                     }
                     if let Some(held) = gate.release() {
-                        forward(&output, held, gate.queued());
+                        end_turn(&output, held, gate.queued());
                     }
                 }
                 Some(EngineCommand::SetModel(model)) => {
@@ -221,9 +221,10 @@ async fn run(
                         other => {
                             gate.observe(&other);
                             for mapped in map::map_claude_event(&other) {
-                                if let Some(mapped) = gate.pass(mapped) {
-                                    forward(&output, mapped, gate.queued());
-                                }
+                                let _ = output.send(EngineOutput::Event(mapped));
+                            }
+                            if let Some(end) = map::turn_end(&other).and_then(|end| gate.pass(end)) {
+                                end_turn(&output, end, gate.queued());
                             }
                         }
                     }
@@ -237,9 +238,9 @@ async fn run(
                 }
                 Err(error) => {
                     // Saved, so after a reload the thread still says why its turn ended.
-                    forward(
+                    end_turn(
                         &output,
-                        AgentEvent::TurnEnd {
+                        map::TurnEnd {
                             stop_reason: StopReason::failed(None),
                             error: Some(error.to_string()),
                         },
@@ -251,7 +252,7 @@ async fn run(
             },
             _ = tokio::time::sleep_until(release_at.unwrap_or_else(tokio::time::Instant::now)), if release_at.is_some() => {
                 if let Some(held) = gate.release() {
-                    forward(&output, held, gate.queued());
+                    end_turn(&output, held, gate.queued());
                 }
             }
             Some((request_id, reply)) = replies.recv() => {
@@ -270,14 +271,11 @@ async fn run(
 }
 
 /// A turn's end carries whether the CLI already has the next turn's prompt.
-fn forward(output: &mpsc::UnboundedSender<EngineOutput>, event: AgentEvent, queued: bool) {
-    let _ = output.send(match event {
-        AgentEvent::TurnEnd { stop_reason, error } => EngineOutput::TurnEnded {
-            stop_reason,
-            error,
-            next_queued: queued,
-        },
-        event => EngineOutput::Event(event),
+fn end_turn(output: &mpsc::UnboundedSender<EngineOutput>, end: map::TurnEnd, queued: bool) {
+    let _ = output.send(EngineOutput::TurnEnded {
+        stop_reason: end.stop_reason,
+        error: end.error,
+        next_queued: queued,
     });
 }
 

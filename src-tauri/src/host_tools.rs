@@ -712,17 +712,18 @@ mod tests {
                 .await
                 .expect("an event within 120s")
                 .unwrap();
-            let TranscriptEvent::Agent(event) = streamed.event else {
-                continue;
-            };
-            match event {
-                AgentEvent::ToolCall {
+            match streamed.event {
+                TranscriptEvent::Agent(AgentEvent::ToolCall {
                     role: ToolRole::Mcp { action, .. },
                     ..
-                } => used_tool |= action == "Get thread",
-                AgentEvent::Permission { .. } => panic!("a read tool asked for approval"),
-                AgentEvent::MessageChunk { text, .. } => reply.push_str(&text),
-                AgentEvent::TurnEnd { .. } => break,
+                }) => used_tool |= action == "Get thread",
+                TranscriptEvent::Host(crate::transcript::HostEvent::Permission { .. }) => {
+                    panic!("a read tool asked for approval")
+                }
+                TranscriptEvent::Agent(AgentEvent::MessageChunk { text, .. }) => {
+                    reply.push_str(&text)
+                }
+                TranscriptEvent::Host(crate::transcript::HostEvent::TurnEnd { .. }) => break,
                 _ => {}
             }
         }

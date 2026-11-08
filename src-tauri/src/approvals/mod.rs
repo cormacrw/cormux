@@ -18,12 +18,12 @@ pub use store::on_restart;
 pub(crate) use store::visible as visible_in;
 
 use crate::bus::{Bus, DomainEvent};
-use crate::engines::{AgentEvent, PermissionRequest};
+use crate::engines::PermissionRequest;
 use crate::error::{Error, Result};
 use crate::model::ApprovalStatus;
 use crate::settings::Settings;
 use crate::store::Store;
-use crate::transcript::Transcript;
+use crate::transcript::{HostEvent, Transcript};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ApprovalPolicy {
@@ -109,7 +109,8 @@ impl ApprovalBroker {
     ) -> oneshot::Receiver<ApprovalDecision> {
         let (decided, decision) = oneshot::channel();
         if !policy.asks_user(request) {
-            self.transcript.signal(thread_id, request.event(true));
+            self.transcript
+                .signal(thread_id, payload::event(request, true));
             let _ = decided.send(ApprovalDecision::Approved);
             return decision;
         }
@@ -134,13 +135,16 @@ impl ApprovalBroker {
                     decided,
                 },
             );
-            if let Err(error) = self.transcript.append(thread_id, request.event(false)) {
+            if let Err(error) = self
+                .transcript
+                .append(thread_id, payload::event(request, false))
+            {
                 log::warn!("recording {thread_id}'s approval {}: {error}", request.id);
             }
         }
         self.transcript.signal(
             thread_id,
-            AgentEvent::CurrentTool {
+            HostEvent::CurrentTool {
                 id: request.tool_call_id.clone(),
                 title: request.tool.clone(),
             },

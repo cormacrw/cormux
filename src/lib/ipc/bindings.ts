@@ -724,17 +724,14 @@ export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
 
 export type AddRepoInput = { path: string }
 /**
- * What every engine adapter translates its output into.
+ * What an engine said, as every adapter translates it; see `EngineOutput` for the rest of what
+ * it reports.
  */
-export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; role: ToolRole; status: ToolCallStatus; locations: string[]; detail: string | null; hidden?: boolean; parent_id?: string | null } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool: string; role: ToolRole; detail: string | null; auto_approved: boolean } | 
+export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; role: ToolRole; status: ToolCallStatus; locations: string[]; detail: string | null; hidden?: boolean; parent_id?: string | null } | { type: "plan"; entries: PlanStep[] } | 
 /**
  * Fields an engine fills in after the first `ToolCall`, such as an edit's path.
  */
-{ type: "toolCallUpdate"; id: string; title: string | null; status: ToolCallStatus | null; locations: string[]; output?: string | null } | 
-/**
- * What the agent is waiting on right now, for the thread's live row.
- */
-{ type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
+{ type: "toolCallUpdate"; id: string; title: string | null; status: ToolCallStatus | null; locations: string[]; output?: string | null }
 /**
  * One question an agent asks the user, in the shape Claude's question tool takes it.
  */
@@ -935,6 +932,20 @@ export type FindingStatus = "open" |
  * A merge stopped on these paths, waiting for the user to resolve or abort it.
  */
 export type GitConflictState = { paths: string[] }
+/**
+ * What the host records about a thread's engine, as opposed to what the engine said: its turn
+ * ending or the engine exiting, a permission card it asked for, the thread's running usage, and
+ * the tool it waits on.
+ */
+export type HostEvent = { type: "permission"; id: string; tool_call_id: string | null; title: string; tool: string; role: ToolRole; detail: string | null; auto_approved: boolean } | 
+/**
+ * What the agent is waiting on right now, for the thread's live row.
+ */
+{ type: "currentTool"; id: string | null; title: string } | 
+/**
+ * The tokens the last turn left in context, and the thread's cost so far.
+ */
+{ type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited" }
 export type LineCounts = { added: number; deleted: number }
 /**
  * A local branch tip. `committed` is git's relative date ("2 hours ago").
@@ -1476,7 +1487,7 @@ export type ToolRole = { kind: "read" } | { kind: "search" } | { kind: "edit"; v
  * One row of a thread's transcript. The wire form is the stored payload: each variant carries its
  * own `type`, so they share one union in the UI.
  */
-export type TranscriptEvent = StepEvent | UserMessage | Briefing | StreamLagged | AgentEvent
+export type TranscriptEvent = StepEvent | UserMessage | Briefing | StreamLagged | AgentEvent | HostEvent
 /**
  * A window of a thread's transcript, oldest first. Rows this build can't read are left out (and
  * logged); the seqs bound every row read, so paging carries on past them.

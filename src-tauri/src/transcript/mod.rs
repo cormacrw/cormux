@@ -24,8 +24,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::broadcast;
 
-use crate::engines::AgentEvent;
+use crate::engines::{AgentEvent, ToolRole};
 use crate::error::{Error, Result};
+use crate::model::StopReason;
 use crate::store::Store;
 use crate::timeline::TimelineStep;
 
@@ -48,6 +49,42 @@ pub enum TranscriptEvent {
     Briefing(Briefing),
     Lagged(StreamLagged),
     Agent(AgentEvent),
+    Host(HostEvent),
+}
+
+/// What the host records about a thread's engine, as opposed to what the engine said: its turn
+/// ending or the engine exiting, a permission card it asked for, the thread's running usage, and
+/// the tool it waits on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum HostEvent {
+    Permission {
+        id: String,
+        tool_call_id: Option<String>,
+        title: String,
+        /// The tool as words.
+        tool: String,
+        role: ToolRole,
+        detail: Option<String>,
+        auto_approved: bool,
+    },
+    /// What the agent is waiting on right now, for the thread's live row.
+    CurrentTool {
+        id: Option<String>,
+        title: String,
+    },
+    /// The tokens the last turn left in context, and the thread's cost so far.
+    Usage {
+        used_tokens: u64,
+        context_size: u64,
+        cost_usd: Option<f64>,
+    },
+    TurnEnd {
+        #[specta(type = String)]
+        stop_reason: StopReason,
+        error: Option<String>,
+    },
+    EngineExited,
 }
 
 /// Something the core did in the thread rather than the agent; see [`TimelineStep`].
@@ -130,12 +167,14 @@ impl TranscriptEvent {
                 AgentEvent::MessageChunk { .. } => MESSAGE,
                 AgentEvent::ToolCall { .. } => TOOL,
                 AgentEvent::Plan { .. } => "plan",
-                AgentEvent::Permission { .. } => "permission",
                 AgentEvent::ToolCallUpdate { .. } => "tool_update",
-                AgentEvent::CurrentTool { .. } => "current_tool",
-                AgentEvent::Usage { .. } => "usage",
-                AgentEvent::TurnEnd { .. } => TURN_END,
-                AgentEvent::EngineExited { .. } => EXIT,
+            },
+            Self::Host(event) => match event {
+                HostEvent::Permission { .. } => "permission",
+                HostEvent::CurrentTool { .. } => "current_tool",
+                HostEvent::Usage { .. } => "usage",
+                HostEvent::TurnEnd { .. } => TURN_END,
+                HostEvent::EngineExited => EXIT,
             },
         })
     }
@@ -144,6 +183,12 @@ impl TranscriptEvent {
 impl From<AgentEvent> for TranscriptEvent {
     fn from(event: AgentEvent) -> Self {
         Self::Agent(event)
+    }
+}
+
+impl From<HostEvent> for TranscriptEvent {
+    fn from(event: HostEvent) -> Self {
+        Self::Host(event)
     }
 }
 
@@ -348,7 +393,7 @@ impl Transcript {
     }
 
     /// Streams an event without saving it; see the module docs for which these are.
-    pub fn signal(&self, thread_id: &str, event: AgentEvent) {
+    pub fn signal(&self, thread_id: &str, event: impl Into<TranscriptEvent>) {
         self.publish(
             thread_id,
             StreamedEvent {
@@ -438,13 +483,13 @@ mod tests {
     #[test]
     fn the_turn_ending_events_are_the_ones_saved_as_turn_ends() {
         for event in [
-            AgentEvent::TurnEnd {
+            HostEvent::TurnEnd {
                 stop_reason: crate::model::StopReason::EndTurn,
                 error: None,
             },
-            AgentEvent::EngineExited { code: None },
+            HostEvent::EngineExited,
         ] {
-            let event = TranscriptEvent::Agent(event);
+            let event = TranscriptEvent::Host(event);
             let kind = serde_json::to_value(&event).unwrap()["type"].clone();
             assert!(
                 TURN_ENDING_EVENTS.contains(&kind.as_str().unwrap()),
@@ -452,6 +497,13 @@ mod tests {
             );
             assert!([TURN_END, EXIT].contains(&event.kind().unwrap()));
         }
+    }
+
+    #[test]
+    fn an_exit_saved_with_its_code_still_reads() {
+        let saved: TranscriptEvent =
+            serde_json::from_value(json!({ "type": "engineExited", "code": null })).unwrap();
+        assert_eq!(saved, TranscriptEvent::Host(HostEvent::EngineExited));
     }
 
     fn rows(transcript: &Transcript) -> Vec<(String, Value)> {
@@ -528,7 +580,7 @@ mod tests {
         let transcript = with_threads(&["t1"]);
         let mut rx = transcript.subscribe("t1");
         transcript.record_user_message("t1", "go").unwrap();
-        transcript.signal("t1", AgentEvent::EngineExited { code: None });
+        transcript.signal("t1", HostEvent::EngineExited);
 
         let first = rx.recv().await.unwrap();
         assert_eq!(first.seq, Some(1));
@@ -600,7 +652,7 @@ mod tests {
                 },
             )
             .unwrap();
-        transcript.signal("t1", AgentEvent::EngineExited { code: None });
+        transcript.signal("t1", HostEvent::EngineExited);
 
         let conversations: Vec<_> = [
             rx.recv().await.unwrap(),

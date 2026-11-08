@@ -26,7 +26,7 @@ use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::settings::Settings;
 use crate::store::Store;
 use crate::store::types::ThreadRow;
-use crate::transcript::Transcript;
+use crate::transcript::{HostEvent, Transcript, TranscriptEvent};
 use crate::workspaces::{WorkspaceRecord, Workspaces};
 
 /// A Claude CLI sitting idle this long gives its memory back; the next prompt resumes it.
@@ -573,12 +573,12 @@ impl Pump {
         while let Some(output) = reported.recv().await {
             touch(&self.last_active);
             match output {
-                EngineOutput::Event(event) => self.event(event, false),
+                EngineOutput::Event(event) => self.event(event),
                 EngineOutput::TurnEnded {
                     stop_reason,
                     error,
                     next_queued,
-                } => self.event(AgentEvent::TurnEnd { stop_reason, error }, next_queued),
+                } => self.turn_ended(HostEvent::TurnEnd { stop_reason, error }, next_queued),
                 EngineOutput::Usage {
                     used_tokens,
                     context_size,
@@ -593,7 +593,7 @@ impl Pump {
                     exited = true;
                     if launch.succeeded().await {
                         self.transcript
-                            .signal(&self.thread_id, AgentEvent::EngineExited { code: None });
+                            .signal(&self.thread_id, HostEvent::EngineExited);
                         self.gone();
                     }
                 }
@@ -605,22 +605,25 @@ impl Pump {
         }
     }
 
-    /// `next_queued` only means anything on a turn end.
-    fn event(&self, event: AgentEvent, next_queued: bool) {
+    fn event(&self, event: AgentEvent) {
         if let AgentEvent::SessionStarted { session_id } = &event
             && let Err(error) = self.store.set_thread_session(&self.thread_id, session_id)
         {
             log::warn!("saving {}'s session: {error}", self.thread_id);
         }
-        let turn_ended = matches!(event, AgentEvent::TurnEnd { .. });
-        if !turn_ended {
-            self.opened();
-        }
+        self.opened();
+        self.save(event);
+    }
+
+    /// Saved, so after a reload the thread still says how its turn ended.
+    fn turn_ended(&self, end: HostEvent, next_queued: bool) {
+        self.save(end);
+        self.ended(next_queued);
+    }
+
+    fn save(&self, event: impl Into<TranscriptEvent>) {
         if let Err(error) = self.transcript.append(&self.thread_id, event) {
             log::warn!("saving an event to {}: {error}", self.thread_id);
-        }
-        if turn_ended {
-            self.ended(next_queued);
         }
     }
 
@@ -677,7 +680,7 @@ impl Pump {
             Some(turn) => Some(saved.unwrap_or(0.0) + turn),
             None => saved,
         };
-        let usage = AgentEvent::Usage {
+        let usage = HostEvent::Usage {
             used_tokens,
             context_size,
             cost_usd,

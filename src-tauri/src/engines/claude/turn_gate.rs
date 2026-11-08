@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
+use super::map::TurnEnd;
 use super::protocol::Event;
-use crate::engines::events::AgentEvent;
 use crate::model::StopReason;
 
 /// A finished agent starts its follow-up turn at once, but a stopped one starts none, so its
@@ -20,7 +20,7 @@ const FOLLOW_UP_GRACE: Duration = Duration::from_secs(5);
 #[derive(Default)]
 pub struct TurnGate {
     agents: Vec<String>,
-    held: Option<AgentEvent>,
+    held: Option<TurnEnd>,
     release_at: Option<Instant>,
     untaken: usize,
 }
@@ -58,15 +58,9 @@ impl TurnGate {
         self.untaken > 0
     }
 
-    /// The event to forward, or nothing if it has to wait. A failed turn never waits.
-    pub fn pass(&mut self, event: AgentEvent) -> Option<AgentEvent> {
-        let finished = matches!(
-            &event,
-            AgentEvent::TurnEnd {
-                stop_reason: StopReason::EndTurn,
-                ..
-            }
-        );
+    /// The turn end to report, or nothing if it has to wait. A failed turn never waits.
+    pub fn pass(&mut self, event: TurnEnd) -> Option<TurnEnd> {
+        let finished = event.stop_reason == StopReason::EndTurn;
         if finished && !self.agents.is_empty() {
             self.held = Some(event);
             return None;
@@ -83,7 +77,7 @@ impl TurnGate {
         self.release_at
     }
 
-    pub fn release(&mut self) -> Option<AgentEvent> {
+    pub fn release(&mut self) -> Option<TurnEnd> {
         self.release_at = None;
         self.held.take()
     }
@@ -93,8 +87,8 @@ impl TurnGate {
 mod tests {
     use super::*;
 
-    fn turn_end(stop_reason: &str) -> AgentEvent {
-        AgentEvent::TurnEnd {
+    fn turn_end(stop_reason: &str) -> TurnEnd {
+        TurnEnd {
             stop_reason: stop_reason.to_string().into(),
             error: None,
         }

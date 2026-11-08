@@ -218,10 +218,7 @@ describe('running subagents', () => {
   })
 
   it('forgets agents when the engine exits', () => {
-    const exited = {
-      type: 'engineExited',
-      code: 1,
-    } as unknown as TranscriptEvent
+    const exited: TranscriptEvent = { type: 'engineExited' }
     expect(live([user('go'), agentCall('a'), exited])).toEqual([])
   })
 

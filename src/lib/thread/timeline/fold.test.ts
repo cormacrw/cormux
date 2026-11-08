@@ -201,7 +201,7 @@ describe('the timeline fold', () => {
         event: { type: 'messageChunk', role: 'agent', text: 'Hey' },
       },
       { atMs: start + 125_000, event: turnEnd },
-      { atMs: start + 126_000, event: { type: 'engineExited', code: 0 } },
+      { atMs: start + 126_000, event: { type: 'engineExited' } },
       {
         atMs: start + 200_000,
         event: { type: 'messageChunk', role: 'user', text: 'Again' },

@@ -208,6 +208,7 @@ mod tests {
     use super::*;
     use crate::store::Store;
     use crate::timeline::TimelineStep;
+    use crate::transcript::HostEvent;
 
     fn agent(text: &str) -> AgentEvent {
         AgentEvent::MessageChunk {
@@ -306,7 +307,7 @@ mod tests {
         transcript
             .append(
                 "t1",
-                AgentEvent::Usage {
+                HostEvent::Usage {
                     used_tokens: 1,
                     context_size: 2,
                     cost_usd: None,
@@ -358,14 +359,14 @@ mod tests {
         transcript
             .append(
                 "ended",
-                AgentEvent::TurnEnd {
+                HostEvent::TurnEnd {
                     stop_reason: crate::model::StopReason::EndTurn,
                     error: None,
                 },
             )
             .unwrap();
         transcript
-            .append("exited", AgentEvent::EngineExited { code: None })
+            .append("exited", HostEvent::EngineExited)
             .unwrap();
 
         let mut moved: Vec<String> = store

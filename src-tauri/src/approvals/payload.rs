@@ -1,5 +1,6 @@
 use crate::engines::{PermissionRequest, ToolRole};
 use crate::model::ApprovalPayload;
+use crate::transcript::HostEvent;
 
 /// The `tool` an approval row carries when an agent is asking rather than seeking permission.
 pub const QUESTION_TOOL: &str = "question";
@@ -35,6 +36,19 @@ pub fn card(request: &PermissionRequest) -> (ApprovalPayload, &'static str) {
         answers: Default::default(),
     };
     (payload, tool_key(&request.role))
+}
+
+/// The request as the thread records it.
+pub fn event(request: &PermissionRequest, auto_approved: bool) -> HostEvent {
+    HostEvent::Permission {
+        id: request.id.clone(),
+        tool_call_id: request.tool_call_id.clone(),
+        title: format!("Use {}", request.tool),
+        tool: request.tool.clone(),
+        role: request.role.clone(),
+        detail: request.detail.clone(),
+        auto_approved,
+    }
 }
 
 fn tool_key(role: &ToolRole) -> &'static str {

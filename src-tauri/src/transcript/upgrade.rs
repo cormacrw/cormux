@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::Connection;
 use serde_json::{Map, Value};
 
-use super::{StepEvent, TranscriptEvent};
+use super::{HostEvent, StepEvent, TranscriptEvent};
 use crate::engines::{
     AgentEvent, SavedCall, ToolCallStatus, restore_call, restore_permission_tool,
 };
@@ -135,7 +135,7 @@ fn permission(row: &Map<String, Value>) -> TranscriptEvent {
         text("kind").unwrap_or("other"),
         detail,
     );
-    AgentEvent::Permission {
+    HostEvent::Permission {
         id: text("id").unwrap_or_default().to_string(),
         tool_call_id: text("tool_call_id").map(str::to_string),
         title: format!("Use {tool}"),
@@ -533,7 +533,7 @@ mod tests {
             panic!("{:?}", rows[2]);
         };
         assert!(hidden);
-        let TranscriptEvent::Agent(AgentEvent::Permission { title, tool, .. }) = &rows[3].1 else {
+        let TranscriptEvent::Host(HostEvent::Permission { title, tool, .. }) = &rows[3].1 else {
             panic!("{:?}", rows[3]);
         };
         assert_eq!(

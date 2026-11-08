@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::model::StopReason;
-
 /// The engine a thread runs on. Claude is the only one; the name is kept on threads and in
 /// settings so a second engine has somewhere to go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
@@ -76,7 +74,8 @@ pub enum MessageRole {
     Thought,
 }
 
-/// What every engine adapter translates its output into.
+/// What an engine said, as every adapter translates it; see `EngineOutput` for the rest of what
+/// it reports.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AgentEvent {
@@ -105,16 +104,6 @@ pub enum AgentEvent {
     Plan {
         entries: Vec<PlanStep>,
     },
-    Permission {
-        id: String,
-        tool_call_id: Option<String>,
-        title: String,
-        /// The tool as words.
-        tool: String,
-        role: ToolRole,
-        detail: Option<String>,
-        auto_approved: bool,
-    },
     /// Fields an engine fills in after the first `ToolCall`, such as an edit's path.
     ToolCallUpdate {
         id: String,
@@ -124,24 +113,6 @@ pub enum AgentEvent {
         /// The end of what the tool printed, capped, for summing up test and build runs.
         #[serde(default)]
         output: Option<String>,
-    },
-    /// What the agent is waiting on right now, for the thread's live row.
-    CurrentTool {
-        id: Option<String>,
-        title: String,
-    },
-    Usage {
-        used_tokens: u64,
-        context_size: u64,
-        cost_usd: Option<f64>,
-    },
-    TurnEnd {
-        #[specta(type = String)]
-        stop_reason: StopReason,
-        error: Option<String>,
-    },
-    EngineExited {
-        code: Option<i32>,
     },
 }
 

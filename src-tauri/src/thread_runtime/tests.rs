@@ -126,14 +126,14 @@ fn mock_claude() -> (Arc<dyn Engines>, tempfile::TempDir) {
     )
 }
 
-async fn next_event(events: &mut broadcast::Receiver<StreamedEvent>) -> AgentEvent {
+async fn next_event(events: &mut broadcast::Receiver<StreamedEvent>) -> TranscriptEvent {
     loop {
         let streamed = tokio::time::timeout(Duration::from_secs(10), events.recv())
             .await
             .expect("an event within 10s")
             .unwrap();
-        if let TranscriptEvent::Agent(event) = streamed.event {
-            return event;
+        if !matches!(streamed.event, TranscriptEvent::Lagged(_)) {
+            return streamed.event;
         }
     }
 }
@@ -313,7 +313,7 @@ async fn a_turn_end_drops_its_approvals_and_is_reported_once() {
     );
     let saved = loop {
         let streamed = events.recv().await.unwrap();
-        if let TranscriptEvent::Agent(AgentEvent::Permission { .. }) = streamed.event {
+        if let TranscriptEvent::Host(HostEvent::Permission { .. }) = streamed.event {
             break streamed.seq;
         }
     };
@@ -329,10 +329,11 @@ async fn a_turn_end_drops_its_approvals_and_is_reported_once() {
 
     fake.report(
         "t1",
-        EngineOutput::Event(AgentEvent::TurnEnd {
+        EngineOutput::TurnEnded {
             stop_reason: StopReason::EndTurn,
             error: None,
-        }),
+            next_queued: false,
+        },
     );
     assert_eq!(setup.turn_ends.recv().await.unwrap().thread_id, "t1");
     assert!(answered.await.is_err(), "the engine stopped waiting");
@@ -369,10 +370,11 @@ fn permission(
 }
 
 fn turn_end() -> EngineOutput {
-    EngineOutput::Event(AgentEvent::TurnEnd {
+    EngineOutput::TurnEnded {
         stop_reason: StopReason::EndTurn,
         error: None,
-    })
+        next_queued: false,
+    }
 }
 
 /// Bug: New session discards the engine without waiting, and its late end cancelled every
@@ -580,9 +582,9 @@ async fn questions_wait_for_answers_even_with_auto_approve_on() {
         .prompt(&setup.runtime.operation("t-ask").await, "ask me something")
         .unwrap();
     let id = loop {
-        if let AgentEvent::Permission {
+        if let TranscriptEvent::Host(HostEvent::Permission {
             id, auto_approved, ..
-        } = next_event(&mut events).await
+        }) = next_event(&mut events).await
         {
             assert!(!auto_approved);
             break id;
@@ -606,9 +608,9 @@ async fn questions_wait_for_answers_even_with_auto_approve_on() {
     let mut reply = String::new();
     loop {
         match next_event(&mut events).await {
-            AgentEvent::MessageChunk { text, .. } => reply.push_str(&text),
-            AgentEvent::TurnEnd { .. } => break,
-            AgentEvent::EngineExited { .. } => panic!("exited early"),
+            TranscriptEvent::Agent(AgentEvent::MessageChunk { text, .. }) => reply.push_str(&text),
+            TranscriptEvent::Host(HostEvent::TurnEnd { .. }) => break,
+            TranscriptEvent::Host(HostEvent::EngineExited) => panic!("exited early"),
             _ => {}
         }
     }
@@ -645,8 +647,8 @@ async fn a_turn_ends_only_after_its_background_agents_do() {
     let mut sessions = 0;
     loop {
         match next_event(&mut events).await {
-            AgentEvent::SessionStarted { .. } => sessions += 1,
-            AgentEvent::TurnEnd { .. } => break,
+            TranscriptEvent::Agent(AgentEvent::SessionStarted { .. }) => sessions += 1,
+            TranscriptEvent::Host(HostEvent::TurnEnd { .. }) => break,
             _ => {}
         }
     }
@@ -716,7 +718,9 @@ async fn claude_mock_prompt_permission_and_cancel() {
         .unwrap();
 
     let permission_id = loop {
-        if let AgentEvent::Permission { id, role, tool, .. } = next_event(&mut events).await {
+        if let TranscriptEvent::Host(HostEvent::Permission { id, role, tool, .. }) =
+            next_event(&mut events).await
+        {
             assert_eq!(tool, "Bash");
             assert!(
                 matches!(role, ToolRole::Command { command, .. } if command == "echo spike-ok")
@@ -730,11 +734,11 @@ async fn claude_mock_prompt_permission_and_cancel() {
         .unwrap();
     loop {
         match next_event(&mut events).await {
-            AgentEvent::TurnEnd { stop_reason, .. } => {
+            TranscriptEvent::Host(HostEvent::TurnEnd { stop_reason, .. }) => {
                 assert_eq!(stop_reason, StopReason::EndTurn);
                 break;
             }
-            AgentEvent::EngineExited { .. } => panic!("exited early"),
+            TranscriptEvent::Host(HostEvent::EngineExited) => panic!("exited early"),
             _ => {}
         }
     }
@@ -752,7 +756,9 @@ async fn claude_mock_prompt_permission_and_cancel() {
         .cancel(&setup.runtime.operation("t1").await)
         .unwrap();
     loop {
-        if let AgentEvent::TurnEnd { stop_reason, .. } = next_event(&mut events).await {
+        if let TranscriptEvent::Host(HostEvent::TurnEnd { stop_reason, .. }) =
+            next_event(&mut events).await
+        {
             assert_ne!(stop_reason, StopReason::EndTurn);
             break;
         }
@@ -798,14 +804,14 @@ async fn live_background_agent(thread_id: &str) -> (Setup, broadcast::Receiver<S
     (setup, events)
 }
 
-async fn next_live_event(events: &mut broadcast::Receiver<StreamedEvent>) -> AgentEvent {
+async fn next_live_event(events: &mut broadcast::Receiver<StreamedEvent>) -> TranscriptEvent {
     loop {
         let streamed = tokio::time::timeout(Duration::from_secs(120), events.recv())
             .await
             .expect("an event within 120s")
             .unwrap();
-        if let TranscriptEvent::Agent(event) = streamed.event {
-            return event;
+        if !matches!(streamed.event, TranscriptEvent::Lagged(_)) {
+            return streamed.event;
         }
     }
 }
@@ -819,19 +825,19 @@ async fn live_claude_holds_the_turn_for_a_background_agent() {
     let mut agent_finished = false;
     loop {
         match next_live_event(&mut events).await {
-            AgentEvent::ToolCall {
+            TranscriptEvent::Agent(AgentEvent::ToolCall {
                 id,
                 role: ToolRole::Subagent { .. },
                 ..
-            } => {
+            }) => {
                 agent = Some(id);
             }
-            AgentEvent::ToolCallUpdate { id, status, .. }
+            TranscriptEvent::Agent(AgentEvent::ToolCallUpdate { id, status, .. })
                 if Some(&id) == agent.as_ref() && status.is_some() =>
             {
                 agent_finished = true;
             }
-            AgentEvent::TurnEnd { .. } => break,
+            TranscriptEvent::Host(HostEvent::TurnEnd { .. }) => break,
             _ => {}
         }
     }
@@ -853,15 +859,21 @@ async fn live_claude_stop_reaches_a_background_agent() {
     // The agent's first step means it is under way and the main turn is wrapping up.
     loop {
         match next_live_event(&mut events).await {
-            AgentEvent::ToolCall {
+            TranscriptEvent::Agent(AgentEvent::ToolCall {
                 id,
                 role: ToolRole::Subagent { .. },
                 ..
-            } => {
+            }) => {
                 agent = Some(id);
             }
-            AgentEvent::ToolCall { parent_id, .. } if parent_id.is_some() => break,
-            AgentEvent::TurnEnd { .. } => panic!("turn ended before its agent did"),
+            TranscriptEvent::Agent(AgentEvent::ToolCall { parent_id, .. })
+                if parent_id.is_some() =>
+            {
+                break;
+            }
+            TranscriptEvent::Host(HostEvent::TurnEnd { .. }) => {
+                panic!("turn ended before its agent did")
+            }
             _ => {}
         }
     }
@@ -873,7 +885,7 @@ async fn live_claude_stop_reaches_a_background_agent() {
     // A foreground sleep this long would still be going if nothing reached the agent.
     let stopped = tokio::time::timeout(Duration::from_secs(8), async {
         loop {
-            if let AgentEvent::ToolCallUpdate { id, status, .. } =
+            if let TranscriptEvent::Agent(AgentEvent::ToolCallUpdate { id, status, .. }) =
                 next_live_event(&mut events).await
                 && Some(&id) == agent.as_ref()
                 && status.is_some()
@@ -922,7 +934,7 @@ async fn a_denial_reaches_the_engine_as_its_answer_and_nothing_else() {
     );
     while !matches!(
         events.recv().await.unwrap().event,
-        TranscriptEvent::Agent(AgentEvent::Permission { .. })
+        TranscriptEvent::Host(HostEvent::Permission { .. })
     ) {}
 
     let reason = Some("keep the build folder".to_string());

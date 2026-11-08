@@ -100,20 +100,6 @@ pub struct PermissionRequest {
     pub respond: oneshot::Sender<PermissionAnswer>,
 }
 
-impl PermissionRequest {
-    pub fn event(&self, auto_approved: bool) -> AgentEvent {
-        AgentEvent::Permission {
-            id: self.id.clone(),
-            tool_call_id: self.tool_call_id.clone(),
-            title: format!("Use {}", self.tool),
-            tool: self.tool.clone(),
-            role: self.role.clone(),
-            detail: self.detail.clone(),
-            auto_approved,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PermissionAnswer {
     Allow,

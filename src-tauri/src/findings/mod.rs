@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::bus::DomainEvent;
-use crate::engines::AgentEvent;
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
 use crate::timeline::TimelineStep;
+use crate::transcript::HostEvent;
 
 pub(crate) use store::live as live_in;
 pub use store::{FindingRow, FindingsBatch};
@@ -106,7 +106,7 @@ pub async fn send_workspace_findings(
     // Saved, unlike an engine's: it names the batch for as long as the thread works on it.
     state.transcript.append(
         thread_id,
-        AgentEvent::CurrentTool {
+        HostEvent::CurrentTool {
             id: None,
             title: live_title,
         },
