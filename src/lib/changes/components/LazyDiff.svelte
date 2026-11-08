@@ -14,10 +14,13 @@
     workspaceId,
     branch,
     file,
+    scroller,
   }: {
     workspaceId: string
     branch: string | null
     file: DiffFile
+    /** The list's scroller: it clips, so it's the root a diff waits to come near. */
+    scroller: HTMLElement | undefined
   } = $props()
 
   // Highlighting a diff is the slow part of the Git tab, so each one waits until it
@@ -41,7 +44,7 @@
   )
 
   $effect(() => {
-    if (DiffView || !placeholder) return
+    if (DiffView || !placeholder || !scroller) return
     let stopped = false
     let cancel: (() => void) | undefined
     const observer = new IntersectionObserver(
@@ -53,11 +56,8 @@
           cancel = afterPaint(() => (DiffView = view.default))
         })
       },
-      // The root has to be the scroller: it clips, so a margin on the viewport does nothing.
-      {
-        root: placeholder.closest('[data-diff-scroller]'),
-        rootMargin: '800px 0px',
-      },
+      // A margin on the viewport would do nothing inside the clipping scroller.
+      { root: scroller, rootMargin: '800px 0px' },
     )
     observer.observe(placeholder)
     return () => {

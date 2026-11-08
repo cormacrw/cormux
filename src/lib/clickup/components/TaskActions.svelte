@@ -27,7 +27,11 @@
 </script>
 
 <!-- Inside a draggable card: these buttons must not start a drag or select the card. -->
-<div class={cn('flex items-center gap-0.5', className)} data-card-action>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class={cn('flex items-center gap-0.5', className)}
+  onpointerdown={(event) => event.stopPropagation()}
+>
   <button
     type="button"
     class={button}

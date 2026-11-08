@@ -1,8 +1,33 @@
 import { findFileRefs, wholeFileRef, worktreePath } from './file-refs'
 import { renderMath } from './render-math'
 
-// Blocks mounted as components sit in the same root as the prose, but aren't prose.
+/**
+ * Spread on an element that holds a mounted block: blocks sit in the same root as the prose,
+ * but aren't prose, so nothing here touches what's inside them.
+ */
+export const REPLY_BLOCK = { 'data-reply-block': '' }
 const BLOCK = '[data-reply-block]'
+
+export function markReplyBlock(element: HTMLElement) {
+  element.dataset.replyBlock = ''
+}
+
+export function inReplyBlock(element: Element) {
+  return element.closest(BLOCK) != null
+}
+
+const FILE_REF = '.file-ref, .file-ref-link'
+
+/** The file reference a click landed on, if any. */
+export function fileRefAt(
+  target: EventTarget | null,
+): { path: string; line: number | null } | null {
+  if (!(target instanceof Element)) return null
+  const ref = target.closest<HTMLElement>(FILE_REF)
+  if (!ref?.dataset.path) return null
+  const line = ref.dataset.line ? Number(ref.dataset.line) : null
+  return { path: ref.dataset.path, line }
+}
 
 type Checks = 'pass' | 'fail' | 'running' | 'none'
 
