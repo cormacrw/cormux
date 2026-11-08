@@ -10,12 +10,7 @@ import type {
   ToolRunStep,
   ToolStepIcon,
 } from './timeline-types'
-import {
-  agentIsRunning,
-  isAgentTool,
-  toolKindIsEdit,
-  toolKindIsRunStep,
-} from './timeline-types'
+import { agentIsRunning, isAgentTool, toolKindIsEdit } from './timeline-types'
 import {
   isLegacyDivider,
   legacyDividerIcon,
@@ -540,7 +535,6 @@ function foldEvent(
       const toolName = event.name ?? event.title
       // Both show up as their approval card, never as a step.
       if (toolName === 'ExitPlanMode' || toolName === 'AskUserQuestion') break
-      if (!toolKindIsRunStep(event.kind)) break
       if (!run.length) state.runSeq = seq
       const scratchRead =
         input.scratch && (event.kind === 'read' || event.kind === 'search')
@@ -835,11 +829,8 @@ export function liveSubtitle(input: {
 }
 
 export function liveTitle(input: {
-  status: string
   paused: boolean
   activity: string
 }): string {
-  if (input.paused) return 'Paused by you'
-  if (input.status === 'provisioning') return input.activity
-  return input.activity
+  return input.paused ? 'Paused by you' : input.activity
 }

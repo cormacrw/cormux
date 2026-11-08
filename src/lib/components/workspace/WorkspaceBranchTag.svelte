@@ -18,9 +18,10 @@
   import {
     switchWorkspaceBranch,
     createWorkspaceBranch,
-  } from '$lib/workspace/wire-git-workspace'
+  } from '$lib/workspace/git-actions'
   import { commands } from '$lib/ipc'
   import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { shortcutAria } from '$lib/keyboard/shortcuts'
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
@@ -114,7 +115,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'b')) return
+    if (!isHeaderShortcut(event, 'switchBranch')) return
     event.preventDefault()
     if (!locked) open = !open
   }
@@ -128,7 +129,6 @@
     size="sm"
     disabled
     aria-disabled="true"
-    data-ws-focus="branch"
     data-od-id="ws-branch"
     class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
   >
@@ -151,8 +151,7 @@
           aria-haspopup="true"
           aria-expanded={open}
           aria-controls="ws-branch-menu"
-          aria-keyshortcuts="Meta+B"
-          data-ws-focus="branch"
+          aria-keyshortcuts={shortcutAria('switchBranch')}
           data-od-id="ws-branch"
           class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
         >

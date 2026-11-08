@@ -27,12 +27,10 @@ function upsertRow(rows: SettingRow[], key: string, value: string) {
 
 export class SettingsStore {
   reduceMotion = $state(false)
-  autoApproveReadOnly = $state(true)
   runEverything = $state(false)
   defaultEngine = $state<EngineKind>('claude')
   /** Preferred repo id; resolve with `resolveDefaultRepoId` since it may be removed. */
   defaultRepo = $state('')
-  teardownAfterMerge = $state(true)
   /** Experimental: agents pin PRs, tickets and docs to a panel beside the thread. */
   experimentalReferences = $state(false)
   worktreeRoot = $state(DEFAULT_WORKTREE_ROOT)
@@ -55,6 +53,7 @@ export class SettingsStore {
   /** Focus Worktree setup after expanding (add repo). */
   focusRepoSetup = $state<string | null>(null)
 
+  // `autoApproveReadOnly` is still sent by the snapshot mapper but nothing reads it.
   hydrate(
     settings: { reduceMotion?: boolean; autoApproveReadOnly?: boolean },
     rows: SettingRow[] = [],
@@ -62,20 +61,12 @@ export class SettingsStore {
     if (settings.reduceMotion !== undefined) {
       this.reduceMotion = settings.reduceMotion
     }
-    if (settings.autoApproveReadOnly !== undefined) {
-      this.autoApproveReadOnly = settings.autoApproveReadOnly
-    }
     const previous = this.rows
     this.rows = reuseRows(previous, rows, (row) => row.key)
     if (this.rows === previous) return
     if (rows.length > 0) {
       this.defaultEngine = readDefaultEngine(rows)
       this.defaultRepo = readStringSetting(rows, 'defaultRepo', '')
-      this.teardownAfterMerge = readBooleanSetting(
-        rows,
-        'teardownAfterMerge',
-        true,
-      )
       this.experimentalReferences = readBooleanSetting(
         rows,
         'experimentalReferences',
@@ -103,13 +94,8 @@ export class SettingsStore {
     }
   }
 
-  /** Updates a row here only, for settings the core writes itself. */
-  applyLocal(key: string, value: string) {
-    this.rows = upsertRow(this.rows, key, value)
-  }
-
   async persist(key: string, value: string) {
-    this.applyLocal(key, value)
+    this.rows = upsertRow(this.rows, key, value)
     const result = await commands.setSetting({ key, value })
     if (result.status === 'error') {
       toastCoreError(result.error)
@@ -135,19 +121,9 @@ export class SettingsStore {
     void this.setReduceMotion(!this.reduceMotion)
   }
 
-  async setAutoApproveReadOnly(next: boolean) {
-    this.autoApproveReadOnly = next
-    await this.persist('autoApproveReadOnly', next ? 'true' : 'false')
-  }
-
   async setRunEverything(next: boolean) {
     this.runEverything = next
     await this.persist('runEverything', next ? 'true' : 'false')
-  }
-
-  async setTeardownAfterMerge(next: boolean) {
-    this.teardownAfterMerge = next
-    await this.persist('teardownAfterMerge', next ? 'true' : 'false')
   }
 
   async setExperimentalReferences(next: boolean) {

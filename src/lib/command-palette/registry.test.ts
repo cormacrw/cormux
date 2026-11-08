@@ -1,6 +1,7 @@
 import type { PullRequest } from '$lib/state/prs.svelte'
 import { describe, expect, it } from 'vitest'
 import { NO_USAGE } from '$lib/usage/usage'
+import { appControlsFor } from '$lib/run-app/controls'
 import { buildPaletteCommandsFromState } from './build-registry'
 
 const noop = () => {}
@@ -76,40 +77,13 @@ describe('buildPaletteCommandsFromState', () => {
         pullRequests: [
           { id: 'acme/app#482', num: 482, title: 'Fix login' } as PullRequest,
         ],
-        records: [
-          {
-            id: 'ws-1',
-            repoId: 'repo-1',
-            repoPath: '/tmp',
-            name: 'Auth',
-            branch: 'feat',
-            base: 'main',
-            worktreePath: '/tmp/wt',
-            status: 'idle',
-            version: 1,
-            activity: 'Idle',
-            provStep: 0,
-            setupFailedCommand: null,
-            setupFailedExitCode: null,
-          },
-        ],
-        runtimeFor: () => ({
-          appStatus: 'stopped',
-          port: null,
-          behind: 2,
-        }),
-        repoFor: (id) =>
-          id === 'repo-1'
-            ? {
-                id: 'repo-1',
-                path: '/tmp',
-                name: 'app',
-                defaultBranch: 'main',
-                setupCommands: '',
-                runCommand: 'pnpm dev',
-                singleInstance: false,
-              }
-            : undefined,
+        runtimeFor: () => ({ port: null, behind: 2 }),
+        appControlsFor: () =>
+          appControlsFor({
+            appStatus: 'stopped',
+            lifecycle: 'idle',
+            runCommand: 'pnpm dev',
+          }),
         recordFor: (id) =>
           id === 'ws-1'
             ? {
@@ -142,7 +116,7 @@ describe('buildPaletteCommandsFromState', () => {
         openSettingsSection: noop,
         openWorkspaceThread: noop,
         openWorkspaceFindings: noop,
-        runWorkspaceApp: noop,
+        controlApp: noop,
         pullWorkspace: noop,
       },
     ).map((c) => c.label)

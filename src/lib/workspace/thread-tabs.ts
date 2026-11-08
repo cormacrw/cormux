@@ -1,4 +1,4 @@
-import { plural } from '$lib/sidebar/status'
+import { plural } from '$lib/format/plural'
 
 export function findingsTabAriaLabel(openCount: number): string {
   return `Review findings, ${plural(openCount, 'open finding', 'open findings')}`

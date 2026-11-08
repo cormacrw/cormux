@@ -15,15 +15,6 @@ function haystack(command: PaletteCommand): string {
 }
 
 /** Case-insensitive substring match on label and meta (spec §02). */
-export function commandMatchesQuery(
-  command: PaletteCommand,
-  query: string,
-): boolean {
-  const q = query.trim().toLowerCase()
-  if (!q) return true
-  return haystack(command).includes(q)
-}
-
 export function filterCommands(
   commands: PaletteCommand[],
   query: string,

@@ -8,9 +8,10 @@ import {
   defaultSelectedIds,
   mergeSelection,
   type QuickSelectMode,
+  setGroupSelection,
   toggleFinding,
 } from '$lib/findings/selection'
-import { openFindings } from '$lib/findings/types'
+import { openFindings, type FindingSeverity } from '$lib/findings/types'
 import { reuseRows } from './reuse-rows'
 
 function sameSet(a: Set<string>, b: Set<string>) {
@@ -102,14 +103,13 @@ export class FindingsStore {
     this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
   }
 
-  setGroup(workspaceId: string, severity: string, checked: boolean) {
-    const rows = this.forWorkspace(workspaceId)
-    const open = openFindings(rows).filter((row) => row.severity === severity)
-    const next = new SvelteSet(this.selectedIds(workspaceId))
-    for (const row of open) {
-      if (checked) next.add(row.id)
-      else next.delete(row.id)
-    }
+  setGroup(workspaceId: string, severity: FindingSeverity, checked: boolean) {
+    const next = setGroupSelection(
+      this.forWorkspace(workspaceId),
+      this.selectedIds(workspaceId),
+      severity,
+      checked,
+    )
     this.selection = { ...this.selection, [workspaceId]: next }
     this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
   }

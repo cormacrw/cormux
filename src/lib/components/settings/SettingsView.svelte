@@ -1,6 +1,6 @@
 <script lang="ts">
+  import { windowDrag } from '$lib/primitives/window-drag'
   import { tick } from 'svelte'
-  import { getCurrentWindow } from '@tauri-apps/api/window'
   import AgentsSettings from '$lib/components/settings/AgentsSettings.svelte'
   import ClickupSettings from '$lib/components/settings/ClickupSettings.svelte'
   import AppearanceSettings from '$lib/components/settings/AppearanceSettings.svelte'
@@ -64,14 +64,6 @@
     activeSection = section
   }
 
-  function startHeaderDrag(event: MouseEvent) {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof Element)) return
-    if (target.closest('button, a, input, textarea')) return
-    void getCurrentWindow().startDragging()
-  }
-
   function updateActiveSection() {
     const root = scrollRoot
     if (!root) return
@@ -110,8 +102,7 @@
 
       <div class="set-sections min-w-0 flex-1 space-y-10 pb-10">
         <!-- The title row doubles as the page's title bar: empty space in it drags the window. -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <header data-tauri-drag-region onmousedown={startHeaderDrag}>
+        <header data-tauri-drag-region use:windowDrag>
           <h1
             bind:this={settingsTitle}
             tabindex="-1"

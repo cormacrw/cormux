@@ -100,9 +100,3 @@ export async function onSnapshotSupervision(snapshot: Snapshot) {
   }
   lastOpenFindings = openFindings
 }
-
-export function resetSupervisionStateForTests() {
-  lastPending = 0
-  lastOpenFindings = new Map()
-  windowFocused = true
-}

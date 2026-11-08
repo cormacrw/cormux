@@ -50,17 +50,3 @@ export function workspaceStatusWord(workspace: WorkspaceSidebarInput): string {
   }
   return workspace.activityText
 }
-
-export function plural(
-  count: number,
-  singular: string,
-  pluralWord = `${singular}s`,
-): string {
-  return count === 1 ? `1 ${singular}` : `${count} ${pluralWord}`
-}
-
-export function formatMemoryGb(bytes: number): string {
-  const gb = bytes / 1024 ** 3
-  if (gb >= 10) return `${Math.round(gb)} GB`
-  return `${gb.toFixed(1)} GB`
-}

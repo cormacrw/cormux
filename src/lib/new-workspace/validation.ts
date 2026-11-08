@@ -48,17 +48,3 @@ export function branchErrorMessage(
       return 'Another workspace already uses this branch.'
   }
 }
-
-export function validateBaseBranch(
-  value: string,
-  knownBranches: string[],
-): string | null {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return 'No branch called “…”. Pick one from the list.'
-  }
-  if (!knownBranches.includes(trimmed)) {
-    return `No branch called “${trimmed}”. Pick one from the list.`
-  }
-  return null
-}

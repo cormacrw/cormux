@@ -3,6 +3,7 @@
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
   import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { shortcutAria } from '$lib/keyboard/shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
     branchPullRequest,
@@ -49,9 +50,7 @@
     }),
   )
   const prLabel = $derived(
-    branchPr
-      ? primaryPrActionLabel(branchPr.synced, branchPr.number)
-      : 'Create PR',
+    branchPr ? primaryPrActionLabel(branchPr.synced, branchPr.number) : '',
   )
   const prUrl = $derived(branchPr?.url ?? null)
 
@@ -60,25 +59,21 @@
   )
 
   function onKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'p')) return
+    if (!isHeaderShortcut(event, 'primaryAction')) return
     event.preventDefault()
     if (!primaryDisabled) onPrimaryClick()
   }
 
   function onPrimaryClick() {
     if (workspace.kind === 'review') {
-      shellDialogs.openSubmitReview(workspace.id)
+      shellDialogs.open('submitReview', { workspaceId: workspace.id })
       return
     }
     if (branchPr && prUrl) {
       void openUrl(prUrl)
       return
     }
-    window.dispatchEvent(
-      new CustomEvent('cormux:create-pr', {
-        detail: { workspaceId: workspace.id },
-      }),
-    )
+    shellDialogs.open('createPr', { workspaceId: workspace.id })
   }
 </script>
 
@@ -90,8 +85,7 @@
     size="default"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={reviewSubmitted}
-    aria-keyshortcuts="Meta+P"
-    data-ws-focus="primary"
+    aria-keyshortcuts={shortcutAria('primaryAction')}
     data-od-id="ws-submit-review"
     onclick={onPrimaryClick}
   >
@@ -105,8 +99,7 @@
     size="default"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={!prUrl}
-    aria-keyshortcuts="Meta+P"
-    data-ws-focus="primary"
+    aria-keyshortcuts={shortcutAria('primaryAction')}
     data-od-id="ws-create-pr"
     onclick={onPrimaryClick}
   >

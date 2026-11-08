@@ -1,6 +1,6 @@
 import type { DiffTarget, StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
 import type { PullRequest } from '$lib/state/prs.svelte'
-import { plural } from '$lib/sidebar/status'
+import { plural } from '$lib/format/plural'
 
 /** Top of the stack first, the way it reads on screen with the trunk underneath. */
 export function stackCardsTopFirst(

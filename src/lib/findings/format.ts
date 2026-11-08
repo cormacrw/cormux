@@ -9,10 +9,10 @@ export function severitySummary(rows: FindingRow[]): string {
     return `${count} ${word}`
   })
     .filter((line) => !line.startsWith('0 '))
-    .join(' · ')
+    .join(', ')
 }
 
-export function pluralFindings(count: number, adjective?: string): string {
+function pluralFindings(count: number, adjective?: string): string {
   const word = count === 1 ? 'finding' : 'findings'
   if (!adjective) return `${count} ${word}`
   return `${count} ${adjective} ${word}`

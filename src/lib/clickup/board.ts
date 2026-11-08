@@ -48,10 +48,6 @@ export function statusKey(name: string) {
   return name.toLowerCase()
 }
 
-export function hasPoints(task: Pick<ClickupTask, 'points'>) {
-  return task.points != null
-}
-
 export function formatPoints(points: number) {
   return Number.isInteger(points) ? String(points) : points.toFixed(1)
 }

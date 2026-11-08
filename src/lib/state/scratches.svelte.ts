@@ -1,7 +1,7 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import type { ScratchRow } from '$lib/ipc/bindings'
-import { parseTimestampMs } from '$lib/homebase/relative-time'
+import { parseTimestampMs } from '$lib/format/relative-time'
 import { reuseRows } from './reuse-rows'
 
 /** A one-off conversation from before every thread had a worktree, kept to read. */

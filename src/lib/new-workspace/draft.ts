@@ -15,17 +15,6 @@ function branchPrefix(text: string): 'feat' | 'fix' | 'refactor' {
   return 'feat'
 }
 
-/** Branch when the prompt did not draft one. Skips names already taken. */
-export function fallbackBranchName(taken: string[]): string {
-  let name = 'feat/workspace'
-  let n = 2
-  while (taken.includes(name)) {
-    name = `feat/workspace-${n}`
-    n += 1
-  }
-  return name
-}
-
 /** Draft branch name from initial prompt (spec §06). */
 export function draftBranchName(prompt: string): string {
   const trimmed = prompt.trim()

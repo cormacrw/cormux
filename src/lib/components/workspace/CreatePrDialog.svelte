@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
@@ -7,10 +7,11 @@
   import { Textarea } from '$lib/components/ui/textarea/index.js'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
-  import type { Error as CoreError } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
   import { formatPrRouteLine } from '$lib/create-pr/route-line'
-  import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
+  import { coreErrorText } from '$lib/feedback/core-error'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
+  import { SKELETON_WIDTHS } from '$lib/primitives/skeleton'
   import {
     hydrateFromSnapshot,
     shellDialogs,
@@ -20,7 +21,9 @@
     workspaces,
   } from '$lib/state'
 
-  const workspaceId = $derived(shellDialogs.createPrWorkspaceId)
+  const workspaceId = $derived(
+    shellDialogs.args('createPr')?.workspaceId ?? null,
+  )
   const open = $derived(workspaceId != null)
   const workspace = $derived(
     workspaceId ? workspaces.getById(workspaceId) : undefined,
@@ -77,23 +80,6 @@
   )
 
   const MIN_DRAFT_MS = 1200
-  const SKELETON_WIDTHS = ['100%', '94%', '62%', '36%', '82%', '74%', '48%']
-
-  function coreErrorMessage(error: CoreError): string {
-    if (
-      error.kind === 'Git' ||
-      error.kind === 'Workspace' ||
-      error.kind === 'Github' ||
-      error.kind === 'Llm'
-    ) {
-      return error.message
-    }
-    if (error.kind === 'GitConflict') {
-      const paths = error.message.paths?.length ?? 0
-      return `Git stopped with ${paths} conflicting file${paths === 1 ? '' : 's'}`
-    }
-    return 'Something went wrong'
-  }
 
   async function startDraft() {
     if (!workspaceId || !workspace) return
@@ -112,7 +98,7 @@
 
     if (draftResult.status === 'error') {
       drafting = false
-      submitError = coreErrorMessage(draftResult.error)
+      submitError = coreErrorText(draftResult.error)
       hint = 'Edit the description before creating.'
       return
     }
@@ -124,23 +110,22 @@
     whyField?.focus()
   }
 
-  async function prepareOpen(id: string) {
-    dismissOpenPopover()
-    window.dispatchEvent(new CustomEvent('cormux:close-palette'))
-    const ws = workspaces.getById(id)
-    if (!ws || ws.prNumber != null || ws.kind === 'review') return
-    shellDialogs.openCreatePr(id)
-    title = ws.name
-    creating = false
-    submitError = null
-    whyError = false
-    await tick()
-    void startDraft()
-  }
+  // Each opening starts over with a fresh draft.
+  $effect(() => {
+    const id = workspaceId
+    if (!id) return
+    untrack(() => {
+      title = workspaces.getById(id)?.name ?? ''
+      creating = false
+      submitError = null
+      whyError = false
+      void tick().then(startDraft)
+    })
+  })
 
   function closeDialog() {
     draftGeneration += 1
-    shellDialogs.closeCreatePr()
+    shellDialogs.close('createPr')
     drafting = false
     creating = false
   }
@@ -166,28 +151,14 @@
     })
     creating = false
     if (result.status === 'error') {
-      submitError = coreErrorMessage(result.error)
+      submitError = coreErrorText(result.error)
       return
     }
     closeDialog()
     hydrateFromSnapshot(await fetchSnapshot())
   }
 
-  function onFormKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault()
-      void submit()
-    }
-  }
-
-  onMount(() => {
-    const onRequest = (event: Event) => {
-      const detail = (event as CustomEvent<{ workspaceId: string }>).detail
-      if (detail?.workspaceId) void prepareOpen(detail.workspaceId)
-    }
-    window.addEventListener('cormux:create-pr', onRequest)
-    return () => window.removeEventListener('cormux:create-pr', onRequest)
-  })
+  const onFormKeydown = onModEnter(() => void submit())
 </script>
 
 <Dialog.Root {open} onOpenChange={(next) => !next && closeDialog()}>

@@ -13,7 +13,7 @@
   import { appearance } from '$lib/state/appearance.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { engineDisplayName } from '$lib/sidebar/engine'
+  import { engineDisplayName } from '$lib/engine/engines'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import { enterConversation } from '$lib/thread/conversation-motion'
   import {
@@ -164,7 +164,6 @@
 
   const liveRowTitle = $derived(
     liveTitle({
-      status: thread.status,
       paused: thread.paused,
       activity: thread.activity,
     }),

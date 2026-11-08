@@ -18,6 +18,7 @@
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
   import ChangesPanel from './changes/ChangesPanel.svelte'
+  import { escClosesSlideOut, resizeEdge } from '$lib/primitives/slide-out'
 
   const workspace = $derived(
     app.workspaceId ? workspaces.getById(app.workspaceId) : undefined,
@@ -111,44 +112,14 @@
     void tick().then(() => document.getElementById('composer-input')?.focus())
   }
 
-  // Esc slides Git or Output away from anywhere in the workspace, unless a dialog,
-  // menu or popover is open and wants the key for itself.
+  // Esc slides Git or Output away from anywhere in the workspace.
   function onWindowKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || event.defaultPrevented || !slideOut) return
-    if (
-      document.querySelector(
-        '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"][data-state="open"]',
-      )
-    )
-      return
+    if (!slideOut || !escClosesSlideOut(event)) return
     event.preventDefault()
     dismissSlideOut()
   }
 
   let paneRow: HTMLDivElement | undefined = $state()
-
-  // Dragging the pinned pane's left edge resizes it, leaving the conversation at least 360px.
-  function onPaneEdgeDown(event: PointerEvent) {
-    if (event.button !== 0 || !paneRow) return
-    event.preventDefault()
-    const handle = event.currentTarget as HTMLElement
-    handle.setPointerCapture(event.pointerId)
-    const row = paneRow.getBoundingClientRect()
-    const move = (next: PointerEvent) => {
-      const width = row.right - 12 - next.clientX
-      workspaceUi.setTrayWidth(
-        Math.min(Math.max(width, 320), Math.max(320, row.width - 372)),
-      )
-    }
-    const up = () => {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', up)
-      handle.removeEventListener('pointercancel', up)
-    }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', up)
-    handle.addEventListener('pointercancel', up)
-  }
 
   function onSlideOutKeydown(event: KeyboardEvent) {
     if (event.key !== 'Escape' || event.defaultPrevented) return
@@ -239,12 +210,17 @@
           onclick={() => workspaceUi.closeSlideOut()}
         ></button>
 
-        {#snippet resizeEdge()}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- Dragging the pinned pane's left edge resizes it, leaving the conversation at least 360px. -->
+        {#snippet paneEdge()}
           <div
             class="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize"
             title="Drag to resize"
-            onpointerdown={onPaneEdgeDown}
+            use:resizeEdge={{
+              bounds: () => paneRow?.getBoundingClientRect(),
+              min: 320,
+              reserve: 372,
+              onResize: (width) => workspaceUi.setTrayWidth(width),
+            }}
           ></div>
         {/snippet}
 
@@ -263,7 +239,7 @@
             inert={!gitVisible}
             onkeydown={onSlideOutKeydown}
           >
-            {#if pinnedTray === 'changes'}{@render resizeEdge()}{/if}
+            {#if pinnedTray === 'changes'}{@render paneEdge()}{/if}
             <ChangesPanel
               {workspace}
               thread={activeThread}
@@ -291,7 +267,7 @@
             inert={!outputVisible}
             onkeydown={onSlideOutKeydown}
           >
-            {#if pinnedTray === 'output'}{@render resizeEdge()}{/if}
+            {#if pinnedTray === 'output'}{@render paneEdge()}{/if}
             <WorkspaceOutputPanel
               workspaceId={workspace.id}
               repoId={workspaceRepoId}

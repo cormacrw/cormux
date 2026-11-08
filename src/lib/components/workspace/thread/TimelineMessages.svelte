@@ -20,6 +20,7 @@
   import TaskDraftCards from './TaskDraftCards.svelte'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
+  import { severitySummary } from '$lib/findings/format'
   import ThoughtMarkdown from './ThoughtMarkdown.svelte'
   import {
     formatThreadTime,
@@ -254,23 +255,6 @@
     copiedId = id
     clearTimeout(copiedTimer)
     copiedTimer = setTimeout(() => (copiedId = null), 1500)
-  }
-
-  function findingSummary(items: FindingRow[]) {
-    const counts = { blocking: 0, suggestion: 0, nit: 0 }
-    for (const row of items) {
-      if (row.severity in counts)
-        counts[row.severity as keyof typeof counts] += 1
-    }
-    const parts = [
-      [counts.blocking, 'blocking', 'blocking'],
-      [counts.suggestion, 'suggestion', 'suggestions'],
-      [counts.nit, 'nit', 'nits'],
-    ] as const
-    return parts
-      .filter(([n]) => n > 0)
-      .map(([n, one, many]) => `${n} ${n === 1 ? one : many}`)
-      .join(', ')
   }
 </script>
 
@@ -723,7 +707,7 @@
           <span class="shrink-0">Review findings</span>
           <span class="truncate text-muted-foreground/80"
             >· {findings.length
-              ? findingSummary(findings)
+              ? severitySummary(findings)
               : 'No findings'}</span
           >
           <button

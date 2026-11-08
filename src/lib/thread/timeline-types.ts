@@ -73,7 +73,6 @@ export type TimelineItem =
       seq: number
       atMs: number
       role: 'agent' | 'thought'
-      streaming?: boolean
     }
   | { kind: 'toolRun'; id: string; steps: ToolRunStep[]; seq: number }
   | {
@@ -140,13 +139,10 @@ export function agentIsRunning(step: ToolRunStep): boolean {
   )
 }
 
-export type TimelineSpeaker = 'user' | 'agent'
-
 export type TimelineRow =
   | {
       kind: 'speaker'
       id: string
-      speaker: TimelineSpeaker
       role: string
       engine: string
       seq: number
@@ -156,16 +152,4 @@ export type TimelineRow =
 
 export function toolKindIsEdit(kind: ToolKind): boolean {
   return kind === 'edit' || kind === 'delete' || kind === 'move'
-}
-
-export function toolKindIsRunStep(kind: ToolKind): boolean {
-  if (toolKindIsEdit(kind)) return true
-  return (
-    kind === 'read' ||
-    kind === 'search' ||
-    kind === 'execute' ||
-    kind === 'fetch' ||
-    kind === 'other' ||
-    kind === 'think'
-  )
 }

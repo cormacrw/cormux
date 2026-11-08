@@ -10,7 +10,6 @@ export {
   type PlanStep,
   type ToolCallStatus,
   type ToolKind,
-  type AppView,
   type DiffUpdate,
   type Error as CoreError,
   type PtyChunk,
@@ -24,7 +23,6 @@ export {
 } from './bindings'
 
 export { subscribeAgentEvents, subscribeDiffs, subscribePty } from './channels'
-export { hasVersionGap }
 
 function unwrapSnapshot(
   result: Awaited<ReturnType<typeof commands.getSnapshot>>,

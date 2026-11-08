@@ -8,9 +8,6 @@ import { clickup } from './clickup.svelte'
 import { appName } from '$lib/build-mode'
 import { resolveWindowTitle, type ViewId } from './window-title'
 
-export type { ViewId } from './window-title'
-export { resolveWindowTitle } from './window-title'
-
 export type FocusTarget =
   'newThread' | 'settings' | 'workspace' | 'scratch' | 'sprint' | 'repo'
 
@@ -27,9 +24,6 @@ export class AppStore {
   /** Incremented when a view should move focus to its main heading. */
   focusGeneration = $state(0)
   focusTarget = $state<FocusTarget | null>(null)
-
-  /** Set while the palette is opening (sidebar / menu hooks). */
-  commandPaletteRequested = $state(false)
 
   readonly windowTitle = $derived.by(() => {
     if (this.view === 'scratch') {
@@ -129,11 +123,6 @@ export class AppStore {
     this.scratchId = null
     this.repoId = repoId
     this.requestFocus('repo')
-  }
-
-  requestCommandPalette() {
-    this.commandPaletteRequested = true
-    window.dispatchEvent(new CustomEvent('cormux:command-palette'))
   }
 }
 

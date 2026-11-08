@@ -5,11 +5,8 @@
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
   import { commands } from '$lib/ipc'
   import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
-  import {
-    ENGINE_OPTIONS,
-    engineInstallLabel,
-  } from '$lib/new-workspace/engines'
-  import { engineMark } from '$lib/sidebar/engine'
+  import { ENGINE_OPTIONS, engineInstallLabel } from '$lib/engine/engines'
+  import { engineMark } from '$lib/engine/engines'
   import { settings } from '$lib/state'
   import { cn } from '$lib/utils'
 

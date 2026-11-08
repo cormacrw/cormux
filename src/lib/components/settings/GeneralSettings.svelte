@@ -76,19 +76,6 @@
   </SettingsRow>
 
   <SettingsRow
-    title="Teardown after merge"
-    description="Delete the worktree once its branch is merged"
-  >
-    {#snippet control()}
-      <Switch
-        checked={settings.teardownAfterMerge}
-        onCheckedChange={(next) => void settings.setTeardownAfterMerge(next)}
-        aria-label="Teardown after merge"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
     title="Worktree location"
     description="Where each workspace's checkout lives on disk. Only new workspaces use a changed path."
     controlId="settings-worktree-root"

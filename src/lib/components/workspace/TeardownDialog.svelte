@@ -12,10 +12,13 @@
     shellDialogs,
     workspaces,
   } from '$lib/state'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
   import Trash2 from '@lucide/svelte/icons/trash-2'
 
-  const workspaceId = $derived(shellDialogs.teardownWorkspaceId)
+  const workspaceId = $derived(
+    shellDialogs.args('teardown')?.workspaceId ?? null,
+  )
 
   let preview = $state<TeardownPreview | null>(null)
   // Waits for the preview: a clean worktree never shows the dialog at all.
@@ -35,10 +38,10 @@
   async function loadPreview(id: string) {
     preview = null
     const result = await commands.getTeardownPreview(id)
-    if (shellDialogs.teardownWorkspaceId !== id) return
+    if (workspaceId !== id) return
     if (result.status === 'error') {
-      toastCoreError(JSON.stringify(result.error))
-      shellDialogs.closeTeardown()
+      toastCoreError(result.error)
+      shellDialogs.close('teardown')
       return
     }
     deleteBranch = result.data.deleteBranchDefault
@@ -52,7 +55,7 @@
   }
 
   function onOpenChange(next: boolean) {
-    if (!next) shellDialogs.closeTeardown()
+    if (!next) shellDialogs.close('teardown')
   }
 
   // Close immediately and let the teardown run in the background: the sidebar
@@ -62,25 +65,22 @@
     if (!workspaceId) return
     const tornId = workspaceId
     workspaces.markDeleting(tornId)
-    shellDialogs.closeTeardown()
+    shellDialogs.close('teardown')
     app.openNewThread()
     void commands
       .teardownWorkspace({ workspaceId: tornId, deleteBranch })
       .then(async (result) => {
         if (result.status === 'error') {
           workspaces.clearDeleting(tornId)
-          toastCoreError(JSON.stringify(result.error))
+          toastCoreError(result.error)
         }
         hydrateFromSnapshot(await fetchSnapshot())
       })
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && preview) {
-      event.preventDefault()
-      confirmTeardown()
-    }
-  }
+  const onKeydown = onModEnter(() => {
+    if (preview) confirmTeardown()
+  })
 
   const description = $derived.by(() => {
     if (!preview) return ''

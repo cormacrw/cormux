@@ -78,10 +78,6 @@ export class WorkspaceRecordsStore {
     if (next) this.runtimeById = next
   }
 
-  setBehind(id: string, behind: number) {
-    this.patchRuntimes({ [id]: { behind } })
-  }
-
   applyGitStats(rows: WorkspaceGitRuntime[]) {
     if (rows.length === 0) return
     const patches: Record<string, Partial<WorkspaceRuntime>> = {}

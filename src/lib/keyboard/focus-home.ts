@@ -26,11 +26,18 @@ export function isEditable(element: Element | null): boolean {
   return element instanceof HTMLElement && element.isContentEditable
 }
 
-/** An open dialog, menu or list popover holds focus for now. */
-function overlayOpen(): boolean {
-  return !!document.querySelector(
-    '[role="dialog"], [role="alertdialog"], [role="menu"][data-state="open"], [role="listbox"]:not(#composer-picker)',
+// A layer on its way out (`data-state="closed"`) no longer counts. The composer's own
+// picker isn't an overlay: it sits in the prompt and handles its keys itself.
+const OPEN_OVERLAY = ['dialog', 'alertdialog', 'menu', 'listbox']
+  .map(
+    (role) =>
+      `[role="${role}"]:not([data-state="closed"]):not(#composer-picker)`,
   )
+  .join(', ')
+
+/** An open dialog, menu or list holds the keyboard for now: focus and Esc are its own. */
+export function overlayOpen(): boolean {
+  return !!document.querySelector(OPEN_OVERLAY)
 }
 
 /**

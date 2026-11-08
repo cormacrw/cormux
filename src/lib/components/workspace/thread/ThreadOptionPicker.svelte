@@ -9,7 +9,8 @@
   import { commands } from '$lib/ipc'
   import type { ModelOption, ThreadModels } from '$lib/ipc/bindings'
   import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
-  import { isPickerShortcut } from '$lib/keyboard/header-shortcuts'
+  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import {
     claimWorkspacePopover,
     releaseWorkspacePopover,
@@ -20,8 +21,8 @@
   const KINDS = {
     model: {
       name: 'Model',
-      key: 'm',
-      title: 'Model for this thread (⌘⇧M)',
+      shortcut: 'pickModel' as const,
+      title: `Model for this thread (${shortcutLabel('pickModel')})`,
       failure: 'Could not change the model',
       listEngine: commands.engineModels,
       listThread: commands.threadModels,
@@ -29,8 +30,8 @@
     },
     effort: {
       name: 'Effort',
-      key: 'e',
-      title: 'Effort for this thread (⌘⇧E)',
+      shortcut: 'pickEffort' as const,
+      title: `Effort for this thread (${shortcutLabel('pickEffort')})`,
       failure: 'Could not change the effort',
       listEngine: commands.engineEfforts,
       listThread: commands.threadEfforts,
@@ -142,7 +143,7 @@
   }
 
   function onWindowKeydown(event: KeyboardEvent) {
-    if (!isPickerShortcut(event, config.key)) return
+    if (!isHeaderShortcut(event, config.shortcut)) return
     // Git and Output slide over the conversation and leave the composer inert.
     if (!trigger || trigger.closest('[inert]')) return
     event.preventDefault()

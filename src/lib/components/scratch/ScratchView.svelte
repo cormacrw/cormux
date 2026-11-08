@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { windowDrag } from '$lib/primitives/window-drag'
   import { onMount, tick, untrack } from 'svelte'
-  import { getCurrentWindow } from '@tauri-apps/api/window'
   import { Button } from '$lib/components/ui/button'
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
   import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { shortcutAria } from '$lib/keyboard/shortcuts'
   import TimelineMessages from '$lib/components/workspace/thread/TimelineMessages.svelte'
   import ThreadFind from '$lib/components/workspace/thread/ThreadFind.svelte'
   import {
@@ -16,7 +17,7 @@
     threads,
   } from '$lib/state'
   import type { Scratch } from '$lib/state/scratches.svelte'
-  import { engineDisplayName } from '$lib/sidebar/engine'
+  import { engineDisplayName } from '$lib/engine/engines'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import {
     createEntryScope,
@@ -151,18 +152,10 @@
     return () => clearInterval(timer)
   })
 
-  function startHeaderDrag(event: MouseEvent) {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof Element)) return
-    if (target.closest('button, a, input, textarea')) return
-    void getCurrentWindow().startDragging()
-  }
-
   function onKeydown(event: KeyboardEvent) {
-    if (!scratch || !isHeaderShortcut(event, 'e')) return
+    if (!scratch || !isHeaderShortcut(event, 'deleteScratch')) return
     event.preventDefault()
-    shellDialogs.openEndScratch(scratch.id)
+    shellDialogs.open('endScratch', { scratchId: scratch.id })
   }
 </script>
 
@@ -175,12 +168,11 @@
     aria-label="Scratch"
     data-od-id="session-view"
   >
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <header
       class="ws-top flex items-center justify-between gap-4 border-b border-border/60 px-5 py-3"
       data-tauri-drag-region
       data-od-id="session-header"
-      onmousedown={startHeaderDrag}
+      use:windowDrag
     >
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <h1
@@ -204,8 +196,9 @@
           size="xl"
           data-action="end-scratch"
           data-od-id="session-end"
-          aria-keyshortcuts="Meta+E"
-          onclick={() => shellDialogs.openEndScratch(scratch.id)}
+          aria-keyshortcuts={shortcutAria('deleteScratch')}
+          onclick={() =>
+            shellDialogs.open('endScratch', { scratchId: scratch.id })}
         >
           Delete
           <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />E</Kbd>

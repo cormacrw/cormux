@@ -12,6 +12,7 @@
   } from '$lib/state'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { cn } from '$lib/utils'
+  import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
   import { formatChangeCounts } from '$lib/workspace/diff-totals'
   import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
   import {
@@ -85,8 +86,8 @@
     class={buttonClass(workspaceUi.gitVisible)}
     aria-pressed={workspaceUi.gitVisible}
     aria-label={changesTabAriaLabel(changeCountLabel)}
-    aria-keyshortcuts="Meta+G"
-    title="Git (⌘G)"
+    aria-keyshortcuts={shortcutAria('toggleGit')}
+    title="Git ({shortcutLabel('toggleGit')})"
     id="tray-changes"
     data-od-id="tray-changes"
     onclick={() => workspaceUi.toggleGit()}
@@ -108,8 +109,8 @@
       appStatus: runtime.appStatus,
       port: runtime.port,
     })}
-    aria-keyshortcuts="Meta+O"
-    title="Output (⌘O)"
+    aria-keyshortcuts={shortcutAria('toggleOutput')}
+    title="Output ({shortcutLabel('toggleOutput')})"
     id="tray-output"
     data-od-id="tray-output"
     onclick={() => workspaceUi.toggleOutputTab()}

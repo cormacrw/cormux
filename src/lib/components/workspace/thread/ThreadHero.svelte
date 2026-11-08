@@ -9,7 +9,7 @@
 -->
 <script lang="ts">
   import * as Select from '$lib/components/ui/select'
-  import { formatRelativeAge } from '$lib/homebase/relative-time'
+  import { formatRelativeAge } from '$lib/format/relative-time'
   import { heroLine, type Conversation } from '$lib/thread/conversations'
   import { resumeConversation } from '$lib/thread/resume-conversation'
   import type { Thread } from '$lib/state/threads.svelte'

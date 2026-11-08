@@ -43,7 +43,7 @@
     pushStack,
     switchWorkspaceBranch,
     syncStack,
-  } from '$lib/workspace/wire-git-workspace'
+  } from '$lib/workspace/git-actions'
   import { cn } from '$lib/utils'
 
   let {

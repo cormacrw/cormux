@@ -1,14 +1,21 @@
+import type { Component } from 'svelte'
+import type { ShellDialogId } from '$lib/state/shell-dialogs.svelte'
+
+type Loader = () => Promise<{ default: Component }>
+
 // Everything off the first screen, so startup only parses what it paints.
-export const loadSettings = () => import('../../../routes/Settings.svelte')
-export const loadRepo = () => import('../../../routes/Repo.svelte')
+export const loadSettings = () => import('../settings/SettingsView.svelte')
+export const loadRepo = () => import('../repo/RepoView.svelte')
 export const loadScratch = () => import('../scratch/ScratchView.svelte')
 export const loadSprint = () => import('../sprint/SprintView.svelte')
-export const loadTeardownDialog = () =>
-  import('../workspace/TeardownDialog.svelte')
-export const loadSubmitReviewDialog = () =>
-  import('../workspace/SubmitReviewDialog.svelte')
-export const loadEndScratchDialog = () =>
-  import('../scratch/EndScratchDialog.svelte')
+
+/** Each shell dialog's component, mounted the first time it opens. */
+export const SHELL_DIALOGS: Record<ShellDialogId, Loader> = {
+  teardown: () => import('../workspace/TeardownDialog.svelte'),
+  createPr: () => import('../workspace/CreatePrDialog.svelte'),
+  submitReview: () => import('../workspace/SubmitReviewDialog.svelte'),
+  endScratch: () => import('../scratch/EndScratchDialog.svelte'),
+}
 
 /** Fetches them all once the app has settled, so the first click doesn't land on a blank frame. */
 export function preloadLazyViews() {
@@ -17,9 +24,7 @@ export function preloadLazyViews() {
     loadRepo,
     loadScratch,
     loadSprint,
-    loadTeardownDialog,
-    loadSubmitReviewDialog,
-    loadEndScratchDialog,
+    ...Object.values(SHELL_DIALOGS),
   ]) {
     void load()
   }

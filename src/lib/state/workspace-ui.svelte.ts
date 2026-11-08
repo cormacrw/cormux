@@ -1,4 +1,5 @@
 import { tick } from 'svelte'
+import { readPaneWidth, savePaneWidth } from '$lib/primitives/slide-out'
 
 export type WorkspacePanelTab = 'thread' | 'findings' | 'changes' | 'output'
 
@@ -17,15 +18,6 @@ function isPinnable(tab: WorkspacePanelTab): tab is PinnableTray {
 
 const PINNED_TRAY_KEY = 'cormux-pinned-tray'
 const TRAY_WIDTH_KEY = 'cormux-git-pane-width'
-
-function readTrayWidth(): number {
-  try {
-    const stored = Number(globalThis.localStorage?.getItem(TRAY_WIDTH_KEY))
-    return stored >= 320 ? stored : 640
-  } catch {
-    return 640
-  }
-}
 
 function readPinnedTray(): PinnableTray | null {
   try {
@@ -89,7 +81,7 @@ export class WorkspaceUiStore {
    */
   pinnedTray = $state<PinnableTray | null>(readPinnedTray())
   /** Width of the pinned pane in px; dragging its edge changes it. */
-  trayWidth = $state(readTrayWidth())
+  trayWidth = $state(readPaneWidth(TRAY_WIDTH_KEY, 320, 640))
   /** Git is on screen, as a slide-out or as the pinned pane. */
   readonly gitVisible = $derived(
     this.activeTab === 'changes' || this.pinnedTray === 'changes',
@@ -182,11 +174,7 @@ export class WorkspaceUiStore {
 
   setTrayWidth(width: number) {
     this.trayWidth = Math.round(width)
-    try {
-      globalThis.localStorage?.setItem(TRAY_WIDTH_KEY, String(this.trayWidth))
-    } catch {
-      // Optional, as above.
-    }
+    savePaneWidth(TRAY_WIDTH_KEY, this.trayWidth)
   }
 
   resetForWorkspace() {

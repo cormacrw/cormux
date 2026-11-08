@@ -1,5 +1,4 @@
 import type { commands } from '$lib/ipc/bindings'
-import type { HarnessRuntime } from './runtime'
 import type { UnsupportedCommand } from './unsupported'
 
 type Commands = typeof commands
@@ -50,5 +49,3 @@ export type HandlerTable = {
 
 /** What one domain's file contributes to the table. */
 export type HandlerSlice = Partial<HandlerTable>
-
-export type HandlerFactory = (runtime: HarnessRuntime) => HandlerSlice

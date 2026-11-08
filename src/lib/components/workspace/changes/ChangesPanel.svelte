@@ -271,7 +271,7 @@
           </Button>
         </span>
       {/if}
-      <TrayControls tray="changes" name="Git" shortcut="⌘G" />
+      <TrayControls tray="changes" name="Git" shortcut="toggleGit" />
     </div>
 
     <div class="relative flex min-h-0 flex-1 flex-col">

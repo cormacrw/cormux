@@ -9,7 +9,7 @@
   import { Checkbox } from '$lib/components/ui/checkbox'
   import * as Select from '$lib/components/ui/select'
   import { app, findings, threads, workspaceUi, workspaces } from '$lib/state'
-  import { engineDisplayName } from '$lib/sidebar/engine'
+  import { engineDisplayName } from '$lib/engine/engines'
   import { selectionSummaryText } from '$lib/findings/format'
   import {
     groupCheckboxState,

@@ -2,13 +2,11 @@
   import TrayControls from './TrayControls.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Badge } from '$lib/components/ui/badge'
-  import {
-    openRepoRunCommand,
-    runWorkspaceApp,
-  } from '$lib/command-palette/actions'
   import { subscribePty } from '$lib/ipc'
-  import { repos, settings, workspaceRecords, workspaceUi } from '$lib/state'
-  import { runCommandOverride } from '$lib/run-app/run-command'
+  import type { WorkspaceAppControlAction } from '$lib/ipc/bindings'
+  import { repos, workspaceRecords, workspaceUi } from '$lib/state'
+  import { appControls, controlApp } from '$lib/run-app/actions'
+  import { openRepoRunCommand } from '$lib/settings/open'
   import {
     OUTPUT_LINE_CAP,
     appendOutputLines,
@@ -48,10 +46,9 @@
   const logVersion = $derived(runtime.logVersion)
   const repo = $derived(repos.getById(repoId))
   const repoCommand = $derived(repo?.runCommand?.trim() ?? '')
+  const controls = $derived(appControls(workspaceId))
   // This workspace's own command from the field below, else the repo's.
-  const runCommand = $derived(
-    runCommandOverride(settings.rows, workspaceId) || repoCommand,
-  )
+  const runCommand = $derived(controls.runCommand)
   let commandField: RunCommandField | undefined = $state()
 
   const chipLabel = $derived(
@@ -93,11 +90,6 @@
 
   $effect(() => {
     void logVersion
-    resetLog()
-    stickToBottom = true
-  })
-
-  $effect(() => {
     void workspaceId
     resetLog()
     stickToBottom = true
@@ -139,14 +131,10 @@
     stickToBottom = distance <= 24
   }
 
-  function run(action: 'run' | 'restart' | 'stop' | 'clear') {
-    if (action === 'clear') {
-      runWorkspaceApp(workspaceId, 'clear')
-      resetLog()
-      queueMicrotask(() => logEl?.focus())
-      return
-    }
-    runWorkspaceApp(workspaceId, action)
+  function run(action: WorkspaceAppControlAction) {
+    void controlApp(workspaceId, action)
+    // Clearing bumps `logVersion`, which empties the list above.
+    if (action === 'clear') queueMicrotask(() => logEl?.focus())
   }
 
   function openAppUrl() {
@@ -194,16 +182,16 @@
 
     <span class="min-w-2 flex-1"></span>
 
-    {#if runtime.appStatus === 'stopped'}
+    {#if controls.start?.action === 'run'}
       <Button
         variant="secondary"
         size="sm"
-        disabled={provisioning || !runCommand}
+        disabled={!controls.start.enabled}
         onclick={() => run('run')}
       >
         {#if !narrow}Run{/if}
       </Button>
-    {:else if runtime.appStatus === 'crashed'}
+    {:else if controls.start}
       <Button variant="secondary" size="sm" onclick={() => run('restart')}>
         <RotateCw class="size-3.5" aria-hidden="true" />
         {#if !narrow}Restart{/if}
@@ -212,7 +200,7 @@
       <Button
         variant="ghost"
         size="sm"
-        disabled={runtime.appStatus === 'starting'}
+        disabled={!controls.canRestart}
         onclick={() => run('restart')}
       >
         <RotateCw class="size-3.5" aria-hidden="true" />
@@ -237,7 +225,7 @@
     >
       {#if !narrow}Clear{/if}
     </Button>
-    <TrayControls tray="output" name="Output" shortcut="⌘O" />
+    <TrayControls tray="output" name="Output" shortcut="toggleOutput" />
   </header>
 
   {#if showEmptyNoCommand}
