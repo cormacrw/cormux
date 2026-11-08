@@ -152,7 +152,7 @@ pub fn record_batch(
 /// or its session replaced) are open again, for the life of the app.
 pub fn start(state: &AppState) {
     let state = state.clone();
-    state.bus.clone().listen(move |event| {
+    state.bus.clone().listen(crate::bus::Listener::Findings, move |event| {
         let state = state.clone();
         async move {
             if let DomainEvent::PromptsDropped {

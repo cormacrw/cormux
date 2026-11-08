@@ -1,10 +1,9 @@
 //! Things that happened in the core, for the features that react to them. Publishers don't know
-//! who listens: `turn`, `approvals` and `provisioning` publish; approvals, review, findings and
-//! orchestration subscribe from their own `start`.
+//! who listens: `turn`, `approvals` and `provisioning` publish; feedback, review, findings and
+//! orchestration subscribe from their own `start`, each as its [`Listener`].
 //!
-//! Every listener hears each event before any listener hears the next, in the order they
-//! started listening (see `lib.rs`), so two features reacting to one event never race: review
-//! reads a finished turn's reply before orchestration can send that thread its reports.
+//! Every listener hears each event before any listener hears the next, in [`Listener`]'s
+//! order whatever order they started in, so two features reacting to one event never race.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -55,12 +54,26 @@ pub struct TurnSpan {
     pub through: i64,
 }
 
+/// Who listens, in the order each event reaches them. Orchestration starts new turns, so it
+/// hears last: review has read a finished turn's reply before orchestration sends that thread its
+/// reports, and findings has reopened what a dropped message carried.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Listener {
+    Feedback,
+    Review,
+    Findings,
+    Orchestration,
+}
+
 type Handler = dyn Fn(DomainEvent) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 
 #[derive(Clone)]
 pub struct Bus {
     sender: broadcast::Sender<DomainEvent>,
-    listeners: Arc<Mutex<Vec<Arc<Handler>>>>,
+    listeners: Arc<Mutex<Vec<(Listener, Arc<Handler>)>>>,
+    /// Events sent to the dispatcher, and how many its listeners have finished with.
+    published: Arc<std::sync::atomic::AtomicU64>,
+    handled: Arc<tokio::sync::watch::Sender<u64>>,
 }
 
 impl Default for Bus {
@@ -68,23 +81,52 @@ impl Default for Bus {
         Self {
             sender: broadcast::channel(128).0,
             listeners: Arc::default(),
+            published: Arc::default(),
+            handled: Arc::new(tokio::sync::watch::Sender::new(0)),
         }
     }
 }
 
 impl Bus {
     pub fn publish(&self, event: DomainEvent) {
+        let listening = !self
+            .listeners
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_empty();
         // Nobody listening is fine: nothing needed to react.
-        let _ = self.sender.send(event);
+        if self.sender.send(event).is_ok() && listening {
+            self.published
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Waits until every listener has finished with every event published so far.
+    #[cfg(test)]
+    pub async fn settled(&self) {
+        let published = self.published.load(std::sync::atomic::Ordering::SeqCst);
+        let mut handled = self.handled.subscribe();
+        let _ = handled.wait_for(|handled| *handled >= published).await;
+    }
+
+    /// The listeners, in the order each event reaches them.
+    #[cfg(test)]
+    pub fn listeners(&self) -> Vec<Listener> {
+        self.listeners
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .map(|(listener, _)| *listener)
+            .collect()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
         self.sender.subscribe()
     }
 
-    /// Runs `handle` for every event from now on, after the listeners that started before it,
-    /// for the life of the app.
-    pub fn listen<F, Fut>(&self, handle: F)
+    /// Runs `handle` for every event from now on, in `listener`'s place among the others, for the
+    /// life of the app.
+    pub fn listen<F, Fut>(&self, listener: Listener, handle: F)
     where
         F: Fn(DomainEvent) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
@@ -95,7 +137,8 @@ impl Bus {
                 .listeners
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            listeners.push(handler);
+            let at = listeners.partition_point(|(other, _)| *other <= listener);
+            listeners.insert(at, (listener, handler));
             listeners.len() == 1
         };
         if first {
@@ -106,20 +149,25 @@ impl Bus {
     fn dispatch(&self) {
         let mut events = self.subscribe();
         let listeners = self.listeners.clone();
+        let handled = self.handled.clone();
         tauri::async_runtime::spawn(async move {
             loop {
                 match events.recv().await {
                     Ok(event) => {
-                        let handlers = listeners
+                        let handlers: Vec<Arc<Handler>> = listeners
                             .lock()
                             .unwrap_or_else(|error| error.into_inner())
-                            .clone();
+                            .iter()
+                            .map(|(_, handle)| handle.clone())
+                            .collect();
                         for handle in handlers {
                             handle(event.clone()).await;
                         }
+                        handled.send_modify(|handled| *handled += 1);
                     }
                     Err(RecvError::Lagged(missed)) => {
                         log::warn!("the core's listeners missed {missed} events");
+                        handled.send_modify(|handled| *handled += missed);
                     }
                     Err(RecvError::Closed) => break,
                 }
@@ -133,14 +181,15 @@ mod tests {
     use super::*;
 
     /// Bug: each listener ran in its own task, so orchestration could send a Lead its reports
-    /// before review had read the reply the Lead's turn ended with.
+    /// before review had read the reply the Lead's turn ended with. The order is the
+    /// `Listener`s', not the order they started listening in.
     #[tokio::test]
     async fn each_event_reaches_every_listener_in_turn_before_the_next() {
         let bus = Bus::default();
         let heard = Arc::new(Mutex::new(Vec::new()));
-        for name in ["first", "second"] {
+        for (name, listener) in [("second", Listener::Review), ("first", Listener::Feedback)] {
             let heard = heard.clone();
-            bus.listen(move |event| {
+            bus.listen(listener, move |event| {
                 let heard = heard.clone();
                 async move {
                     if name == "first" {
@@ -158,12 +207,7 @@ mod tests {
                 thread_id: thread_id.into(),
             });
         }
-        for _ in 0..250 {
-            if heard.lock().unwrap().len() == 4 {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        bus.settled().await;
 
         assert_eq!(
             *heard.lock().unwrap(),

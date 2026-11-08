@@ -114,7 +114,7 @@ pub trait UserOutput: Send + Sync {
 pub fn start(bus: &Bus, out: &Notifier, store: &Store) {
     let out = out.clone();
     let store = store.clone();
-    bus.listen(move |event| {
+    bus.listen(crate::bus::Listener::Feedback, move |event| {
         match event {
             DomainEvent::ApprovalRequested { thread_id, .. } => {
                 notify_waiting(&out, &store, &thread_id);
@@ -459,12 +459,7 @@ mod tests {
             let _waiting = state
                 .approvals
                 .request("t1", 1, &waiting_on("a1"), Default::default());
-            for _ in 0..250 {
-                if !recording.state_changes().is_empty() {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
+            state.bus.settled().await;
 
             assert!(!recording.state_changes().is_empty());
             let expected = wanted.then(|| crate::feedback::NotificationPayload {

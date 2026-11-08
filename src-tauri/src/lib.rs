@@ -63,6 +63,15 @@ use tauri_specta::Event;
 use window_activity::WindowActivity;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// The features that react to what happens in the core; the bus hands each event to them in
+/// `bus::Listener` order.
+fn start_listeners(state: &AppState) {
+    feedback::start(&state.bus, &state.out, &state.store);
+    review::start(state);
+    findings::start(state);
+    orchestration::start(state);
+}
+
 pub fn run() {
     let ipc = ipc::builder();
 
@@ -117,12 +126,7 @@ pub fn run() {
 
             host_tools::start(&state);
             turn::start_settling(&state);
-            // The bus hands each event to its listeners in this order; orchestration, which
-            // starts new turns, hears last.
-            feedback::start(&state.bus, &state.out, &state.store);
-            review::start(&state);
-            findings::start(&state);
-            orchestration::start(&state);
+            start_listeners(&state);
             let focus = app.handle().clone();
             let events = app.handle().clone();
             metrics::start(
@@ -168,4 +172,85 @@ pub fn run() {
                 state.process.stop_all();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engines::{AgentEvent, EngineCommand, MessageRole};
+    use crate::model::{ThreadRole, ThreadStatus, WorkspaceLifecycle};
+    use crate::store::fixtures;
+    use crate::store::types::{ThreadRow, WorkspaceRow};
+
+    /// The order the app starts its listeners in is the bus's: a Lead whose branch review ends
+    /// in the same turn a child's report waits for it has its findings read before the report
+    /// starts its next turn.
+    #[tokio::test]
+    async fn the_apps_listeners_read_a_turn_before_starting_the_next() {
+        let (state, _recording, fake) =
+            AppState::faked(paths::DataDir::new(std::env::temp_dir()));
+        state.store.upsert_repo(&fixtures::repo("r1")).unwrap();
+        for (workspace, thread, parent) in [("w1", "t1", None), ("w2", "child", Some("t1"))] {
+            state
+                .store
+                .insert_workspace(&WorkspaceRow {
+                    worktree_path: std::env::temp_dir().display().to_string(),
+                    ..fixtures::workspace(workspace, WorkspaceLifecycle::Running)
+                })
+                .unwrap();
+            state
+                .store
+                .upsert_thread(&ThreadRow {
+                    parent_thread_id: parent.map(str::to_string),
+                    ..ThreadRow::new(thread, workspace, ThreadRole::Lead, "claude")
+                        .with_status(ThreadStatus::Running)
+                })
+                .unwrap();
+        }
+        state
+            .store
+            .set_review_status("w1", review::ReviewStatus::Running)
+            .unwrap();
+        let said = |thread: &str, text: &str| {
+            state
+                .transcript
+                .append(
+                    thread,
+                    AgentEvent::MessageChunk {
+                        role: MessageRole::Agent,
+                        text: text.into(),
+                    },
+                )
+                .unwrap();
+        };
+        let mut lead = fake.engine("t1");
+        state.engines.ensure("t1", "w1").await.unwrap();
+        start_listeners(&state);
+
+        said("child", "child done");
+        turn::end_turn(&state, "child").await;
+        state.bus.settled().await;
+        said("t1", "Clean.\n\n<cormux-findings>\n[]\n</cormux-findings>");
+        turn::end_turn(&state, "t1").await;
+
+        let prompt = loop {
+            match tokio::time::timeout(std::time::Duration::from_secs(5), lead.recv()).await {
+                Ok(Some(EngineCommand::Prompt(prompt))) => break prompt.text,
+                Ok(Some(_)) => {}
+                other => panic!("no report: {other:?}"),
+            }
+        };
+        let review = state.store.review("w1").unwrap().unwrap();
+        assert_eq!(review.status, Some(review::ReviewStatus::Ready));
+        assert!(prompt.contains("child done"), "{prompt}");
+        assert_eq!(
+            state.bus.listeners(),
+            [
+                bus::Listener::Feedback,
+                bus::Listener::Review,
+                bus::Listener::Findings,
+                bus::Listener::Orchestration,
+            ]
+        );
+    }
 }

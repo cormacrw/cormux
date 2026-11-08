@@ -282,7 +282,7 @@ pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<Prov
 /// Reads each Reviewer's findings when its turn ends, for the life of the app.
 pub fn start(state: &AppState) {
     let state = state.clone();
-    state.bus.clone().listen(move |event| {
+    state.bus.clone().listen(crate::bus::Listener::Review, move |event| {
         let state = state.clone();
         async move {
             if let DomainEvent::TurnEnded {
@@ -872,12 +872,7 @@ mod tests {
             stopped: false,
         });
 
-        for _ in 0..250 {
-            if review_is_ready(&state.store, "w1") {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
+        state.bus.settled().await;
         assert!(review_is_ready(&state.store, "w1"));
         assert_eq!(recording.toasts().len(), 1);
     }

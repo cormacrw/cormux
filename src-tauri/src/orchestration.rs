@@ -399,7 +399,7 @@ async fn on_turn_end(state: &AppState, thread_id: &str, span: TurnSpan) -> Resul
 /// app.
 pub fn start(state: &AppState) {
     let state = state.clone();
-    state.bus.clone().listen(move |event| {
+    state.bus.clone().listen(crate::bus::Listener::Orchestration, move |event| {
         let state = state.clone();
         async move {
             let reported = match event {
@@ -1052,7 +1052,7 @@ mod tests {
         start(&state);
 
         crate::turn::end_turn(&state, "child").await;
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        state.bus.settled().await;
         assert!(engine.try_recv().is_err());
         assert!(
             state.store.thread_by_id("parent").unwrap().unwrap().status == ThreadStatus::Running
@@ -1091,7 +1091,7 @@ mod tests {
 
         crate::turn::end_turn(&state, "parent").await;
         state.bus.publish(asked("child"));
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        state.bus.settled().await;
         assert!(
             engine.try_recv().is_err(),
             "the same approval is reported once"
