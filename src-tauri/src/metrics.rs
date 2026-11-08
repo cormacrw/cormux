@@ -10,19 +10,12 @@ use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceMemory {
-    pub workspace_id: String,
-    pub bytes: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
 pub struct MemorySample {
     pub total_bytes: u64,
-    pub per_workspace: Vec<WorkspaceMemory>,
 }
 
-/// Sampled resident memory for Cormux, the webview, and child process trees.
+/// Sampled resident memory of Cormux and every process it started (its engines, setup and apps).
+/// The webview's content process is an XPC service rather than a child, so it isn't counted.
 #[derive(Clone)]
 pub struct Metrics {
     system: Arc<Mutex<System>>,
@@ -42,7 +35,7 @@ impl Metrics {
         self.latest.lock().ok()?.clone()
     }
 
-    pub fn sample(&self, trees: &[(String, Vec<u32>)]) -> Result<MemorySample> {
+    pub fn sample(&self) -> Result<MemorySample> {
         let mut system = self
             .system
             .lock()
@@ -54,23 +47,8 @@ impl Metrics {
         );
 
         let children = children_by_parent(&system);
-        let total = tree_memory(&system, &children, std::process::id());
-
-        let mut per_workspace = Vec::new();
-        for (workspace_id, pids) in trees {
-            let mut bytes = 0u64;
-            for pid in pids {
-                bytes = bytes.saturating_add(tree_memory(&system, &children, *pid));
-            }
-            per_workspace.push(WorkspaceMemory {
-                workspace_id: workspace_id.clone(),
-                bytes,
-            });
-        }
-
         let sample = MemorySample {
-            total_bytes: total,
-            per_workspace,
+            total_bytes: tree_memory(&system, &children, std::process::id()),
         };
         if let Ok(mut latest) = self.latest.lock() {
             *latest = Some(sample.clone());
@@ -148,31 +126,9 @@ pub fn start(
 /// Walks every process on the machine, so it stays off the main thread and the async workers.
 pub async fn sample_processes(state: &AppState) -> Result<MemorySample> {
     let metrics = state.metrics.clone();
-    let trees = process_trees(state);
-    tokio::task::spawn_blocking(move || metrics.sample(&trees))
+    tokio::task::spawn_blocking(move || metrics.sample())
         .await
         .map_err(|error| Error::Metrics(error.to_string()))?
-}
-
-fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {
-    let mut trees: HashMap<String, Vec<u32>> = HashMap::new();
-    for (id, pid) in state.process.pids() {
-        let owner = id
-            .owner_workspace()
-            .map(str::to_string)
-            .unwrap_or_else(|| id.to_string());
-        trees.entry(owner).or_default().push(pid);
-    }
-    trees.into_iter().collect()
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn get_metrics(state: tauri::State<'_, AppState>) -> Result<MemorySample> {
-    match state.metrics.latest() {
-        Some(sample) => Ok(sample),
-        None => sample_processes(&state).await,
-    }
 }
 
 #[cfg(test)]
@@ -182,7 +138,7 @@ mod tests {
     #[test]
     fn samples_this_process() {
         let metrics = Metrics::new();
-        let sample = metrics.sample(&[]).unwrap();
+        let sample = metrics.sample().unwrap();
         assert!(sample.total_bytes > 0);
         assert_eq!(metrics.latest().unwrap().total_bytes, sample.total_bytes);
     }
@@ -193,26 +149,18 @@ mod tests {
             .arg("5")
             .spawn()
             .unwrap();
-        let metrics = Metrics::new();
-        let parent = std::process::id();
-        let sample = metrics
-            .sample(&[
-                ("self".into(), vec![parent]),
-                ("child".into(), vec![child.id()]),
-            ])
-            .unwrap();
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing().with_memory(),
+        );
+        let children = children_by_parent(&system);
+        let alone = tree_memory(&system, &children, child.id());
+        let with_child = tree_memory(&system, &children, std::process::id());
         child.kill().unwrap();
         child.wait().unwrap();
-        assert!(sample.per_workspace[1].bytes > 0);
-        assert!(sample.per_workspace[0].bytes > sample.per_workspace[1].bytes);
-    }
-
-    #[test]
-    fn breaks_down_named_trees() {
-        let metrics = Metrics::new();
-        let pid = std::process::id();
-        let sample = metrics.sample(&[("ws-1".into(), vec![pid])]).unwrap();
-        assert_eq!(sample.per_workspace.len(), 1);
-        assert!(sample.per_workspace[0].bytes > 0);
+        assert!(alone > 0);
+        assert!(with_child > alone);
     }
 }

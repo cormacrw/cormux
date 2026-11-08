@@ -85,8 +85,7 @@ impl Store {
             conn.execute(
                 "INSERT INTO pr_cache (id, repo_id, number, title, payload)
                  VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT(id) DO UPDATE SET title = excluded.title, payload = excluded.payload,
-                    synced_at = datetime('now')",
+                 ON CONFLICT(id) DO UPDATE SET title = excluded.title, payload = excluded.payload",
                 rusqlite::params![row.id, row.repo_id, row.number, row.title, payload],
             )?;
             Ok(())
@@ -128,22 +127,18 @@ fn encode(payload: &PullRequestPayload) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::github::types::{PrChecksState, PrRelationship, PrReviewState};
+    use crate::github::types::{PrChecksState, PrReviewState};
 
     fn pr(number: i64, title: &str) -> PullRequestPayload {
         PullRequestPayload {
             num: number,
             title: title.into(),
             author: "ana".into(),
-            rel: PrRelationship::Review,
             head: "feat".into(),
             base: "main".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
             checks: PrChecksState::Pass,
-            failing: None,
             review: PrReviewState::Required,
-            additions: 1,
-            deletions: 0,
             files: 1,
             is_draft: false,
             html_url: format!("https://github.com/o/r/pull/{number}"),

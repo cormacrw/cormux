@@ -383,6 +383,7 @@ impl ProcessSupervisor {
     }
 
     /// Sessions whose process hasn't exited.
+    #[cfg(test)]
     pub fn pids(&self) -> Vec<(SessionId, u32)> {
         self.sessions
             .lock()

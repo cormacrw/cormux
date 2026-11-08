@@ -194,38 +194,6 @@ pub async fn git_runtime(state: &AppState) -> Result<Vec<RepoGitRuntime>> {
     Ok(rows)
 }
 
-/// Fast-forward the repo checkout's default branch from origin.
-pub async fn pull_default_branch(state: &AppState, repo_id: &str) -> Result<()> {
-    let repo = repo_record(state, repo_id)?;
-    let branch = repo.default_branch_or_main().to_string();
-    let pulled = state
-        .git
-        .pull_branch(&expand_tilde(&repo.path), &branch)
-        .await?;
-
-    // Workspaces count how far behind origin/<base> they are, which the pull just moved.
-    crate::workspace_git::fetch_all(state).await;
-
-    let summary = match pulled {
-        0 => " is up to date".to_string(),
-        1 => ": pulled 1 commit".to_string(),
-        count => format!(": pulled {count} commits"),
-    };
-    state.out.toast(ToastRaisedPayload {
-        tone: ToastTone::Ok,
-        parts: vec![
-            ToastPart::Text {
-                value: format!("{} ", repo.name),
-            },
-            ToastPart::Code { value: branch },
-            ToastPart::Text { value: summary },
-        ],
-        workspace_id: None,
-        thread_id: None,
-    });
-    Ok(())
-}
-
 /// A path typed into "Add repo", without its trailing slashes, and the id its last folder
 /// name gives the repo.
 fn validate_add_path(path: &str) -> Result<(String, String)> {

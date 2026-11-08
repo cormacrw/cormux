@@ -4,7 +4,6 @@ description = "Allow the webview to call Cormux core commands"
 commands.allow = [
   "get_snapshot",
   "reload_environment",
-  "get_metrics",
   "get_thread_events",
   "subscribe_agent_events",
   "subscribe_pty",
@@ -27,7 +26,6 @@ commands.allow = [
   "resolve_approval",
   "answer_question",
   "resolve_all_approvals",
-  "sync_pull_requests",
   "set_clickup_api_key",
   "clear_clickup_api_key",
   "clickup_workspaces",
@@ -71,7 +69,6 @@ commands.allow = [
   "set_repo_single_instance",
   "set_repo_setup_commands",
   "set_repo_default_branch",
-  "pull_repo_default_branch",
   "get_repo_git",
   "add_repo",
   "remove_repo",

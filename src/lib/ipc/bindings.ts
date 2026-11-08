@@ -22,14 +22,6 @@ async reloadEnvironment() : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async getMetrics() : Promise<Result<MemorySample, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_metrics") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 /**
  * A window of a thread's transcript: its newest rows by default, those after `after_seq` to
  * catch up, or those before `before_seq` to scroll back.
@@ -270,14 +262,6 @@ async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : P
 async discardWorkspaceChanges(workspaceId: string, paths: string[]) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("discard_workspace_changes", { workspaceId, paths }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async syncPullRequests() : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("sync_pull_requests") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -647,17 +631,6 @@ async setRepoDefaultBranch(input: SetRepoDefaultBranchInput) : Promise<Result<nu
 }
 },
 /**
- * Fast-forward the repo checkout's default branch from origin.
- */
-async pullRepoDefaultBranch(repoId: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("pull_repo_default_branch", { repoId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
  * Commits each repo's default branch is behind and ahead of `origin`, against the last
  * fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
  */
@@ -1013,7 +986,7 @@ export type LocalBranchesResult = {
  * Branch checked out in the repo itself. Empty when detached.
  */
 head: string; branches: LocalBranchRow[] }
-export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
+export type MemorySample = { totalBytes: number }
 /**
  * A fresh memory reading. Carries its own data, so it needs no version or refetch.
  */
@@ -1054,7 +1027,6 @@ export type PrChecksState = "pass" | "fail" | "running" |
  * The PR has no status checks or check runs at all.
  */
 "none"
-export type PrRelationship = "review" | "author" | "mention" | "assigned"
 export type PrReviewState = "required" | "changes" | "approved" | "draft"
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: PullRequestPayload }
 export type PromptAttachment = { name: string; 
@@ -1071,7 +1043,7 @@ export type PullRequestPayload = { num: number; title: string;
 /**
  * GitHub login, or [`VIEWER_AUTHOR`] when the viewer authored the PR.
  */
-author: string; rel: PrRelationship; head: string; base: string; updatedAt: string; checks: PrChecksState; failing: number | null; review: PrReviewState; additions: number; deletions: number; files: number; isDraft: boolean; htmlUrl: string; repoFullName: string; repoId: string | null }
+author: string; head: string; base: string; updatedAt: string; checks: PrChecksState; review: PrReviewState; files: number; isDraft: boolean; htmlUrl: string; repoFullName: string; repoId: string | null }
 export type QuestionOption = { label: string; description?: string }
 export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
@@ -1433,7 +1405,6 @@ export type WorkspaceKind =
  * after provisioning.
  */
 export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "idle" | "tearingDown" | "provisioningFailed"
-export type WorkspaceMemory = { workspaceId: string; bytes: number }
 /**
  * A workspace as the webview shows it: its row, plus what only the running app knows.
  */

@@ -92,6 +92,7 @@ const MIGRATIONS: &[Migration] = migrations![
     "026_per_entity_state",
     "027_retire_scratch_threads",
     "028_no_model_summaries",
+    "029_drop_pr_cache_synced_at",
 ];
 
 fn create_ledger(conn: &Connection) -> Result<()> {
@@ -727,5 +728,26 @@ mod tests {
         };
         assert_eq!(status("pr"), "running", "an open PR review is running");
         assert_eq!(status("done"), "ready");
+    }
+
+    #[test]
+    fn a_cached_pull_request_keeps_its_row_without_a_sync_time() {
+        let conn = migrated_before(29);
+        conn.execute_batch(
+            "INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
+             INSERT INTO pr_cache (id, repo_id, number, title, payload)
+             VALUES ('o/r#1', 'r', 1, 'One', '{}');",
+        )
+        .unwrap();
+
+        run(&conn, &[]).unwrap();
+
+        assert!(!columns(&conn, "pr_cache").contains(&"synced_at".to_string()));
+        let title: String = conn
+            .query_row("SELECT title FROM pr_cache WHERE id = 'o/r#1'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(title, "One");
     }
 }

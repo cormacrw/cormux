@@ -22,8 +22,8 @@ impl RepoRecord {
         self.default_branch.as_deref().unwrap_or("main")
     }
 
-    /// The default branch stays in the repo checkout, where the sidebar's refresh pulls
-    /// it. Git lets a branch be checked out in one worktree only, so no workspace takes it.
+    /// The default branch stays in the repo checkout. Git lets a branch be checked out in one
+    /// worktree only, so no workspace takes it.
     pub fn ensure_not_default_branch(&self, branch: &str) -> Result<()> {
         let default = self.default_branch_or_main();
         if branch.trim() == default {

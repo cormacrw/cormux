@@ -6,9 +6,7 @@ use crate::error::Error;
 
 use super::Gh;
 
-use super::types::{
-    PrChecksState, PrRelationship, PrReviewState, PullRequestPayload, VIEWER_AUTHOR,
-};
+use super::types::{PrChecksState, PrReviewState, PullRequestPayload, VIEWER_AUTHOR};
 
 const SEARCH_QUERY: &str = r#"
 query($q: String!, $after: String) {
@@ -22,8 +20,6 @@ query($q: String!, $after: String) {
         isDraft
         url
         updatedAt
-        additions
-        deletions
         changedFiles
         reviewDecision
         author { login }
@@ -31,12 +27,6 @@ query($q: String!, $after: String) {
         baseRefName
         repository { nameWithOwner }
         statusCheckRollup { state }
-        reviewRequests(first: 20) {
-          nodes { requestedReviewer { ... on User { login } } }
-        }
-        assignees(first: 20) {
-          nodes { login }
-        }
       }
     }
   }
@@ -132,72 +122,21 @@ pub async fn fetch_open_prs(
         }
     }
 
-    let mut items: Vec<PullRequestPayload> = Vec::new();
-    let mut seen: HashMap<String, (usize, PrRelationship)> = HashMap::new();
-    for pr in nodes {
-        let rel = infer_relationship(&pr, &viewer);
-        let entry = map_pr(pr, &viewer, rel, repo_origins);
-        let id = entry.cache_id();
-        match seen.get(&id) {
-            Some((_, existing)) if rel_priority(*existing) >= rel_priority(rel) => {}
-            Some((index, _)) => {
-                let index = *index;
-                items[index] = entry;
-                seen.insert(id, (index, rel));
-            }
-            None => {
-                seen.insert(id, (items.len(), rel));
-                items.push(entry);
-            }
-        }
-    }
+    // A PR that matched the search more than once (authored and mentioned) is listed once.
+    let mut seen = std::collections::HashSet::new();
+    let mut items: Vec<PullRequestPayload> = nodes
+        .into_iter()
+        .map(|pr| map_pr(pr, &viewer, repo_origins))
+        .filter(|pr| seen.insert(pr.cache_id()))
+        .collect();
 
     items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(items)
 }
 
-fn rel_priority(rel: PrRelationship) -> u8 {
-    match rel {
-        PrRelationship::Review => 4,
-        PrRelationship::Author => 3,
-        PrRelationship::Assigned => 2,
-        PrRelationship::Mention => 1,
-    }
-}
-
-fn infer_relationship(pr: &PullRequestNode, viewer: &str) -> PrRelationship {
-    let author = pr
-        .author
-        .as_ref()
-        .map_or("", |author| author.login.as_str());
-    if author.eq_ignore_ascii_case(viewer) {
-        return PrRelationship::Author;
-    }
-    if pr.review_requests.nodes.iter().flatten().any(|request| {
-        request
-            .requested_reviewer
-            .as_ref()
-            .and_then(|reviewer| reviewer.login.as_deref())
-            .is_some_and(|login| login.eq_ignore_ascii_case(viewer))
-    }) {
-        return PrRelationship::Review;
-    }
-    if pr
-        .assignees
-        .nodes
-        .iter()
-        .flatten()
-        .any(|user| user.login.eq_ignore_ascii_case(viewer))
-    {
-        return PrRelationship::Assigned;
-    }
-    PrRelationship::Mention
-}
-
 fn map_pr(
     pr: PullRequestNode,
     viewer: &str,
-    rel: PrRelationship,
     repo_origins: &HashMap<String, String>,
 ) -> PullRequestPayload {
     let repo_full_name = pr.repository.name_with_owner;
@@ -209,7 +148,7 @@ fn map_pr(
         None => "ghost".into(),
     };
 
-    let (checks, failing) = map_checks(
+    let checks = map_checks(
         pr.status_check_rollup
             .as_ref()
             .and_then(|rollup| rollup.state.as_deref())
@@ -221,15 +160,11 @@ fn map_pr(
         num: pr.number,
         title: pr.title,
         author,
-        rel,
         head: pr.head_ref_name,
         base: pr.base_ref_name,
         updated_at: pr.updated_at,
         checks,
-        failing,
         review,
-        additions: pr.additions,
-        deletions: pr.deletions,
         files: pr.changed_files,
         is_draft: pr.is_draft,
         html_url: pr.url,
@@ -238,13 +173,13 @@ fn map_pr(
     }
 }
 
-fn map_checks(state: &str) -> (PrChecksState, Option<u32>) {
+fn map_checks(state: &str) -> PrChecksState {
     match state {
-        "SUCCESS" => (PrChecksState::Pass, None),
-        "FAILURE" | "ERROR" => (PrChecksState::Fail, Some(1)),
+        "SUCCESS" => PrChecksState::Pass,
+        "FAILURE" | "ERROR" => PrChecksState::Fail,
         // A null rollup means no CI is configured, not that it's still running.
-        "" => (PrChecksState::None, None),
-        _ => (PrChecksState::Running, None),
+        "" => PrChecksState::None,
+        _ => PrChecksState::Running,
     }
 }
 
@@ -303,8 +238,6 @@ struct PullRequestNode {
     is_draft: bool,
     url: String,
     updated_at: String,
-    additions: i64,
-    deletions: i64,
     changed_files: i64,
     review_decision: Option<String>,
     author: Option<LoginNode>,
@@ -312,8 +245,6 @@ struct PullRequestNode {
     base_ref_name: String,
     repository: RepositoryNode,
     status_check_rollup: Option<StatusCheckRollup>,
-    review_requests: ReviewRequestConnection,
-    assignees: UserConnection,
 }
 
 #[derive(Debug, Deserialize)]
@@ -332,28 +263,6 @@ struct StatusCheckRollup {
     state: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ReviewRequestConnection {
-    nodes: Vec<Option<ReviewRequestNode>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReviewRequestNode {
-    requested_reviewer: Option<ReviewerNode>,
-}
-
-/// Teams, bots and mannequins can be requested too; only users carry a login here.
-#[derive(Debug, Deserialize)]
-struct ReviewerNode {
-    login: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct UserConnection {
-    nodes: Vec<Option<LoginNode>>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,30 +277,23 @@ mod tests {
               "number": 2, "title": "Test Feature", "isDraft": false,
               "url": "https://github.com/cormacrw/todo-example/pull/2",
               "updatedAt": "2026-09-30T00:52:31Z",
-              "additions": 56, "deletions": 7, "changedFiles": 6,
+              "changedFiles": 6,
               "reviewDecision": null,
               "author": { "login": "cormacrw" },
               "headRefName": "feat/test", "baseRefName": "main",
               "repository": { "nameWithOwner": "cormacrw/todo-example" },
-              "statusCheckRollup": null,
-              "reviewRequests": { "nodes": [] },
-              "assignees": { "nodes": [] }
+              "statusCheckRollup": null
             },
             {
               "number": 9, "title": "From a deleted account", "isDraft": true,
               "url": "https://github.com/acme/app/pull/9",
               "updatedAt": "2026-09-29T00:00:00Z",
-              "additions": 1, "deletions": 0, "changedFiles": 1,
+              "changedFiles": 1,
               "reviewDecision": "APPROVED",
               "author": null,
               "headRefName": "x", "baseRefName": "main",
               "repository": { "nameWithOwner": "acme/app" },
-              "statusCheckRollup": { "state": "SUCCESS" },
-              "reviewRequests": { "nodes": [
-                { "requestedReviewer": {} },
-                { "requestedReviewer": { "login": "cormacrw" } }
-              ] },
-              "assignees": { "nodes": [] }
+              "statusCheckRollup": { "state": "SUCCESS" }
             },
             null
           ]
@@ -410,18 +312,13 @@ mod tests {
             .nodes
             .into_iter()
             .flatten()
-            .map(|pr| {
-                let rel = infer_relationship(&pr, &viewer);
-                map_pr(pr, &viewer, rel, &HashMap::new())
-            })
+            .map(|pr| map_pr(pr, &viewer, &HashMap::new()))
             .collect();
         assert_eq!(prs[0].repo_full_name, "cormacrw/todo-example");
         assert_eq!(prs[0].author, "you");
-        assert!(matches!(prs[0].rel, PrRelationship::Author));
         assert!(matches!(prs[0].checks, PrChecksState::None));
         assert!(matches!(prs[1].checks, PrChecksState::Pass));
         assert_eq!(prs[1].author, "ghost");
-        assert!(matches!(prs[1].rel, PrRelationship::Review));
     }
 
     #[test]

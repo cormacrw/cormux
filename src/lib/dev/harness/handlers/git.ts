@@ -9,7 +9,6 @@ export const gitUnsupported = [
   'pull_workspace',
   'push_workspace_branch',
   'rebase_workspace',
-  'sync_pull_requests',
 ] as const satisfies Unsupported
 
 const FULL_STACK = ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
@@ -154,7 +153,6 @@ export function gitHandlers({
       deleted: 7,
     }),
     get_repo_git: () => scenario.repoGit ?? [],
-    pull_repo_default_branch: () => null,
     list_repo_branches: () => ({
       branches: ['main', 'develop', 'feat/oauth-login'],
     }),

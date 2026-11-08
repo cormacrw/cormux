@@ -8,7 +8,7 @@ use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::github::RepoSlug;
 use crate::github::auth;
 use crate::github::create::CreatePullRequestInput;
-use crate::github::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
+use crate::github::types::{PrChecksState, PrReviewState, PullRequestPayload};
 use crate::pr_draft::{draft_why, pr_prompt};
 use crate::state::AppState;
 use crate::store::types::WorkspaceRow;
@@ -188,21 +188,17 @@ pub async fn create_workspace_pull_request(
         Some(&created.html_url),
     )?;
 
-    let (additions, deletions, files) = diff_totals(&diff);
+    let (_, _, files) = diff_totals(&diff);
     let payload = PullRequestPayload {
         num: created.number,
         title: title.clone(),
         author: crate::github::types::VIEWER_AUTHOR.into(),
-        rel: PrRelationship::Author,
         head: record.branch.clone(),
         base: pr_base.clone(),
         // GitHub's form, so the row made here sorts and ages like the synced ones.
         updated_at: crate::time::iso_now(),
         checks: PrChecksState::Running,
-        failing: None,
         review: PrReviewState::Draft,
-        additions: additions as i64,
-        deletions: deletions as i64,
         files: files as i64,
         is_draft: true,
         html_url: created.html_url.clone(),

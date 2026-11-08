@@ -7,9 +7,9 @@ pub mod subscriptions;
 use tauri_specta::Builder;
 
 use crate::{
-    app, approvals, attachments, changes, clickup, create_pr, environment, findings, git, github,
-    menu, metrics, repos, review, scratch, settings, skills, snapshot, stack, teardown, terminal,
-    thread_media, turn, workspace_git, workspace_start, workspaces,
+    app, approvals, attachments, changes, clickup, create_pr, environment, findings, git, menu,
+    repos, review, scratch, settings, skills, snapshot, stack, teardown, terminal, thread_media,
+    turn, workspace_git, workspace_start, workspaces,
 };
 
 /// The one list of commands: registers them with Tauri and names them for the allowlist test.
@@ -28,7 +28,6 @@ macro_rules! commands {
 commands![
     snapshot::get_snapshot,
     environment::reload_environment,
-    metrics::get_metrics,
     turn::commands::get_thread_events,
     subscriptions::subscribe_agent_events,
     environment::detect_engines,
@@ -53,7 +52,6 @@ commands![
     changes::commands::refresh_workspace_diff,
     changes::commands::set_workspace_diff_target,
     changes::commands::discard_workspace_changes,
-    github::sync::sync_pull_requests,
     clickup::commands::set_clickup_api_key,
     clickup::commands::clear_clickup_api_key,
     clickup::commands::clickup_workspaces,
@@ -97,7 +95,6 @@ commands![
     repos::commands::set_repo_single_instance,
     repos::commands::set_repo_setup_commands,
     repos::commands::set_repo_default_branch,
-    repos::commands::pull_repo_default_branch,
     repos::commands::get_repo_git,
     repos::commands::add_repo,
     repos::commands::remove_repo,

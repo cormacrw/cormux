@@ -3,15 +3,6 @@ use specta::Type;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub enum PrRelationship {
-    Review,
-    Author,
-    Mention,
-    Assigned,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
 pub enum PrChecksState {
     Pass,
     Fail,
@@ -36,15 +27,11 @@ pub struct PullRequestPayload {
     pub title: String,
     /// GitHub login, or [`VIEWER_AUTHOR`] when the viewer authored the PR.
     pub author: String,
-    pub rel: PrRelationship,
     pub head: String,
     pub base: String,
     pub updated_at: String,
     pub checks: PrChecksState,
-    pub failing: Option<u32>,
     pub review: PrReviewState,
-    pub additions: i64,
-    pub deletions: i64,
     pub files: i64,
     pub is_draft: bool,
     pub html_url: String,

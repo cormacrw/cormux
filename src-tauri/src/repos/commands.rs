@@ -54,13 +54,6 @@ pub async fn get_repo_git(state: State<'_, AppState>) -> Result<Vec<RepoGitRunti
     super::git_runtime(&state).await
 }
 
-/// Fast-forward the repo checkout's default branch from origin.
-#[tauri::command]
-#[specta::specta]
-pub async fn pull_repo_default_branch(repo_id: String, state: State<'_, AppState>) -> Result<()> {
-    super::pull_default_branch(&state, &repo_id).await
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn add_repo(input: AddRepoInput, state: State<'_, AppState>) -> Result<RepoRecord> {

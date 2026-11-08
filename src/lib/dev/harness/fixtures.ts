@@ -151,7 +151,7 @@ export function createFixtures() {
     },
     workspaces: [oauth.record],
     workspaceGit: [],
-    memory: { totalBytes: 1_400_000_000, perWorkspace: [] },
+    memory: { totalBytes: 1_400_000_000 },
     pendingApprovals: 0,
     githubAuthConfigured: false,
     clickupConfigured: false,

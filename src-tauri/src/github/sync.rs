@@ -99,9 +99,3 @@ pub fn start(state: &AppState) {
         }
     });
 }
-
-#[tauri::command]
-#[specta::specta]
-pub async fn sync_pull_requests(state: tauri::State<'_, AppState>) -> Result<()> {
-    state.pr_sync.sync_app(&state).await
-}

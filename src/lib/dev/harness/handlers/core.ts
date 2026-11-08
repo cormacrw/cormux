@@ -34,7 +34,6 @@ export function coreHandlers({
     },
     // There's no shell environment to read again.
     reload_environment: () => null,
-    get_metrics: () => db.snapshot.memory!,
     detect_engines: () => scenario.engines ?? fixtureEngines,
     get_settings: () => db.snapshot.settings,
     update_settings: ({ patch }: { patch: SettingsPatch }) => {
