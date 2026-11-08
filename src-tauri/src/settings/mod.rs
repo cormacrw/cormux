@@ -1,6 +1,7 @@
 //! The user's app-wide preferences: one typed struct, stored one row per field in the settings
-//! table under the field's wire name, so the struct is the only list of keys (and, through its
-//! `Default`, of defaults: the webview gets them as `DEFAULT_SETTINGS`).
+//! table under the field's wire name, so its `settings!` list is the only list of keys, for the
+//! struct and its patch alike (and, through its `Default`, of defaults: the webview gets them as
+//! `DEFAULT_SETTINGS`).
 
 pub mod commands;
 
@@ -10,43 +11,62 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
 
+use rusqlite::{Connection, OptionalExtension};
+
 use crate::engines::EngineKind;
 use crate::error::{Error, Result};
-use crate::store::Store;
+use crate::store::{RustMigration, Store};
 
-/// Scratch macros, which bangs replaced; read while no bangs are saved.
+/// Scratch macros, which bangs replaced.
 const LEGACY_MACROS: &str = "scratchMacros";
 const BANGS: &str = "bangs";
 
 pub const DEFAULT_WORKTREE_ROOT: &str = "~/.harness/worktrees";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct Settings {
-    pub reduce_motion: bool,
+/// Declares `Settings` and `SettingsPatch` from one field list: a patch names any of the fields,
+/// and nothing else.
+macro_rules! settings {
+    ($($(#[doc = $doc:literal])* $field:ident: $ty:ident $(<$item:ident>)?,)*) => {
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+        #[serde(rename_all = "camelCase")]
+        pub struct Settings {
+            $($(#[doc = $doc])* pub $field: $ty $(<$item>)?,)*
+        }
+
+        #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+        #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+        pub struct SettingsPatch {
+            $($(#[doc = $doc])* #[specta(optional)] pub $field: Option<$ty $(<$item>)?>,)*
+        }
+    };
+}
+
+settings! {
+    reduce_motion: bool,
     /// Approve every tool request without asking. Questions still wait for the user.
-    pub run_everything: bool,
+    run_everything: bool,
     /// The experimental References panel, and the tool that pins links to it.
-    pub experimental_references: bool,
-    pub notify_approvals: bool,
-    pub notify_review_finished: bool,
-    pub default_engine: EngineKind,
+    experimental_references: bool,
+    notify_approvals: bool,
+    notify_review_finished: bool,
+    default_engine: EngineKind,
     /// Preferred repo id for new threads; it may have been removed since.
-    pub default_repo: String,
-    /// The folder new worktrees go in, as the user typed it (`~` allowed).
-    pub worktree_root: String,
+    default_repo: String,
+    /// The folder new worktrees go in, as the user typed it (`~` allowed). Blank saves the
+    /// default folder.
+    worktree_root: String,
     /// The app Open in Terminal launches; empty means Terminal.
-    pub terminal_app: String,
+    terminal_app: String,
     /// Instructions for drafting a PR description; empty means the built-in default.
-    pub pr_prompt: String,
+    pr_prompt: String,
     /// `!name` prompts, for any prompt bar and the command palette.
-    pub bangs: Vec<Bang>,
-    pub clickup_workspace_id: String,
-    pub clickup_space_id: String,
+    bangs: Vec<Bang>,
+    clickup_workspace_id: String,
+    clickup_space_id: String,
     /// The sprint folder the ClickUp board shows.
-    pub clickup_folder_id: String,
+    clickup_folder_id: String,
     /// Board lanes the user folded away, by status name.
-    pub clickup_hidden_statuses: Vec<String>,
+    clickup_hidden_statuses: Vec<String>,
 }
 
 /// A short name like `!test` that stands for a saved prompt.
@@ -57,42 +77,6 @@ pub struct Bang {
     /// Without the `!`: lowercase letters, digits, `-` and `_`.
     pub name: String,
     pub prompt: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase", default)]
-pub struct SettingsPatch {
-    #[specta(optional)]
-    pub reduce_motion: Option<bool>,
-    #[specta(optional)]
-    pub run_everything: Option<bool>,
-    #[specta(optional)]
-    pub experimental_references: Option<bool>,
-    #[specta(optional)]
-    pub notify_approvals: Option<bool>,
-    #[specta(optional)]
-    pub notify_review_finished: Option<bool>,
-    #[specta(optional)]
-    pub default_engine: Option<EngineKind>,
-    #[specta(optional)]
-    pub default_repo: Option<String>,
-    /// Blank goes back to the default folder.
-    #[specta(optional)]
-    pub worktree_root: Option<String>,
-    #[specta(optional)]
-    pub terminal_app: Option<String>,
-    #[specta(optional)]
-    pub pr_prompt: Option<String>,
-    #[specta(optional)]
-    pub bangs: Option<Vec<Bang>>,
-    #[specta(optional)]
-    pub clickup_workspace_id: Option<String>,
-    #[specta(optional)]
-    pub clickup_space_id: Option<String>,
-    #[specta(optional)]
-    pub clickup_folder_id: Option<String>,
-    #[specta(optional)]
-    pub clickup_hidden_statuses: Option<Vec<String>>,
 }
 
 impl Default for Settings {
@@ -155,11 +139,7 @@ impl Settings {
                 fields.insert(key, default);
             }
         }
-        let mut settings: Self = serde_json::from_value(Value::Object(fields)).unwrap_or(defaults);
-        settings.bangs = parse_bangs(rows.get(BANGS))
-            .or_else(|| parse_bangs(rows.get(LEGACY_MACROS)))
-            .unwrap_or_default();
-        settings
+        serde_json::from_value(Value::Object(fields)).unwrap_or(defaults)
     }
 
     /// Saves what `patch` changes, all or nothing. Bang names are tidied into bang shape and
@@ -230,8 +210,40 @@ fn word(value: &impl Serialize) -> String {
     }
 }
 
-/// A saved bang list; `None` when there's none to read. Names are made bang-shaped, as the
-/// scratch macros they replaced had names like `Daily standup`.
+/// Older builds saved bangs that today's `Bang` doesn't read: under `scratchMacros` (the scratch
+/// macros bangs replaced, named like `Daily standup`) while no bangs were saved, with names not
+/// in bang shape, or with items missing their id. They are rewritten once as today's `bangs`.
+pub const MIGRATION: RustMigration = RustMigration {
+    name: "034_bangs_in_shape",
+    run: shape_stored_bangs,
+};
+
+fn shape_stored_bangs(conn: &Connection) -> Result<()> {
+    let stored = |key: &str| -> Result<Option<String>> {
+        Ok(conn
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                row.get(0)
+            })
+            .optional()?)
+    };
+    let (saved, macros) = (stored(BANGS)?, stored(LEGACY_MACROS)?);
+    if saved.is_none() && macros.is_none() {
+        return Ok(());
+    }
+    let bangs = parse_bangs(saved.as_ref())
+        .or_else(|| parse_bangs(macros.as_ref()))
+        .unwrap_or_default();
+    let text = serde_json::to_string(&bangs).map_err(|error| Error::Store(error.to_string()))?;
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [BANGS, text.as_str()],
+    )?;
+    conn.execute("DELETE FROM settings WHERE key = ?1", [LEGACY_MACROS])?;
+    Ok(())
+}
+
+/// A saved bang list as older builds wrote it; `None` when there's none to read.
 fn parse_bangs(raw: Option<&String>) -> Option<Vec<Bang>> {
     let items: Vec<serde_json::Value> = serde_json::from_str(raw?).ok()?;
     Some(
@@ -401,7 +413,43 @@ mod tests {
     }
 
     #[test]
-    fn rows_from_older_builds_still_read() {
+    fn every_field_saves_and_reads_back() {
+        let store = Store::in_memory().unwrap();
+        let settings = Settings {
+            reduce_motion: true,
+            run_everything: true,
+            experimental_references: true,
+            notify_approvals: false,
+            notify_review_finished: false,
+            default_engine: EngineKind::Claude,
+            default_repo: "r1".into(),
+            worktree_root: "~/trees".into(),
+            terminal_app: "iTerm".into(),
+            pr_prompt: "Keep it short".into(),
+            bangs: vec![Bang {
+                id: "b1".into(),
+                name: "test".into(),
+                prompt: "Run the tests".into(),
+            }],
+            clickup_workspace_id: "team".into(),
+            clickup_space_id: "space".into(),
+            clickup_folder_id: "folder".into(),
+            clickup_hidden_statuses: vec!["done".into()],
+        };
+        settings.save(&store);
+        assert_eq!(Settings::load(&store), settings);
+    }
+
+    #[test]
+    fn a_patch_naming_no_setting_is_refused() {
+        let patch = serde_json::from_value::<SettingsPatch>(
+            serde_json::json!({ "reduceMotion": true, "colour": "red" }),
+        );
+        assert!(patch.is_err());
+    }
+
+    #[test]
+    fn rows_that_dont_read_leave_the_default() {
         let rows = |pairs: &[(&str, &str)]| {
             Settings::from_rows(
                 pairs
@@ -410,29 +458,53 @@ mod tests {
                     .collect(),
             )
         };
-        let settings = rows(&[
-            ("defaultEngine", "claude"),
-            ("runEverything", "true"),
-            (
-                "scratchMacros",
-                r#"[{"id":"m1","name":"Daily standup","prompt":"Go"},{"name":"no id"}]"#,
-            ),
-        ]);
+        let settings = rows(&[("defaultEngine", "claude"), ("runEverything", "true")]);
         assert!(settings.run_everything);
         assert_eq!(settings.default_engine, EngineKind::Claude);
+        let settings = rows(&[("defaultEngine", "cursor"), ("notifyApprovals", "maybe")]);
+        assert_eq!(settings.default_engine, EngineKind::Claude);
+        assert!(settings.notify_approvals);
+    }
+
+    #[test]
+    fn older_builds_bangs_are_rewritten_once_in_shape() {
+        let migrated = |pairs: &[(&str, &str)]| {
+            let store = Store::in_memory().unwrap();
+            let rows: Vec<(&str, String)> = pairs
+                .iter()
+                .map(|(key, value)| (*key, value.to_string()))
+                .collect();
+            store.set_settings(&rows).unwrap();
+            store.with_conn(shape_stored_bangs).unwrap();
+            let keys: Vec<String> = store
+                .with_read(crate::store::settings_in)
+                .unwrap()
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect();
+            assert!(!keys.contains(&LEGACY_MACROS.to_string()), "{keys:?}");
+            Settings::load(&store).bangs
+        };
         assert_eq!(
-            settings.bangs,
+            migrated(&[(
+                "scratchMacros",
+                r#"[{"id":"m1","name":"Daily standup","prompt":"Go"},{"name":"no id"}]"#,
+            )]),
             [Bang {
                 id: "m1".into(),
                 name: "daily-standup".into(),
                 prompt: "Go".into(),
             }]
         );
-        // Saved bangs win over the macros they replaced, even an empty list.
-        let settings = rows(&[("bangs", "[]"), ("scratchMacros", r#"[{"id":"m1"}]"#)]);
-        assert!(settings.bangs.is_empty());
-        let settings = rows(&[("defaultEngine", "cursor"), ("notifyApprovals", "maybe")]);
-        assert_eq!(settings.default_engine, EngineKind::Claude);
-        assert!(settings.notify_approvals);
+        assert!(migrated(&[("bangs", "[]"), ("scratchMacros", r#"[{"id":"m1"}]"#)]).is_empty());
+        assert_eq!(
+            migrated(&[("bangs", r#"[{"id":"b1","name":"!Fix It"}]"#)]),
+            [Bang {
+                id: "b1".into(),
+                name: "fix-it".into(),
+                prompt: String::new(),
+            }]
+        );
+        assert!(migrated(&[]).is_empty());
     }
 }

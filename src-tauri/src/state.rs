@@ -27,6 +27,7 @@ use crate::{
 pub const RUST_MIGRATIONS: &[crate::store::migrate::RustMigration] = &[
     crate::transcript::MIGRATION,
     crate::harness_config::MIGRATION,
+    crate::settings::MIGRATION,
 ];
 
 /// Process-wide core state. The webview never holds this; IPC commands borrow it. A handle to

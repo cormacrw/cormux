@@ -1170,7 +1170,8 @@ experimentalReferences: boolean; notifyApprovals: boolean; notifyReviewFinished:
  */
 defaultRepo: string; 
 /**
- * The folder new worktrees go in, as the user typed it (`~` allowed).
+ * The folder new worktrees go in, as the user typed it (`~` allowed). Blank saves the
+ * default folder.
  */
 worktreeRoot: string; 
 /**
@@ -1193,11 +1194,44 @@ clickupFolderId: string;
  * Board lanes the user folded away, by status name.
  */
 clickupHiddenStatuses: string[] }
-export type SettingsPatch = { reduceMotion?: boolean | null; runEverything?: boolean | null; experimentalReferences?: boolean | null; notifyApprovals?: boolean | null; notifyReviewFinished?: boolean | null; defaultEngine?: EngineKind | null; defaultRepo?: string | null; 
+export type SettingsPatch = { reduceMotion?: boolean | null; 
 /**
- * Blank goes back to the default folder.
+ * Approve every tool request without asking. Questions still wait for the user.
  */
-worktreeRoot?: string | null; terminalApp?: string | null; prPrompt?: string | null; bangs?: Bang[] | null; clickupWorkspaceId?: string | null; clickupSpaceId?: string | null; clickupFolderId?: string | null; clickupHiddenStatuses?: string[] | null }
+runEverything?: boolean | null; 
+/**
+ * The experimental References panel, and the tool that pins links to it.
+ */
+experimentalReferences?: boolean | null; notifyApprovals?: boolean | null; notifyReviewFinished?: boolean | null; defaultEngine?: EngineKind | null; 
+/**
+ * Preferred repo id for new threads; it may have been removed since.
+ */
+defaultRepo?: string | null; 
+/**
+ * The folder new worktrees go in, as the user typed it (`~` allowed). Blank saves the
+ * default folder.
+ */
+worktreeRoot?: string | null; 
+/**
+ * The app Open in Terminal launches; empty means Terminal.
+ */
+terminalApp?: string | null; 
+/**
+ * Instructions for drafting a PR description; empty means the built-in default.
+ */
+prPrompt?: string | null; 
+/**
+ * `!name` prompts, for any prompt bar and the command palette.
+ */
+bangs?: Bang[] | null; clickupWorkspaceId?: string | null; clickupSpaceId?: string | null; 
+/**
+ * The sprint folder the ClickUp board shows.
+ */
+clickupFolderId?: string | null; 
+/**
+ * Board lanes the user folded away, by status name.
+ */
+clickupHiddenStatuses?: string[] | null }
 export type Skill = { name: string; description: string; 
 /**
  * `project` for the repo's own skills, `user` for `~/.claude/skills`, `plugin` for
