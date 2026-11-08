@@ -8,6 +8,7 @@ import type {
   RepoRunCommand,
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc'
+import { coreErrorText } from '$lib/core/core-error'
 import { onChange, onSnapshot } from '$lib/core/sync'
 import { reuseRows } from './reuse-rows'
 
@@ -16,6 +17,8 @@ export class ReposStore {
   items = $state.raw<RepoRecord[]>([])
   /** Default branch vs `origin`, by repo id; missing until the first read. */
   gitById = $state.raw<Record<string, RepoGitRuntime>>({})
+  /** Why the last read of `gitById` failed; null once one succeeds. The counts stay as they were. */
+  gitError = $state<string | null>(null)
 
   private readonly byId = $derived(
     new Map(this.items.map((repo) => [repo.id, repo])),
@@ -77,7 +80,14 @@ export class ReposStore {
   /** Re-reads the counts; call after a fetch or pull moves `origin` or the branch. */
   async refreshGit() {
     const result = await commands.getRepoGit()
-    if (result.status !== 'ok') return
+    if (result.status === 'error') {
+      this.gitError = coreErrorText(
+        result.error,
+        'Could not count commits against origin',
+      )
+      return
+    }
+    this.gitError = null
     this.gitById = Object.fromEntries(
       result.data.map((row) => [row.repoId, row]),
     )

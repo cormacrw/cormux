@@ -262,7 +262,8 @@ pub fn set_default_branch(state: &AppState, input: SetRepoDefaultBranchInput) ->
 }
 
 /// Commits each repo's default branch is behind and ahead of `origin`, against the last
-/// fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
+/// fetch. A repo with no `origin` copy of the branch, or that git can't read (its folder
+/// moved), reads as 0 and 0, so one repo can't stop the others' counts.
 pub async fn git_runtime(state: &AppState) -> Result<Vec<RepoGitRuntime>> {
     let mut rows = Vec::new();
     for repo in state.store.repos()? {
@@ -271,7 +272,11 @@ pub async fn git_runtime(state: &AppState) -> Result<Vec<RepoGitRuntime>> {
         let (ahead, behind) = state
             .git
             .ahead_behind(&path, branch, &format!("origin/{branch}"))
-            .await?;
+            .await
+            .unwrap_or_else(|error| {
+                log::warn!("counting {}'s commits against origin: {error}", repo.id);
+                (0, 0)
+            });
         rows.push(RepoGitRuntime {
             repo_id: repo.id,
             behind,
@@ -677,6 +682,31 @@ mod tests {
             path: path.to_string_lossy().to_string(),
         };
         add(state, input).await
+    }
+
+    /// Bug: one repo whose folder had moved failed the whole list, so no repo's counts updated.
+    #[tokio::test]
+    async fn a_repo_git_cant_read_counts_as_zero_without_stopping_the_others() {
+        let (state, _recording, dir) = fixture();
+        let origin = init_repo(&dir, "origin");
+        git(
+            dir.path(),
+            &["clone", "-q", &origin.to_string_lossy(), "app"],
+        );
+        let app = dir.path().join("app");
+        git(&app, &["config", "user.email", "cormux@test"]);
+        git(&app, &["config", "user.name", "Cormux"]);
+        git(&app, &["commit", "-q", "--allow-empty", "-m", "local"]);
+        register(&state, "app", &app);
+        register(&state, "moved", &dir.path().join("moved"));
+
+        let mut rows = git_runtime(&state).await.unwrap();
+        rows.sort_by(|a, b| a.repo_id.cmp(&b.repo_id));
+        let counts: Vec<_> = rows
+            .iter()
+            .map(|row| (row.repo_id.as_str(), row.ahead, row.behind))
+            .collect();
+        assert_eq!(counts, [("app", 1, 0), ("moved", 0, 0)]);
     }
 
     #[tokio::test]
