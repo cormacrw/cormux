@@ -111,6 +111,8 @@ pub enum Event {
     },
     /// Tool results, which the CLI echoes back as a `user` message.
     ToolResults(Vec<ToolResult>),
+    /// The CLI took one of the host's prompts, into the turn it runs or a turn of its own.
+    PromptTaken,
     CanUseTool(CanUseTool),
     /// A JSON-RPC message for an MCP server this host answers. Must always get a response,
     /// notifications included.
@@ -307,6 +309,9 @@ pub fn decode_event(line: &str) -> Result<Event> {
                 .map(str::to_string),
             blocks: assistant_blocks(&value),
         }),
+        "user" if value.get("isReplay").and_then(Value::as_bool) == Some(true) => {
+            Ok(Event::PromptTaken)
+        }
         "user" => Ok(Event::ToolResults(tool_results(&value))),
         "result" => Ok(Event::Result {
             session_id: value
@@ -777,6 +782,21 @@ mod tests {
                 failed: true,
             }
         );
+    }
+
+    #[test]
+    fn a_replayed_prompt_is_taken_and_a_tool_result_is_not() {
+        let taken = decode_event(
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"also"}]},"isReplay":true}"#,
+        )
+        .unwrap();
+        assert_eq!(taken, Event::PromptTaken);
+
+        let result = decode_event(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}}"#,
+        )
+        .unwrap();
+        assert!(matches!(result, Event::ToolResults(_)));
     }
 
     #[test]

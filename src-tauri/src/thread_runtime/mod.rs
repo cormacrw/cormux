@@ -59,6 +59,8 @@ pub struct TurnEnd {
     /// The turn was cancelled (paused or stopped) before it ended: the thread was already moved
     /// by whoever cancelled it.
     pub interrupted: bool,
+    /// The engine already has a message it starts its next turn on.
+    pub queued: bool,
 }
 
 /// Where an engine is in its turn, shared by its slot (which sends it prompts and cancels) and
@@ -69,6 +71,8 @@ struct EngineTurn {
     open: bool,
     /// Cancelled while open; the turn's end says so.
     interrupted: bool,
+    /// The engine said the turn ending next leaves it a message to start the next on.
+    queued: bool,
 }
 
 #[derive(Clone)]
@@ -336,6 +340,24 @@ impl ThreadRuntime {
         })
     }
 
+    /// Whether the thread's engine has been prompted, or reported, since its last turn end.
+    pub fn in_turn(&self, thread_id: &str) -> bool {
+        self.threads.lock().is_ok_and(|threads| {
+            threads
+                .get(thread_id)
+                .is_some_and(|slot| slot.turn.lock().is_ok_and(|turn| turn.open))
+        })
+    }
+
+    /// Closes the engine's turn as its pump does on a turn end, for tests that report the end
+    /// themselves.
+    #[cfg(test)]
+    pub fn close_turn(&self, thread_id: &str) {
+        if let Some(slot) = self.threads.lock().unwrap().get(thread_id) {
+            slot.turn.lock().unwrap().open = false;
+        }
+    }
+
     /// Interrupts the engine's turn. If one is open, its end will say it was interrupted.
     pub fn cancel(&self, thread_id: &str) -> Result<()> {
         self.send_with(thread_id, EngineCommand::Cancel, |turn| {
@@ -550,6 +572,11 @@ impl Pump {
                     self.permission(request)
                 }
                 EngineOutput::HostTool(call) => self.host_tool(call),
+                EngineOutput::NextTurnQueued => {
+                    if let Ok(mut turn) = self.turn.lock() {
+                        turn.queued = true;
+                    }
+                }
                 EngineOutput::Exited => {
                     exited = true;
                     if launch.succeeded().await {
@@ -606,12 +633,15 @@ impl Pump {
     /// The engine stopped waiting on anything: its turn is over, or it is gone. Its open
     /// requests go either way; the end is reported only while it is the thread's current engine.
     fn ended(&self) {
-        let interrupted = match self.turn.lock() {
+        let (interrupted, queued) = match self.turn.lock() {
             Ok(mut turn) => {
                 turn.open = false;
-                std::mem::take(&mut turn.interrupted)
+                (
+                    std::mem::take(&mut turn.interrupted),
+                    std::mem::take(&mut turn.queued),
+                )
             }
-            Err(_) => false,
+            Err(_) => (false, false),
         };
         self.approvals.cancel_for_engine(self.engine);
         if is_current(&self.current, &self.thread_id, self.engine) {
@@ -619,6 +649,7 @@ impl Pump {
                 thread_id: self.thread_id.clone(),
                 engine: self.engine,
                 interrupted,
+                queued,
             });
         }
     }

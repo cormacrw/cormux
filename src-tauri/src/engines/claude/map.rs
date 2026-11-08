@@ -61,6 +61,7 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
         | Event::McpMessage { .. }
         | Event::ControlResponse { .. }
         | Event::BackgroundAgents { .. }
+        | Event::PromptTaken
         | Event::Other { .. } => Vec::new(),
     }
 }

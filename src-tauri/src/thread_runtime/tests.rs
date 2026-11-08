@@ -557,6 +557,29 @@ async fn a_turn_ends_only_after_its_background_agents_do() {
 }
 
 #[tokio::test]
+async fn a_turn_that_ends_before_the_cli_takes_the_next_prompt_says_one_is_queued() {
+    let (engines, _shim) = mock_claude();
+    let mut setup = setup(engines);
+    add_thread(&setup.store, "t-q", "idle", None);
+    setup.runtime.ensure("t-q", W).await.unwrap();
+
+    setup.runtime.prompt("t-q", "slow work").unwrap();
+    setup.runtime.prompt("t-q", "also this").unwrap();
+
+    let mut next_end = async || {
+        tokio::time::timeout(Duration::from_secs(10), setup.turn_ends.recv())
+            .await
+            .expect("turn end within 10s")
+            .unwrap()
+    };
+    let first = next_end().await;
+    assert!(first.queued && !first.interrupted, "{first:?}");
+    let second = next_end().await;
+    assert!(!second.queued, "{second:?}");
+    setup.runtime.stop("t-q").await.unwrap();
+}
+
+#[tokio::test]
 async fn claude_mock_prompt_permission_and_cancel() {
     let (engines, _shim) = mock_claude();
     let setup = setup(engines);

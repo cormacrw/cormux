@@ -94,8 +94,9 @@ impl Transcript {
     }
 
     /// What the agent said in one turn: after the message at `since` through the one at
-    /// `through`. Messages the user sent meanwhile were held for the next turn, so they don't
-    /// cut it short. With no `since`, the turn began at the user's last message.
+    /// `through`. Messages the user sent meanwhile don't cut it short: the engine took them into
+    /// this turn or starts the next on them. With no `since`, the turn began at the user's last
+    /// message.
     pub fn turn_reply(&self, thread_id: &str, since: Option<i64>, through: i64) -> Result<String> {
         let mut said_in_turn = Vec::new();
         self.store
@@ -239,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn a_turns_reply_skips_messages_held_for_the_next_and_stops_where_it_ended() {
+    fn a_turns_reply_reads_past_messages_sent_mid_turn_and_stops_where_it_ended() {
         let transcript = transcript();
         transcript.append("t1", agent("old")).unwrap();
         let since = transcript.record_user_message("t1", "review").unwrap();

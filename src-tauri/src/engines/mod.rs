@@ -72,6 +72,9 @@ pub enum EngineOutput {
     Permission(PermissionRequest),
     /// A message for one of the host's tool servers, waiting for its reply.
     HostTool(HostToolCall),
+    /// The turn end that follows leaves a prompt the engine has but hasn't started: it starts
+    /// the next turn on it by itself.
+    NextTurnQueued,
     Exited,
 }
 

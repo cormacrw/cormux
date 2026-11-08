@@ -24,8 +24,8 @@ pub enum DomainEvent {
         /// The user stopped it, or replaced its session, before it finished.
         stopped: bool,
     },
-    /// Messages held for a thread until it could take them were dropped unsent, because it was
-    /// stopped or its session replaced. Each is the seq its message was saved at.
+    /// Messages held for a paused thread were dropped unsent, because it was stopped or its
+    /// session replaced. Each is the seq its message was saved at.
     PromptsDropped {
         thread_id: String,
         message_seqs: Vec<i64>,
@@ -46,8 +46,9 @@ pub enum DomainEvent {
     },
 }
 
-/// Where a turn sits in its thread's transcript: after the message that started it (`since`,
-/// unknown for a turn the app didn't start), through the last message saved before it ended.
+/// Where a turn sits in its thread's transcript: after where it began (`since`: the message that
+/// started it, or the turn before's `through` when the engine started it on a message it already
+/// had; unknown for a turn the app didn't start), through the last message saved before it ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TurnSpan {
     pub since: Option<i64>,

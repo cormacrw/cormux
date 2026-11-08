@@ -11,6 +11,22 @@ def emit(obj):
 
 
 SESSION = "sess-1"
+REPLAY = "--replay-user-messages" in sys.argv
+
+
+def result(text):
+    return {
+        "type": "result",
+        "subtype": "success",
+        "session_id": SESSION,
+        "is_error": False,
+        "result": text,
+    }
+
+
+# A "slow" turn waits for the next prompt. Like the real CLI with no tool call left in it, it
+# answers that turn first, then starts one of its own on the prompt.
+slow_turn = False
 
 for raw in sys.stdin:
     line = raw.strip()
@@ -20,7 +36,21 @@ for raw in sys.stdin:
     kind = msg.get("type")
     if kind == "user":
         text = msg["message"]["content"][0]["text"]
-        if text.startswith("first"):
+        if slow_turn:
+            slow_turn = False
+            emit(result("slow"))
+            emit({"type": "system", "subtype": "init", "session_id": SESSION})
+        if REPLAY:
+            emit({**msg, "isReplay": True})
+        if text.startswith("slow"):
+            slow_turn = True
+            emit(
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "working"}]},
+                }
+            )
+        elif text.startswith("first"):
             emit(
                 {
                     "type": "control_request",

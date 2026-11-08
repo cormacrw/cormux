@@ -17,6 +17,10 @@
 //! - A turn's `result` lands while background subagents run. `system`/`background_tasks_changed`
 //!   lists what is live, and each agent that finishes starts a turn of its own with a new
 //!   `system`/`init`. One stopped with `stop_task` starts none. Interrupt doesn't reach them.
+//! - A prompt sent mid-turn is taken into that turn at its next tool call (one `result` answers
+//!   both), or, if none comes, starts a turn of its own after the `result`, with a new
+//!   `system`/`init`. `--replay-user-messages` echoes each prompt as a `user` message with
+//!   `isReplay` when the CLI takes it, the only way to tell the two apart when the `result` lands.
 
 mod map;
 mod protocol;
@@ -110,6 +114,7 @@ fn argv(config: &LaunchConfig) -> Vec<String> {
         "stream-json".into(),
         "--output-format".into(),
         "stream-json".into(),
+        "--replay-user-messages".into(),
         "--permission-prompt-tool".into(),
         "stdio".into(),
         "--permission-prompts".into(),
@@ -152,15 +157,15 @@ async fn run(
         let release_at = gate.release_at();
         tokio::select! {
             command = commands.recv() => match command {
-                Some(EngineCommand::Prompt(prompt)) => {
-                    if let Err(error) = session.send_prompt(&prompt).await {
-                        log::warn!("claude prompt: {error}");
-                    }
-                }
+                Some(EngineCommand::Prompt(prompt)) => match session.send_prompt(&prompt).await {
+                    Ok(()) => gate.prompted(),
+                    Err(error) => log::warn!("claude prompt: {error}"),
+                },
                 Some(EngineCommand::Cancel) => {
                     if let Err(error) = session.interrupt().await {
                         log::warn!("claude interrupt: {error}");
                     }
+                    gate.interrupted();
                     for task_id in gate.running_agents() {
                         if let Err(error) = session.stop_task(task_id).await {
                             log::warn!("claude stop task: {error}");
@@ -216,7 +221,7 @@ async fn run(
                             gate.observe(&other);
                             for mapped in map::map_claude_event(&other) {
                                 if let Some(mapped) = gate.pass(mapped) {
-                                    emit(mapped);
+                                    forward(&output, mapped, gate.queued());
                                 }
                             }
                         }
@@ -241,7 +246,7 @@ async fn run(
             },
             _ = tokio::time::sleep_until(release_at.unwrap_or_else(tokio::time::Instant::now)), if release_at.is_some() => {
                 if let Some(held) = gate.release() {
-                    emit(held);
+                    forward(&output, held, gate.queued());
                 }
             }
             Some((request_id, reply)) = replies.recv() => {
@@ -257,6 +262,14 @@ async fn run(
             }
         }
     }
+}
+
+/// A turn's end follows word that the CLI already has the next turn's prompt, if it has.
+fn forward(output: &mpsc::UnboundedSender<EngineOutput>, event: AgentEvent, queued: bool) {
+    if queued && matches!(event, AgentEvent::TurnEnd { .. }) {
+        let _ = output.send(EngineOutput::NextTurnQueued);
+    }
+    let _ = output.send(EngineOutput::Event(event));
 }
 
 /// Puts a permission request to the host and sends its answer back to the CLI. An answer that
@@ -333,6 +346,7 @@ mod tests {
         assert!(args.contains(&"-p".into()));
         assert_eq!(flag(&args, "--permission-prompt-tool"), Some("stdio"));
         assert!(args.contains(&"--await-initialize".into()));
+        assert!(args.contains(&"--replay-user-messages".into()));
         assert_eq!(flag(&args, "--disallowedTools"), Some("EnterPlanMode"));
         assert_eq!(flag(&args, "--mcp-config"), None);
     }
