@@ -749,7 +749,8 @@ mod tests {
                 drop(state.setup.cancel(&id).await);
             })
         };
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        // One thread runs the test, so this lets the cancel run until it waits on the step.
+        tokio::task::yield_now().await;
         assert!(!cancelling.is_finished(), "the step is still going");
 
         drop(step);
