@@ -474,8 +474,13 @@ esac
     }
 
     async fn set_path(state: &AppState, path: &str) {
-        *state.shell_env.write().await =
-            ShellEnv::from_vars([("PATH".to_string(), path.to_string())]);
+        state
+            .shell_env
+            .replace(ShellEnv::from_vars([(
+                "PATH".to_string(),
+                path.to_string(),
+            )]))
+            .await;
     }
 
     async fn install_fake_claude(fixture: &Fixture) {

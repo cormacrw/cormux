@@ -16,10 +16,10 @@ use std::time::Duration;
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tokio::sync::{Notify, RwLock, watch};
+use tokio::sync::{Notify, watch};
 
 use crate::error::{Error, Result};
-use crate::shell_env::ShellEnv;
+use crate::shell_env::SharedEnv;
 
 pub use session::{HarnessEnv, SessionId, ShellCommand};
 
@@ -40,7 +40,7 @@ const LOG_FILE_PREFIX: &str = "cormux-pty-";
 
 #[derive(Clone)]
 pub struct ProcessSupervisor {
-    env: Arc<RwLock<ShellEnv>>,
+    env: SharedEnv,
     sessions: Arc<Mutex<HashMap<SessionId, RunningApp>>>,
     logs: Arc<Mutex<HashMap<String, Arc<Lines>>>>,
     /// Woken on every new line of any session or log.
@@ -170,7 +170,7 @@ fn open_log(name: &str) -> Result<File> {
 }
 
 impl ProcessSupervisor {
-    pub fn new(env: Arc<RwLock<ShellEnv>>) -> Self {
+    pub fn new(env: SharedEnv) -> Self {
         Self {
             env,
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -773,7 +773,9 @@ mod tests {
     }
 
     fn supervisor() -> ProcessSupervisor {
-        ProcessSupervisor::new(Arc::new(RwLock::new(ShellEnv::new())))
+        ProcessSupervisor::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        ))
     }
 
     fn shell(cmd: &str) -> ShellCommand {
@@ -879,9 +881,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_command_waits_for_the_login_env_rather_than_running_without_it() {
-        let env = Arc::new(RwLock::new(ShellEnv::new()));
+        let env = crate::shell_env::SharedEnv::loading();
         let proc = ProcessSupervisor::new(env.clone());
-        let loading = env.write().await;
         let running = tokio::spawn({
             let proc = proc.clone();
             async move {
@@ -891,11 +892,10 @@ mod tests {
             }
         });
         tokio::task::yield_now().await;
-        let mut loading = loading;
-        *loading = ShellEnv::from_vars(
+        env.replace(crate::shell_env::ShellEnv::from_vars(
             std::env::vars().chain([("CORMUX_LOGIN_ENV".into(), "loaded".into())]),
-        );
-        drop(loading);
+        ))
+        .await;
         assert_eq!(running.await.unwrap().unwrap(), Exit::Code(0));
     }
 

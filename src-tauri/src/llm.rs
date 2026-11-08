@@ -1,25 +1,23 @@
 //! One-shot small-model calls through the `claude` CLI. Callers own their prompts and how
 //! often they ask.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use tokio::sync::RwLock;
 
 use crate::error::{Error, Result};
-use crate::shell_env::ShellEnv;
+use crate::shell_env::SharedEnv;
 
 /// Upper bound on one `claude -p` call, so a hung CLI can't spin forever.
 const CALL_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Clone)]
 pub struct LlmClient {
-    env: Arc<RwLock<ShellEnv>>,
+    env: SharedEnv,
 }
 
 impl LlmClient {
-    pub fn new(env: Arc<RwLock<ShellEnv>>) -> Self {
+    pub fn new(env: SharedEnv) -> Self {
         Self { env }
     }
 

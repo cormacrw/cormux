@@ -84,10 +84,8 @@ async fn fetch_repo(git: &Git, repo: RepoFetchTarget) -> Vec<BehindUpdate> {
 mod tests {
     use super::*;
     use crate::git::Git;
-    use crate::shell_env::ShellEnv;
+
     use std::path::Path;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
 
     fn git(cwd: &Path, args: &[&str]) {
         let status = std::process::Command::new("git")
@@ -137,7 +135,9 @@ mod tests {
                 base: "main".into(),
             }],
         };
-        let scheduler = FetchScheduler::new(Git::new(Arc::new(RwLock::new(ShellEnv::new()))));
+        let scheduler = FetchScheduler::new(Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        )));
         let updates = scheduler
             .tick(vec![target(&clone, "w1"), target(&broken, "w2")])
             .await;

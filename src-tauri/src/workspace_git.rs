@@ -704,8 +704,13 @@ mod tests {
         git(&repo, &["commit", "-q", "-m", "base"]);
         git(&repo, &["switch", "-q", "-c", "feat/a"]);
         let (state, _recording) = AppState::recorded(crate::paths::DataDir::new(root.join("data")));
-        *state.shell_env.write().await =
-            ShellEnv::from_vars([("PATH".to_string(), "/usr/bin:/bin".to_string())]);
+        state
+            .shell_env
+            .replace(ShellEnv::from_vars([(
+                "PATH".to_string(),
+                "/usr/bin:/bin".to_string(),
+            )]))
+            .await;
         add_repo(&state, &repo);
         let row = WorkspaceRow::new(
             WorkspaceKind::Lead,
@@ -829,8 +834,13 @@ mod tests {
         git(&seed, &["push", "-q", "origin", "HEAD:main"]);
 
         let (state, _recording) = AppState::recorded(crate::paths::DataDir::new(root.join("data")));
-        *state.shell_env.write().await =
-            ShellEnv::from_vars([("PATH".to_string(), "/usr/bin:/bin".to_string())]);
+        state
+            .shell_env
+            .replace(ShellEnv::from_vars([(
+                "PATH".to_string(),
+                "/usr/bin:/bin".to_string(),
+            )]))
+            .await;
         add_repo(&state, &app);
         state
             .store

@@ -3,12 +3,9 @@
 
 use std::path::Path;
 use std::process::{Output, Stdio};
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
 
 use crate::error::Error;
-use crate::shell_env::ShellEnv;
+use crate::shell_env::SharedEnv;
 
 const QUIET: [(&str, &str); 2] = [("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1")];
 
@@ -32,11 +29,11 @@ impl From<GhFailure> for Error {
 
 #[derive(Clone)]
 pub struct Gh {
-    env: Arc<RwLock<ShellEnv>>,
+    env: SharedEnv,
 }
 
 impl Gh {
-    pub fn new(env: Arc<RwLock<ShellEnv>>) -> Self {
+    pub fn new(env: SharedEnv) -> Self {
         Self { env }
     }
 
@@ -85,8 +82,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_gh_is_told_apart_from_a_failed_one() {
-        let env = ShellEnv::from_vars([("PATH".to_string(), "/nonexistent".to_string())]);
-        let gh = Gh::new(Arc::new(RwLock::new(env)));
+        let env = crate::shell_env::ShellEnv::from_vars([(
+            "PATH".to_string(),
+            "/nonexistent".to_string(),
+        )]);
+        let gh = Gh::new(SharedEnv::loaded(env));
         let failure = gh.output(None, &["--version"], &[]).await.unwrap_err();
         assert!(matches!(failure, GhFailure::NotInstalled), "{failure:?}");
         let error = gh.stdout(&["--version"]).await.unwrap_err().to_string();

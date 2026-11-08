@@ -40,11 +40,6 @@ impl PrSyncScheduler {
     /// Returns whether the cache changed. Failures keep the last good list; only a
     /// definite signed-out answer from `gh` clears it.
     pub async fn tick(&self, state: &AppState) -> Result<bool> {
-        // Until the login-shell env loads, `gh` and `git` aren't on PATH for a GUI launch.
-        if state.shell_env.read().await.vars().is_empty() {
-            return Ok(false);
-        }
-
         let repos: Vec<(String, String)> = state
             .store
             .repos()?

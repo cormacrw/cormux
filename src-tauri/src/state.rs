@@ -1,8 +1,6 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
-
 use crate::app::WorkspaceAppService;
 use crate::bus::Bus;
 use crate::clickup::ClickupClient;
@@ -18,7 +16,7 @@ use crate::thread_runtime::{RuntimeParts, ThreadRuntime};
 use crate::transcript::Transcript;
 use crate::{
     approvals::ApprovalBroker, git::Git, github::PrSyncScheduler, llm::LlmClient, metrics::Metrics,
-    process::ProcessSupervisor, shell_env::ShellEnv, store::Store, workspace_git::WorkspaceGit,
+    process::ProcessSupervisor, shell_env::SharedEnv, store::Store, workspace_git::WorkspaceGit,
     workspaces::Workspaces,
 };
 
@@ -47,7 +45,7 @@ pub struct Core {
     pub data_dir: DataDir,
     pub out: Notifier,
     pub bus: Bus,
-    pub shell_env: Arc<RwLock<ShellEnv>>,
+    pub shell_env: SharedEnv,
     pub git: Git,
     pub workspaces: Workspaces,
     pub workspace_git: WorkspaceGit,
@@ -75,8 +73,8 @@ impl AppState {
     pub fn new(data_dir: DataDir, output: Arc<dyn UserOutput>) -> Result<Self> {
         let store = Store::open(&data_dir.db(), RUST_MIGRATIONS)?;
         store.reset_interrupted_turns()?;
-        let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
-        let engines = Arc::new(ClaudeEngines::new(shell_env.clone()));
+        let shell_env = SharedEnv::loading();
+        let engines = Arc::new(ClaudeEngines::new(shell_env.without_waiting()));
         Ok(Self::with_store(
             data_dir, store, output, shell_env, engines,
         ))
@@ -86,7 +84,7 @@ impl AppState {
         data_dir: DataDir,
         store: Store,
         output: Arc<dyn UserOutput>,
-        shell_env: Arc<RwLock<ShellEnv>>,
+        shell_env: SharedEnv,
         engines: Arc<dyn Engines>,
     ) -> Self {
         let git = Git::new(shell_env.clone());
@@ -168,7 +166,7 @@ impl AppState {
             data_dir,
             Store::in_memory().expect("in-memory store"),
             Arc::new(crate::feedback::RecordingOutput::default()),
-            Arc::new(RwLock::new(ShellEnv::new())),
+            SharedEnv::loaded(Default::default()),
             engines,
         )
     }
@@ -188,7 +186,7 @@ impl AppState {
             data_dir,
             store,
             recording.clone(),
-            Arc::new(RwLock::new(ShellEnv::new())),
+            SharedEnv::loaded(Default::default()),
             Arc::new(fake.clone()),
         );
         (state, recording, fake)

@@ -9,11 +9,7 @@ mod store;
 pub mod sync;
 pub mod types;
 
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
-
-use crate::shell_env::ShellEnv;
+use crate::shell_env::SharedEnv;
 
 pub use gh::Gh;
 pub use r#match::RepoSlug;
@@ -30,7 +26,7 @@ pub struct Github {
 }
 
 impl Github {
-    pub fn new(env: Arc<RwLock<ShellEnv>>) -> Self {
+    pub fn new(env: SharedEnv) -> Self {
         Self {
             gh: Gh::new(env),
             rest: RestGithubClient::new(),

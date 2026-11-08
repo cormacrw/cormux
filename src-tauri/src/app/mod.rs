@@ -651,7 +651,8 @@ mod tests {
     fn a_taken_port_is_noted_in_cormuxs_own_words() {
         let service = WorkspaceAppService::new();
         service.set_status("a", WorkspaceAppStatus::Running, Some(8000), None);
-        let process = ProcessSupervisor::new(Default::default());
+        let process =
+            ProcessSupervisor::new(crate::shell_env::SharedEnv::loaded(Default::default()));
         assert_eq!(
             service.pick_port_with_log(&process, "b", AppKind::Python),
             8001

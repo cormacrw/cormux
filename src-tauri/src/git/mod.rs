@@ -9,11 +9,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::process::Command;
-use tokio::sync::{Mutex as AsyncMutex, RwLock};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::error::{Error, Result};
 use crate::model::FALLBACK_DEFAULT_BRANCH;
-use crate::shell_env::ShellEnv;
+use crate::shell_env::SharedEnv;
 
 pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
 pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
@@ -52,7 +52,7 @@ pub struct Git {
 }
 
 struct GitInner {
-    env: Arc<RwLock<ShellEnv>>,
+    env: SharedEnv,
     queue: WorktreeQueue,
     /// When each `repo\0base` last fetched, locked for the duration of a fetch.
     base_fetches: Mutex<HashMap<String, Arc<AsyncMutex<Option<Instant>>>>>,
@@ -116,7 +116,7 @@ pub fn parse_local_branch_tips(stdout: &str) -> Vec<LocalBranchTip> {
 }
 
 impl Git {
-    pub fn new(env: Arc<RwLock<ShellEnv>>) -> Self {
+    pub fn new(env: SharedEnv) -> Self {
         Self {
             inner: Arc::new(GitInner {
                 env,
@@ -1015,7 +1015,6 @@ fn parse_numstat_z(bytes: &[u8]) -> Vec<FileStat> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell_env::ShellEnv;
 
     #[test]
     fn ref_names_that_git_would_read_as_options_are_rejected() {
@@ -1068,7 +1067,9 @@ mod tests {
 
     /// Git with the test process's own environment, no login shell needed.
     async fn git_with_env() -> Git {
-        Git::new(Arc::new(RwLock::new(ShellEnv::new())))
+        Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        ))
     }
 
     fn init_repo() -> (tempfile::TempDir, PathBuf) {

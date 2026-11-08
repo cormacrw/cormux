@@ -132,16 +132,15 @@ pub fn run() {
                     let _ = MemorySampled { sample }.emit(&events);
                 },
             );
-            // Git and `gh` need the login-shell PATH, so what shells out waits for it.
-            let startup = state.clone();
+            let env = state.shell_env.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = startup.shell_env.write().await.load_or_inherit().await {
+                if let Err(error) = env.load_or_inherit().await {
                     log::warn!("shell env load failed: {error}");
                 }
-                startup.process.remove_stale_logs();
-                workspace_git::start(&startup);
-                github::start(&startup);
             });
+            state.process.remove_stale_logs();
+            workspace_git::start(&state);
+            github::start(&state);
 
             // The window starts hidden and the app shows it once it has painted. If
             // that never happens (a startup error), show it anyway rather than

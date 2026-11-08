@@ -1004,7 +1004,7 @@ mod tests {
     async fn state_on(env: ShellEnv) -> (AppState, Arc<crate::feedback::RecordingOutput>) {
         let (state, recording) =
             AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
-        *state.shell_env.write().await = env;
+        state.shell_env.replace(env).await;
         (state, recording)
     }
 

@@ -666,10 +666,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_branch_diffs_against_its_base_not_the_checkout() {
-        use crate::shell_env::ShellEnv;
-        use tokio::sync::RwLock;
-
-        let git = Git::new(Arc::new(RwLock::new(ShellEnv::new())));
+        let git = Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        ));
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
         let run = |args: &[&str]| {
@@ -718,10 +717,9 @@ mod tests {
     /// branch, landed last, so the panel showed the branch's files while set to uncommitted.
     #[test]
     fn a_diff_for_a_target_moved_off_is_not_stored() {
-        use crate::shell_env::ShellEnv;
-        use tokio::sync::RwLock;
-
-        let engine = LiveDiffEngine::new(Git::new(Arc::new(RwLock::new(ShellEnv::new()))));
+        let engine = LiveDiffEngine::new(Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        )));
         let _subscription = engine.subscribe("w");
         let diff = |target: Option<DiffTarget>| WorktreeDiff {
             workspace_id: "w".into(),
@@ -748,10 +746,9 @@ mod tests {
     /// Discard offered to delete it.
     #[tokio::test]
     async fn file_status_comes_from_git_not_line_counts() {
-        use crate::shell_env::ShellEnv;
-        use tokio::sync::RwLock;
-
-        let git = Git::new(Arc::new(RwLock::new(ShellEnv::new())));
+        let git = Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        ));
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
         let run = |args: &[&str]| {
@@ -831,10 +828,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn only_subscribed_workspaces_are_diffed() {
-        use crate::shell_env::ShellEnv;
-        use tokio::sync::RwLock;
-
-        let engine = LiveDiffEngine::new(Git::new(Arc::new(RwLock::new(ShellEnv::new()))));
+        let engine = LiveDiffEngine::new(Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        )));
         engine.start();
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
@@ -868,10 +864,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_commit_in_a_linked_worktree_clears_the_counts() {
-        use crate::shell_env::ShellEnv;
-        use tokio::sync::RwLock;
-
-        let engine = LiveDiffEngine::new(Git::new(Arc::new(RwLock::new(ShellEnv::new()))));
+        let engine = LiveDiffEngine::new(Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        )));
         engine.start();
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");

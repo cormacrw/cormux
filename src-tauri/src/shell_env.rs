@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 
 use portable_pty::CommandBuilder;
 use tokio::process::Command;
+use tokio::sync::{RwLock, RwLockReadGuard, watch};
 
 use crate::error::{Error, Result};
 
@@ -15,6 +17,7 @@ pub struct ShellEnv {
 }
 
 impl ShellEnv {
+    #[cfg(test)]
     pub fn new() -> Self {
         Self::default()
     }
@@ -172,6 +175,72 @@ impl EnvTarget for CommandBuilder {
     }
 }
 
+/// The one login-shell environment the app shells out with. Until its first load has finished,
+/// reads wait for it, so nothing runs `git` or `gh` without the user's PATH.
+#[derive(Clone)]
+pub struct SharedEnv {
+    env: Arc<RwLock<ShellEnv>>,
+    loaded: Arc<watch::Sender<bool>>,
+}
+
+impl SharedEnv {
+    /// Not loaded yet: reads wait for [`SharedEnv::load_or_inherit`].
+    pub fn loading() -> Self {
+        Self {
+            env: Arc::default(),
+            loaded: Arc::new(watch::channel(false).0),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn loaded(env: ShellEnv) -> Self {
+        Self {
+            env: Arc::new(RwLock::new(env)),
+            loaded: Arc::new(watch::channel(true).0),
+        }
+    }
+
+    async fn ready(&self) {
+        let mut loaded = self.loaded.subscribe();
+        // The sender lives in `self`, so it can't close while this waits.
+        let _ = loaded.wait_for(|loaded| *loaded).await;
+    }
+
+    pub async fn read(&self) -> RwLockReadGuard<'_, ShellEnv> {
+        self.ready().await;
+        self.env.read().await
+    }
+
+    /// A copy, so a long run doesn't hold the lock: a reload waiting on it would stall every
+    /// read behind it.
+    pub async fn current(&self) -> ShellEnv {
+        self.read().await.clone()
+    }
+
+    /// The first load, at startup. Whatever it finds, reads go ahead after it: with neither the
+    /// login shell's env nor the app's they'd otherwise wait for good.
+    pub async fn load_or_inherit(&self) -> Result<()> {
+        let loaded = self.env.write().await.load_or_inherit().await;
+        self.loaded.send_replace(true);
+        loaded
+    }
+
+    pub async fn reload(&self) -> Result<()> {
+        self.env.write().await.load().await
+    }
+
+    /// For agents, which launch only on the user's word: they take the env as it is.
+    pub fn without_waiting(&self) -> Arc<RwLock<ShellEnv>> {
+        self.env.clone()
+    }
+
+    #[cfg(test)]
+    pub async fn replace(&self, env: ShellEnv) {
+        *self.env.write().await = env;
+        self.loaded.send_replace(true);
+    }
+}
+
 pub fn parse_env0(bytes: &[u8]) -> Result<HashMap<String, String>> {
     let mut vars = HashMap::new();
     for entry in bytes.split(|b| *b == 0) {
@@ -232,5 +301,21 @@ mod tests {
 
         let mut silent = fake_shell(dir.path(), "true");
         assert!(silent.load().await.is_err(), "an empty env is a failure");
+    }
+
+    #[tokio::test]
+    async fn reads_wait_for_the_first_load_even_a_failed_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = SharedEnv::loading();
+        *shared.without_waiting().write().await = fake_shell(dir.path(), "exit 1");
+        let reading = tokio::spawn({
+            let shared = shared.clone();
+            async move { shared.current().await.get("PATH").map(str::to_string) }
+        });
+        tokio::task::yield_now().await;
+        assert!(!reading.is_finished());
+
+        shared.load_or_inherit().await.unwrap();
+        assert_eq!(reading.await.unwrap(), std::env::var("PATH").ok());
     }
 }

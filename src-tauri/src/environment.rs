@@ -9,7 +9,7 @@ use crate::state::AppState;
 #[tauri::command]
 #[specta::specta]
 pub async fn reload_environment(state: State<'_, AppState>) -> Result<()> {
-    state.shell_env.write().await.load().await?;
+    state.shell_env.reload().await?;
     state.out.changed();
     Ok(())
 }
@@ -17,6 +17,6 @@ pub async fn reload_environment(state: State<'_, AppState>) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn detect_engines(state: State<'_, AppState>) -> Result<Vec<EngineStatus>> {
-    let env = state.shell_env.read().await.clone();
+    let env = state.shell_env.current().await;
     crate::engines::detect_engines(&env).await
 }
