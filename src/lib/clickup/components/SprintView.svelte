@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { moveTask, setLaneHidden, showAllLanes } from '$lib/clickup/actions'
   import { openSettings } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
@@ -32,9 +33,11 @@
   let title: HTMLHeadingElement | undefined = $state()
   let boardEl: HTMLDivElement | undefined = $state()
 
+  // Arriving on the page focuses its title, unless a task is open; closing one leaves focus
+  // to the flyout, which hands it back to the task's card.
   $effect(() => {
     void nav.arrivals
-    if (!clickup.selectedTaskId) title?.focus()
+    if (!untrack(() => clickup.selectedTaskId)) title?.focus()
   })
 
   $effect(() => {

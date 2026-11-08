@@ -6,15 +6,20 @@
   import DocMarkdown from '$lib/components/markdown/DocMarkdown.svelte'
   import { POINT_PRESETS, statusLabel, taskRef } from '$lib/clickup/board'
   import { clickup } from '$lib/clickup/store.svelte'
+  import type { ClickupTask } from '$lib/ipc/bindings'
   import { cn } from '$lib/utils'
   import Check from '@lucide/svelte/icons/check'
   import Copy from '@lucide/svelte/icons/copy'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import X from '@lucide/svelte/icons/x'
-  import { openUrl } from '@tauri-apps/plugin-opener'
+  import { openExternal } from '$lib/feedback/open-external'
 
-  const task = $derived(clickup.selectedTask)
+  let { onClose }: { onClose: () => void } = $props()
+
+  // The last task shown stays after it's closed, so the pane slides away with it on.
+  let lastTask: ClickupTask | null = null
+  const task = $derived.by(() => (lastTask = clickup.selectedTask ?? lastTask))
   const detail = $derived(task ? clickup.details[task.id] : undefined)
   const ref = $derived(task ? taskRef(task) : '')
 
@@ -26,7 +31,7 @@
 
   // Opening a task from the board moves focus here for keyboard users.
   $effect(() => {
-    if (task?.id) titleEl?.focus({ preventScroll: true })
+    if (clickup.selectedTaskId) titleEl?.focus({ preventScroll: true })
   })
 
   const DATE = new Intl.DateTimeFormat('en-US', {
@@ -65,7 +70,7 @@
           variant="ghost"
           size="sm"
           class="h-7 gap-1.5 px-2 text-xs"
-          onclick={() => void openUrl(task.url)}
+          onclick={() => void openExternal(task.url)}
         >
           <ExternalLink class="size-3.5" aria-hidden="true" />
           Open in ClickUp
@@ -75,7 +80,7 @@
           size="icon"
           class="size-7"
           aria-label="Close task"
-          onclick={() => clickup.select(null)}
+          onclick={onClose}
         >
           <X class="size-4" aria-hidden="true" />
         </Button>

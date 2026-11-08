@@ -166,8 +166,18 @@ test.describe('clickup', () => {
         name: 'Session expires mid checkout on Safari',
       }),
     ).toBeVisible()
+    const flyout = page.locator('[data-od-id="task-flyout"]')
     await page.keyboard.press('Escape')
-    await expect(panel).toHaveCount(0)
+    await expect(flyout).toHaveAttribute('data-open', 'false')
+    await expect(page.locator('[data-task-id="t2"]')).toBeFocused()
+    // It slides away still showing the task, rather than blank.
+    await expect(panel).toContainText('Session expires mid checkout on Safari')
+
+    // × closes it the same way.
+    await page.locator('[data-task-id="t2"]').click()
+    await expect(flyout).toHaveAttribute('data-open', 'true')
+    await panel.getByRole('button', { name: 'Close task' }).click()
+    await expect(flyout).toHaveAttribute('data-open', 'false')
     await expect(page.locator('[data-task-id="t2"]')).toBeFocused()
 
     expect(errors).toEqual([])
