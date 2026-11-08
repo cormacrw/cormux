@@ -32,10 +32,6 @@ pub struct DismissWorkspaceFindingsInput {
     pub dismissed: bool,
 }
 
-pub fn findings_batch_key(thread_id: &str) -> String {
-    format!("findings-batch:{thread_id}")
-}
-
 pub async fn send_workspace_findings(
     state: &AppState,
     workspace_id: &str,
@@ -47,7 +43,7 @@ pub async fn send_workspace_findings(
     let mut seen = std::collections::HashSet::new();
     finding_ids.retain(|id| seen.insert(id.clone()));
     if finding_ids.is_empty() {
-        return Err(Error::Workspace("no findings selected".into()));
+        return Err(Error::Invalid("no findings selected".into()));
     }
     let thread = state
         .store
@@ -62,15 +58,15 @@ pub async fn send_workspace_findings(
     let mut picked: Vec<FindingRow> = Vec::new();
     for id in &finding_ids {
         let Some(row) = state.store.finding_by_id(id)? else {
-            return Err(Error::Store(format!("unknown finding {id}")));
+            return Err(Error::Invalid(format!("unknown finding {id}")));
         };
         if row.workspace_id != workspace_id {
-            return Err(Error::Store(format!(
+            return Err(Error::Invalid(format!(
                 "finding {id} is in another workspace"
             )));
         }
         if row.status != "open" {
-            return Err(Error::Store(format!("finding {id} is not open")));
+            return Err(Error::Invalid(format!("finding {id} is not open")));
         }
         picked.push(row);
     }
@@ -136,18 +132,7 @@ pub async fn send_workspace_findings(
 /// The findings a thread was sent to fix, which it works through as one batch.
 pub fn record_batch(state: &AppState, thread_id: &str, finding_ids: &[String]) -> Result<()> {
     state.store.mark_findings_sent(finding_ids, thread_id)?;
-    state.store.set_setting(
-        &findings_batch_key(thread_id),
-        &serde_json::to_string(finding_ids).map_err(|error| Error::Store(error.to_string()))?,
-    )
-}
-
-fn open_batch(state: &AppState, thread_id: &str) -> Result<Vec<String>> {
-    let raw = state
-        .store
-        .get_setting(&findings_batch_key(thread_id))?
-        .unwrap_or_default();
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
+    state.store.set_findings_batch(thread_id, finding_ids)
 }
 
 /// Dismissed findings stay listed but aren't sent to an agent or posted with the review.
@@ -191,7 +176,7 @@ pub async fn mark_fixed(
         .store
         .finding_by_id(finding_id)?
         .is_some_and(|finding| finding.sent_to_thread_id.as_deref() == Some(thread_id));
-    let batch = open_batch(state, thread_id)?;
+    let batch = state.store.findings_batch(thread_id)?;
     if !sent_here || !batch.iter().any(|id| id == finding_id) {
         return Err(Error::Workspace(format!(
             "finding {finding_id} isn't one this thread was sent to fix"
@@ -237,9 +222,7 @@ async fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[Strin
     if let Some(thread) = state.store.thread_by_id(thread_id)? {
         crate::turn::mark_idle(state, &thread).await?;
     }
-    state
-        .store
-        .set_setting(&findings_batch_key(thread_id), "[]")?;
+    state.store.set_findings_batch(thread_id, &[])?;
 
     state.out.changed(Change::THREADS);
     Ok(())

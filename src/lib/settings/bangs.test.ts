@@ -6,7 +6,6 @@ import {
   filterBangs,
   insertBang,
   paletteBang,
-  parseBangs,
   type Bang,
 } from './bangs'
 
@@ -22,27 +21,6 @@ describe('bangName', () => {
   it('drops the !, spaces become dashes, lowercase, no symbols', () => {
     expect(bangName('!Daily Standup')).toBe('daily-standup')
     expect(bangName('  fix/it!  ')).toBe('fixit')
-  })
-})
-
-describe('parseBangs', () => {
-  it('reads the bangs row', () => {
-    expect(parseBangs(JSON.stringify([test]))).toEqual([test])
-  })
-
-  it('carries scratch macros over until bangs are saved', () => {
-    const macros = JSON.stringify([
-      { id: 'm1', name: 'Daily standup', prompt: 'Summarise' },
-    ])
-    expect(parseBangs(undefined, macros)).toEqual([
-      { id: 'm1', name: 'daily-standup', prompt: 'Summarise' },
-    ])
-    expect(parseBangs('[]', macros)).toEqual([])
-  })
-
-  it('drops anything malformed', () => {
-    expect(parseBangs('nope')).toEqual([])
-    expect(parseBangs(JSON.stringify([{ name: 'x' }, 3]))).toEqual([])
   })
 })
 

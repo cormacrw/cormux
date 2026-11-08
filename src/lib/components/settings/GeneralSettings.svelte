@@ -35,7 +35,7 @@
 
   async function commitWorktreeRoot() {
     if (worktreeDraft.trim() === settings.worktreeRoot.trim()) return
-    await settings.setWorktreeRoot(worktreeDraft)
+    await settings.update({ worktreeRoot: worktreeDraft })
   }
 </script>
 
@@ -53,7 +53,7 @@
           type="single"
           value={defaultRepoId}
           onValueChange={(value) => {
-            if (value) void settings.setDefaultRepo(value)
+            if (value) void settings.update({ defaultRepo: value })
           }}
         >
           <Select.Trigger
@@ -115,7 +115,7 @@
         spellcheck={false}
         onchange={() => {
           if (terminalDraft.trim() !== settings.terminalApp)
-            void settings.setTerminalApp(terminalDraft)
+            void settings.update({ terminalApp: terminalDraft })
         }}
       />
     {/snippet}
@@ -128,7 +128,7 @@
     {#snippet control()}
       <Switch
         checked={settings.reduceMotion}
-        onCheckedChange={(next) => void settings.setReduceMotion(next)}
+        onCheckedChange={(next) => void settings.update({ reduceMotion: next })}
         aria-label="Reduce motion"
       />
     {/snippet}

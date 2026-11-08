@@ -9,7 +9,7 @@ use crate::github::RepoSlug;
 use crate::github::auth;
 use crate::github::create::CreatePullRequestInput;
 use crate::github::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
-use crate::pr_draft::{PR_PROMPT_KEY, draft_why, pr_prompt};
+use crate::pr_draft::{draft_why, pr_prompt};
 use crate::state::AppState;
 use crate::store::types::WorkspaceRow;
 use crate::timeline::TimelineStep;
@@ -65,7 +65,7 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
         .ok_or_else(|| Error::Workspace(format!("no thread in workspace {workspace_id}")))?;
     let goal = state.transcript.first_user_goal(&thread.id)?;
     let transcript = state.transcript.raw_tail(&thread.id, 24)?;
-    let instructions = pr_prompt(state.store.get_setting(PR_PROMPT_KEY)?);
+    let instructions = pr_prompt(&crate::settings::Settings::read(&state.store)?.pr_prompt);
 
     let (text, from_llm) = draft_why(
         &state.llm,

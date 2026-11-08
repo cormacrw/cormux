@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
-use crate::store::Store;
 use crate::store::types::RepoRecord;
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -75,10 +74,6 @@ fn non_blank(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-fn workspace_run_command_key(workspace_id: &str) -> String {
-    format!("workspace:{workspace_id}/runCommand")
-}
-
 /// The command every workspace of the repo runs unless it sets its own: the saved one, else
 /// the committed one.
 pub fn repo_run_command(repo: &RepoRecord) -> Result<Option<RunCommand>> {
@@ -126,14 +121,9 @@ pub fn repo_run_commands(repos: &[RepoRecord]) -> Vec<RepoRunCommand> {
         .collect()
 }
 
-/// The command Run starts for a workspace: its own when set, else the repo's.
-pub fn workspace_run_command(
-    store: &Store,
-    workspace_id: &str,
-    repo: &RepoRecord,
-) -> Result<Option<RunCommand>> {
-    let own = store.get_setting(&workspace_run_command_key(workspace_id))?;
-    if let Some(command) = non_blank(own.as_deref()) {
+/// The command Run starts for a workspace: `own` when set, else the repo's.
+pub fn workspace_run_command(own: Option<&str>, repo: &RepoRecord) -> Result<Option<RunCommand>> {
+    if let Some(command) = non_blank(own) {
         return Ok(Some(RunCommand {
             command,
             source: RunCommandSource::Workspace,
@@ -243,26 +233,19 @@ mod tests {
 
     #[test]
     fn a_workspace_override_wins_over_the_repo_command() {
-        let store = Store::in_memory().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(dir.path(), Some("pnpm dev"));
-        let command = |id: &str| workspace_run_command(&store, id, &repo).unwrap().unwrap();
-        assert_eq!(command("w1").command, "pnpm dev");
-        assert_eq!(command("w1").source, RunCommandSource::Repo);
-        store
-            .set_setting("workspace:w1/runCommand", " pnpm dev --port 4000 ")
-            .unwrap();
+        let command = |own: Option<&str>| workspace_run_command(own, &repo).unwrap().unwrap();
+        assert_eq!(command(None).command, "pnpm dev");
+        assert_eq!(command(None).source, RunCommandSource::Repo);
         assert_eq!(
-            command("w1"),
+            command(Some(" pnpm dev --port 4000 ")),
             RunCommand {
                 command: "pnpm dev --port 4000".into(),
                 source: RunCommandSource::Workspace,
             }
         );
-        assert_eq!(command("w2").command, "pnpm dev");
-        // Clearing it goes back to the repo's.
-        store.set_setting("workspace:w1/runCommand", "").unwrap();
-        assert_eq!(command("w1").command, "pnpm dev");
+        assert_eq!(command(Some("  ")).command, "pnpm dev");
     }
 
     #[test]

@@ -55,6 +55,7 @@ const MIGRATIONS: &[Migration] = migrations![
     "022_thread_entities",
     "023_workspace_base_kind_thread_role",
     "025_snapshot_views_and_dead_data",
+    "026_per_entity_state",
 ];
 
 fn create_ledger(conn: &Connection) -> Result<()> {
@@ -198,6 +199,7 @@ mod tests {
                 "pr_cache",
                 "repo_config",
                 "repos",
+                "review_state",
                 "schema_migrations",
                 "scratches",
                 "settings",
@@ -478,5 +480,69 @@ mod tests {
             ids("SELECT id FROM visible_threads ORDER BY position"),
             ["open", "scratch"]
         );
+    }
+
+    #[test]
+    fn per_entity_settings_move_to_their_rows() {
+        let conn = migrated_before(26);
+        conn.execute_batch(
+            "INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
+             INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status) VALUES
+                ('own', 'r', 'Own', 'a', '/tmp/a', 'idle'),
+                ('plain', 'r', 'Plain', 'b', '/tmp/b', 'idle');
+             INSERT INTO threads (id, workspace_id, title, engine, status) VALUES
+                ('t', 'own', 'Lead', 'claude', 'idle');
+             INSERT INTO settings (key, value) VALUES
+                ('workspace:own/runCommand', ' pnpm dev --port 4000 '),
+                ('workspace:plain/runCommand', '  '),
+                ('review:own/status', 'ready'),
+                ('review:own/author', '@ana'),
+                ('review:own/submitted', 'true'),
+                ('review:gone/status', 'running'),
+                ('findings-batch:t', '[\"f1\",\"f2\"]'),
+                ('reduceMotion', 'true');",
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        let run_command = |id: &str| -> Option<String> {
+            conn.query_row(
+                "SELECT run_command FROM workspaces WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(run_command("own").as_deref(), Some("pnpm dev --port 4000"));
+        assert_eq!(run_command("plain"), None);
+        let review: (String, String, bool) = conn
+            .query_row(
+                "SELECT status, author, submitted FROM review_state WHERE workspace_id = 'own'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(review, ("ready".into(), "@ana".into(), true));
+        let reviews: i64 = conn
+            .query_row("SELECT COUNT(*) FROM review_state", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(reviews, 1, "a review of a workspace that's gone isn't kept");
+        let batch: String = conn
+            .query_row(
+                "SELECT findings_batch FROM threads WHERE id = 't'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(batch, r#"["f1","f2"]"#);
+        let keys: Vec<String> = conn
+            .prepare("SELECT key FROM settings")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|key| key.unwrap())
+            .collect();
+        assert_eq!(keys, ["reduceMotion"]);
     }
 }

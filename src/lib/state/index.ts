@@ -98,6 +98,9 @@ function modelsFromSnapshot(snapshot: Snapshot) {
   }
 
   const rows = new Map(persisted.workspaces.map((row) => [row.id, row]))
+  const reviews = new Map(
+    persisted.reviews.map((review) => [review.workspaceId, review]),
+  )
   const records = snapshot.workspaces
   const recordById = new Map(records.map((record) => [record.id, record]))
 
@@ -142,6 +145,9 @@ function modelsFromSnapshot(snapshot: Snapshot) {
       provStep: workspace.provStep ?? 0,
       setupFailedCommand: workspace.setupFailedCommand ?? null,
       setupFailedExitCode: workspace.setupFailedExitCode ?? null,
+      runCommand: row?.runCommand ?? null,
+      reviewStatus: reviews.get(workspace.id)?.status ?? null,
+      reviewSubmitted: reviews.get(workspace.id)?.submitted ?? false,
     }
   })
 
@@ -207,7 +213,7 @@ function modelsFromSnapshot(snapshot: Snapshot) {
 export function hydrateFromSnapshot(snapshot: Snapshot) {
   void onSnapshotSupervision(snapshot)
   const models = modelsFromSnapshot(snapshot)
-  settings.hydrate(snapshot.persisted.settings)
+  settings.hydrate(snapshot.settings)
   const aliveIds = new Set(models.workspaces.map((row) => row.id))
   if (app.workspaceId && !aliveIds.has(app.workspaceId)) {
     app.openNewThread()
@@ -236,7 +242,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
     items: snapshot.persisted.pullRequests.map(pullRequestFromRow),
     authConfigured: snapshot.githubAuthConfigured,
   })
-  clickup.hydrate(snapshot.clickupConfigured, snapshot.persisted.settings)
+  clickup.hydrate(snapshot.clickupConfigured, snapshot.settings)
   if (app.view === 'sprint' && !clickup.configured) app.openNewThread()
 }
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import type { PullRequestPayload } from '../src/lib/ipc/bindings'
 import { mkdirSync } from 'node:fs'
 import { setScenario } from './harness'
 
@@ -137,7 +138,7 @@ test('Create PR targets the branch below, and the header links an existing PR', 
 test('the header links a PR opened outside Cormux for the checked-out branch', async ({
   page,
 }) => {
-  const payload = {
+  const payload: PullRequestPayload = {
     num: 57,
     title: 'OAuth login',
     author: 'you',

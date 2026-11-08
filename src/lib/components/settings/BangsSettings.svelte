@@ -59,7 +59,7 @@
   }
 
   function scheduleSave() {
-    saves.schedule('bangs', () => void settings.setBangs(withDrafts()))
+    saves.schedule('bangs', () => void settings.update({ bangs: withDrafts() }))
   }
 
   function toggleConfigure(bang: Bang) {
@@ -76,7 +76,9 @@
   async function removeBang(id: string) {
     flushSave()
     delete drafts[id]
-    await settings.setBangs(settings.bangs.filter((bang) => bang.id !== id))
+    await settings.update({
+      bangs: settings.bangs.filter((bang) => bang.id !== id),
+    })
     await tick()
     document.getElementById('settings-bang-name')?.focus()
   }
@@ -96,7 +98,7 @@
     }
     flushSave()
     const bang: Bang = { id: newBangId(), name, prompt: '' }
-    await settings.setBangs([...settings.bangs, bang])
+    await settings.update({ bangs: [...settings.bangs, bang] })
     nameDraft = ''
     nameError = null
     expand(bang)

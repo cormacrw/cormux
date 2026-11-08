@@ -57,6 +57,8 @@ pub struct WorkspaceRow {
     pub pr_number: Option<i64>,
     pub pr_html_url: Option<String>,
     pub archived_at: Option<String>,
+    /// The workspace's own run command, which Run starts instead of the repo's.
+    pub run_command: Option<String>,
 }
 
 impl WorkspaceRow {
@@ -86,6 +88,7 @@ impl WorkspaceRow {
             pr_number: None,
             pr_html_url: None,
             archived_at: None,
+            run_command: None,
         }
     }
 

@@ -3,12 +3,10 @@
   import Pencil from '@lucide/svelte/icons/pencil'
   import Undo2 from '@lucide/svelte/icons/undo-2'
   import { Button } from '$lib/components/ui/button'
-  import { settings } from '$lib/state'
-  import {
-    overrideToSave,
-    runCommandOverride,
-    runCommandOverrideKey,
-  } from '$lib/run-app/run-command'
+  import { commands } from '$lib/ipc'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { workspaces } from '$lib/state'
+  import { overrideToSave } from '$lib/run-app/run-command'
 
   let {
     workspaceId,
@@ -25,7 +23,9 @@
   let draft = $state('')
   let inputEl = $state<HTMLInputElement | null>(null)
 
-  const override = $derived(runCommandOverride(settings.rows, workspaceId))
+  const override = $derived(
+    workspaces.getById(workspaceId)?.runCommand?.trim() ?? '',
+  )
   const command = $derived(override || repoCommand)
 
   /** Opens the editor; the empty state uses it when there's no command at all. */
@@ -41,12 +41,16 @@
     if (!editing) return
     editing = false
     const value = overrideToSave(draft, repoCommand)
-    if (value !== override)
-      void settings.persist(runCommandOverrideKey(workspaceId), value)
+    if (value !== override) void saveOverride(value)
   }
 
   function reset() {
-    void settings.persist(runCommandOverrideKey(workspaceId), '')
+    void saveOverride('')
+  }
+
+  async function saveOverride(command: string) {
+    const result = await commands.setWorkspaceRunCommand(workspaceId, command)
+    if (result.status === 'error') toastCoreError(result.error)
   }
 </script>
 

@@ -13,13 +13,18 @@ use crate::findings::FindingRow;
 use crate::github::PrRow;
 use crate::harness_config::RepoRunCommand;
 use crate::metrics::MemorySample;
+use crate::review::ReviewRow;
 use crate::scratch::ScratchRow;
+use crate::settings::Settings;
 use crate::state::AppState;
 use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
 use crate::transcript::ThreadActivityRow;
 use crate::workspace_git::WorkspaceGitRuntime;
 use crate::workspaces::WorkspaceRecord;
 
+/// A `review:<workspace>/status` row in the shape the settings table once held it. Only the
+/// timeline still reads these; it moves to `PersistedSnapshot::reviews` with the timeline's
+/// rework, and then this goes.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingRow {
@@ -30,7 +35,9 @@ pub struct SettingRow {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedSnapshot {
+    /// Each review's status as a legacy settings row; see `SettingRow`.
     pub settings: Vec<SettingRow>,
+    pub reviews: Vec<ReviewRow>,
     pub repos: Vec<RepoRecord>,
     pub workspaces: Vec<WorkspaceRow>,
     pub threads: Vec<ThreadRow>,
@@ -49,6 +56,7 @@ pub struct PersistedSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub version: u64,
+    pub settings: Settings,
     pub persisted: PersistedSnapshot,
     /// Every live workspace, in the order they were created.
     pub workspaces: Vec<WorkspaceRecord>,
@@ -68,11 +76,18 @@ pub struct Snapshot {
 /// The stored rows, read in one transaction.
 fn persisted(store: &crate::store::Store) -> Result<PersistedSnapshot> {
     store.read_consistent(|conn| {
+        let reviews = crate::review::live_in(conn)?;
         Ok(PersistedSnapshot {
-            settings: crate::store::settings_in(conn)?
-                .into_iter()
-                .map(|(key, value)| SettingRow { key, value })
+            settings: reviews
+                .iter()
+                .filter_map(|review| {
+                    Some(SettingRow {
+                        key: format!("review:{}/status", review.workspace_id),
+                        value: review.status?.as_str().into(),
+                    })
+                })
                 .collect(),
+            reviews,
             repos: crate::store::repos_in(conn)?,
             workspaces: crate::store::live_workspaces_in(conn)?,
             threads: crate::store::workspace_threads_in(conn)?,
@@ -89,7 +104,10 @@ fn persisted(store: &crate::store::Store) -> Result<PersistedSnapshot> {
 #[tauri::command]
 #[specta::specta]
 pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
-    let persisted = state.store.blocking(persisted).await?;
+    let (settings, persisted) = state
+        .store
+        .blocking(|store| Ok((Settings::read(store)?, persisted(store)?)))
+        .await?;
     let workspaces = state
         .workspaces
         .records_for(&persisted.workspaces, &persisted.repos)
@@ -100,6 +118,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
 
     Ok(Snapshot {
         version: state.out.version(),
+        settings,
         persisted,
         workspaces,
         workspace_git,
@@ -127,8 +146,10 @@ mod tests {
     #[test]
     fn lists_what_the_live_workspaces_and_visible_threads_hold() {
         let store = Store::in_memory().unwrap();
-        store.set_setting("reduceMotion", "true").unwrap();
         store.seed_workspace("w1", WorkspaceLifecycle::Ready);
+        store
+            .set_review_status("w1", crate::review::ReviewStatus::Ready)
+            .unwrap();
         store.seed_thread("t1", "w1", ThreadStatus::Idle);
         store.seed_workspace("gone", WorkspaceLifecycle::Idle);
         store.seed_thread("t2", "gone", ThreadStatus::Idle);
@@ -163,7 +184,9 @@ mod tests {
         store.archive_workspace("gone").unwrap();
 
         let snap = read(&store);
-        assert_eq!(snap.settings[0].value, "true");
+        assert_eq!(snap.reviews.len(), 1);
+        assert_eq!(snap.settings[0].key, "review:w1/status");
+        assert_eq!(snap.settings[0].value, "ready");
         assert_eq!(snap.repos[0].id, "r1");
         let ids = |rows: Vec<String>| rows;
         assert_eq!(

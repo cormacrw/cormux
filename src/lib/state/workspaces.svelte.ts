@@ -1,6 +1,6 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
-import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
+import type { ReviewStatus, WorkspaceLifecycle } from '$lib/ipc/bindings'
 import { reuseRows } from './reuse-rows'
 
 /** A workspace at a glance; the sidebar reads the finer `lifecycle` instead. */
@@ -25,6 +25,12 @@ export type Workspace = {
   provStep: number
   setupFailedCommand: string | null
   setupFailedExitCode: number | null
+  /** The workspace's own run command, which Run starts instead of its repo's. */
+  runCommand: string | null
+  /** Where a review of this workspace stands; null before one starts. */
+  reviewStatus: ReviewStatus | null
+  /** The review was posted to GitHub. */
+  reviewSubmitted: boolean
 }
 
 export class WorkspacesStore {

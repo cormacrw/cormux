@@ -6,13 +6,6 @@ import type {
 
 type SprintLane = { status: ClickupStatus; tasks: ClickupTask[] }
 
-/** Settings keys for the picked workspace, space and sprint folder. */
-export const CLICKUP_WORKSPACE_KEY = 'clickupWorkspaceId'
-export const CLICKUP_SPACE_KEY = 'clickupSpaceId'
-export const CLICKUP_FOLDER_KEY = 'clickupFolderId'
-/** Lanes hidden on the board, as lower-cased status names in a JSON array. */
-export const CLICKUP_HIDDEN_STATUSES_KEY = 'clickupHiddenStatuses'
-
 /** The Fibonacci values most teams estimate in, offered as one-click choices. */
 export const POINT_PRESETS = [0.5, 1, 2, 3, 5, 8] as const
 
@@ -29,19 +22,6 @@ export function sprintLanes(
     status,
     tasks: tasks.filter((task) => sameStatus(task.status, status.name)),
   }))
-}
-
-/** Anything malformed reads as nothing hidden. */
-export function parseHiddenStatuses(raw: string | undefined): string[] {
-  if (!raw) return []
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed)
-      ? parsed.filter((name): name is string => typeof name === 'string')
-      : []
-  } catch {
-    return []
-  }
 }
 
 export function statusKey(name: string) {

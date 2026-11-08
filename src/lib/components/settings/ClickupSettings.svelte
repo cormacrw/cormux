@@ -4,15 +4,9 @@
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import * as Select from '$lib/components/ui/select'
-  import {
-    CLICKUP_FOLDER_KEY,
-    CLICKUP_SPACE_KEY,
-    CLICKUP_WORKSPACE_KEY,
-  } from '$lib/clickup/board'
   import { coreErrorText } from '$lib/feedback/core-error'
   import { commands } from '$lib/ipc'
   import type { ClickupOption, Error as CoreError } from '$lib/ipc/bindings'
-  import { readStringSetting } from '$lib/new-workspace/settings-defaults'
   import { clickup, settings } from '$lib/state'
 
   let keyDraft = $state('')
@@ -24,15 +18,9 @@
   let folderOptions = $state<ClickupOption[]>([])
   let loadError = $state<string | null>(null)
 
-  const workspaceId = $derived(
-    readStringSetting(settings.rows, CLICKUP_WORKSPACE_KEY, ''),
-  )
-  const spaceId = $derived(
-    readStringSetting(settings.rows, CLICKUP_SPACE_KEY, ''),
-  )
-  const folderId = $derived(
-    readStringSetting(settings.rows, CLICKUP_FOLDER_KEY, ''),
-  )
+  const workspaceId = $derived(settings.values.clickupWorkspaceId)
+  const spaceId = $derived(settings.values.clickupSpaceId)
+  const folderId = $derived(settings.values.clickupFolderId)
 
   async function saveKey() {
     const key = keyDraft.trim()
@@ -58,14 +46,15 @@
   /** Picking a parent clears its children, so the board never points at another space's folder. */
   async function choose(level: 'workspace' | 'space' | 'folder', id: string) {
     if (level === 'workspace') {
-      await settings.persist(CLICKUP_WORKSPACE_KEY, id)
-      await settings.persist(CLICKUP_SPACE_KEY, '')
-      await settings.persist(CLICKUP_FOLDER_KEY, '')
+      await settings.update({
+        clickupWorkspaceId: id,
+        clickupSpaceId: '',
+        clickupFolderId: '',
+      })
     } else if (level === 'space') {
-      await settings.persist(CLICKUP_SPACE_KEY, id)
-      await settings.persist(CLICKUP_FOLDER_KEY, '')
+      await settings.update({ clickupSpaceId: id, clickupFolderId: '' })
     } else {
-      await settings.persist(CLICKUP_FOLDER_KEY, id)
+      await settings.update({ clickupFolderId: id })
     }
   }
 

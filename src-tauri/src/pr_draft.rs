@@ -30,21 +30,18 @@ pub fn fallback_why(workspace: &WorkspaceRow, goal: &str) -> String {
     }
 }
 
-/// Settings key for the instructions the drafting model gets; empty means the default.
-pub const PR_PROMPT_KEY: &str = "prPrompt";
-
 pub const DEFAULT_PR_PROMPT: &str = "Write the description for this pull request in GitHub-flavoured markdown. \
 Open with two or three sentences on why the change is necessary: the problem it solves and why it matters now. \
 Then add a \"## What changed\" section with a short bullet list of the meaningful changes, \
 and a \"## How it was tested\" section if the thread shows any testing. \
 Don't add a title, and don't invent details the thread and diff don't support.";
 
-/// The saved prompt, or the default when it's unset or blank.
-pub fn pr_prompt(saved: Option<String>) -> String {
-    saved
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty())
-        .unwrap_or_else(|| DEFAULT_PR_PROMPT.into())
+/// The saved prompt, or the default when it's blank.
+pub fn pr_prompt(saved: &str) -> String {
+    match saved.trim() {
+        "" => DEFAULT_PR_PROMPT.into(),
+        text => text.into(),
+    }
 }
 
 pub fn build_draft_prompt(
@@ -121,9 +118,9 @@ mod tests {
 
     #[test]
     fn blank_prompt_falls_back_to_default() {
-        assert_eq!(pr_prompt(None), DEFAULT_PR_PROMPT);
-        assert_eq!(pr_prompt(Some("  \n".into())), DEFAULT_PR_PROMPT);
-        assert_eq!(pr_prompt(Some(" Be brief. ".into())), "Be brief.");
+        assert_eq!(pr_prompt(""), DEFAULT_PR_PROMPT);
+        assert_eq!(pr_prompt("  \n"), DEFAULT_PR_PROMPT);
+        assert_eq!(pr_prompt(" Be brief. "), "Be brief.");
     }
 
     /// The fallback only ever says what the thread and summary say; a workspace that happens

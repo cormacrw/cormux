@@ -1,5 +1,4 @@
 import type { Snapshot } from '$lib/ipc'
-import { readBooleanSetting } from '$lib/new-workspace/settings-defaults'
 import { notifyHarness } from './os-notifications'
 import {
   approvalNeededNotificationBody,
@@ -52,12 +51,11 @@ function newestApprovalTarget(snapshot: Snapshot): ToastTarget | undefined {
 
 export async function onSnapshotSupervision(snapshot: Snapshot) {
   const pending = snapshot.pendingApprovals
-  const notifyApprovals = readBooleanSetting(
-    snapshot.persisted.settings,
-    'notifyApprovals',
-    true,
-  )
-  if (pending > lastPending && !windowFocused && notifyApprovals) {
+  if (
+    pending > lastPending &&
+    !windowFocused &&
+    snapshot.settings.notifyApprovals
+  ) {
     await notifyHarness(
       'Cormux',
       approvalNeededNotificationBody(pending),
@@ -77,12 +75,7 @@ export async function onSnapshotSupervision(snapshot: Snapshot) {
           workspaceId,
         ),
       )
-      const notifyReviewFinished = readBooleanSetting(
-        snapshot.persisted.settings,
-        'notifyReviewFinished',
-        true,
-      )
-      if (!windowFocused && notifyReviewFinished) {
+      if (!windowFocused && snapshot.settings.notifyReviewFinished) {
         const label =
           prNumberForWorkspace(snapshot, workspaceId) != null
             ? `Review of #${prNumberForWorkspace(snapshot, workspaceId)} finished · ${count} findings`

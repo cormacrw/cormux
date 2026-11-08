@@ -1,3 +1,5 @@
+mod store;
+
 use crate::bus::DomainEvent;
 use uuid::Uuid;
 
@@ -17,6 +19,9 @@ use crate::timeline::TimelineStep;
 use crate::transcript::TranscriptEvent;
 use crate::workspace_git::Checkout;
 use crate::workspaces::WorkspaceRecord;
+
+pub(crate) use store::live as live_in;
+pub use store::{ReviewRow, ReviewStatus};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -52,18 +57,6 @@ pub enum SubmitReviewVerdict {
 pub struct SubmitWorkspaceReviewInput {
     pub workspace_id: String,
     pub verdict: SubmitReviewVerdict,
-}
-
-pub fn review_status_key(workspace_id: &str) -> String {
-    format!("review:{workspace_id}/status")
-}
-
-pub fn review_author_key(workspace_id: &str) -> String {
-    format!("review:{workspace_id}/author")
-}
-
-pub fn review_submitted_key(workspace_id: &str) -> String {
-    format!("review:{workspace_id}/submitted")
 }
 
 pub fn user_review_message(
@@ -144,15 +137,6 @@ pub fn find_existing_review_workspace(
     })
 }
 
-fn default_engine(store: &Store) -> String {
-    store
-        .get_setting("defaultEngine")
-        .ok()
-        .flatten()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "claude".into())
-}
-
 pub async fn create_review_workspace(
     state: &AppState,
     input: CreateReviewWorkspaceInput,
@@ -170,7 +154,7 @@ pub async fn create_review_workspace(
         });
     }
 
-    let engine = default_engine(&state.store);
+    let engine = crate::settings::Settings::load(&state.store).default_engine_name();
     let created = crate::provisioning::create(
         state,
         WorkspaceSpec {
@@ -214,7 +198,7 @@ pub async fn create_review_workspace(
     };
     state
         .store
-        .set_setting(&review_author_key(&workspace_id), &author_label)?;
+        .set_review_author(&workspace_id, &author_label)?;
 
     state.out.changed(Change::THREADS);
 
@@ -293,10 +277,7 @@ pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<Prov
         .transcript
         .first_message(&thread.id)?
         .unwrap_or_default();
-    let author = state
-        .store
-        .get_setting(&review_author_key(&workspace.id))?
-        .unwrap_or_else(|| "the author".into());
+    let author = review_author(&state.store, &workspace.id)?;
     Ok(review_plan(
         workspace, &thread.id, &message, pr_number, author,
     ))
@@ -318,12 +299,22 @@ pub fn start(state: &AppState) {
 }
 
 pub fn review_is_ready(store: &Store, workspace_id: &str) -> bool {
+    review_status(store, workspace_id) == Some(ReviewStatus::Ready)
+}
+
+fn review_status(store: &Store, workspace_id: &str) -> Option<ReviewStatus> {
     store
-        .get_setting(&review_status_key(workspace_id))
+        .review(workspace_id)
         .ok()
         .flatten()
-        .as_deref()
-        == Some("ready")
+        .and_then(|review| review.status)
+}
+
+fn review_author(store: &Store, workspace_id: &str) -> Result<String> {
+    Ok(store
+        .review(workspace_id)?
+        .and_then(|review| review.author)
+        .unwrap_or_else(|| "the author".into()))
 }
 
 /// Runs when any thread's turn ends. For a Reviewer whose review isn't done yet, reads
@@ -395,12 +386,7 @@ pub async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<(
 }
 
 fn branch_review_running(store: &Store, workspace_id: &str) -> bool {
-    store
-        .get_setting(&review_status_key(workspace_id))
-        .ok()
-        .flatten()
-        .as_deref()
-        == Some("running")
+    review_status(store, workspace_id) == Some(ReviewStatus::Running)
 }
 
 /// Review a regular workspace's own branch. The workspace's thread reads the changes against
@@ -434,7 +420,7 @@ pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result
     crate::turn::start(state, &thread, &message, prompt).await?;
     state
         .store
-        .set_setting(&review_status_key(workspace_id), "running")?;
+        .set_review_status(workspace_id, ReviewStatus::Running)?;
     state.out.changed(Change::THREADS);
     Ok(thread.id)
 }
@@ -447,7 +433,7 @@ fn complete_branch_review(
 ) -> Result<()> {
     state
         .store
-        .set_setting(&review_status_key(&workspace.id), "ready")?;
+        .set_review_status(&workspace.id, ReviewStatus::Ready)?;
     let found = state
         .store
         .findings_for_workspace(&workspace.id)?
@@ -484,12 +470,9 @@ async fn complete_review(
 
     state
         .store
-        .set_setting(&review_status_key(&workspace.id), "ready")?;
+        .set_review_status(&workspace.id, ReviewStatus::Ready)?;
 
-    let author = state
-        .store
-        .get_setting(&review_author_key(&workspace.id))?
-        .unwrap_or_else(|| "the author".into());
+    let author = review_author(&state.store, &workspace.id)?;
     let pr_label = workspace
         .pr_number
         .map(|num| format!("#{num}"))
@@ -552,9 +535,8 @@ pub async fn submit_workspace_review(
 ) -> Result<()> {
     if state
         .store
-        .get_setting(&review_submitted_key(&input.workspace_id))?
-        .as_deref()
-        == Some("true")
+        .review(&input.workspace_id)?
+        .is_some_and(|review| review.submitted)
     {
         return Err(Error::Workspace("Review already submitted".into()));
     }
@@ -649,9 +631,7 @@ pub async fn submit_workspace_review(
     }
 
     // Straight after the POST, before anything that can fail: a retry must not post twice.
-    state
-        .store
-        .set_setting(&review_submitted_key(&input.workspace_id), "true")?;
+    state.store.mark_review_submitted(&input.workspace_id)?;
 
     let workspace_threads = state.store.threads_for_workspace(&input.workspace_id)?;
     let reviewer_thread = state
@@ -786,7 +766,7 @@ mod tests {
         let (state, recording, _) = workspace(ThreadStatus::Idle);
         state
             .store
-            .set_setting(&review_status_key("w1"), "running")
+            .set_review_status("w1", ReviewStatus::Running)
             .unwrap();
         state.transcript.append("t1", agent_said(reply)).unwrap();
         (state, recording)
@@ -855,10 +835,7 @@ mod tests {
                     .with_status(ThreadStatus::Running),
             )
             .unwrap();
-        state
-            .store
-            .set_setting(&review_author_key("pr"), "@ana")
-            .unwrap();
+        state.store.set_review_author("pr", "@ana").unwrap();
         let said = agent_said("Fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
         state.transcript.append("rt", said).unwrap();
         state.workspaces.rename("pr", "Renamed").await.unwrap();
@@ -931,10 +908,7 @@ mod tests {
         let thread = state.store.thread_by_id("t1").unwrap().unwrap();
         assert_eq!(thread.status, ThreadStatus::Idle);
         assert!(!review_is_ready(&state.store, "w1"));
-        assert_eq!(
-            state.store.get_setting(&review_status_key("w1")).unwrap(),
-            None
-        );
+        assert_eq!(state.store.review("w1").unwrap(), None);
     }
 
     #[tokio::test]

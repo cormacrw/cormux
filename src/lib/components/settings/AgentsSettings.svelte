@@ -33,7 +33,7 @@
   }
 
   async function chooseEngine(kind: EngineKind) {
-    await settings.setDefaultEngine(kind)
+    await settings.update({ defaultEngine: kind })
   }
 </script>
 
@@ -109,7 +109,8 @@
       {#snippet control()}
         <Switch
           checked={settings.runEverything}
-          onCheckedChange={(next) => void settings.setRunEverything(next)}
+          onCheckedChange={(next) =>
+            void settings.update({ runEverything: next })}
           aria-label="Run everything"
         />
       {/snippet}

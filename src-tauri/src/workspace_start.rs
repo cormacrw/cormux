@@ -408,10 +408,14 @@ esac
             })
             .unwrap();
         let worktrees = dir.path().join("worktrees");
-        state
-            .store
-            .set_setting("worktreeRoot", &worktrees.to_string_lossy())
-            .unwrap();
+        crate::settings::Settings::update(
+            &state.store,
+            crate::settings::SettingsPatch {
+                worktree_root: Some(worktrees.to_string_lossy().into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         set_path(&state, "/usr/bin:/bin").await;
 
         Fixture {

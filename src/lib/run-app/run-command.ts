@@ -1,25 +1,9 @@
-import type { SettingRow } from '$lib/ipc/bindings'
-
-/** A workspace's own run command, set in its Output tab. The core reads the same setting. */
-export function runCommandOverrideKey(workspaceId: string): string {
-  return `workspace:${workspaceId}/runCommand`
-}
-
-export function runCommandOverride(
-  settings: SettingRow[],
-  workspaceId: string,
-): string {
-  const key = runCommandOverrideKey(workspaceId)
-  return settings.find((row) => row.key === key)?.value.trim() ?? ''
-}
-
 /** The command Run starts in a workspace: its own when set, else the repo's ('' for none). */
 export function workspaceRunCommand(
-  settings: SettingRow[],
-  workspaceId: string,
+  own: string | null | undefined,
   repoCommand: string | null | undefined,
 ): string {
-  return runCommandOverride(settings, workspaceId) || repoCommand?.trim() || ''
+  return own?.trim() || repoCommand?.trim() || ''
 }
 
 /** What to store for an edit: nothing when it's blank or just the repo's own command again. */

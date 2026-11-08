@@ -257,6 +257,13 @@ impl Workspaces {
         self.store.set_workspace_summary(id, summary, source)
     }
 
+    /// The workspace's own run command; blank goes back to the repo's.
+    pub fn set_run_command(&self, id: &str, command: &str) -> Result<()> {
+        let command = command.trim();
+        self.store
+            .set_workspace_run_command(id, (!command.is_empty()).then_some(command))
+    }
+
     /// What setup is doing, or why it failed. Only the running app knows this.
     pub async fn set_activity(
         &self,

@@ -102,6 +102,20 @@ impl Store {
         })
     }
 
+    /// Writes every `(key, value)`, all or none.
+    pub fn set_settings(&self, rows: &[(&str, String)]) -> Result<()> {
+        self.with_tx(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            )?;
+            for (key, value) in rows {
+                stmt.execute(rusqlite::params![key, value])?;
+            }
+            Ok(())
+        })
+    }
+
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
         self.with_read(|conn| {
             Ok(conn
@@ -220,6 +234,20 @@ impl Store {
             conn.execute(
                 "UPDATE workspaces SET pr_number = ?1, pr_html_url = ?2 WHERE id = ?3",
                 rusqlite::params![pr_number, pr_html_url, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_workspace_run_command(
+        &self,
+        workspace_id: &str,
+        command: Option<&str>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET run_command = ?1 WHERE id = ?2",
+                rusqlite::params![command, workspace_id],
             )?;
             Ok(())
         })
@@ -504,9 +532,9 @@ fn write_workspace(conn: &Connection, workspace: &WorkspaceRow) -> Result<()> {
     conn.execute(
         "INSERT INTO workspaces (
             id, repo_id, name, branch, base, worktree_path, status,
-            summary, summary_at, summary_source, kind, pr_number, pr_html_url
+            summary, summary_at, summary_source, kind, pr_number, pr_html_url, run_command
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         rusqlite::params![
             workspace.id,
             workspace.repo_id,
@@ -521,6 +549,7 @@ fn write_workspace(conn: &Connection, workspace: &WorkspaceRow) -> Result<()> {
             workspace.kind.as_str(),
             workspace.pr_number,
             workspace.pr_html_url,
+            workspace.run_command,
         ],
     )?;
     Ok(())
@@ -589,7 +618,7 @@ fn row_to_repo(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
 }
 
 /// `WorkspaceRow`'s columns, in the order `workspace_at` reads them.
-const WORKSPACE_FIELDS: [&str; 15] = [
+const WORKSPACE_FIELDS: [&str; 16] = [
     "id",
     "repo_id",
     "name",
@@ -605,6 +634,7 @@ const WORKSPACE_FIELDS: [&str; 15] = [
     "pr_number",
     "pr_html_url",
     "archived_at",
+    "run_command",
 ];
 
 /// `ThreadRow`'s columns, in the order `thread_at` reads them.
@@ -691,6 +721,7 @@ pub(crate) fn workspace_at(row: &rusqlite::Row<'_>, at: usize) -> rusqlite::Resu
         pr_number: row.get(at + 12)?,
         pr_html_url: row.get(at + 13)?,
         archived_at: row.get(at + 14)?,
+        run_command: row.get(at + 15)?,
     })
 }
 

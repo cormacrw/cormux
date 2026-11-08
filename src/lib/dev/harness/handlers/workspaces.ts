@@ -62,6 +62,20 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
   const { scenario, controls, emitStateChanged } = runtime
 
   return {
+    set_workspace_run_command: ({
+      workspaceId,
+      command,
+    }: {
+      workspaceId: string
+      command: string
+    }) => {
+      const row = fixtureSnapshot.persisted.workspaces.find(
+        (workspace) => workspace.id === workspaceId,
+      )
+      if (row) row.runCommand = command.trim() || null
+      emitStateChanged()
+      return null
+    },
     create_workspace: ({ input }: Input<'create_workspace'>) => {
       const created = createWorkspace(input)
       // The first prompt, as `send_thread_prompt` records a later one.

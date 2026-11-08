@@ -13,7 +13,8 @@
     {#snippet control()}
       <Switch
         checked={settings.notifyApprovals}
-        onCheckedChange={(next) => void settings.setNotifyApprovals(next)}
+        onCheckedChange={(next) =>
+          void settings.update({ notifyApprovals: next })}
         aria-label="Approval requests"
       />
     {/snippet}
@@ -26,7 +27,8 @@
     {#snippet control()}
       <Switch
         checked={settings.notifyReviewFinished}
-        onCheckedChange={(next) => void settings.setNotifyReviewFinished(next)}
+        onCheckedChange={(next) =>
+          void settings.update({ notifyReviewFinished: next })}
         aria-label="Finished reviews"
       />
     {/snippet}

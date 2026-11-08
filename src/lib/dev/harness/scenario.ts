@@ -36,8 +36,8 @@ export type HarnessScenario = {
   approvals?: ApprovalRow[]
   /** Review findings; this makes the fixture workspace a finished review. */
   reviewFindings?: FindingRow[]
-  /** Settings rows, as a returning user has them. */
-  settings?: Record<string, string>
+  /** Settings as a returning user has them. */
+  settings?: Partial<Snapshot['settings']>
   /** The fixture repo's run command. */
   runCommand?: string
   /** The usage the Lead's engine reported. */

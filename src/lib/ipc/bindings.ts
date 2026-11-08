@@ -614,6 +614,17 @@ async controlWorkspaceApp(input: ControlWorkspaceAppInput) : Promise<Result<null
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The workspace's own run command, set in its Output tab; blank runs the repo's.
+ */
+async setWorkspaceRunCommand(workspaceId: string, command: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_workspace_run_command", { workspaceId, command }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setRepoRunCommand(input: SetRepoRunCommandInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_repo_run_command", { input }) };
@@ -704,9 +715,20 @@ async validateBranchName(name: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async setSetting(input: SetSettingInput) : Promise<Result<null, Error>> {
+async getSettings() : Promise<Result<Settings, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("set_setting", { input }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Saves the fields `patch` sets and returns every setting as now stored.
+ */
+async updateSettings(patch: SettingsPatch) : Promise<Result<Settings, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_settings", { patch }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -830,6 +852,14 @@ export type ApprovalStatus = "pending" | "approved" | "denied" |
  * Older builds' word for a card a newer one replaced; reads as denied. Not written any more.
  */
 "dismissed"
+/**
+ * A short name like `!test` that stands for a saved prompt.
+ */
+export type Bang = { id: string; 
+/**
+ * Without the `!`: lowercase letters, digits, `-` and `_`.
+ */
+name: string; prompt: string }
 /**
  * How a workspace came to be on another branch.
  */
@@ -1001,7 +1031,11 @@ export type ModelOption = {
  * What the engine is told: a `--model` alias or `--effort` level for Claude.
  */
 id: string; label: string }
-export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
+export type PersistedSnapshot = { 
+/**
+ * Each review's status as a legacy settings row; see `SettingRow`.
+ */
+settings: SettingRow[]; reviews: ReviewRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
 /**
  * Newest first.
  */
@@ -1068,6 +1102,28 @@ conversationId: string;
  * The agent session it ended with; none starts the agent fresh.
  */
 sessionId: string | null }
+export type ReviewRow = { workspaceId: string; 
+/**
+ * None before a branch review starts.
+ */
+status: ReviewStatus | null; 
+/**
+ * The PR author as cards name them: `you` or `@login`.
+ */
+author: string | null; 
+/**
+ * The review was posted to GitHub.
+ */
+submitted: boolean }
+export type ReviewStatus = 
+/**
+ * The Reviewer is reading the changes.
+ */
+"running" | 
+/**
+ * The findings are in.
+ */
+"ready"
 /**
  * Where a run command comes from.
  */
@@ -1105,15 +1161,64 @@ export type SetRepoDefaultBranchInput = { repoId: string; defaultBranch: string 
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }
 export type SetRepoSingleInstanceInput = { repoId: string; singleInstance: boolean }
-export type SetSettingInput = { key: string; value: string }
+/**
+ * A `review:<workspace>/status` row in the shape the settings table once held it. Only the
+ * timeline still reads these; it moves to `PersistedSnapshot::reviews` with the timeline's
+ * rework, and then this goes.
+ */
 export type SettingRow = { key: string; value: string }
+export type Settings = { reduceMotion: boolean; 
+/**
+ * Approve every tool request without asking. Questions still wait for the user.
+ */
+runEverything: boolean; 
+/**
+ * The experimental References panel, and the tool that pins links to it.
+ */
+experimentalReferences: boolean; notifyApprovals: boolean; notifyReviewFinished: boolean; defaultEngine: EngineKind; 
+/**
+ * Preferred repo id for new threads; it may have been removed since.
+ */
+defaultRepo: string; 
+/**
+ * The folder new worktrees go in, as the user typed it (`~` allowed).
+ */
+worktreeRoot: string; 
+/**
+ * The app Open in Terminal launches; empty means Terminal.
+ */
+terminalApp: string; 
+/**
+ * Instructions for drafting a PR description; empty means the built-in default.
+ */
+prPrompt: string; 
+/**
+ * `!name` prompts, for any prompt bar and the command palette.
+ */
+bangs: Bang[]; clickupWorkspaceId: string; clickupSpaceId: string; 
+/**
+ * The sprint folder the ClickUp board shows.
+ */
+clickupFolderId: string; 
+/**
+ * Board lanes the user folded away, by status name.
+ */
+clickupHiddenStatuses: string[] }
+/**
+ * Changes to some settings; the rest stay as they are.
+ */
+export type SettingsPatch = { reduceMotion?: boolean | null; runEverything?: boolean | null; experimentalReferences?: boolean | null; notifyApprovals?: boolean | null; notifyReviewFinished?: boolean | null; defaultEngine?: EngineKind | null; defaultRepo?: string | null; 
+/**
+ * Blank goes back to the default folder.
+ */
+worktreeRoot?: string | null; terminalApp?: string | null; prPrompt?: string | null; bangs?: Bang[] | null; clickupWorkspaceId?: string | null; clickupSpaceId?: string | null; clickupFolderId?: string | null; clickupHiddenStatuses?: string[] | null }
 export type Skill = { name: string; description: string; 
 /**
  * `project` for the repo's own skills, `user` for `~/.claude/skills`, `plugin` for
  * those from Claude Code plugins, `builtin` for those that ship with Claude Code.
  */
 source: string }
-export type Snapshot = { version: number; persisted: PersistedSnapshot; 
+export type Snapshot = { version: number; settings: Settings; persisted: PersistedSnapshot; 
 /**
  * Every live workspace, in the order they were created.
  */
@@ -1342,7 +1447,11 @@ export type WorkspaceRow = { id: string; repoId: string; name: string; branch: s
 /**
  * The branch the workspace is compared with and pulls from.
  */
-base: string; worktreePath: string; status: WorkspaceLifecycle; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: WorkspaceKind; prNumber: number | null; prHtmlUrl: string | null; archivedAt: string | null }
+base: string; worktreePath: string; status: WorkspaceLifecycle; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: WorkspaceKind; prNumber: number | null; prHtmlUrl: string | null; archivedAt: string | null; 
+/**
+ * The workspace's own run command, which Run starts instead of the repo's.
+ */
+runCommand: string | null }
 export type WorkspaceStack = { workspaceId: string; status: StackStatus; 
 /**
  * Why the stack is unavailable, for the panel to show.

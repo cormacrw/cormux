@@ -14,7 +14,7 @@
       <Switch
         checked={settings.experimentalReferences}
         onCheckedChange={(next) =>
-          void settings.setExperimentalReferences(next)}
+          void settings.update({ experimentalReferences: next })}
         aria-label="References"
         data-od-id="settings-experimental-references"
       />

@@ -1,7 +1,7 @@
 import type {
   ClickupBoard,
   ClickupTaskDetail,
-  SettingRow,
+  Settings,
 } from '$lib/ipc/bindings'
 import { commands, type CoreError } from '$lib/ipc'
 import { coreErrorText } from '$lib/feedback/core-error'
@@ -10,9 +10,6 @@ import { showToast } from '$lib/feedback/show-toast'
 import { settings } from './settings.svelte'
 import {
   assignedToMe,
-  CLICKUP_FOLDER_KEY,
-  CLICKUP_HIDDEN_STATUSES_KEY,
-  parseHiddenStatuses,
   sprintLanes,
   sprintProgress,
   statusKey,
@@ -67,12 +64,9 @@ export class ClickupStore {
     this.mine?.tasks.find((task) => task.id === this.selectedTaskId) ?? null,
   )
 
-  hydrate(configured: boolean, rows: SettingRow[]) {
-    const folderId =
-      rows.find((row) => row.key === CLICKUP_FOLDER_KEY)?.value ?? ''
-    const hidden = parseHiddenStatuses(
-      rows.find((row) => row.key === CLICKUP_HIDDEN_STATUSES_KEY)?.value,
-    )
+  hydrate(configured: boolean, chosen: Settings) {
+    const folderId = chosen.clickupFolderId
+    const hidden = chosen.clickupHiddenStatuses
     // Only a real change: a new array here would rebuild every lane on every snapshot.
     if (!deepEqual(hidden, this.hiddenStatuses)) this.hiddenStatuses = hidden
     const changed = configured !== this.configured || folderId !== this.folderId
@@ -149,7 +143,7 @@ export class ClickupStore {
 
   private persistHidden(next: string[]) {
     this.hiddenStatuses = next
-    void settings.persist(CLICKUP_HIDDEN_STATUSES_KEY, JSON.stringify(next))
+    void settings.update({ clickupHiddenStatuses: next })
   }
 
   select(taskId: string | null) {

@@ -7,7 +7,7 @@ use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
-use crate::paths::{WORKTREE_ROOT_SETTING, expand_tilde, worktrees_root};
+use crate::paths::{expand_tilde, worktrees_root};
 use crate::process::{Exit, SessionId, ShellCommand};
 use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
 use crate::state::AppState;
@@ -79,7 +79,7 @@ pub async fn create(state: &AppState, spec: WorkspaceSpec) -> Result<Created> {
 
     let workspace_id = format!("ws-{}", Uuid::new_v4().simple());
     let thread_id = Uuid::new_v4().to_string();
-    let root = worktrees_root(state.store.get_setting(WORKTREE_ROOT_SETTING)?.as_deref());
+    let root = worktrees_root(&crate::settings::Settings::read(&state.store)?.worktree_root);
     let worktree = crate::paths::worktree_path(&root, &repo_path, &spec.branch);
     let mut row = WorkspaceRow::new(
         spec.kind,
@@ -460,13 +460,14 @@ mod tests {
                 single_instance: false,
             })
             .unwrap();
-        state
-            .store
-            .set_setting(
-                WORKTREE_ROOT_SETTING,
-                &dir.path().join("worktrees").to_string_lossy(),
-            )
-            .unwrap();
+        crate::settings::Settings::update(
+            &state.store,
+            crate::settings::SettingsPatch {
+                worktree_root: Some(dir.path().join("worktrees").to_string_lossy().into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let created = create(
             &state,
             WorkspaceSpec {

@@ -82,10 +82,16 @@ function seedReviewFindings(findings: HarnessScenario['reviewFindings']) {
     { title: 'Reviewer', role: 'reviewer' },
   )
   persisted.findings = findings!
-  persisted.settings = [
-    ...persisted.settings,
-    { key: 'review:ws-auth/status', value: 'ready' },
+  persisted.reviews = [
+    {
+      workspaceId: 'ws-auth',
+      status: 'ready',
+      author: null,
+      submitted: false,
+    },
   ]
+  // As the core sends it for the timeline, beside the typed review.
+  persisted.settings = [{ key: 'review:ws-auth/status', value: 'ready' }]
 }
 
 function seedLeadUsage(usage: NonNullable<HarnessScenario['leadUsage']>) {
@@ -131,11 +137,7 @@ export function seedFixtures(scenario: HarnessScenario) {
   }
   if (scenario.approvals) persisted.approvals = scenario.approvals
   if (scenario.reviewFindings) seedReviewFindings(scenario.reviewFindings)
-  for (const [key, value] of Object.entries(scenario.settings ?? {})) {
-    const row = persisted.settings.find((entry) => entry.key === key)
-    if (row) row.value = value
-    else persisted.settings.push({ key, value })
-  }
+  Object.assign(fixtureSnapshot.settings, scenario.settings)
   if (scenario.runCommand) persisted.repos[0]!.runCommand = scenario.runCommand
   if (scenario.leadUsage) seedLeadUsage(scenario.leadUsage)
   if (scenario.entities) persisted.entities = scenario.entities
@@ -145,10 +147,10 @@ export function seedFixtures(scenario: HarnessScenario) {
   }
   if (scenario.clickup) {
     fixtureSnapshot.clickupConfigured = true
-    persisted.settings.push(
-      { key: 'clickupWorkspaceId', value: 'team-1' },
-      { key: 'clickupSpaceId', value: 'space-1' },
-      { key: 'clickupFolderId', value: 'folder-sprints' },
-    )
+    Object.assign(fixtureSnapshot.settings, {
+      clickupWorkspaceId: 'team-1',
+      clickupSpaceId: 'space-1',
+      clickupFolderId: 'folder-sprints',
+    })
   }
 }

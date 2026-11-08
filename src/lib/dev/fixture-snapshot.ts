@@ -14,8 +14,27 @@ export const fixtureEngines: EngineStatus[] = [
 
 export const fixtureSnapshot: Snapshot = {
   version: 1,
+  // The core's defaults.
+  settings: {
+    reduceMotion: false,
+    runEverything: false,
+    experimentalReferences: false,
+    notifyApprovals: true,
+    notifyReviewFinished: true,
+    defaultEngine: 'claude',
+    defaultRepo: '',
+    worktreeRoot: '~/.harness/worktrees',
+    terminalApp: '',
+    prPrompt: '',
+    bangs: [],
+    clickupWorkspaceId: '',
+    clickupSpaceId: '',
+    clickupFolderId: '',
+    clickupHiddenStatuses: [],
+  },
   persisted: {
-    settings: [{ key: 'defaultEngine', value: 'claude' }],
+    settings: [],
+    reviews: [],
     repos: [
       {
         id: FIXTURE_REPO_ID,
@@ -44,6 +63,7 @@ export const fixtureSnapshot: Snapshot = {
         prNumber: null,
         prHtmlUrl: null,
         archivedAt: null,
+        runCommand: null,
       },
     ],
     threads: [

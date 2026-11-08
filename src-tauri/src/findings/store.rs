@@ -1,6 +1,6 @@
 //! The `findings` table.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -128,6 +128,35 @@ impl Store {
             for finding in findings {
                 write_finding(conn, finding)?;
             }
+            Ok(())
+        })
+    }
+
+    /// The findings `thread_id` was last sent to fix, which it works through as one batch.
+    pub fn findings_batch(&self, thread_id: &str) -> Result<Vec<String>> {
+        let raw: Option<String> = self.with_read(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT findings_batch FROM threads WHERE id = ?1",
+                    [thread_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten())
+        })?;
+        Ok(raw
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default())
+    }
+
+    pub fn set_findings_batch(&self, thread_id: &str, finding_ids: &[String]) -> Result<()> {
+        let batch =
+            serde_json::to_string(finding_ids).map_err(|error| Error::Store(error.to_string()))?;
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE threads SET findings_batch = ?1 WHERE id = ?2",
+                rusqlite::params![batch, thread_id],
+            )?;
             Ok(())
         })
     }

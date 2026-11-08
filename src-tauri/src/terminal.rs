@@ -6,7 +6,7 @@ use crate::state::AppState;
 /// Opens the worktree in the terminal app picked in Settings (Terminal by default).
 pub async fn open(state: &AppState, workspace_id: &str) -> Result<()> {
     let workspace = state.workspaces.get(workspace_id).await?;
-    let terminal = terminal_app(state.store.get_setting("terminalApp")?);
+    let terminal = terminal_app(&crate::settings::Settings::read(&state.store)?.terminal_app);
     let status = tokio::process::Command::new("open")
         .args(["-a", &terminal, &workspace.worktree_path])
         .status()
@@ -21,11 +21,11 @@ pub async fn open(state: &AppState, workspace_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn terminal_app(setting: Option<String>) -> String {
-    setting
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "Terminal".to_string())
+fn terminal_app(setting: &str) -> String {
+    match setting.trim() {
+        "" => "Terminal".into(),
+        name => name.into(),
+    }
 }
 
 /// Open the worktree in the terminal app picked in Settings (Terminal by default).

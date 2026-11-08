@@ -2,9 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-/// The settings key for where new worktrees go. Empty means the default.
-pub const WORKTREE_ROOT_SETTING: &str = "worktreeRoot";
-
 pub fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
@@ -39,17 +36,9 @@ pub fn repo_config(repo: &Path) -> PathBuf {
     repo.join(".cormux/config.json")
 }
 
-/// The folder new worktrees go in: the `worktreeRoot` setting, or `~/.harness/worktrees`.
-pub fn worktrees_root(setting: Option<&str>) -> PathBuf {
-    setting
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(expand_tilde)
-        .unwrap_or_else(|| {
-            home()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".harness/worktrees")
-        })
+/// The folder new worktrees go in, from the setting as the user typed it.
+pub fn worktrees_root(setting: &str) -> PathBuf {
+    expand_tilde(setting.trim())
 }
 
 /// Where a workspace for `branch` of the repo at `repo` checks out.
@@ -116,14 +105,12 @@ mod tests {
     }
 
     #[test]
-    fn the_worktree_root_setting_overrides_the_default() {
-        let default = home().unwrap().join(".harness/worktrees");
-        assert_eq!(worktrees_root(None), default);
-        assert_eq!(worktrees_root(Some("   ")), default);
+    fn the_worktree_root_setting_is_read_as_typed() {
         assert_eq!(
-            worktrees_root(Some(" /srv/trees ")),
-            PathBuf::from("/srv/trees")
+            worktrees_root("~/.harness/worktrees"),
+            home().unwrap().join(".harness/worktrees")
         );
+        assert_eq!(worktrees_root(" /srv/trees "), PathBuf::from("/srv/trees"));
     }
 
     #[test]

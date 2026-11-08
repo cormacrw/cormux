@@ -233,7 +233,7 @@ const TOOLS: &[HostTool] = &[
             })
         },
         needs_approval: false,
-        enabled: |settings| settings.references,
+        enabled: |settings| settings.experimental_references,
         instruction: Some(REFERENCES_INSTRUCTION),
         handler: |state, call| {
             Box::pin(async move {
@@ -481,7 +481,7 @@ mod tests {
         let state = state();
         let off = Settings::default();
         let on = Settings {
-            references: true,
+            experimental_references: true,
             ..Settings::default()
         };
 
@@ -543,7 +543,7 @@ mod tests {
         assert!(crate::snapshot::read(&state.store).entities.is_empty());
 
         Settings {
-            references: true,
+            experimental_references: true,
             ..Settings::default()
         }
         .save(&state.store);

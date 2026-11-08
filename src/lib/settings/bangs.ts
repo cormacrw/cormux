@@ -3,16 +3,8 @@
  * prompt bar it becomes the prompt; typed in the command palette it starts a
  * scratch with it. Managed in Settings › Bangs.
  */
-export type Bang = {
-  id: string
-  /** Without the `!`: lowercase letters, digits, `-` and `_`. */
-  name: string
-  prompt: string
-}
-
-export const BANGS_KEY = 'bangs'
-/** Scratch macros, which bangs replace; read once to carry them over. */
-export const LEGACY_MACROS_KEY = 'scratchMacros'
+import type { Bang } from '$lib/ipc/bindings'
+export type { Bang }
 
 /** A name as a bang: no `!`, no spaces (they become `-`), lowercase. */
 export function bangName(raw: string): string {
@@ -22,46 +14,6 @@ export function bangName(raw: string): string {
     .toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9_-]/g, '')
-}
-
-function parseList(raw: string | undefined): Bang[] | null {
-  if (!raw) return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return null
-  }
-  if (!Array.isArray(parsed)) return null
-  return parsed.flatMap((item) => {
-    if (!item || typeof item !== 'object') return []
-    const { id, name, prompt } = item as Record<string, unknown>
-    if (typeof id !== 'string' || !id) return []
-    return [
-      {
-        id,
-        name: typeof name === 'string' ? bangName(name) : '',
-        prompt: typeof prompt === 'string' ? prompt : '',
-      },
-    ]
-  })
-}
-
-/**
- * Bangs from their settings row, or, before any are saved, the old scratch
- * macros with their names made into bangs (`Daily standup` → `daily-standup`).
- */
-export function parseBangs(
-  raw: string | undefined,
-  legacyMacros?: string,
-): Bang[] {
-  return parseList(raw) ?? parseList(legacyMacros) ?? []
-}
-
-export function serializeBangs(bangs: Bang[]): string {
-  return JSON.stringify(
-    bangs.map(({ id, name, prompt }) => ({ id, name, prompt })),
-  )
 }
 
 /** Only bangs with a name and a prompt can be used. */

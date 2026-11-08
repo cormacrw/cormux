@@ -40,7 +40,8 @@ export function buildPaletteCommands(): PaletteCommand[] {
       openSprint: () => app.openSprint(),
       openSettings: () => app.openSettings(),
       openWorkspace: (id, threadId) => app.openWorkspace(id, threadId),
-      toggleReduceMotion: () => settings.toggleReduceMotion(),
+      toggleReduceMotion: () =>
+        settings.update({ reduceMotion: !settings.reduceMotion }),
       openSettingsSection,
       openWorkspaceThread,
       openWorkspaceFindings,

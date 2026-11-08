@@ -23,6 +23,9 @@ const baseWorkspace = {
   provStep: 0,
   setupFailedCommand: null,
   setupFailedExitCode: null,
+  runCommand: null,
+  reviewStatus: null,
+  reviewSubmitted: false,
 }
 
 describe('workspaceCardMetaText', () => {

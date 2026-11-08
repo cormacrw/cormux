@@ -19,7 +19,7 @@
       hint="What the agent is asked when Create PR drafts a description. The thread, goal and changed files are added after it."
       saved={settings.prPrompt}
       defaultPrompt={defaultPrPrompt}
-      onSave={(next) => void settings.setPrPrompt(next)}
+      onSave={(next) => void settings.update({ prPrompt: next })}
     />
   {/if}
 </div>

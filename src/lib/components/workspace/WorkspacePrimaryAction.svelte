@@ -9,14 +9,7 @@
     branchPullRequest,
     primaryPrActionLabel,
   } from '$lib/create-pr/pr-header'
-  import { reviewSubmitted as isReviewSubmitted } from '$lib/review/workspace-settings'
-  import {
-    prs,
-    settings,
-    shellDialogs,
-    stacks,
-    workspaceRecords,
-  } from '$lib/state'
+  import { prs, shellDialogs, stacks, workspaceRecords } from '$lib/state'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
 
@@ -29,7 +22,7 @@
   const reviewSubmitted = $derived(
     workspace.kind === 'review' &&
       (workspace.activityText.toLowerCase().includes('review submitted') ||
-        isReviewSubmitted(settings.rows, workspace.id)),
+        workspace.reviewSubmitted),
   )
 
   const record = $derived(workspaceRecords.getRecord(workspace.id))

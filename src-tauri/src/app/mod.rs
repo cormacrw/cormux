@@ -449,7 +449,11 @@ fn run_command(state: &AppState, workspace: &WorkspaceRecord) -> Result<String> 
         .store
         .repo_by_id(&workspace.repo_id)?
         .ok_or_else(|| Error::unknown_repo(&workspace.repo_id))?;
-    crate::harness_config::workspace_run_command(&state.store, &workspace.id, &repo)?
+    let own = state
+        .store
+        .workspace_by_id(&workspace.id)?
+        .and_then(|row| row.run_command);
+    crate::harness_config::workspace_run_command(own.as_deref(), &repo)?
         .map(|run| run.command)
         .ok_or_else(|| Error::Process("no run command configured".into()))
 }
@@ -478,6 +482,20 @@ pub mod commands {
     pub struct ControlWorkspaceAppInput {
         pub workspace_id: String,
         pub action: WorkspaceAppControlAction,
+    }
+
+    /// The workspace's own run command, set in its Output tab; blank runs the repo's.
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn set_workspace_run_command(
+        workspace_id: String,
+        command: String,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        state.workspaces.get(&workspace_id).await?;
+        state.workspaces.set_run_command(&workspace_id, &command)?;
+        state.out.changed(crate::feedback::Change::SNAPSHOT);
+        Ok(())
     }
 
     #[tauri::command]
@@ -530,13 +548,14 @@ mod tests {
                 single_instance: false,
             })
             .unwrap();
-        state
-            .store
-            .set_setting(
-                crate::paths::WORKTREE_ROOT_SETTING,
-                &dir.path().join("worktrees").to_string_lossy(),
-            )
-            .unwrap();
+        crate::settings::Settings::update(
+            &state.store,
+            crate::settings::SettingsPatch {
+                worktree_root: Some(dir.path().join("worktrees").to_string_lossy().into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let created = crate::provisioning::create(
             &state,
             crate::provisioning::WorkspaceSpec {

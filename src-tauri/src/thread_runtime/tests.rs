@@ -63,7 +63,7 @@ fn setup(engines: Arc<dyn Engines>) -> Setup {
         workspaces: Workspaces::new(store.clone()),
         host_tools: Arc::new(|settings| HostToolsConfig {
             server_name: "host".into(),
-            disallowed: if settings.references {
+            disallowed: if settings.experimental_references {
                 Vec::new()
             } else {
                 vec!["attach".into()]
@@ -209,7 +209,7 @@ async fn a_session_starts_with_the_threads_choices_and_the_host_tools_its_settin
     assert_eq!(tools.disallowed, ["attach"], "References is off");
 
     Settings {
-        references: true,
+        experimental_references: true,
         ..Settings::default()
     }
     .save(&setup.store);

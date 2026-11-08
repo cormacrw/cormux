@@ -4,7 +4,8 @@ import {
   fixtureTimeline,
 } from '../../fixture-snapshot'
 import type { HarnessRuntime } from '../runtime'
-import type { HandlerSlice, Input } from '../types'
+import type { SettingsPatch } from '$lib/ipc/bindings'
+import type { HandlerSlice } from '../types'
 
 /** Matches `thread_activity` in the core's store. */
 function threadActivityRows() {
@@ -51,13 +52,13 @@ export function coreHandlers({ scenario }: HarnessRuntime) {
     reload_environment: () => null,
     get_metrics: () => fixtureSnapshot.memory!,
     detect_engines: () => scenario.engines ?? fixtureEngines,
-    set_setting: ({ input: { key, value } }: Input<'set_setting'>) => {
-      const persisted = fixtureSnapshot.persisted
-      persisted.settings = [
-        ...persisted.settings.filter((row) => row.key !== key),
-        { key, value },
-      ]
-      return null
+    get_settings: () => fixtureSnapshot.settings,
+    update_settings: ({ patch }: { patch: SettingsPatch }) => {
+      const changes = Object.fromEntries(
+        Object.entries(patch).filter(([, value]) => value != null),
+      )
+      fixtureSnapshot.settings = { ...fixtureSnapshot.settings, ...changes }
+      return fixtureSnapshot.settings
     },
     end_scratch: ({ scratchId }: { scratchId: string }) => {
       const persisted = fixtureSnapshot.persisted

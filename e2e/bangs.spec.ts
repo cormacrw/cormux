@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test'
-import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 test.describe('bangs', () => {
@@ -83,25 +82,5 @@ test.describe('bangs', () => {
     ).toBeVisible()
 
     expect(errors).toEqual([])
-  })
-
-  test('scratch macros carry over as bangs', async ({ page }) => {
-    await setScenario(page, {
-      settings: {
-        scratchMacros: JSON.stringify([
-          { id: 'm1', name: 'Morning triage', prompt: 'Check CI' },
-        ]),
-      },
-    })
-    await page.goto('/')
-    await page
-      .getByRole('navigation', { name: 'Harness' })
-      .getByRole('button', { name: /Settings/ })
-      .click()
-    await expect(
-      page
-        .locator('[data-od-id="settings-bangs"]')
-        .getByText('!morning-triage', { exact: true }),
-    ).toBeVisible()
   })
 })

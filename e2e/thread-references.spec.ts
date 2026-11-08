@@ -27,7 +27,7 @@ test('attached entities dock beside the conversation and open in the browser', a
   page.on('pageerror', (error) => errors.push(error.message))
   await setScenario(page, {
     entities: ENTITIES,
-    settings: { experimentalReferences: 'true' },
+    settings: { experimentalReferences: true },
   })
   await page.setViewportSize({ width: 1680, height: 900 })
   await page.goto('/?longThread=3')
@@ -76,7 +76,7 @@ test('attached entities dock beside the conversation and open in the browser', a
 })
 
 test('a thread with nothing attached shows no panel', async ({ page }) => {
-  await setScenario(page, { settings: { experimentalReferences: 'true' } })
+  await setScenario(page, { settings: { experimentalReferences: true } })
   await page.goto('/?longThread=1')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(page.locator('#timeline').getByText('Answer 1')).toBeVisible()
