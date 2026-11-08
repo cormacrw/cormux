@@ -1,5 +1,5 @@
 <script lang="ts">
-  import TrayControls from '../../components/workspace/TrayControls.svelte'
+  import TrayControls from '$lib/components/tray/TrayControls.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Badge } from '$lib/components/ui/badge'
   import { subscribePty } from '$lib/ipc'

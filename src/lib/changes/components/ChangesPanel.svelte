@@ -1,7 +1,7 @@
 <script lang="ts">
   import { sendToThread } from '$lib/thread/actions'
   import { pluralWord } from '$lib/format/plural'
-  import TrayControls from '../../components/workspace/TrayControls.svelte'
+  import TrayControls from '$lib/components/tray/TrayControls.svelte'
   import { onMount, tick, untrack } from 'svelte'
   import { afterPaint } from '$lib/changes/mount-queue'
   import { commands } from '$lib/ipc'
