@@ -178,11 +178,6 @@ pub fn read_thread(
 }
 
 fn check_can_spawn(store: &Store, caller: &ThreadRow) -> Result<()> {
-    if caller.parent_thread_id.is_some() {
-        return Err(Error::Mcp(
-            "a thread started by another thread can't start threads of its own".into(),
-        ));
-    }
     let active = store
         .active_children(&caller.id)?
         .into_iter()
@@ -808,15 +803,6 @@ mod tests {
         let second = read_thread(&store, &transcript, "parent", "child", 1).unwrap();
         assert_eq!(second["entries"][0]["text"], "second");
         assert!(second["next"].is_null());
-    }
-
-    #[test]
-    fn children_cannot_spawn() {
-        let store = store();
-        add_thread(&store, "parent", "r1", None, "idle");
-        add_thread(&store, "child", "r1", Some("parent"), "idle");
-        let child = store.thread_by_id("child").unwrap().unwrap();
-        assert!(check_can_spawn(&store, &child).is_err());
     }
 
     #[test]
