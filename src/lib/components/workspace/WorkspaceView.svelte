@@ -190,7 +190,7 @@
           <ThreadPanel {workspace} thread={activeThread} />
         </div>
 
-        <!-- Clicking the dimmed conversation slides Git or Output away. -->
+        <!-- Clicking the dimmed conversation slides Git, Output or Findings away. -->
         <button
           type="button"
           tabindex="-1"

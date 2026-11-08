@@ -15,7 +15,6 @@
     nav.scratchId ? scratches.getById(nav.scratchId) : undefined,
   )
   const repo = $derived(scratch ? repos.getById(scratch.repoId) : undefined)
-  // A removed repo falls back to its id.
   const repoPath = $derived(repo?.path ?? scratch?.repoId ?? '')
   const engineName = $derived(engineDisplayName(scratch?.engine ?? 'claude'))
 

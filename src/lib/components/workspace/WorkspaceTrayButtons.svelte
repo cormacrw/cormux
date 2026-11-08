@@ -21,7 +21,7 @@
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Terminal from '@lucide/svelte/icons/terminal'
 
-  // What used to be tabs: the panels that slide out over the workspace's one conversation.
+  // A button for each panel that slides out over the conversation: Findings, Git and Output.
   let { workspace }: { workspace: Workspace } = $props()
 
   const showFindings = $derived(

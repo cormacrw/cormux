@@ -16,7 +16,6 @@ export function bangName(raw: string): string {
     .replace(/[^a-z0-9_-]/g, '')
 }
 
-/** Only bangs with a name and a prompt can be used. */
 export function isUsableBang(bang: Bang) {
   return bang.name.length > 0 && bang.prompt.trim().length > 0
 }
@@ -74,7 +73,6 @@ export function paletteBang(
   return bang ? { bang, extra: (match[2] ?? '').trim() } : null
 }
 
-/** A bang's prompt with what was typed after it in the palette. */
 export function bangPromptWithExtra(prompt: string, extra: string) {
   const base = prompt.trim()
   const more = extra.trim()

@@ -53,7 +53,6 @@ export function startIndex(list: Place[], current: Place | null): number {
   return current && placeKey(list[0]!) === placeKey(current) ? 1 : 0
 }
 
-/** The next selection, wrapping around either end. */
 export function stepIndex(index: number, length: number, by: 1 | -1): number {
   if (!length) return 0
   return (index + by + length) % length

@@ -51,7 +51,7 @@
       completeBang(command.label)
       return
     }
-    // Closed first (spec §02), so the command runs with focus back where it was.
+    // Closed first (product/features/02-command-palette-and-shortcuts.md), so the command runs with focus back where it was.
     palette.close()
     queueMicrotask(() => command.run())
   }

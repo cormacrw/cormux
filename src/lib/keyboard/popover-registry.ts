@@ -5,7 +5,7 @@ type PopoverHandle = {
 
 let active: PopoverHandle | null = null
 
-/** Only one workspace popover (⋯, branch picker, etc.) at a time. */
+/** Only one popover at a time: the ⋯ menu, the model and effort pickers, the new thread's repo. */
 export function claimWorkspacePopover(handle: PopoverHandle) {
   if (active && active !== handle) {
     active.close()
@@ -28,7 +28,7 @@ type PopoverCloser = () => boolean
 
 let closeOpenPopover: PopoverCloser | null = null
 
-/** The popover Esc closes before anything else; it resolves to whether one was open. */
+/** The popover Esc closes before anything else; it returns whether one was open. */
 export function registerPopoverCloser(closer: PopoverCloser | null) {
   closeOpenPopover = closer
 }

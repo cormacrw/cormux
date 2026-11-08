@@ -3,7 +3,6 @@ export function isModEnter(event: KeyboardEvent) {
   return event.key === 'Enter' && (event.metaKey || event.ctrlKey)
 }
 
-/** A keydown handler that runs `submit` on ⌘↵. */
 export function onModEnter(submit: () => void) {
   return (event: KeyboardEvent) => {
     if (!isModEnter(event)) return

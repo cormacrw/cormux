@@ -65,7 +65,6 @@
     else titleEl?.focus()
   })
 
-  // Opening one picker from the keyboard closes the others.
   $effect(() => {
     if (!repoOpen) return
     const handle = {

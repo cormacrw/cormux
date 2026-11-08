@@ -11,7 +11,7 @@ export function debouncedSaves(delayMs = SAVE_DELAY_MS) {
     { timer: ReturnType<typeof setTimeout>; save: () => void }
   >()
 
-  /** Drops a waiting save; resolves to whether there was one. */
+  /** Drops a waiting save; returns whether there was one. */
   function cancel(key: string): boolean {
     const waiting = pending.get(key)
     if (!waiting) return false
