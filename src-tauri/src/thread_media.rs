@@ -102,13 +102,13 @@ pub fn resolve(
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let Some(format) = media::format_of(&name) else {
+    let Some(format) = media::sniff(&path) else {
         return Ok(None);
     };
     let Ok(metadata) = std::fs::metadata(&path) else {
         return Ok(None);
     };
-    if metadata.len() > format.kind.shown_limit() || !(format.magic)(&read_head(&path, 12)) {
+    if metadata.len() > format.kind.shown_limit() {
         return Ok(None);
     }
 
@@ -144,17 +144,6 @@ pub fn resolve(
         name,
         path: stored.display().to_string(),
     }))
-}
-
-fn read_head(path: &Path, count: usize) -> Vec<u8> {
-    use std::io::Read;
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return Vec::new();
-    };
-    let mut buffer = vec![0u8; count];
-    let read = file.read(&mut buffer).unwrap_or(0);
-    buffer.truncate(read);
-    buffer
 }
 
 /// Copies a media file an agent referenced in its reply into the app's media folder,

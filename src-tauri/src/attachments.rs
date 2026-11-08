@@ -22,13 +22,6 @@ pub struct PromptAttachment {
     pub data_base64: Option<String>,
 }
 
-/// The image type for a file name the model can be shown, if any.
-pub fn image_media_type(name: &str) -> Option<&'static str> {
-    crate::media::format_of(name)
-        .filter(|format| format.kind == crate::media::MediaKind::Image)
-        .map(|format| format.mime)
-}
-
 /// Keeps a pasted file's name readable but safe as one path segment.
 fn safe_file_name(name: &str) -> String {
     let cleaned: String = name
@@ -88,14 +81,14 @@ pub fn build_prompt(
     let mut images = Vec::new();
     for attachment in attachments {
         let path = file_for(dir, attachment)?;
-        if let Some(media_type) = image_media_type(&attachment.name)
+        if let Some(format) = crate::media::sniff_image(&path)
             && std::fs::metadata(&path)
                 .is_ok_and(|meta| meta.len() <= crate::media::INLINE_IMAGE_LIMIT)
         {
             let bytes =
                 std::fs::read(&path).map_err(|error| Error::Workspace(error.to_string()))?;
             images.push(PromptImage {
-                media_type: media_type.into(),
+                media_type: format.mime.into(),
                 data_base64: STANDARD.encode(bytes),
             });
         }
@@ -135,27 +128,24 @@ pub async fn image_preview(path: String) -> crate::error::Result<Option<String>>
 mod tests {
     use super::*;
 
-    #[test]
-    fn knows_which_files_the_model_can_see() {
-        assert_eq!(image_media_type("Shot.PNG"), Some("image/png"));
-        assert_eq!(image_media_type("a.jpeg"), Some("image/jpeg"));
-        assert_eq!(image_media_type("notes.pdf"), None);
-        assert_eq!(image_media_type("README"), None);
-    }
+    const PNG: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     #[test]
     fn previews_only_images() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let image = root.join("shot.png");
-        std::fs::write(&image, b"png").unwrap();
+        std::fs::write(&image, PNG).unwrap();
         let notes = root.join("notes.txt");
         std::fs::write(&notes, b"hi").unwrap();
         assert_eq!(
             crate::media::image_data_url(&image).as_deref(),
-            Some("data:image/png;base64,cG5n")
+            Some(format!("data:image/png;base64,{}", STANDARD.encode(PNG)).as_str())
         );
         assert_eq!(crate::media::image_data_url(&notes), None);
+        let renamed = root.join("renamed.png");
+        std::fs::write(&renamed, b"png").unwrap();
+        assert_eq!(crate::media::image_data_url(&renamed), None);
         assert_eq!(crate::media::image_data_url(&root.join("gone.png")), None);
     }
 
@@ -176,7 +166,7 @@ mod tests {
             PromptAttachment {
                 name: "shot.png".into(),
                 path: None,
-                data_base64: Some(STANDARD.encode(b"png-bytes")),
+                data_base64: Some(STANDARD.encode(PNG)),
             },
             PromptAttachment {
                 name: "notes.txt".into(),
@@ -188,7 +178,7 @@ mod tests {
         assert_eq!(shown, "Fix the layout\n\nAttached: shot.png, notes.txt");
         assert_eq!(prompt.images.len(), 1);
         assert_eq!(prompt.images[0].media_type, "image/png");
-        assert_eq!(prompt.images[0].data_base64, STANDARD.encode(b"png-bytes"));
+        assert_eq!(prompt.images[0].data_base64, STANDARD.encode(PNG));
         assert!(
             prompt
                 .text
@@ -203,5 +193,20 @@ mod tests {
             data_base64: None,
         };
         assert!(build_prompt(root, "", &[missing]).is_err());
+    }
+
+    /// Bug: attachments went to the model as images by their extension alone, so JPEG data
+    /// saved as `.png` was sent as a PNG and the engine failed the turn.
+    #[test]
+    fn an_image_whose_bytes_are_not_its_type_is_only_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let jpeg_as_png = PromptAttachment {
+            name: "x.png".into(),
+            path: None,
+            data_base64: Some(STANDARD.encode([0xFF, 0xD8, 0xFF, 0xE0])),
+        };
+        let (prompt, _) = build_prompt(dir.path(), "Look", &[jpeg_as_png]).unwrap();
+        assert!(prompt.images.is_empty());
+        assert!(prompt.text.ends_with("/x.png"));
     }
 }

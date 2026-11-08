@@ -111,8 +111,32 @@ const fn video(
     }
 }
 
+/// The format of the file at `path`, when its extension names one and its first bytes are that
+/// format's. Whether a file is shown or sent as an image or a recording goes by this alone: the
+/// model API rejects an image whose bytes aren't its media type, and fails the whole turn.
+pub fn sniff(path: &Path) -> Option<MediaFormat> {
+    let format = format_of(path.file_name()?.to_str()?)?;
+    (format.magic)(&read_head(path, 12)).then_some(format)
+}
+
+/// `sniff`'s format when it's an image.
+pub fn sniff_image(path: &Path) -> Option<MediaFormat> {
+    sniff(path).filter(|format| format.kind == MediaKind::Image)
+}
+
+fn read_head(path: &Path, count: usize) -> Vec<u8> {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    let mut buffer = vec![0u8; count];
+    let read = file.read(&mut buffer).unwrap_or(0);
+    buffer.truncate(read);
+    buffer
+}
+
 pub fn image_data_url(path: &Path) -> Option<String> {
-    let format = format_of(path.to_str()?).filter(|format| format.kind == MediaKind::Image)?;
+    let format = sniff_image(path)?;
     if std::fs::metadata(path).ok()?.len() > INLINE_IMAGE_LIMIT {
         return None;
     }
@@ -182,5 +206,30 @@ mod tests {
         );
         assert_eq!(format_of("notes.pdf"), None);
         assert_eq!(format_of("README"), None);
+    }
+
+    #[test]
+    fn a_file_is_its_format_only_when_its_bytes_agree() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |name: &str, bytes: &[u8]| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        };
+        let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10];
+        assert_eq!(
+            sniff(&write("Shot.JPEG", &jpeg)).map(|format| format.mime),
+            Some("image/jpeg")
+        );
+        assert_eq!(sniff(&write("x.png", &jpeg)), None);
+        assert_eq!(sniff(&write("notes.png", b"hello")), None);
+        assert_eq!(sniff(&write("notes.txt", b"hello")), None);
+        assert_eq!(sniff(&dir.path().join("gone.png")), None);
+        let clip = write("clip.mp4", b"\0\0\0\x18ftypmp42");
+        assert_eq!(
+            sniff(&clip).map(|format| format.kind),
+            Some(MediaKind::Video)
+        );
+        assert_eq!(sniff_image(&clip), None);
     }
 }
