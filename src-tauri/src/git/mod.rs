@@ -325,8 +325,10 @@ impl Git {
         Self::require_success(&output, "worktree remove")
     }
 
+    /// Commits `base` (as [`Self::freshest_ref`] picks it) has that HEAD doesn't.
     pub async fn behind_count(&self, worktree: &Path, base: &str) -> Result<u32> {
-        self.rev_list_count(worktree, &format!("HEAD..origin/{base}"))
+        let base = self.freshest_ref(worktree, base).await;
+        self.rev_list_count(worktree, &format!("HEAD..{base}"))
             .await
     }
 
@@ -593,7 +595,8 @@ impl Git {
         Ok(())
     }
 
-    /// Brings `origin/<base>` into the checked-out branch by `operation` (merge or rebase).
+    /// Brings `base` (as [`Self::freshest_ref`] picks it) into the checked-out branch by
+    /// `operation` (merge or rebase).
     /// Stopping on conflicts is `Error::GitConflict`, with the operation left in progress.
     pub async fn integrate(
         &self,
@@ -606,7 +609,7 @@ impl Git {
             GitConflictOperation::Rebase => "rebase",
         };
         self.require_clean_worktree(worktree, verb).await?;
-        let rev = format!("origin/{base}");
+        let rev = self.freshest_ref(worktree, base).await;
         let output = self.run(worktree, &[verb, &rev]).await?;
         if output.status.success() {
             return Ok(());
@@ -840,8 +843,10 @@ impl Git {
         .is_ok_and(|output| output.status.success())
     }
 
-    /// `origin/<branch>` when it has everything the local branch has (a stale local
-    /// trunk), else the local branch (a stack branch rebased but not pushed yet).
+    /// The ref that stands for `branch` wherever a workspace is compared with or brought up to
+    /// its base (behind counts, pull/rebase, Changes, new branches): `origin/<branch>` when it
+    /// has everything the local branch has (a stale local trunk), else the local branch (a
+    /// stack branch rebased but not pushed yet).
     pub async fn freshest_ref(&self, worktree: &Path, branch: &str) -> String {
         let remote = format!("origin/{branch}");
         if !self.ref_exists(worktree, &remote).await.unwrap_or(false) {
@@ -1183,6 +1188,32 @@ mod tests {
         for (stat, patch) in &committed {
             assert!(!patch.is_empty(), "{}", stat.path);
         }
+    }
+
+    /// Bug: behind counts and pull/rebase used `origin/<base>` while Changes used the freshest
+    /// ref, so a branch stacked on an unpushed local base counted nothing to pull (or failed).
+    #[tokio::test]
+    async fn behind_and_pull_use_the_same_base_as_changes() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let (_clone_dir, clone) = clone_of(&origin);
+        run_ok(&clone, &["git", "switch", "-qc", "feat/a"]);
+        commit(&clone, "a1.txt");
+        run_ok(&clone, &["git", "switch", "-qc", "feat/b"]);
+        run_ok(&clone, &["git", "switch", "-q", "feat/a"]);
+        commit(&clone, "a2.txt");
+        run_ok(&clone, &["git", "switch", "-q", "feat/b"]);
+
+        assert_eq!(git.freshest_ref(&clone, "feat/a").await, "feat/a");
+        assert_eq!(git.behind_count(&clone, "feat/a").await.unwrap(), 1);
+        git.integrate(&clone, "feat/a", GitConflictOperation::Merge)
+            .await
+            .unwrap();
+        assert_eq!(git.behind_count(&clone, "feat/a").await.unwrap(), 0);
+        // A stale local trunk still counts against origin's.
+        commit(&origin, "landed.txt");
+        git.fetch(&clone).await.unwrap();
+        assert_eq!(git.behind_count(&clone, "main").await.unwrap(), 1);
     }
 
     #[tokio::test]

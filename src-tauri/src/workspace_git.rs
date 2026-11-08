@@ -385,15 +385,17 @@ async fn integrate_base(
     operation: GitConflictOperation,
 ) -> Result<()> {
     let workspace = state.workspaces.get(workspace_id).await?;
-    let behind = state.workspace_git.get(workspace_id).await.behind;
     let (base, branch) = (workspace.base.clone(), workspace.branch.clone());
+    let worktree = workspace.worktree();
+    // Counted now, after a fetch: the count the header shows can be minutes old.
+    state.git.latest_base(&worktree, &base).await;
+    let behind = state.git.behind_count(&worktree, &base).await?;
     if behind == 0 {
         return Err(Error::Git(match operation {
             GitConflictOperation::Merge => format!("already up to date with {base}"),
             GitConflictOperation::Rebase => format!("already on the latest {base}"),
         }));
     }
-    let worktree = workspace.worktree();
     match state.git.integrate(&worktree, &base, operation).await {
         Ok(()) => {}
         Err(Error::GitConflict { operation, paths }) => {
