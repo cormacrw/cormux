@@ -20,11 +20,11 @@
 pub mod commands;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tokio::sync::OwnedMutexGuard;
+
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::attachments::PromptAttachment;
@@ -34,7 +34,7 @@ use crate::error::{Error, Result};
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::state::AppState;
 use crate::store::types::ThreadRow;
-use crate::thread_runtime::TurnEnd;
+use crate::thread_runtime::{ThreadOp, TurnEnd};
 use crate::timeline::TimelineStep;
 
 /// What a resumed thread is told when nothing was held while it was paused.
@@ -52,7 +52,6 @@ pub struct ResumeThreadSessionInput {
 /// included.
 #[derive(Default)]
 pub struct Turns {
-    operations: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     held: Mutex<HashMap<String, Vec<Held>>>,
     /// Where each thread's current turn began: the seq of the message that started it, or where
     /// the turn before ended if the engine started this one on a message it already had.
@@ -66,17 +65,6 @@ struct Held {
 }
 
 impl Turns {
-    async fn operation(&self, thread_id: &str) -> OwnedMutexGuard<()> {
-        let lock = self
-            .operations
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .entry(thread_id.to_string())
-            .or_default()
-            .clone();
-        lock.lock_owned().await
-    }
-
     fn hold(&self, thread_id: &str, held: Held) {
         self.held
             .lock()
@@ -168,7 +156,7 @@ pub async fn start(
     shown: &str,
     prompt: impl Into<Prompt>,
 ) -> Result<i64> {
-    let _turn = state.turns.operation(&thread.id).await;
+    let op = state.engines.operation(&thread.id).await;
     let thread = thread_row(state, &thread.id)?;
     refuse_during_setup(state, &thread).await?;
     // First, so the thread shows the message while an engine takes its time to start.
@@ -179,7 +167,7 @@ pub async fn start(
     } else {
         let mid_turn =
             thread.status == ThreadStatus::Running && state.engines.has_thread(&thread.id);
-        send(state, &thread, prompt).await?;
+        send(state, &op, &thread, prompt).await?;
         if !mid_turn {
             state.turns.set_began(&thread.id, seq);
         }
@@ -191,12 +179,13 @@ pub async fn start(
 /// Sends `prompts` as one turn, which begins at the newest of them. On failure they come back.
 async fn deliver(
     state: &AppState,
+    op: &ThreadOp,
     thread: &ThreadRow,
     prompts: Vec<Held>,
 ) -> std::result::Result<(), (Error, Vec<Held>)> {
     let since = prompts.iter().map(|held| held.seq).max();
     let prompt = Prompt::merge(prompts.iter().map(|held| held.prompt.clone()).collect());
-    if let Err(error) = send(state, thread, prompt).await {
+    if let Err(error) = send(state, op, thread, prompt).await {
         return Err((error, prompts));
     }
     if let Some(since) = since {
@@ -206,12 +195,9 @@ async fn deliver(
 }
 
 /// A failed send leaves the status alone: nothing would ever end a turn marked running.
-async fn send(state: &AppState, thread: &ThreadRow, prompt: Prompt) -> Result<()> {
-    state
-        .engines
-        .ensure(&thread.id, &thread.workspace_id)
-        .await?;
-    state.engines.prompt(&thread.id, prompt)?;
+async fn send(state: &AppState, op: &ThreadOp, thread: &ThreadRow, prompt: Prompt) -> Result<()> {
+    state.engines.ensure(op, &thread.workspace_id).await?;
+    state.engines.prompt(op, prompt)?;
     record(state, thread, ThreadStatus::Running).await
 }
 
@@ -223,13 +209,13 @@ pub async fn begin(
     workspace_id: &str,
     prompt: impl Into<Prompt>,
 ) -> Result<()> {
-    let _turn = state.turns.operation(thread_id).await;
-    state.engines.start(thread_id, workspace_id).await?;
+    let op = state.engines.operation(thread_id).await;
+    state.engines.start(&op, workspace_id).await?;
     let prompt = prompt.into();
     if prompt.text.is_empty() && prompt.images.is_empty() {
         return Ok(());
     }
-    state.engines.prompt(thread_id, prompt)?;
+    state.engines.prompt(&op, prompt)?;
     state
         .turns
         .set_began(thread_id, state.transcript.last_message_seq(thread_id)?);
@@ -240,11 +226,11 @@ pub async fn begin(
 /// who stopped it goes in the transcript now, and the engine reports the turn's end itself once
 /// it has cancelled. Stopping ends a pause too, and drops whatever was held for the thread.
 pub async fn stop(state: &AppState, thread_id: &str) -> Result<()> {
-    let _turn = state.turns.operation(thread_id).await;
+    let op = state.engines.operation(thread_id).await;
     let thread = thread_row(state, thread_id)?;
     let mut engine_reports_end = false;
     if thread.status.is_unfinished() && state.engines.has_thread(thread_id) {
-        match state.engines.cancel(thread_id) {
+        match state.engines.cancel(&op) {
             Ok(()) => engine_reports_end = thread.status == ThreadStatus::Running,
             Err(error) => log::warn!("cancelling {thread_id}'s turn: {error}"),
         }
@@ -270,8 +256,8 @@ pub async fn stop_engines(state: &AppState, thread_ids: &[String]) -> Result<()>
     for id in thread_ids {
         let (state, id) = (state.clone(), id.clone());
         stops.spawn(async move {
-            let _turn = state.turns.operation(&id).await;
-            state.engines.stop_threads(std::slice::from_ref(&id)).await
+            let op = state.engines.operation(&id).await;
+            state.engines.stop(&op).await
         });
     }
     for stopped in stops.join_all().await {
@@ -285,7 +271,7 @@ pub async fn stop_engines(state: &AppState, thread_ids: &[String]) -> Result<()>
 /// launches a new engine.
 pub async fn settle_stopped(state: &AppState, thread_ids: &[String]) -> Result<()> {
     for id in thread_ids {
-        let _turn = state.turns.operation(id).await;
+        let _op = state.engines.operation(id).await;
         let thread = thread_row(state, id)?;
         if thread.status == ThreadStatus::Running {
             record(state, &thread, ThreadStatus::Idle).await?;
@@ -295,13 +281,13 @@ pub async fn settle_stopped(state: &AppState, thread_ids: &[String]) -> Result<(
 }
 
 pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
-    let _turn = state.turns.operation(thread_id).await;
+    let op = state.engines.operation(thread_id).await;
     let thread = thread_row(state, thread_id)?;
     if thread.status != ThreadStatus::Running {
         return Ok(());
     }
     // An engine that's gone has no turn left to interrupt; the thread still holds.
-    if let Err(error) = state.engines.cancel(thread_id) {
+    if let Err(error) = state.engines.cancel(&op) {
         log::warn!("pausing {thread_id}: {error}");
     }
     state
@@ -315,16 +301,16 @@ pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
 /// Sends what was held while the thread was paused, or tells it to continue. If the engine
 /// can't take it the thread stays paused, with what was held.
 pub async fn resume(state: &AppState, thread_id: &str) -> Result<()> {
-    let _turn = state.turns.operation(thread_id).await;
+    let op = state.engines.operation(thread_id).await;
     let thread = thread_row(state, thread_id)?;
     if thread.status != ThreadStatus::Paused {
         return Ok(());
     }
     let held = state.turns.take(thread_id);
     let sent = if held.is_empty() {
-        send(state, &thread, RESUME_PROMPT.into()).await
+        send(state, &op, &thread, RESUME_PROMPT.into()).await
     } else {
-        deliver(state, &thread, held)
+        deliver(state, &op, &thread, held)
             .await
             .map_err(|(error, unsent)| {
                 state.turns.restore(thread_id, unsent);
@@ -341,11 +327,11 @@ pub async fn resume(state: &AppState, thread_id: &str) -> Result<()> {
 
 /// The step records the session it ended, so the conversation can be resumed later.
 pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
-    let _turn = state.turns.operation(thread_id).await;
+    let op = state.engines.operation(thread_id).await;
     let thread = thread_row(state, thread_id)?;
     refuse_retired(&thread)?;
     let ended = state.store.thread_session(thread_id)?;
-    state.engines.discard(thread_id)?;
+    state.engines.discard(&op)?;
     let dropped = state.turns.take(thread_id);
     state.store.clear_thread_session(thread_id)?;
     state.transcript.record_step(
@@ -361,14 +347,14 @@ pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
 
 pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -> Result<()> {
     let thread_id = input.thread_id;
-    let _turn = state.turns.operation(&thread_id).await;
+    let op = state.engines.operation(&thread_id).await;
     let thread = thread_row(state, &thread_id)?;
     refuse_retired(&thread)?;
     let session = state
         .transcript
         .session_to_resume(&thread_id, &input.conversation_id)?;
     let ended = state.store.thread_session(&thread_id)?;
-    state.engines.discard(&thread_id)?;
+    state.engines.discard(&op)?;
     let dropped = state.turns.take(&thread_id);
     match session.as_deref() {
         Some(session) => state.store.set_thread_session(&thread_id, session)?,
@@ -432,7 +418,7 @@ fn span(state: &AppState, thread_id: &str) -> Result<TurnSpan> {
 /// started after a stop isn't the one that ended.
 pub async fn ended(state: &AppState, end: &TurnEnd) {
     let thread_id = end.thread_id.as_str();
-    let _turn = state.turns.operation(thread_id).await;
+    let _op = state.engines.operation(thread_id).await;
     if !state.engines.is_current(thread_id, end.engine) {
         return;
     }
@@ -564,7 +550,11 @@ mod tests {
     ) -> (AppState, Engine, Arc<RecordingOutput>) {
         let (state, recording, fake) = faked(status, workspace).await;
         let engine = fake.engine(T);
-        state.engines.ensure(T, W).await.unwrap();
+        state
+            .engines
+            .ensure(&state.engines.operation(T).await, W)
+            .await
+            .unwrap();
         (state, engine, recording)
     }
 
@@ -594,7 +584,7 @@ mod tests {
         let (state, mut engine, _recording) =
             seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
         let ids = [T.to_string()];
-        let operation = state.turns.operation(T).await;
+        let operation = state.engines.operation(T).await;
 
         let stopping = tokio::spawn({
             let (state, ids) = (state.clone(), ids.clone());
@@ -969,7 +959,10 @@ mod tests {
         let (state, mut engine, _recording) =
             seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
         pause(&state, T).await.unwrap();
-        state.engines.discard(T).unwrap();
+        state
+            .engines
+            .discard(&state.engines.operation(T).await)
+            .unwrap();
 
         resume(&state, T).await.unwrap();
 
@@ -1007,7 +1000,11 @@ mod tests {
     ) {
         let (state, _recording, fake) = faked(state_status, WorkspaceLifecycle::Idle).await;
         let _engine = fake.engine(T);
-        state.engines.ensure(T, W).await.unwrap();
+        state
+            .engines
+            .ensure(&state.engines.operation(T).await, W)
+            .await
+            .unwrap();
         let ends = state.engines.turn_ends();
         (state, fake, ends)
     }

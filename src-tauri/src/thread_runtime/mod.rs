@@ -90,10 +90,23 @@ pub struct ThreadRuntime {
     /// still counts as current until the next launch.
     current: Arc<Mutex<HashMap<String, u64>>>,
     launches: Arc<AtomicU64>,
-    /// One per thread, held by every launch and by `stop_threads`, so two callers can't both
-    /// launch a CLI for the same session (the second would replace the first's slot and shut it
-    /// down mid-prompt), and teardown doesn't miss an engine still launching.
-    launch_locks: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    /// One per thread; see [`ThreadOp`].
+    operations: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+}
+
+/// A hold on one thread's engine. A thread's operations run one at a time, and only one holding
+/// this launches, prompts, interrupts or shuts down its engine: two callers can't both launch a
+/// CLI for the same session (the second would replace the first's and shut it down mid-prompt),
+/// and nothing stops an engine still launching. `turn` takes it for each of its operations.
+pub struct ThreadOp {
+    thread_id: String,
+    _held: tokio::sync::OwnedMutexGuard<()>,
+}
+
+impl ThreadOp {
+    pub fn thread_id(&self) -> &str {
+        &self.thread_id
+    }
 }
 
 struct ThreadSlot {
@@ -146,7 +159,7 @@ impl ThreadRuntime {
             threads: Arc::new(Mutex::new(HashMap::new())),
             current: Arc::new(Mutex::new(HashMap::new())),
             launches: Arc::new(AtomicU64::new(0)),
-            launch_locks: Arc::new(Mutex::new(HashMap::new())),
+            operations: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -199,35 +212,35 @@ impl ThreadRuntime {
         }
     }
 
-    /// Launches the thread's engine in its workspace unless one is running. Two prompts can race
-    /// here (a user message and a child's report); only one launches.
-    pub async fn ensure(&self, thread_id: &str, workspace_id: &str) -> Result<()> {
-        if self.has_thread(thread_id) {
+    /// Waits for the thread's other operations to finish; see [`ThreadOp`].
+    pub async fn operation(&self, thread_id: &str) -> ThreadOp {
+        let held = self.operation_lock(thread_id).lock_owned().await;
+        ThreadOp {
+            thread_id: thread_id.to_string(),
+            _held: held,
+        }
+    }
+
+    fn operation_lock(&self, thread_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.operations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .entry(thread_id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// Launches the thread's engine in its workspace unless one is running.
+    pub async fn ensure(&self, op: &ThreadOp, workspace_id: &str) -> Result<()> {
+        if self.has_thread(op.thread_id()) {
             return Ok(());
         }
-        let _launching = self.launching(thread_id).await?;
-        if self.has_thread(thread_id) {
-            return Ok(());
-        }
-        self.launch_in(thread_id, workspace_id).await
+        self.launch_in(op.thread_id(), workspace_id).await
     }
 
     /// Launches a new engine for the thread in its workspace's worktree, replacing any it has.
-    pub async fn start(&self, thread_id: &str, workspace_id: &str) -> Result<()> {
-        let _launching = self.launching(thread_id).await?;
-        self.launch_in(thread_id, workspace_id).await
-    }
-
-    /// Held from "no engine here" to the new one being registered, and while one is stopped.
-    async fn launching(&self, thread_id: &str) -> Result<tokio::sync::OwnedMutexGuard<()>> {
-        let lock = self
-            .launch_locks
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?
-            .entry(thread_id.to_string())
-            .or_default()
-            .clone();
-        Ok(lock.lock_owned().await)
+    pub async fn start(&self, op: &ThreadOp, workspace_id: &str) -> Result<()> {
+        self.launch_in(op.thread_id(), workspace_id).await
     }
 
     /// A workspace being torn down launches nothing: teardown stops its engines once any launch
@@ -243,7 +256,7 @@ impl ThreadRuntime {
     }
 
     async fn launch(&self, thread_id: &str, workspace: &WorkspaceRecord) -> Result<()> {
-        let _ = self.stop(thread_id).await;
+        let _ = self.shut_down(thread_id).await;
         let settings = Settings::load(&self.store);
         let thread = self
             .store
@@ -332,11 +345,14 @@ impl ThreadRuntime {
         Ok(())
     }
 
-    /// Only `turn` sends prompts: it keeps the thread's status in step with them.
-    pub fn prompt(&self, thread_id: &str, prompt: impl Into<Prompt>) -> Result<()> {
-        self.send_with(thread_id, EngineCommand::Prompt(prompt.into()), |turn| {
-            turn.open = true;
-        })
+    pub fn prompt(&self, op: &ThreadOp, prompt: impl Into<Prompt>) -> Result<()> {
+        self.send_with(
+            op.thread_id(),
+            EngineCommand::Prompt(prompt.into()),
+            |turn| {
+                turn.open = true;
+            },
+        )
     }
 
     /// Whether the thread's engine has been prompted, or reported, since its last turn end.
@@ -358,8 +374,8 @@ impl ThreadRuntime {
     }
 
     /// Interrupts the engine's turn. If one is open, its end will say it was interrupted.
-    pub fn cancel(&self, thread_id: &str) -> Result<()> {
-        self.send_with(thread_id, EngineCommand::Cancel, |turn| {
+    pub fn cancel(&self, op: &ThreadOp) -> Result<()> {
+        self.send_with(op.thread_id(), EngineCommand::Cancel, |turn| {
             turn.interrupted |= turn.open;
         })
     }
@@ -383,7 +399,12 @@ impl ThreadRuntime {
         }
     }
 
-    pub async fn stop(&self, thread_id: &str) -> Result<()> {
+    /// Shuts the engine down and waits, as long as its adapter says it takes, for it to go.
+    pub async fn stop(&self, op: &ThreadOp) -> Result<()> {
+        self.shut_down(op.thread_id()).await
+    }
+
+    async fn shut_down(&self, thread_id: &str) -> Result<()> {
         let commands = {
             let mut threads = self
                 .threads
@@ -402,7 +423,8 @@ impl ThreadRuntime {
     }
 
     /// Shuts the engine down without waiting for it. The next prompt launches a new engine.
-    pub fn discard(&self, thread_id: &str) -> Result<()> {
+    pub fn discard(&self, op: &ThreadOp) -> Result<()> {
+        let thread_id = op.thread_id();
         let slot = {
             let mut threads = self
                 .threads
@@ -414,22 +436,6 @@ impl ThreadRuntime {
         if let Some(slot) = slot {
             let _ = slot.commands.send(EngineCommand::Shutdown);
         }
-        Ok(())
-    }
-
-    pub async fn stop_threads(&self, thread_ids: &[String]) -> Result<()> {
-        let mut stops = tokio::task::JoinSet::new();
-        for id in thread_ids {
-            let runtime = self.clone();
-            let id = id.clone();
-            stops.spawn(async move {
-                let _launching = runtime.launching(&id).await;
-                if let Err(error) = runtime.stop(&id).await {
-                    log::warn!("stopping {id}'s engine: {error}");
-                }
-            });
-        }
-        stops.join_all().await;
         Ok(())
     }
 
@@ -448,7 +454,7 @@ impl ThreadRuntime {
     /// Shuts down engines nothing has touched for `idle_for`, returning their threads. Only one
     /// with a saved session goes, since that's what the next prompt resumes. A turn the engine is
     /// holding for background agents keeps its thread running, and a paused one is paused, so
-    /// neither reads as idle.
+    /// neither reads as idle. A thread in the middle of an operation waits for the next tick.
     fn reap_idle(&self, idle_for: Duration) -> Vec<String> {
         let Ok(mut threads) = self.threads.lock() else {
             return Vec::new();
@@ -458,13 +464,19 @@ impl ThreadRuntime {
             .filter(|(thread_id, slot)| self.can_reap(thread_id, slot, idle_for))
             .map(|(thread_id, _)| thread_id.clone())
             .collect();
-        for thread_id in &idle {
-            self.dismiss(thread_id);
-            if let Some(slot) = threads.remove(thread_id) {
+        let mut reaped = Vec::new();
+        for thread_id in idle {
+            let lock = self.operation_lock(&thread_id);
+            let Ok(_held) = lock.try_lock() else {
+                continue;
+            };
+            self.dismiss(&thread_id);
+            if let Some(slot) = threads.remove(&thread_id) {
                 let _ = slot.commands.send(EngineCommand::Shutdown);
             }
+            reaped.push(thread_id);
         }
-        idle
+        reaped
     }
 
     fn can_reap(&self, thread_id: &str, slot: &ThreadSlot, idle_for: Duration) -> bool {

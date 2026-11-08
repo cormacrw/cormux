@@ -726,7 +726,11 @@ mod tests {
                 _ => {}
             }
         }
-        state.engines.stop("t1").await.unwrap();
+        state
+            .engines
+            .stop(&state.engines.operation("t1").await)
+            .await
+            .unwrap();
         assert!(used_tool, "never called the tool: {reply}");
         assert!(reply.contains("unknown thread"), "{reply}");
     }

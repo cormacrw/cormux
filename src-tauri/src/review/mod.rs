@@ -1030,7 +1030,11 @@ mod tests {
     async fn a_branch_review_of_a_paused_thread_waits_for_its_resume() {
         let (state, recording, fake) = workspace(ThreadStatus::Paused);
         let mut engine = fake.engine("t1");
-        state.engines.ensure("t1", "w1").await.unwrap();
+        state
+            .engines
+            .ensure(&state.engines.operation("t1").await, "w1")
+            .await
+            .unwrap();
 
         let thread_id = start_branch_review(&state, "w1").await.unwrap();
 

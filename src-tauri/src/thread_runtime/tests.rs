@@ -144,7 +144,11 @@ async fn stop_returns_as_soon_as_the_engine_is_down() {
     let setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "idle", None);
     let mut engine = fake.engine("t1");
-    setup.runtime.ensure("t1", W).await.unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
     tokio::spawn(async move {
         while let Some(command) = engine.recv().await {
             if matches!(command, EngineCommand::Shutdown) {
@@ -155,7 +159,7 @@ async fn stop_returns_as_soon_as_the_engine_is_down() {
     let started = tokio::time::Instant::now();
     setup
         .runtime
-        .stop_threads(&["t1".to_string()])
+        .stop(&setup.runtime.operation("t1").await)
         .await
         .unwrap();
     assert!(
@@ -179,7 +183,11 @@ async fn only_a_quiet_resumable_idle_engine_is_reaped() {
     ] {
         add_thread(&setup.store, id, status, session);
         engines.push(fake.engine(id));
-        setup.runtime.ensure(id, W).await.unwrap();
+        setup
+            .runtime
+            .ensure(&setup.runtime.operation(id).await, W)
+            .await
+            .unwrap();
     }
     setup
         .store
@@ -196,12 +204,30 @@ async fn only_a_quiet_resumable_idle_engine_is_reaped() {
 }
 
 #[tokio::test]
+async fn an_engine_is_not_reaped_in_the_middle_of_its_threads_operation() {
+    let fake = FakeEngines::default();
+    let setup = setup(Arc::new(fake.clone()));
+    add_thread(&setup.store, "t1", "idle", Some("s"));
+    let _engine = fake.engine("t1");
+    let op = setup.runtime.operation("t1").await;
+    setup.runtime.ensure(&op, W).await.unwrap();
+
+    assert!(setup.runtime.reap_idle(Duration::ZERO).is_empty());
+    drop(op);
+    assert_eq!(setup.runtime.reap_idle(Duration::ZERO), vec!["t1"]);
+}
+
+#[tokio::test]
 async fn a_session_starts_with_the_threads_choices_and_the_host_tools_its_settings_allow() {
     let fake = FakeEngines::default();
     let setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "idle", Some("sess-9"));
     setup.store.set_thread_model("t1", Some("opus")).unwrap();
-    setup.runtime.ensure("t1", W).await.unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
 
     let launched = fake.launches().remove(0);
     assert_eq!(launched.resume.as_deref(), Some("sess-9"));
@@ -216,7 +242,11 @@ async fn a_session_starts_with_the_threads_choices_and_the_host_tools_its_settin
         ..Settings::default()
     }
     .save(&setup.store);
-    setup.runtime.start("t1", W).await.unwrap();
+    setup
+        .runtime
+        .start(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
     let relaunched = fake.launches().remove(1);
     assert!(relaunched.host_tools.unwrap().disallowed.is_empty());
 }
@@ -226,7 +256,11 @@ async fn host_tool_calls_wait_for_the_server_with_their_thread() {
     let fake = FakeEngines::default();
     let setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "idle", None);
-    setup.runtime.ensure("t1", W).await.unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
     let (respond, replied) = tokio::sync::oneshot::channel();
     fake.report(
         "t1",
@@ -254,7 +288,11 @@ async fn a_turn_end_drops_its_approvals_and_is_reported_once() {
     let fake = FakeEngines::default();
     let mut setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "running", None);
-    setup.runtime.ensure("t1", W).await.unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
     let mut events = setup.transcript.subscribe("t1");
 
     let (respond, answered) = tokio::sync::oneshot::channel();
@@ -344,14 +382,25 @@ async fn an_engine_shut_down_on_purpose_reports_no_end_and_leaves_its_successors
     let fake = FakeEngines::default();
     let mut setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "running", None);
-    setup.runtime.ensure("t1", W).await.unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
     let old = fake.output("t1");
     let (asked, _old_answer) = permission("p1");
     old.send(EngineOutput::Permission(asked)).unwrap();
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    setup.runtime.discard("t1").unwrap();
-    setup.runtime.ensure("t1", W).await.unwrap();
+    setup
+        .runtime
+        .discard(&setup.runtime.operation("t1").await)
+        .unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
     let (asked, mut answered) = permission("p2");
     fake.report("t1", EngineOutput::Permission(asked));
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -382,8 +431,15 @@ async fn a_turn_end_then_the_output_closing_is_one_end() {
     let fake = FakeEngines::default();
     let mut setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "running", None);
-    setup.runtime.ensure("t1", W).await.unwrap();
-    setup.runtime.prompt("t1", "go").unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
+    setup
+        .runtime
+        .prompt(&setup.runtime.operation("t1").await, "go")
+        .unwrap();
     let output = fake.output("t1");
     fake.hang_up("t1");
 
@@ -402,8 +458,15 @@ async fn the_end_of_a_cancelled_turn_says_it_was_interrupted_once() {
     let fake = FakeEngines::default();
     let mut setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "running", None);
-    setup.runtime.ensure("t1", W).await.unwrap();
-    setup.runtime.cancel("t1").unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
+    setup
+        .runtime
+        .cancel(&setup.runtime.operation("t1").await)
+        .unwrap();
     fake.report("t1", turn_end());
     tokio::time::sleep(Duration::from_millis(10)).await;
     assert!(
@@ -411,9 +474,18 @@ async fn the_end_of_a_cancelled_turn_says_it_was_interrupted_once() {
         "nothing was open to interrupt"
     );
 
-    setup.runtime.prompt("t1", "go").unwrap();
-    setup.runtime.cancel("t1").unwrap();
-    setup.runtime.prompt("t1", "continue").unwrap();
+    setup
+        .runtime
+        .prompt(&setup.runtime.operation("t1").await, "go")
+        .unwrap();
+    setup
+        .runtime
+        .cancel(&setup.runtime.operation("t1").await)
+        .unwrap();
+    setup
+        .runtime
+        .prompt(&setup.runtime.operation("t1").await, "continue")
+        .unwrap();
     fake.report("t1", turn_end());
     fake.report("t1", turn_end());
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -442,7 +514,13 @@ async fn an_engine_that_never_launched_reports_no_turn_end() {
         .insert_pending_approval("a1", "t1", "edit", &ApprovalPayload::titled("Edit"))
         .unwrap();
 
-    assert!(setup.runtime.ensure("t1", "gone").await.is_err());
+    assert!(
+        setup
+            .runtime
+            .ensure(&setup.runtime.operation("t1").await, "gone")
+            .await
+            .is_err()
+    );
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(setup.turn_ends.try_recv().is_err());
     assert_eq!(
@@ -460,7 +538,11 @@ async fn each_turns_cost_adds_to_the_threads_total() {
     let fake = FakeEngines::default();
     let setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "running", None);
-    setup.runtime.ensure("t1", W).await.unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
     let mut events = setup.transcript.subscribe("t1");
     for cost in [0.25, 0.5] {
         fake.report(
@@ -488,8 +570,15 @@ async fn questions_wait_for_answers_even_with_auto_approve_on() {
     }
     .save(&setup.store);
     let mut events = setup.transcript.subscribe("t-ask");
-    setup.runtime.ensure("t-ask", W).await.unwrap();
-    setup.runtime.prompt("t-ask", "ask me something").unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t-ask").await, W)
+        .await
+        .unwrap();
+    setup
+        .runtime
+        .prompt(&setup.runtime.operation("t-ask").await, "ask me something")
+        .unwrap();
     let id = loop {
         if let AgentEvent::Permission {
             id, auto_approved, ..
@@ -523,7 +612,11 @@ async fn questions_wait_for_answers_even_with_auto_approve_on() {
             _ => {}
         }
     }
-    setup.runtime.stop("t-ask").await.unwrap();
+    setup
+        .runtime
+        .stop(&setup.runtime.operation("t-ask").await)
+        .await
+        .unwrap();
     let echoed: serde_json::Value = serde_json::from_str(&reply).unwrap();
     assert_eq!(echoed["behavior"], "allow");
     assert_eq!(
@@ -538,8 +631,15 @@ async fn a_turn_ends_only_after_its_background_agents_do() {
     let mut setup = setup(engines);
     add_thread(&setup.store, "t-bg", "idle", None);
     let mut events = setup.transcript.subscribe("t-bg");
-    setup.runtime.ensure("t-bg", W).await.unwrap();
-    setup.runtime.prompt("t-bg", "background agent").unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t-bg").await, W)
+        .await
+        .unwrap();
+    setup
+        .runtime
+        .prompt(&setup.runtime.operation("t-bg").await, "background agent")
+        .unwrap();
     // The mock reports the turn's result while its agent runs, then the agent's follow-up
     // turn starts a session of its own: the turn ends after that, not at the first result.
     let mut sessions = 0;
@@ -564,10 +664,20 @@ async fn a_turn_that_ends_before_the_cli_takes_the_next_prompt_says_one_is_queue
     let (engines, _shim) = mock_claude();
     let mut setup = setup(engines);
     add_thread(&setup.store, "t-q", "idle", None);
-    setup.runtime.ensure("t-q", W).await.unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t-q").await, W)
+        .await
+        .unwrap();
 
-    setup.runtime.prompt("t-q", "slow work").unwrap();
-    setup.runtime.prompt("t-q", "also this").unwrap();
+    setup
+        .runtime
+        .prompt(&setup.runtime.operation("t-q").await, "slow work")
+        .unwrap();
+    setup
+        .runtime
+        .prompt(&setup.runtime.operation("t-q").await, "also this")
+        .unwrap();
 
     let mut next_end = async || {
         tokio::time::timeout(Duration::from_secs(10), setup.turn_ends.recv())
@@ -579,7 +689,11 @@ async fn a_turn_that_ends_before_the_cli_takes_the_next_prompt_says_one_is_queue
     assert!(first.queued && !first.interrupted, "{first:?}");
     let second = next_end().await;
     assert!(!second.queued, "{second:?}");
-    setup.runtime.stop("t-q").await.unwrap();
+    setup
+        .runtime
+        .stop(&setup.runtime.operation("t-q").await)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -588,10 +702,17 @@ async fn claude_mock_prompt_permission_and_cancel() {
     let setup = setup(engines);
     add_thread(&setup.store, "t1", "idle", None);
     let mut events = setup.transcript.subscribe("t1");
-    setup.runtime.ensure("t1", W).await.unwrap();
     setup
         .runtime
-        .prompt("t1", "first: run echo spike-ok")
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
+    setup
+        .runtime
+        .prompt(
+            &setup.runtime.operation("t1").await,
+            "first: run echo spike-ok",
+        )
         .unwrap();
 
     let permission_id = loop {
@@ -622,15 +743,25 @@ async fn claude_mock_prompt_permission_and_cancel() {
         Some("sess-1")
     );
 
-    setup.runtime.prompt("t1", "second: count slowly").unwrap();
-    setup.runtime.cancel("t1").unwrap();
+    setup
+        .runtime
+        .prompt(&setup.runtime.operation("t1").await, "second: count slowly")
+        .unwrap();
+    setup
+        .runtime
+        .cancel(&setup.runtime.operation("t1").await)
+        .unwrap();
     loop {
         if let AgentEvent::TurnEnd { stop_reason, .. } = next_event(&mut events).await {
             assert_ne!(stop_reason, StopReason::EndTurn);
             break;
         }
     }
-    setup.runtime.stop("t1").await.unwrap();
+    setup
+        .runtime
+        .stop(&setup.runtime.operation("t1").await)
+        .await
+        .unwrap();
 }
 
 /// Starts a real Haiku session and has it launch one background agent, returning the
@@ -649,11 +780,15 @@ async fn live_background_agent(thread_id: &str) -> (Setup, broadcast::Receiver<S
     }
     .save(&setup.store);
     let events = setup.transcript.subscribe(thread_id);
-    setup.runtime.ensure(thread_id, W).await.unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation(thread_id).await, W)
+        .await
+        .unwrap();
     setup
         .runtime
         .prompt(
-            thread_id,
+            &setup.runtime.operation(thread_id).await,
             "Use the Agent tool with run_in_background set to true and subagent_type \
              general-purpose. Its prompt: run the Bash command \
              `python3 -c \"import time; time.sleep(15)\"` in the foreground, then reply ok. \
@@ -700,7 +835,11 @@ async fn live_claude_holds_the_turn_for_a_background_agent() {
             _ => {}
         }
     }
-    setup.runtime.stop("live-bg").await.unwrap();
+    setup
+        .runtime
+        .stop(&setup.runtime.operation("live-bg").await)
+        .await
+        .unwrap();
     assert!(agent.is_some(), "never launched an agent");
     assert!(agent_finished, "turn ended before its agent did");
 }
@@ -727,7 +866,10 @@ async fn live_claude_stop_reaches_a_background_agent() {
         }
     }
     tokio::time::sleep(Duration::from_secs(3)).await;
-    setup.runtime.cancel("live-stop").unwrap();
+    setup
+        .runtime
+        .cancel(&setup.runtime.operation("live-stop").await)
+        .unwrap();
     // A foreground sleep this long would still be going if nothing reached the agent.
     let stopped = tokio::time::timeout(Duration::from_secs(8), async {
         loop {
@@ -741,7 +883,11 @@ async fn live_claude_stop_reaches_a_background_agent() {
         }
     })
     .await;
-    setup.runtime.stop("live-stop").await.unwrap();
+    setup
+        .runtime
+        .stop(&setup.runtime.operation("live-stop").await)
+        .await
+        .unwrap();
     assert!(stopped.is_ok(), "the agent kept running after Stop");
 }
 
@@ -752,7 +898,11 @@ async fn a_denial_reaches_the_engine_as_its_answer_and_nothing_else() {
     let setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "running", None);
     let mut engine = fake.engine("t1");
-    setup.runtime.ensure("t1", W).await.unwrap();
+    setup
+        .runtime
+        .ensure(&setup.runtime.operation("t1").await, W)
+        .await
+        .unwrap();
     let mut events = setup.transcript.subscribe("t1");
     let (respond, answered) = tokio::sync::oneshot::channel();
     fake.report(

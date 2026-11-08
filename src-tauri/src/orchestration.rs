@@ -1051,7 +1051,11 @@ mod tests {
         say(&state.store, "child", "agent", "done");
         worktree(&state.store, "parent");
         let mut engine = fake.engine("parent");
-        state.engines.ensure("parent", "w-parent").await.unwrap();
+        state
+            .engines
+            .ensure(&state.engines.operation("parent").await, "w-parent")
+            .await
+            .unwrap();
         start(&state);
 
         crate::turn::end_turn(&state, "child").await;

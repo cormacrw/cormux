@@ -296,7 +296,11 @@ mod tests {
                 .unwrap();
         };
         let mut lead = fake.engine("t1");
-        state.engines.ensure("t1", "w1").await.unwrap();
+        state
+            .engines
+            .ensure(&state.engines.operation("t1").await, "w1")
+            .await
+            .unwrap();
         start_listeners(&state);
 
         said("child", "child done");
