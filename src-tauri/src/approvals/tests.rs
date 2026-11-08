@@ -227,45 +227,6 @@ async fn cancelled_cards_are_announced_once_per_thread_and_only_when_some_were()
 }
 
 #[tokio::test]
-async fn an_agent_waiting_refreshes_and_notifies_when_the_user_wants_to_hear() {
-    for wanted in [true, false] {
-        let (state, recording) =
-            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
-        Settings {
-            notify_approvals: wanted,
-            ..Default::default()
-        }
-        .save(&state.store);
-        state
-            .store
-            .seed_workspace("w1", crate::model::WorkspaceLifecycle::Running);
-        state
-            .store
-            .seed_thread("t1", "w1", crate::model::ThreadStatus::Running);
-        start(&state);
-
-        let _waiting = state
-            .approvals
-            .request("t1", 1, &command("a1"), ApprovalPolicy::default());
-        for _ in 0..250 {
-            if !recording.state_changes().is_empty() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-
-        assert!(!recording.state_changes().is_empty());
-        let expected = wanted.then(|| crate::feedback::NotificationPayload {
-            body: "An agent is waiting for your approval.".into(),
-            workspace_id: Some("w1".into()),
-            thread_id: Some("t1".into()),
-            opens_findings: false,
-        });
-        assert_eq!(recording.notifications().into_iter().next(), expected);
-    }
-}
-
-#[tokio::test]
 async fn an_answer_nothing_waits_for_is_refused_and_the_card_stops_asking() {
     let setup = setup();
     setup

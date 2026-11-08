@@ -117,7 +117,7 @@ pub fn run() {
             turn::start_settling(&state);
             // The bus hands each event to its listeners in this order; orchestration, which
             // starts new turns, hears last.
-            approvals::start(&state);
+            feedback::start(&state.bus, &state.out, &state.store);
             review::start(&state);
             findings::start(&state);
             orchestration::start(&state);

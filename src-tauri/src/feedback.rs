@@ -9,6 +9,10 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::bus::{Bus, DomainEvent};
+use crate::settings::Settings;
+use crate::store::Store;
+
 /// Changes closer together than this reach the webview as one `StateChanged`. The webview
 /// answers every one with a full snapshot fetch, so a burst (an approval resolving, its
 /// counts, the turn ending) costs one fetch instead of one each. The first change in a quiet
@@ -102,6 +106,52 @@ pub trait UserOutput: Send + Sync {
     fn toast(&self, payload: ToastRaisedPayload);
     fn notification(&self, payload: NotificationPayload);
     fn dock_badge(&self, count: Option<i64>);
+}
+
+/// Refreshes the webview, and with it the dock badge, whenever an approval starts or stops
+/// waiting, and tells the user an agent is waiting when Settings asks for that, for the life of
+/// the app.
+pub fn start(bus: &Bus, out: &Notifier, store: &Store) {
+    let out = out.clone();
+    let store = store.clone();
+    bus.listen(move |event| {
+        match event {
+            DomainEvent::ApprovalRequested { thread_id, .. } => {
+                notify_waiting(&out, &store, &thread_id);
+                out.changed();
+            }
+            DomainEvent::ApprovalsCancelled { .. } => out.changed(),
+            _ => {}
+        }
+        std::future::ready(())
+    });
+}
+
+fn notify_waiting(out: &Notifier, store: &Store, thread_id: &str) {
+    if !Settings::load(store).notify_approvals {
+        return;
+    }
+    let workspace_id = match store.thread_by_id(thread_id) {
+        Ok(thread) => thread.map(|thread| thread.workspace_id),
+        Err(error) => {
+            log::warn!("reading thread {thread_id} to notify: {error}");
+            None
+        }
+    };
+    out.notification(NotificationPayload {
+        body: waiting_text((out.0.pending_approvals)()),
+        thread_id: workspace_id.is_some().then(|| thread_id.to_string()),
+        workspace_id,
+        opens_findings: false,
+    });
+}
+
+fn waiting_text(pending: usize) -> String {
+    if pending <= 1 {
+        "An agent is waiting for your approval.".into()
+    } else {
+        format!("{pending} agents are waiting for your approval.")
+    }
 }
 
 /// Numbers state changes, merges bursts of them, and keeps the dock badge on the number of
@@ -386,6 +436,60 @@ mod tests {
         assert_eq!(recording.state_changes(), [PLAIN, REPO_GIT]);
         assert_eq!(recording.versions(), [1, 2]);
         assert_eq!(notifier.version(), 2);
+    }
+
+    #[tokio::test]
+    async fn an_agent_waiting_refreshes_and_notifies_when_the_user_wants_to_hear() {
+        for wanted in [true, false] {
+            let (state, recording) =
+                crate::state::AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+            crate::settings::Settings {
+                notify_approvals: wanted,
+                ..Default::default()
+            }
+            .save(&state.store);
+            state
+                .store
+                .seed_workspace("w1", crate::model::WorkspaceLifecycle::Running);
+            state
+                .store
+                .seed_thread("t1", "w1", crate::model::ThreadStatus::Running);
+            start(&state.bus, &state.out, &state.store);
+
+            let _waiting = state
+                .approvals
+                .request("t1", 1, &waiting_on("a1"), Default::default());
+            for _ in 0..250 {
+                if !recording.state_changes().is_empty() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+
+            assert!(!recording.state_changes().is_empty());
+            let expected = wanted.then(|| crate::feedback::NotificationPayload {
+                body: "An agent is waiting for your approval.".into(),
+                workspace_id: Some("w1".into()),
+                thread_id: Some("t1".into()),
+                opens_findings: false,
+            });
+            assert_eq!(recording.notifications().into_iter().next(), expected);
+        }
+    }
+
+    fn waiting_on(id: &str) -> crate::engines::PermissionRequest {
+        crate::engines::PermissionRequest {
+            id: id.into(),
+            tool_call_id: None,
+            tool: "Bash".into(),
+            role: crate::engines::ToolRole::Command {
+                command: "ls".into(),
+                description: None,
+            },
+            detail: None,
+            questions: Vec::new(),
+            respond: tokio::sync::oneshot::channel().0,
+        }
     }
 
     #[test]
