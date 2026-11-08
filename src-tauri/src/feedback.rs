@@ -1,20 +1,164 @@
-use std::sync::Arc;
+//! How the core tells the user something happened: state changes the webview mirrors, toasts
+//! and the dock badge. [`Notifier`] is the only way out for these; `ipc::events::TauriOutput`
+//! carries them to the webview and the dock, and tests use `RecordingOutput`.
 
-use crate::ipc::types::{StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone};
-use crate::state::AppState;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-/// How a workflow tells the user something happened. It is the only way out of the core for
-/// these: `ipc::events::TauriOutput` sends them to the webview and the dock, and tests use
-/// `RecordingOutput`.
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
+/// Changes closer together than this reach the webview as one `StateChanged`. The webview
+/// answers every one with a full snapshot fetch, so a burst (an approval resolving, its
+/// counts, the turn ending) costs one fetch instead of one each. The first change in a quiet
+/// spell goes out at once, so nothing waits on the window.
+const CHANGE_WINDOW: Duration = Duration::from_millis(50);
+
+/// What the webview has to re-read for a change, besides its snapshot, which it always
+/// refetches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Change {
+    /// A step may have been written into a thread (a pause, a pull, a new session), which only
+    /// a re-read of the store brings on screen.
+    pub threads: bool,
+    /// `origin` moved, so the repo rows' behind and ahead counts are stale.
+    pub repo_git: bool,
+}
+
+impl Change {
+    /// Only what the snapshot carries: a PR sync, the shell environment, the dev app.
+    pub const SNAPSHOT: Self = Self {
+        threads: false,
+        repo_git: false,
+    };
+    pub const THREADS: Self = Self {
+        threads: true,
+        repo_git: false,
+    };
+    pub const REPO_GIT: Self = Self {
+        threads: false,
+        repo_git: true,
+    };
+
+    /// One change that makes the webview do everything either would have.
+    fn merge(self, other: Self) -> Self {
+        Self {
+            threads: self.threads || other.threads,
+            repo_git: self.repo_git || other.repo_git,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ToastTone {
+    Ok,
+    Bad,
+    Default,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum ToastPart {
+    Text { value: String },
+    Code { value: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ToastRaisedPayload {
+    pub tone: ToastTone,
+    pub parts: Vec<ToastPart>,
+    pub workspace_id: Option<String>,
+    /// With `workspace_id`, clicking the toast opens this thread's tab.
+    pub thread_id: Option<String>,
+}
+
+/// Where the [`Notifier`] sends things.
 pub trait UserOutput: Send + Sync {
-    /// Prefer `AppState::notify`, which numbers changes and merges bursts of them.
-    fn state_changed(&self, version: u64, kind: StateChangeKind);
-    /// A toast carries its own payload, so it needs no `state_changed`: the webview showed it
-    /// from `ToastRaised` and ignored the matching `Toast` state event anyway.
+    fn state_changed(&self, version: u64, change: Change);
     fn toast(&self, payload: ToastRaisedPayload);
     fn dock_badge(&self, count: Option<i64>);
+}
 
-    fn toast_parts(&self, tone: ToastTone, parts: Vec<ToastPart>, workspace_id: Option<String>) {
+/// Numbers state changes, merges bursts of them, and keeps the dock badge on the number of
+/// approvals waiting. Cheap to clone: clones share one sequence.
+#[derive(Clone)]
+pub struct Notifier(Arc<NotifierInner>);
+
+struct NotifierInner {
+    output: Arc<dyn UserOutput>,
+    pending_approvals: Box<dyn Fn() -> usize + Send + Sync>,
+    version: AtomicU64,
+    changes: Mutex<ChangeCoalescer>,
+    /// The badge the dock shows. It starts with none.
+    badge: Mutex<Option<i64>>,
+}
+
+impl Notifier {
+    /// `pending_approvals` counts the approvals waiting; the badge follows it.
+    pub fn new(
+        output: Arc<dyn UserOutput>,
+        pending_approvals: impl Fn() -> usize + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(NotifierInner {
+            output,
+            pending_approvals: Box::new(pending_approvals),
+            version: AtomicU64::new(0),
+            changes: Mutex::new(ChangeCoalescer::default()),
+            badge: Mutex::new(None),
+        }))
+    }
+
+    /// The version of the last change sent. A snapshot carries it, so the webview can tell
+    /// whether an event it gets next is news.
+    pub fn version(&self) -> u64 {
+        self.0.version.load(Ordering::SeqCst)
+    }
+
+    /// Tells the webview something it mirrors has changed, merging changes that land within
+    /// `CHANGE_WINDOW` of the last one into a single trailing event.
+    ///
+    /// The version only moves when an event goes out, so consecutive events are numbered
+    /// consecutively: the webview treats a jump as a dropped event and does a full resync,
+    /// which a merged burst must not look like.
+    pub fn changed(&self, change: Change) {
+        let decision = match self.0.changes.lock() {
+            Ok(mut changes) => changes.record(change, Instant::now()),
+            Err(_) => Decision::EmitNow(change),
+        };
+        match decision {
+            Decision::EmitNow(change) => self.emit(change),
+            Decision::Schedule(delay) => {
+                let notifier = self.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    let change = match notifier.0.changes.lock() {
+                        Ok(mut changes) => changes.flush(Instant::now()),
+                        Err(_) => Some(Change::THREADS),
+                    };
+                    if let Some(change) = change {
+                        notifier.emit(change);
+                    }
+                });
+            }
+            Decision::Merged => {}
+        }
+    }
+
+    /// A toast carries its own payload, so it needs no state change.
+    pub fn toast(&self, payload: ToastRaisedPayload) {
+        self.0.output.toast(payload);
+    }
+
+    pub fn toast_parts(
+        &self,
+        tone: ToastTone,
+        parts: Vec<ToastPart>,
+        workspace_id: Option<String>,
+    ) {
         self.toast(ToastRaisedPayload {
             tone,
             parts,
@@ -22,35 +166,74 @@ pub trait UserOutput: Send + Sync {
             thread_id: None,
         });
     }
+
+    fn emit(&self, change: Change) {
+        let version = self.0.version.fetch_add(1, Ordering::SeqCst) + 1;
+        self.0.output.state_changed(version, change);
+        self.sync_badge();
+    }
+
+    /// Any change may have added or settled an approval, so the badge is recounted after each
+    /// one, and only sent when it moved.
+    fn sync_badge(&self) {
+        let pending = (self.0.pending_approvals)();
+        let count = (pending > 0).then_some(pending as i64);
+        let Ok(mut shown) = self.0.badge.lock() else {
+            return;
+        };
+        if *shown != count {
+            *shown = count;
+            self.0.output.dock_badge(count);
+        }
+    }
 }
 
-/// Shared so a workflow can hand it to the background tasks it spawns.
-pub type Output = Arc<dyn UserOutput>;
-
-pub fn emit_approval_counts(out: &Output, state: &AppState) {
-    state.notify(out, StateChangeKind::ApprovalCounts);
-    sync_dock_badge(out, state);
+/// What `changed` should do with a change, given the ones before it.
+#[derive(Debug, PartialEq, Eq)]
+enum Decision {
+    EmitNow(Change),
+    /// Wait this long, then `flush`.
+    Schedule(Duration),
+    /// A flush is already scheduled and will carry this change.
+    Merged,
 }
 
-pub fn sync_dock_badge(out: &Output, state: &AppState) {
-    let pending = pending_approvals(state);
-    let count = if pending == 0 {
-        None
-    } else {
-        Some(pending as i64)
-    };
-    out.dock_badge(count);
+/// Folds a burst of changes into one event.
+#[derive(Debug, Default)]
+struct ChangeCoalescer {
+    last_emit: Option<Instant>,
+    pending: Option<Change>,
 }
 
-fn pending_approvals(state: &AppState) -> usize {
-    let stored = state.store.pending_approval_count().unwrap_or(0);
-    stored.max(state.approvals.pending_count())
+impl ChangeCoalescer {
+    fn record(&mut self, change: Change, now: Instant) -> Decision {
+        if let Some(pending) = self.pending.take() {
+            self.pending = Some(pending.merge(change));
+            return Decision::Merged;
+        }
+        match self.last_emit {
+            Some(last) if now.duration_since(last) < CHANGE_WINDOW => {
+                self.pending = Some(change);
+                Decision::Schedule(CHANGE_WINDOW - now.duration_since(last))
+            }
+            _ => {
+                self.last_emit = Some(now);
+                Decision::EmitNow(change)
+            }
+        }
+    }
+
+    fn flush(&mut self, now: Instant) -> Option<Change> {
+        let change = self.pending.take()?;
+        self.last_emit = Some(now);
+        Some(change)
+    }
 }
 
 #[cfg(test)]
 #[derive(Debug, Clone)]
 pub enum Emitted {
-    State(StateChangeKind),
+    State(Change),
     Toast(ToastRaisedPayload),
     Badge(Option<i64>),
 }
@@ -59,27 +242,21 @@ pub enum Emitted {
 #[cfg(test)]
 #[derive(Default)]
 pub struct RecordingOutput {
-    emitted: std::sync::Mutex<Vec<Emitted>>,
-    versions: std::sync::Mutex<Vec<u64>>,
+    emitted: Mutex<Vec<Emitted>>,
+    versions: Mutex<Vec<u64>>,
 }
 
 #[cfg(test)]
 impl RecordingOutput {
-    /// The recorder, and the same thing as the `Output` a workflow takes.
-    pub fn new() -> (Arc<Self>, Output) {
-        let recording = Arc::new(Self::default());
-        (recording.clone(), recording)
-    }
-
     pub fn emitted(&self) -> Vec<Emitted> {
         self.emitted.lock().unwrap().clone()
     }
 
-    pub fn state_changes(&self) -> Vec<StateChangeKind> {
+    pub fn state_changes(&self) -> Vec<Change> {
         self.emitted()
             .into_iter()
             .filter_map(|event| match event {
-                Emitted::State(kind) => Some(kind),
+                Emitted::State(change) => Some(change),
                 _ => None,
             })
             .collect()
@@ -111,9 +288,9 @@ impl RecordingOutput {
 
 #[cfg(test)]
 impl UserOutput for RecordingOutput {
-    fn state_changed(&self, version: u64, kind: StateChangeKind) {
+    fn state_changed(&self, version: u64, change: Change) {
         self.versions.lock().unwrap().push(version);
-        self.emitted.lock().unwrap().push(Emitted::State(kind));
+        self.emitted.lock().unwrap().push(Emitted::State(change));
     }
 
     fn toast(&self, payload: ToastRaisedPayload) {
@@ -127,22 +304,95 @@ impl UserOutput for RecordingOutput {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
 
-    #[test]
-    fn approval_counts_go_to_the_webview_and_then_the_dock() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
-        state.store.open_in_memory().unwrap();
-        let (recording, out) = RecordingOutput::new();
+    fn recorded(pending: Arc<AtomicUsize>) -> (Notifier, Arc<RecordingOutput>) {
+        let recording = Arc::new(RecordingOutput::default());
+        let notifier = Notifier::new(recording.clone(), move || pending.load(Ordering::SeqCst));
+        (notifier, recording)
+    }
 
-        emit_approval_counts(&out, &state);
+    #[tokio::test]
+    async fn a_burst_reaches_the_output_as_one_trailing_event_numbered_in_sequence() {
+        let (notifier, recording) = recorded(Arc::default());
+        notifier.changed(Change::SNAPSHOT);
+        notifier.changed(Change::THREADS);
+        notifier.changed(Change::REPO_GIT);
 
-        assert!(matches!(
-            recording.emitted().as_slice(),
+        tokio::time::sleep(CHANGE_WINDOW * 3).await;
+        assert_eq!(
+            recording.state_changes(),
             [
-                Emitted::State(StateChangeKind::ApprovalCounts),
-                Emitted::Badge(None)
+                Change::SNAPSHOT,
+                Change {
+                    threads: true,
+                    repo_git: true
+                }
             ]
+        );
+        assert_eq!(recording.versions(), [1, 2]);
+        assert_eq!(notifier.version(), 2);
+    }
+
+    #[test]
+    fn the_badge_follows_the_pending_count_and_is_only_sent_when_it_moves() {
+        let pending = Arc::new(AtomicUsize::new(0));
+        let (notifier, recording) = recorded(pending.clone());
+        notifier.emit(Change::THREADS);
+        pending.store(2, Ordering::SeqCst);
+        notifier.emit(Change::THREADS);
+        notifier.emit(Change::THREADS);
+        pending.store(0, Ordering::SeqCst);
+        notifier.emit(Change::THREADS);
+
+        let badges: Vec<_> = recording
+            .emitted()
+            .into_iter()
+            .filter_map(|event| match event {
+                Emitted::Badge(count) => Some(count),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(badges, [Some(2), None]);
+    }
+
+    #[test]
+    fn a_lone_change_goes_out_at_once_and_a_burst_becomes_one_trailing_event() {
+        let mut changes = ChangeCoalescer::default();
+        let start = Instant::now();
+        assert_eq!(
+            changes.record(Change::THREADS, start),
+            Decision::EmitNow(Change::THREADS)
+        );
+        let later = start + Duration::from_millis(10);
+        assert_eq!(
+            changes.record(Change::SNAPSHOT, later),
+            Decision::Schedule(CHANGE_WINDOW - Duration::from_millis(10))
+        );
+        assert_eq!(changes.record(Change::REPO_GIT, later), Decision::Merged);
+        assert_eq!(changes.record(Change::THREADS, later), Decision::Merged);
+        let flushed = start + CHANGE_WINDOW;
+        assert_eq!(
+            changes.flush(flushed),
+            Some(Change {
+                threads: true,
+                repo_git: true
+            }),
+            "the merged event does everything each change asked for"
+        );
+        assert_eq!(changes.flush(flushed), None);
+        // The flush counts as the last emit, so the next change waits again.
+        assert!(matches!(
+            changes.record(Change::THREADS, flushed),
+            Decision::Schedule(_)
         ));
+        let mut quiet = ChangeCoalescer::default();
+        quiet.record(Change::THREADS, start);
+        assert_eq!(
+            quiet.record(Change::SNAPSHOT, start + CHANGE_WINDOW),
+            Decision::EmitNow(Change::SNAPSHOT)
+        );
     }
 }

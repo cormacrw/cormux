@@ -74,11 +74,12 @@ impl Drop for SubscriptionHandle {
 /// Feeds `channel` a thread's normalised agent events until cancelled. Returns the id to cancel by.
 pub fn stream_agent_events(
     state: &AppState,
+    subs: &Subscriptions,
     thread_id: String,
     channel: Channel<StreamedEvent>,
 ) -> u32 {
     let engines = state.engines.clone();
-    let mut sub = state.subscriptions.register();
+    let mut sub = subs.register();
     let id = sub.id;
     tauri::async_runtime::spawn(async move {
         // A new session replaces the engine, so when one closes wait for the next.
@@ -128,9 +129,14 @@ async fn subscribe_thread(
 }
 
 /// Feeds `channel` a workspace's run/setup log, from the start, until cancelled.
-pub fn stream_pty(state: &AppState, workspace_id: String, channel: Channel<PtyChunk>) -> u32 {
+pub fn stream_pty(
+    state: &AppState,
+    subs: &Subscriptions,
+    workspace_id: String,
+    channel: Channel<PtyChunk>,
+) -> u32 {
     let process = state.process.clone();
-    let sub = state.subscriptions.register();
+    let sub = subs.register();
     let id = sub.id;
     tauri::async_runtime::spawn(async move {
         // Replay the log so reopening the Output tab shows what already ran.
@@ -164,6 +170,7 @@ pub fn stream_pty(state: &AppState, workspace_id: String, channel: Channel<PtyCh
 /// Feeds `channel` a worktree's live diffs until cancelled.
 pub async fn stream_diffs(
     state: &AppState,
+    subs: &Subscriptions,
     workspace_id: String,
     channel: Channel<DiffUpdate>,
 ) -> u32 {
@@ -171,7 +178,7 @@ pub async fn stream_diffs(
         log::warn!("diff watch for {workspace_id} failed: {error}");
     }
     let diffs = state.diffs.clone();
-    let mut sub = state.subscriptions.register();
+    let mut sub = subs.register();
     let id = sub.id;
     let subscription = diffs.subscribe(&workspace_id);
     let mut updates = diffs.updates();

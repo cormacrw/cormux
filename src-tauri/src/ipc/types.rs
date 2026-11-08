@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::app::WorkspaceAppRuntime;
-use crate::git::{GitConflictState, WorktreeDiff};
+use crate::git::WorktreeDiff;
+use crate::git_workspace::WorkspaceGitRuntime;
 use crate::metrics::MemorySample;
 use crate::store::types::PersistedSnapshot;
 use crate::workspace::WorkspaceRecord;
@@ -40,128 +41,10 @@ pub struct DiffUpdate {
     pub diff: Option<WorktreeDiff>,
 }
 
-/// What changed. The webview refetches its snapshot for every kind but `Toast`, and also
-/// refreshes the repo rows for `BehindCounts`; the rest only name the change for logs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum StateChangeKind {
-    WorkspaceStatus,
-    ApprovalCounts,
-    PrSync,
-    Toast,
-    BehindCounts,
-    Environment,
-    WorkspaceApp,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum ToastTone {
-    Ok,
-    Bad,
-    Default,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase", tag = "type")]
-pub enum ToastPart {
-    Text { value: String },
-    Code { value: String },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ToastRaisedPayload {
-    pub tone: ToastTone,
-    pub parts: Vec<ToastPart>,
-    pub workspace_id: Option<String>,
-    /// With `workspace_id`, clicking the toast opens this thread's tab.
-    pub thread_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceSummaryResult {
-    pub workspace_id: String,
-    pub summary: String,
-    pub summary_at: String,
-    pub summary_source: String,
-    pub from_llm: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateWorkspaceInput {
-    pub repo_id: String,
-    pub name: String,
-    pub branch: String,
-    pub base: String,
-    pub engine: String,
-    pub goal: String,
-    /// The model to start on; `None` leaves the engine's default.
-    pub model: Option<String>,
-    /// The effort level to start on; `None` leaves the engine's default.
-    pub effort: Option<String>,
-    /// Images and files sent with the goal, as the first message's attachments.
-    #[serde(default)]
-    pub attachments: Vec<crate::attachments::PromptAttachment>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWorkspaceResult {
     pub workspace_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RepoBranchesResult {
-    pub branches: Vec<String>,
-}
-
-/// A local branch tip. `committed` is git's relative date ("2 hours ago").
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalBranchRow {
-    pub name: String,
-    pub committed: String,
-    pub subject: String,
-}
-
-/// What happened to a local branch the user asked to delete.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum BranchDeletion {
-    Deleted,
-    /// Not deleted: origin doesn't have the branch as it is locally, so deleting it
-    /// (with `force`) can lose commits.
-    Unpushed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalBranchesResult {
-    /// Branch checked out in the repo itself. Empty when detached.
-    pub head: String,
-    pub branches: Vec<LocalBranchRow>,
-}
-
-/// How far a repo's local default branch is from `origin`, as of the last fetch.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RepoGitRuntime {
-    pub repo_id: String,
-    pub behind: u32,
-    pub ahead: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceGitRuntime {
-    pub workspace_id: String,
-    pub behind: u32,
-    pub ahead: u32,
-    pub conflict: Option<GitConflictState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -176,41 +59,6 @@ pub struct SwitchWorkspaceBranchInput {
 pub struct CreateWorkspaceBranchInput {
     pub workspace_id: String,
     pub branch: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SendWorkspaceFindingsInput {
-    pub workspace_id: String,
-    pub thread_id: String,
-    pub finding_ids: Vec<String>,
-}
-
-/// An earlier conversation to resume in a thread.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ResumeThreadSessionInput {
-    pub thread_id: String,
-    /// The UI's id for the conversation, echoed back in the timeline.
-    pub conversation_id: String,
-    /// The agent session it ended with; none starts the agent fresh.
-    pub session_id: Option<String>,
-}
-
-/// Findings to dismiss, or (with `dismissed: false`) to restore.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DismissWorkspaceFindingsInput {
-    pub workspace_id: String,
-    pub finding_ids: Vec<String>,
-    pub dismissed: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RenameWorkspaceInput {
-    pub workspace_id: String,
-    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -231,87 +79,9 @@ pub enum WorkspaceAppControlAction {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct SetRepoRunCommandInput {
-    pub repo_id: String,
-    pub run_command: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SetRepoSingleInstanceInput {
-    pub repo_id: String,
-    pub single_instance: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SetRepoSetupCommandsInput {
-    pub repo_id: String,
-    pub setup_commands: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SetRepoDefaultBranchInput {
-    pub repo_id: String,
-    pub default_branch: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct AddRepoInput {
-    pub path: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoveRepoInput {
-    pub repo_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct TestRepoSetupInput {
-    pub repo_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct TestRepoSetupResult {
-    pub ok: bool,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
 pub struct SetSettingInput {
     pub key: String,
     pub value: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DraftPrWhyResult {
-    pub workspace_id: String,
-    pub text: String,
-    pub from_llm: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateWorkspacePullRequestInput {
-    pub workspace_id: String,
-    pub body: String,
-    pub title: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateWorkspacePullRequestResult {
-    pub workspace_id: String,
-    pub number: i64,
-    pub html_url: String,
-    pub title: String,
 }
 
 pub use crate::engines::AgentEvent;

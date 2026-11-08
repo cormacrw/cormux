@@ -1,8 +1,20 @@
 use crate::error::{Error, Result};
-use crate::ipc::types::WorkspaceSummaryResult;
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use crate::model::ThreadStatus;
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSummaryResult {
+    pub workspace_id: String,
+    pub summary: String,
+    pub summary_at: String,
+    pub summary_source: String,
+    pub from_llm: bool,
+}
 
 pub const SUMMARY_MODEL_LABEL: &str = "Haiku 4.5";
 

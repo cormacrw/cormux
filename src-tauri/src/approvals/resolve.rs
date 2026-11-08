@@ -4,12 +4,10 @@ use std::collections::BTreeMap;
 
 use super::{ApprovalDecision, QUESTION_TOOL, mark_answered, mark_resolved};
 use crate::error::Result;
-use crate::feedback::{Output, emit_approval_counts};
-use crate::ipc::types::StateChangeKind;
+use crate::feedback::Change;
 use crate::state::AppState;
 
 pub async fn resolve_approval(
-    out: &Output,
     state: &AppState,
     id: &str,
     approved: bool,
@@ -25,7 +23,7 @@ pub async fn resolve_approval(
         .approvals
         .resolve(id, approved, deny_message.clone())
         .await?;
-    notify_approval_resolved(out, state);
+    state.out.changed(Change::THREADS);
     if !approved && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
         let _ = state
             .engines
@@ -34,13 +32,7 @@ pub async fn resolve_approval(
     Ok(())
 }
 
-fn notify_approval_resolved(out: &Output, state: &AppState) {
-    emit_approval_counts(out, state);
-    state.notify(out, StateChangeKind::WorkspaceStatus);
-}
-
 pub fn answer_question(
-    out: &Output,
     state: &AppState,
     id: &str,
     answers: BTreeMap<String, String>,
@@ -49,12 +41,11 @@ pub fn answer_question(
     state
         .approvals
         .complete(id, ApprovalDecision::Answered { answers })?;
-    notify_approval_resolved(out, state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
 pub async fn resolve_all_approvals(
-    out: &Output,
     state: &AppState,
     thread_id: &str,
     approved: bool,
@@ -66,7 +57,7 @@ pub async fn resolve_all_approvals(
         .into_iter()
         .filter(|row| !approved || row.tool != QUESTION_TOOL)
     {
-        resolve_approval(out, state, &row.id, approved, deny_reason.clone()).await?;
+        resolve_approval(state, &row.id, approved, deny_reason.clone()).await?;
     }
     Ok(())
 }

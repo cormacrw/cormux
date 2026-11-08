@@ -82,6 +82,8 @@ export type HarnessControls = {
   setStatus: (name: string, status: string) => void
   /** Sets a thread's status, such as `running` for its live status, without a prompt. */
   setThreadStatus: (threadId: string, status: string) => void
+  /** Leaves a permission request pending on a thread, as an agent asking would. */
+  requestApproval: (threadId: string) => void
   /** Delivers events to the open Lead thread as an engine would. */
   agentEvents: (events: object[]) => void
   /** Commits the uncommitted diff, as the watcher reports it. */

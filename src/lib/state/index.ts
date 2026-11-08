@@ -1,4 +1,4 @@
-import type { Snapshot, StateChangeKind, StateChanged } from '$lib/ipc'
+import type { Snapshot, StateChanged } from '$lib/ipc'
 import { onSnapshotSupervision } from '$lib/feedback/supervision'
 import { pullRequestFromRow } from '$lib/homebase/pr-from-payload'
 import { parseTimestampMs } from '$lib/homebase/relative-time'
@@ -318,18 +318,6 @@ export function hydrateFromSnapshot(
   if (app.view === 'sprint' && !clickup.configured) app.openNewThread()
 }
 
-/**
- * State changes that only touch what the snapshot carries, never a thread's events: a fetch,
- * a PR sync, the shell environment, the dev app. The rest may have written a step into a
- * thread (a pause, a pull, a new session), which only a re-read of the store brings on screen.
- */
-const KINDS_WITHOUT_THREAD_EVENTS = new Set<StateChangeKind>([
-  'behindCounts',
-  'prSync',
-  'environment',
-  'workspaceApp',
-])
-
 // Set by events that may have written thread steps, consumed by the next snapshot applied.
 let threadRefreshDue = false
 
@@ -343,10 +331,8 @@ export const refreshSnapshot = coalesce(async () => {
 
 export function patchFromEvent(event: StateChanged) {
   app.version = Math.max(app.version, event.version)
-  if (event.kind === 'toast') return
-  // A fetch or pull moved `origin`, so the repo rows' counts are stale too.
-  if (event.kind === 'behindCounts') void repos.refreshGit()
-  if (!KINDS_WITHOUT_THREAD_EVENTS.has(event.kind)) threadRefreshDue = true
+  if (event.change.repoGit) void repos.refreshGit()
+  if (event.change.threads) threadRefreshDue = true
   void refreshSnapshot()
 }
 

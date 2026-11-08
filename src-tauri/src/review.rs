@@ -3,12 +3,11 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
-use crate::feedback::Output;
+use crate::feedback::Change;
+use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::github::RestGithubClient;
 use crate::github::auth;
 use crate::github::review::{ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput};
-use crate::ipc::types::StateChangeKind;
-use crate::ipc::types::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::paths::{WORKTREE_ROOT_SETTING, expand_tilde, worktrees_root};
 use crate::provisioning::LeadProvisionJob;
@@ -162,7 +161,6 @@ fn workspace_id_for_pr(pr_number: i64) -> String {
 }
 
 pub async fn create_review_workspace(
-    out: &Output,
     state: &AppState,
     input: CreateReviewWorkspaceInput,
 ) -> Result<CreateReviewWorkspaceResult> {
@@ -283,9 +281,9 @@ pub async fn create_review_workspace(
         .store
         .set_setting(&review_author_key(&workspace_id), &author_label);
 
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
 
-    out.toast(ToastRaisedPayload {
+    state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
         parts: vec![
             ToastPart::Text {
@@ -299,7 +297,7 @@ pub async fn create_review_workspace(
         thread_id: Some(thread_id.clone()),
     });
 
-    let (out_bg, state_bg) = (out.clone(), state.clone());
+    let state_bg = state.clone();
     let goal = user_message;
     let pr_number = input.pr_number as u64;
     let base_branch = input.base.clone();
@@ -327,7 +325,6 @@ pub async fn create_review_workspace(
             .await;
 
         crate::provisioning::run_workspace_provisioning(
-            out_bg,
             state.clone(),
             LeadProvisionJob {
                 workspace_id: workspace_id_bg.clone(),
@@ -395,7 +392,7 @@ pub fn review_is_ready(store: &Store, workspace_id: &str) -> bool {
 /// Runs when any thread's turn ends. For a Reviewer whose review isn't done yet, reads
 /// the findings block from its last reply and turns it into the Findings list. If the
 /// block is missing or malformed, leaves a note in the thread and tries again next turn.
-pub async fn on_reviewer_turn_end(out: &Output, state: &AppState, thread_id: &str) -> Result<()> {
+pub async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     let Some(thread) = state.store.thread_by_id(thread_id)? else {
         return Ok(());
     };
@@ -433,7 +430,7 @@ pub async fn on_reviewer_turn_end(out: &Output, state: &AppState, thread_id: &st
                 thread_id,
                 TimelineStep::ReviewFindingsUnreadable { reason: detail },
             )?;
-            emit_state_changed(out, state);
+            state.out.changed(Change::THREADS);
             return Ok(());
         }
     };
@@ -455,9 +452,9 @@ pub async fn on_reviewer_turn_end(out: &Output, state: &AppState, thread_id: &st
         .collect();
     state.store.replace_findings(&workspace.id, &rows)?;
     if branch_review {
-        complete_branch_review(out, state, &workspace, thread_id)
+        complete_branch_review(state, &workspace, thread_id)
     } else {
-        complete_review(out, state, &workspace, thread_id).await
+        complete_review(state, &workspace, thread_id).await
     }
 }
 
@@ -473,11 +470,7 @@ fn branch_review_running(store: &Store, workspace_id: &str) -> bool {
 /// Review a regular workspace's own branch. The workspace's thread reads the changes against
 /// the base, and its findings fill the Findings panel, from where they can be sent back to
 /// the same thread to fix. Returns the thread's id.
-pub async fn start_branch_review(
-    out: &Output,
-    state: &AppState,
-    workspace_id: &str,
-) -> Result<String> {
+pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result<String> {
     let workspace = state
         .store
         .workspace_by_id(workspace_id)?
@@ -506,17 +499,16 @@ pub async fn start_branch_review(
         record.branch, record.base
     );
     let prompt = format!("{message}\n\n{}", branch_reviewer_rubric(&record.base));
-    crate::turn::start(out, state, &thread, &message, prompt).await?;
+    crate::turn::start(state, &thread, &message, prompt).await?;
     state
         .store
         .set_setting(&review_status_key(workspace_id), "running")?;
-    emit_state_changed(out, state);
+    state.out.changed(Change::THREADS);
     Ok(thread.id)
 }
 
 /// The turn-end handler has already replaced any earlier findings with this review's.
 fn complete_branch_review(
-    out: &Output,
     state: &AppState,
     workspace: &WorkspaceRow,
     thread_id: &str,
@@ -530,7 +522,7 @@ fn complete_branch_review(
         .iter()
         .any(|row| row.status == "open");
     if !found {
-        out.toast(ToastRaisedPayload {
+        state.out.toast(ToastRaisedPayload {
             tone: ToastTone::Ok,
             parts: vec![
                 ToastPart::Text {
@@ -547,12 +539,11 @@ fn complete_branch_review(
             thread_id: Some(thread_id.to_string()),
         });
     }
-    emit_state_changed(out, state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
 async fn complete_review(
-    out: &Output,
     state: &AppState,
     workspace: &WorkspaceRow,
     thread_id: &str,
@@ -591,7 +582,7 @@ async fn complete_review(
 
     // With findings, the frontend toasts (and notifies) when they first appear.
     if findings.is_empty() {
-        out.toast(ToastRaisedPayload {
+        state.out.toast(ToastRaisedPayload {
             tone: ToastTone::Ok,
             parts: vec![
                 ToastPart::Text {
@@ -606,12 +597,8 @@ async fn complete_review(
             thread_id: Some(thread_id.to_string()),
         });
     }
-    emit_state_changed(out, state);
+    state.out.changed(Change::THREADS);
     Ok(())
-}
-
-fn emit_state_changed(out: &Output, state: &AppState) {
-    state.notify(out, StateChangeKind::WorkspaceStatus);
 }
 
 fn count_findings(findings: &[FindingRow]) -> String {
@@ -636,7 +623,6 @@ fn count_findings(findings: &[FindingRow]) -> String {
 }
 
 pub async fn submit_workspace_review(
-    out: &Output,
     state: &AppState,
     input: SubmitWorkspaceReviewInput,
 ) -> Result<()> {
@@ -762,7 +748,7 @@ pub async fn submit_workspace_review(
         .set_provisioning_detail(&input.workspace_id, "Review submitted", 0, None, None)
         .await?;
 
-    out.toast(ToastRaisedPayload {
+    state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
         parts: vec![
             ToastPart::Text {
@@ -776,7 +762,7 @@ pub async fn submit_workspace_review(
         thread_id: None,
     });
 
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
@@ -817,12 +803,15 @@ async fn parse_repo_slug(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
     use crate::feedback::{Emitted, RecordingOutput};
     use crate::store::types::{RepoRecord, ThreadRow};
 
     /// A branch review in flight, its thread having just said `reply`.
-    fn reviewing(reply: &str) -> AppState {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+    fn reviewing(reply: &str) -> (AppState, Arc<RecordingOutput>) {
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         state.store.open_in_memory().unwrap();
         state
             .store
@@ -882,15 +871,15 @@ mod tests {
             .store
             .append_event("t1", "message", &said.to_string())
             .unwrap();
-        state
+        (state, recording)
     }
 
     #[tokio::test]
     async fn a_clean_branch_review_toasts_then_refreshes() {
-        let state = reviewing("Looks fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
-        let (recording, out) = RecordingOutput::new();
+        let (state, recording) =
+            reviewing("Looks fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
 
-        on_reviewer_turn_end(&out, &state, "t1").await.unwrap();
+        on_reviewer_turn_end(&state, "t1").await.unwrap();
 
         assert_eq!(
             recording.toasts(),
@@ -898,26 +887,19 @@ mod tests {
         );
         assert!(matches!(
             recording.emitted().as_slice(),
-            [
-                Emitted::Toast(_),
-                Emitted::State(StateChangeKind::WorkspaceStatus)
-            ]
+            [Emitted::Toast(_), Emitted::State(Change::THREADS)]
         ));
         assert!(review_is_ready(&state.store, "w1"));
     }
 
     #[tokio::test]
     async fn a_reply_with_no_findings_block_leaves_the_review_running() {
-        let state = reviewing("I got distracted.");
-        let (recording, out) = RecordingOutput::new();
+        let (state, recording) = reviewing("I got distracted.");
 
-        on_reviewer_turn_end(&out, &state, "t1").await.unwrap();
+        on_reviewer_turn_end(&state, "t1").await.unwrap();
 
         assert!(recording.toasts().is_empty());
-        assert_eq!(
-            recording.state_changes(),
-            [StateChangeKind::WorkspaceStatus]
-        );
+        assert_eq!(recording.state_changes(), [Change::THREADS]);
         assert!(branch_review_running(&state.store, "w1"));
     }
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  dockBadgeCount,
   formatToastPayload,
   pendingApprovalCount,
   pullToast,
@@ -20,16 +19,6 @@ describe('pendingApprovalCount', () => {
 
   it('includes live broker counts', () => {
     expect(pendingApprovalCount([], 2)).toBe(2)
-  })
-})
-
-describe('dockBadgeCount', () => {
-  it('clears the badge at zero', () => {
-    expect(dockBadgeCount(0)).toBeUndefined()
-  })
-
-  it('passes through positive counts', () => {
-    expect(dockBadgeCount(3)).toBe(3)
   })
 })
 

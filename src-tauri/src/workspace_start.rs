@@ -4,15 +4,35 @@ use std::path::PathBuf;
 
 use uuid::Uuid;
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use crate::composer::persist_user_message;
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::{CreateWorkspaceInput, StateChangeKind};
+use crate::feedback::Change;
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::paths::{WORKTREE_ROOT_SETTING, expand_tilde, worktrees_root};
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::timeline::{TimelineStep, record_step};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceInput {
+    pub repo_id: String,
+    pub name: String,
+    pub branch: String,
+    pub base: String,
+    pub engine: String,
+    pub goal: String,
+    /// The model to start on; `None` leaves the engine's default.
+    pub model: Option<String>,
+    /// The effort level to start on; `None` leaves the engine's default.
+    pub effort: Option<String>,
+    /// Images and files sent with the goal, as the first message's attachments.
+    #[serde(default)]
+    pub attachments: Vec<crate::attachments::PromptAttachment>,
+}
 
 pub struct StartedWorkspace {
     pub workspace_id: String,
@@ -23,7 +43,6 @@ pub struct StartedWorkspace {
 /// A new worktree and its thread, provisioned in the background. `parent_thread_id` is the
 /// thread that asked for it, when an agent did.
 pub async fn start_workspace(
-    out: &Output,
     state: &AppState,
     input: CreateWorkspaceInput,
     parent_thread_id: Option<String>,
@@ -134,11 +153,10 @@ pub async fn start_workspace(
         persist_user_message(&state.store, &thread_id, &shown)?;
     }
 
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
 
     if auto_named {
         spawn_auto_name(
-            out.clone(),
             state.clone(),
             workspace_id.clone(),
             input.name.clone(),
@@ -146,7 +164,7 @@ pub async fn start_workspace(
         );
     }
 
-    let (out_bg, state_bg) = (out.clone(), state.clone());
+    let state_bg = state.clone();
     let workspace_id_bg = workspace_id.clone();
     let thread_id_bg = thread_id.clone();
     let engine = input.engine.clone();
@@ -162,8 +180,8 @@ pub async fn start_workspace(
     let base = input.base.clone();
 
     tauri::async_runtime::spawn(async move {
-        let (out, state) = (out_bg, state_bg);
-        if auto_named && let Err(error) = name_branch(&out, &state, &workspace_id_bg, &goal).await {
+        let state = state_bg;
+        if auto_named && let Err(error) = name_branch(&state, &workspace_id_bg, &goal).await {
             log::warn!("keeping the drafted branch {draft_branch}: {error}");
         }
         let branch = match state.workspace.get(&workspace_id_bg).await {
@@ -178,7 +196,6 @@ pub async fn start_workspace(
             log::warn!("could not record the worktree step: {error}");
         }
         crate::provisioning::run_workspace_provisioning(
-            out,
             state,
             crate::provisioning::LeadProvisionJob {
                 workspace_id: workspace_id_bg,
@@ -199,12 +216,7 @@ pub async fn start_workspace(
 
 /// Swaps the drafted branch for Haiku's while nothing on disk uses it yet. The draft stands if
 /// Haiku is slow or has nothing usable, since the agent shouldn't wait long for a name.
-async fn name_branch(
-    out: &Output,
-    state: &AppState,
-    workspace_id: &str,
-    prompt: &str,
-) -> Result<()> {
+async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Result<()> {
     let generated = tokio::time::timeout(
         crate::naming::BRANCH_NAME_TIMEOUT,
         crate::naming::generate_branch(&state.llm, prompt),
@@ -239,18 +251,12 @@ async fn name_branch(
     state
         .store
         .set_workspace_checkout(workspace_id, &record.branch, &record.worktree_path)?;
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
 /// Swaps the drafted name for Haiku's unless the workspace was renamed or deleted meanwhile.
-fn spawn_auto_name(
-    out: Output,
-    state: AppState,
-    workspace_id: String,
-    draft: String,
-    prompt: String,
-) {
+fn spawn_auto_name(state: AppState, workspace_id: String, draft: String, prompt: String) {
     tauri::async_runtime::spawn(async move {
         let Some(name) = crate::naming::generate_title(
             &state.llm,
@@ -274,7 +280,7 @@ fn spawn_auto_name(
         {
             return;
         }
-        state.notify(&out, StateChangeKind::WorkspaceStatus);
+        state.out.changed(Change::THREADS);
     });
 }
 
@@ -312,7 +318,6 @@ esac
     struct Fixture {
         state: AppState,
         recording: Arc<RecordingOutput>,
-        out: Output,
         repo: PathBuf,
         worktrees: PathBuf,
         dir: TempDir,
@@ -338,7 +343,8 @@ esac
         git(&repo, &["config", "user.name", "Cormux"]);
         git(&repo, &["commit", "-q", "--allow-empty", "-m", "init"]);
 
-        let state = AppState::new(crate::paths::DataDir::new(dir.path().join("data")));
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(dir.path().join("data")));
         state.store.open_in_memory().unwrap();
         state
             .store
@@ -359,11 +365,9 @@ esac
             .unwrap();
         set_path(&state, "/usr/bin:/bin").await;
 
-        let (recording, out) = RecordingOutput::new();
         Fixture {
             state,
             recording,
-            out,
             repo,
             worktrees,
             dir,
@@ -457,7 +461,7 @@ esac
             })
             .unwrap();
 
-        let started = start_workspace(&f.out, &f.state, input("", "feat/x", ""), None)
+        let started = start_workspace(&f.state, input("", "feat/x", ""), None)
             .await
             .unwrap();
 
@@ -502,7 +506,7 @@ esac
         );
         assert!(matches!(
             f.recording.emitted().first(),
-            Some(Emitted::State(StateChangeKind::WorkspaceStatus))
+            Some(Emitted::State(Change::THREADS))
         ));
     }
 
@@ -516,7 +520,7 @@ esac
             ..input(&long_name, "feat/x", "  Fix the login page  ")
         };
 
-        let started = start_workspace(&f.out, &f.state, request, Some("parent".into()))
+        let started = start_workspace(&f.state, request, Some("parent".into()))
             .await
             .unwrap();
 
@@ -557,9 +561,7 @@ esac
             ..input("", "feat/x", "Fix this")
         };
 
-        let started = start_workspace(&f.out, &f.state, request, None)
-            .await
-            .unwrap();
+        let started = start_workspace(&f.state, request, None).await.unwrap();
 
         assert_eq!(
             f.state
@@ -579,7 +581,7 @@ esac
             }],
             ..input("", "feat/y", "Look")
         };
-        let error = start_workspace(&f.out, &f.state, missing, None)
+        let error = start_workspace(&f.state, missing, None)
             .await
             .err()
             .unwrap();
@@ -592,7 +594,6 @@ esac
         let f = fixture().await;
 
         let started = start_workspace(
-            &f.out,
             &f.state,
             input("", "feat/draft", "Fix the login page."),
             None,
@@ -623,7 +624,6 @@ esac
         git(&f.repo, &["branch", "feat/oauth-login"]);
 
         let started = start_workspace(
-            &f.out,
             &f.state,
             input("", "feat/draft", "Let people sign in with OAuth"),
             None,
@@ -659,7 +659,7 @@ esac
         install_fake_claude(&f).await;
         let draft = "Workspace named by the user";
 
-        let started = start_workspace(&f.out, &f.state, input(draft, "feat/x", "Do it"), None)
+        let started = start_workspace(&f.state, input(draft, "feat/x", "Do it"), None)
             .await
             .unwrap();
 
@@ -684,7 +684,7 @@ esac
             (input("Work", " main ", ""), "the default branch of app"),
         ];
         for (request, message) in cases {
-            let error = start_workspace(&f.out, &f.state, request, None)
+            let error = start_workspace(&f.state, request, None)
                 .await
                 .err()
                 .unwrap();
@@ -692,7 +692,7 @@ esac
         }
 
         std::fs::remove_dir_all(&f.repo).unwrap();
-        let error = start_workspace(&f.out, &f.state, input("Work", "feat/x", ""), None)
+        let error = start_workspace(&f.state, input("Work", "feat/x", ""), None)
             .await
             .err()
             .unwrap();

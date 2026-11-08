@@ -15,7 +15,6 @@ export {
   type PtyChunk,
   type Result,
   type Snapshot,
-  type StateChangeKind,
   type StateChanged,
   type ThreadMedia,
   type ToastRaised,

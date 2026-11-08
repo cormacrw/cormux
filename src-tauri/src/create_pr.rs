@@ -1,20 +1,44 @@
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use crate::error::{Error, Result};
-use crate::feedback::Output;
+use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::git_workspace::{lead_thread_id, refresh_git_stats, resolve_record};
 use crate::github::RestGithubClient;
 use crate::github::auth;
 use crate::github::create::CreatePullRequestInput;
 use crate::github::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
-use crate::ipc::types::{
-    CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
-    StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone,
-};
 use crate::pr_draft::{PR_PROMPT_KEY, draft_why, pr_prompt};
 use crate::state::AppState;
 use crate::store::types::{PrRow, WorkspaceRow};
 use crate::timeline::{TimelineStep, record_step};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftPrWhyResult {
+    pub workspace_id: String,
+    pub text: String,
+    pub from_llm: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspacePullRequestInput {
+    pub workspace_id: String,
+    pub body: String,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspacePullRequestResult {
+    pub workspace_id: String,
+    pub number: i64,
+    pub html_url: String,
+    pub title: String,
+}
 
 /// A workspace that's still around, for the PR commands.
 fn live_workspace(state: &AppState, workspace_id: &str) -> Result<WorkspaceRow> {
@@ -60,7 +84,6 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
 }
 
 pub async fn create_workspace_pull_request(
-    out: &Output,
     state: &AppState,
     input: CreateWorkspacePullRequestInput,
 ) -> Result<CreateWorkspacePullRequestResult> {
@@ -211,7 +234,7 @@ pub async fn create_workspace_pull_request(
         &pr_base,
     )?;
 
-    out.toast(ToastRaisedPayload {
+    state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
         parts: vec![
             ToastPart::Text {
@@ -226,7 +249,7 @@ pub async fn create_workspace_pull_request(
     });
 
     // One refetch covers the new PR row and the workspace's PR number.
-    state.notify(out, StateChangeKind::PrSync);
+    state.out.changed(Change::SNAPSHOT);
 
     Ok(CreateWorkspacePullRequestResult {
         workspace_id: input.workspace_id,

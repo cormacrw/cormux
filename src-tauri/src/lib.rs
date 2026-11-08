@@ -46,8 +46,11 @@ mod workspace_start;
 
 use std::time::Duration;
 
-use ipc::events::{MemorySampled, output};
-use ipc::types::StateChangeKind;
+use std::sync::Arc;
+
+use feedback::Change;
+use ipc::events::{MemorySampled, TauriOutput};
+use ipc::subscriptions::Subscriptions;
 use state::AppState;
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_specta::Event;
@@ -86,9 +89,9 @@ pub fn run() {
                     let state = app.state::<AppState>();
                     let updates = state.fetch.tick().await;
                     crate::git_workspace::apply_behind_updates(&state, &updates).await;
-                    state.notify(&output(&app), StateChangeKind::BehindCounts);
+                    state.out.changed(Change::REPO_GIT);
                     let state = app.state::<AppState>();
-                    if let Err(error) = state.pr_sync.sync_app(&output(&app), &state).await {
+                    if let Err(error) = state.pr_sync.sync_app(&state).await {
                         log::warn!("focus PR sync failed: {error}");
                     }
                     app.state::<WindowActivity>().finish_sync();
@@ -112,8 +115,11 @@ pub fn run() {
             app.set_menu(menu::build(app.handle())?)?;
 
             app.manage(WindowActivity::new());
-            let out = output(app.handle());
-            let state = AppState::new(paths::DataDir::for_app(app.path().app_data_dir()?));
+            app.manage(Subscriptions::new());
+            let state = AppState::new(
+                paths::DataDir::for_app(app.path().app_data_dir()?),
+                Arc::new(TauriOutput(app.handle().clone())),
+            );
             state.diffs.start();
             state.fetch.spawn_loop();
 
@@ -125,9 +131,9 @@ pub fn run() {
             let approval_notify = state.approval_notify.clone();
             state.engines.spawn_idle_reaper();
             app.manage(state.clone());
-            crate::git_workspace::spawn_branch_watch(out.clone(), state.clone());
+            crate::git_workspace::spawn_branch_watch(state.clone());
 
-            let (startup_out, startup) = (out.clone(), state.clone());
+            let startup = state.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = env.write().await.load_or_inherit().await {
                     log::warn!("shell env load failed: {error}");
@@ -136,13 +142,13 @@ pub fn run() {
                 if let Err(error) = crate::git_workspace::restore_fetch_targets(&startup).await {
                     log::warn!("restoring fetch targets failed: {error}");
                 }
-                if let Err(error) = pr_sync.sync_app(&startup_out, &startup).await {
+                if let Err(error) = pr_sync.sync_app(&startup).await {
                     log::warn!("initial PR sync failed: {error}");
                 }
-                pr_sync.spawn_loop(startup_out, startup);
+                pr_sync.spawn_loop(startup);
             });
 
-            state.mcp.attach(out.clone(), state.clone());
+            state.mcp.attach(state.clone());
 
             // The window starts hidden and the app shows it once it has painted. If
             // that never happens (a startup error), show it anyway rather than
@@ -158,24 +164,23 @@ pub fn run() {
                 }
             });
 
-            let (approval_out, approval_state) = (out.clone(), state.clone());
+            let approval_state = state.clone();
             tauri::async_runtime::spawn(async move {
                 let mut rx = approval_notify.subscribe();
                 loop {
                     if rx.recv().await.is_err() {
                         break;
                     }
-                    crate::feedback::emit_approval_counts(&approval_out, &approval_state);
+                    approval_state.out.changed(Change::THREADS);
                     if let Err(error) =
-                        crate::orchestration::on_approval_requested(&approval_out, &approval_state)
-                            .await
+                        crate::orchestration::on_approval_requested(&approval_state).await
                     {
                         log::warn!("reporting a blocked thread failed: {error}");
                     }
                 }
             });
 
-            tauri::async_runtime::spawn(turn::listen(out, state));
+            tauri::async_runtime::spawn(turn::listen(state));
 
             let metrics_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

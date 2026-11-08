@@ -1,6 +1,5 @@
 import type { Snapshot } from '$lib/ipc'
 import { readBooleanSetting } from '$lib/new-workspace/settings-defaults'
-import { syncDockBadge } from './dock-badge'
 import { notifyHarness } from './os-notifications'
 import {
   approvalNeededNotificationBody,
@@ -57,8 +56,6 @@ export async function onSnapshotSupervision(snapshot: Snapshot) {
     snapshot.persisted.approvals,
     snapshot.pendingLiveApprovals,
   )
-  await syncDockBadge(pending)
-
   const notifyApprovals = readBooleanSetting(
     snapshot.persisted.settings,
     'notifyApprovals',

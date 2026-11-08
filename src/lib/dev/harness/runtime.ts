@@ -31,7 +31,10 @@ export function createRuntime(scenario: HarnessScenario) {
       callbacks.get(handler)?.({
         event: 'state-changed',
         id: newId(),
-        payload: { version: nextEventId, kind: 'workspaceStatus' },
+        payload: {
+          version: nextEventId,
+          change: { threads: true, repoGit: false },
+        },
       })
     }
   }
@@ -55,6 +58,23 @@ export function createRuntime(scenario: HarnessScenario) {
       for (const row of fixtureSnapshot.persisted.threads) {
         if (row.id === threadId) row.status = status as typeof row.status
       }
+      emitStateChanged()
+    },
+    requestApproval(threadId) {
+      const approvals = fixtureSnapshot.persisted.approvals
+      approvals.push({
+        id: `approval-${approvals.length + 1}`,
+        threadId,
+        status: 'pending',
+        tool: 'execute',
+        payload: JSON.stringify({
+          title: 'Run a command',
+          what: 'pnpm test',
+          why: 'Bash',
+          okLabel: 'Approve',
+          noLabel: 'Deny',
+        }),
+      })
       emitStateChanged()
     },
     agentEvents(events) {

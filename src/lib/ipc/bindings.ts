@@ -810,6 +810,20 @@ export type BranchDeletion = "deleted" |
  */
 "unpushed"
 /**
+ * What the webview has to re-read for a change, besides its snapshot, which it always
+ * refetches.
+ */
+export type Change = { 
+/**
+ * A step may have been written into a thread (a pause, a pull, a new session), which only
+ * a re-read of the store brings on screen.
+ */
+threads: boolean; 
+/**
+ * `origin` moved, so the repo rows' behind and ahead counts are stale.
+ */
+repoGit: boolean }
+/**
  * Everything the sprint board renders: the current sprint, its lanes and its tasks.
  */
 export type ClickupBoard = { sprint: ClickupSprint; statuses: ClickupStatus[]; tasks: ClickupTask[]; 
@@ -1040,15 +1054,10 @@ export type StackStatus =
  */
 "unavailable"
 /**
- * What changed. The webview refetches its snapshot for every kind but `Toast`, and also
- * refreshes the repo rows for `BehindCounts`; the rest only name the change for logs.
- */
-export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "environment" | "workspaceApp"
-/**
  * Low-volume core → UI notification. `version` is monotonic; a gap means the
  * webview should call `get_snapshot` and replace local state.
  */
-export type StateChanged = { version: number; kind: StateChangeKind }
+export type StateChanged = { version: number; change: Change }
 /**
  * An event on its way to the UI, with where the store saved it. `seq` is `None` for an event that
  * isn't saved, or failed to save, so the UI can tell it from rows it has already read back.

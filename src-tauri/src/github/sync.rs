@@ -5,9 +5,8 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::error::Result;
-use crate::feedback::Output;
+use crate::feedback::Change;
 use crate::git::Git;
-use crate::ipc::types::StateChangeKind;
 use crate::shell_env::ShellEnv;
 use crate::state::AppState;
 use crate::store::types::PrRow;
@@ -105,7 +104,7 @@ impl PrSyncScheduler {
         Ok(changed)
     }
 
-    pub fn spawn_loop(self, out: Output, state: AppState) {
+    pub fn spawn_loop(self, state: AppState) {
         tauri::async_runtime::spawn(async move {
             let mut interval = tokio::time::interval(SYNC_INTERVAL);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -113,18 +112,18 @@ impl PrSyncScheduler {
             interval.tick().await;
             loop {
                 interval.tick().await;
-                if let Err(error) = self.sync_app(&out, &state).await {
+                if let Err(error) = self.sync_app(&state).await {
                     log::warn!("background PR sync failed: {error}");
                 }
             }
         });
     }
 
-    pub async fn sync_app(&self, out: &Output, state: &AppState) -> Result<()> {
+    pub async fn sync_app(&self, state: &AppState) -> Result<()> {
         if !self.tick(state).await? {
             return Ok(());
         }
-        state.notify(out, StateChangeKind::PrSync);
+        state.out.changed(Change::SNAPSHOT);
         Ok(())
     }
 }

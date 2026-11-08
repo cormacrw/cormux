@@ -3,26 +3,118 @@
 use std::path::Path;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::{
-    AddRepoInput, BranchDeletion, LocalBranchRow, LocalBranchesResult, RemoveRepoInput,
-    RepoBranchesResult, RepoGitRuntime, SetRepoDefaultBranchInput, SetRepoRunCommandInput,
-    SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, StateChangeKind, TestRepoSetupInput,
-    TestRepoSetupResult, ToastPart, ToastRaisedPayload, ToastTone,
-};
+use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::paths::expand_tilde;
 use crate::state::AppState;
 use crate::store::types::RepoRecord;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoBranchesResult {
+    pub branches: Vec<String>,
+}
+
+/// A local branch tip. `committed` is git's relative date ("2 hours ago").
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBranchRow {
+    pub name: String,
+    pub committed: String,
+    pub subject: String,
+}
+
+/// What happened to a local branch the user asked to delete.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BranchDeletion {
+    Deleted,
+    /// Not deleted: origin doesn't have the branch as it is locally, so deleting it
+    /// (with `force`) can lose commits.
+    Unpushed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBranchesResult {
+    /// Branch checked out in the repo itself. Empty when detached.
+    pub head: String,
+    pub branches: Vec<LocalBranchRow>,
+}
+
+/// How far a repo's local default branch is from `origin`, as of the last fetch.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoGitRuntime {
+    pub repo_id: String,
+    pub behind: u32,
+    pub ahead: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRepoRunCommandInput {
+    pub repo_id: String,
+    pub run_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRepoSingleInstanceInput {
+    pub repo_id: String,
+    pub single_instance: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRepoSetupCommandsInput {
+    pub repo_id: String,
+    pub setup_commands: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRepoDefaultBranchInput {
+    pub repo_id: String,
+    pub default_branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddRepoInput {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveRepoInput {
+    pub repo_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TestRepoSetupInput {
+    pub repo_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TestRepoSetupResult {
+    pub ok: bool,
+    pub message: String,
+}
 
 fn repo_paths_match(left: &str, right: &Path) -> bool {
     let left_path = expand_tilde(left);
     left_path.canonicalize().ok() == right.canonicalize().ok()
 }
 
-fn upsert_repo_record(out: &Output, state: &AppState, repo: RepoRecord) -> Result<()> {
+fn upsert_repo_record(state: &AppState, repo: RepoRecord) -> Result<()> {
     state.store.upsert_repo(&repo)?;
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
@@ -34,44 +126,28 @@ fn repo_record(state: &AppState, repo_id: &str) -> Result<RepoRecord> {
         .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))
 }
 
-pub fn set_run_command(
-    out: &Output,
-    state: &AppState,
-    input: SetRepoRunCommandInput,
-) -> Result<()> {
+pub fn set_run_command(state: &AppState, input: SetRepoRunCommandInput) -> Result<()> {
     let mut repo = repo_record(state, &input.repo_id)?;
     repo.run_command = input
         .run_command
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    upsert_repo_record(out, state, repo)
+    upsert_repo_record(state, repo)
 }
 
-pub fn set_single_instance(
-    out: &Output,
-    state: &AppState,
-    input: SetRepoSingleInstanceInput,
-) -> Result<()> {
+pub fn set_single_instance(state: &AppState, input: SetRepoSingleInstanceInput) -> Result<()> {
     let mut repo = repo_record(state, &input.repo_id)?;
     repo.single_instance = input.single_instance;
-    upsert_repo_record(out, state, repo)
+    upsert_repo_record(state, repo)
 }
 
-pub fn set_setup_commands(
-    out: &Output,
-    state: &AppState,
-    input: SetRepoSetupCommandsInput,
-) -> Result<()> {
+pub fn set_setup_commands(state: &AppState, input: SetRepoSetupCommandsInput) -> Result<()> {
     let mut repo = repo_record(state, &input.repo_id)?;
     repo.setup_commands = input.setup_commands;
-    upsert_repo_record(out, state, repo)
+    upsert_repo_record(state, repo)
 }
 
-pub fn set_default_branch(
-    out: &Output,
-    state: &AppState,
-    input: SetRepoDefaultBranchInput,
-) -> Result<()> {
+pub fn set_default_branch(state: &AppState, input: SetRepoDefaultBranchInput) -> Result<()> {
     let mut repo = repo_record(state, &input.repo_id)?;
     let branch = input.default_branch.trim().to_string();
     if branch.is_empty() {
@@ -89,7 +165,7 @@ pub fn set_default_branch(
         )));
     }
     repo.default_branch = Some(branch);
-    upsert_repo_record(out, state, repo)
+    upsert_repo_record(state, repo)
 }
 
 /// Commits each repo's default branch is behind and ahead of `origin`, against the last
@@ -114,7 +190,7 @@ pub async fn git_runtime(state: &AppState) -> Result<Vec<RepoGitRuntime>> {
 }
 
 /// Fast-forward the repo checkout's default branch from origin.
-pub async fn pull_default_branch(out: &Output, state: &AppState, repo_id: &str) -> Result<()> {
+pub async fn pull_default_branch(state: &AppState, repo_id: &str) -> Result<()> {
     let repo = repo_record(state, repo_id)?;
     let branch = repo.default_branch_or_main().to_string();
     let pulled = state
@@ -125,14 +201,14 @@ pub async fn pull_default_branch(out: &Output, state: &AppState, repo_id: &str) 
     // Workspaces count how far behind origin/<base> they are, which the pull just moved.
     let updates = state.fetch.tick().await;
     crate::git_workspace::apply_behind_updates(state, &updates).await;
-    state.notify(out, StateChangeKind::BehindCounts);
+    state.out.changed(Change::REPO_GIT);
 
     let summary = match pulled {
         0 => " is up to date".to_string(),
         1 => ": pulled 1 commit".to_string(),
         count => format!(": pulled {count} commits"),
     };
-    out.toast(ToastRaisedPayload {
+    state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
         parts: vec![
             ToastPart::Text {
@@ -147,7 +223,7 @@ pub async fn pull_default_branch(out: &Output, state: &AppState, repo_id: &str) 
     Ok(())
 }
 
-pub async fn add(out: &Output, state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
+pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
     let (normalized, id) = crate::harness_config::validate_add_path(&input.path)?;
     let expanded = expand_tilde(&normalized);
     if !expanded.is_dir() {
@@ -193,9 +269,9 @@ pub async fn add(out: &Output, state: &AppState, input: AddRepoInput) -> Result<
         run_command,
         single_instance: false,
     };
-    upsert_repo_record(out, state, record.clone())?;
+    upsert_repo_record(state, record.clone())?;
 
-    out.toast(ToastRaisedPayload {
+    state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
         parts: vec![ToastPart::Text {
             value: format!(
@@ -206,12 +282,12 @@ pub async fn add(out: &Output, state: &AppState, input: AddRepoInput) -> Result<
         workspace_id: None,
         thread_id: None,
     });
-    resync_prs(out, state);
+    resync_prs(state);
 
     Ok(record)
 }
 
-pub async fn remove(out: &Output, state: &AppState, input: RemoveRepoInput) -> Result<()> {
+pub async fn remove(state: &AppState, input: RemoveRepoInput) -> Result<()> {
     let repo = repo_record(state, &input.repo_id)?;
 
     let used = state.store.count_active_workspaces_for_repo(&repo.id)?;
@@ -228,9 +304,9 @@ pub async fn remove(out: &Output, state: &AppState, input: RemoveRepoInput) -> R
     }
 
     state.store.delete_repo(&repo.id)?;
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
 
-    out.toast(ToastRaisedPayload {
+    state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
         parts: vec![ToastPart::Text {
             value: format!("Removed {}. The folder on disk wasn't touched.", repo.name),
@@ -238,15 +314,15 @@ pub async fn remove(out: &Output, state: &AppState, input: RemoveRepoInput) -> R
         workspace_id: None,
         thread_id: None,
     });
-    resync_prs(out, state);
+    resync_prs(state);
     Ok(())
 }
 
 /// The PR list only shows registered repos, so re-sync when that set changes.
-fn resync_prs(out: &Output, state: &AppState) {
-    let (out, state) = (out.clone(), state.clone());
+fn resync_prs(state: &AppState) {
+    let state = state.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = state.pr_sync.sync_app(&out, &state).await {
+        if let Err(error) = state.pr_sync.sync_app(&state).await {
             log::warn!("PR sync after repo change failed: {error}");
         }
     });
@@ -423,12 +499,12 @@ mod tests {
         repo
     }
 
-    fn fixture() -> (AppState, Arc<RecordingOutput>, Output, TempDir) {
+    fn fixture() -> (AppState, Arc<RecordingOutput>, TempDir) {
         let dir = TempDir::new().unwrap();
-        let state = AppState::new(crate::paths::DataDir::new(dir.path().join("data")));
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(dir.path().join("data")));
         state.store.open_in_memory().unwrap();
-        let (recording, out) = RecordingOutput::new();
-        (state, recording, out, dir)
+        (state, recording, dir)
     }
 
     fn register(state: &AppState, id: &str, path: &Path) {
@@ -469,19 +545,19 @@ mod tests {
             .unwrap();
     }
 
-    async fn add_path(out: &Output, state: &AppState, path: &Path) -> Result<RepoRecord> {
+    async fn add_path(state: &AppState, path: &Path) -> Result<RepoRecord> {
         let input = AddRepoInput {
             path: path.to_string_lossy().to_string(),
         };
-        add(out, state, input).await
+        add(state, input).await
     }
 
     #[tokio::test]
     async fn adding_a_repo_records_it_then_refreshes_and_toasts() {
-        let (state, recording, out, dir) = fixture();
+        let (state, recording, dir) = fixture();
         let repo = init_repo(&dir, "app");
 
-        let record = add_path(&out, &state, &repo).await.unwrap();
+        let record = add_path(&state, &repo).await.unwrap();
 
         assert_eq!(record.id, "app");
         assert_eq!(record.name, "app");
@@ -493,7 +569,7 @@ mod tests {
         assert!(matches!(
             recording.emitted().as_slice(),
             [
-                crate::feedback::Emitted::State(StateChangeKind::WorkspaceStatus),
+                crate::feedback::Emitted::State(Change::THREADS),
                 crate::feedback::Emitted::Toast(_)
             ]
         ));
@@ -505,12 +581,12 @@ mod tests {
 
     #[tokio::test]
     async fn adding_finds_the_top_of_the_repo_from_a_subfolder() {
-        let (state, _recording, out, dir) = fixture();
+        let (state, _recording, dir) = fixture();
         let repo = init_repo(&dir, "app");
         let nested = repo.join("src");
         std::fs::create_dir(&nested).unwrap();
 
-        let record = add_path(&out, &state, &nested).await.unwrap();
+        let record = add_path(&state, &nested).await.unwrap();
 
         assert_eq!(
             expand_tilde(&record.path).canonicalize().unwrap(),
@@ -520,7 +596,7 @@ mod tests {
 
     #[tokio::test]
     async fn adding_refuses_what_is_not_a_new_repo() {
-        let (state, recording, out, dir) = fixture();
+        let (state, recording, dir) = fixture();
         let repo = init_repo(&dir, "app");
         let plain = dir.path().join("plain");
         std::fs::create_dir(&plain).unwrap();
@@ -528,23 +604,23 @@ mod tests {
         let same_name = init_repo(&other, "app");
 
         let missing = dir.path().join("missing");
-        let error = add_path(&out, &state, &missing).await.unwrap_err();
+        let error = add_path(&state, &missing).await.unwrap_err();
         assert!(error.to_string().contains("folder does not exist"));
-        let error = add_path(&out, &state, &plain).await.unwrap_err();
+        let error = add_path(&state, &plain).await.unwrap_err();
         assert!(error.to_string().contains("not a git repository"));
         assert!(recording.emitted().is_empty());
 
-        add_path(&out, &state, &repo).await.unwrap();
-        let error = add_path(&out, &state, &repo).await.unwrap_err();
+        add_path(&state, &repo).await.unwrap();
+        let error = add_path(&state, &repo).await.unwrap_err();
         assert!(error.to_string().contains("already added"));
-        let error = add_path(&out, &state, &same_name).await.unwrap_err();
+        let error = add_path(&state, &same_name).await.unwrap_err();
         assert!(error.to_string().contains("A repo named app"));
         assert_eq!(state.store.repos().unwrap().len(), 1);
     }
 
     #[tokio::test]
     async fn removing_forgets_the_repo_and_leaves_the_folder() {
-        let (state, recording, out, dir) = fixture();
+        let (state, recording, dir) = fixture();
         let repo = init_repo(&dir, "app");
         register(&state, "app", &repo);
         register(&state, "other", Path::new("/tmp/other"));
@@ -552,14 +628,11 @@ mod tests {
         let input = RemoveRepoInput {
             repo_id: "app".into(),
         };
-        remove(&out, &state, input).await.unwrap();
+        remove(&state, input).await.unwrap();
 
         assert!(state.store.repo_by_id("app").unwrap().is_none());
         assert!(repo.is_dir());
-        assert_eq!(
-            recording.state_changes(),
-            [StateChangeKind::WorkspaceStatus]
-        );
+        assert_eq!(recording.state_changes(), [Change::THREADS]);
         assert_eq!(
             recording.toasts(),
             ["Removed app. The folder on disk wasn't touched."]
@@ -568,21 +641,21 @@ mod tests {
 
     #[tokio::test]
     async fn removing_refuses_a_repo_in_use_the_last_repo_and_an_unknown_one() {
-        let (state, recording, out, dir) = fixture();
+        let (state, recording, dir) = fixture();
         register(&state, "app", dir.path());
         let input = |repo_id: &str| RemoveRepoInput {
             repo_id: repo_id.into(),
         };
 
-        let error = remove(&out, &state, input("app")).await.unwrap_err();
+        let error = remove(&state, input("app")).await.unwrap_err();
         assert!(error.to_string().contains("at least one repo"));
 
-        let error = remove(&out, &state, input("nope")).await.unwrap_err();
+        let error = remove(&state, input("nope")).await.unwrap_err();
         assert!(error.to_string().contains("unknown repo nope"));
 
         register(&state, "other", Path::new("/tmp/other"));
         live_workspace(&state, "app", "feat/x");
-        let error = remove(&out, &state, input("app")).await.unwrap_err();
+        let error = remove(&state, input("app")).await.unwrap_err();
         assert!(error.to_string().contains("app has 1 workspace."));
 
         assert_eq!(state.store.repos().unwrap().len(), 2);
@@ -591,7 +664,7 @@ mod tests {
 
     #[test]
     fn the_default_branch_cant_be_one_a_workspace_has_checked_out() {
-        let (state, recording, out, dir) = fixture();
+        let (state, recording, dir) = fixture();
         register(&state, "app", dir.path());
         live_workspace(&state, "app", "feat/x");
         let input = |branch: &str| SetRepoDefaultBranchInput {
@@ -599,34 +672,34 @@ mod tests {
             default_branch: branch.into(),
         };
 
-        let error = set_default_branch(&out, &state, input("feat/x")).unwrap_err();
+        let error = set_default_branch(&state, input("feat/x")).unwrap_err();
         assert!(error.to_string().contains("Work has feat/x checked out"));
-        let error = set_default_branch(&out, &state, input("  ")).unwrap_err();
+        let error = set_default_branch(&state, input("  ")).unwrap_err();
         assert!(error.to_string().contains("Pick a default branch"));
         assert!(recording.emitted().is_empty());
     }
 
     #[tokio::test]
     async fn a_run_command_is_trimmed_and_a_blank_one_cleared() {
-        let (state, _recording, out, dir) = fixture();
+        let (state, _recording, dir) = fixture();
         register(&state, "app", dir.path());
         let input = |run_command: &str| SetRepoRunCommandInput {
             repo_id: "app".into(),
             run_command: Some(run_command.into()),
         };
 
-        set_run_command(&out, &state, input("  pnpm dev ")).unwrap();
+        set_run_command(&state, input("  pnpm dev ")).unwrap();
         let repo = state.store.repo_by_id("app").unwrap().unwrap();
         assert_eq!(repo.run_command.as_deref(), Some("pnpm dev"));
 
-        set_run_command(&out, &state, input("   ")).unwrap();
+        set_run_command(&state, input("   ")).unwrap();
         let repo = state.store.repo_by_id("app").unwrap().unwrap();
         assert_eq!(repo.run_command, None);
     }
 
     #[tokio::test]
     async fn deleting_a_branch_guards_what_is_in_use_and_unpushed_work() {
-        let (state, _recording, _out, dir) = fixture();
+        let (state, _recording, dir) = fixture();
         let repo = init_repo(&dir, "app");
         register(&state, "app", &repo);
         git(&repo, &["branch", "old"]);
@@ -657,7 +730,7 @@ mod tests {
 
     #[tokio::test]
     async fn testing_setup_with_no_commands_passes_without_running_anything() {
-        let (state, _recording, _out, dir) = fixture();
+        let (state, _recording, dir) = fixture();
         let repo = init_repo(&dir, "app");
         register(&state, "app", &repo);
 

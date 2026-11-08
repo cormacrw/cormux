@@ -1,12 +1,9 @@
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
-use super::types::{StateChangeKind, ToastRaisedPayload};
-use crate::feedback::{Output, UserOutput};
+use crate::feedback::{Change, ToastRaisedPayload, UserOutput};
 
 /// Low-volume core → UI notification. `version` is monotonic; a gap means the
 /// webview should call `get_snapshot` and replace local state.
@@ -14,7 +11,7 @@ use crate::feedback::{Output, UserOutput};
 #[serde(rename_all = "camelCase")]
 pub struct StateChanged {
     pub version: u64,
-    pub kind: StateChangeKind,
+    pub change: Change,
 }
 
 /// A fresh memory reading. Carries its own data, so it needs no version or refetch.
@@ -31,16 +28,11 @@ pub struct ToastRaised {
 }
 
 /// `UserOutput` for the real app: events to the webview, the count to the dock.
-pub struct TauriOutput(AppHandle);
-
-/// What a command hands the workflows it calls.
-pub fn output(app: &AppHandle) -> Output {
-    Arc::new(TauriOutput(app.clone()))
-}
+pub struct TauriOutput(pub AppHandle);
 
 impl UserOutput for TauriOutput {
-    fn state_changed(&self, version: u64, kind: StateChangeKind) {
-        let _ = StateChanged { version, kind }.emit(&self.0);
+    fn state_changed(&self, version: u64, change: Change) {
+        let _ = StateChanged { version, change }.emit(&self.0);
     }
 
     fn toast(&self, payload: ToastRaisedPayload) {

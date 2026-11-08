@@ -8,17 +8,30 @@
 
 use tokio::sync::broadcast::error::RecvError;
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use crate::attachments::PromptAttachment;
 use crate::composer::persist_user_message;
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::{ResumeThreadSessionInput, StateChangeKind};
+use crate::feedback::Change;
 use crate::model::ThreadStatus;
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::ThreadRow;
 use crate::timeline::{TimelineStep, record_step};
+
+/// An earlier conversation to resume in a thread.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeThreadSessionInput {
+    pub thread_id: String,
+    /// The UI's id for the conversation, echoed back in the timeline.
+    pub conversation_id: String,
+    /// The agent session it ended with; none starts the agent fresh.
+    pub session_id: Option<String>,
+}
 
 /// Any thread, a scratch's included.
 pub fn thread_row(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
@@ -31,7 +44,6 @@ pub fn thread_row(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
 /// A message into a thread, from the user or another thread: `start`, once the attachments are
 /// read. An empty message is ignored.
 pub async fn submit(
-    out: &Output,
     state: &AppState,
     thread_id: &str,
     text: String,
@@ -57,14 +69,13 @@ pub async fn submit(
     })
     .await
     .map_err(|error| Error::Workspace(error.to_string()))??;
-    start(out, state, &thread_row(state, thread_id)?, &text, prompt).await
+    start(state, &thread_row(state, thread_id)?, &text, prompt).await
 }
 
 /// Starts a turn: `shown` goes in the thread for the user to read, `prompt` to the engine. The
 /// engine is started if it isn't running. A paused thread queues the prompt for its resume and
 /// stays paused. If this fails the thread keeps its status, though `shown` stays in the thread.
 pub async fn start(
-    out: &Output,
     state: &AppState,
     thread: &ThreadRow,
     shown: &str,
@@ -82,7 +93,7 @@ pub async fn start(
     }
     persist_user_message(&state.store, &thread.id, shown)?;
     send(state, thread, prompt.into(), held).await?;
-    notify(out, state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
@@ -95,7 +106,7 @@ async fn send(state: &AppState, thread: &ThreadRow, prompt: Prompt, held: bool) 
     Ok(())
 }
 
-pub async fn stop(out: &Output, state: &AppState, thread_id: &str) {
+pub async fn stop(state: &AppState, thread_id: &str) {
     let thread = thread_row(state, thread_id).ok();
     let _ = state.engines.cancel(thread_id);
     let _ = record_step(&state.store, thread_id, TimelineStep::AgentStopped);
@@ -105,11 +116,11 @@ pub async fn stop(out: &Output, state: &AppState, thread_id: &str) {
     if let Some(thread) = thread {
         sync_manager(state, &thread, ThreadStatus::Idle).await;
     }
-    notify(out, state);
+    state.out.changed(Change::THREADS);
 }
 
 /// Only a running thread can pause; any other is left as it is.
-pub async fn pause(out: &Output, state: &AppState, thread_id: &str) -> Result<()> {
+pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
     let thread = thread_row(state, thread_id)?;
     if !thread.has_status(ThreadStatus::Running) {
         return Ok(());
@@ -117,12 +128,12 @@ pub async fn pause(out: &Output, state: &AppState, thread_id: &str) -> Result<()
     state.engines.hold_thread(thread_id)?;
     record_step(&state.store, thread_id, TimelineStep::AgentPaused)?;
     record(state, &thread, ThreadStatus::Paused).await?;
-    notify(out, state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
 /// Sends what queued while the thread was paused, or tells it to continue.
-pub async fn resume(out: &Output, state: &AppState, thread_id: &str) -> Result<()> {
+pub async fn resume(state: &AppState, thread_id: &str) -> Result<()> {
     let thread = thread_row(state, thread_id)?;
     if !thread.has_status(ThreadStatus::Paused) {
         return Ok(());
@@ -131,12 +142,12 @@ pub async fn resume(out: &Output, state: &AppState, thread_id: &str) -> Result<(
     record(state, &thread, ThreadStatus::Running).await?;
     let prompt = state.engines.release_thread(thread_id)?;
     let _ = state.engines.prompt(thread_id, prompt);
-    notify(out, state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
 /// The step records the session it ended, so the conversation can be resumed later.
-pub async fn new_session(out: &Output, state: &AppState, thread_id: &str) -> Result<()> {
+pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
     let thread = thread_row(state, thread_id)?;
     if state.store.scratch_for_thread(thread_id)?.is_some() {
         return Err(Error::Workspace(
@@ -154,16 +165,12 @@ pub async fn new_session(out: &Output, state: &AppState, thread_id: &str) -> Res
         },
     )?;
     record(state, &thread, ThreadStatus::Idle).await?;
-    notify(out, state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
 /// Points the thread at an earlier session; the next prompt's engine resumes it.
-pub async fn resume_session(
-    out: &Output,
-    state: &AppState,
-    input: ResumeThreadSessionInput,
-) -> Result<()> {
+pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -> Result<()> {
     let thread_id = input.thread_id;
     let thread = thread_row(state, &thread_id)?;
     if state.store.scratch_for_thread(&thread_id)?.is_some() {
@@ -184,7 +191,7 @@ pub async fn resume_session(
         },
     )?;
     record(state, &thread, ThreadStatus::Idle).await?;
-    notify(out, state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
@@ -216,7 +223,7 @@ fn is_paused(store: &Store, thread_id: &str) -> bool {
 }
 
 /// Everything a turn ending sets off, once per engine event (a turn end, or the engine exiting).
-pub async fn ended(out: &Output, state: &AppState, thread_id: &str) {
+pub async fn ended(state: &AppState, thread_id: &str) {
     if let Err(error) = settle(&state.store, thread_id) {
         log::warn!("settling thread {thread_id}: {error}");
     }
@@ -228,21 +235,21 @@ pub async fn ended(out: &Output, state: &AppState, thread_id: &str) {
     {
         sync_manager(state, &thread, ThreadStatus::Idle).await;
     }
-    notify(out, state);
-    if let Err(error) = crate::review::on_reviewer_turn_end(out, state, thread_id).await {
+    state.out.changed(Change::THREADS);
+    if let Err(error) = crate::review::on_reviewer_turn_end(state, thread_id).await {
         log::warn!("reading review findings failed: {error}");
     }
-    if let Err(error) = crate::orchestration::on_turn_end(out, state, thread_id).await {
+    if let Err(error) = crate::orchestration::on_turn_end(state, thread_id).await {
         log::warn!("reporting a thread failed: {error}");
     }
 }
 
 /// Runs `ended` for each turn the engines report, one at a time, for the life of the app.
-pub async fn listen(out: Output, state: AppState) {
+pub async fn listen(state: AppState) {
     let mut rx = state.turn_end_notify.subscribe();
     loop {
         match rx.recv().await {
-            Ok(thread_id) => ended(&out, &state, &thread_id).await,
+            Ok(thread_id) => ended(&state, &thread_id).await,
             Err(RecvError::Lagged(_)) => continue,
             Err(RecvError::Closed) => break,
         }
@@ -271,14 +278,12 @@ async fn sync_manager(state: &AppState, thread: &ThreadRow, status: ThreadStatus
     }
 }
 
-fn notify(out: &Output, state: &AppState) {
-    state.notify(out, StateChangeKind::WorkspaceStatus);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::engines::EngineCommand;
+    use std::sync::Arc;
+
     use crate::feedback::RecordingOutput;
     use crate::model::WorkspaceLifecycle;
     use crate::store::types::{ApprovalRow, FindingRow, RepoRecord, WorkspaceRow};
@@ -309,8 +314,12 @@ mod tests {
 
     /// A workspace in both the store and the manager, with one thread in `status` whose engine
     /// is the receiver returned. `workspace` is the workspace's status to start from.
-    async fn seeded(status: ThreadStatus, workspace: WorkspaceLifecycle) -> (AppState, Engine) {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+    async fn seeded(
+        status: ThreadStatus,
+        workspace: WorkspaceLifecycle,
+    ) -> (AppState, Engine, Arc<RecordingOutput>) {
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         state.store.open_in_memory().unwrap();
         state
             .store
@@ -364,7 +373,7 @@ mod tests {
             .await;
         state.store.upsert_thread(&thread(T, status, None)).unwrap();
         let engine = state.engines.fake_thread(T);
-        (state, engine)
+        (state, engine, recording)
     }
 
     fn thread_status(state: &AppState, id: &str) -> String {
@@ -405,9 +414,7 @@ mod tests {
     }
 
     fn workspace_notified(recording: &RecordingOutput) -> bool {
-        recording
-            .state_changes()
-            .contains(&StateChangeKind::WorkspaceStatus)
+        recording.state_changes().contains(&Change::THREADS)
     }
 
     #[tokio::test]
@@ -419,11 +426,10 @@ mod tests {
             (Provisioning, true, "running", "running", Lifecycle::Running),
             (Paused, false, "paused", "idle", Lifecycle::Idle),
         ] {
-            let (state, mut engine) = seeded(status, Lifecycle::Idle).await;
-            let (recording, out) = RecordingOutput::new();
+            let (state, mut engine, recording) = seeded(status, Lifecycle::Idle).await;
 
             let row = thread_row(&state, T).unwrap();
-            start(&out, &state, &row, "shown", "prompt").await.unwrap();
+            start(&state, &row, "shown", "prompt").await.unwrap();
 
             assert_eq!(prompts(&mut engine).len(), usize::from(sent), "{status:?}");
             assert_eq!(thread_status(&state, T), thread_after, "{status:?}");
@@ -436,12 +442,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_send_leaves_every_status_where_it_was() {
-        let (state, _engine) = seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
-        let (recording, out) = RecordingOutput::new();
+        let (state, _engine, recording) =
+            seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
         state.engines.refuse_sends(T);
 
         let row = thread_row(&state, T).unwrap();
-        let sent = start(&out, &state, &row, "shown", "prompt").await;
+        let sent = start(&state, &row, "shown", "prompt").await;
 
         assert!(sent.is_err());
         assert_eq!(thread_status(&state, T), "idle");
@@ -452,21 +458,21 @@ mod tests {
 
     #[tokio::test]
     async fn a_prompt_queued_while_paused_goes_out_on_resume() {
-        let (state, mut engine) = seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
-        let (_recording, out) = RecordingOutput::new();
+        let (state, mut engine, _recording) =
+            seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
 
-        pause(&out, &state, T).await.unwrap();
+        pause(&state, T).await.unwrap();
         assert!(cancelled(&mut engine));
         assert_eq!(thread_status(&state, T), "paused");
         assert_eq!(live_workspace(&state).await, WorkspaceLifecycle::Idle);
 
-        submit(&out, &state, T, "while paused".into(), Vec::new())
+        submit(&state, T, "while paused".into(), Vec::new())
             .await
             .unwrap();
         assert_eq!(thread_status(&state, T), "paused");
         assert!(prompts(&mut engine).is_empty());
 
-        resume(&out, &state, T).await.unwrap();
+        resume(&state, T).await.unwrap();
         assert_eq!(thread_status(&state, T), "running");
         assert_eq!(stored_workspace(&state), "running");
         assert_eq!(live_workspace(&state).await, WorkspaceLifecycle::Running);
@@ -475,11 +481,11 @@ mod tests {
 
     #[tokio::test]
     async fn pause_and_resume_only_apply_to_a_thread_that_can_take_them() {
-        let (state, mut engine) = seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
-        let (recording, out) = RecordingOutput::new();
+        let (state, mut engine, recording) =
+            seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
 
-        pause(&out, &state, T).await.unwrap();
-        resume(&out, &state, T).await.unwrap();
+        pause(&state, T).await.unwrap();
+        resume(&state, T).await.unwrap();
 
         assert_eq!(thread_status(&state, T), "idle");
         assert!(prompts(&mut engine).is_empty());
@@ -488,12 +494,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_retired_thread_refuses_a_message_and_an_empty_one_is_ignored() {
-        let (state, mut engine) = seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
-        let (recording, out) = RecordingOutput::new();
+        let (state, mut engine, recording) =
+            seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
 
-        submit(&out, &state, T, "   ".into(), Vec::new())
-            .await
-            .unwrap();
+        submit(&state, T, "   ".into(), Vec::new()).await.unwrap();
         assert!(recording.state_changes().is_empty());
 
         let retired = ThreadRow {
@@ -501,7 +505,7 @@ mod tests {
             ..thread(T, ThreadStatus::Idle, None)
         };
         state.store.upsert_thread(&retired).unwrap();
-        let refused = submit(&out, &state, T, "hello".into(), Vec::new()).await;
+        let refused = submit(&state, T, "hello".into(), Vec::new()).await;
 
         assert!(refused.is_err());
         assert!(prompts(&mut engine).is_empty());
@@ -510,10 +514,10 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_idles_the_thread_at_once_and_cancels_the_engine() {
-        let (state, mut engine) = seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
-        let (recording, out) = RecordingOutput::new();
+        let (state, mut engine, recording) =
+            seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
 
-        stop(&out, &state, T).await;
+        stop(&state, T).await;
 
         assert!(cancelled(&mut engine));
         assert_eq!(thread_status(&state, T), "idle");
@@ -525,19 +529,19 @@ mod tests {
     #[tokio::test]
     async fn a_new_or_resumed_session_drops_the_engine_and_idles_the_thread() {
         for session in [None, Some("earlier")] {
-            let (state, _engine) = seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
-            let (_recording, out) = RecordingOutput::new();
+            let (state, _engine, _recording) =
+                seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
             state.store.set_thread_session(T, "current").unwrap();
 
             match session {
-                None => new_session(&out, &state, T).await.unwrap(),
+                None => new_session(&state, T).await.unwrap(),
                 Some(session) => {
                     let input = ResumeThreadSessionInput {
                         thread_id: T.into(),
                         conversation_id: "c1".into(),
                         session_id: Some(session.into()),
                     };
-                    resume_session(&out, &state, input).await.unwrap();
+                    resume_session(&state, input).await.unwrap();
                 }
             }
 
@@ -551,8 +555,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_turn_ending_idles_denies_syncs_and_notifies() {
-        let (state, _engine) = seeded(ThreadStatus::Running, WorkspaceLifecycle::Idle).await;
-        let (recording, out) = RecordingOutput::new();
+        let (state, _engine, recording) =
+            seeded(ThreadStatus::Running, WorkspaceLifecycle::Idle).await;
         state
             .workspace
             .set_thread(T, W, ThreadStatus::Running)
@@ -568,7 +572,7 @@ mod tests {
             })
             .unwrap();
 
-        ended(&out, &state, T).await;
+        ended(&state, T).await;
 
         assert_eq!(thread_status(&state, T), "idle");
         assert_eq!(stored_workspace(&state), "idle");
@@ -585,8 +589,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_sibling_still_running_keeps_the_workspace_running_after_a_turn_ends() {
-        let (state, _engine) = seeded(ThreadStatus::Running, WorkspaceLifecycle::Idle).await;
-        let (_recording, out) = RecordingOutput::new();
+        let (state, _engine, _recording) =
+            seeded(ThreadStatus::Running, WorkspaceLifecycle::Idle).await;
         state
             .store
             .upsert_thread(&thread("t2", ThreadStatus::Running, None))
@@ -596,7 +600,7 @@ mod tests {
             .set_thread("t2", W, ThreadStatus::Running)
             .await;
 
-        ended(&out, &state, T).await;
+        ended(&state, T).await;
 
         assert_eq!(thread_status(&state, T), "idle");
         assert_eq!(stored_workspace(&state), "running");
@@ -605,8 +609,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_turn_ending_finishes_a_branch_review() {
-        let (state, _engine) = seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
-        let (recording, out) = RecordingOutput::new();
+        let (state, _engine, recording) =
+            seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
         state
             .store
             .set_setting(&crate::review::review_status_key(W), "running")
@@ -621,7 +625,7 @@ mod tests {
             .append_event(T, "message", &said.to_string())
             .unwrap();
 
-        ended(&out, &state, T).await;
+        ended(&state, T).await;
 
         assert!(crate::review::review_is_ready(&state.store, W));
         assert_eq!(recording.toasts().len(), 1);
@@ -631,8 +635,8 @@ mod tests {
     /// after the status: `ended` on the parent is what lets its waiting report through.
     #[tokio::test]
     async fn a_turn_ending_reports_to_the_parent_only_once_the_parent_is_idle() {
-        let (state, mut parent) = seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
-        let (_recording, out) = RecordingOutput::new();
+        let (state, mut parent, _recording) =
+            seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
         state
             .store
             .upsert_thread(&thread("child", ThreadStatus::Running, Some(T)))
@@ -643,19 +647,21 @@ mod tests {
             .append_event("child", "message", &said.to_string())
             .unwrap();
 
-        ended(&out, &state, "child").await;
+        ended(&state, "child").await;
         assert!(prompts(&mut parent).is_empty());
         assert_eq!(thread_status(&state, T), "running");
 
-        ended(&out, &state, T).await;
+        ended(&state, T).await;
         let reports = prompts(&mut parent);
         assert_eq!(reports.len(), 1);
         assert!(reports[0].contains("done"));
         assert_eq!(thread_status(&state, T), "running");
     }
 
-    async fn with_findings(status: ThreadStatus) -> (AppState, Engine, Vec<String>) {
-        let (state, engine) = seeded(status, WorkspaceLifecycle::Idle).await;
+    async fn with_findings(
+        status: ThreadStatus,
+    ) -> (AppState, Engine, Vec<String>, Arc<RecordingOutput>) {
+        let (state, engine, recording) = seeded(status, WorkspaceLifecycle::Idle).await;
         let ids = vec!["f1".to_string(), "f2".to_string()];
         for id in &ids {
             state
@@ -674,7 +680,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        (state, engine, ids)
+        (state, engine, ids, recording)
     }
 
     fn finding_status(state: &AppState, id: &str) -> String {
@@ -683,11 +689,10 @@ mod tests {
 
     #[tokio::test]
     async fn findings_that_cant_be_sent_say_so_and_can_be_sent_again() {
-        let (state, _engine, ids) = with_findings(ThreadStatus::Idle).await;
-        let (recording, out) = RecordingOutput::new();
+        let (state, _engine, ids, recording) = with_findings(ThreadStatus::Idle).await;
         state.engines.refuse_sends(T);
 
-        let sent = crate::findings::send_workspace_findings(&out, &state, W, T, ids).await;
+        let sent = crate::findings::send_workspace_findings(&state, W, T, ids).await;
 
         assert!(sent.is_err(), "the failure reaches the caller");
         assert_eq!(thread_status(&state, T), "idle");
@@ -699,10 +704,9 @@ mod tests {
 
     #[tokio::test]
     async fn sent_findings_start_a_turn() {
-        let (state, mut engine, ids) = with_findings(ThreadStatus::Idle).await;
-        let (recording, out) = RecordingOutput::new();
+        let (state, mut engine, ids, recording) = with_findings(ThreadStatus::Idle).await;
 
-        crate::findings::send_workspace_findings(&out, &state, W, T, ids)
+        crate::findings::send_workspace_findings(&state, W, T, ids)
             .await
             .unwrap();
 
@@ -716,31 +720,29 @@ mod tests {
 
     #[tokio::test]
     async fn findings_sent_to_a_paused_thread_wait_for_its_resume() {
-        let (state, mut engine, ids) = with_findings(ThreadStatus::Paused).await;
-        let (_recording, out) = RecordingOutput::new();
+        let (state, mut engine, ids, _recording) = with_findings(ThreadStatus::Paused).await;
 
-        crate::findings::send_workspace_findings(&out, &state, W, T, ids)
+        crate::findings::send_workspace_findings(&state, W, T, ids)
             .await
             .unwrap();
 
         assert_eq!(thread_status(&state, T), "paused");
         assert!(prompts(&mut engine).is_empty());
 
-        resume(&out, &state, T).await.unwrap();
+        resume(&state, T).await.unwrap();
         assert!(prompts(&mut engine)[0].contains("id=f1"));
     }
 
     #[tokio::test]
     async fn the_last_finding_fixed_idles_the_workspace_too() {
-        let (state, _engine, ids) = with_findings(ThreadStatus::Idle).await;
-        let (_recording, out) = RecordingOutput::new();
-        crate::findings::send_workspace_findings(&out, &state, W, T, ids)
+        let (state, _engine, ids, _recording) = with_findings(ThreadStatus::Idle).await;
+        crate::findings::send_workspace_findings(&state, W, T, ids)
             .await
             .unwrap();
         assert_eq!(stored_workspace(&state), "running");
 
         for id in ["f1", "f2"] {
-            crate::findings::mark_fixed(&out, &state, id, "abc")
+            crate::findings::mark_fixed(&state, id, "abc")
                 .await
                 .unwrap();
         }
@@ -752,33 +754,27 @@ mod tests {
 
     #[tokio::test]
     async fn a_branch_review_of_a_paused_thread_waits_for_its_resume() {
-        let (state, mut engine) = seeded(ThreadStatus::Paused, WorkspaceLifecycle::Idle).await;
-        let (recording, out) = RecordingOutput::new();
+        let (state, mut engine, recording) =
+            seeded(ThreadStatus::Paused, WorkspaceLifecycle::Idle).await;
 
-        let thread_id = crate::review::start_branch_review(&out, &state, W)
-            .await
-            .unwrap();
+        let thread_id = crate::review::start_branch_review(&state, W).await.unwrap();
 
         assert_eq!(thread_id, T);
         assert_eq!(thread_status(&state, T), "paused");
         assert!(prompts(&mut engine).is_empty());
         assert!(workspace_notified(&recording));
 
-        resume(&out, &state, T).await.unwrap();
+        resume(&state, T).await.unwrap();
         assert!(prompts(&mut engine)[0].contains("<cormux-findings>"));
     }
 
     #[tokio::test]
     async fn a_branch_review_the_engine_refuses_never_starts() {
-        let (state, _engine) = seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
-        let (_recording, out) = RecordingOutput::new();
+        let (state, _engine, _recording) =
+            seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
         state.engines.refuse_sends(T);
 
-        assert!(
-            crate::review::start_branch_review(&out, &state, W)
-                .await
-                .is_err()
-        );
+        assert!(crate::review::start_branch_review(&state, W).await.is_err());
         assert_eq!(thread_status(&state, T), "idle");
         assert!(!crate::review::review_is_ready(&state.store, W));
         assert_eq!(
@@ -792,14 +788,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_branch_review_is_refused_while_the_thread_is_running() {
-        let (state, mut engine) = seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
-        let (_recording, out) = RecordingOutput::new();
+        let (state, mut engine, _recording) =
+            seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
 
-        assert!(
-            crate::review::start_branch_review(&out, &state, W)
-                .await
-                .is_err()
-        );
+        assert!(crate::review::start_branch_review(&state, W).await.is_err());
         assert!(prompts(&mut engine).is_empty());
     }
 }

@@ -197,7 +197,7 @@ test('a thread flashes only while waiting on you, and carries no status text', a
   await expect(row).not.toContainText('Running')
   await expect(rows.first()).toContainText('Second thread')
 
-  await setStatus('OAuth login', 'waiting')
+  await page.evaluate(() => window.__HARNESS__!.requestApproval('th-lead'))
   await expect(row).toHaveAttribute('data-urgency', 'attention')
   // The dot really blinks: sampled across a cycle, it's seen both full and dimmed.
   const opacities = await row.locator('.status-flash').evaluate(

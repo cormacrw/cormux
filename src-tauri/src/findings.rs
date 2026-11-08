@@ -1,23 +1,39 @@
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use crate::composer::persist_agent_event;
 use crate::engines::AgentEvent;
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::{
-    DismissWorkspaceFindingsInput, StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone,
-};
+use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::FindingRow;
 use crate::timeline::{TimelineStep, record_step};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SendWorkspaceFindingsInput {
+    pub workspace_id: String,
+    pub thread_id: String,
+    pub finding_ids: Vec<String>,
+}
+
+/// Findings to dismiss, or (with `dismissed: false`) to restore.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DismissWorkspaceFindingsInput {
+    pub workspace_id: String,
+    pub finding_ids: Vec<String>,
+    pub dismissed: bool,
+}
 
 pub fn findings_batch_key(thread_id: &str) -> String {
     format!("findings-batch:{thread_id}")
 }
 
 pub async fn send_workspace_findings(
-    out: &Output,
     state: &AppState,
     workspace_id: &str,
     thread_id: &str,
@@ -67,7 +83,7 @@ pub async fn send_workspace_findings(
         finding_ids.join(", ")
     );
     // First, so findings that never reached the thread stay open to send again.
-    crate::turn::start(out, state, &thread, &user_text, build_fix_prompt(&picked)).await?;
+    crate::turn::start(state, &thread, &user_text, build_fix_prompt(&picked)).await?;
     state.store.mark_findings_sent(&finding_ids, thread_id)?;
     state.store.set_setting(
         &findings_batch_key(thread_id),
@@ -93,7 +109,7 @@ pub async fn send_workspace_findings(
         .unwrap_or_else(|| format!("Fixing {count} findings…"));
     persist_current_tool(&state.store, thread_id, &live_title)?;
 
-    out.toast(ToastRaisedPayload {
+    state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
         parts: vec![
             ToastPart::Text {
@@ -107,21 +123,17 @@ pub async fn send_workspace_findings(
         thread_id: Some(thread_id.to_string()),
     });
 
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
 
     Ok(())
 }
 
 /// Dismissed findings stay listed but aren't sent to an agent or posted with the review.
-pub fn dismiss_findings(
-    out: &Output,
-    state: &AppState,
-    input: DismissWorkspaceFindingsInput,
-) -> Result<()> {
+pub fn dismiss_findings(state: &AppState, input: DismissWorkspaceFindingsInput) -> Result<()> {
     state
         .store
         .set_findings_dismissed(&input.workspace_id, &input.finding_ids, input.dismissed)?;
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
@@ -151,18 +163,13 @@ fn build_fix_prompt(findings: &[FindingRow]) -> String {
     not(test),
     expect(dead_code, reason = "the tool is offered in a later change")
 )]
-pub async fn mark_fixed(
-    out: &Output,
-    state: &AppState,
-    finding_id: &str,
-    commit_sha: &str,
-) -> Result<()> {
+pub async fn mark_fixed(state: &AppState, finding_id: &str, commit_sha: &str) -> Result<()> {
     state.store.mark_finding_fixed(finding_id, commit_sha)?;
-    on_finding_marked_fixed(out, state, finding_id).await
+    on_finding_marked_fixed(state, finding_id).await
 }
 
 /// Once every finding in the thread's batch is fixed, records it and idles the thread.
-async fn on_finding_marked_fixed(out: &Output, state: &AppState, finding_id: &str) -> Result<()> {
+async fn on_finding_marked_fixed(state: &AppState, finding_id: &str) -> Result<()> {
     let Some(finding) = state.store.finding_by_id(finding_id)? else {
         return Ok(());
     };
@@ -217,7 +224,7 @@ async fn on_finding_marked_fixed(out: &Output, state: &AppState, finding_id: &st
         .store
         .set_setting(&findings_batch_key(&thread_id), "[]")?;
 
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 

@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::StateChangeKind;
+use crate::feedback::Change;
 use crate::model::WorkspaceLifecycle;
 use crate::state::AppState;
 use crate::workspace::WorkspaceRecord;
@@ -83,7 +82,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     })
 }
 
-pub async fn execute(out: &Output, state: &AppState, input: &TeardownInput) -> Result<()> {
+pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
     let row = state
         .store
         .workspace_by_id(&input.workspace_id)?
@@ -108,7 +107,7 @@ pub async fn execute(out: &Output, state: &AppState, input: &TeardownInput) -> R
         .workspace
         .set_status(&input.workspace_id, WorkspaceLifecycle::TearingDown)
         .await;
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
 
     let thread_ids: Vec<String> = state
         .store
@@ -122,7 +121,7 @@ pub async fn execute(out: &Output, state: &AppState, input: &TeardownInput) -> R
             .workspace
             .set_status(&input.workspace_id, previous_status)
             .await;
-        state.notify(out, StateChangeKind::WorkspaceStatus);
+        state.out.changed(Change::THREADS);
         return Err(error);
     }
 
@@ -132,7 +131,7 @@ pub async fn execute(out: &Output, state: &AppState, input: &TeardownInput) -> R
     state.workspace.remove(&input.workspace_id).await;
     state.workspace.sync_fetch_targets().await;
 
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
 
     Ok(())
 }

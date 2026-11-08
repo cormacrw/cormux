@@ -91,6 +91,15 @@ impl ApprovalBroker {
     }
 }
 
+/// Approvals waiting on the user: the stored rows, or the broker's waiters if it has more.
+pub fn pending_count(store: &crate::store::Store, broker: &ApprovalBroker) -> usize {
+    let stored = store.pending_approval_count().unwrap_or_else(|error| {
+        log::warn!("counting pending approvals: {error}");
+        0
+    });
+    stored.max(broker.pending_count())
+}
+
 pub fn run_everything_from_store(store: &crate::store::Store) -> bool {
     store.get_setting("runEverything").ok().flatten().as_deref() == Some("true")
 }

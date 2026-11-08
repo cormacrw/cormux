@@ -16,10 +16,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
-use crate::feedback::Output;
+use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::git::ShortStat;
 use crate::git_workspace::{adopt_checked_out_branch, resolve_record};
-use crate::ipc::types::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
 use crate::timeline::BranchChange;
 use crate::workspace::WorkspaceRecord;
@@ -576,12 +575,7 @@ async fn checkout_remote_stack(
 /// Add `branch` on top of the stack. When the checked-out branch isn't stacked yet,
 /// start a stack first: on the trunk the new branch becomes its bottom, otherwise the
 /// checked-out branch is adopted as the bottom and the new branch goes on top of it.
-pub async fn add_branch(
-    out: &Output,
-    state: &AppState,
-    workspace_id: &str,
-    branch: &str,
-) -> Result<()> {
+pub async fn add_branch(state: &AppState, workspace_id: &str, branch: &str) -> Result<()> {
     let name = branch.trim();
     if name.is_empty() {
         return Err(Error::Git("branch name is required".into()));
@@ -623,7 +617,6 @@ pub async fn add_branch(
     }
 
     adopt_checked_out_branch(
-        out,
         state,
         workspace_id,
         BranchChange::AddedToStack {
@@ -636,20 +629,20 @@ pub async fn add_branch(
 
 /// Push every unmerged branch in the stack (`--force-with-lease` per branch). Pull
 /// requests stay manual: this never opens or edits one.
-pub async fn push(out: &Output, state: &AppState, workspace_id: &str) -> Result<()> {
+pub async fn push(state: &AppState, workspace_id: &str) -> Result<()> {
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
     let output = gh_stack(state, &worktree, &["push", "--remote", "origin"]).await?;
     if !output.status.success() {
         return Err(failure(&output, "Push"));
     }
-    adopt_checked_out_branch(out, state, workspace_id, BranchChange::StackPushed).await?;
-    toast(out, workspace_id, "Pushed the stack");
+    adopt_checked_out_branch(state, workspace_id, BranchChange::StackPushed).await?;
+    toast(state, workspace_id, "Pushed the stack");
     Ok(())
 }
 
 /// Fetch, rebase onto the trunk, push, and refresh pull request state.
-pub async fn sync(out: &Output, state: &AppState, workspace_id: &str) -> Result<()> {
+pub async fn sync(state: &AppState, workspace_id: &str) -> Result<()> {
     let record = workspace_record(state, workspace_id).await?;
     state.workspace.remember(record.clone()).await;
     state.workspace.can_switch_branch(workspace_id).await?;
@@ -666,9 +659,9 @@ pub async fn sync(out: &Output, state: &AppState, workspace_id: &str) -> Result<
         Ok(())
     };
     // A sync can rebase the checked-out branch even when it fails partway.
-    adopt_checked_out_branch(out, state, workspace_id, BranchChange::StackSynced).await?;
+    adopt_checked_out_branch(state, workspace_id, BranchChange::StackSynced).await?;
     result?;
-    toast(out, workspace_id, "Synced the stack with GitHub");
+    toast(state, workspace_id, "Synced the stack with GitHub");
     Ok(())
 }
 
@@ -709,8 +702,8 @@ pub async fn pr_base(state: &AppState, worktree: &Path, branch: &str, trunk: &st
         .unwrap_or_else(|| trunk.to_string())
 }
 
-fn toast(out: &Output, workspace_id: &str, text: &str) {
-    out.toast(ToastRaisedPayload {
+fn toast(state: &AppState, workspace_id: &str, text: &str) {
+    state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
         parts: vec![ToastPart::Text { value: text.into() }],
         workspace_id: Some(workspace_id.to_string()),
@@ -885,7 +878,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs gh with the gh-stack extension"]
     async fn adopts_a_stack_made_in_another_worktree() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+        let state = AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir())).0;
         state
             .shell_env
             .write()

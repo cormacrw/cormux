@@ -5,8 +5,7 @@ use std::sync::{Arc, OnceLock};
 use serde_json::{Value, json};
 
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::StateChangeKind;
+use crate::feedback::Change;
 use crate::orchestration;
 use crate::state::AppState;
 use crate::store::Store;
@@ -37,7 +36,7 @@ pub struct CormuxMcp {
     store: Store,
     /// What the thread tools run workflows with. `AppState` owns this server, so it's handed
     /// over once the state exists; both live as long as the process.
-    workflows: Arc<OnceLock<(Output, AppState)>>,
+    workflows: Arc<OnceLock<AppState>>,
     /// Held across a spawn, so parallel `create_thread` calls can't both pass the limit.
     spawn_lock: Arc<tokio::sync::Mutex<()>>,
 }
@@ -51,8 +50,8 @@ impl CormuxMcp {
         }
     }
 
-    pub fn attach(&self, out: Output, state: AppState) {
-        let _ = self.workflows.set((out, state));
+    pub fn attach(&self, state: AppState) {
+        let _ = self.workflows.set(state);
     }
 
     /// Answers one JSON-RPC message from `thread_id`'s engine. The caller is the session the
@@ -84,10 +83,9 @@ impl CormuxMcp {
         })
     }
 
-    fn attached(&self) -> Result<(&Output, &AppState)> {
+    fn attached(&self) -> Result<&AppState> {
         self.workflows
             .get()
-            .map(|(out, state)| (out, state))
             .ok_or_else(|| Error::Mcp("Cormux is still starting".into()))
     }
 
@@ -121,15 +119,15 @@ impl CormuxMcp {
                     base: text("base"),
                     model: text("model"),
                 };
-                let (out, state) = self.attached()?;
+                let state = self.attached()?;
                 let _spawning = self.spawn_lock.lock().await;
-                orchestration::create_thread(out, state, caller, new).await
+                orchestration::create_thread(state, caller, new).await
             }
             "send_to_thread" => {
                 let id = required_string(args, "id")?;
                 let body = required_string(args, "text")?;
-                let (out, state) = self.attached()?;
-                orchestration::send_to_thread(out, state, caller, &id, body).await?;
+                let state = self.attached()?;
+                orchestration::send_to_thread(state, caller, &id, body).await?;
                 Ok(json!({ "sent": true }))
             }
             "attach_entity" => {
@@ -142,8 +140,8 @@ impl CormuxMcp {
                 let name = required_string(args, "name")?;
                 let url = web_url(&required_string(args, "url")?)?;
                 let entity = self.store.attach_entity(caller, &name, &url)?;
-                if let Ok((out, state)) = self.attached() {
-                    state.notify(out, StateChangeKind::WorkspaceStatus);
+                if let Ok(state) = self.attached() {
+                    state.out.changed(Change::THREADS);
                 }
                 Ok(json!({ "attached": true, "name": entity.name, "url": entity.url }))
             }

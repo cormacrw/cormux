@@ -1,29 +1,33 @@
 use std::collections::BTreeMap;
 
-use tauri::{AppHandle, State, ipc::Channel};
+use tauri::{State, ipc::Channel};
 
+use super::subscriptions::{Subscriptions, stream_agent_events, stream_diffs, stream_pty};
+use super::types::{
+    ControlWorkspaceAppInput, CreateWorkspaceBranchInput, CreateWorkspaceResult, DiffUpdate,
+    PtyChunk, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput, TeardownInput,
+    TeardownPreview, WorkspaceAppControlAction,
+};
 use crate::app::WorkspaceAppAction;
 use crate::clickup::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
+use crate::create_pr::{
+    CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
+};
 use crate::engines::{EngineKind, StreamedEvent, ThreadModels};
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::events::output;
-use crate::ipc::subscriptions::{stream_agent_events, stream_diffs, stream_pty};
-use crate::ipc::types::StateChangeKind;
+use crate::feedback::Change;
+use crate::findings::{DismissWorkspaceFindingsInput, SendWorkspaceFindingsInput};
+use crate::git_workspace::RenameWorkspaceInput;
+use crate::repos::{
+    AddRepoInput, BranchDeletion, LocalBranchesResult, RemoveRepoInput, RepoBranchesResult,
+    RepoGitRuntime, SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput,
+    SetRepoSingleInstanceInput, TestRepoSetupInput, TestRepoSetupResult,
+};
 use crate::state::AppState;
 use crate::store::types::RepoRecord;
-use crate::turn::thread_row;
-
-use super::types::{
-    AddRepoInput, BranchDeletion, ControlWorkspaceAppInput, CreateWorkspaceBranchInput,
-    CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
-    CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, LocalBranchesResult, PtyChunk,
-    RemoveRepoInput, RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime,
-    ResumeThreadSessionInput, SendWorkspaceFindingsInput, SetRepoDefaultBranchInput,
-    SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, SetSettingInput,
-    Snapshot, SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
-    TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
-};
+use crate::summaries::WorkspaceSummaryResult;
+use crate::turn::{ResumeThreadSessionInput, thread_row};
+use crate::workspace_start::CreateWorkspaceInput;
 
 #[tauri::command]
 #[specta::specta]
@@ -50,7 +54,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let workspace_git = crate::git_workspace::git_runtime_snapshot(&state, &workspace_ids).await;
 
     Ok(Snapshot {
-        version: state.snapshot_version(),
+        version: state.out.version(),
         persisted,
         workspaces,
         workspace_git,
@@ -66,7 +70,6 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
 #[tauri::command]
 #[specta::specta]
 pub async fn control_workspace_app(
-    app: AppHandle,
     input: ControlWorkspaceAppInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
@@ -78,48 +81,44 @@ pub async fn control_workspace_app(
     };
     state
         .apps
-        .control(&output(&app), &state, &input.workspace_id, action)
+        .control(&state, &input.workspace_id, action)
         .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn set_repo_run_command(
-    app: AppHandle,
     input: SetRepoRunCommandInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::repos::set_run_command(&output(&app), &state, input)
+    crate::repos::set_run_command(&state, input)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn set_repo_single_instance(
-    app: AppHandle,
     input: SetRepoSingleInstanceInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::repos::set_single_instance(&output(&app), &state, input)
+    crate::repos::set_single_instance(&state, input)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn set_repo_setup_commands(
-    app: AppHandle,
     input: SetRepoSetupCommandsInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::repos::set_setup_commands(&output(&app), &state, input)
+    crate::repos::set_setup_commands(&state, input)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn set_repo_default_branch(
-    app: AppHandle,
     input: SetRepoDefaultBranchInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::repos::set_default_branch(&output(&app), &state, input)
+    crate::repos::set_default_branch(&state, input)
 }
 
 /// Commits each repo's default branch is behind and ahead of `origin`, against the last
@@ -133,32 +132,20 @@ pub async fn get_repo_git(state: State<'_, AppState>) -> Result<Vec<RepoGitRunti
 /// Fast-forward the repo checkout's default branch from origin.
 #[tauri::command]
 #[specta::specta]
-pub async fn pull_repo_default_branch(
-    repo_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::repos::pull_default_branch(&output(&app), &state, &repo_id).await
+pub async fn pull_repo_default_branch(repo_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::repos::pull_default_branch(&state, &repo_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn add_repo(
-    app: AppHandle,
-    input: AddRepoInput,
-    state: State<'_, AppState>,
-) -> Result<RepoRecord> {
-    crate::repos::add(&output(&app), &state, input).await
+pub async fn add_repo(input: AddRepoInput, state: State<'_, AppState>) -> Result<RepoRecord> {
+    crate::repos::add(&state, input).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn remove_repo(
-    app: AppHandle,
-    input: RemoveRepoInput,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::repos::remove(&output(&app), &state, input).await
+pub async fn remove_repo(input: RemoveRepoInput, state: State<'_, AppState>) -> Result<()> {
+    crate::repos::remove(&state, input).await
 }
 
 #[tauri::command]
@@ -172,25 +159,21 @@ pub async fn test_repo_setup(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn set_setting(
-    app: AppHandle,
-    input: SetSettingInput,
-    state: State<'_, AppState>,
-) -> Result<()> {
+pub async fn set_setting(input: SetSettingInput, state: State<'_, AppState>) -> Result<()> {
     let key = input.key.trim();
     if key.is_empty() {
         return Err(Error::Store("setting key required".into()));
     }
     state.store.set_setting(key, &input.value)?;
-    state.notify(&output(&app), StateChangeKind::WorkspaceStatus);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn reload_environment(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+pub async fn reload_environment(state: State<'_, AppState>) -> Result<()> {
     state.shell_env.write().await.load().await?;
-    state.notify(&output(&app), StateChangeKind::Environment);
+    state.out.changed(Change::SNAPSHOT);
     Ok(())
 }
 
@@ -219,28 +202,20 @@ pub async fn get_thread_events(
         .await
 }
 
-fn emit_settings_changed(out: &Output, state: &AppState) {
-    state.notify(out, StateChangeKind::WorkspaceStatus);
-}
-
 /// Checks the key with ClickUp, then saves it to `~/.cormux/credentials.json`.
 #[tauri::command]
 #[specta::specta]
-pub async fn set_clickup_api_key(
-    app: AppHandle,
-    key: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
+pub async fn set_clickup_api_key(key: String, state: State<'_, AppState>) -> Result<()> {
     state.clickup.save_key(&key).await?;
-    emit_settings_changed(&output(&app), &state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn clear_clickup_api_key(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+pub async fn clear_clickup_api_key(state: State<'_, AppState>) -> Result<()> {
     state.clickup.clear_key()?;
-    emit_settings_changed(&output(&app), &state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
@@ -306,8 +281,8 @@ pub async fn set_clickup_task_points(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn sync_pull_requests(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    state.pr_sync.sync_app(&output(&app), &state).await
+pub async fn sync_pull_requests(state: State<'_, AppState>) -> Result<()> {
+    state.pr_sync.sync_app(&state).await
 }
 
 /// High-volume ordered stream of normalised agent events for one thread.
@@ -317,14 +292,15 @@ pub fn subscribe_agent_events(
     thread_id: String,
     channel: Channel<StreamedEvent>,
     state: State<'_, AppState>,
+    subs: State<'_, Subscriptions>,
 ) -> Result<u32> {
-    Ok(stream_agent_events(&state, thread_id, channel))
+    Ok(stream_agent_events(&state, &subs, thread_id, channel))
 }
 /// Stop the background task behind a `subscribe_*` channel.
 #[tauri::command]
 #[specta::specta]
-pub fn unsubscribe(id: u32, state: State<'_, AppState>) -> Result<()> {
-    state.subscriptions.cancel(id);
+pub fn unsubscribe(id: u32, subs: State<'_, Subscriptions>) -> Result<()> {
+    subs.cancel(id);
     Ok(())
 }
 
@@ -339,42 +315,32 @@ pub async fn detect_engines(
 #[tauri::command]
 #[specta::specta]
 pub async fn resolve_approval(
-    app: AppHandle,
     id: String,
     approved: bool,
     deny_reason: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::approvals::resolve_approval(&output(&app), &state, &id, approved, deny_reason).await
+    crate::approvals::resolve_approval(&state, &id, approved, deny_reason).await
 }
 #[tauri::command]
 #[specta::specta]
 pub async fn answer_question(
-    app: AppHandle,
     id: String,
     answers: BTreeMap<String, String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::approvals::answer_question(&output(&app), &state, &id, answers)
+    crate::approvals::answer_question(&state, &id, answers)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn resolve_all_approvals(
-    app: AppHandle,
     thread_id: String,
     approved: bool,
     deny_reason: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::approvals::resolve_all_approvals(
-        &output(&app),
-        &state,
-        &thread_id,
-        approved,
-        deny_reason,
-    )
-    .await
+    crate::approvals::resolve_all_approvals(&state, &thread_id, approved, deny_reason).await
 }
 
 /// High-volume ordered stream of PTY output for a workspace's run/setup log.
@@ -384,8 +350,9 @@ pub fn subscribe_pty(
     workspace_id: String,
     channel: Channel<PtyChunk>,
     state: State<'_, AppState>,
+    subs: State<'_, Subscriptions>,
 ) -> Result<u32> {
-    Ok(stream_pty(&state, workspace_id, channel))
+    Ok(stream_pty(&state, &subs, workspace_id, channel))
 }
 
 /// High-volume ordered stream of live diff updates for a worktree.
@@ -395,8 +362,9 @@ pub async fn subscribe_diffs(
     workspace_id: String,
     channel: Channel<DiffUpdate>,
     state: State<'_, AppState>,
+    subs: State<'_, Subscriptions>,
 ) -> Result<u32> {
-    Ok(stream_diffs(&state, workspace_id, channel).await)
+    Ok(stream_diffs(&state, &subs, workspace_id, channel).await)
 }
 
 /// Force-refresh the live diff snapshot for one workspace (branch switch, pull, etc.).
@@ -435,20 +403,18 @@ pub async fn discard_workspace_changes(
 #[specta::specta]
 pub async fn create_review_workspace(
     input: crate::review::CreateReviewWorkspaceInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::review::CreateReviewWorkspaceResult> {
-    crate::review::create_review_workspace(&output(&app), &state, input).await
+    crate::review::create_review_workspace(&state, input).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn submit_workspace_review(
     input: crate::review::SubmitWorkspaceReviewInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::review::submit_workspace_review(&output(&app), &state, input).await
+    crate::review::submit_workspace_review(&state, input).await
 }
 
 /// Start a Reviewer on a regular workspace's own branch. Returns its thread id.
@@ -456,12 +422,9 @@ pub async fn submit_workspace_review(
 #[specta::specta]
 pub async fn start_branch_review(
     workspace_id: String,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String> {
-    let out = output(&app);
-    let thread_id = crate::review::start_branch_review(&out, &state, &workspace_id).await?;
-    emit_composer_snapshot(&out, &state);
+    let thread_id = crate::review::start_branch_review(&state, &workspace_id).await?;
     Ok(thread_id)
 }
 
@@ -508,11 +471,9 @@ pub async fn delete_local_branch(
 #[specta::specta]
 pub async fn create_workspace(
     input: CreateWorkspaceInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CreateWorkspaceResult> {
-    let started =
-        crate::workspace_start::start_workspace(&output(&app), &state, input, None).await?;
+    let started = crate::workspace_start::start_workspace(&state, input, None).await?;
     Ok(CreateWorkspaceResult {
         workspace_id: started.workspace_id,
     })
@@ -522,12 +483,11 @@ pub async fn create_workspace(
 #[specta::specta]
 pub async fn retry_workspace_provisioning(
     workspace_id: String,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let (out, state) = (output(&app), state.inner().clone());
+    let state = state.inner().clone();
     tauri::async_runtime::spawn(async move {
-        crate::provisioning::retry_provisioning(out, state, workspace_id).await;
+        crate::provisioning::retry_provisioning(state, workspace_id).await;
     });
     Ok(())
 }
@@ -536,12 +496,11 @@ pub async fn retry_workspace_provisioning(
 #[specta::specta]
 pub async fn skip_workspace_provisioning_setup(
     workspace_id: String,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let (out, state) = (output(&app), state.inner().clone());
+    let state = state.inner().clone();
     tauri::async_runtime::spawn(async move {
-        crate::provisioning::skip_provisioning_setup(out, state, workspace_id).await;
+        crate::provisioning::skip_provisioning_setup(state, workspace_id).await;
     });
     Ok(())
 }
@@ -549,57 +508,37 @@ pub async fn skip_workspace_provisioning_setup(
 #[tauri::command]
 #[specta::specta]
 pub async fn rename_workspace(
-    app: AppHandle,
     state: State<'_, AppState>,
     input: RenameWorkspaceInput,
 ) -> Result<()> {
-    crate::git_workspace::rename_workspace(&output(&app), &state, input).await
+    crate::git_workspace::rename_workspace(&state, input).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn switch_workspace_branch(
     input: SwitchWorkspaceBranchInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::switch_workspace_branch(
-        &output(&app),
-        &state,
-        &input.workspace_id,
-        &input.branch,
-    )
-    .await
+    crate::git_workspace::switch_workspace_branch(&state, &input.workspace_id, &input.branch).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn pull_workspace(
-    workspace_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::git_workspace::pull_workspace(&output(&app), &state, &workspace_id).await
+pub async fn pull_workspace(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::git_workspace::pull_workspace(&state, &workspace_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn rebase_workspace(
-    workspace_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::git_workspace::rebase_workspace(&output(&app), &state, &workspace_id).await
+pub async fn rebase_workspace(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::git_workspace::rebase_workspace(&state, &workspace_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn push_workspace_branch(
-    workspace_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::git_workspace::push_workspace_branch(&output(&app), &state, &workspace_id).await
+pub async fn push_workspace_branch(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::git_workspace::push_workspace_branch(&state, &workspace_id).await
 }
 
 /// The PR prompt Settings shows until the user writes their own.
@@ -622,36 +561,24 @@ pub async fn draft_pr_why(
 #[specta::specta]
 pub async fn create_workspace_pull_request(
     input: CreateWorkspacePullRequestInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CreateWorkspacePullRequestResult> {
-    crate::create_pr::create_workspace_pull_request(&output(&app), &state, input).await
+    crate::create_pr::create_workspace_pull_request(&state, input).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn abort_workspace_git(
-    workspace_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::git_workspace::abort_workspace_git_conflict(&output(&app), &state, &workspace_id).await
+pub async fn abort_workspace_git(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::git_workspace::abort_workspace_git_conflict(&state, &workspace_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn create_workspace_branch(
     input: CreateWorkspaceBranchInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::create_workspace_branch(
-        &output(&app),
-        &state,
-        &input.workspace_id,
-        &input.branch,
-    )
-    .await
+    crate::git_workspace::create_workspace_branch(&state, &input.workspace_id, &input.branch).await
 }
 
 #[tauri::command]
@@ -667,30 +594,21 @@ pub async fn get_workspace_stack(
 #[specta::specta]
 pub async fn add_stack_branch(
     input: CreateWorkspaceBranchInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::stack::add_branch(&output(&app), &state, &input.workspace_id, &input.branch).await
+    crate::stack::add_branch(&state, &input.workspace_id, &input.branch).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn push_stack(
-    workspace_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::stack::push(&output(&app), &state, &workspace_id).await
+pub async fn push_stack(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::stack::push(&state, &workspace_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn sync_stack(
-    workspace_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::stack::sync(&output(&app), &state, &workspace_id).await
+pub async fn sync_stack(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::stack::sync(&state, &workspace_id).await
 }
 
 #[tauri::command]
@@ -713,12 +631,8 @@ pub async fn open_workspace_terminal(
 }
 #[tauri::command]
 #[specta::specta]
-pub async fn teardown_workspace(
-    input: TeardownInput,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::teardown::execute(&output(&app), &state, &input).await
+pub async fn teardown_workspace(input: TeardownInput, state: State<'_, AppState>) -> Result<()> {
+    crate::teardown::execute(&state, &input).await
 }
 
 /// Skills the `/` picker offers on the new thread page.
@@ -744,44 +658,31 @@ pub async fn list_thread_skills(
 #[tauri::command]
 #[specta::specta]
 pub async fn send_thread_prompt(
-    app: AppHandle,
     thread_id: String,
     text: String,
     attachments: Vec<crate::attachments::PromptAttachment>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::turn::submit(&output(&app), &state, &thread_id, text, attachments).await
+    crate::turn::submit(&state, &thread_id, text, attachments).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn cancel_thread_turn(
-    app: AppHandle,
-    thread_id: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::turn::stop(&output(&app), &state, &thread_id).await;
+pub async fn cancel_thread_turn(thread_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::turn::stop(&state, &thread_id).await;
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn pause_thread(
-    app: AppHandle,
-    thread_id: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::turn::pause(&output(&app), &state, &thread_id).await
+pub async fn pause_thread(thread_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::turn::pause(&state, &thread_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn resume_thread(
-    app: AppHandle,
-    thread_id: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::turn::resume(&output(&app), &state, &thread_id).await
+pub async fn resume_thread(thread_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::turn::resume(&state, &thread_id).await
 }
 
 /// The models the thread's composer can pick from, and the current pick.
@@ -851,12 +752,8 @@ pub async fn set_thread_effort(
 /// be resumed later (`resume_thread_session`).
 #[tauri::command]
 #[specta::specta]
-pub async fn new_thread_session(
-    app: AppHandle,
-    thread_id: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::turn::new_session(&output(&app), &state, &thread_id).await
+pub async fn new_thread_session(thread_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::turn::new_session(&state, &thread_id).await
 }
 
 /// Picks an earlier conversation in the thread back up: the agent resumes its
@@ -865,30 +762,25 @@ pub async fn new_thread_session(
 #[tauri::command]
 #[specta::specta]
 pub async fn resume_thread_session(
-    app: AppHandle,
     input: ResumeThreadSessionInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::turn::resume_session(&output(&app), &state, input).await
+    crate::turn::resume_session(&state, input).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn send_workspace_findings(
-    app: AppHandle,
     input: SendWorkspaceFindingsInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let out = output(&app);
     crate::findings::send_workspace_findings(
-        &out,
         &state,
         &input.workspace_id,
         &input.thread_id,
         input.finding_ids,
     )
     .await?;
-    emit_composer_snapshot(&out, &state);
     Ok(())
 }
 
@@ -930,24 +822,15 @@ pub async fn image_preview(path: String) -> Result<Option<String>> {
 #[tauri::command]
 #[specta::specta]
 pub async fn dismiss_workspace_findings(
-    app: AppHandle,
-    input: super::types::DismissWorkspaceFindingsInput,
+    input: DismissWorkspaceFindingsInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::findings::dismiss_findings(&output(&app), &state, input)
+    crate::findings::dismiss_findings(&state, input)
 }
 
 /// Discards the scratch's conversation. The repo is not changed.
 #[tauri::command]
 #[specta::specta]
-pub async fn end_scratch(
-    app: AppHandle,
-    scratch_id: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    crate::scratch::end(&output(&app), &state, &scratch_id).await
-}
-
-fn emit_composer_snapshot(out: &Output, state: &AppState) {
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+pub async fn end_scratch(scratch_id: String, state: State<'_, AppState>) -> Result<()> {
+    crate::scratch::end(&state, &scratch_id).await
 }

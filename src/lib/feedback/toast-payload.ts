@@ -25,11 +25,6 @@ export function pendingApprovalCount(
   return Math.max(stored, livePending)
 }
 
-export function dockBadgeCount(pendingApprovals: number): number | undefined {
-  if (pendingApprovals <= 0) return undefined
-  return pendingApprovals
-}
-
 export function formatToastPayload(payload: ToastPayload): string {
   return payload.parts
     .map((part) => (part.type === 'code' ? part.value : part.value))

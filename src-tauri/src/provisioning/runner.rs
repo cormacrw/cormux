@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 use crate::engines::prompt::Prompt;
 use crate::engines::{EngineKind, SpawnSpec};
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::StateChangeKind;
+use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::process::ProcessSupervisor;
 use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
@@ -28,13 +27,13 @@ pub struct LeadProvisionJob {
     pub review: bool,
 }
 
-pub async fn run_workspace_provisioning(out: Output, state: AppState, job: LeadProvisionJob) {
-    if let Err(error) = run_lead(&out, &state, job).await {
+pub async fn run_workspace_provisioning(state: AppState, job: LeadProvisionJob) {
+    if let Err(error) = run_lead(&state, job).await {
         log::warn!("provisioning failed: {error}");
     }
 }
 
-pub async fn retry_provisioning(out: Output, state: AppState, workspace_id: String) {
+pub async fn retry_provisioning(state: AppState, workspace_id: String) {
     let Some((workspace, thread, repo)) = provisioning_rows(&state, &workspace_id) else {
         return;
     };
@@ -65,12 +64,12 @@ pub async fn retry_provisioning(out: Output, state: AppState, workspace_id: Stri
         prompt: None,
         review: workspace.kind.as_deref() == Some("review"),
     };
-    if let Err(error) = run_lead(&out, &state, job).await {
+    if let Err(error) = run_lead(&state, job).await {
         log::warn!("retry provisioning failed: {error}");
     }
 }
 
-pub async fn skip_provisioning_setup(out: Output, state: AppState, workspace_id: String) {
+pub async fn skip_provisioning_setup(state: AppState, workspace_id: String) {
     let Some((workspace, thread, repo)) = provisioning_rows(&state, &workspace_id) else {
         return;
     };
@@ -101,12 +100,12 @@ pub async fn skip_provisioning_setup(out: Output, state: AppState, workspace_id:
         prompt: None,
         review: workspace.kind.as_deref() == Some("review"),
     };
-    if let Err(error) = finish_after_setup(&out, &state, &job, 0).await {
-        mark_failed(&out, &state, &workspace_id, None, None, &error.to_string()).await;
+    if let Err(error) = finish_after_setup(&state, &job, 0).await {
+        mark_failed(&state, &workspace_id, None, None, &error.to_string()).await;
     }
 }
 
-async fn run_lead(out: &Output, state: &AppState, job: LeadProvisionJob) -> Result<()> {
+async fn run_lead(state: &AppState, job: LeadProvisionJob) -> Result<()> {
     if !workspace_alive(state, &job.workspace_id).await {
         return Ok(());
     }
@@ -124,19 +123,11 @@ async fn run_lead(out: &Output, state: &AppState, job: LeadProvisionJob) -> Resu
         "Running worktree setup…"
     };
     set_activity(state, &job.workspace_id, setup_activity, 1, None, None).await;
-    emit_snapshot(out, state);
+    state.out.changed(Change::THREADS);
 
     if !worktree_exists(&record) {
         if let Err(error) = state.workspace.add_worktree(&job.workspace_id).await {
-            mark_failed(
-                out,
-                state,
-                &job.workspace_id,
-                None,
-                None,
-                &error.to_string(),
-            )
-            .await;
+            mark_failed(state, &job.workspace_id, None, None, &error.to_string()).await;
             return Ok(());
         }
         if !workspace_alive(state, &job.workspace_id).await {
@@ -145,7 +136,7 @@ async fn run_lead(out: &Output, state: &AppState, job: LeadProvisionJob) -> Resu
     }
 
     if !setup.is_empty() {
-        if !run_setup_commands(out, state, &job, &record, &setup).await? {
+        if !run_setup_commands(state, &job, &record, &setup).await? {
             return Ok(());
         }
     } else {
@@ -155,11 +146,10 @@ async fn run_lead(out: &Output, state: &AppState, job: LeadProvisionJob) -> Resu
         );
     }
 
-    finish_after_setup(out, state, &job, setup.len()).await
+    finish_after_setup(state, &job, setup.len()).await
 }
 
 async fn run_setup_commands(
-    out: &Output,
     state: &AppState,
     job: &LeadProvisionJob,
     record: &WorkspaceRecord,
@@ -208,7 +198,6 @@ async fn run_setup_commands(
                 Ok(code) => code,
                 Err(error) => {
                     mark_failed(
-                        out,
                         state,
                         &job.workspace_id,
                         Some(command.clone()),
@@ -238,7 +227,6 @@ async fn run_setup_commands(
                 .process
                 .append_log_line(log_id, format!("Setup failed: exit code {code}"));
             mark_failed(
-                out,
                 state,
                 &job.workspace_id,
                 Some(command.clone()),
@@ -257,7 +245,6 @@ async fn run_setup_commands(
 }
 
 async fn finish_after_setup(
-    out: &Output,
     state: &AppState,
     job: &LeadProvisionJob,
     setup_count: usize,
@@ -269,7 +256,7 @@ async fn finish_after_setup(
     let start_agent = job.review || job.prompt.is_some() || !job.goal.trim().is_empty();
     if start_agent {
         set_activity(state, &job.workspace_id, "Starting agent…", 2, None, None).await;
-        emit_snapshot(out, state);
+        state.out.changed(Change::THREADS);
 
         let prompt: Prompt = if job.review {
             crate::review::reviewer_engine_prompt(&job.goal).into()
@@ -341,9 +328,9 @@ async fn finish_after_setup(
         )
         .await;
         persist_workspace_row(state, &job.workspace_id, "running", &record)?;
-        state.notify(out, StateChangeKind::WorkspaceStatus);
+        state.out.changed(Change::THREADS);
         if job.review {
-            emit_review_started_toast(out, state, &job.workspace_id, &job.thread_id);
+            emit_review_started_toast(state, &job.workspace_id, &job.thread_id);
         }
     } else {
         let record = state
@@ -362,7 +349,7 @@ async fn finish_after_setup(
         set_activity(state, &job.workspace_id, "", 0, None, None).await;
         persist_workspace_row(state, &job.workspace_id, "idle", &record)?;
     }
-    emit_snapshot(out, state);
+    state.out.changed(Change::THREADS);
     Ok(())
 }
 
@@ -505,7 +492,6 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
 }
 
 async fn mark_failed(
-    out: &Output,
     state: &AppState,
     workspace_id: &str,
     failed_command: Option<String>,
@@ -526,24 +512,22 @@ async fn mark_failed(
         .set_status(workspace_id, WorkspaceLifecycle::ProvisioningFailed)
         .await;
     persist_workspace_status(state, workspace_id, "provisioningFailed");
-    state.notify(out, StateChangeKind::WorkspaceStatus);
-    emit_snapshot(out, state);
-    out.toast(crate::ipc::types::ToastRaisedPayload {
-        tone: crate::ipc::types::ToastTone::Bad,
-        parts: vec![crate::ipc::types::ToastPart::Text {
+    state.out.changed(Change::THREADS);
+    state.out.toast(ToastRaisedPayload {
+        tone: ToastTone::Bad,
+        parts: vec![ToastPart::Text {
             value: message.to_string(),
         }],
         workspace_id: Some(workspace_id.to_string()),
         thread_id: None,
     });
     // Spawned: reporting can start an engine, and starting one can end up back here.
-    let (out, state) = (out.clone(), state.clone());
+    let state = state.clone();
     let workspace_id = workspace_id.to_string();
     let message = message.to_string();
     tauri::async_runtime::spawn(async move {
         if let Err(error) =
-            crate::orchestration::on_provisioning_failed(&out, &state, &workspace_id, &message)
-                .await
+            crate::orchestration::on_provisioning_failed(&state, &workspace_id, &message).await
         {
             log::warn!("reporting failed setup: {error}");
         }
@@ -551,7 +535,7 @@ async fn mark_failed(
 }
 
 /// The worktree is checked out, setup has run, and the Reviewer has its prompt.
-fn emit_review_started_toast(out: &Output, state: &AppState, workspace_id: &str, thread_id: &str) {
+fn emit_review_started_toast(state: &AppState, workspace_id: &str, thread_id: &str) {
     let pr_label = state
         .store
         .snapshot()
@@ -565,13 +549,13 @@ fn emit_review_started_toast(out: &Output, state: &AppState, workspace_id: &str,
         })
         .map(|num| format!("#{num}"))
         .unwrap_or_else(|| "the PR".into());
-    out.toast(crate::ipc::types::ToastRaisedPayload {
-        tone: crate::ipc::types::ToastTone::Ok,
+    state.out.toast(ToastRaisedPayload {
+        tone: ToastTone::Ok,
         parts: vec![
-            crate::ipc::types::ToastPart::Text {
+            ToastPart::Text {
                 value: "Reviewer started on ".into(),
             },
-            crate::ipc::types::ToastPart::Code { value: pr_label },
+            ToastPart::Code { value: pr_label },
         ],
         workspace_id: Some(workspace_id.to_string()),
         thread_id: Some(thread_id.to_string()),
@@ -686,14 +670,10 @@ fn persist_workspace_row(
     state.store.set_workspace_status(workspace_id, status)
 }
 
-fn emit_snapshot(out: &Output, state: &AppState) {
-    state.notify(out, StateChangeKind::WorkspaceStatus);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::feedback::{Emitted, RecordingOutput};
+    use crate::feedback::Emitted;
     use crate::process::ProcessSupervisor;
     use crate::shell_env::ShellEnv;
     use std::sync::Arc;
@@ -730,22 +710,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn failed_setup_refreshes_toasts_and_then_merges_the_second_refresh() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+    async fn failed_setup_refreshes_then_toasts() {
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         state.store.open_in_memory().unwrap();
-        let (recording, out) = RecordingOutput::new();
 
-        mark_failed(&out, &state, "w1", None, Some(1), "Setup broke").await;
+        mark_failed(&state, "w1", None, Some(1), "Setup broke").await;
 
-        tokio::time::sleep(Duration::from_millis(150)).await;
         assert_eq!(recording.toasts(), ["Setup broke"]);
         assert!(matches!(
             recording.emitted().as_slice(),
-            [
-                Emitted::State(StateChangeKind::WorkspaceStatus),
-                Emitted::Toast(_),
-                Emitted::State(StateChangeKind::WorkspaceStatus),
-            ]
+            [Emitted::State(Change::THREADS), Emitted::Toast(_)]
         ));
     }
 }

@@ -4,13 +4,12 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::CreateWorkspaceInput;
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::timeline::{TimelineStep, record_step};
+use crate::workspace_start::CreateWorkspaceInput;
 use crate::workspace_start::start_workspace;
 
 /// A parent's children still doing something, past which `create_thread` refuses.
@@ -274,12 +273,7 @@ pub struct NewThread {
     pub model: Option<String>,
 }
 
-pub async fn create_thread(
-    out: &Output,
-    state: &AppState,
-    caller_id: &str,
-    new: NewThread,
-) -> Result<Value> {
+pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) -> Result<Value> {
     let caller = caller_thread(&state.store, caller_id)?;
     check_can_spawn(&state.store, &caller)?;
     let repo_id = caller_repo(&state.store, &caller)?;
@@ -309,7 +303,6 @@ pub async fn create_thread(
     };
     let effort = state.store.thread_effort(caller_id)?;
     let started = start_workspace(
-        out,
         state,
         CreateWorkspaceInput {
             repo_id,
@@ -335,7 +328,6 @@ pub async fn create_thread(
 }
 
 pub async fn send_to_thread(
-    out: &Output,
     state: &AppState,
     caller_id: &str,
     id: &str,
@@ -349,7 +341,7 @@ pub async fn send_to_thread(
         id,
         TimelineStep::MessageFromThread { workspace: title },
     );
-    crate::turn::submit(out, state, id, text, Vec::new()).await
+    crate::turn::submit(state, id, text, Vec::new()).await
 }
 
 fn workspace_title(store: &Store, thread: &ThreadRow) -> Result<String> {
@@ -449,7 +441,7 @@ fn report_for(store: &Store, child: &ThreadRow, status: &str, body: String) -> R
 
 /// Queue a finished child's report, then hand over whatever the thread that just went idle was
 /// waiting for. Both can apply: nothing stops a child being idle with reports of its own.
-pub async fn on_turn_end(out: &Output, state: &AppState, thread_id: &str) -> Result<()> {
+pub async fn on_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     if let Some(child) = state.store.thread_by_id(thread_id)?
         && let Some(parent_id) = child.parent_thread_id.clone()
     {
@@ -463,15 +455,15 @@ pub async fn on_turn_end(out: &Output, state: &AppState, thread_id: &str) -> Res
             };
             let report = report_for(&state.store, &child, "idle", body)?;
             state.reports.push(&parent_id, report);
-            deliver(out, state, &parent_id).await;
+            deliver(state, &parent_id).await;
         }
     }
-    deliver(out, state, thread_id).await;
+    deliver(state, thread_id).await;
     Ok(())
 }
 
 /// A child waiting on an approval can't go on, and only the user can answer it.
-pub async fn on_approval_requested(out: &Output, state: &AppState) -> Result<()> {
+pub async fn on_approval_requested(state: &AppState) -> Result<()> {
     for child in state.store.blocked_child_threads()? {
         let Some(parent_id) = child.parent_thread_id.clone() else {
             continue;
@@ -486,7 +478,7 @@ pub async fn on_approval_requested(out: &Output, state: &AppState) -> Result<()>
             );
             let report = report_for(&state.store, &child, "blocked", body)?;
             state.reports.push(&parent_id, report);
-            deliver(out, state, &parent_id).await;
+            deliver(state, &parent_id).await;
         }
     }
     Ok(())
@@ -494,7 +486,6 @@ pub async fn on_approval_requested(out: &Output, state: &AppState) -> Result<()>
 
 /// Setup failing never reaches a turn end, so it reports itself.
 pub async fn on_provisioning_failed(
-    out: &Output,
     state: &AppState,
     workspace_id: &str,
     message: &str,
@@ -509,7 +500,7 @@ pub async fn on_provisioning_failed(
     {
         let report = report_for(&state.store, &child, FAILED, message.to_string())?;
         state.reports.push(&parent_id, report);
-        deliver(out, state, &parent_id).await;
+        deliver(state, &parent_id).await;
     }
     Ok(())
 }
@@ -542,7 +533,7 @@ async fn reportable_parent(state: &AppState, parent_id: &str) -> Option<ThreadRo
 
 /// One prompt for everything waiting, once the parent is idle. A busy parent gets it from its
 /// own turn end; one that can't continue never will, so its reports are dropped.
-async fn deliver(out: &Output, state: &AppState, parent_id: &str) {
+async fn deliver(state: &AppState, parent_id: &str) {
     let Some(parent) = reportable_parent(state, parent_id).await else {
         return;
     };
@@ -564,8 +555,7 @@ async fn deliver(out: &Output, state: &AppState, parent_id: &str) {
         );
         lines.push(report.render());
     }
-    if let Err(error) =
-        crate::turn::submit(out, state, parent_id, lines.join("\n\n"), Vec::new()).await
+    if let Err(error) = crate::turn::submit(state, parent_id, lines.join("\n\n"), Vec::new()).await
     {
         log::warn!("reporting to thread {parent_id} failed: {error}");
         state.reports.restore(parent_id, reports);
@@ -576,8 +566,8 @@ async fn deliver(out: &Output, state: &AppState, parent_id: &str) {
 mod tests {
     use super::*;
     use crate::engines::EngineCommand;
+    use crate::feedback::Change;
     use crate::feedback::RecordingOutput;
-    use crate::ipc::types::StateChangeKind;
     use crate::store::types::RepoRecord;
     use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -875,9 +865,8 @@ mod tests {
         assert!(continuing_thread(&store, "unknown").is_none());
     }
 
-    async fn assert_no_ghost(state: &AppState) {
-        let (recording, out) = RecordingOutput::new();
-        deliver(&out, state, "parent").await;
+    async fn assert_no_ghost(state: &AppState, recording: &RecordingOutput) {
+        deliver(state, "parent").await;
         assert!(!state.engines.has_thread("parent"));
         assert!(state.reports.take("parent").is_empty());
         assert!(recording.emitted().is_empty());
@@ -892,16 +881,18 @@ mod tests {
 
     #[tokio::test]
     async fn a_child_finishing_after_its_parent_was_killed_leaves_no_ghost() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         state.store.archive_workspace("w-parent").unwrap();
-        assert_no_ghost(&state).await;
+        assert_no_ghost(&state, &recording).await;
         assert!(state.workspace.list().await.is_empty());
     }
 
     #[tokio::test]
     async fn a_child_finishing_while_its_parent_is_killed_starts_no_engine() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         let row = state.store.workspace_by_id("w-parent").unwrap().unwrap();
         let mut record = crate::git_workspace::resolve_record(&state, "w-parent", &row)
@@ -909,17 +900,17 @@ mod tests {
             .unwrap();
         record.status = WorkspaceLifecycle::TearingDown;
         state.workspace.remember(record).await;
-        assert_no_ghost(&state).await;
+        assert_no_ghost(&state, &recording).await;
     }
 
     #[tokio::test]
     async fn an_idle_parent_is_prompted_with_its_reports_and_the_ui_told() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         let mut engine = state.engines.fake_thread("parent");
-        let (recording, out) = RecordingOutput::new();
 
-        deliver(&out, &state, "parent").await;
+        deliver(&state, "parent").await;
 
         assert!(prompt_text(&mut engine).contains("<thread_report id=\"child\""));
         assert_eq!(
@@ -927,23 +918,20 @@ mod tests {
             "running"
         );
         assert!(state.reports.take("parent").is_empty());
-        assert_eq!(
-            recording.state_changes(),
-            [StateChangeKind::WorkspaceStatus]
-        );
+        assert_eq!(recording.state_changes(), [Change::THREADS]);
     }
 
     #[tokio::test]
     async fn a_busy_parent_keeps_its_reports_for_its_own_turn_end() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         let mut parent = state.store.thread_by_id("parent").unwrap().unwrap();
         parent.status = "running".into();
         state.store.upsert_thread(&parent).unwrap();
         let mut engine = state.engines.fake_thread("parent");
-        let (recording, out) = RecordingOutput::new();
 
-        deliver(&out, &state, "parent").await;
+        deliver(&state, "parent").await;
 
         assert!(engine.try_recv().is_err());
         assert!(recording.emitted().is_empty());
@@ -952,12 +940,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_report_that_cannot_be_delivered_waits_for_the_next_try() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
-        let (recording, out) = RecordingOutput::new();
 
         // No engine, and its worktree isn't there to start one in.
-        deliver(&out, &state, "parent").await;
+        deliver(&state, "parent").await;
 
         assert!(!state.engines.has_thread("parent"));
         assert_eq!(state.reports.take("parent").len(), 1);
@@ -966,32 +954,29 @@ mod tests {
 
     #[tokio::test]
     async fn a_turn_end_reports_the_childs_reply_to_its_parent_once() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         seed(&state.store);
         add_thread(&state.store, "parent", "r1", None, "idle");
         add_thread(&state.store, "child", "r1", Some("parent"), "idle");
         say(&state.store, "child", "agent", "All done.");
         let mut engine = state.engines.fake_thread("parent");
-        let (recording, out) = RecordingOutput::new();
 
-        on_turn_end(&out, &state, "child").await.unwrap();
+        on_turn_end(&state, "child").await.unwrap();
 
         let prompt = prompt_text(&mut engine);
         assert!(prompt.contains("status=\"idle\""));
         assert!(prompt.contains("All done."));
-        assert_eq!(
-            recording.state_changes(),
-            [StateChangeKind::WorkspaceStatus]
-        );
+        assert_eq!(recording.state_changes(), [Change::THREADS]);
 
-        on_turn_end(&out, &state, "child").await.unwrap();
+        on_turn_end(&state, "child").await.unwrap();
         assert!(engine.try_recv().is_err());
         assert_eq!(recording.emitted().len(), 1);
     }
 
     #[tokio::test]
     async fn reports_wait_for_a_parent_that_can_continue() {
-        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
+        let state = AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir())).0;
         seed(&state.store);
         add_thread(&state.store, "parent", "r1", None, "running");
         state.reports.push("parent", report("child", "done"));
