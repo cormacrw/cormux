@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-use crate::approvals::{ApprovalBroker, ApprovalDecision, ApprovalPolicy};
+use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::engines::prompt::Prompt;
 use crate::engines::{
     AgentEvent, EngineCommand, EngineOutput, Engines, HostToolCall, HostToolsConfig, LaunchConfig,
@@ -287,7 +287,6 @@ impl ThreadRuntime {
             approvals: self.approvals.clone(),
             host_requests: self.host_requests.clone(),
             ended: self.ended.clone(),
-            policy: ApprovalPolicy::from(&settings),
             last_active: last_active.clone(),
         };
         // Running before the launch returns: the engine's handshake can already call the host's
@@ -558,7 +557,6 @@ struct Pump {
     approvals: Arc<ApprovalBroker>,
     host_requests: mpsc::UnboundedSender<HostRequest>,
     ended: broadcast::Sender<TurnEnd>,
-    policy: ApprovalPolicy,
     last_active: Arc<Mutex<Instant>>,
 }
 
@@ -699,7 +697,7 @@ impl Pump {
     fn permission(&self, request: PermissionRequest) {
         let decided = self
             .approvals
-            .request(&self.thread_id, self.engine, &request, self.policy);
+            .request(&self.thread_id, self.engine, &request);
         let respond = request.respond;
         tokio::spawn(async move {
             // A closed channel means the request was cancelled: the turn it belonged to is over.

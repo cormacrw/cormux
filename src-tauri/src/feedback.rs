@@ -456,9 +456,7 @@ mod tests {
                 .seed_thread("t1", "w1", crate::model::ThreadStatus::Running);
             start(&state.bus, &state.out, &state.store);
 
-            let _waiting = state
-                .approvals
-                .request("t1", 1, &waiting_on("a1"), Default::default());
+            let _waiting = state.approvals.request("t1", 1, &waiting_on("a1"));
             state.bus.settled().await;
 
             assert!(!recording.state_changes().is_empty());

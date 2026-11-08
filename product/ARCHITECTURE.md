@@ -210,7 +210,7 @@ Claude Code gets a native Rust translator so Cormux doesn't have to bundle or re
 
 Owns each pending approval from request to answer: the stored row the card shows and the engine's waiter change together. `request` records the row and the waiter (or answers at once when the policy lets it through, and denies at once when the row can't be saved, since no card would show), `resolve` hands the answer to the engine and the row in one step, and `cancel_for_engine` drops one engine launch's open requests when its turn ends or it exits, leaving those of the engine that replaced it on the same thread, and publishes `ApprovalsCancelled` so the cards and badges stop asking. A card has one builder, `approvals::payload::card` (a tool request's or a question's, `ApprovalPayload::to_use` and `asking`): the row stores it and the permission event carries it, so the timeline draws the request's card until the row reaches it. What a tool request names (the command, or the file) comes from the adapter's own reading of the tool's input (`ToolUse::asks_about`).
 
-- **Policy:** "Run everything" approves every tool request without a card; questions always wait for the user. A session reads it when it starts.
+- **Policy:** "Run everything" approves every tool request without a card; questions always wait for the user. `request` reads it from the settings as each request arrives, as host tools read theirs per call, so a change applies to engines already running.
 - **Denials:** the user's reason goes back to the agent as the tool's answer, once.
 - Pending counts feed the tab badges, sidebar and dock badge; requests are published as `ApprovalRequested` on the core's event bus, on which `feedback` refreshes the webview and raises the approval notification when Settings asks for one, and orchestration reports blocked children.
 
@@ -381,7 +381,7 @@ Closed under epic COR-31. Product-facing summary in [`PRODUCT.md` → Decisions 
 | COR-210 | **Quit:** `RunEvent::ExitRequested` → `thread_runtime::kill_all` (engine process groups) and `process.stop_all()`. **Teardown:** `turn::stop_engines` sends `EngineCommand::Shutdown` then waits up to the engine's own `stops_within` per thread. |
 | COR-211 | **Archive:** Teardown sets `workspaces.archived_at` and clears `worktree_path`; timeline events stay in SQLite. Active queries filter `archived_at IS NULL`. |
 | COR-212 | **Changes review:** no per-file approve step; Discard (`discard_workspace_changes`) is the one write from the Changes panel. |
-| COR-213 | **Approvals:** one policy, "Run everything" (`ApprovalPolicy` from Settings): every tool request is approved without a card; questions always wait. Without it every request shows a card. |
+| COR-213 | **Approvals:** one policy, "Run everything" (read from Settings per request): every tool request is approved without a card; questions always wait. Without it every request shows a card. |
 | COR-214 | **Skills:** `SkillsSettings` empty state only; no persistence or session injection. |
 | COR-215 | **No in-app editor/tree.** Conflicts: `abort_workspace_git` backs out a pull. Workspace header opens the worktree in the OS editor/Finder via the opener plugin. |
 | COR-216 | **UI stack:** `components.json` style `nova`; `@fontsource-variable/geist` fonts; Tailwind v4 + shadcn-svelte. |

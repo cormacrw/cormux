@@ -64,9 +64,7 @@ fn status(store: &Store, id: &str) -> &'static str {
 #[tokio::test]
 async fn an_answer_reaches_the_waiting_engine_and_the_card_together() {
     let mut setup = setup();
-    let decided = setup
-        .broker
-        .request("t1", 1, &command("a1"), ApprovalPolicy::default());
+    let decided = setup.broker.request("t1", 1, &command("a1"));
 
     let row = setup.store.get_approval("a1").unwrap().unwrap();
     assert_eq!(
@@ -97,12 +95,8 @@ async fn an_answer_reaches_the_waiting_engine_and_the_card_together() {
 #[tokio::test]
 async fn a_denial_tells_the_engine_the_users_reason_or_a_plain_no() {
     let setup = setup();
-    let with_reason = setup
-        .broker
-        .request("t1", 1, &command("a1"), ApprovalPolicy::default());
-    let without = setup
-        .broker
-        .request("t1", 1, &command("a2"), ApprovalPolicy::default());
+    let with_reason = setup.broker.request("t1", 1, &command("a1"));
+    let without = setup.broker.request("t1", 1, &command("a2"));
 
     let reason = Some("use the other file".to_string());
     setup.broker.resolve("a1", Answer::Deny { reason }).unwrap();
@@ -143,9 +137,7 @@ async fn a_denial_tells_the_engine_the_users_reason_or_a_plain_no() {
 #[tokio::test]
 async fn a_question_gets_its_answers() {
     let setup = setup();
-    let decided = setup
-        .broker
-        .request("t1", 1, &question("q1"), ApprovalPolicy::default());
+    let decided = setup.broker.request("t1", 1, &question("q1"));
     assert_eq!(
         setup.store.get_approval("q1").unwrap().unwrap().tool,
         QUESTION_TOOL
@@ -171,15 +163,9 @@ async fn a_question_gets_its_answers() {
 #[tokio::test]
 async fn a_turn_ending_cancels_only_that_engines_requests_and_their_cards() {
     let setup = setup();
-    let first = setup
-        .broker
-        .request("t1", 1, &command("a1"), ApprovalPolicy::default());
-    let other = setup
-        .broker
-        .request("t2", 2, &command("b1"), ApprovalPolicy::default());
-    let replacement = setup
-        .broker
-        .request("t1", 3, &command("c1"), ApprovalPolicy::default());
+    let first = setup.broker.request("t1", 1, &command("a1"));
+    let other = setup.broker.request("t2", 2, &command("b1"));
+    let replacement = setup.broker.request("t1", 3, &command("c1"));
 
     setup.broker.cancel_for_engine(1);
 
@@ -205,11 +191,7 @@ async fn cancelled_cards_are_announced_once_per_thread_and_only_when_some_were()
     let mut setup = setup();
     let _waiting: Vec<_> = ["a1", "a2"]
         .into_iter()
-        .map(|id| {
-            setup
-                .broker
-                .request("t1", 1, &command(id), ApprovalPolicy::default())
-        })
+        .map(|id| setup.broker.request("t1", 1, &command(id)))
         .collect();
     while setup.events.try_recv().is_ok() {}
 
@@ -248,9 +230,7 @@ async fn an_answer_nothing_waits_for_is_refused_and_the_card_stops_asking() {
 #[tokio::test]
 async fn an_unreadable_card_is_kept_when_answered() {
     let setup = setup();
-    let decided = setup
-        .broker
-        .request("t1", 1, &command("a1"), ApprovalPolicy::default());
+    let decided = setup.broker.request("t1", 1, &command("a1"));
     setup
         .store
         .set_approval_payload_text("a1", "not json")
@@ -275,22 +255,45 @@ async fn an_unreadable_card_is_kept_when_answered() {
     );
 }
 
+fn run_everything(store: &Store, on: bool) {
+    Settings::update(
+        store,
+        crate::settings::SettingsPatch {
+            run_everything: Some(on),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+}
+
 #[tokio::test]
 async fn running_everything_lets_tools_through_but_questions_still_ask() {
     let setup = setup();
-    let policy = ApprovalPolicy::from(&Settings {
-        run_everything: true,
-        ..Settings::default()
-    });
+    run_everything(&setup.store, true);
 
-    let tool = setup.broker.request("t1", 1, &command("a1"), policy);
-    let asked = setup.broker.request("t1", 1, &question("q1"), policy);
+    let tool = setup.broker.request("t1", 1, &command("a1"));
+    let asked = setup.broker.request("t1", 1, &question("q1"));
 
     assert_eq!(tool.await.unwrap(), ApprovalDecision::Approved);
     assert!(setup.store.get_approval("a1").unwrap().is_none(), "no card");
     assert_eq!(status(&setup.store, "q1"), "pending");
     setup.broker.cancel_for_engine(1);
     assert!(asked.await.is_err());
+}
+
+/// Bug: the setting was read once when the engine launched, so turning it off left live
+/// engines approving every tool.
+#[tokio::test]
+async fn turning_run_everything_off_asks_on_the_next_request_of_the_same_engine() {
+    let setup = setup();
+    run_everything(&setup.store, true);
+    let before = setup.broker.request("t1", 1, &command("a1"));
+    assert_eq!(before.await.unwrap(), ApprovalDecision::Approved);
+
+    run_everything(&setup.store, false);
+    let _after = setup.broker.request("t1", 1, &command("a2"));
+
+    assert_eq!(status(&setup.store, "a2"), "pending");
 }
 
 /// Bug: a card that couldn't be saved left the agent waiting on a request nobody could see.
@@ -302,9 +305,7 @@ async fn a_request_whose_card_cannot_be_saved_is_denied_at_once() {
         .with_conn(|conn| Ok(conn.execute_batch("DROP TABLE approvals")?))
         .unwrap();
 
-    let decided = setup
-        .broker
-        .request("t1", 1, &command("a1"), ApprovalPolicy::default());
+    let decided = setup.broker.request("t1", 1, &command("a1"));
 
     let answer = tokio::time::timeout(std::time::Duration::from_secs(5), decided);
     let ApprovalDecision::Denied { message } = answer.await.expect("still waiting").unwrap() else {
@@ -328,9 +329,7 @@ async fn a_panic_holding_the_waiters_leaves_requests_answerable() {
     });
     assert!(setup.broker.waiting.is_poisoned());
 
-    let decided = setup
-        .broker
-        .request("t1", 1, &command("a1"), ApprovalPolicy::default());
+    let decided = setup.broker.request("t1", 1, &command("a1"));
     setup.broker.resolve("a1", Answer::Approve).unwrap();
     assert_eq!(decided.await.unwrap(), ApprovalDecision::Approved);
 }

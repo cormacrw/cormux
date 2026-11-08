@@ -25,24 +25,9 @@ use crate::settings::Settings;
 use crate::store::Store;
 use crate::transcript::{HostEvent, Transcript};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ApprovalPolicy {
-    run_everything: bool,
-}
-
-impl From<&Settings> for ApprovalPolicy {
-    fn from(settings: &Settings) -> Self {
-        Self {
-            run_everything: settings.run_everything,
-        }
-    }
-}
-
-impl ApprovalPolicy {
-    /// Only the user can answer a question, so no setting lets one through.
-    fn asks_user(self, request: &PermissionRequest) -> bool {
-        !request.questions.is_empty() || !self.run_everything
-    }
+/// Only the user can answer a question, so no setting lets one through.
+fn asks_user(settings: &Settings, request: &PermissionRequest) -> bool {
+    !request.questions.is_empty() || !settings.run_everything
 }
 
 /// What the engine is told.
@@ -97,19 +82,18 @@ impl ApprovalBroker {
         self.waiting.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The decision for `request`: at once if `policy` lets it through, otherwise once the user
-    /// answers. The receiver closes unanswered if `engine`'s turn ends first. A request whose
+    /// The decision for `request`: at once if the settings as they are now let it through,
+    /// otherwise once the user answers. The receiver closes unanswered if `engine`'s turn ends first. A request whose
     /// card can't be saved is denied at once, since nothing would be shown to answer it.
     pub fn request(
         &self,
         thread_id: &str,
         engine: u64,
         request: &PermissionRequest,
-        policy: ApprovalPolicy,
     ) -> oneshot::Receiver<ApprovalDecision> {
         let (decided, decision) = oneshot::channel();
         let (card, tool) = payload::card(request);
-        if !policy.asks_user(request) {
+        if !asks_user(&Settings::load(&self.store), request) {
             self.transcript
                 .signal(thread_id, payload::event(request, card, true));
             let _ = decided.send(ApprovalDecision::Approved);
