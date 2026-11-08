@@ -27,6 +27,10 @@ export default defineConfig({
       $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
     },
   },
+  // Vite's dependency scan misses this one: it's only reached through the lazy diff view. Found
+  // on first use instead, it makes Vite re-bundle and reload every open page, which in e2e
+  // reloads every test in flight.
+  optimizeDeps: { include: ['@git-diff-view/svelte'] },
   clearScreen: false,
   server: {
     port: 1420,
