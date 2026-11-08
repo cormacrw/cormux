@@ -8,7 +8,7 @@ import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 export type StatusDotVariant =
   'provisioning' | 'running' | 'waiting' | 'ready' | 'paused' | 'idle'
 
-export type WorkspaceSidebarInput = {
+type WorkspaceSidebarInput = {
   lifecycle: WorkspaceLifecycle
   paused: boolean
   activityText: string
@@ -37,18 +37,4 @@ export function workspaceStatusWord(workspace: WorkspaceSidebarInput): string {
     return workspace.paused ? 'Paused' : 'Running'
   }
   return workspace.activityText
-}
-
-export function plural(
-  count: number,
-  singular: string,
-  pluralWord = `${singular}s`,
-): string {
-  return count === 1 ? `1 ${singular}` : `${count} ${pluralWord}`
-}
-
-export function formatMemoryGb(bytes: number): string {
-  const gb = bytes / 1024 ** 3
-  if (gb >= 10) return `${Math.round(gb)} GB`
-  return `${gb.toFixed(1)} GB`
 }

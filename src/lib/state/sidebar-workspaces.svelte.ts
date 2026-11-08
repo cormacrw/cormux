@@ -13,7 +13,7 @@ import { threads } from './threads.svelte'
 import { workspaceRecords } from './workspace-records.svelte'
 import { workspaces, type Workspace } from './workspaces.svelte'
 
-export type ThreadListItem = {
+type ThreadListItem = {
   /** The workspace id, or the scratch id for a read-only scratch. */
   id: string
   title: string

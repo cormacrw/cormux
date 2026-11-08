@@ -20,8 +20,6 @@ pub struct Snapshot {
     pub pending_live_approvals: usize,
     /// True when a PAT is stored or `gh auth token` succeeds.
     pub github_auth_configured: bool,
-    /// Unix seconds string from the last successful PR sync, if any.
-    pub pr_synced_at: Option<String>,
     /// True when a ClickUp API key is saved. Every ClickUp surface hides without one.
     pub clickup_configured: bool,
     pub workspace_apps: Vec<WorkspaceAppRuntime>,

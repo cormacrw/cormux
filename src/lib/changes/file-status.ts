@@ -1,6 +1,6 @@
 import type { DiffFile } from '$lib/ipc/bindings'
 
-export type FileChangeStatus = 'M' | 'A' | 'D' | 'R'
+type FileChangeStatus = 'M' | 'A' | 'D' | 'R'
 
 export function inferFileStatus(file: DiffFile): FileChangeStatus {
   if (file.oldPath) return 'R'

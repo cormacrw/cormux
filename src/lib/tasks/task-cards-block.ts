@@ -10,10 +10,10 @@
 const OPEN_TAG = '<cormux-tasks>'
 const CLOSE_TAG = '</cormux-tasks>'
 
-export type TaskDraftKind = 'epic' | 'task' | 'subtask'
+type TaskDraftKind = 'epic' | 'task' | 'subtask'
 
 /** In and out of an epic's scope. Either list may be missing. */
-export type TaskDraftScope = { in: string[]; out: string[] }
+type TaskDraftScope = { in: string[]; out: string[] }
 
 /** One node in the scoped hierarchy, tracker-neutral for any creating skill. */
 export type TaskDraft = {
@@ -166,7 +166,7 @@ function parseDrafts(body: string): TaskDraft[] | null {
   }
 }
 
-export type DraftRollup = {
+type DraftRollup = {
   epics: number
   tasks: number
   subtasks: number

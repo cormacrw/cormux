@@ -74,7 +74,7 @@ export function newBangId() {
 }
 
 /** The usable bang with exactly this name (with or without its `!`). */
-export function bangNamed(bangs: Bang[], name: string): Bang | undefined {
+function bangNamed(bangs: Bang[], name: string): Bang | undefined {
   const wanted = bangName(name)
   if (!wanted) return undefined
   return bangs.find((bang) => isUsableBang(bang) && bang.name === wanted)
@@ -97,7 +97,7 @@ export function bangPreview(prompt: string, length = 48) {
   return flat.length > length ? `${flat.slice(0, length).trimEnd()}…` : flat
 }
 
-export type BangToken = { start: number; end: number; query: string }
+type BangToken = { start: number; end: number; query: string }
 
 /** The `!word` the caret is in, if it starts the draft or follows a space. */
 export function bangToken(draft: string, caret: number): BangToken | null {
@@ -139,7 +139,7 @@ export function expandBangs(text: string, bangs: Bang[]): string {
 }
 
 /**
- * The palette's `!name more words`: the bang to start a scratch with, and the
+ * The palette's `!name more words`: the bang to start a thread with, and the
  * words after it, added to the end of its prompt. Null when it isn't a bang.
  */
 export function paletteBang(

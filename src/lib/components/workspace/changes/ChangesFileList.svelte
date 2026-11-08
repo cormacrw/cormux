@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { pluralWord } from '$lib/format/plural'
   import type { DiffFile } from '$lib/ipc/bindings'
   import { diffComments } from '$lib/changes/diff-comments.svelte'
   import {
@@ -81,9 +82,7 @@
             <span class="flex shrink-0 items-center gap-0.5 text-xs text-info">
               <MessageSquare class="size-3.5" aria-hidden="true" />
               {commentCount}
-              <span class="sr-only"
-                >{commentCount === 1 ? 'comment' : 'comments'}</span
-              >
+              <span class="sr-only">{pluralWord(commentCount, 'comment')}</span>
             </span>
           {/if}
           <span class="shrink-0 font-mono text-xs">

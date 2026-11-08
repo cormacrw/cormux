@@ -8,7 +8,7 @@ const DESCRIPTION_LIMIT = 2000
 type AliasTask = Pick<ClickupTask, 'id' | 'customId' | 'name' | 'url'>
 
 /** A `#ref` word in the draft: where it starts and ends, and what's typed before the caret. */
-export type TaskToken = { start: number; end: number; query: string }
+type TaskToken = { start: number; end: number; query: string }
 
 /** The `#` word the caret is in, when it starts the draft or follows whitespace, or null. */
 export function taskToken(draft: string, caret: number): TaskToken | null {

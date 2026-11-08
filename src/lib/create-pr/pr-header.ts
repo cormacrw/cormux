@@ -1,6 +1,6 @@
 import type { PullRequest } from '$lib/state/prs.svelte'
 
-export function pullRequestForWorkspace(
+function pullRequestForWorkspace(
   items: PullRequest[],
   repoId: string,
   prNumber: number | null,
@@ -25,14 +25,14 @@ export function primaryPrActionLabel(
   return `View PR #${prNumber}`
 }
 
-export function resolvePrHtmlUrl(
+function resolvePrHtmlUrl(
   pr: PullRequest | undefined,
   storedUrl: string | null,
 ): string | null {
   return pr?.htmlUrl ?? storedUrl
 }
 
-export type BranchPr = {
+type BranchPr = {
   number: number
   url: string | null
   /** The synced PR, when Cormux has it, for the status label. */

@@ -10,8 +10,7 @@ export function appendOutputLines(
   return [...lines, ...added].slice(-OUTPUT_LINE_CAP)
 }
 
-export type OutputLineStyle =
-  'cmd' | 'out' | 'dim' | 'ok' | 'warn' | 'sep' | 'blank'
+type OutputLineStyle = 'cmd' | 'out' | 'dim' | 'ok' | 'warn' | 'sep' | 'blank'
 
 export function classifyOutputLine(raw: string): OutputLineStyle {
   const line = raw.trimEnd()

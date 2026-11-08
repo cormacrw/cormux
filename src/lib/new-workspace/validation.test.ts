@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  branchErrorMessage,
-  validateBaseBranch,
-  validateBranchName,
-} from './validation'
+import { branchErrorMessage, validateBranchName } from './validation'
 
 describe('validateBranchName', () => {
   const ctx = {
@@ -36,15 +32,5 @@ describe('validateBranchName', () => {
     expect(
       validateBranchName('develop', { ...ctx, defaultBranch: 'develop' }),
     ).toBe('default')
-  })
-})
-
-describe('validateBaseBranch', () => {
-  it('accepts known branches', () => {
-    expect(validateBaseBranch('main', ['main', 'develop'])).toBeNull()
-  })
-
-  it('rejects unknown branches', () => {
-    expect(validateBaseBranch('nope', ['main'])).toMatch(/No branch called/)
   })
 })

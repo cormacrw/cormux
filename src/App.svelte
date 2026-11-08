@@ -25,25 +25,23 @@
   } from '$lib/state'
   import ToastsRegion from '$lib/components/feedback/ToastsRegion.svelte'
   import NewThreadView from '$lib/components/new-thread/NewThreadView.svelte'
-  import CreatePrDialog from '$lib/components/workspace/CreatePrDialog.svelte'
+  import WorkspaceView from '$lib/components/workspace/WorkspaceView.svelte'
   import LazyView from '$lib/components/shell/LazyView.svelte'
   import {
-    loadEndScratchDialog,
+    SHELL_DIALOGS,
     loadRepo,
     loadScratch,
     loadSettings,
     loadSprint,
-    loadSubmitReviewDialog,
-    loadTeardownDialog,
     preloadLazyViews,
   } from '$lib/components/shell/lazy-views'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
-  import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
-  import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
   import { setHarnessWindowFocused } from '$lib/feedback/supervision'
   import { openNotifiedTarget } from '$lib/feedback/os-notifications'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import Workspace from './routes/Workspace.svelte'
+  import type { ShellDialogId } from '$lib/state/shell-dialogs.svelte'
+
+  const shellDialogIds = Object.keys(SHELL_DIALOGS) as ShellDialogId[]
 
   /** How long the first paint waits for the web fonts before showing the window anyway. */
   const FONT_WAIT_MS = 300
@@ -84,8 +82,6 @@
 
       const unlistenMenu = await bindNativeMenu()
       const unlistenFeedback = await bindFeedbackEvents()
-      const unlistenWorkspaceApp = bindWorkspaceAppControls()
-      const unlistenGitWorkspace = bindGitWorkspaceControls()
       const win = getCurrentWindow()
       const unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
         setHarnessWindowFocused(focused)
@@ -107,8 +103,6 @@
       unlisten = () => {
         unlistenMenu()
         unlistenFeedback()
-        unlistenWorkspaceApp()
-        unlistenGitWorkspace()
         unlistenFocus()
         unlistenState()
         unlistenMemory()
@@ -182,25 +176,15 @@
 
 <Tooltip.Provider>
   <ToastsRegion />
-  <LazyView
-    load={loadTeardownDialog}
-    when={shellDialogs.teardownWorkspaceId != null}
-  />
-  <CreatePrDialog />
-  <LazyView
-    load={loadSubmitReviewDialog}
-    when={shellDialogs.submitReviewWorkspaceId != null}
-  />
-  <LazyView
-    load={loadEndScratchDialog}
-    when={shellDialogs.endScratch != null}
-  />
+  {#each shellDialogIds as id (id)}
+    <LazyView load={SHELL_DIALOGS[id]} when={shellDialogs.isOpen(id)} />
+  {/each}
   <CommandPalette />
   <AppShell>
     {#if app.view === 'settings'}
       <LazyView load={loadSettings} />
     {:else if app.view === 'workspace'}
-      <Workspace />
+      <WorkspaceView />
     {:else if app.view === 'scratch'}
       <LazyView load={loadScratch} />
     {:else if app.view === 'sprint'}

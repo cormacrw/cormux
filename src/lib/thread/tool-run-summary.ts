@@ -1,11 +1,8 @@
 import type { ToolRunStep } from './timeline-types'
+import { plural } from '$lib/format/plural'
 
 /** A run this long folds down to its summary once the agent has moved on. */
 export const COLLAPSE_RUN_AT = 6
-
-function counted(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`
-}
 
 /** `Read 12 files, edited 3, ran 4 commands`. */
 export function toolRunSummary(steps: ToolRunStep[]): string {
@@ -25,12 +22,12 @@ export function toolRunSummary(steps: ToolRunStep[]): string {
     agents -
     of((step) => step.kind === 'edit')
   const parts = [
-    reads ? `read ${counted(reads, 'file')}` : '',
-    searches ? `ran ${counted(searches, 'search', 'searches')}` : '',
-    edits ? `edited ${counted(edits, 'file')}` : '',
-    commands ? `ran ${counted(commands, 'command')}` : '',
-    agents ? `ran ${counted(agents, 'agent')}` : '',
-    other > 0 ? counted(other, 'other step') : '',
+    reads ? `read ${plural(reads, 'file')}` : '',
+    searches ? `ran ${plural(searches, 'search', 'searches')}` : '',
+    edits ? `edited ${plural(edits, 'file')}` : '',
+    commands ? `ran ${plural(commands, 'command')}` : '',
+    agents ? `ran ${plural(agents, 'agent')}` : '',
+    other > 0 ? plural(other, 'other step') : '',
   ].filter(Boolean)
   const line = parts.join(', ')
   return line.charAt(0).toUpperCase() + line.slice(1)

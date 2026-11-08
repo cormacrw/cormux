@@ -1,11 +1,11 @@
-export type BranchValidationContext = {
+type BranchValidationContext = {
   existingBranches: string[]
   workspaceBranches: string[]
   /** The repo's default branch, which stays in its own checkout. */
   defaultBranch?: string
 }
 
-export type BranchFieldError =
+type BranchFieldError =
   'required' | 'format' | 'default' | 'exists' | 'workspaceConflict'
 
 const BRANCH_FORMAT = /^[A-Za-z0-9._/-]+$/
@@ -47,18 +47,4 @@ export function branchErrorMessage(
     case 'workspaceConflict':
       return 'Another workspace already uses this branch.'
   }
-}
-
-export function validateBaseBranch(
-  value: string,
-  knownBranches: string[],
-): string | null {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return 'No branch called “…”. Pick one from the list.'
-  }
-  if (!knownBranches.includes(trimmed)) {
-    return `No branch called “${trimmed}”. Pick one from the list.`
-  }
-  return null
 }

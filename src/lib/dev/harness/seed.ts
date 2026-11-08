@@ -130,7 +130,6 @@ export function seedFixtures(scenario: HarnessScenario) {
   if (scenario.pullRequests) {
     persisted.pullRequests = scenario.pullRequests
     fixtureSnapshot.githubAuthConfigured = true
-    fixtureSnapshot.prSyncedAt = String(Math.floor(Date.now() / 1000))
   }
   if (scenario.clickup) {
     fixtureSnapshot.clickupConfigured = true

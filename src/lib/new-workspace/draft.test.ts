@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { draftBranchName, fallbackBranchName, uniqueBranchName } from './draft'
+import { draftBranchName, uniqueBranchName } from './draft'
 
 describe('draftBranchName', () => {
   it('uses feat prefix for feature work', () => {
@@ -17,15 +17,6 @@ describe('draftBranchName', () => {
   it('uses refactor prefix for refactors', () => {
     expect(draftBranchName('Refactor auth module')).toBe(
       'refactor/refactor-auth-module',
-    )
-  })
-})
-
-describe('blank prompt fallbacks', () => {
-  it('picks the next free feat/workspace branch', () => {
-    expect(fallbackBranchName([])).toBe('feat/workspace')
-    expect(fallbackBranchName(['feat/workspace', 'feat/workspace-2'])).toBe(
-      'feat/workspace-3',
     )
   })
 })

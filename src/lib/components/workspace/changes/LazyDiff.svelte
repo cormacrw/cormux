@@ -7,6 +7,7 @@
 <script lang="ts">
   import type { Component } from 'svelte'
   import { afterPaint } from '$lib/changes/mount-queue'
+  import { SKELETON_WIDTHS } from '$lib/primitives/skeleton'
   import type { DiffFile } from '$lib/ipc/bindings'
 
   let {
@@ -35,7 +36,6 @@
   )
   // Roughly the rendered height, so the scrollbar doesn't jump as diffs mount.
   const estimatedHeight = $derived(lineCount * 20)
-  const SKELETON_WIDTHS = ['72%', '88%', '54%', '92%', '64%', '80%', '46%']
   const skeletonLines = $derived(
     SKELETON_WIDTHS.slice(0, Math.min(lineCount, SKELETON_WIDTHS.length)),
   )

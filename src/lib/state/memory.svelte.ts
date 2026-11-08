@@ -1,5 +1,5 @@
 import type { MemorySample } from '$lib/ipc/bindings'
-import { formatMemoryGb } from '$lib/sidebar/status'
+import { formatMemoryGb } from '$lib/format/memory'
 
 export class MemoryStore {
   totalBytes = $state(0)

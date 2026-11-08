@@ -3,7 +3,8 @@
   sending the first message spawns one, in its own worktree, and opens it.
 -->
 <script lang="ts">
-  import { getCurrentWindow } from '@tauri-apps/api/window'
+  import { openSettingsSection } from '$lib/settings/open'
+  import { windowDrag } from '$lib/primitives/window-drag'
   import { tick, untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Select from '$lib/components/ui/select'
@@ -13,7 +14,8 @@
   import type { ComposerAttachment } from '$lib/composer/attachments'
   import { commands } from '$lib/ipc'
   import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
-  import { isPickerShortcut } from '$lib/keyboard/header-shortcuts'
+  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import {
     claimWorkspacePopover,
     releaseWorkspacePopover,
@@ -100,7 +102,7 @@
   })
 
   function onWindowKeydown(event: KeyboardEvent) {
-    if (!isPickerShortcut(event, 'r') || !repos.items.length) return
+    if (!isHeaderShortcut(event, 'pickRepo') || !repos.items.length) return
     event.preventDefault()
     // The list takes its arrow keys and ↵ through the focused trigger.
     repoTrigger?.focus()
@@ -136,14 +138,6 @@
       return result.status === 'ok' ? result.data : []
     }
   })
-
-  function startHeaderDrag(event: MouseEvent) {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof Element)) return
-    if (target.closest('button, a, input, textarea')) return
-    void getCurrentWindow().startDragging()
-  }
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -153,11 +147,10 @@
   aria-labelledby="new-thread-title"
   data-od-id="new-thread"
 >
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <header
     class="flex items-center px-4 py-3"
     data-tauri-drag-region
-    onmousedown={startHeaderDrag}
+    use:windowDrag
   >
     <h1
       bind:this={titleEl}
@@ -196,8 +189,7 @@
             <Button
               variant="secondary"
               onclick={() => {
-                settings.focusSection = 'repos'
-                app.openSettings()
+                openSettingsSection('repos')
               }}
             >
               Add a repo
@@ -239,7 +231,9 @@
               id="new-thread-repo"
               size="sm"
               class="glass-well h-7 max-w-[168px] min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
-              title="The worktree is created from this repo (⌘⇧R)"
+              title="The worktree is created from this repo ({shortcutLabel(
+                'pickRepo',
+              )})"
               data-od-id="new-thread-repo"
             >
               <Folder class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { windowDrag } from '$lib/primitives/window-drag'
   import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { isDevBuild } from '$lib/build-mode'
@@ -6,6 +7,8 @@
   import * as ScrollArea from '$lib/components/ui/scroll-area'
   import * as Tooltip from '$lib/components/ui/tooltip'
   import { app, clickup, memory } from '$lib/state'
+  import { palette } from '$lib/state/palette.svelte'
+  import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import { cubicOut } from 'svelte/easing'
   import { flip } from 'svelte/animate'
   import { fade, fly, slide } from 'svelte/transition'
@@ -24,11 +27,6 @@
   import { cn } from '$lib/utils'
 
   const WORKING_OPEN_KEY = 'cormux-sidebar-working-open'
-
-  function startWindowDrag(event: MouseEvent) {
-    if (event.button !== 0) return
-    void getCurrentWindow().startDragging()
-  }
 
   // Full screen hides the traffic lights, so their row collapses and the sidebar moves up.
   let fullscreen = $state(false)
@@ -102,12 +100,11 @@
   class="sidebar-nav grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-3.5 pb-3.5"
   aria-label="Harness"
 >
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class={fullscreen ? 'titlebar h-3.5' : 'titlebar h-[52px]'}
     data-tauri-drag-region
     data-od-id="sidebar-titlebar"
-    onmousedown={startWindowDrag}
+    use:windowDrag
   ></div>
 
   <div class="grid gap-0.5 pb-2">
@@ -116,13 +113,13 @@
       class="glass-well mb-2 flex h-[34px] w-full items-center gap-2 rounded-[10px] pr-1.5 pl-2.5 text-left text-sm text-muted-foreground transition-[background-color,color] duration-(--dur-fast) outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
       aria-label="Search or run a command (Command K)"
       data-od-id="sidebar-command-bar"
-      onclick={() => app.requestCommandPalette()}
+      onclick={() => palette.toggle()}
     >
       <Sparkle class="size-3.5 shrink-0 text-primary" aria-hidden="true" />
       <span class="min-w-0 flex-1 truncate">Search or start…</span>
       <kbd
         class="rounded-md bg-foreground/10 px-1.5 py-1 font-mono text-[10px] leading-none"
-        aria-hidden="true">⌘K</kbd
+        aria-hidden="true">{shortcutLabel('palette')}</kbd
       >
     </button>
 
@@ -140,7 +137,7 @@
       <span class="flex-1 text-left">New thread</span>
       <kbd
         class="font-mono text-[10px] text-muted-foreground/80"
-        aria-hidden="true">⌘N</kbd
+        aria-hidden="true">{shortcutLabel('newThread')}</kbd
       >
     </Button>
 

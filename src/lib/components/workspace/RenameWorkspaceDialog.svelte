@@ -6,7 +6,8 @@
   import { Input } from '$lib/components/ui/input'
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { workspaces } from '$lib/state'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
+  import { shellDialogs, workspaces } from '$lib/state'
 
   let {
     workspaceId = $bindable(null as string | null),
@@ -18,6 +19,7 @@
   let saving = $state(false)
 
   const open = $derived(workspaceId != null)
+  shellDialogs.hold(() => open)
 
   // Seed once per opened workspace; untracked so snapshot refreshes don't wipe typing.
   $effect(() => {
@@ -67,12 +69,7 @@
         event.preventDefault()
         void save()
       }}
-      onkeydown={(event) => {
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-          event.preventDefault()
-          void save()
-        }
-      }}
+      onkeydown={onModEnter(() => void save())}
     >
       <Input bind:value={name} aria-label="Workspace name" autofocus />
       <Dialog.Footer>

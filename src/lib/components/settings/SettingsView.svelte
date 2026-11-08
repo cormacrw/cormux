@@ -1,25 +1,14 @@
 <script lang="ts">
+  import { windowDrag } from '$lib/primitives/window-drag'
   import { tick } from 'svelte'
-  import { getCurrentWindow } from '@tauri-apps/api/window'
-  import AgentsSettings from '$lib/components/settings/AgentsSettings.svelte'
-  import ClickupSettings from '$lib/components/settings/ClickupSettings.svelte'
-  import AppearanceSettings from '$lib/components/settings/AppearanceSettings.svelte'
-  import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte'
-  import GithubSettings from '$lib/components/settings/GithubSettings.svelte'
-  import NotificationsSettings from '$lib/components/settings/NotificationsSettings.svelte'
-  import PromptsSettings from '$lib/components/settings/PromptsSettings.svelte'
-  import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
-  import BangsSettings from '$lib/components/settings/BangsSettings.svelte'
-  import ShortcutsSettings from '$lib/components/settings/ShortcutsSettings.svelte'
-  import ExperimentalSettings from '$lib/components/settings/ExperimentalSettings.svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
   import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
   import {
-    normalizeSettingsSection,
     SETTINGS_SECTIONS,
+    SETTINGS_SECTION_IDS,
     type SettingsSectionId,
-    settingsSectionDomId,
-  } from '$lib/settings/sections'
+  } from '$lib/components/settings/sections'
+  import { normalizeSettingsSection } from '$lib/settings/sections'
   import { app, settings } from '$lib/state'
 
   const SCROLL_SPY_OFFSET = 120
@@ -48,7 +37,11 @@
   $effect(() => {
     const raw = settings.focusSection
     if (!raw) return
-    const section = normalizeSettingsSection(raw)
+    const section = normalizeSettingsSection(
+      raw,
+      SETTINGS_SECTION_IDS,
+      'agents',
+    )
     void tick().then(() => jumpTo(section))
     settings.focusSection = null
   })
@@ -62,14 +55,6 @@
     })
     target.focus({ preventScroll: true })
     activeSection = section
-  }
-
-  function startHeaderDrag(event: MouseEvent) {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof Element)) return
-    if (target.closest('button, a, input, textarea')) return
-    void getCurrentWindow().startDragging()
   }
 
   function updateActiveSection() {
@@ -110,8 +95,7 @@
 
       <div class="set-sections min-w-0 flex-1 space-y-10 pb-10">
         <!-- The title row doubles as the page's title bar: empty space in it drags the window. -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <header data-tauri-drag-region onmousedown={startHeaderDrag}>
+        <header data-tauri-drag-region use:windowDrag>
           <h1
             bind:this={settingsTitle}
             tabindex="-1"
@@ -122,199 +106,32 @@
           </h1>
         </header>
 
-        <section
-          use:bindSection={'appearance'}
-          id={settingsSectionDomId('appearance')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-appearance-h"
-          data-od-id="settings-appearance"
-        >
-          <SettingsSectionHead
-            id="settings-appearance-h"
-            title="Appearance"
-            description="Mode, colour theme and text sizes on this Mac."
-          />
-          <div class="mt-4">
-            <AppearanceSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'general'}
-          id={settingsSectionDomId('general')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-general-h"
-          data-od-id="settings-general"
-        >
-          <SettingsSectionHead
-            id="settings-general-h"
-            title="General"
-            description="Defaults for new workspaces and how the app behaves."
-          />
-          <div class="mt-4">
-            <GeneralSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'agents'}
-          id={settingsSectionDomId('agents')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-agents-h"
-          data-od-id="settings-agents"
-        >
-          <SettingsSectionHead
-            id="settings-agents-h"
-            title="Agents"
-            description="Which engine new workspaces use, and whether they ask first."
-          />
-          <div class="mt-4">
-            <AgentsSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'prompts'}
-          id={settingsSectionDomId('prompts')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-prompts-h"
-          data-od-id="settings-prompts-section"
-        >
-          <SettingsSectionHead
-            id="settings-prompts-h"
-            title="Prompts"
-            description="What Cormux asks agents on your behalf."
-          />
-          <div class="mt-4">
-            <PromptsSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'github'}
-          id={settingsSectionDomId('github')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-github-h"
-          data-od-id="settings-github-section"
-        >
-          <SettingsSectionHead
-            id="settings-github-h"
-            title="GitHub"
-            description="Pull requests sync through the gh CLI."
-          />
-          <div class="mt-4">
-            <GithubSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'clickup'}
-          id={settingsSectionDomId('clickup')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-clickup-h"
-          data-od-id="settings-clickup-section"
-        >
-          <SettingsSectionHead
-            id="settings-clickup-h"
-            title="ClickUp"
-            description="Your team's current sprint as a board."
-          />
-          <div class="mt-4">
-            <ClickupSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'repos'}
-          id={settingsSectionDomId('repos')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-repos-h"
-          data-od-id="settings-repos"
-        >
-          <SettingsSectionHead
-            id="settings-repos-h"
-            title="Repos"
-            description="Local folders that new workspaces can check out from."
-          />
-          <ReposSettings />
-        </section>
-
-        <section
-          use:bindSection={'bangs'}
-          id={settingsSectionDomId('bangs')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-bangs-h"
-          data-od-id="settings-bangs"
-        >
-          <SettingsSectionHead
-            id="settings-bangs-h"
-            title="Bangs"
-            description="Short names for prompts you use a lot. Type !name in any prompt bar to put the prompt in, or in the command palette to start a scratch with it."
-          />
-          <BangsSettings />
-        </section>
-
-        <section
-          use:bindSection={'notifications'}
-          id={settingsSectionDomId('notifications')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-notifications-h"
-          data-od-id="settings-notifications-section"
-        >
-          <SettingsSectionHead
-            id="settings-notifications-h"
-            title="Notifications"
-            description="Desktop alerts while Cormux is in the background."
-          />
-          <div class="mt-4">
-            <NotificationsSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'shortcuts'}
-          id={settingsSectionDomId('shortcuts')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-shortcuts-h"
-          data-od-id="settings-shortcuts"
-        >
-          <SettingsSectionHead
-            id="settings-shortcuts-h"
-            title="Keyboard shortcuts"
-            description="Keys for getting around Cormux."
-          />
-          <div class="mt-4">
-            <ShortcutsSettings />
-          </div>
-        </section>
-
-        <section
-          use:bindSection={'experimental'}
-          id={settingsSectionDomId('experimental')}
-          class="set-sec scroll-mt-6 outline-none"
-          tabindex="-1"
-          aria-labelledby="settings-experimental-h"
-          data-od-id="settings-experimental"
-        >
-          <SettingsSectionHead
-            id="settings-experimental-h"
-            title="Experimental"
-            description="Features still taking shape. They may change or go away."
-          />
-          <div class="mt-4">
-            <ExperimentalSettings />
-          </div>
-        </section>
+        {#each SETTINGS_SECTIONS as section (section.id)}
+          {@const Panel = section.component}
+          <section
+            use:bindSection={section.id}
+            id="settings-{section.id}"
+            class="set-sec scroll-mt-6 outline-none"
+            tabindex="-1"
+            aria-labelledby="settings-{section.id}-h"
+            data-od-id={'odId' in section
+              ? section.odId
+              : `settings-${section.id}`}
+          >
+            <SettingsSectionHead
+              id="settings-{section.id}-h"
+              title={section.label}
+              description={section.description}
+            />
+            {#if 'flush' in section}
+              <Panel />
+            {:else}
+              <div class="mt-4">
+                <Panel />
+              </div>
+            {/if}
+          </section>
+        {/each}
       </div>
     </div>
   </div>

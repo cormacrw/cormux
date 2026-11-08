@@ -58,10 +58,8 @@
   import { contextPercent, usageSummary } from '$lib/usage/usage'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { sendThreadMessage } from '$lib/thread/send-message'
-  import {
-    hasSessionToClear,
-    NEW_SESSION_SHORTCUT,
-  } from '$lib/thread/new-session'
+  import { hasSessionToClear } from '$lib/thread/new-session'
+  import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import { startNewSession } from '$lib/thread/start-new-session'
   import { threads } from '$lib/state/threads.svelte'
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
@@ -360,7 +358,7 @@
       event.ctrlKey ||
       event.altKey ||
       event.key.length !== 1 ||
-      shellDialogs.blocksCommandPalette()
+      shellDialogs.anyOpen()
     )
       return
     const active = document.activeElement
@@ -593,7 +591,7 @@
       !event.ctrlKey &&
       !event.altKey &&
       !event.shiftKey &&
-      !shellDialogs.blocksCommandPalette()
+      !shellDialogs.anyOpen()
     ) {
       event.preventDefault()
       void stopTurn()
@@ -605,7 +603,7 @@
       event.shiftKey ||
       event.altKey ||
       event.defaultPrevented ||
-      shellDialogs.blocksCommandPalette()
+      shellDialogs.anyOpen()
     ) {
       return
     }
@@ -877,7 +875,7 @@
             New session
             <kbd
               class="rounded border border-border/60 px-1 text-[10px] text-muted-foreground/80"
-              aria-hidden="true">{NEW_SESSION_SHORTCUT}</kbd
+              aria-hidden="true">{shortcutLabel('newSession')}</kbd
             >
           </Button>
         {/if}

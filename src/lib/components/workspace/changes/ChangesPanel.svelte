@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { pluralWord } from '$lib/format/plural'
   import TrayControls from '../TrayControls.svelte'
   import { onMount, tick, untrack } from 'svelte'
   import { afterPaint } from '$lib/changes/mount-queue'
@@ -267,11 +268,11 @@
           >
             <Send class="size-3.5" aria-hidden="true" />
             Send {comments.length}
-            {comments.length === 1 ? 'comment' : 'comments'} to {thread.role}
+            {pluralWord(comments.length, 'comment')} to {thread.role}
           </Button>
         </span>
       {/if}
-      <TrayControls tray="changes" name="Git" shortcut="⌘G" />
+      <TrayControls tray="changes" name="Git" shortcut="toggleGit" />
     </div>
 
     <div class="relative flex min-h-0 flex-1 flex-col">

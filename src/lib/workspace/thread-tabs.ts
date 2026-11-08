@@ -1,4 +1,5 @@
-import { plural } from '$lib/sidebar/status'
+import type { WorkspaceAppStatus } from '$lib/ipc/bindings'
+import { plural } from '$lib/format/plural'
 
 export function findingsTabAriaLabel(openCount: number): string {
   return `Review findings, ${plural(openCount, 'open finding', 'open findings')}`
@@ -8,11 +9,9 @@ export function changesTabAriaLabel(countLabel: string | null): string {
   return countLabel ? `Git, ${countLabel}` : 'Git, no changes yet'
 }
 
-export type OutputTabAppStatus = 'stopped' | 'starting' | 'running' | 'crashed'
-
 export function outputTabState(input: {
   provisioning: boolean
-  appStatus: OutputTabAppStatus
+  appStatus: WorkspaceAppStatus
   port: number | null
 }): string {
   if (input.provisioning) return 'setting up'
@@ -26,7 +25,7 @@ export function outputTabState(input: {
 
 export function outputTabAriaLabel(input: {
   provisioning: boolean
-  appStatus: OutputTabAppStatus
+  appStatus: WorkspaceAppStatus
   port: number | null
 }): string {
   return `App output, ${outputTabState(input)}`

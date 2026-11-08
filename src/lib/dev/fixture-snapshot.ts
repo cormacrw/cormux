@@ -1,6 +1,6 @@
 import type { EngineStatus, Snapshot, ThreadEventRow } from '$lib/ipc/bindings'
 
-export const FIXTURE_REPO_ID = 'my-app'
+const FIXTURE_REPO_ID = 'my-app'
 
 export const fixtureEngines: EngineStatus[] = [
   {
@@ -101,7 +101,6 @@ export const fixtureSnapshot: Snapshot = {
   memory: { totalBytes: 1_400_000_000, perWorkspace: [] },
   pendingLiveApprovals: 0,
   githubAuthConfigured: false,
-  prSyncedAt: null,
   clickupConfigured: false,
   workspaceApps: [],
 }

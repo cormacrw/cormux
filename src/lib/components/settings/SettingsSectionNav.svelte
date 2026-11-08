@@ -2,8 +2,7 @@
   import {
     SETTINGS_SECTIONS,
     type SettingsSectionId,
-    settingsSectionDomId,
-  } from '$lib/settings/sections'
+  } from '$lib/components/settings/sections'
   import { cn } from '$lib/utils'
 
   let {
@@ -36,6 +35,3 @@
     </button>
   {/each}
 </nav>
-
-<!-- keep dom ids referenced for a11y tests -->
-<span class="sr-only">{settingsSectionDomId(active)}</span>

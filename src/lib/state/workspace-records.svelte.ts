@@ -3,16 +3,15 @@
 import type {
   GitConflictState,
   WorkspaceAppRuntime,
+  WorkspaceAppStatus,
   WorkspaceGitRuntime,
   WorkspaceRecord,
 } from '$lib/ipc/bindings'
 import { deepEqual } from '$lib/deep-equal'
 import { reuseRows } from './reuse-rows'
 
-export type AppRunStatus = 'stopped' | 'starting' | 'running' | 'crashed'
-
-export type WorkspaceRuntime = {
-  appStatus: AppRunStatus
+type WorkspaceRuntime = {
+  appStatus: WorkspaceAppStatus
   port: number | null
   /** The app announced an `https://` URL. */
   https: boolean
@@ -78,10 +77,6 @@ export class WorkspaceRecordsStore {
     if (next) this.runtimeById = next
   }
 
-  setBehind(id: string, behind: number) {
-    this.patchRuntimes({ [id]: { behind } })
-  }
-
   applyGitStats(rows: WorkspaceGitRuntime[]) {
     if (rows.length === 0) return
     const patches: Record<string, Partial<WorkspaceRuntime>> = {}
@@ -97,7 +92,7 @@ export class WorkspaceRecordsStore {
 
   setAppStatus(
     id: string,
-    appStatus: AppRunStatus,
+    appStatus: WorkspaceAppStatus,
     port: number | null = null,
     exitCode: number | null = null,
   ) {
@@ -122,7 +117,7 @@ export class WorkspaceRecordsStore {
     const patches: Record<string, Partial<WorkspaceRuntime>> = {}
     for (const app of apps) {
       patches[app.workspaceId] = {
-        appStatus: app.status as AppRunStatus,
+        appStatus: app.status,
         port: app.port,
         https: app.https,
         exitCode: app.exitCode,

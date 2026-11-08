@@ -2,9 +2,6 @@ import type { FindingRow } from '$lib/ipc/bindings'
 
 export type FindingSeverity = 'blocking' | 'suggestion' | 'nit'
 
-/** Dismissed: the user decided not to act on it; it isn't sent or posted with the review. */
-export type FindingStatus = 'open' | 'sent' | 'fixed' | 'dismissed'
-
 export const FINDING_GROUPS: {
   severity: FindingSeverity
   label: string
@@ -19,10 +16,6 @@ export const FINDING_GROUPS: {
   { severity: 'nit', label: 'Nits', note: 'Optional polish' },
 ]
 
-export function isFindingSeverity(value: string): value is FindingSeverity {
-  return value === 'blocking' || value === 'suggestion' || value === 'nit'
-}
-
 export function findingLocation(row: FindingRow): string {
   if (!row.file) return ''
   if (row.line != null) return `${row.file}:${row.line}`
@@ -31,8 +24,4 @@ export function findingLocation(row: FindingRow): string {
 
 export function openFindings(rows: FindingRow[]): FindingRow[] {
   return rows.filter((row) => row.status === 'open')
-}
-
-export function unsentOpenCount(rows: FindingRow[]): number {
-  return openFindings(rows).length
 }

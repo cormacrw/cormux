@@ -31,7 +31,7 @@ const sample: FindingRow[] = [
 
 describe('findings format', () => {
   it('formats severity summary counts', () => {
-    expect(severitySummary(sample)).toBe('1 blocking · 1 nit')
+    expect(severitySummary(sample)).toBe('1 blocking, 1 nit')
   })
 
   it('formats selection summary', () => {

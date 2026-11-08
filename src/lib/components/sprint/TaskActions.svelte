@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte'
   import { taskRef } from '$lib/clickup/board'
   import type { ClickupTask } from '$lib/ipc/bindings'
+  import { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
   import { cn } from '$lib/utils'
   import Check from '@lucide/svelte/icons/check'
   import Copy from '@lucide/svelte/icons/copy'
@@ -17,21 +18,9 @@
   } = $props()
 
   const ref = $derived(taskRef(task))
-  let copied = $state(false)
-  let timer: ReturnType<typeof setTimeout> | undefined
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(ref)
-    } catch {
-      return
-    }
-    copied = true
-    clearTimeout(timer)
-    timer = setTimeout(() => (copied = false), 1500)
-  }
-
-  onDestroy(() => clearTimeout(timer))
+  const clipboard = new CopyFeedback()
+  const copied = $derived(clipboard.copied === ref)
+  onDestroy(() => clipboard.dispose())
 
   const button =
     'inline-flex size-6 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50'
@@ -46,7 +35,7 @@
     title={copied ? 'Copied' : `Copy ${ref}`}
     onclick={(event) => {
       event.stopPropagation()
-      void copy()
+      void clipboard.copy(ref)
     }}
   >
     {#if copied}

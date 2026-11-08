@@ -34,10 +34,6 @@ use crate::workspace_start::CreateWorkspaceInput;
 pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let memory = state.metrics.latest();
     let github_auth_configured = state.pr_sync.auth_configured(&state);
-    let pr_synced_at = state
-        .store
-        .get_setting("githubPrSyncedAt")?
-        .filter(|value| !value.is_empty());
 
     let persisted = state.store.blocking(|store| store.snapshot()).await?;
     let workspaces = state.workspace.list().await;
@@ -61,7 +57,6 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         memory,
         pending_live_approvals: state.approvals.pending_count(),
         github_auth_configured,
-        pr_synced_at,
         clickup_configured: state.clickup.is_configured(),
         workspace_apps: state.apps.snapshot(),
     })

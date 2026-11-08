@@ -1,11 +1,11 @@
 import type { PrRow } from '$lib/ipc/bindings'
 import type {
   PrChecksState,
+  PrRelationship,
   PrReviewState,
   PullRequest,
-} from '$lib/state/prs.svelte'
-import type { PrRelationship } from '$lib/homebase/pr-filter'
-import { parseTimestampMs } from '$lib/homebase/relative-time'
+} from './prs.svelte'
+import { parseTimestampMs } from '$lib/format/relative-time'
 
 type StoredPayload = {
   num: number

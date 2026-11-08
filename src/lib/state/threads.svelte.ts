@@ -66,10 +66,6 @@ export class ThreadsStore {
     }),
   )
 
-  readonly runningCount = $derived(
-    this.agents.filter((thread) => thread.status === 'running').length,
-  )
-
   hydrate(items: Thread[]) {
     this.items = reuseRows(this.items, items)
   }

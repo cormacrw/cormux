@@ -1,7 +1,7 @@
 import type { Snapshot, StateChanged } from '$lib/ipc'
 import { onSnapshotSupervision } from '$lib/feedback/supervision'
-import { pullRequestFromRow } from '$lib/homebase/pr-from-payload'
-import { parseTimestampMs } from '$lib/homebase/relative-time'
+import { parseTimestampMs } from '$lib/format/relative-time'
+import { pullRequestFromRow } from '$lib/state/pr-from-payload'
 import type {
   WorkspaceLifecycle,
   WorkspaceRecord,
@@ -268,17 +268,7 @@ export function hydrateFromSnapshot(
 ) {
   void onSnapshotSupervision(snapshot)
   const models = modelsFromSnapshot(snapshot)
-  settings.hydrate(
-    {
-      reduceMotion: snapshot.persisted.settings.some(
-        (row) => row.key === 'reduceMotion' && row.value === 'true',
-      ),
-      autoApproveReadOnly: snapshot.persisted.settings.every(
-        (row) => row.key !== 'autoApproveReadOnly' || row.value === 'true',
-      ),
-    },
-    snapshot.persisted.settings,
-  )
+  settings.hydrate(snapshot.persisted.settings)
   const aliveIds = new Set(models.workspaces.map((row) => row.id))
   if (app.workspaceId && !aliveIds.has(app.workspaceId)) {
     app.openNewThread()
@@ -304,14 +294,10 @@ export function hydrateFromSnapshot(
   workspaceRecords.applyApps(snapshot.workspaceApps ?? [])
   app.hydrate(snapshot)
   memory.hydrate(snapshot.memory)
-  const prSyncedAtMs = snapshot.prSyncedAt
-    ? Number(snapshot.prSyncedAt) * 1000
-    : null
   prs.hydrate({
     items: snapshot.persisted.pullRequests
       .map(pullRequestFromRow)
       .filter((row): row is NonNullable<typeof row> => row != null),
-    syncedAtMs: Number.isFinite(prSyncedAtMs) ? prSyncedAtMs : null,
     authConfigured: snapshot.githubAuthConfigured,
   })
   clickup.hydrate(snapshot.clickupConfigured, snapshot.persisted.settings)

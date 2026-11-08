@@ -15,7 +15,7 @@ export function currentPlace(): Place | null {
   return null
 }
 
-export function openPlace(place: Place) {
+function openPlace(place: Place) {
   if (place.kind === 'workspace') {
     const thread = switcher.lastThread[place.id]
     const stillThere =
@@ -42,7 +42,7 @@ export function commitPlace(index: number) {
 export function handleSwitcherKeydown(event: KeyboardEvent): boolean {
   if (event.key === 'Tab' && event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault()
-    if (shellDialogs.blocksCommandPalette()) return true
+    if (shellDialogs.anyOpen()) return true
     switcher.step(event.shiftKey ? -1 : 1, currentPlace(), {
       workspaceIds: sidebarWorkspaces.ordered.map((workspace) => workspace.id),
       sprintAvailable: clickup.configured,

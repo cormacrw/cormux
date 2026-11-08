@@ -18,7 +18,6 @@ function itemRow(item: TimelineItem): ItemRow {
 
 function speakerRow(
   item: Exclude<TimelineItem, { kind: 'live' | 'event' }>,
-  speaker: 'agent',
   role: string,
   engine: string,
 ): SpeakerRow {
@@ -27,7 +26,6 @@ function speakerRow(
   const row: SpeakerRow = {
     kind: 'speaker',
     id: `speaker-${item.id}`,
-    speaker,
     role,
     engine,
     seq: item.seq,
@@ -52,7 +50,7 @@ export function buildTimelineRows(
       continue
     }
     if (item.kind !== 'user' && prevSpeaker !== 'agent') {
-      rows.push(speakerRow(item, 'agent', role, engine))
+      rows.push(speakerRow(item, role, engine))
       prevSpeaker = 'agent'
     }
     if (item.kind === 'user') prevSpeaker = 'user'

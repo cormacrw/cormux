@@ -2,6 +2,7 @@
   import { Button } from '$lib/components/ui/button'
   import { workspaceUi } from '$lib/state'
   import type { PinnableTray } from '$lib/state/workspace-ui.svelte'
+  import { shortcutLabel, type ShortcutId } from '$lib/keyboard/shortcuts'
   import Pin from '@lucide/svelte/icons/pin'
   import PinOff from '@lucide/svelte/icons/pin-off'
   import X from '@lucide/svelte/icons/x'
@@ -11,7 +12,9 @@
     tray,
     name,
     shortcut,
-  }: { tray: PinnableTray; name: string; shortcut: string } = $props()
+  }: { tray: PinnableTray; name: string; shortcut: ShortcutId } = $props()
+
+  const keys = $derived(shortcutLabel(shortcut))
 
   const pinned = $derived(workspaceUi.pinnedTray === tray)
   const pinLabel = $derived(
@@ -40,7 +43,7 @@
   size="icon-sm"
   class="shrink-0 rounded-full"
   aria-label="Close {name}"
-  title="Close {name} ({pinned ? shortcut : `Esc or ${shortcut}`})"
+  title="Close {name} ({pinned ? keys : `Esc or ${keys}`})"
   data-od-id="slide-out-close"
   onclick={() => workspaceUi.closeTray(tray)}
 >

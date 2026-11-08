@@ -1,9 +1,6 @@
 import type { TimelineItem } from './timeline-types'
 
-export function announcementForItem(
-  item: TimelineItem,
-  role: string,
-): string | null {
+function announcementForItem(item: TimelineItem, role: string): string | null {
   switch (item.kind) {
     case 'user':
       return null

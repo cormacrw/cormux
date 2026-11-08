@@ -30,7 +30,6 @@ export function threadActivityForProvisioning(
     if (status === 'paused') return 'Paused'
     return 'Idle'
   }
-  if (workspaceActivity.includes('Joining')) return 'Joining the worktree'
   if (provStep === 2 || workspaceActivity.includes('Starting agent')) {
     return 'Starting agent…'
   }

@@ -1023,10 +1023,6 @@ pendingLiveApprovals: number;
  */
 githubAuthConfigured: boolean; 
 /**
- * Unix seconds string from the last successful PR sync, if any.
- */
-prSyncedAt: string | null; 
-/**
  * True when a ClickUp API key is saved. Every ClickUp surface hides without one.
  */
 clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[] }

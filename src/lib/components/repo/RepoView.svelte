@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { windowDrag } from '$lib/primitives/window-drag'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import { Badge } from '$lib/components/ui/badge'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
@@ -7,6 +8,8 @@
   import type { LocalBranchRow } from '$lib/ipc/bindings'
   import { coreErrorText } from '$lib/feedback/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { branchHoldReason, pullRequestForBranch } from '$lib/repo/branch-hold'
   import { workspaceStatusWord } from '$lib/sidebar/status'
   import {
@@ -21,7 +24,6 @@
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import { openUrl } from '@tauri-apps/plugin-opener'
-  import { getCurrentWindow } from '@tauri-apps/api/window'
 
   let titleEl = $state<HTMLHeadingElement | null>(null)
   let branches = $state<LocalBranchRow[]>([])
@@ -31,6 +33,7 @@
   let deleting = $state<string | null>(null)
   /** A branch origin doesn't have as it is locally, awaiting a confirmed delete. */
   let unpushed = $state<string | null>(null)
+  shellDialogs.hold(() => unpushed != null)
   // Held after close so the copy doesn't change while the dialog animates out.
   let unpushedShown = $state('')
   $effect(() => {
@@ -117,20 +120,9 @@
     branches = branches.filter((row) => row.name !== name)
   }
 
-  function startHeaderDrag(event: MouseEvent) {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof Element)) return
-    if (target.closest('button, a, input, textarea')) return
-    void getCurrentWindow().startDragging()
-  }
-
-  function onUnpushedKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && unpushed) {
-      event.preventDefault()
-      void removeBranch(unpushed, true)
-    }
-  }
+  const onUnpushedKeydown = onModEnter(() => {
+    if (unpushed) void removeBranch(unpushed, true)
+  })
 </script>
 
 <div
@@ -140,12 +132,7 @@
   {#if repo}
     <div class="mx-auto flex w-full max-w-[760px] flex-col gap-10 p-6">
       <!-- The title block is the page's title bar: empty space in it drags the window. -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <header
-        class="grid gap-3"
-        data-tauri-drag-region
-        onmousedown={startHeaderDrag}
-      >
+      <header class="grid gap-3" data-tauri-drag-region use:windowDrag>
         <h1
           bind:this={titleEl}
           tabindex="-1"

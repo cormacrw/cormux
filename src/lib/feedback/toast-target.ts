@@ -1,5 +1,5 @@
 import { app } from '$lib/state/app.svelte'
-import { workspaceUi } from '$lib/state/workspace-ui.svelte'
+import { openWorkspaceFindings, openWorkspaceThread } from '$lib/workspace/open'
 import type { ToastPayload } from './toast-payload'
 
 export type ToastTarget = Pick<
@@ -16,13 +16,9 @@ export function hasToastTarget(target: ToastTarget): boolean {
 export function openToastTarget(target: ToastTarget) {
   const { workspaceId, threadId, findings, scratchId } = target
   if (workspaceId) {
-    app.openWorkspace(workspaceId, threadId)
-    if (findings) {
-      workspaceUi.findingsFocusPending = true
-      workspaceUi.openTab('findings')
-    } else if (threadId) {
-      workspaceUi.openTab('thread')
-    }
+    if (findings) openWorkspaceFindings(workspaceId, threadId)
+    else if (threadId) openWorkspaceThread(workspaceId, threadId)
+    else app.openWorkspace(workspaceId)
     return
   }
   if (scratchId) app.openScratch(scratchId)

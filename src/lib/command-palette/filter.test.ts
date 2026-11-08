@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  commandMatchesQuery,
-  filterCommands,
-  groupFilteredCommands,
-} from './filter'
+import { filterCommands, groupFilteredCommands } from './filter'
 import type { PaletteCommand } from './types'
 
 const sample: PaletteCommand[] = [
@@ -29,30 +25,17 @@ const sample: PaletteCommand[] = [
   },
 ]
 
-const home = sample[0]!
-const idleWs = sample[1]!
-const runApp = sample[2]!
-
-describe('commandMatchesQuery', () => {
-  it('matches label substring case-insensitively', () => {
-    expect(commandMatchesQuery(home, 'home')).toBe(true)
-    expect(commandMatchesQuery(home, 'HOMEBASE')).toBe(true)
-  })
-
-  it('matches meta substring', () => {
-    expect(commandMatchesQuery(runApp, 'pnpm')).toBe(true)
-    expect(commandMatchesQuery(idleWs, 'idle')).toBe(true)
-  })
-
-  it('returns all for empty query', () => {
-    expect(commandMatchesQuery(home, '')).toBe(true)
-    expect(commandMatchesQuery(home, '   ')).toBe(true)
-  })
-})
-
 describe('filterCommands', () => {
-  it('filters the list', () => {
-    expect(filterCommands(sample, 'idle').map((c) => c.id)).toEqual(['b'])
+  const ids = (query: string) => filterCommands(sample, query).map((c) => c.id)
+
+  it('matches label and meta substrings, ignoring case', () => {
+    expect(ids('HOMEBASE')).toEqual(['a'])
+    expect(ids('idle')).toEqual(['b'])
+    expect(ids('pnpm')).toEqual(['c'])
+  })
+
+  it('keeps everything for a blank query', () => {
+    expect(ids('   ')).toEqual(['a', 'b', 'c'])
   })
 })
 

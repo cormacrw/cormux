@@ -1,55 +1,60 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-  import { runWorkspaceApp } from '$lib/command-palette/actions'
-  import { repos, settings, workspaceRecords } from '$lib/state'
-  import { workspaceRunCommand } from '$lib/run-app/run-command'
+  import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
+  import { appControls, controlApp } from '$lib/run-app/actions'
+  import type { WorkspaceAppControlAction } from '$lib/ipc/bindings'
   import Play from '@lucide/svelte/icons/play'
   import RotateCw from '@lucide/svelte/icons/rotate-cw'
   import Square from '@lucide/svelte/icons/square'
 
-  let {
-    workspaceId,
-    repoId,
-    runDisabled,
-  }: {
-    workspaceId: string
-    repoId: string
-    runDisabled: boolean
-  } = $props()
+  let { workspaceId }: { workspaceId: string } = $props()
 
-  const runtime = $derived(workspaceRecords.runtime(workspaceId))
-  const appStatus = $derived(runtime.appStatus)
-  const repo = $derived(repos.getById(repoId))
-  const hasRunCommand = $derived(
-    !!workspaceRunCommand(settings.rows, workspaceId, repo?.runCommand),
-  )
+  const controls = $derived(appControls(workspaceId))
+  const up = $derived(controls.start == null)
 
-  const runBlocked = $derived(runDisabled || !hasRunCommand)
+  let group = $state<HTMLElement>()
+  // Run and Stop swap places, so a click from the keyboard would leave focus on nothing.
+  let refocus = false
 
-  function run(action: 'run' | 'restart' | 'stop') {
-    runWorkspaceApp(workspaceId, action)
+  function press(action: WorkspaceAppControlAction) {
+    refocus = !!group?.contains(document.activeElement)
+    void controlApp(workspaceId, action)
   }
+
+  $effect(() => {
+    void up
+    if (!refocus) return
+    refocus = false
+    void tick().then(() => {
+      // Only if focus went down with the button, never away from where the user has moved on to.
+      const active = document.activeElement
+      if (active && active !== document.body) return
+      group?.querySelector('button')?.focus()
+    })
+  })
 </script>
 
 <!-- Icon buttons beside ⋯: Play when the app is stopped; Stop and Restart, joined, while it runs. -->
 <div
+  bind:this={group}
   role="group"
   aria-label="App"
   data-od-id="ws-run-controls"
   class="flex shrink-0 items-center"
 >
-  {#if appStatus === 'stopped' || appStatus === 'crashed'}
+  {#if controls.start}
+    {@const { action, enabled } = controls.start}
     <!-- A crashed app runs again from scratch, so it's Run either way. -->
     <Button
       variant="secondary"
       size="icon"
-      disabled={appStatus === 'stopped' && runBlocked}
+      disabled={!enabled}
       aria-label="Run app"
-      aria-keyshortcuts="Meta+R"
-      title="Run app (⌘R)"
-      data-ws-focus="run"
+      aria-keyshortcuts={shortcutAria('runApp')}
+      title="Run app ({shortcutLabel('runApp')})"
       data-od-id="ws-run"
-      onclick={() => run(appStatus === 'crashed' ? 'restart' : 'run')}
+      onclick={() => press(action)}
     >
       <Play class="size-4" aria-hidden="true" />
     </Button>
@@ -58,12 +63,11 @@
       variant="secondary"
       size="icon"
       aria-label="Stop app"
-      aria-keyshortcuts="Meta+."
-      title="Stop app (⌘.)"
+      aria-keyshortcuts={shortcutAria('stopApp')}
+      title="Stop app ({shortcutLabel('stopApp')})"
       class="rounded-r-none hover:text-destructive"
-      data-ws-focus="stop"
       data-od-id="ws-stop"
-      onclick={() => run('stop')}
+      onclick={() => press('stop')}
     >
       <Square class="size-3.5" aria-hidden="true" />
     </Button>
@@ -74,9 +78,9 @@
       aria-label="Restart app"
       title="Restart app"
       class="rounded-l-none"
-      data-ws-focus="restart"
+      disabled={!controls.canRestart}
       data-od-id="ws-restart"
-      onclick={() => run('restart')}
+      onclick={() => press('restart')}
     >
       <RotateCw class="size-4" aria-hidden="true" />
     </Button>

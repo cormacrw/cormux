@@ -26,65 +26,7 @@ export function pendingApprovalCount(
 }
 
 export function formatToastPayload(payload: ToastPayload): string {
-  return payload.parts
-    .map((part) => (part.type === 'code' ? part.value : part.value))
-    .join('')
-}
-
-export function workspaceAppToast(
-  name: string,
-  action: 'run' | 'restart' | 'stop',
-  port: number | null,
-  workspaceId: string,
-): ToastPayload {
-  if (action === 'stop') {
-    return {
-      tone: 'default',
-      workspaceId,
-      parts: [
-        { type: 'text', value: 'Stopped the app in ' },
-        { type: 'code', value: name },
-      ],
-    }
-  }
-  if (action === 'restart') {
-    return {
-      tone: 'default',
-      workspaceId,
-      parts: [
-        { type: 'text', value: 'Restarting the app in ' },
-        { type: 'code', value: name },
-      ],
-    }
-  }
-  const portText = port ?? 5173
-  return {
-    tone: 'ok',
-    workspaceId,
-    parts: [
-      { type: 'code', value: name },
-      { type: 'text', value: ' is running on localhost:' },
-      { type: 'code', value: String(portText) },
-    ],
-  }
-}
-
-export function pullToast(
-  name: string,
-  commits: number,
-  base: string,
-  workspaceId: string,
-): ToastPayload {
-  return {
-    tone: 'ok',
-    workspaceId,
-    parts: [
-      { type: 'text', value: 'Pulled ' },
-      { type: 'code', value: String(commits) },
-      { type: 'text', value: ` commit${commits === 1 ? '' : 's'} from ` },
-      { type: 'code', value: base },
-    ],
-  }
+  return payload.parts.map((part) => part.value).join('')
 }
 
 export function environmentReloadToast(): ToastPayload {

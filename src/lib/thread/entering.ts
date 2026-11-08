@@ -53,7 +53,7 @@ export function liveRunId(items: TimelineItem[]): string | null {
   return last?.kind === 'toolRun' ? last.id : null
 }
 
-export type PopInParams = {
+type PopInParams = {
   entries: EntryScope | undefined
   /** Omit for rows that animate some other way (a tool run's steps pop, a reply types in). */
   key?: string

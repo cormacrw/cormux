@@ -2,9 +2,14 @@ import { toastCoreError } from '$lib/feedback/wire-feedback'
 import { commands } from '$lib/ipc'
 import { fetchSnapshot } from '$lib/ipc'
 import type { PullRequest } from '$lib/state/prs.svelte'
-import { hydrateFromSnapshot } from '$lib/state'
+import {
+  app,
+  hydrateFromSnapshot,
+  workspaceRecords,
+  workspaces,
+} from '$lib/state'
 
-export async function startReviewWorkspace(pr: PullRequest): Promise<boolean> {
+async function startReviewWorkspace(pr: PullRequest): Promise<boolean> {
   const result = await commands.createReviewWorkspace({
     repoId: pr.repoId ?? 'my-app',
     prNumber: pr.num,
@@ -25,4 +30,16 @@ export async function startReviewWorkspace(pr: PullRequest): Promise<boolean> {
   // Stay where you are; the toasts link to the workspace once it's up.
   hydrateFromSnapshot(await fetchSnapshot())
   return true
+}
+
+/** One review workspace per PR: reopens it rather than starting a duplicate. */
+export function reviewPullRequest(pr: PullRequest) {
+  const existing = workspaces.items.find(
+    (row) =>
+      row.kind === 'review' &&
+      row.prNumber === pr.num &&
+      (!pr.repoId || workspaceRecords.getRecord(row.id)?.repoId === pr.repoId),
+  )
+  if (existing) app.openWorkspace(existing.id)
+  else void startReviewWorkspace(pr)
 }

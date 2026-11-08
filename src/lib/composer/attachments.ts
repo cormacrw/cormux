@@ -13,7 +13,7 @@ export type ComposerAttachment = {
 }
 
 /** Pasted and dropped files travel to the core whole, so very large ones are refused. */
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp']
 

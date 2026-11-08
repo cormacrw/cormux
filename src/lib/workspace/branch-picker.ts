@@ -1,7 +1,7 @@
-export type BranchMeta =
+type BranchMeta =
   'current' | 'inOtherWorkspace' | 'default' | 'integration' | 'staging'
 
-export type BranchPickerItem = {
+type BranchPickerItem = {
   name: string
   meta: BranchMeta | null
   disabled: boolean
@@ -18,7 +18,7 @@ export function branchMetaLabel(meta: BranchMeta | null): string | null {
   return null
 }
 
-export function metaForBranch(
+function metaForBranch(
   branch: string,
   current: string,
   occupied: Set<string>,

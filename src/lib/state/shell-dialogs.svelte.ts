@@ -1,52 +1,75 @@
-/** Tracks modal dialogs that block the command palette (spec §02). */
-export class ShellDialogsStore {
+import { untrack } from 'svelte'
+import { dismissOpenPopover } from '$lib/keyboard/popover-registry'
+import { workspaces } from './workspaces.svelte'
+
+/** The app's shell dialogs (mounted from `lazy-views.ts`), each with what it opens on. */
+type ShellDialogArgs = {
+  teardown: { workspaceId: string }
+  createPr: { workspaceId: string }
+  submitReview: { workspaceId: string }
   /** The scratch waiting on its delete confirmation. */
-  endScratch = $state<{ scratchId: string } | null>(null)
-  confirmOpen = $state(false)
-  teardownWorkspaceId = $state<string | null>(null)
-  createPrWorkspaceId = $state<string | null>(null)
-  submitReviewWorkspaceId = $state<string | null>(null)
+  endScratch: { scratchId: string }
+}
 
-  openTeardown(workspaceId: string) {
-    this.teardownWorkspaceId = workspaceId
-  }
+export type ShellDialogId = keyof ShellDialogArgs
 
-  closeTeardown() {
-    this.teardownWorkspaceId = null
-  }
-
-  openCreatePr(workspaceId: string) {
-    this.createPrWorkspaceId = workspaceId
-  }
-
-  closeCreatePr() {
-    this.createPrWorkspaceId = null
-  }
-
-  openSubmitReview(workspaceId: string) {
-    this.submitReviewWorkspaceId = workspaceId
-  }
-
-  closeSubmitReview() {
-    this.submitReviewWorkspaceId = null
-  }
-
-  openEndScratch(scratchId: string) {
-    this.endScratch = { scratchId }
-  }
-
-  closeEndScratch() {
-    this.endScratch = null
-  }
-
-  blocksCommandPalette() {
+const guards: {
+  [K in ShellDialogId]?: (args: ShellDialogArgs[K]) => boolean
+} = {
+  // A PR comes from a workspace's own branch, once; review workspaces submit a review instead.
+  createPr: ({ workspaceId }) => {
+    const workspace = workspaces.getById(workspaceId)
     return (
-      this.endScratch != null ||
-      this.confirmOpen ||
-      this.teardownWorkspaceId != null ||
-      this.createPrWorkspaceId != null ||
-      this.submitReviewWorkspaceId != null
+      !!workspace && workspace.prNumber == null && workspace.kind !== 'review'
     )
+  },
+}
+
+/**
+ * The app-wide modal gate. Shell dialogs open through here; dialogs that keep their own open
+ * state `hold` it while open. Shortcuts and the command palette wait while any is open.
+ */
+export class ShellDialogsStore {
+  private openArgs = $state<{ [K in ShellDialogId]?: ShellDialogArgs[K] }>({})
+  private holds = $state(0)
+
+  /** Opens a dialog unless its guard says no; resolves to whether it opened. */
+  open<K extends ShellDialogId>(id: K, args: ShellDialogArgs[K]): boolean {
+    const guard = guards[id] as
+      ((args: ShellDialogArgs[K]) => boolean) | undefined
+    if (guard && !guard(args)) return false
+    dismissOpenPopover()
+    this.openArgs = { ...this.openArgs, [id]: args }
+    return true
+  }
+
+  close(id: ShellDialogId) {
+    if (!(id in this.openArgs)) return
+    const next = { ...this.openArgs }
+    delete next[id]
+    this.openArgs = next
+  }
+
+  /** What the dialog was opened on, or null while it's closed. */
+  args<K extends ShellDialogId>(id: K): ShellDialogArgs[K] | null {
+    return (this.openArgs[id] as ShellDialogArgs[K] | undefined) ?? null
+  }
+
+  isOpen(id: ShellDialogId) {
+    return this.openArgs[id] != null
+  }
+
+  anyOpen() {
+    return this.holds > 0 || Object.keys(this.openArgs).length > 0
+  }
+
+  /** Holds the gate while `isOpen()` is true. Call while a component initialises. */
+  hold(isOpen: () => boolean) {
+    $effect(() => {
+      if (!isOpen()) return
+      untrack(() => (this.holds += 1))
+      return () => untrack(() => (this.holds -= 1))
+    })
   }
 }
 

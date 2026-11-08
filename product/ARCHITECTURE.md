@@ -267,10 +267,8 @@ src/
     components/
       ui/         shadcn-svelte components (generated, owned by the repo)
       shell/      sidebar, title bar, palette
-      homebase/   workspace cards, PR list
       workspace/  header, tabs, conversation, composer, approvals, changes, output, findings
       settings/
-  routes/         view switch: homebase, workspace, settings (no router needed)
 ```
 
 State lives in class-based rune stores (`$state` fields, `$derived` getters) hydrated from a core snapshot and patched by events. Derived values, like a card's "Needs Attention" badge or the sidebar's "N working", are `$derived` from thread state so they never go stale. Thread timelines are append-mostly arrays; fine-grained reactivity means a streaming chunk updates one text node, not the conversation.

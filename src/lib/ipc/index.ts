@@ -22,7 +22,6 @@ export {
 } from './bindings'
 
 export { subscribeAgentEvents, subscribeDiffs, subscribePty } from './channels'
-export { hasVersionGap }
 
 function unwrapSnapshot(
   result: Awaited<ReturnType<typeof commands.getSnapshot>>,

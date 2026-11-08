@@ -6,11 +6,14 @@
 </script>
 
 <script lang="ts">
+  import { pluralWord } from '$lib/format/plural'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import { inferFileStatus } from '$lib/changes/file-status'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
 
   let {
@@ -22,6 +25,8 @@
     request: DiscardRequest | null
     onClose: () => void
   } = $props()
+
+  shellDialogs.hold(() => request != null)
 
   // Held after close so the copy doesn't change while the dialog animates out.
   let shown = $state<DiscardRequest | null>(null)
@@ -50,12 +55,7 @@
     if (result.status === 'error') toastCoreError(result.error)
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault()
-      void confirm()
-    }
-  }
+  const onKeydown = onModEnter(() => void confirm())
 </script>
 
 <AlertDialog.Root open={request != null} {onOpenChange}>
@@ -83,7 +83,7 @@
           {/if}
         {:else}
           Every uncommitted change in this workspace ({shown?.count ?? 0}
-          {shown?.count === 1 ? 'file' : 'files'}) goes back to the last commit,
+          {pluralWord(shown?.count ?? 0, 'file')}) goes back to the last commit,
           and new files are deleted.
         {/if}
         This can’t be undone.

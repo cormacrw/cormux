@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
+  import { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
   import { Button } from '$lib/components/ui/button'
   import ThoughtMarkdown from '$lib/components/workspace/thread/ThoughtMarkdown.svelte'
   import { POINT_PRESETS, statusLabel, taskRef } from '$lib/clickup/board'
@@ -16,21 +17,9 @@
   const detail = $derived(task ? clickup.details[task.id] : undefined)
   const ref = $derived(task ? taskRef(task) : '')
 
-  let copied = $state(false)
-  let copiedTimer: ReturnType<typeof setTimeout> | undefined
-
-  async function copyRef() {
-    try {
-      await navigator.clipboard.writeText(ref)
-    } catch {
-      return
-    }
-    copied = true
-    clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => (copied = false), 1500)
-  }
-
-  onDestroy(() => clearTimeout(copiedTimer))
+  const clipboard = new CopyFeedback()
+  const copied = $derived(clipboard.copied === ref)
+  onDestroy(() => clipboard.dispose())
 
   let titleEl: HTMLHeadingElement | undefined = $state()
 
@@ -61,7 +50,7 @@
         aria-label={copied ? `Copied ${ref}` : `Copy ${ref}`}
         title="Copy ID"
         data-od-id="sprint-task-copy-id"
-        onclick={copyRef}
+        onclick={() => clipboard.copy(ref)}
       >
         {ref}
         {#if copied}

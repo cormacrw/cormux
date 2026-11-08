@@ -1,10 +1,6 @@
-import {
-  filterPullRequests,
-  prFilterCounts,
-  type PrFilter,
-  type PrRelationship,
-} from '$lib/homebase/pr-filter'
 import { reuseRows } from './reuse-rows'
+
+export type PrRelationship = 'review' | 'author' | 'mention' | 'assigned'
 
 export type PrChecksState = 'pass' | 'fail' | 'running' | 'none'
 
@@ -34,30 +30,11 @@ export type PullRequest = {
 export class PrsStore {
   // Raw and reused: a PR sync that changed nothing leaves every reader alone.
   items = $state.raw<PullRequest[]>([])
-  filter = $state<PrFilter>('all')
-  syncedAtMs = $state<number | null>(null)
   authConfigured = $state(false)
 
-  readonly filtered = $derived(filterPullRequests(this.items, this.filter))
-
-  readonly filterCounts = $derived(prFilterCounts(this.items))
-
-  readonly filterEmpty = $derived(
-    this.items.length > 0 && this.filtered.length === 0,
-  )
-
-  hydrate(input: {
-    items: PullRequest[]
-    syncedAtMs: number | null
-    authConfigured: boolean
-  }) {
+  hydrate(input: { items: PullRequest[]; authConfigured: boolean }) {
     this.items = reuseRows(this.items, input.items)
-    this.syncedAtMs = input.syncedAtMs
     this.authConfigured = input.authConfigured
-  }
-
-  setFilter(filter: PrFilter) {
-    this.filter = filter
   }
 }
 

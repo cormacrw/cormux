@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { formatRelativeAge } from '$lib/homebase/relative-time'
+  import { formatRelativeAge } from '$lib/format/relative-time'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { engineDisplayName } from '$lib/sidebar/engine'
+  import { engineDisplayName } from '$lib/engine/engines'
   let {
     thread,
     workspace,

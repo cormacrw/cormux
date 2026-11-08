@@ -2,8 +2,9 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands, fetchSnapshot } from '$lib/ipc'
-  import { coreErrorText } from '$lib/feedback/core-error'
   import { showToast } from '$lib/feedback/show-toast'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
   import {
     app,
     hydrateFromSnapshot,
@@ -14,7 +15,7 @@
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import type { Scratch } from '$lib/state/scratches.svelte'
 
-  const request = $derived(shellDialogs.endScratch)
+  const request = $derived(shellDialogs.args('endScratch'))
   const open = $derived(request != null)
   // Held after close so the copy doesn't change while the dialog animates out.
   let scratch = $state<Scratch | null>(null)
@@ -30,7 +31,7 @@
   let busy = $state(false)
 
   function onOpenChange(next: boolean) {
-    if (!next && !busy) shellDialogs.closeEndScratch()
+    if (!next && !busy) shellDialogs.close('endScratch')
   }
 
   async function confirm() {
@@ -40,17 +41,9 @@
     const { title } = scratch
     const result = await commands.endScratch(scratchId)
     busy = false
-    shellDialogs.closeEndScratch()
+    shellDialogs.close('endScratch')
     if (result.status === 'error') {
-      showToast({
-        tone: 'bad',
-        parts: [
-          {
-            type: 'text',
-            value: coreErrorText(result.error, 'Could not delete the scratch'),
-          },
-        ],
-      })
+      toastCoreError(result.error)
       return
     }
     showToast({
@@ -62,12 +55,7 @@
     hydrateFromSnapshot(await fetchSnapshot())
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault()
-      void confirm()
-    }
-  }
+  const onKeydown = onModEnter(() => void confirm())
 </script>
 
 <AlertDialog.Root {open} {onOpenChange}>

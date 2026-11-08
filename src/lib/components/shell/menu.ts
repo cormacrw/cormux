@@ -5,6 +5,7 @@ import {
   toastEnvironmentReloaded,
 } from '$lib/feedback/wire-feedback'
 import { app } from '$lib/state'
+import { palette } from '$lib/state/palette.svelte'
 
 export async function bindNativeMenu() {
   const unlisteners = await Promise.all([
@@ -12,7 +13,7 @@ export async function bindNativeMenu() {
       app.openSettings()
     }),
     listen('menu://command-palette', () => {
-      app.requestCommandPalette()
+      palette.toggle()
     }),
     listen('menu://new-workspace', () => {
       app.openNewThread()
@@ -24,7 +25,7 @@ export async function bindNativeMenu() {
           toastEnvironmentReloaded()
           return
         }
-        toastCoreError(JSON.stringify(result.error))
+        toastCoreError(result.error)
       })()
     }),
   ])

@@ -1,8 +1,8 @@
 import type { Workspace } from '$lib/state/workspaces.svelte'
 import type { Thread } from '$lib/state/threads.svelte'
-import { plural } from '$lib/sidebar/status'
+import { plural } from '$lib/format/plural'
 
-export type CardBadgeKind = 'needsAttention' | 'working' | 'idle'
+type CardBadgeKind = 'needsAttention' | 'working' | 'idle'
 
 export function workspaceCardBadgeKind(
   workspace: Workspace,

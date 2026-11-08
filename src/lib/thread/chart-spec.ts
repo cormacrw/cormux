@@ -1,6 +1,6 @@
 // A chart an agent writes as a fenced `chart` block of JSON.
 
-export type ChartSeries = { name: string; values: number[] }
+type ChartSeries = { name: string; values: number[] }
 
 export type ChartSpec = {
   type: 'bar' | 'line'

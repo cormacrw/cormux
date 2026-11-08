@@ -2,7 +2,7 @@
   import * as Alert from '$lib/components/ui/alert'
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
-  import { openSettingsSection } from '$lib/command-palette/actions'
+  import { openSettingsSection } from '$lib/settings/open'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
 

@@ -1,5 +1,4 @@
 import type { commands } from '$lib/ipc/bindings'
-import type { HarnessRuntime } from './runtime'
 import type { UnsupportedCommand } from './unsupported'
 
 type Commands = typeof commands
@@ -31,7 +30,7 @@ type Data<W extends WireCommand> = OkData<
  * names, so each handler annotates the fields it reads; `never` makes that annotation mandatory.
  * The return type does come from the bindings.
  */
-export type Handler<W extends WireCommand> = (
+type Handler<W extends WireCommand> = (
   args: never,
 ) => Data<W> | Promise<Data<W>>
 
@@ -50,5 +49,3 @@ export type HandlerTable = {
 
 /** What one domain's file contributes to the table. */
 export type HandlerSlice = Partial<HandlerTable>
-
-export type HandlerFactory = (runtime: HarnessRuntime) => HandlerSlice

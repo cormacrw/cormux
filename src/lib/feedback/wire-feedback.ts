@@ -4,30 +4,14 @@ import type { ToastRaised } from '$lib/ipc/bindings'
 import { coreErrorToast, environmentReloadToast } from './toast-payload'
 import { showToast } from './show-toast'
 
-export async function bindFeedbackEvents() {
-  const cleanups: (() => void)[] = []
-
-  cleanups.push(
-    await events.toastRaised.listen((event) => {
-      showCoreToast(event.payload)
-    }),
-  )
-
-  return () => {
-    for (const cleanup of cleanups) cleanup()
-  }
+export function bindFeedbackEvents() {
+  return events.toastRaised.listen((event) => showCoreToast(event.payload))
 }
 
-function mapTone(tone: ToastRaised['payload']['tone']) {
-  if (tone === 'ok') return 'ok' as const
-  if (tone === 'bad') return 'bad' as const
-  return 'default' as const
-}
-
-export function showCoreToast(event: ToastRaised) {
+function showCoreToast(event: ToastRaised) {
   const payload = event.payload
   showToast({
-    tone: mapTone(payload.tone),
+    tone: payload.tone,
     workspaceId: payload.workspaceId ?? undefined,
     threadId: payload.threadId ?? undefined,
     parts: payload.parts.map((part) =>

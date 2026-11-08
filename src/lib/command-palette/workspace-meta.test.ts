@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { NO_USAGE } from '$lib/usage/usage'
-import { workspaceCardBadgeKind, workspaceCardMetaText } from './card-status'
+import { workspaceCardBadgeKind, workspaceCardMetaText } from './workspace-meta'
 
 const baseWorkspace = {
   id: 'ws',

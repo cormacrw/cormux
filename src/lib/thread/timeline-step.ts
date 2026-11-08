@@ -1,7 +1,7 @@
 import type { TimelineStep } from '$lib/ipc/bindings'
 import type { TimelineChip, ToolStepIcon } from './timeline-types'
 
-export type StepPresentation = {
+type StepPresentation = {
   icon: ToolStepIcon
   /** `divider` sits between turns; `run` joins the tool steps around it, with any chips. */
   row: 'divider' | 'run'

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { pluralWord } from '$lib/format/plural'
   import { tick } from 'svelte'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import GitBranch from '@lucide/svelte/icons/git-branch'
@@ -43,7 +44,7 @@
     pushStack,
     switchWorkspaceBranch,
     syncStack,
-  } from '$lib/workspace/wire-git-workspace'
+  } from '$lib/workspace/git-actions'
   import { cn } from '$lib/utils'
 
   let {
@@ -198,7 +199,7 @@
     >
       <MessageSquare class="size-2.5" aria-hidden="true" />
       {count}
-      <span class="sr-only">{count === 1 ? 'comment' : 'comments'}</span>
+      <span class="sr-only">{pluralWord(count, 'comment')}</span>
     </Badge>
   {/if}
 {/snippet}

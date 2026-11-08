@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button'
-  import { abortWorkspaceGit } from '$lib/command-palette/actions'
+  import { abortWorkspaceGit } from '$lib/workspace/git-actions'
   import type { GitConflictState } from '$lib/ipc/bindings'
 
   let {
@@ -37,7 +37,7 @@
     <Button
       size="sm"
       variant="secondary"
-      onclick={() => abortWorkspaceGit(workspaceId)}
+      onclick={() => void abortWorkspaceGit(workspaceId)}
     >
       Abort {conflict.operation}
     </Button>

@@ -4,15 +4,15 @@
   import { Button } from '$lib/components/ui/button/index.js'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
-  import type {
-    Error as CoreError,
-    SubmitReviewVerdict,
-  } from '$lib/ipc/bindings'
+  import type { SubmitReviewVerdict } from '$lib/ipc/bindings'
   import { fetchSnapshot } from '$lib/ipc'
-  import { dismissOpenPopover } from '$lib/keyboard/global-shortcuts'
+  import { coreErrorText } from '$lib/feedback/core-error'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
   import { hydrateFromSnapshot, shellDialogs, workspaces } from '$lib/state'
 
-  const workspaceId = $derived(shellDialogs.submitReviewWorkspaceId)
+  const workspaceId = $derived(
+    shellDialogs.args('submitReview')?.workspaceId ?? null,
+  )
   const open = $derived(workspaceId != null)
   const workspace = $derived(
     workspaceId ? workspaces.getById(workspaceId) : undefined,
@@ -22,18 +22,6 @@
   let submitting = $state(false)
   let submitError = $state<string | null>(null)
 
-  function coreErrorMessage(error: CoreError): string {
-    if (
-      error.kind === 'Git' ||
-      error.kind === 'Workspace' ||
-      error.kind === 'Github' ||
-      error.kind === 'Llm'
-    ) {
-      return error.message
-    }
-    return 'Could not submit review'
-  }
-
   function reset() {
     verdict = 'comment'
     submitting = false
@@ -41,7 +29,7 @@
   }
 
   function closeDialog() {
-    shellDialogs.closeSubmitReview()
+    shellDialogs.close('submitReview')
     reset()
   }
 
@@ -55,25 +43,17 @@
     })
     submitting = false
     if (result.status === 'error') {
-      submitError = coreErrorMessage(result.error)
+      submitError = coreErrorText(result.error, 'Could not submit review')
       return
     }
     hydrateFromSnapshot(await fetchSnapshot())
     closeDialog()
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault()
-      void submit()
-    }
-  }
+  const onKeydown = onModEnter(() => void submit())
 
   $effect(() => {
-    if (open) {
-      dismissOpenPopover()
-      reset()
-    }
+    if (open) reset()
   })
 </script>
 

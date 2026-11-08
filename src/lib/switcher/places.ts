@@ -2,7 +2,7 @@
 export type Place =
   { kind: 'workspace'; id: string } | { kind: 'newThread' } | { kind: 'sprint' }
 
-export const MAIN_PAGES: Place[] = [{ kind: 'newThread' }, { kind: 'sprint' }]
+const MAIN_PAGES: Place[] = [{ kind: 'newThread' }, { kind: 'sprint' }]
 
 const HISTORY_LIMIT = 40
 

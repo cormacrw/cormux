@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { plural, pluralWord } from '$lib/format/plural'
   import { onDestroy, onMount, tick, untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import {
@@ -13,7 +14,7 @@
   import { appearance } from '$lib/state/appearance.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { engineDisplayName } from '$lib/sidebar/engine'
+  import { engineDisplayName } from '$lib/engine/engines'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import { enterConversation } from '$lib/thread/conversation-motion'
   import {
@@ -164,7 +165,6 @@
 
   const liveRowTitle = $derived(
     liveTitle({
-      status: thread.status,
       paused: thread.paused,
       activity: thread.activity,
     }),
@@ -536,7 +536,7 @@
               {/if}
               {#if agent.steps}
                 <span class="shrink-0 text-muted-foreground/70"
-                  >· {agent.steps} {agent.steps === 1 ? 'step' : 'steps'}</span
+                  >· {plural(agent.steps, 'step')}</span
                 >
               {/if}
             </li>
@@ -574,7 +574,7 @@
         {#if runningAgents.length}
           <span class="shrink-0 text-muted-foreground"
             >· {runningAgents.length}
-            {runningAgents.length === 1 ? 'agent' : 'agents'} running</span
+            {pluralWord(runningAgents.length, 'agent')} running</span
           >
         {/if}
       </div>

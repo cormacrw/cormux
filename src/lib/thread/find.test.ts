@@ -12,7 +12,6 @@ const rows: TimelineRow[] = [
   {
     kind: 'speaker',
     id: 'speaker-1',
-    speaker: 'agent',
     role: 'Lead',
     engine: 'Claude Code',
     seq: 1,

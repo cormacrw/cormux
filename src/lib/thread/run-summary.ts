@@ -1,3 +1,5 @@
+import { plural } from '$lib/format/plural'
+
 // What a test or build run came to, read from the summary lines the common runners print.
 
 export type RunSummary = {
@@ -68,8 +70,6 @@ export function summarizeRun(output: string): RunSummary | null {
 
 /** `214 passed, 2 failed`. */
 export function runSummaryLabel(summary: RunSummary): string {
-  const plural = (n: number, word: string) =>
-    `${n} ${word}${n === 1 ? '' : 's'}`
   return (
     [
       summary.passed ? `${summary.passed} passed` : '',

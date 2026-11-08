@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { formatRelativeAge } from '$lib/homebase/relative-time'
+  import { formatRelativeAge } from '$lib/format/relative-time'
+  import { plural } from '$lib/format/plural'
   import {
-    plural,
     statusDotVariantForAttention,
     statusDotVariantForWorkspace,
     workspaceStatusWord,

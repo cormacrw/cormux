@@ -1,11 +1,26 @@
 <script lang="ts">
   import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import { Kbd, KbdGroup } from '$lib/components/ui/kbd'
-  import { SETTINGS_SHORTCUTS } from '$lib/settings/shortcuts'
+  import {
+    SHORTCUTS,
+    type Shortcut,
+    type ShortcutId,
+  } from '$lib/keyboard/shortcuts'
+
+  const rows = (Object.keys(SHORTCUTS) as ShortcutId[]).map((id) => {
+    const shortcut: Shortcut = SHORTCUTS[id]
+    return {
+      id,
+      keys: shortcut.also
+        ? `${shortcut.label} or ${shortcut.also}`
+        : shortcut.label,
+      description: shortcut.description,
+    }
+  })
 </script>
 
 <SettingsPanel data-od-id="settings-shortcuts-group">
-  {#each SETTINGS_SHORTCUTS as row (row.keys)}
+  {#each rows as row (row.id)}
     <div
       class="flex items-center justify-between gap-4 border-b border-border px-4 py-2.5 last:border-b-0"
     >
