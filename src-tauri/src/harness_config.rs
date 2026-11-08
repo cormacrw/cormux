@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
+use crate::process::{Exit, ProcessSupervisor, SessionId, ShellCommand};
 use crate::store::RustMigration;
 use crate::store::types::{RepoRecord, WorkspaceRow};
 
@@ -75,6 +76,75 @@ pub fn parse_setup_commands(raw: &str) -> Vec<String> {
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(str::to_string)
         .collect()
+}
+
+/// The repo's setup commands: its own, else its committed config's.
+pub fn setup_commands(repo: &RepoRecord) -> Result<Vec<String>> {
+    let setup = effective_setup(
+        &repo.setup_commands,
+        &crate::paths::expand_tilde(&repo.path),
+    )?;
+    Ok(parse_setup_commands(&setup))
+}
+
+/// What a caller of [`run_setup`] adds around each command.
+pub trait SetupWatch {
+    /// The process session command `index` runs in.
+    fn session(&self, index: usize) -> SessionId;
+
+    /// Before command `index`; `false` stops the run there.
+    async fn before(&mut self, _index: usize, _command: &str) -> bool {
+        true
+    }
+
+    /// Once command `index` has exited.
+    fn exited(&mut self, _index: usize, _exit: &Exit) {}
+}
+
+/// How a setup run ended.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SetupEnd {
+    Done,
+    /// The watch stopped it before a command.
+    Stopped,
+    /// `command` exited nonzero or ran past [`SETUP_COMMAND_TIMEOUT`]; the ones after it didn't run.
+    Failed {
+        command: String,
+        exit: Exit,
+    },
+}
+
+/// Runs setup's commands in order in the login shell, in `cwd` with `env`, until one fails: the
+/// one way setup runs, for a workspace and for Test setup alike.
+pub async fn run_setup(
+    process: &ProcessSupervisor,
+    commands: &[String],
+    cwd: &Path,
+    env: &[(String, String)],
+    log_to: Option<&str>,
+    watch: &mut impl SetupWatch,
+) -> Result<SetupEnd> {
+    for (index, command) in commands.iter().enumerate() {
+        if !watch.before(index, command).await {
+            return Ok(SetupEnd::Stopped);
+        }
+        let shell = ShellCommand {
+            cmd: command.clone(),
+            cwd: cwd.to_path_buf(),
+            env: env.to_vec(),
+        };
+        let exit = process
+            .run_to_exit(watch.session(index), &shell, SETUP_COMMAND_TIMEOUT, log_to)
+            .await?;
+        watch.exited(index, &exit);
+        if exit != Exit::Code(0) {
+            return Ok(SetupEnd::Failed {
+                command: command.clone(),
+                exit,
+            });
+        }
+    }
+    Ok(SetupEnd::Done)
 }
 
 pub fn effective_setup(stored: &str, repo_path: &Path) -> Result<String> {
@@ -373,6 +443,34 @@ mod tests {
             "pnpm install\n\n# copy env\ncp .env.example .env\n  uv sync  \n",
         );
         assert_eq!(cmds, ["pnpm install", "cp .env.example .env", "uv sync"]);
+    }
+
+    #[tokio::test]
+    async fn setup_stops_at_the_first_command_that_fails() {
+        struct Plain;
+        impl super::SetupWatch for Plain {
+            fn session(&self, index: usize) -> crate::process::SessionId {
+                crate::process::SessionId::unowned(format!("setup-test-{index}"))
+            }
+        }
+        let process = crate::process::ProcessSupervisor::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let commands = ["true", "exit 3", "touch ran"].map(String::from);
+
+        let ended = super::run_setup(&process, &commands, dir.path(), &[], None, &mut Plain)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            ended,
+            super::SetupEnd::Failed {
+                command: "exit 3".into(),
+                exit: crate::process::Exit::Code(3),
+            }
+        );
+        assert!(!dir.path().join("ran").exists());
     }
 
     use super::*;

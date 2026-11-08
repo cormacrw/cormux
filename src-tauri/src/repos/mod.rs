@@ -10,9 +10,9 @@ use specta::Type;
 
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
-use crate::harness_config::HarnessEnv;
+use crate::harness_config::{HarnessEnv, SetupEnd, SetupWatch};
 use crate::paths::expand_tilde;
-use crate::process::{Exit, SessionId, ShellCommand};
+use crate::process::{Exit, SessionId};
 use crate::state::AppState;
 use crate::store::types::RepoRecord;
 
@@ -478,8 +478,7 @@ pub async fn test_setup(
 ) -> Result<TestRepoSetupResult> {
     let repo = state.store.repo(&input.repo_id)?;
     let repo_path = expand_tilde(&repo.path);
-    let setup_raw = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path)?;
-    let commands = crate::harness_config::parse_setup_commands(&setup_raw);
+    let commands = crate::harness_config::setup_commands(&repo)?;
     if commands.is_empty() {
         return Ok(TestRepoSetupResult {
             ok: true,
@@ -488,24 +487,17 @@ pub async fn test_setup(
     }
 
     let env = checkout_env(state, &repo, &repo_path).await.vars();
-    for (index, command) in commands.iter().enumerate() {
-        let session = SessionId::unowned(format!("test-setup-{}-{index}", repo.id));
-        let shell = ShellCommand {
-            cmd: command.clone(),
-            cwd: repo_path.clone(),
-            env: env.clone(),
-        };
-        let exit = state
-            .process
-            .run_to_exit(
-                session,
-                &shell,
-                crate::harness_config::SETUP_COMMAND_TIMEOUT,
-                None,
-            )
-            .await?;
+    let ended = crate::harness_config::run_setup(
+        &state.process,
+        &commands,
+        &repo_path,
+        &env,
+        None,
+        &mut TestSetup { repo_id: &repo.id },
+    )
+    .await?;
+    if let SetupEnd::Failed { command, exit } = ended {
         let message = match exit {
-            Exit::Code(0) => continue,
             Exit::Code(code) => format!("Command failed ({code}): {command}"),
             Exit::TimedOut => format!("Command timed out: {command}"),
         };
@@ -520,6 +512,16 @@ pub async fn test_setup(
             if commands.len() == 1 { "" } else { "s" }
         ),
     })
+}
+
+struct TestSetup<'a> {
+    repo_id: &'a str,
+}
+
+impl SetupWatch for TestSetup<'_> {
+    fn session(&self, index: usize) -> SessionId {
+        SessionId::unowned(format!("test-setup-{}-{index}", self.repo_id))
+    }
 }
 
 /// The env setup gets when it runs in the repo's own checkout, which is then both the repo and

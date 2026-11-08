@@ -6,10 +6,10 @@ use crate::bus::DomainEvent;
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
-use crate::harness_config::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
+use crate::harness_config::{SetupEnd, SetupWatch, run_setup};
 use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
 use crate::paths::{expand_tilde, worktrees_root};
-use crate::process::{Exit, LogKind, SessionId, ShellCommand};
+use crate::process::{Exit, LogKind, SessionId};
 use crate::provisioning::SetupRun;
 use crate::state::AppState;
 use crate::store::types::{ThreadPicks, ThreadRow, WorkspaceRow};
@@ -191,11 +191,8 @@ async fn run_plan(state: &AppState, plan: &ProvisionPlan, run: &SetupRun) -> Res
     }
     let workspace = state.workspaces.get(&plan.workspace_id).await?;
     let repo = state.store.repo(&workspace.repo_id)?;
-    let setup = match crate::harness_config::effective_setup(
-        &repo.setup_commands,
-        &expand_tilde(&repo.path),
-    ) {
-        Ok(setup) => parse_setup_commands(&setup),
+    let setup = match crate::harness_config::setup_commands(&repo) {
+        Ok(setup) => setup,
         Err(error) => {
             log::warn!("setup for {}: {error}", plan.workspace_id);
             mark_failed(
@@ -280,58 +277,44 @@ async fn run_setup_commands(
     );
 
     let env = workspace.harness_env().vars();
-
-    for (index, command) in setup.iter().enumerate() {
-        if !alive(state, run).await {
-            return Ok(false);
-        }
-
-        let started = Instant::now();
-        state
-            .process
-            .log(log_id, LogKind::Command, command.as_str());
-        state.process.log(
-            log_id,
-            LogKind::Note,
-            format!("── Command {} of {} ──", index + 1, setup.len()),
-        );
-
-        let session = SessionId::of_workspace(&workspace.id, format!("setup-{index}"));
-        let shell = ShellCommand {
-            cmd: command.clone(),
-            cwd: workspace.worktree(),
-            env: env.clone(),
-        };
-        let exit = state
-            .process
-            .run_to_exit(session, &shell, SETUP_COMMAND_TIMEOUT, Some(log_id))
-            .await?;
-        let Exit::Code(code) = exit else {
-            let failure = Some((command.clone(), None));
+    let mut watch = SetupLog {
+        state,
+        run,
+        workspace_id: log_id,
+        count: setup.len(),
+        started: Instant::now(),
+    };
+    let ended = run_setup(
+        &state.process,
+        setup,
+        &workspace.worktree(),
+        &env,
+        Some(log_id),
+        &mut watch,
+    )
+    .await?;
+    match ended {
+        SetupEnd::Done => {}
+        SetupEnd::Stopped => return Ok(false),
+        SetupEnd::Failed {
+            command,
+            exit: Exit::TimedOut,
+        } => {
             let error = Error::Process("timed out waiting for setup command".into());
             mark_failed(
                 state,
                 &run.workspace_id,
                 Some(run),
-                failure,
+                Some((command, None)),
                 &error.to_string(),
             )
             .await;
             return Ok(false);
-        };
-
-        state.process.log(
-            log_id,
-            LogKind::Note,
-            format!(
-                "Finished command {} of {} in {:.1}s",
-                index + 1,
-                setup.len(),
-                started.elapsed().as_secs_f32(),
-            ),
-        );
-
-        if code != 0 {
+        }
+        SetupEnd::Failed {
+            command,
+            exit: Exit::Code(code),
+        } => {
             state.process.log(
                 log_id,
                 LogKind::Note,
@@ -341,7 +324,7 @@ async fn run_setup_commands(
                 state,
                 &workspace.id,
                 Some(run),
-                Some((command.clone(), Some(code))),
+                Some((command, Some(code))),
                 &format!("Setup command failed with exit code {code}"),
             )
             .await;
@@ -351,6 +334,51 @@ async fn run_setup_commands(
 
     state.process.log(log_id, LogKind::Marker, "Worktree ready");
     Ok(true)
+}
+
+/// Setup's own log around each command, and its run's liveness.
+struct SetupLog<'a> {
+    state: &'a AppState,
+    run: &'a SetupRun,
+    workspace_id: &'a str,
+    count: usize,
+    started: Instant,
+}
+
+impl SetupWatch for SetupLog<'_> {
+    fn session(&self, index: usize) -> SessionId {
+        SessionId::of_workspace(self.workspace_id, format!("setup-{index}"))
+    }
+
+    async fn before(&mut self, index: usize, command: &str) -> bool {
+        if !alive(self.state, self.run).await {
+            return false;
+        }
+        self.started = Instant::now();
+        let process = &self.state.process;
+        process.log(self.workspace_id, LogKind::Command, command);
+        process.log(
+            self.workspace_id,
+            LogKind::Note,
+            format!("── Command {} of {} ──", index + 1, self.count),
+        );
+        true
+    }
+
+    fn exited(&mut self, index: usize, exit: &Exit) {
+        if let Exit::Code(_) = exit {
+            self.state.process.log(
+                self.workspace_id,
+                LogKind::Note,
+                format!(
+                    "Finished command {} of {} in {:.1}s",
+                    index + 1,
+                    self.count,
+                    self.started.elapsed().as_secs_f32(),
+                ),
+            );
+        }
+    }
 }
 
 async fn finish_after_setup(
