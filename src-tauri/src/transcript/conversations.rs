@@ -13,14 +13,33 @@ use specta::Type;
 use crate::error::{Error, Result};
 use crate::timeline::TimelineStep;
 
-const FIRST: &str = "first";
+/// The webview gets this as `FIRST_CONVERSATION`.
+pub const FIRST_CONVERSATION: &str = "first";
 
-/// A step that ends the conversation before it.
+/// The kinds of step that end the conversation before them, as saved. The one list of them:
+/// the store finds saved ones by it, streamed events are matched against it, and the webview
+/// gets it as `CONVERSATION_STEP_KINDS`. `boundary` reads each of them.
+pub const CONVERSATION_STEP_KINDS: [&str; 2] = ["sessionStarted", "sessionResumed"];
+
 pub(super) fn is_boundary(step: &TimelineStep) -> bool {
-    matches!(
-        step,
-        TimelineStep::SessionStarted { .. } | TimelineStep::SessionResumed { .. }
-    )
+    serde_json::to_value(step).is_ok_and(|value| {
+        value["kind"]
+            .as_str()
+            .is_some_and(|kind| CONVERSATION_STEP_KINDS.contains(&kind))
+    })
+}
+
+/// A boundary step's session it ended the conversation before it with, and the earlier
+/// conversation it went back to, if it did.
+fn boundary(step: TimelineStep) -> Option<(Option<String>, Option<String>)> {
+    match step {
+        TimelineStep::SessionStarted { ended_session } => Some((ended_session, None)),
+        TimelineStep::SessionResumed {
+            conversation,
+            ended_session,
+        } => Some((ended_session, Some(conversation))),
+        _ => None,
+    }
 }
 
 /// Which conversation each saved row is in, from the thread's session steps.
@@ -35,20 +54,15 @@ pub(super) struct Conversations {
 impl Conversations {
     /// From the thread's session steps, oldest first.
     pub(super) fn from_boundaries(steps: impl IntoIterator<Item = (i64, TimelineStep)>) -> Self {
-        let mut stretches = vec![(0, FIRST.to_string())];
+        let mut stretches = vec![(0, FIRST_CONVERSATION.to_string())];
         let mut ended = HashMap::new();
         for (seq, step) in steps {
             let current = stretches
                 .last()
                 .map(|(_, id)| id.clone())
                 .unwrap_or_default();
-            let (ended_session, target) = match step {
-                TimelineStep::SessionStarted { ended_session } => (ended_session, None),
-                TimelineStep::SessionResumed {
-                    conversation,
-                    ended_session,
-                } => (ended_session, Some(conversation)),
-                _ => continue,
+            let Some((ended_session, target)) = boundary(step) else {
+                continue;
             };
             if let Some(session) = ended_session {
                 ended.insert(current, session);
@@ -174,6 +188,20 @@ mod tests {
             conversation: to.into(),
             ended_session: ended.map(Into::into),
         }
+    }
+
+    /// Every kind the store and the stream treat as a boundary is one `from_boundaries` reads.
+    #[test]
+    fn each_conversation_step_kind_is_read_as_a_boundary() {
+        for kind in CONVERSATION_STEP_KINDS {
+            let step: TimelineStep = serde_json::from_value(serde_json::json!({
+                "kind": kind, "conversation": "first", "ended_session": null
+            }))
+            .unwrap();
+            assert!(is_boundary(&step), "{kind}");
+            assert!(boundary(step).is_some(), "{kind}");
+        }
+        assert!(!is_boundary(&TimelineStep::AgentStopped));
     }
 
     #[test]

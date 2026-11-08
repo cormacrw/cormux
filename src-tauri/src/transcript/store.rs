@@ -192,14 +192,17 @@ impl Store {
 
     /// The thread's session steps as `(seq, payload)`, oldest first.
     pub fn session_steps(&self, thread_id: &str) -> Result<Vec<(i64, String)>> {
+        let kinds = super::CONVERSATION_STEP_KINDS
+            .map(|kind| format!("'{kind}'"))
+            .join(", ");
         self.with_read(|conn| {
-            let mut stmt = conn.prepare_cached(
+            let mut stmt = conn.prepare_cached(&format!(
                 "SELECT seq, payload FROM thread_events
                  WHERE thread_id = ?1 AND kind = 'tool'
                    AND CASE WHEN json_valid(payload) THEN json_extract(payload, '$.step.kind') END
-                       IN ('sessionStarted', 'sessionResumed')
-                 ORDER BY seq",
-            )?;
+                       IN ({kinds})
+                 ORDER BY seq"
+            ))?;
             let rows = stmt.query_map([thread_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
             Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
         })

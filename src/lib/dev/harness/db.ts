@@ -5,6 +5,8 @@ import type {
   TranscriptEvent,
   TranscriptPage,
 } from '$lib/ipc/bindings'
+import { FIRST_CONVERSATION } from '$lib/ipc/bindings'
+import { isSessionStep } from '$lib/thread/conversations'
 import { createFixtures } from './fixtures'
 
 /** The harness's stand-in for the core's store, one per browser session. */
@@ -127,15 +129,16 @@ function decode(row: StoredEventRow): TranscriptEvent | null {
 
 /** Which conversation each row is in, by the core's rule (`transcript/conversations.rs`). */
 function conversationsOf(rows: StoredEventRow[]) {
-  const stretches: { from: number; id: string }[] = [{ from: 0, id: 'first' }]
+  const stretches: { from: number; id: string }[] = [
+    { from: 0, id: FIRST_CONVERSATION },
+  ]
   const ended = new Map<string, string>()
   const boundaries = new Set<number>()
   for (const row of rows) {
     const event = decode(row)
     if (event?.type !== 'step') continue
     const { step } = event
-    if (step.kind !== 'sessionStarted' && step.kind !== 'sessionResumed')
-      continue
+    if (!isSessionStep(step)) continue
     boundaries.add(row.seq)
     const current = stretches.at(-1)!.id
     if (step.ended_session) ended.set(current, step.ended_session)

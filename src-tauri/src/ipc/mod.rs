@@ -110,6 +110,11 @@ pub fn builder() -> Builder {
         .commands(commands())
         .constant("DEFAULT_SETTINGS", settings::Settings::default())
         .constant("MEDIA_EXTENSIONS", crate::media::extension_kinds())
+        .constant("FIRST_CONVERSATION", crate::transcript::FIRST_CONVERSATION)
+        .constant(
+            "CONVERSATION_STEP_KINDS",
+            crate::transcript::CONVERSATION_STEP_KINDS,
+        )
         .constant(
             "WORKING_THREAD_STATUSES",
             crate::model::ThreadStatus::WORKING,

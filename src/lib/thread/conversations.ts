@@ -1,24 +1,33 @@
-import type { TranscriptEvent } from '$lib/ipc/bindings'
+import {
+  CONVERSATION_STEP_KINDS,
+  FIRST_CONVERSATION,
+  type TimelineStep,
+  type TranscriptEvent,
+} from '$lib/ipc/bindings'
 import type { TimedEvent } from './timed-events'
 
 /** The conversation showing now: the one the newest event is in (the core says which). */
 export type CurrentConversation = { id: string; events: TimedEvent[] }
 
-/** A session step: it begins a conversation, so it isn't shown in one. */
-function isSessionStep(event: TranscriptEvent) {
-  return (
-    event.type === 'step' &&
-    (event.step.kind === 'sessionStarted' ||
-      event.step.kind === 'sessionResumed')
-  )
+type SessionStep = Extract<
+  TimelineStep,
+  { kind: (typeof CONVERSATION_STEP_KINDS)[number] }
+>
+
+/** A step that begins a conversation, by the core's list. */
+export function isSessionStep(step: TimelineStep): step is SessionStep {
+  return (CONVERSATION_STEP_KINDS as readonly string[]).includes(step.kind)
 }
 
 export function currentConversation(events: TimedEvent[]): CurrentConversation {
-  const id = events.at(-1)?.conversation ?? 'first'
+  const id = events.at(-1)?.conversation ?? FIRST_CONVERSATION
   return {
     id,
     events: events.filter(
-      (row) => row.conversation === id && !isSessionStep(row.event),
+      // A session step begins a conversation, so it isn't shown in one.
+      (row) =>
+        row.conversation === id &&
+        !(row.event.type === 'step' && isSessionStep(row.event.step)),
     ),
   }
 }

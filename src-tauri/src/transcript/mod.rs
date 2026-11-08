@@ -29,7 +29,7 @@ use crate::error::{Error, Result};
 use crate::store::Store;
 use crate::timeline::TimelineStep;
 
-pub use conversations::ThreadConversations;
+pub use conversations::{CONVERSATION_STEP_KINDS, FIRST_CONVERSATION, ThreadConversations};
 use conversations::{Conversations, Counted, is_boundary};
 pub use store::ThreadActivityRow;
 pub(crate) use store::activity_in;
@@ -314,7 +314,7 @@ impl Transcript {
             Ok(conversations) => conversations.current().to_string(),
             Err(error) => {
                 log::warn!("thread {thread_id}: reading its conversations failed: {error}");
-                return "first".into();
+                return FIRST_CONVERSATION.into();
             }
         };
         current.insert(thread_id.to_string(), id.clone());
