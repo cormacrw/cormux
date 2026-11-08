@@ -1,16 +1,35 @@
 //! Things that happened in the core, for the features that react to them. Publishers don't know
-//! who listens: `turn`, `approvals` and `provisioning` publish; review, orchestration and feedback
-//! subscribe from their own `start`.
+//! who listens: `turn`, `approvals` and `provisioning` publish; approvals, review, findings and
+//! orchestration subscribe from their own `start`.
+//!
+//! Every listener hears each event before any listener hears the next, in the order they
+//! started listening (see `lib.rs`), so two features reacting to one event never race: review
+//! reads a finished turn's reply before orchestration can send that thread its reports.
 
 use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainEvent {
-    /// A thread's turn is over (or its engine exited) and its status has settled.
-    TurnEnded { thread_id: String },
+    /// A thread's turn is over (or its engine exited, or the turn was stopped or its session
+    /// replaced) and its status has settled.
+    TurnEnded {
+        thread_id: String,
+        /// What the turn answered and said, as transcript seqs; see [`TurnSpan`].
+        span: TurnSpan,
+        /// The user stopped it, or replaced its session, before it finished.
+        stopped: bool,
+    },
+    /// Messages held for a thread until it could take them were dropped unsent, because it was
+    /// stopped or its session replaced. Each is the seq its message was saved at.
+    PromptsDropped {
+        thread_id: String,
+        message_seqs: Vec<i64>,
+    },
     /// A thread is waiting on the user to answer an approval or a question.
     ApprovalRequested {
         thread_id: String,
@@ -18,6 +37,8 @@ pub enum DomainEvent {
         /// The kind of thing it would do, as the approval row names it.
         tool: String,
     },
+    /// Approvals nobody answered were denied because the engine that asked stopped waiting.
+    ApprovalsCancelled { thread_id: String },
     /// A workspace's setup failed for good.
     ProvisioningFailed {
         workspace_id: String,
@@ -25,42 +46,127 @@ pub enum DomainEvent {
     },
 }
 
+/// Where a turn sits in its thread's transcript: after the message that started it (`since`,
+/// unknown for a turn the app didn't start), through the last message saved before it ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TurnSpan {
+    pub since: Option<i64>,
+    pub through: i64,
+}
+
+type Handler = dyn Fn(DomainEvent) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
+
 #[derive(Clone)]
-pub struct Bus(broadcast::Sender<DomainEvent>);
+pub struct Bus {
+    sender: broadcast::Sender<DomainEvent>,
+    listeners: Arc<Mutex<Vec<Arc<Handler>>>>,
+}
 
 impl Default for Bus {
     fn default() -> Self {
-        Self(broadcast::channel(128).0)
+        Self {
+            sender: broadcast::channel(128).0,
+            listeners: Arc::default(),
+        }
     }
 }
 
 impl Bus {
     pub fn publish(&self, event: DomainEvent) {
         // Nobody listening is fine: nothing needed to react.
-        let _ = self.0.send(event);
+        let _ = self.sender.send(event);
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<DomainEvent> {
-        self.0.subscribe()
+        self.sender.subscribe()
     }
 
-    /// Runs `handle` for every event from now on, one at a time, for the life of the app.
-    pub fn listen<F, Fut>(&self, mut handle: F)
+    /// Runs `handle` for every event from now on, after the listeners that started before it,
+    /// for the life of the app.
+    pub fn listen<F, Fut>(&self, handle: F)
     where
-        F: FnMut(DomainEvent) -> Fut + Send + 'static,
-        Fut: Future<Output = ()> + Send,
+        F: Fn(DomainEvent) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
     {
+        let handler: Arc<Handler> = Arc::new(move |event| Box::pin(handle(event)));
+        let first = {
+            let mut listeners = self
+                .listeners
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            listeners.push(handler);
+            listeners.len() == 1
+        };
+        if first {
+            self.dispatch();
+        }
+    }
+
+    fn dispatch(&self) {
         let mut events = self.subscribe();
+        let listeners = self.listeners.clone();
         tauri::async_runtime::spawn(async move {
             loop {
                 match events.recv().await {
-                    Ok(event) => handle(event).await,
+                    Ok(event) => {
+                        let handlers = listeners
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .clone();
+                        for handle in handlers {
+                            handle(event.clone()).await;
+                        }
+                    }
                     Err(RecvError::Lagged(missed)) => {
-                        log::warn!("a listener missed {missed} core events");
+                        log::warn!("the core's listeners missed {missed} events");
                     }
                     Err(RecvError::Closed) => break,
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Bug: each listener ran in its own task, so orchestration could send a Lead its reports
+    /// before review had read the reply the Lead's turn ended with.
+    #[tokio::test]
+    async fn each_event_reaches_every_listener_in_turn_before_the_next() {
+        let bus = Bus::default();
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        for name in ["first", "second"] {
+            let heard = heard.clone();
+            bus.listen(move |event| {
+                let heard = heard.clone();
+                async move {
+                    if name == "first" {
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                    if let DomainEvent::ApprovalsCancelled { thread_id } = event {
+                        heard.lock().unwrap().push(format!("{name} {thread_id}"));
+                    }
+                }
+            });
+        }
+
+        for thread_id in ["a", "b"] {
+            bus.publish(DomainEvent::ApprovalsCancelled {
+                thread_id: thread_id.into(),
+            });
+        }
+        for _ in 0..250 {
+            if heard.lock().unwrap().len() == 4 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        assert_eq!(
+            *heard.lock().unwrap(),
+            ["first a", "second a", "first b", "second b"]
+        );
     }
 }

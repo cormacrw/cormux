@@ -93,6 +93,34 @@ impl Transcript {
             .collect())
     }
 
+    /// What the agent said in one turn: after the message at `since` through the one at
+    /// `through`. Messages the user sent meanwhile were held for the next turn, so they don't
+    /// cut it short. With no `since`, the turn began at the user's last message.
+    pub fn turn_reply(&self, thread_id: &str, since: Option<i64>, through: i64) -> Result<String> {
+        let mut said_in_turn = Vec::new();
+        self.store
+            .visit_events(thread_id, Some(MESSAGE), true, |seq, kind, payload| {
+                if seq > through {
+                    return true;
+                }
+                if since.is_some_and(|since| seq <= since) {
+                    return false;
+                }
+                match said(kind, payload) {
+                    Some((Speaker::User, _)) if since.is_none() => return false,
+                    Some((Speaker::User, _)) | None => {}
+                    Some(said) => said_in_turn.push(said),
+                }
+                true
+            })?;
+        said_in_turn.reverse();
+        Ok(join(said_in_turn)
+            .into_iter()
+            .filter(|entry| entry.speaker == Speaker::Agent)
+            .map(|entry| entry.text)
+            .collect())
+    }
+
     /// Where the thread's conversation last moved, so a turn is only reported once.
     pub fn last_message_seq(&self, thread_id: &str) -> Result<i64> {
         self.store.last_seq_of_kind(thread_id, MESSAGE)
@@ -208,6 +236,25 @@ mod tests {
         transcript.append("t1", agent("good.")).unwrap();
         assert_eq!(transcript.last_agent_reply("t1").unwrap(), "Looks good.");
         assert_eq!(transcript.last_agent_reply("none").unwrap(), "");
+    }
+
+    #[test]
+    fn a_turns_reply_skips_messages_held_for_the_next_and_stops_where_it_ended() {
+        let transcript = transcript();
+        transcript.append("t1", agent("old")).unwrap();
+        let since = transcript.record_user_message("t1", "review").unwrap();
+        transcript.append("t1", agent("Found ")).unwrap();
+        transcript.record_user_message("t1", "also this").unwrap();
+        let through = transcript.append("t1", agent("one.")).unwrap();
+        transcript
+            .record_user_message("t1", "<thread_report>")
+            .unwrap();
+
+        assert_eq!(
+            transcript.turn_reply("t1", Some(since), through).unwrap(),
+            "Found one."
+        );
+        assert_eq!(transcript.turn_reply("t1", None, through).unwrap(), "one.");
     }
 
     #[test]

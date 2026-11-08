@@ -104,11 +104,14 @@ pub fn run() {
             state.engines.spawn_idle_reaper();
             app.manage(state.clone());
 
-            feedback::start(&state.bus, &state.out);
             host_tools::start(&state);
             turn::start_settling(&state);
-            orchestration::start(&state);
+            // The bus hands each event to its listeners in this order; orchestration, which
+            // starts new turns, hears last.
+            approvals::start(&state);
             review::start(&state);
+            findings::start(&state);
+            orchestration::start(&state);
             let focus = app.handle().clone();
             let events = app.handle().clone();
             metrics::start(

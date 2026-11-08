@@ -2,36 +2,39 @@
 //! swapping the session under it, and settling it when the engine says the turn is over.
 //! Everything that moves a thread's status comes through here and `Workspaces::set_thread_status`,
 //! so a thread only reads as running once the engine has its prompt, and every prompt an engine
-//! gets is sent from here.
+//! gets is sent from here. These run one at a time per thread, the settling of a turn's end
+//! included, so none of them acts on a status another is changing.
 //!
 //! Creating a thread's row (`provisioning`) and setup handing it its first turn are the
-//! exceptions: setup owns the workspace until then.
+//! exceptions: setup owns the workspace until then, and a message sent meanwhile is refused.
 //!
-//! Pausing interrupts the turn and holds the thread: what is sent meanwhile queues, and resuming
-//! sends the queue, or tells the agent to continue. Once a turn has settled, `TurnEnded` goes out
-//! on the bus for the features that react to it. The end of a turn that was paused, or of an
-//! engine that was shut down on purpose, settles nothing: the thread already moved on.
+//! A message for a thread that can't take one now is held: a running thread gets it when its
+//! turn ends, a paused one when it resumes (or is told to continue if nothing was held). Pausing
+//! interrupts the turn and holds the thread. Once a turn has settled, `TurnEnded` goes out on the
+//! bus for the features that react to it. The end of a turn that was paused, or of an engine
+//! that was shut down on purpose, settles nothing: the thread already moved on.
 
 pub mod commands;
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use tokio::sync::OwnedMutexGuard;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::attachments::PromptAttachment;
-use crate::bus::DomainEvent;
+use crate::bus::{DomainEvent, TurnSpan};
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
-use crate::model::ThreadStatus;
+use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::state::AppState;
 use crate::store::types::ThreadRow;
 use crate::thread_runtime::TurnEnd;
 use crate::timeline::TimelineStep;
 
-/// What a resumed thread is told when nothing queued while it was paused.
+/// What a resumed thread is told when nothing was held while it was paused.
 const RESUME_PROMPT: &str = "continue";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -42,37 +45,72 @@ pub struct ResumeThreadSessionInput {
     pub conversation_id: String,
 }
 
-/// Prompts sent to paused threads, waiting for their resume. In memory: a restart ends every
-/// turn, pauses included.
+/// Each thread's turn as this module keeps it. In memory: a restart ends every turn, pauses
+/// included.
 #[derive(Default)]
-pub struct PausedQueues(Mutex<HashMap<String, Vec<Prompt>>>);
+pub struct Turns {
+    operations: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    held: Mutex<HashMap<String, Vec<Held>>>,
+    /// The seq of the message that started each thread's current turn.
+    began: Mutex<HashMap<String, i64>>,
+}
 
-impl PausedQueues {
-    fn push(&self, thread_id: &str, prompt: Prompt) -> Result<()> {
-        self.0
+/// A message waiting for its thread to take it, with the seq it was saved at.
+struct Held {
+    seq: i64,
+    prompt: Prompt,
+}
+
+impl Turns {
+    async fn operation(&self, thread_id: &str) -> OwnedMutexGuard<()> {
+        let lock = self
+            .operations
             .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?
+            .unwrap_or_else(|error| error.into_inner())
             .entry(thread_id.to_string())
             .or_default()
-            .push(prompt);
-        Ok(())
+            .clone();
+        lock.lock_owned().await
     }
 
-    fn take(&self, thread_id: &str) -> Vec<Prompt> {
-        self.0
+    fn hold(&self, thread_id: &str, held: Held) {
+        self.held
             .lock()
-            .ok()
-            .and_then(|mut queues| queues.remove(thread_id))
+            .unwrap_or_else(|error| error.into_inner())
+            .entry(thread_id.to_string())
+            .or_default()
+            .push(held);
+    }
+
+    fn take(&self, thread_id: &str) -> Vec<Held> {
+        self.held
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(thread_id)
             .unwrap_or_default()
     }
 
-    /// Puts back prompts that couldn't be sent, ahead of any queued since.
-    fn restore(&self, thread_id: &str, mut prompts: Vec<Prompt>) {
-        if let Ok(mut queues) = self.0.lock() {
-            let queue = queues.entry(thread_id.to_string()).or_default();
-            prompts.append(queue);
-            *queue = prompts;
-        }
+    /// Puts back messages that couldn't be sent, ahead of any held since.
+    fn restore(&self, thread_id: &str, mut prompts: Vec<Held>) {
+        let mut held = self.held.lock().unwrap_or_else(|error| error.into_inner());
+        let queue = held.entry(thread_id.to_string()).or_default();
+        prompts.append(queue);
+        *queue = prompts;
+    }
+
+    fn set_began(&self, thread_id: &str, seq: i64) {
+        self.began
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(thread_id.to_string(), seq);
+    }
+
+    fn began(&self, thread_id: &str) -> Option<i64> {
+        self.began
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(thread_id)
+            .copied()
     }
 }
 
@@ -117,24 +155,66 @@ pub async fn submit(
 }
 
 /// Starts a turn: `shown` goes in the thread for the user to read, `prompt` to the engine. The
-/// engine is started if it isn't running. A paused thread queues the prompt for its resume and
-/// stays paused. If this fails the thread keeps its status, though `shown` stays in the thread.
-/// Returns where `shown` was saved.
+/// engine is started if it isn't running. A thread mid-turn holds the prompt (see the module
+/// docs) and keeps its status. If this fails the thread keeps its status, though `shown` stays
+/// in the thread. Returns where `shown` was saved.
 pub async fn start(
     state: &AppState,
     thread: &ThreadRow,
     shown: &str,
     prompt: impl Into<Prompt>,
 ) -> Result<i64> {
+    let _turn = state.turns.operation(&thread.id).await;
+    let thread = thread_row(state, &thread.id)?;
+    refuse_during_setup(state, &thread).await?;
     // First, so the thread shows the message while an engine takes its time to start.
     let seq = state.transcript.record_user_message(&thread.id, shown)?;
-    if thread.status == ThreadStatus::Paused {
-        state.paused.push(&thread.id, prompt.into())?;
+    let held = Held {
+        seq,
+        prompt: prompt.into(),
+    };
+    if holds(state, &thread) {
+        state.turns.hold(&thread.id, held);
     } else {
-        send(state, thread, prompt.into()).await?;
+        let earlier = state.turns.take(&thread.id);
+        let mut prompts = earlier;
+        let kept = prompts.len();
+        prompts.push(held);
+        if let Err((error, mut unsent)) = deliver(state, &thread, prompts).await {
+            unsent.truncate(kept);
+            state.turns.restore(&thread.id, unsent);
+            return Err(error);
+        }
     }
     state.out.changed();
     Ok(seq)
+}
+
+/// A paused thread waits for its resume; a running one for its turn to end, unless its engine
+/// is gone, in which case nothing would end the turn and the message starts the next.
+fn holds(state: &AppState, thread: &ThreadRow) -> bool {
+    match thread.status {
+        ThreadStatus::Paused => true,
+        ThreadStatus::Running => state.engines.has_thread(&thread.id),
+        _ => false,
+    }
+}
+
+/// Sends `prompts` as one turn, which begins at the newest of them. On failure they come back.
+async fn deliver(
+    state: &AppState,
+    thread: &ThreadRow,
+    prompts: Vec<Held>,
+) -> std::result::Result<(), (Error, Vec<Held>)> {
+    let since = prompts.iter().map(|held| held.seq).max();
+    let prompt = Prompt::merge(prompts.iter().map(|held| held.prompt.clone()).collect());
+    if let Err(error) = send(state, thread, prompt).await {
+        return Err((error, prompts));
+    }
+    if let Some(since) = since {
+        state.turns.set_began(&thread.id, since);
+    }
+    Ok(())
 }
 
 /// A failed send leaves the status alone: nothing would ever end a turn marked running.
@@ -155,35 +235,47 @@ pub async fn begin(
     workspace_id: &str,
     prompt: impl Into<Prompt>,
 ) -> Result<()> {
+    let _turn = state.turns.operation(thread_id).await;
     state.engines.start(thread_id, workspace_id).await?;
     let prompt = prompt.into();
     if prompt.text.is_empty() && prompt.images.is_empty() {
         return Ok(());
     }
-    state.engines.prompt(thread_id, prompt)
+    state.engines.prompt(thread_id, prompt)?;
+    state
+        .turns
+        .set_began(thread_id, state.transcript.last_message_seq(thread_id)?);
+    Ok(())
 }
 
 /// The thread reads as stopped at once, whatever the engine is still finishing: the step saying
 /// who stopped it goes in the transcript now, and the engine reports the turn's end itself once
-/// it has cancelled. Stopping ends a pause too, and drops whatever queued behind it.
+/// it has cancelled. Stopping ends a pause too, and drops whatever was held for the thread.
 pub async fn stop(state: &AppState, thread_id: &str) -> Result<()> {
+    let _turn = state.turns.operation(thread_id).await;
     let thread = thread_row(state, thread_id)?;
-    if thread.status.is_unfinished()
-        && state.engines.has_thread(thread_id)
-        && let Err(error) = state.engines.cancel(thread_id)
-    {
-        log::warn!("cancelling {thread_id}'s turn: {error}");
+    let mut engine_reports_end = false;
+    if thread.status.is_unfinished() && state.engines.has_thread(thread_id) {
+        match state.engines.cancel(thread_id) {
+            Ok(()) => engine_reports_end = thread.status == ThreadStatus::Running,
+            Err(error) => log::warn!("cancelling {thread_id}'s turn: {error}"),
+        }
     }
-    state.paused.take(thread_id);
+    let dropped = state.turns.take(thread_id);
     state
         .transcript
         .record_step(thread_id, TimelineStep::AgentStopped)?;
     record(state, &thread, ThreadStatus::Idle).await?;
     state.out.changed();
+    announce_dropped(state, thread_id, dropped);
+    if thread.status.is_mid_turn() && !engine_reports_end {
+        announce_stopped(state, thread_id)?;
+    }
     Ok(())
 }
 
 pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
+    let _turn = state.turns.operation(thread_id).await;
     let thread = thread_row(state, thread_id)?;
     if thread.status != ThreadStatus::Running {
         return Ok(());
@@ -200,23 +292,26 @@ pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Sends what queued while the thread was paused, or tells it to continue. If the engine can't
-/// take it the thread stays paused, with its queue.
+/// Sends what was held while the thread was paused, or tells it to continue. If the engine
+/// can't take it the thread stays paused, with what was held.
 pub async fn resume(state: &AppState, thread_id: &str) -> Result<()> {
+    let _turn = state.turns.operation(thread_id).await;
     let thread = thread_row(state, thread_id)?;
     if thread.status != ThreadStatus::Paused {
         return Ok(());
     }
-    let queued = state.paused.take(thread_id);
-    let prompt = if queued.is_empty() {
-        RESUME_PROMPT.into()
+    let held = state.turns.take(thread_id);
+    let sent = if held.is_empty() {
+        send(state, &thread, RESUME_PROMPT.into()).await
     } else {
-        Prompt::merge(queued.clone())
+        deliver(state, &thread, held)
+            .await
+            .map_err(|(error, unsent)| {
+                state.turns.restore(thread_id, unsent);
+                error
+            })
     };
-    if let Err(error) = send(state, &thread, prompt).await {
-        state.paused.restore(thread_id, queued);
-        return Err(error);
-    }
+    sent?;
     state
         .transcript
         .record_step(thread_id, TimelineStep::AgentResumed)?;
@@ -226,11 +321,12 @@ pub async fn resume(state: &AppState, thread_id: &str) -> Result<()> {
 
 /// The step records the session it ended, so the conversation can be resumed later.
 pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
+    let _turn = state.turns.operation(thread_id).await;
     let thread = thread_row(state, thread_id)?;
     refuse_retired(&thread)?;
     let ended = state.store.thread_session(thread_id)?;
     state.engines.discard(thread_id)?;
-    state.paused.take(thread_id);
+    let dropped = state.turns.take(thread_id);
     state.store.clear_thread_session(thread_id)?;
     state.transcript.record_step(
         thread_id,
@@ -240,11 +336,12 @@ pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
     )?;
     record(state, &thread, ThreadStatus::Idle).await?;
     state.out.changed();
-    Ok(())
+    settle_replaced(state, &thread, dropped)
 }
 
 pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -> Result<()> {
     let thread_id = input.thread_id;
+    let _turn = state.turns.operation(&thread_id).await;
     let thread = thread_row(state, &thread_id)?;
     refuse_retired(&thread)?;
     let session = state
@@ -252,7 +349,7 @@ pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -
         .session_to_resume(&thread_id, &input.conversation_id)?;
     let ended = state.store.thread_session(&thread_id)?;
     state.engines.discard(&thread_id)?;
-    state.paused.take(&thread_id);
+    let dropped = state.turns.take(&thread_id);
     match session.as_deref() {
         Some(session) => state.store.set_thread_session(&thread_id, session)?,
         None => state.store.clear_thread_session(&thread_id)?,
@@ -266,17 +363,55 @@ pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -
     )?;
     record(state, &thread, ThreadStatus::Idle).await?;
     state.out.changed();
+    settle_replaced(state, &thread, dropped)
+}
+
+/// A replaced session's engine reports nothing, so a turn it was in the middle of ends here.
+fn settle_replaced(state: &AppState, thread: &ThreadRow, dropped: Vec<Held>) -> Result<()> {
+    announce_dropped(state, &thread.id, dropped);
+    if thread.status.is_mid_turn() {
+        announce_stopped(state, &thread.id)?;
+    }
     Ok(())
 }
 
-/// Settles a thread whose engine ended its turn or exited: idle, unless it's paused. Then the
-/// features that react to a turn ending hear of it, reading the thread as it now is.
+fn announce_dropped(state: &AppState, thread_id: &str, dropped: Vec<Held>) {
+    if dropped.is_empty() {
+        return;
+    }
+    state.bus.publish(DomainEvent::PromptsDropped {
+        thread_id: thread_id.to_string(),
+        message_seqs: dropped.iter().map(|held| held.seq).collect(),
+    });
+}
+
+fn announce_stopped(state: &AppState, thread_id: &str) -> Result<()> {
+    let span = span(state, thread_id)?;
+    state.bus.publish(DomainEvent::TurnEnded {
+        thread_id: thread_id.to_string(),
+        span,
+        stopped: true,
+    });
+    Ok(())
+}
+
+fn span(state: &AppState, thread_id: &str) -> Result<TurnSpan> {
+    Ok(TurnSpan {
+        since: state.turns.began(thread_id),
+        through: state.transcript.last_message_seq(thread_id)?,
+    })
+}
+
+/// Settles a thread whose engine ended its turn or exited: idle, unless it's paused or messages
+/// were held for it, which then start its next turn. Then the features that react to a turn
+/// ending hear of it, reading the thread as it now is.
 ///
 /// An end from an engine since replaced or shut down is dropped. So is an interrupted turn's,
 /// unless it was stopped and nothing has started since: a paused turn isn't over, and a turn
 /// started after a stop isn't the one that ended.
 pub async fn ended(state: &AppState, end: &TurnEnd) {
     let thread_id = end.thread_id.as_str();
+    let _turn = state.turns.operation(thread_id).await;
     if !state.engines.is_current(thread_id, end.engine) {
         return;
     }
@@ -288,19 +423,41 @@ pub async fn ended(state: &AppState, end: &TurnEnd) {
             return;
         }
     };
-    if end.interrupted {
-        if thread.status.is_unfinished() {
+    if end.interrupted && thread.status.is_unfinished() {
+        return;
+    }
+    let span = match span(state, thread_id) {
+        Ok(span) => span,
+        Err(error) => {
+            log::warn!("reading where {thread_id}'s turn ended: {error}");
             return;
         }
-    } else if thread.status != ThreadStatus::Paused
-        && let Err(error) = record(state, &thread, ThreadStatus::Idle).await
-    {
-        log::warn!("settling thread {thread_id}: {error}");
+    };
+    if !end.interrupted && thread.status != ThreadStatus::Paused {
+        settle(state, &thread).await;
     }
     state.out.changed();
     state.bus.publish(DomainEvent::TurnEnded {
         thread_id: thread_id.to_string(),
+        span,
+        stopped: end.interrupted,
     });
+}
+
+async fn settle(state: &AppState, thread: &ThreadRow) {
+    let held = state.turns.take(&thread.id);
+    if !held.is_empty() {
+        match deliver(state, thread, held).await {
+            Ok(()) => return,
+            Err((error, unsent)) => {
+                log::warn!("sending {}'s held messages: {error}", thread.id);
+                state.turns.restore(&thread.id, unsent);
+            }
+        }
+    }
+    if let Err(error) = record(state, thread, ThreadStatus::Idle).await {
+        log::warn!("settling thread {}: {error}", thread.id);
+    }
 }
 
 /// The thread's current engine ending its turn, as a test reports it.
@@ -336,6 +493,21 @@ fn refuse_retired(thread: &ThreadRow) -> Result<()> {
     if thread.retired {
         return Err(Error::Workspace(
             "this thread is read-only; start a new thread to carry on".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Setup launches the thread's engine itself once it's done, and would replace one started now.
+async fn refuse_during_setup(state: &AppState, thread: &ThreadRow) -> Result<()> {
+    let setting_up = state
+        .workspaces
+        .get(&thread.workspace_id)
+        .await
+        .is_ok_and(|workspace| workspace.status == WorkspaceLifecycle::Provisioning);
+    if setting_up {
+        return Err(Error::Workspace(
+            "This workspace is still being set up; send once setup is done.".into(),
         ));
     }
     Ok(())
@@ -690,7 +862,12 @@ mod tests {
         assert_eq!(
             events.try_recv().unwrap(),
             DomainEvent::TurnEnded {
-                thread_id: T.into()
+                thread_id: T.into(),
+                span: TurnSpan {
+                    since: None,
+                    through: 0
+                },
+                stopped: false,
             }
         );
     }
@@ -894,5 +1071,91 @@ mod tests {
             faked(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
 
         assert!(stop(&state, "no-such-thread").await.is_err());
+    }
+
+    /// Bug: a message sent while the agent worked went to the engine at once, so the first
+    /// turn's end idled the thread while the engine ran the second, and a review read a reply
+    /// still being written.
+    #[tokio::test]
+    async fn a_message_sent_mid_turn_waits_for_the_turns_end_and_starts_the_next() {
+        let (state, _recording, fake) = faked(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
+        let mut engine = fake.engine(T);
+        let mut ends = state.engines.turn_ends();
+        let mut events = state.bus.subscribe();
+        start(&state, &thread_row(&state, T).unwrap(), "go", "go")
+            .await
+            .unwrap();
+        assert_eq!(prompts(&mut engine), ["go"]);
+
+        let later = start(&state, &thread_row(&state, T).unwrap(), "also", "also")
+            .await
+            .unwrap();
+        assert!(prompts(&mut engine).is_empty());
+        assert_eq!(
+            state.transcript.last_message_seq(T).unwrap(),
+            later,
+            "it shows at once"
+        );
+
+        report_end(&state, &fake, &mut ends).await;
+        assert_eq!(prompts(&mut engine), ["also"]);
+        assert_eq!(thread_status(&state, T), "running");
+        assert!(turn_ended(&mut events), "the first turn is over");
+
+        report_end(&state, &fake, &mut ends).await;
+        assert_eq!(thread_status(&state, T), "idle");
+        let last = std::iter::from_fn(|| events.try_recv().ok()).last();
+        assert!(
+            matches!(last, Some(DomainEvent::TurnEnded { span, .. }) if span.since == Some(later)),
+            "the second turn began at the held message: {last:?}"
+        );
+    }
+
+    /// Bug: only `ensure` took the launch lock and a message could start a turn during setup,
+    /// so setup's own launch then shut the user's turn down mid-prompt.
+    #[tokio::test]
+    async fn a_message_during_setup_is_refused_and_launches_nothing() {
+        let (state, _recording, fake) =
+            faked(ThreadStatus::Provisioning, WorkspaceLifecycle::Provisioning).await;
+        let mut engine = fake.engine(T);
+
+        let refused = start(&state, &thread_row(&state, T).unwrap(), "hi", "hi").await;
+
+        assert!(refused.unwrap_err().to_string().contains("set up"));
+        assert!(!state.engines.has_thread(T));
+        assert!(prompts(&mut engine).is_empty());
+        assert_eq!(user_messages(&state, T), 0);
+    }
+
+    #[tokio::test]
+    async fn stopping_or_replacing_a_paused_turn_ends_it_and_drops_what_was_held() {
+        for replace in [false, true] {
+            let (state, _engine, _recording) =
+                seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
+            pause(&state, T).await.unwrap();
+            let held = start(&state, &thread_row(&state, T).unwrap(), "later", "later")
+                .await
+                .unwrap();
+            let mut events = state.bus.subscribe();
+
+            if replace {
+                new_session(&state, T).await.unwrap();
+            } else {
+                stop(&state, T).await.unwrap();
+            }
+
+            let published: Vec<DomainEvent> =
+                std::iter::from_fn(|| events.try_recv().ok()).collect();
+            assert!(published.contains(&DomainEvent::PromptsDropped {
+                thread_id: T.into(),
+                message_seqs: vec![held],
+            }));
+            assert!(
+                published
+                    .iter()
+                    .any(|event| matches!(event, DomainEvent::TurnEnded { stopped: true, .. })),
+                "{published:?}"
+            );
+        }
     }
 }

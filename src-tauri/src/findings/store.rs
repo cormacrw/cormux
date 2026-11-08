@@ -21,6 +21,29 @@ pub struct FindingRow {
     pub sent_to_thread_id: Option<String>,
 }
 
+/// The findings a thread was last sent to fix, and the seq of the message that sent them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FindingsBatch {
+    pub ids: Vec<String>,
+    #[serde(default)]
+    pub message_seq: Option<i64>,
+}
+
+impl FindingsBatch {
+    /// Older builds saved the ids alone.
+    fn parse(raw: &str) -> Self {
+        serde_json::from_str(raw)
+            .or_else(|_| {
+                serde_json::from_str(raw).map(|ids| Self {
+                    ids,
+                    message_seq: None,
+                })
+            })
+            .unwrap_or_default()
+    }
+}
+
 const FINDING_COLUMNS: &str = "SELECT id, workspace_id, severity, title, file, line, explanation,
         status, commit_sha, sent_to_thread_id FROM findings";
 
@@ -137,7 +160,7 @@ impl Store {
     }
 
     /// The findings `thread_id` was last sent to fix, which it works through as one batch.
-    pub fn findings_batch(&self, thread_id: &str) -> Result<Vec<String>> {
+    pub fn findings_batch(&self, thread_id: &str) -> Result<FindingsBatch> {
         let raw: Option<String> = self.with_read(|conn| {
             Ok(conn
                 .query_row(
@@ -149,18 +172,37 @@ impl Store {
                 .flatten())
         })?;
         Ok(raw
-            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .map(|raw| FindingsBatch::parse(&raw))
             .unwrap_or_default())
     }
 
-    pub fn set_findings_batch(&self, thread_id: &str, finding_ids: &[String]) -> Result<()> {
+    pub fn set_findings_batch(&self, thread_id: &str, batch: &FindingsBatch) -> Result<()> {
         let batch =
-            serde_json::to_string(finding_ids).map_err(|error| Error::Store(error.to_string()))?;
+            serde_json::to_string(batch).map_err(|error| Error::Store(error.to_string()))?;
         self.with_conn(|conn| {
             conn.execute(
                 "UPDATE threads SET findings_batch = ?1 WHERE id = ?2",
                 rusqlite::params![batch, thread_id],
             )?;
+            Ok(())
+        })
+    }
+
+    /// Findings sent to `thread_id` that it never got go back to open, to be sent again.
+    pub fn reopen_findings(&self, finding_ids: &[String], thread_id: &str) -> Result<()> {
+        self.with_tx(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "UPDATE findings SET status = ?1, sent_to_thread_id = NULL
+                 WHERE id = ?2 AND status = ?3 AND sent_to_thread_id = ?4",
+            )?;
+            for id in finding_ids {
+                stmt.execute(rusqlite::params![
+                    FindingStatus::Open.as_str(),
+                    id,
+                    FindingStatus::Sent.as_str(),
+                    thread_id
+                ])?;
+            }
             Ok(())
         })
     }

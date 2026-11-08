@@ -6,14 +6,15 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::bus::DomainEvent;
 use crate::engines::AgentEvent;
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
 use crate::timeline::TimelineStep;
 
-pub use store::FindingRow;
 pub(crate) use store::live as live_in;
+pub use store::{FindingRow, FindingsBatch};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -82,8 +83,9 @@ pub async fn send_workspace_findings(
         finding_ids.join(", ")
     );
     // First, so findings that never reached the thread stay open to send again.
-    crate::turn::start(state, &thread, &user_text, build_fix_prompt(&picked)).await?;
-    record_batch(state, thread_id, &finding_ids)?;
+    let message_seq =
+        crate::turn::start(state, &thread, &user_text, build_fix_prompt(&picked)).await?;
+    record_batch(state, thread_id, &finding_ids, Some(message_seq))?;
 
     let titles = picked.iter().map(|row| row.title.clone()).collect();
     state.transcript.record_step(
@@ -130,9 +132,55 @@ pub async fn send_workspace_findings(
     Ok(())
 }
 
-pub fn record_batch(state: &AppState, thread_id: &str, finding_ids: &[String]) -> Result<()> {
+pub fn record_batch(
+    state: &AppState,
+    thread_id: &str,
+    finding_ids: &[String],
+    message_seq: Option<i64>,
+) -> Result<()> {
     state.store.mark_findings_sent(finding_ids, thread_id)?;
-    state.store.set_findings_batch(thread_id, finding_ids)
+    state.store.set_findings_batch(
+        thread_id,
+        &FindingsBatch {
+            ids: finding_ids.to_vec(),
+            message_seq,
+        },
+    )
+}
+
+/// Findings whose message was dropped before the thread took it (it was stopped while paused,
+/// or its session replaced) are open again, for the life of the app.
+pub fn start(state: &AppState) {
+    let state = state.clone();
+    state.bus.clone().listen(move |event| {
+        let state = state.clone();
+        async move {
+            if let DomainEvent::PromptsDropped {
+                thread_id,
+                message_seqs,
+            } = event
+                && let Err(error) = reopen_dropped(&state, &thread_id, &message_seqs)
+            {
+                log::warn!("reopening findings {thread_id} never got: {error}");
+            }
+        }
+    });
+}
+
+fn reopen_dropped(state: &AppState, thread_id: &str, message_seqs: &[i64]) -> Result<()> {
+    let batch = state.store.findings_batch(thread_id)?;
+    if !batch
+        .message_seq
+        .is_some_and(|seq| message_seqs.contains(&seq))
+    {
+        return Ok(());
+    }
+    state.store.reopen_findings(&batch.ids, thread_id)?;
+    state
+        .store
+        .set_findings_batch(thread_id, &FindingsBatch::default())?;
+    state.out.changed();
+    Ok(())
 }
 
 pub fn dismiss_findings(state: &AppState, input: DismissWorkspaceFindingsInput) -> Result<()> {
@@ -164,7 +212,7 @@ fn build_fix_prompt(findings: &[FindingRow]) -> String {
 }
 
 /// A finding in `thread_id`'s open batch is fixed. Once every finding in the batch is, the batch
-/// is recorded as done and the thread idles.
+/// is recorded as done; the thread settles when its turn ends.
 pub async fn mark_fixed(
     state: &AppState,
     thread_id: &str,
@@ -175,7 +223,7 @@ pub async fn mark_fixed(
         .store
         .finding_by_id(finding_id)?
         .is_some_and(|finding| finding.sent_to_thread_id.as_deref() == Some(thread_id));
-    let batch = state.store.findings_batch(thread_id)?;
+    let batch = state.store.findings_batch(thread_id)?.ids;
     if !sent_here || !batch.iter().any(|id| id == finding_id) {
         return Err(Error::Workspace(format!(
             "finding {finding_id} isn't one this thread was sent to fix"
@@ -221,7 +269,9 @@ fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[String]) ->
         },
     )?;
 
-    state.store.set_findings_batch(thread_id, &[])?;
+    state
+        .store
+        .set_findings_batch(thread_id, &FindingsBatch::default())?;
 
     state.out.changed();
     Ok(())
@@ -375,6 +425,70 @@ mod tests {
 
         crate::turn::resume(&state, T).await.unwrap();
         assert!(prompts(&mut engine)[0].contains("id=f1"));
+    }
+
+    /// Bug: findings sent to a paused thread were marked sent, then lost when Stop dropped the
+    /// message, and a sent finding could be neither sent again nor dismissed.
+    #[tokio::test]
+    async fn findings_a_paused_thread_never_got_are_open_again() {
+        let (state, fake, ids, _recording) = with_findings(ThreadStatus::Paused).await;
+        let _engine = fake.engine(T);
+        let mut events = state.bus.subscribe();
+        send_workspace_findings(&state, W, T, ids.clone())
+            .await
+            .unwrap();
+        assert_eq!(finding_status(&state, "f1"), "sent");
+
+        crate::turn::stop(&state, T).await.unwrap();
+        while let Ok(event) = events.try_recv() {
+            if let DomainEvent::PromptsDropped {
+                thread_id,
+                message_seqs,
+            } = event
+            {
+                reopen_dropped(&state, &thread_id, &message_seqs).unwrap();
+            }
+        }
+
+        assert_eq!(finding_status(&state, "f1"), "open");
+        assert_eq!(finding_status(&state, "f2"), "open");
+        assert!(state.store.findings_batch(T).unwrap().ids.is_empty());
+        send_workspace_findings(&state, W, T, ids).await.unwrap();
+        assert_eq!(finding_status(&state, "f1"), "sent");
+    }
+
+    #[tokio::test]
+    async fn a_dropped_message_that_wasnt_the_batch_leaves_it_sent() {
+        let (state, _fake, ids, _recording) = with_findings(ThreadStatus::Idle).await;
+        send_workspace_findings(&state, W, T, ids).await.unwrap();
+
+        reopen_dropped(&state, T, &[9_999]).unwrap();
+
+        assert_eq!(finding_status(&state, "f1"), "sent");
+    }
+
+    #[test]
+    fn a_batch_saved_by_an_older_build_still_reads() {
+        let store = crate::store::Store::in_memory().unwrap();
+        store.seed_workspace(W, WorkspaceLifecycle::Idle);
+        store.seed_thread(T, W, ThreadStatus::Idle);
+        store
+            .with_conn(|conn| {
+                conn.execute(
+                    "UPDATE threads SET findings_batch = '[\"f1\"]' WHERE id = ?1",
+                    [T],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(
+            store.findings_batch(T).unwrap(),
+            FindingsBatch {
+                ids: vec!["f1".into()],
+                message_seq: None
+            }
+        );
     }
 
     #[tokio::test]

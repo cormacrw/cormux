@@ -1,11 +1,11 @@
 mod findings_block;
 mod store;
 
-use crate::bus::DomainEvent;
+use crate::bus::{DomainEvent, TurnSpan};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
-use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
+use crate::feedback::{NotificationPayload, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::findings::FindingRow;
 use crate::github::RepoSlug;
 use crate::github::auth;
@@ -13,11 +13,11 @@ use crate::github::review::{
     ReviewLineComment, ReviewPosted, ReviewVerdict, SubmitPullRequestReviewInput,
 };
 use crate::github::types::PullRequestPayload;
-use crate::model::WorkspaceKind;
+use crate::model::{WorkspaceKind, WorkspaceLifecycle};
 use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
 use crate::store::Store;
-use crate::store::types::WorkspaceRow;
+use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::timeline::TimelineStep;
 use crate::transcript::TranscriptEvent;
 use crate::workspace_git::Checkout;
@@ -283,8 +283,12 @@ pub fn start(state: &AppState) {
     state.bus.clone().listen(move |event| {
         let state = state.clone();
         async move {
-            if let DomainEvent::TurnEnded { thread_id } = event
-                && let Err(error) = on_reviewer_turn_end(&state, &thread_id).await
+            if let DomainEvent::TurnEnded {
+                thread_id,
+                span,
+                stopped,
+            } = event
+                && let Err(error) = on_reviewer_turn_end(&state, &thread_id, span, stopped).await
             {
                 log::warn!("reading review findings failed: {error}");
             }
@@ -296,9 +300,16 @@ fn review_status(store: &Store, workspace_id: &str) -> Result<Option<ReviewStatu
     Ok(store.review(workspace_id)?.and_then(|review| review.status))
 }
 
-/// Runs when any thread's turn ends. A missing or malformed findings block leaves the review
-/// running, so the next turn's reply is read again.
-async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
+/// Runs when any thread's turn ends, reading only what that turn said. A missing or malformed
+/// findings block leaves the review running, so the next turn's reply is read again. A branch
+/// review whose turn was stopped, or whose session was replaced, is over without findings: the
+/// Lead goes back to its own work. A PR's Reviewer only ever reviews, so it keeps reviewing.
+async fn on_reviewer_turn_end(
+    state: &AppState,
+    thread_id: &str,
+    span: TurnSpan,
+    stopped: bool,
+) -> Result<()> {
     let Some(thread) = state.store.thread_by_id(thread_id)? else {
         return Ok(());
     };
@@ -309,8 +320,17 @@ async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     if workspace.archived_at.is_some() || !pending {
         return Ok(());
     }
+    if stopped {
+        if workspace.kind == WorkspaceKind::Lead {
+            state.store.end_unfinished_review(&workspace.id)?;
+            state.out.changed();
+        }
+        return Ok(());
+    }
 
-    let reply = state.transcript.last_agent_reply(thread_id)?;
+    let reply = state
+        .transcript
+        .turn_reply(thread_id, span.since, span.through)?;
     let findings = match findings_block::parse_findings_block(&reply, &workspace.worktree_path) {
         Ok(findings) => findings,
         Err(error) => {
@@ -351,25 +371,71 @@ async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     complete_review(state, &workspace, thread_id, rows.len()).await
 }
 
+/// Why the workspace's own thread can't review its branch now, or `None` when it can. The one
+/// rule: the snapshot carries it for the header and menu, and `start_branch_review` enforces it.
+pub fn review_block(
+    workspace: &WorkspaceRecord,
+    own_thread: Option<&ThreadRow>,
+) -> Option<&'static str> {
+    if workspace.kind == WorkspaceKind::PrReview {
+        return Some("This is a review workspace; its Reviewer already reviews the PR.");
+    }
+    match workspace.status {
+        WorkspaceLifecycle::Provisioning => return Some("Wait for setup to finish to review."),
+        WorkspaceLifecycle::ProvisioningFailed => {
+            return Some("Setup failed. Retry or skip it to review.");
+        }
+        WorkspaceLifecycle::TearingDown => return Some("This workspace is being torn down."),
+        _ => {}
+    }
+    match own_thread {
+        None => Some("This workspace has no Lead to review with."),
+        Some(thread) if thread.status.is_working() => {
+            Some("The agent is still working; review once it's done.")
+        }
+        Some(_) => None,
+    }
+}
+
+/// A workspace whose branch can't be reviewed now, and why, for the snapshot.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceReviewBlock {
+    pub workspace_id: String,
+    pub reason: String,
+}
+
+pub fn review_blocks(
+    workspaces: &[WorkspaceRecord],
+    threads: &[ThreadRow],
+) -> Vec<WorkspaceReviewBlock> {
+    workspaces
+        .iter()
+        .filter_map(|workspace| {
+            let own = threads.iter().find(|thread| {
+                thread.workspace_id == workspace.id && thread.role.is_some() && !thread.retired
+            });
+            review_block(workspace, own).map(|reason| WorkspaceReviewBlock {
+                workspace_id: workspace.id.clone(),
+                reason: reason.into(),
+            })
+        })
+        .collect()
+}
+
 /// The workspace's own thread reviews its branch against the base, and its findings fill the
 /// Findings panel, from where they can be sent back to the same thread to fix.
 pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result<String> {
     let record = state.workspaces.get(workspace_id).await?;
-    if record.kind == WorkspaceKind::PrReview {
-        return Err(Error::Workspace(
-            "this is a review workspace; its Reviewer already reviews the PR".into(),
-        ));
+    let own = state.store.own_thread(workspace_id)?;
+    if let Some(reason) = review_block(&record, own.as_ref()) {
+        return Err(Error::Workspace(reason.into()));
     }
-
-    let thread = state
-        .store
-        .own_thread(workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("no Lead in workspace {workspace_id}")))?;
-    if thread.status.is_working() {
-        return Err(Error::Workspace(
-            "the agent is still working; review once it's done".into(),
-        ));
-    }
+    let Some(thread) = own else {
+        return Err(Error::Workspace(format!(
+            "no Lead in workspace {workspace_id}"
+        )));
+    };
 
     let message = format!(
         "Review the changes on `{}` against `{}`. Flag bugs, risky changes and missing tests. Don’t edit anything; list findings for me to send back.",
@@ -418,10 +484,16 @@ async fn complete_review(
         )?;
     }
     let parts = review_finished_parts(&reviewed, found);
-    let notify = crate::settings::Settings::load(&state.store).notify_review_finished;
+    if crate::settings::Settings::load(&state.store).notify_review_finished {
+        state.out.notification(NotificationPayload {
+            body: ToastPart::plain(&parts),
+            workspace_id: Some(workspace.id.clone()),
+            thread_id: Some(thread_id.to_string()),
+            opens_findings: found > 0,
+        });
+    }
     state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
-        notification: notify.then(|| ToastPart::plain(&parts)),
         parts,
         workspace_id: Some(workspace.id.clone()),
         thread_id: Some(thread_id.to_string()),
@@ -620,6 +692,14 @@ mod tests {
     use crate::store::types::{RepoRecord, ThreadRow};
     use crate::thread_runtime::fake::FakeEngines;
 
+    async fn turn_ended(state: &AppState, thread_id: &str) -> Result<()> {
+        let span = TurnSpan {
+            since: None,
+            through: state.transcript.last_message_seq(thread_id).unwrap(),
+        };
+        on_reviewer_turn_end(state, thread_id, span, false).await
+    }
+
     fn review_is_ready(store: &Store, workspace_id: &str) -> bool {
         review_status(store, workspace_id).unwrap() == Some(ReviewStatus::Ready)
     }
@@ -680,7 +760,7 @@ mod tests {
         let (state, recording) =
             reviewing("Looks fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
 
-        on_reviewer_turn_end(&state, "t1").await.unwrap();
+        turn_ended(&state, "t1").await.unwrap();
 
         assert_eq!(
             recording.toasts(),
@@ -700,7 +780,7 @@ mod tests {
             .upsert_thread(&ThreadRow::new("other", "w1", ThreadRole::Lead, "claude"))
             .unwrap();
 
-        on_reviewer_turn_end(&state, "t1").await.unwrap();
+        turn_ended(&state, "t1").await.unwrap();
 
         let card = |thread: &str| {
             state
@@ -737,22 +817,24 @@ mod tests {
         let block = "Two.\n\n<cormux-findings>\n[{\"severity\": \"blocking\", \"title\": \"A\", \"file\": null, \"line\": null, \"explanation\": \"x\"}, {\"severity\": \"nit\", \"title\": \"B\", \"file\": null, \"line\": null, \"explanation\": \"y\"}]\n</cormux-findings>";
         let (state, recording) = reviewing(block);
 
-        on_reviewer_turn_end(&state, "t1").await.unwrap();
+        turn_ended(&state, "t1").await.unwrap();
         state
             .store
             .set_review_status("w1", ReviewStatus::Running)
             .unwrap();
-        on_reviewer_turn_end(&state, "t1").await.unwrap();
+        turn_ended(&state, "t1").await.unwrap();
 
         let toasts = toast_payloads(&recording);
         assert_eq!(toasts.len(), 2, "the re-review says so too");
         for toast in &toasts {
             assert!(toast.opens_findings);
             assert_eq!(toast.workspace_id.as_deref(), Some("w1"));
-            assert_eq!(
-                toast.notification.as_deref(),
-                Some("Review of feat/x finished · 2 findings")
-            );
+        }
+        let notifications = recording.notifications();
+        assert_eq!(notifications.len(), 2);
+        for notification in &notifications {
+            assert_eq!(notification.body, "Review of feat/x finished · 2 findings");
+            assert!(notification.opens_findings);
         }
     }
 
@@ -766,12 +848,12 @@ mod tests {
         }
         .save(&state.store);
 
-        on_reviewer_turn_end(&state, "t1").await.unwrap();
+        turn_ended(&state, "t1").await.unwrap();
 
         let toasts = toast_payloads(&recording);
         assert_eq!(toasts.len(), 1);
         assert!(!toasts[0].opens_findings, "nothing to open");
-        assert_eq!(toasts[0].notification, None);
+        assert!(recording.notifications().is_empty());
     }
 
     #[tokio::test]
@@ -781,6 +863,11 @@ mod tests {
 
         state.bus.publish(DomainEvent::TurnEnded {
             thread_id: "t1".into(),
+            span: TurnSpan {
+                since: None,
+                through: state.transcript.last_message_seq("t1").unwrap(),
+            },
+            stopped: false,
         });
 
         for _ in 0..250 {
@@ -827,7 +914,7 @@ mod tests {
         state.transcript.append("rt", said).unwrap();
         state.workspaces.rename("pr", "Renamed").await.unwrap();
 
-        on_reviewer_turn_end(&state, "rt").await.unwrap();
+        turn_ended(&state, "rt").await.unwrap();
 
         let row = state.store.workspace_by_id("pr").unwrap().unwrap();
         assert_eq!(row.name, "Renamed");
@@ -841,10 +928,85 @@ mod tests {
     async fn a_reply_with_no_findings_block_leaves_the_review_running() {
         let (state, recording) = reviewing("I got distracted.");
 
-        on_reviewer_turn_end(&state, "t1").await.unwrap();
+        turn_ended(&state, "t1").await.unwrap();
 
         assert!(recording.toasts().is_empty());
         assert!(branch_review_running(&state.store, "w1"));
+    }
+
+    /// Bug: review read "everything since the last user message" whenever it got to the event,
+    /// so a child's report saved first left it nothing to read, and the findings were lost.
+    #[tokio::test]
+    async fn the_review_reads_the_turn_that_ended_even_after_a_report_arrived() {
+        let (state, recording) =
+            reviewing("Found it.\n\n<cormux-findings>\n[]\n</cormux-findings>");
+        let span = TurnSpan {
+            since: None,
+            through: state.transcript.last_message_seq("t1").unwrap(),
+        };
+        state
+            .transcript
+            .record_user_message("t1", "<thread_report id=\"c\">done</thread_report>")
+            .unwrap();
+
+        on_reviewer_turn_end(&state, "t1", span, false)
+            .await
+            .unwrap();
+
+        assert!(review_is_ready(&state.store, "w1"));
+        assert_eq!(recording.toasts().len(), 1);
+    }
+
+    /// Bug: a stopped branch review stayed running for good, so every later Lead turn was read
+    /// for findings and said it couldn't find any.
+    #[tokio::test]
+    async fn a_stopped_branch_review_is_over_and_later_turns_arent_read() {
+        let (state, recording) = reviewing("Half a review");
+        let span = TurnSpan {
+            since: None,
+            through: state.transcript.last_message_seq("t1").unwrap(),
+        };
+
+        on_reviewer_turn_end(&state, "t1", span, true)
+            .await
+            .unwrap();
+        assert_eq!(review_status(&state.store, "w1").unwrap(), None);
+
+        state
+            .transcript
+            .append("t1", agent_said("Something else"))
+            .unwrap();
+        turn_ended(&state, "t1").await.unwrap();
+        let unreadable = state
+            .store
+            .thread_events_after("t1", 0, 50)
+            .unwrap()
+            .iter()
+            .any(|(_, _, payload)| payload.contains("reviewFindingsUnreadable"));
+        assert!(!unreadable);
+        assert!(recording.toasts().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_stopped_re_review_keeps_the_findings_it_had() {
+        let block = "One.\n\n<cormux-findings>\n[{\"severity\": \"nit\", \"title\": \"A\", \"file\": null, \"line\": null, \"explanation\": \"x\"}]\n</cormux-findings>";
+        let (state, _recording) = reviewing(block);
+        turn_ended(&state, "t1").await.unwrap();
+        state
+            .store
+            .set_review_status("w1", ReviewStatus::Running)
+            .unwrap();
+        let span = TurnSpan {
+            since: None,
+            through: state.transcript.last_message_seq("t1").unwrap(),
+        };
+
+        on_reviewer_turn_end(&state, "t1", span, true)
+            .await
+            .unwrap();
+
+        assert!(review_is_ready(&state.store, "w1"));
+        assert_eq!(state.store.findings_for_workspace("w1").unwrap().len(), 1);
     }
 
     fn agent_said(text: &str) -> crate::engines::AgentEvent {
@@ -907,6 +1069,26 @@ mod tests {
             );
             assert!(prompts(&mut engine).is_empty());
         }
+    }
+
+    /// Bug: the webview's rule refused failed setup and the core's didn't, so the shortcut and
+    /// the core disagreed and a review could start in a broken worktree.
+    #[tokio::test]
+    async fn a_review_is_refused_with_the_reason_the_snapshot_gives() {
+        let (state, _recording, fake) = workspace(ThreadStatus::Idle);
+        let mut engine = fake.engine("t1");
+        state
+            .store
+            .set_workspace_status("w1", WorkspaceLifecycle::ProvisioningFailed)
+            .unwrap();
+        let records = state.workspaces.live().await.unwrap();
+        let blocks = review_blocks(&records, &state.store.workspace_threads().unwrap());
+
+        let refused = start_branch_review(&state, "w1").await.unwrap_err();
+
+        assert_eq!(blocks.len(), 1);
+        assert!(refused.to_string().contains(&blocks[0].reason), "{refused}");
+        assert!(prompts(&mut engine).is_empty());
     }
 
     #[test]

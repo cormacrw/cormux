@@ -89,9 +89,9 @@ pub struct ThreadRuntime {
     /// still counts as current until the next launch.
     current: Arc<Mutex<HashMap<String, u64>>>,
     launches: Arc<AtomicU64>,
-    /// One per thread, held from "no engine here" to the new one being registered, so two
-    /// callers can't both launch a CLI for the same session (the second would replace the
-    /// first's slot and shut it down mid-prompt).
+    /// One per thread, held by every launch and by `stop_threads`, so two callers can't both
+    /// launch a CLI for the same session (the second would replace the first's slot and shut it
+    /// down mid-prompt), and teardown doesn't miss an engine still launching.
     launch_locks: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
@@ -202,6 +202,21 @@ impl ThreadRuntime {
         if self.has_thread(thread_id) {
             return Ok(());
         }
+        let _launching = self.launching(thread_id).await?;
+        if self.has_thread(thread_id) {
+            return Ok(());
+        }
+        self.launch_in(thread_id, workspace_id).await
+    }
+
+    /// Launches a new engine for the thread in its workspace's worktree, replacing any it has.
+    pub async fn start(&self, thread_id: &str, workspace_id: &str) -> Result<()> {
+        let _launching = self.launching(thread_id).await?;
+        self.launch_in(thread_id, workspace_id).await
+    }
+
+    /// Held from "no engine here" to the new one being registered, and while one is stopped.
+    async fn launching(&self, thread_id: &str) -> Result<tokio::sync::OwnedMutexGuard<()>> {
         let lock = self
             .launch_locks
             .lock()
@@ -209,15 +224,12 @@ impl ThreadRuntime {
             .entry(thread_id.to_string())
             .or_default()
             .clone();
-        let _launching = lock.lock_owned().await;
-        if self.has_thread(thread_id) {
-            return Ok(());
-        }
-        self.start(thread_id, workspace_id).await
+        Ok(lock.lock_owned().await)
     }
 
-    /// Launches a new engine for the thread in its workspace's worktree, replacing any it has.
-    pub async fn start(&self, thread_id: &str, workspace_id: &str) -> Result<()> {
+    /// A workspace being torn down launches nothing: teardown stops its engines once any launch
+    /// already going has registered.
+    async fn launch_in(&self, thread_id: &str, workspace_id: &str) -> Result<()> {
         let workspace = self.workspaces.get(workspace_id).await?;
         if workspace.status == WorkspaceLifecycle::TearingDown {
             return Err(Error::Workspace(format!(
@@ -384,6 +396,7 @@ impl ThreadRuntime {
             let runtime = self.clone();
             let id = id.clone();
             stops.spawn(async move {
+                let _launching = runtime.launching(&id).await;
                 if let Err(error) = runtime.stop(&id).await {
                     log::warn!("stopping {id}'s engine: {error}");
                 }

@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use crate::bus::DomainEvent;
+use crate::bus::{DomainEvent, TurnSpan};
 use crate::error::{Error, Result};
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::state::AppState;
@@ -222,11 +222,6 @@ pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) ->
     let caller = caller_thread(&state.store, caller_id)?;
     check_can_spawn(&state.store, &caller)?;
     let repo_id = caller_repo(&state.store, &caller)?;
-    let repo = state.store.repo(&repo_id)?;
-    let base = new
-        .base
-        .filter(|base| !base.trim().is_empty())
-        .unwrap_or_else(|| repo.default_branch.clone());
     let model = match new.model {
         Some(model) => Some(model),
         None => state.store.thread_model(caller_id)?,
@@ -238,8 +233,8 @@ pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) ->
             repo_id,
             name: String::new(),
             branch: String::new(),
-            base,
-            engine: caller.engine.clone(),
+            base: new.base,
+            engine: Some(caller.engine.clone()),
             goal: new.goal,
             model,
             effort,
@@ -380,26 +375,26 @@ fn report_for(store: &Store, child: &ThreadRow, status: &str, body: String) -> R
 
 /// Queue a finished child's report, then hand over whatever the thread that just went idle was
 /// waiting for. Both can apply: nothing stops a child being idle with reports of its own.
-async fn on_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
+async fn on_turn_end(state: &AppState, thread_id: &str, span: TurnSpan) -> Result<()> {
     if let Some(child) = state.store.thread_by_id(thread_id)?
         && let Some(parent_id) = child.parent_thread_id.clone()
-    {
-        let seq = state.transcript.last_message_seq(thread_id)?;
-        if state
+        && state
             .orchestration
             .reports
-            .first_sight_of_turn(thread_id, seq)
-        {
-            let reply = truncated(&state.transcript.last_agent_reply(thread_id)?, REPLY_LIMIT);
-            let body = if reply.is_empty() {
-                "The thread stopped without replying.".to_string()
-            } else {
-                reply
-            };
-            let report = report_for(&state.store, &child, "idle", body)?;
-            state.orchestration.reports.push(&parent_id, report);
-            deliver(state, &parent_id).await;
-        }
+            .first_sight_of_turn(thread_id, span.through)
+    {
+        let reply = state
+            .transcript
+            .turn_reply(thread_id, span.since, span.through)?;
+        let reply = truncated(&reply, REPLY_LIMIT);
+        let body = if reply.is_empty() {
+            "The thread stopped without replying.".to_string()
+        } else {
+            reply
+        };
+        let report = report_for(&state.store, &child, child.status.as_str(), body)?;
+        state.orchestration.reports.push(&parent_id, report);
+        deliver(state, &parent_id).await;
     }
     deliver(state, thread_id).await;
     Ok(())
@@ -413,7 +408,9 @@ pub fn start(state: &AppState) {
         let state = state.clone();
         async move {
             let reported = match event {
-                DomainEvent::TurnEnded { thread_id } => on_turn_end(&state, &thread_id).await,
+                DomainEvent::TurnEnded {
+                    thread_id, span, ..
+                } => on_turn_end(&state, &thread_id, span).await,
                 DomainEvent::ApprovalRequested {
                     thread_id,
                     approval_id,
@@ -423,6 +420,9 @@ pub fn start(state: &AppState) {
                     workspace_id,
                     message,
                 } => on_provisioning_failed(&state, &workspace_id, &message).await,
+                DomainEvent::PromptsDropped { .. } | DomainEvent::ApprovalsCancelled { .. } => {
+                    Ok(())
+                }
             };
             if let Err(error) = reported {
                 log::warn!("reporting to a parent thread failed: {error}");
@@ -601,6 +601,14 @@ mod tests {
     use crate::feedback::RecordingOutput;
     use crate::store::fixtures;
     use tokio::sync::mpsc::UnboundedReceiver;
+
+    async fn turn_ended(state: &AppState, thread_id: &str) -> Result<()> {
+        let span = TurnSpan {
+            since: None,
+            through: state.transcript.last_message_seq(thread_id)?,
+        };
+        on_turn_end(state, thread_id, span).await
+    }
 
     fn prompt_text(engine: &mut UnboundedReceiver<EngineCommand>) -> String {
         match engine.try_recv() {
@@ -916,7 +924,7 @@ mod tests {
         for (child, reply) in [("a", "first"), ("b", "other"), ("a", "second")] {
             say(&state.store, child, "user", "Go on");
             say(&state.store, child, "agent", reply);
-            on_turn_end(&state, child).await.unwrap();
+            turn_ended(&state, child).await.unwrap();
         }
         assert!(engine.try_recv().is_err(), "the parent is busy");
 
@@ -924,7 +932,7 @@ mod tests {
             .store
             .set_thread_status("parent", ThreadStatus::Idle)
             .unwrap();
-        on_turn_end(&state, "parent").await.unwrap();
+        turn_ended(&state, "parent").await.unwrap();
         let prompt = prompt_text(&mut engine);
         assert!(prompt.contains("other") && prompt.contains("second"));
         assert!(!prompt.contains("first"), "{prompt}");
@@ -977,7 +985,7 @@ mod tests {
             .store
             .set_thread_status("parent", ThreadStatus::Idle)
             .unwrap();
-        on_turn_end(&state, "parent").await.unwrap();
+        turn_ended(&state, "parent").await.unwrap();
         assert!(prompt_text(&mut engine).contains("<thread_report id=\"child\""));
     }
 
@@ -1011,7 +1019,7 @@ mod tests {
         worktree(&state.store, "parent");
         let mut engine = fake.engine("parent");
 
-        on_turn_end(&state, "child").await.unwrap();
+        turn_ended(&state, "child").await.unwrap();
 
         let prompt = prompt_text(&mut engine);
         assert!(prompt.contains("status=\"idle\""));
@@ -1019,7 +1027,7 @@ mod tests {
         let told = recording.emitted().len();
         assert!(told > 0);
 
-        on_turn_end(&state, "child").await.unwrap();
+        turn_ended(&state, "child").await.unwrap();
         assert!(engine.try_recv().is_err());
         assert_eq!(recording.emitted().len(), told);
     }
