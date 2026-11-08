@@ -25,7 +25,6 @@ pub struct Change {
 }
 
 impl Change {
-    /// One change that makes the webview do everything either would have.
     fn merge(self, other: Self) -> Self {
         Self {
             repo_git: self.repo_git || other.repo_git,
@@ -85,7 +84,6 @@ struct NotifierInner {
     pending_approvals: Box<dyn Fn() -> usize + Send + Sync>,
     version: AtomicU64,
     changes: Mutex<ChangeCoalescer>,
-    /// The badge the dock shows. It starts with none.
     badge: Mutex<Option<i64>>,
 }
 
@@ -189,7 +187,6 @@ impl Notifier {
     }
 }
 
-/// What `changed` should do with a change, given the ones before it.
 #[derive(Debug, PartialEq, Eq)]
 enum Decision {
     EmitNow(Change),
@@ -198,7 +195,6 @@ enum Decision {
     Merged,
 }
 
-/// Folds a burst of changes into one event.
 #[derive(Debug, Default)]
 struct ChangeCoalescer {
     last_emit: Option<Instant>,
@@ -238,7 +234,6 @@ pub enum Emitted {
     Badge(Option<i64>),
 }
 
-/// Keeps what a workflow told the user, in order, for tests to assert on.
 #[cfg(test)]
 #[derive(Default)]
 pub struct RecordingOutput {

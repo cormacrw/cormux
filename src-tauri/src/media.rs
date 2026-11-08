@@ -111,7 +111,6 @@ const fn video(
     }
 }
 
-/// An image at `path` as a data URL, if it is one small enough to read whole.
 pub fn image_data_url(path: &Path) -> Option<String> {
     let format = format_of(path.to_str()?).filter(|format| format.kind == MediaKind::Image)?;
     if std::fs::metadata(path).ok()?.len() > INLINE_IMAGE_LIMIT {
@@ -125,7 +124,6 @@ pub fn image_data_url(path: &Path) -> Option<String> {
     ))
 }
 
-/// The format of a file name or path, by its extension in any case.
 pub fn format_of(name: &str) -> Option<MediaFormat> {
     let extension = std::path::Path::new(name)
         .extension()?

@@ -46,7 +46,6 @@ pub async fn clickup_folders(
     state.clickup.folders(&space_id).await
 }
 
-/// The current sprint in the sprint folder chosen in Settings.
 #[tauri::command]
 #[specta::specta]
 pub async fn clickup_board(state: State<'_, AppState>) -> Result<ClickupBoard> {

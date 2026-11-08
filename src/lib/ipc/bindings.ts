@@ -105,8 +105,8 @@ async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Picks an earlier conversation in the thread back up: the agent resumes the session it
- * ended with, and the thread shows that conversation again.
+ * Picks an earlier conversation in the thread back up: the thread shows it again, and the next
+ * prompt's engine resumes the session it ended with.
  */
 async resumeThreadSession(input: ResumeThreadSessionInput) : Promise<Result<null, Error>> {
     try {
@@ -116,9 +116,6 @@ async resumeThreadSession(input: ResumeThreadSessionInput) : Promise<Result<null
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * The models the thread's composer can pick from, and the current pick.
- */
 async threadModels(threadId: string) : Promise<Result<ThreadModels, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("thread_models", { threadId }) };
@@ -149,9 +146,6 @@ async setThreadModel(threadId: string, model: string | null) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * The effort levels the thread's composer can pick from, and the current pick.
- */
 async threadEfforts(threadId: string) : Promise<Result<ThreadModels, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("thread_efforts", { threadId }) };
@@ -309,9 +303,6 @@ async clickupFolders(spaceId: string) : Promise<Result<ClickupOption[], Error>> 
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * The current sprint in the sprint folder chosen in Settings.
- */
 async clickupBoard() : Promise<Result<ClickupBoard, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("clickup_board") };
@@ -567,9 +558,6 @@ async teardownWorkspace(input: TeardownInput) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Open the worktree in the terminal app picked in Settings (Terminal by default).
- */
 async openWorkspaceTerminal(workspaceId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_workspace_terminal", { workspaceId }) };
@@ -758,7 +746,7 @@ export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenS
 
 export type AddRepoInput = { path: string }
 /**
- * One internal event every adapter translates into (COR-56).
+ * What every engine adapter translates its output into.
  */
 export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; role: ToolRole; status: ToolCallStatus; locations: string[]; detail: string | null; hidden?: boolean; parent_id?: string | null } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool: string; role: ToolRole; detail: string | null; auto_approved: boolean } | 
 /**
@@ -811,18 +799,12 @@ export type BranchChange = { kind: "checkedOut"; previous: string } | { kind: "c
  * Noticed on disk: something other than Cormux moved the worktree.
  */
 { kind: "checkedOutOutside"; previous: string } | { kind: "addedToStack"; on_top_of: string } | { kind: "stackPushed" } | { kind: "stackSynced" }
-/**
- * What happened to a local branch the user asked to delete.
- */
 export type BranchDeletion = "deleted" | 
 /**
  * Not deleted: origin doesn't have the branch as it is locally, so deleting it
  * (with `force`) can lose commits.
  */
 "unpushed"
-/**
- * What keeps a local branch from being deleted.
- */
 export type BranchHold = { kind: "defaultBranch" } | 
 /**
  * Live workspaces have it checked out, by name.
@@ -851,7 +833,7 @@ repoGit: boolean }
  */
 export type ClickupBoard = { sprint: ClickupSprint; statuses: ClickupStatus[]; tasks: ClickupTask[]; 
 /**
- * The API key's owner, so Homebase can pick out their in-progress tasks.
+ * The API key's owner, so the board's "mine" filter can pick out their tasks.
  */
 userId: number }
 /**
@@ -975,18 +957,11 @@ export type GitConflictOperation = "merge" | "rebase"
  * A merge or rebase stopped on these paths, waiting for the user to resolve or abort it.
  */
 export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
-/**
- * Lines added and deleted across a set of files.
- */
 export type LineCounts = { added: number; deleted: number }
 /**
  * A local branch tip. `committed` is git's relative date ("2 hours ago").
  */
-export type LocalBranchRow = { name: string; committed: string; subject: string; 
-/**
- * Why it can't be deleted, if it can't.
- */
-hold: BranchHold | null }
+export type LocalBranchRow = { name: string; committed: string; subject: string; hold: BranchHold | null }
 export type LocalBranchesResult = { 
 /**
  * Branch checked out in the repo itself. Empty when detached.
@@ -1136,9 +1111,6 @@ export type ReviewStatus =
  */
 "ready"
 export type ReviewVerdict = "approve" | "requestChanges" | "comment"
-/**
- * Where a run command comes from.
- */
 export type RunCommandSource = 
 /**
  * The workspace's own, set in its Output tab.
@@ -1218,9 +1190,6 @@ clickupFolderId: string;
  * Board lanes the user folded away, by status name.
  */
 clickupHiddenStatuses: string[] }
-/**
- * Changes to some settings; the rest stay as they are.
- */
 export type SettingsPatch = { reduceMotion?: boolean | null; runEverything?: boolean | null; experimentalReferences?: boolean | null; notifyApprovals?: boolean | null; notifyReviewFinished?: boolean | null; defaultEngine?: EngineKind | null; defaultRepo?: string | null; 
 /**
  * Blank goes back to the default folder.
@@ -1438,9 +1407,6 @@ export type TranscriptEvent = StepEvent | UserMessage | Briefing | StreamLagged 
  * logged); the seqs bound every row read, so paging carries on past them.
  */
 export type TranscriptPage = { events: SavedEvent[]; oldestSeq: number | null; newestSeq: number | null; hasOlder: boolean; hasNewer: boolean }
-/**
- * What the user sent, as the thread shows it.
- */
 export type UserMessage = { type: "messageChunk"; role: UserRole; text: string }
 export type UserRole = "user"
 /**
@@ -1514,9 +1480,6 @@ summary: string | null; summaryAt: string | null; kind: WorkspaceKind; prNumber:
  * The workspace's own run command, which Run starts instead of the repo's.
  */
 runCommand: string | null }
-/**
- * A workspace's run command, for the webview.
- */
 export type WorkspaceRunCommand = { workspaceId: string; command: string; source: RunCommandSource }
 export type WorkspaceStack = { workspaceId: string; status: StackStatus; 
 /**

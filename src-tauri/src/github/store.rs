@@ -33,7 +33,7 @@ impl From<&PullRequestPayload> for PrRow {
 
 const PR_COLUMNS: &str = "SELECT id, repo_id, number, title, payload FROM pr_cache";
 
-/// Every cached pull request. A row whose payload no longer reads is left out.
+/// A row whose payload no longer reads is left out.
 pub(crate) fn all(conn: &Connection) -> Result<Vec<PrRow>> {
     let rows = query_all(conn, PR_COLUMNS, |row| {
         Ok((
@@ -65,7 +65,6 @@ pub(crate) fn all(conn: &Connection) -> Result<Vec<PrRow>> {
 }
 
 impl Store {
-    /// The cached pull request `number` of the repo, if the last sync or Cormux saw it.
     pub fn cached_pull_request(
         &self,
         repo_id: &str,

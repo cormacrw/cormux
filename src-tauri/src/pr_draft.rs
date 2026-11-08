@@ -25,7 +25,6 @@ Then add a \"## What changed\" section with a short bullet list of the meaningfu
 and a \"## How it was tested\" section if the thread shows any testing. \
 Don't add a title, and don't invent details the thread and diff don't support.";
 
-/// The saved prompt, or the default when it's blank.
 pub fn pr_prompt(saved: &str) -> String {
     match saved.trim() {
         "" => DEFAULT_PR_PROMPT.into(),

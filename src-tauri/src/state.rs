@@ -37,19 +37,15 @@ impl Deref for AppState {
 
 pub struct Core {
     pub data_dir: DataDir,
-    /// What workflows tell the user through.
     pub out: Notifier,
-    /// What happened in the core, for the features that react to it.
     pub bus: Bus,
     pub shell_env: Arc<RwLock<ShellEnv>>,
     pub git: Git,
     pub workspaces: Workspaces,
     pub workspace_git: WorkspaceGit,
-    /// Each thread's live engine.
     pub engines: ThreadRuntime,
     pub transcript: Transcript,
     pub approvals: Arc<ApprovalBroker>,
-    /// Prompts waiting for their paused thread's resume.
     pub paused: crate::turn::PausedQueues,
     pub process: ProcessSupervisor,
     pub apps: WorkspaceAppService,
@@ -66,8 +62,7 @@ pub struct Core {
 }
 
 impl AppState {
-    /// The app's state over the database in `data_dir`. Turns that were running when the app
-    /// last closed are over: no agent survives it.
+    /// Turns that were running when the app last closed are over: no agent survives it.
     pub fn new(data_dir: DataDir, output: Arc<dyn UserOutput>) -> Result<Self> {
         let store = Store::open(&data_dir.db(), &[crate::transcript::MIGRATION])?;
         store.reset_interrupted_turns()?;
@@ -144,14 +139,12 @@ impl AppState {
         }))
     }
 
-    /// A state whose output is recorded, for tests to assert on.
     #[cfg(test)]
     pub fn recorded(data_dir: DataDir) -> (Self, Arc<crate::feedback::RecordingOutput>) {
         let (state, recording, _) = Self::faked(data_dir);
         (state, recording)
     }
 
-    /// Like `recorded`, over the given engines.
     #[cfg(test)]
     pub fn with_engines(data_dir: DataDir, engines: Arc<dyn Engines>) -> Self {
         Self::with_store(
@@ -163,7 +156,6 @@ impl AppState {
         )
     }
 
-    /// Like `recorded`, with engines the test drives.
     #[cfg(test)]
     pub fn faked(
         data_dir: DataDir,

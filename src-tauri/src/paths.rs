@@ -41,7 +41,6 @@ pub fn worktrees_root(setting: &str) -> PathBuf {
     expand_tilde(setting.trim())
 }
 
-/// Where a workspace for `branch` of the repo at `repo` checks out.
 pub fn worktree_path(root: &Path, repo: &Path, branch: &str) -> PathBuf {
     root.join(repo_dir_name(repo)).join(branch_slug(branch))
 }

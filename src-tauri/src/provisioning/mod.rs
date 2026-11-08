@@ -7,10 +7,8 @@ pub use runner::{ProvisionPlan, WorkspaceSpec, create, fail, retry, run, skip_se
 
 use std::time::Duration;
 
-/// Per-command ceiling for worktree setup.
 pub const SETUP_COMMAND_TIMEOUT: Duration = Duration::from_secs(3600);
 
-/// Parses repo **Worktree setup** lines: trim, skip blank and `#` comments.
 pub fn parse_setup_commands(raw: &str) -> Vec<String> {
     raw.lines()
         .map(str::trim)

@@ -18,7 +18,6 @@ use types::{RepoRecord, ThreadPicks, ThreadRow, WorkspaceRow};
 
 const STATEMENT_CACHE: usize = 64;
 
-/// SQLite persistence in the app data directory.
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
@@ -28,8 +27,7 @@ pub struct Store {
 }
 
 impl Store {
-    /// Opens the database at `path`, creating it as needed and migrating it with the SQL files
-    /// and `rust`, in version order.
+    /// Migrates with the SQL files and `rust` interleaved in version order.
     pub fn open(path: &Path, rust: &[RustMigration]) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -104,7 +102,6 @@ impl Store {
         })
     }
 
-    /// Writes every `(key, value)`, all or none.
     pub fn set_settings(&self, rows: &[(&str, String)]) -> Result<()> {
         self.with_tx(|conn| {
             let mut stmt = conn.prepare_cached(
@@ -140,7 +137,6 @@ impl Store {
         })
     }
 
-    /// A registered repo, or the error for an id that isn't one.
     pub fn repo(&self, repo_id: &str) -> Result<RepoRecord> {
         self.repo_by_id(repo_id)?
             .ok_or_else(|| Error::unknown_repo(repo_id))
@@ -175,7 +171,6 @@ impl Store {
         self.with_conn(|conn| write_workspace(conn, workspace))
     }
 
-    /// A new workspace and its own thread, both or neither.
     pub fn insert_workspace_with_thread(
         &self,
         workspace: &WorkspaceRow,
@@ -297,12 +292,10 @@ impl Store {
         })
     }
 
-    /// Workspaces that haven't been archived.
     pub fn live_workspaces(&self) -> Result<Vec<WorkspaceRow>> {
         self.with_read(live_workspaces_in)
     }
 
-    /// The live workspaces' open threads in creation order.
     pub fn workspace_threads(&self) -> Result<Vec<ThreadRow>> {
         self.with_read(workspace_threads_in)
     }
@@ -316,7 +309,6 @@ impl Store {
         })
     }
 
-    /// The workspace's open threads in creation order.
     pub fn threads_for_workspace(&self, workspace_id: &str) -> Result<Vec<ThreadRow>> {
         self.with_read(|conn| {
             let mut stmt = conn.prepare_cached(&select_threads(
@@ -662,7 +654,6 @@ const THREAD_FIELDS: [&str; 12] = [
     "parent_thread_id",
 ];
 
-/// `fields` qualified by a table alias, for a select list.
 fn qualified(alias: &str, fields: &[&str]) -> String {
     fields
         .iter()
@@ -747,7 +738,6 @@ pub(crate) fn query_all<T>(
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// Every setting row, as `(key, value)`.
 pub(crate) fn settings_in(conn: &Connection) -> Result<Vec<(String, String)>> {
     query_all(conn, "SELECT key, value FROM settings", |row| {
         Ok((row.get(0)?, row.get(1)?))
@@ -766,7 +756,7 @@ pub(crate) fn live_workspaces_in(conn: &Connection) -> Result<Vec<WorkspaceRow>>
     )
 }
 
-/// The live workspaces' open threads in creation order; scratches' threads aren't listed.
+/// Scratches' threads aren't listed.
 pub(crate) fn workspace_threads_in(conn: &Connection) -> Result<Vec<ThreadRow>> {
     query_all(
         conn,

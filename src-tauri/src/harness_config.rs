@@ -38,7 +38,6 @@ fn config_error(file: &Path, error: impl std::fmt::Display) -> Error {
     ))
 }
 
-/// The setup commands a worktree gets: the repo's saved ones, else its committed ones.
 pub fn effective_setup(stored: &str, repo_path: &Path) -> Result<String> {
     if !stored.trim().is_empty() {
         return Ok(stored.to_string());
@@ -48,7 +47,6 @@ pub fn effective_setup(stored: &str, repo_path: &Path) -> Result<String> {
         .unwrap_or_default())
 }
 
-/// Where a run command comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum RunCommandSource {
@@ -74,8 +72,7 @@ fn non_blank(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-/// The command every workspace of the repo runs unless it sets its own: the saved one, else
-/// the committed one.
+/// The command every workspace of the repo runs unless it sets its own.
 pub fn repo_run_command(repo: &RepoRecord) -> Result<Option<RunCommand>> {
     if let Some(command) = non_blank(repo.run_command.as_deref()) {
         return Ok(Some(RunCommand {
@@ -121,7 +118,6 @@ pub fn repo_run_commands(repos: &[RepoRecord]) -> Vec<RepoRunCommand> {
         .collect()
 }
 
-/// The command Run starts for a workspace: `own` when set, else the repo's.
 pub fn workspace_run_command(own: Option<&str>, repo: &RepoRecord) -> Result<Option<RunCommand>> {
     match own_run_command(own) {
         Some(own) => Ok(Some(own)),
@@ -136,7 +132,6 @@ fn own_run_command(own: Option<&str>) -> Option<RunCommand> {
     })
 }
 
-/// A workspace's run command, for the webview.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRunCommand {
@@ -145,7 +140,6 @@ pub struct WorkspaceRunCommand {
     pub source: RunCommandSource,
 }
 
-/// What Run starts in each workspace that has something to run, from the repos' commands.
 pub fn workspace_run_commands(
     workspaces: &[WorkspaceRow],
     repos: &[RepoRunCommand],
@@ -386,7 +380,6 @@ mod tests {
             "{error}"
         );
         assert!(effective_setup("", dir.path()).is_err());
-        // A saved command doesn't need the file.
         assert_eq!(effective_setup("pnpm i", dir.path()).unwrap(), "pnpm i");
     }
 }

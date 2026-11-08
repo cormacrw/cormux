@@ -91,7 +91,6 @@ pub struct DiffFile {
     pub truncated: Option<bool>,
 }
 
-/// Lines added and deleted across a set of files.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LineCounts {
@@ -163,7 +162,6 @@ pub struct LiveDiffEngine {
     rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
 
-/// Keeps a workspace's diff live until dropped.
 pub struct DiffSubscription {
     engine: LiveDiffEngine,
     workspace_id: String,
@@ -192,7 +190,6 @@ impl LiveDiffEngine {
         }
     }
 
-    /// Diff a branch against its base, or uncommitted changes when `None`.
     pub fn set_diff_target(&self, workspace_id: &str, target: Option<DiffTarget>) {
         self.diff_target
             .lock()
@@ -200,7 +197,6 @@ impl LiveDiffEngine {
             .insert(workspace_id.to_string(), target);
     }
 
-    /// Set `target` unless one was already chosen for this workspace.
     pub fn default_diff_target(&self, workspace_id: &str, target: DiffTarget) {
         self.diff_target
             .lock()
@@ -218,7 +214,7 @@ impl LiveDiffEngine {
             .flatten()
     }
 
-    /// Start the debounce loop. Must run after a Tokio/Tauri runtime exists.
+    /// Must run after a Tokio/Tauri runtime exists.
     pub fn start(&self) {
         let Some(rx) = self.rx.lock().unwrap().take() else {
             return;
@@ -426,7 +422,6 @@ impl LiveDiffEngine {
         Ok(diff)
     }
 
-    /// Store a diff for subscribers, waking them only when it differs from the last one.
     fn publish(&self, workspace_id: &str, diff: &WorktreeDiff) {
         if !self.is_subscribed(workspace_id) {
             return;
@@ -575,7 +570,6 @@ async fn compute_diff(
     })
 }
 
-/// The whole hunks that fit in `MAX_FILE_PATCH_BYTES`, and whether any didn't.
 fn capped_hunks(mut hunks: Vec<DiffHunk>) -> (Vec<DiffHunk>, bool) {
     let mut bytes = 0;
     let fits = hunks

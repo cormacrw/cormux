@@ -75,7 +75,6 @@ pub fn tool_use(name: &str, input: &Value) -> ToolUse {
     }
 }
 
-/// What a tool does, from its name and the input it was called with.
 pub fn role(name: &str, input: &Value) -> ToolRole {
     let field = |key: &str| {
         input

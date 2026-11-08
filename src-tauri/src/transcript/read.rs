@@ -5,7 +5,6 @@ use crate::error::Result;
 
 use super::{MESSAGE, StepEvent, TOOL, Transcript, TranscriptEvent};
 
-/// Who an entry is from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Speaker {
     User,
@@ -39,7 +38,6 @@ pub struct Page {
     pub next: Option<i64>,
 }
 
-/// Who said what in a saved row, if it is a message, a tool call or a step.
 fn said(kind: &str, payload: &str) -> Option<(Speaker, String)> {
     if kind != MESSAGE && kind != TOOL {
         return None;
@@ -145,7 +143,6 @@ impl Transcript {
         Ok(first)
     }
 
-    /// The first non-blank thing the user asked for in the thread.
     pub fn first_user_goal(&self, thread_id: &str) -> Result<String> {
         let mut goal = String::new();
         self.store

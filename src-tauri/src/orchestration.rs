@@ -177,7 +177,6 @@ pub fn read_thread(
     Ok(json!({ "entries": entries, "next": page.next }))
 }
 
-/// Why this thread can't start another, if it can't.
 fn check_can_spawn(store: &Store, caller: &ThreadRow) -> Result<()> {
     if caller.parent_thread_id.is_some() {
         return Err(Error::Mcp(
@@ -317,7 +316,6 @@ impl Report {
     }
 }
 
-/// What orchestration keeps between calls.
 #[derive(Default)]
 pub struct Orchestration {
     reports: ReportQueue,
@@ -489,7 +487,6 @@ async fn on_provisioning_failed(state: &AppState, workspace_id: &str, message: &
     Ok(())
 }
 
-/// The thread, unless it's retired or its workspace was closed.
 fn continuing_thread(store: &Store, thread_id: &str) -> Option<ThreadRow> {
     let thread = store.thread_by_id(thread_id).ok()??;
     let workspace = store.workspace_by_id(&thread.workspace_id).ok()??;
@@ -580,8 +577,6 @@ impl Store {
         limit: i64,
     ) -> Result<Vec<(ThreadRow, WorkspaceRow)>> {
         self.with_read(|conn| {
-            // One query: the most recently archived workspaces of the repo, each joined to its
-            // threads, instead of a thread query per workspace.
             let mut stmt = conn.prepare_cached(&format!(
                 "SELECT {}, {} FROM (
                     SELECT rowid AS position, * FROM workspaces

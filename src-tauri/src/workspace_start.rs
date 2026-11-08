@@ -78,7 +78,6 @@ pub async fn start_workspace(
         (Some(prompt), shown)
     };
 
-    // With no branch given, the goal drafts one; Haiku may improve it below.
     let branch = match input.branch.trim() {
         "" => {
             let repo = state.store.repo(&input.repo_id)?;
@@ -177,7 +176,6 @@ pub fn session_brief(store: &Store, workspace: &WorkspaceRecord, resuming: bool)
     format!("{BRANCH_INSTRUCTION}\n\n{media}")
 }
 
-/// How a Lead's workspace comes up: its branch from the base, then the goal as its first turn.
 /// `prompt` is the goal with its attachments, when there were any.
 fn lead_plan(
     workspace_id: &str,
@@ -242,8 +240,6 @@ async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Resu
     Ok(())
 }
 
-/// Branch names a new workspace in the repo can't have: the repo's branches, local and on
-/// origin, and those of its other live workspaces.
 async fn taken_branches(
     state: &AppState,
     repo_id: &str,
@@ -354,7 +350,6 @@ pub mod commands {
         Ok(())
     }
 
-    /// How a workspace whose setup failed is brought up again, by whoever knows its kind.
     async fn resume_plan(state: &AppState, workspace_id: &str) -> Result<ProvisionPlan> {
         let workspace = state.workspaces.get(workspace_id).await?;
         match workspace.kind {

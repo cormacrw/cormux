@@ -18,7 +18,6 @@ impl WorktreeQueue {
         path.to_string_lossy().to_string()
     }
 
-    /// Runs `f` once every call queued before it on `worktree` has finished.
     pub async fn run<T, F, Fut>(&self, worktree: &Path, f: F) -> T
     where
         F: FnOnce() -> Fut,

@@ -69,7 +69,6 @@ pub enum UserRole {
     User,
 }
 
-/// What the user sent, as the thread shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum UserMessage {
@@ -116,7 +115,6 @@ impl TranscriptEvent {
         })
     }
 
-    /// A session step, which begins a conversation.
     fn begins_conversation(&self) -> bool {
         matches!(self, Self::Step(StepEvent::Step { step, .. }) if is_boundary(step))
     }
@@ -205,8 +203,6 @@ impl Transcript {
         }
     }
 
-    /// One window of a thread's transcript: its newest rows by default, those after `after_seq`
-    /// to catch up, or those before `before_seq` to scroll back.
     pub fn window(
         &self,
         thread_id: &str,
@@ -300,7 +296,6 @@ impl Transcript {
         }))
     }
 
-    /// The conversation newly streamed events are in.
     fn current_conversation(&self, thread_id: &str) -> String {
         let mut current = self
             .current
@@ -407,7 +402,6 @@ impl Transcript {
     }
 }
 
-/// A transcript over an in-memory store holding `threads`.
 #[cfg(test)]
 pub fn with_threads(threads: &[&str]) -> Transcript {
     let store = Store::in_memory().unwrap();

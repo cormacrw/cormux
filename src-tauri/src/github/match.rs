@@ -28,7 +28,6 @@ impl RepoSlug {
         format!("{}/{}", self.owner, self.name)
     }
 
-    /// The repo `origin` points at in the checkout at `path`.
     pub async fn of_origin(git: &Git, path: &Path) -> Result<Self> {
         let origin = git
             .remote_origin_url(path)

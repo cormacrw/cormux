@@ -1,6 +1,5 @@
 //! The Reviewer ends its final reply with its findings as JSON inside
-//! `<cormux-findings>` tags. This module pulls that block out of the reply text.
-//! The frontend hides the same block when it renders the conversation.
+//! `<cormux-findings>` tags. The frontend hides the same block when it renders the conversation.
 
 use serde::Deserialize;
 

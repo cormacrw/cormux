@@ -46,7 +46,6 @@ impl ShellEnv {
         }
     }
 
-    /// The user's shell: the login env's `$SHELL`, else this process's, else macOS's default.
     pub fn shell(&self) -> String {
         self.get("SHELL")
             .map(str::to_string)
@@ -81,8 +80,7 @@ impl ShellEnv {
         Ok(())
     }
 
-    /// Prefer the login shell; if it fails, inherit this process's environment
-    /// so the app can still start.
+    /// Falls back to this process's environment so the app can still start.
     pub async fn load_or_inherit(&mut self) -> Result<()> {
         match self.load().await {
             Ok(()) => Ok(()),

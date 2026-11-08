@@ -36,7 +36,6 @@ impl RestGithubClient {
         }
     }
 
-    /// POSTs `body` as JSON and returns the response text, or GitHub's own message on failure.
     pub(super) async fn post(
         &self,
         token: &str,

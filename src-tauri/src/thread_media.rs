@@ -45,7 +45,6 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// `file://` URLs lose their scheme; everything else is taken as a path as written.
 fn source_path(source: &str) -> PathBuf {
     let trimmed = source.trim();
     if let Some(rest) = trimmed.strip_prefix("file://") {
@@ -56,7 +55,6 @@ fn source_path(source: &str) -> PathBuf {
     }
 }
 
-/// Relative references resolve against the thread's worktree, the agent's working folder.
 fn resolve_path(source: &str, workdir: Option<&Path>) -> Option<PathBuf> {
     let path = source_path(source);
     let joined = if path.is_absolute() {
@@ -90,9 +88,8 @@ fn safe_stem(name: &str) -> String {
     }
 }
 
-/// Copies the referenced file into `media_dir` and describes how to show it. `Ok(None)`
-/// when the reference isn't a showable image or recording (missing, oversized, or a
-/// file whose bytes don't match its name) — the reply simply keeps its prose.
+/// `Ok(None)` when the reference isn't a showable image or recording (missing, oversized, or a
+/// file whose bytes don't match its name); the reply then keeps its prose.
 pub fn resolve(
     media_dir: &Path,
     source: &str,

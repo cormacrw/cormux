@@ -1,6 +1,7 @@
 //! The workspace repository: each live workspace's record in memory (its row, plus the setup
 //! activity only the running app knows) over its row in SQLite. A setter for a field the record
-//! holds writes both; the PR, intro and run command live only in the row.
+//! holds writes both; the PR, summary and run command live only in the row. A thread's status
+//! reaches the workspace row inside `Store::set_thread_status`, and the record follows the row.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -137,7 +138,7 @@ impl Workspaces {
         Ok(self.records_for(&rows, &repos).await)
     }
 
-    /// The records for these live rows. A row whose repo was removed is left out.
+    /// Archived rows, and rows whose repo was removed, are left out.
     pub async fn records_for(
         &self,
         rows: &[WorkspaceRow],
@@ -161,9 +162,8 @@ impl Workspaces {
         records
     }
 
-    /// Records a new workspace and its own thread, in memory and in the store. Its worktree
-    /// folder must not be in use: `feat/x` and `feat-x` slug to the same folder, and two
-    /// workspaces sharing a checkout would lose each other's work on teardown.
+    /// The worktree folder must not be in use: `feat/x` and `feat-x` slug to the same folder, and
+    /// two workspaces sharing a checkout would lose each other's work on teardown.
     pub async fn register(
         &self,
         row: WorkspaceRow,
@@ -314,7 +314,6 @@ impl Workspaces {
         Ok(())
     }
 
-    /// Branches can't move under a workspace that is being set up or has a thread at work.
     pub async fn can_switch_branch(&self, id: &str) -> Result<()> {
         let record = self.get(id).await?;
         if record.status == WorkspaceLifecycle::Provisioning {
@@ -336,7 +335,6 @@ impl Workspaces {
         Ok(())
     }
 
-    /// The workspace is gone: its row is archived and its record dropped.
     pub async fn archive(&self, id: &str) -> Result<()> {
         let mut inner = self.inner.write().await;
         self.store.archive_workspace(id)?;
@@ -356,7 +354,6 @@ impl Workspaces {
     }
 }
 
-/// The record in memory, read from the store into memory if it isn't there yet.
 fn load<'a>(store: &Store, inner: &'a mut Inner, id: &str) -> Result<&'a mut WorkspaceRecord> {
     if !inner.records.contains_key(id) {
         let row = store

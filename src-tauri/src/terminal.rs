@@ -28,7 +28,6 @@ fn terminal_app(setting: &str) -> String {
     }
 }
 
-/// Open the worktree in the terminal app picked in Settings (Terminal by default).
 #[tauri::command]
 #[specta::specta]
 pub async fn open_workspace_terminal(

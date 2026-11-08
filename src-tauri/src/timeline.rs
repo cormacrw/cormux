@@ -1,8 +1,6 @@
 //! What the core itself did in a thread, as the Timeline shows it. Each step is typed by what
-//! happened, so the UI picks a step's row and icon from its kind (`STEP_ROW` in
-//! `src/lib/thread/timeline/fold.ts`, `components/workspace/thread/rows/step-icons.ts`) and
-//! rewording a title here can't change either. The title
-//! and detail are stored alongside as display text; `transcript` writes them.
+//! happened, so the UI picks a step's row and icon from its kind and rewording a title here
+//! can't change either. `transcript` stores the title and detail alongside as display text.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -171,7 +169,7 @@ fn plural(count: u32) -> &'static str {
 }
 
 impl TimelineStep {
-    /// The heading shown for this step. Display text only: nothing may read meaning from it.
+    /// Display text only: nothing may read meaning from it.
     pub fn title(&self) -> String {
         match self {
             Self::AgentStopped => "You stopped the agent".into(),
@@ -211,7 +209,6 @@ impl TimelineStep {
         }
     }
 
-    /// The line under the heading, for the steps that have one.
     pub fn detail(&self) -> Option<String> {
         match self {
             Self::AgentStopped

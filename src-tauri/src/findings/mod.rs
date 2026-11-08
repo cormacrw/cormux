@@ -129,13 +129,11 @@ pub async fn send_workspace_findings(
     Ok(())
 }
 
-/// The findings a thread was sent to fix, which it works through as one batch.
 pub fn record_batch(state: &AppState, thread_id: &str, finding_ids: &[String]) -> Result<()> {
     state.store.mark_findings_sent(finding_ids, thread_id)?;
     state.store.set_findings_batch(thread_id, finding_ids)
 }
 
-/// Dismissed findings stay listed but aren't sent to an agent or posted with the review.
 pub fn dismiss_findings(state: &AppState, input: DismissWorkspaceFindingsInput) -> Result<()> {
     state
         .store

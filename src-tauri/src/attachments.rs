@@ -128,7 +128,6 @@ pub fn build_prompt(
 #[tauri::command]
 #[specta::specta]
 pub async fn image_preview(path: String) -> crate::error::Result<Option<String>> {
-    // Read and base64-encoded whole: not on an async worker.
     Ok(tokio::task::spawn_blocking(move || crate::media::image_data_url(Path::new(&path))).await?)
 }
 

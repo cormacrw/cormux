@@ -179,7 +179,6 @@ pub fn user_message(text: impl Into<String>) -> StdinMessage {
     user_prompt_message(&Prompt::from(text.into()))
 }
 
-/// A user turn: its text, then any images for the model to see.
 pub fn user_prompt_message(prompt: &Prompt) -> StdinMessage {
     let mut content = vec![UserContent::Text {
         text: prompt.text.clone(),

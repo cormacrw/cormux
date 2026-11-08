@@ -23,7 +23,6 @@ const REFERENCES_INSTRUCTION: &str = "When this thread's work involves a pull re
 
 type Reply<'a> = Pin<Box<dyn Future<Output = Result<Value>> + Send + 'a>>;
 
-/// One tool call: who made it, and its arguments.
 struct Call<'a> {
     caller: &'a str,
     args: &'a Value,
@@ -246,7 +245,6 @@ const TOOLS: &[HostTool] = &[
     },
 ];
 
-/// The tools as a session starting with `settings` gets them.
 pub fn session_config(settings: &Settings) -> HostToolsConfig {
     let (on, off): (Vec<&HostTool>, Vec<&HostTool>) =
         TOOLS.iter().partition(|tool| (tool.enabled)(settings));

@@ -65,7 +65,6 @@ impl Gh {
         })
     }
 
-    /// Runs `gh args…` and returns its trimmed stdout; a failed run is an error with its stderr.
     pub async fn stdout(&self, args: &[&str]) -> crate::error::Result<String> {
         let output = self.output(None, args, &[]).await?;
         if !output.status.success() {
@@ -86,7 +85,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_gh_is_told_apart_from_a_failed_one() {
-        // An env whose PATH has no `gh`.
         let env = ShellEnv::from_vars([("PATH".to_string(), "/nonexistent".to_string())]);
         let gh = Gh::new(Arc::new(RwLock::new(env)));
         let failure = gh.output(None, &["--version"], &[]).await.unwrap_err();

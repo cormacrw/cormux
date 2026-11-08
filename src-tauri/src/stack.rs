@@ -523,7 +523,6 @@ async fn adopt_local_stack(state: &AppState, worktree: &Path, branch: &str) -> b
     matches!(view(state, worktree).await, Ok(View::Stacked(_)))
 }
 
-/// Looks through the gh-stack files of the repo's other worktrees for a stack with `branch`.
 async fn stack_in_other_worktrees(
     state: &AppState,
     worktree: &Path,
@@ -1118,7 +1117,6 @@ mod tests {
         assert_eq!(json.parents(), ["main", "main"]);
     }
 
-    /// The UI used to check names itself (two IPC calls, and a rule the core didn't share).
     #[tokio::test]
     async fn a_new_stack_branch_name_is_checked_by_the_core() {
         use crate::model::WorkspaceLifecycle;

@@ -122,7 +122,6 @@ struct Pty {
     _master: Box<dyn MasterPty + Send>,
 }
 
-/// A session's progress, as it happens.
 pub struct SessionEvents {
     state: watch::Receiver<SessionState>,
 }
@@ -133,7 +132,6 @@ impl SessionEvents {
         self.state.borrow().exit
     }
 
-    /// Waits for a new line or the exit.
     pub async fn changed(&mut self) {
         if self.state.changed().await.is_err() {
             std::future::pending::<()>().await;
@@ -199,7 +197,6 @@ impl ProcessSupervisor {
         }
     }
 
-    /// The workspace's log, made on first use.
     fn workspace_log(&self, workspace_id: &str) -> Arc<Lines> {
         let mut logs = self.logs.lock().unwrap();
         if let Some(lines) = logs.get(workspace_id) {
@@ -368,7 +365,6 @@ impl ProcessSupervisor {
         Ok(events)
     }
 
-    /// The session's last lines, joined.
     pub fn output(&self, id: &SessionId) -> String {
         self.sessions
             .lock()
@@ -408,7 +404,6 @@ impl ProcessSupervisor {
         ring.iter().cloned().collect()
     }
 
-    /// A workspace log's texts, for tests.
     #[cfg(test)]
     pub fn log_texts(&self, workspace_id: &str) -> Vec<String> {
         self.take_log_snapshot(workspace_id)

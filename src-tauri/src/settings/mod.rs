@@ -18,7 +18,6 @@ use crate::store::Store;
 const LEGACY_MACROS: &str = "scratchMacros";
 const BANGS: &str = "bangs";
 
-/// Where new worktrees go when the user hasn't picked a folder.
 pub const DEFAULT_WORKTREE_ROOT: &str = "~/.harness/worktrees";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -60,7 +59,6 @@ pub struct Bang {
     pub prompt: String,
 }
 
-/// Changes to some settings; the rest stay as they are.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SettingsPatch {
@@ -120,8 +118,7 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// What's stored, with anything missing or unreadable at its default. A store that can't be
-    /// read at all gives the defaults, which ask before running anything.
+    /// A store that can't be read at all gives the defaults, which ask before running anything.
     pub fn load(store: &Store) -> Self {
         Self::read(store).unwrap_or_else(|error| {
             log::warn!("reading settings: {error}");
@@ -194,7 +191,6 @@ impl Settings {
         word(&self.default_engine)
     }
 
-    /// Saves every field.
     #[cfg(test)]
     pub fn save(&self, store: &Store) {
         let patch = serde_json::from_value(serde_json::to_value(self).unwrap()).unwrap();
@@ -202,8 +198,6 @@ impl Settings {
     }
 }
 
-/// How a field is stored: strings (enum words too) as they are, flags as `true`/`false`, lists
-/// as JSON.
 fn stored_text(value: Value) -> String {
     match value {
         Value::String(text) => text,
@@ -211,7 +205,6 @@ fn stored_text(value: Value) -> String {
     }
 }
 
-/// A stored row read as its field's type, which its default shows; `None` leaves the default.
 /// A blank string reads as the default, which is how "back to the default folder" is saved.
 fn stored_value(default: &Value, raw: &str) -> Option<Value> {
     match default {
@@ -253,7 +246,6 @@ fn parse_bangs(raw: Option<&String>) -> Option<Vec<Bang>> {
     )
 }
 
-/// A name as a bang: no `!`, no spaces (they become `-`), lowercase.
 fn bang_name(raw: &str) -> String {
     let mut name = String::new();
     let mut in_space = false;

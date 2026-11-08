@@ -84,8 +84,6 @@ impl PrSyncScheduler {
     }
 }
 
-/// Syncs pull requests now and every couple of minutes, for the life of the app. `gh` and `git`
-/// need the login-shell PATH, so this waits for it to load.
 pub fn start(state: &AppState) {
     let state = state.clone();
     tauri::async_runtime::spawn(async move {

@@ -10,7 +10,6 @@ use crate::store::{Store, query_all};
 const THREAD_EVENT_PAGE: u32 = 2_000;
 const THREAD_EVENT_PAGE_MAX: u32 = 10_000;
 
-/// One saved row as stored.
 #[derive(Debug, Clone)]
 pub struct ThreadEventRow {
     pub seq: i64,
@@ -138,8 +137,6 @@ impl Store {
         })
     }
 
-    /// One window of a transcript. `after_seq` pages forward from there, for catching up;
-    /// otherwise this is the newest rows, or those just before `before_seq` for scrolling back.
     pub fn thread_event_page(
         &self,
         thread_id: &str,
@@ -283,9 +280,9 @@ impl Store {
         })
     }
 
-    /// Appends one event and returns its sequence number. The hot path for every streamed
-    /// chunk, so it's a single statement: the next `seq` is picked and the row written in one
-    /// go, which also leaves no window for two appenders to pick the same number.
+    /// The hot path for every streamed chunk, so it's a single statement: the next `seq` is
+    /// picked and the row written in one go, which also leaves no window for two appenders to
+    /// pick the same number.
     pub fn append_event(&self, thread_id: &str, kind: &str, payload: &str) -> Result<i64> {
         self.with_conn(|conn| {
             let seq: i64 = conn

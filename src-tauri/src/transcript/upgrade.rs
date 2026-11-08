@@ -20,7 +20,6 @@ use crate::store::RustMigration;
 use super::store::{Rewrite, rewrite_rows};
 use crate::timeline::{StepIcon, TimelineStep};
 
-/// The migration that runs this, in version order with the SQL files.
 pub const MIGRATION: RustMigration = RustMigration {
     name: "024_typed_transcript_rows",
     run,

@@ -60,7 +60,7 @@ pub struct ClickupBoard {
     pub sprint: ClickupSprint,
     pub statuses: Vec<ClickupStatus>,
     pub tasks: Vec<ClickupTask>,
-    /// The API key's owner, so Homebase can pick out their in-progress tasks.
+    /// The API key's owner, so the board's "mine" filter can pick out their tasks.
     pub user_id: i64,
 }
 

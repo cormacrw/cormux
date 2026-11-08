@@ -18,9 +18,7 @@ use crate::state::AppState;
 use crate::timeline::{BranchChange, TimelineStep};
 use crate::workspaces::WorkspaceRecord;
 
-/// How often every repo is fetched and its workspaces recounted.
 const FETCH_INTERVAL: Duration = Duration::from_secs(300);
-/// How often each worktree's checked-out branch is compared with the one on record.
 const BRANCH_WATCH_INTERVAL: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Default)]
@@ -48,7 +46,6 @@ pub enum Checkout {
     PullRef(u64),
 }
 
-/// The counts and conflict of every workspace that has any.
 #[derive(Clone, Default)]
 pub struct WorkspaceGit {
     stats: Arc<RwLock<HashMap<String, Stats>>>,
@@ -99,7 +96,6 @@ impl WorkspaceGit {
     }
 }
 
-/// The background fetch and the branch watch, for the life of the app.
 pub fn start(state: &AppState) {
     let fetching = state.clone();
     tauri::async_runtime::spawn(async move {
@@ -124,7 +120,6 @@ pub fn start(state: &AppState) {
     });
 }
 
-/// Fetches every repo with a live workspace and recounts how far each is behind its base.
 pub async fn fetch_all(state: &AppState) {
     let targets = match fetch_targets(state).await {
         Ok(targets) => targets,
@@ -161,7 +156,6 @@ async fn fetch_targets(state: &AppState) -> Result<Vec<RepoFetchTarget>> {
     Ok(by_repo.into_values().collect())
 }
 
-/// Adds the workspace's worktree, checking out its branch as `checkout` says.
 pub async fn add_worktree(
     state: &AppState,
     workspace: &WorkspaceRecord,
@@ -211,7 +205,6 @@ pub async fn add_worktree(
     Ok(())
 }
 
-/// Recounts how far the worktree is behind its base and ahead of its own branch on origin.
 pub async fn refresh_stats(state: &AppState, workspace: &WorkspaceRecord) {
     let worktree = workspace.worktree();
     let behind = state
@@ -241,8 +234,7 @@ pub async fn refresh_stats(state: &AppState, workspace: &WorkspaceRecord) {
         .await;
 }
 
-/// Everything that follows the workspace's worktree moving to `branch`: the record, its PR
-/// (the old branch's), the counts and diff, a step in its thread, a toast and a refresh.
+/// The PR on record was the old branch's, so it is cleared.
 async fn on_branch_changed(
     state: &AppState,
     workspace: &WorkspaceRecord,
@@ -377,8 +369,7 @@ pub async fn rebase(state: &AppState, workspace_id: &str) -> Result<()> {
     integrate_base(state, workspace_id, GitConflictOperation::Rebase).await
 }
 
-/// Brings the base's new commits into the workspace's branch by merging or rebasing. A
-/// conflict is kept for the header to resolve or abort.
+/// A conflict is kept for the header to resolve or abort.
 async fn integrate_base(
     state: &AppState,
     workspace_id: &str,

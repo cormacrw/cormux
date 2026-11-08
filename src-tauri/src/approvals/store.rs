@@ -21,8 +21,7 @@ pub struct ApprovalRow {
 
 const APPROVAL_COLUMNS: &str = "SELECT id, thread_id, status, tool, payload FROM approvals";
 
-/// The visible threads' approvals, oldest first. Closed threads' answers stay in the table for
-/// the record but never reach the webview.
+/// Closed threads' answers stay in the table for the record but never reach the webview.
 pub(crate) fn visible(conn: &Connection) -> Result<Vec<ApprovalRow>> {
     query_all(
         conn,

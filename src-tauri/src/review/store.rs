@@ -45,7 +45,6 @@ pub struct ReviewRow {
 
 const REVIEW_COLUMNS: &str = "SELECT workspace_id, status, submitted FROM review_state";
 
-/// The live workspaces' reviews.
 pub(crate) fn live(conn: &Connection) -> Result<Vec<ReviewRow>> {
     query_all(
         conn,

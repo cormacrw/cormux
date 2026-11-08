@@ -127,7 +127,6 @@ impl Git {
         }
     }
 
-    /// The queue every git-driving call in a worktree waits its turn in.
     pub fn queue(&self) -> &WorktreeQueue {
         &self.inner.queue
     }
@@ -325,7 +324,6 @@ impl Git {
         Self::require_success(&output, "worktree remove")
     }
 
-    /// Commits `base` (as [`Self::freshest_ref`] picks it) has that HEAD doesn't.
     pub async fn behind_count(&self, worktree: &Path, base: &str) -> Result<u32> {
         let base = self.freshest_ref(worktree, base).await;
         self.rev_list_count(worktree, &format!("HEAD..{base}"))
@@ -371,8 +369,6 @@ impl Git {
         Ok(parse_numstat_z(&output.stdout))
     }
 
-    /// Each uncommitted change with its patch when `with_patches` is set.
-    ///
     /// `git diff HEAD` can't see untracked files, so a moved file would show as a
     /// deletion and a separate addition. They are marked intent-to-add in a copy of
     /// the index, which leaves the real one alone and lets git pair renames.
@@ -507,7 +503,6 @@ impl Git {
         .await
     }
 
-    /// A copy of the worktree's index in the temp dir, for `uncommitted_changes`.
     async fn scratch_index(&self, worktree: &Path) -> Result<PathBuf> {
         let output = self
             .run_unlocked(Some(worktree), &["rev-parse", "--git-path", "index"])
@@ -521,7 +516,6 @@ impl Git {
         Ok(scratch)
     }
 
-    /// Each file changed by `range` with its patch.
     pub async fn range_changes(
         &self,
         worktree: &Path,
@@ -648,7 +642,6 @@ impl Git {
         Ok(parse_local_branch_tips(&Self::stdout(&output)))
     }
 
-    /// Deletes a branch that is fully merged. Refuses with git's own error otherwise.
     /// Whether `origin/<branch>` exists and points where the local branch does, as of the
     /// last fetch, so deleting the local branch loses nothing.
     pub async fn in_sync_with_origin(&self, repo: &Path, branch: &str) -> Result<bool> {
@@ -661,7 +654,6 @@ impl Git {
         Ok(local.is_some() && local == remote)
     }
 
-    /// The commit `reference` points at, or `None` when it doesn't exist.
     pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
         let output = self
             .run(repo, &["for-each-ref", "--format=%(refname)", "refs/heads"])
@@ -719,7 +711,7 @@ impl Git {
         Self::require_success(&output, "branch -D")
     }
 
-    /// Commits in `range`. A range git can't resolve is an error, not 0.
+    /// A range git can't resolve is an error, not 0.
     pub async fn rev_list_count(&self, worktree: &Path, range: &str) -> Result<u32> {
         self.count_commits(worktree, &["rev-list", "--count", range])
             .await
@@ -815,7 +807,6 @@ impl Git {
         }
     }
 
-    /// A git config value as the worktree sees it; `None` when it isn't set.
     pub async fn config_get(&self, worktree: &Path, key: &str) -> Result<Option<String>> {
         let output = self.run(worktree, &["config", "--get", key]).await?;
         match output.status.code() {
@@ -833,7 +824,6 @@ impl Git {
         Ok(output.status.success())
     }
 
-    /// Whether `descendant` already has every commit on `ancestor`.
     pub async fn is_ancestor(&self, worktree: &Path, ancestor: &str, descendant: &str) -> bool {
         self.run(
             worktree,
@@ -862,7 +852,6 @@ impl Git {
         }
     }
 
-    /// Lines added and removed by `range` (e.g. `main...feature`).
     pub async fn shortstat(&self, worktree: &Path, range: &str) -> Result<ShortStat> {
         let output = self.run(worktree, &["diff", "--shortstat", range]).await?;
         Self::require_success(&output, "diff --shortstat")?;

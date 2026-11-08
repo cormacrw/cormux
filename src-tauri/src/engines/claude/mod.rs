@@ -84,7 +84,6 @@ impl Engines for ClaudeEngines {
     }
 }
 
-/// Argument vector for a streaming Claude Code session (binary not included).
 fn argv(config: &LaunchConfig) -> Vec<String> {
     let mut brief = config.instructions.clone();
     let mut disallowed = vec![tools::ENTER_PLAN_TOOL.to_string()];

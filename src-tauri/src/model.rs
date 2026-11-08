@@ -1,5 +1,5 @@
 //! Status vocabularies shared by the store, the workflows and the webview. Each keeps the word
-//! it is stored and sent as, so typed code reads and writes the same rows as before.
+//! it is stored and sent as.
 
 use std::fmt;
 

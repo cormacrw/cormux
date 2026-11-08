@@ -1,5 +1,3 @@
-//! The `findings` table.
-
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -26,7 +24,6 @@ pub struct FindingRow {
 const FINDING_COLUMNS: &str = "SELECT id, workspace_id, severity, title, file, line, explanation,
         status, commit_sha, sent_to_thread_id FROM findings";
 
-/// The live workspaces' findings, oldest first.
 pub(crate) fn live(conn: &Connection) -> Result<Vec<FindingRow>> {
     query_all(
         conn,
@@ -114,7 +111,6 @@ impl Store {
         })
     }
 
-    /// The workspace's findings in the order they were reported.
     pub fn findings_for_workspace(&self, workspace_id: &str) -> Result<Vec<FindingRow>> {
         self.with_read(|conn| {
             let mut stmt = conn.prepare_cached(&format!(

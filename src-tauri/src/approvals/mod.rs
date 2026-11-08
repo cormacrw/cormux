@@ -23,7 +23,6 @@ use crate::settings::Settings;
 use crate::store::Store;
 use crate::transcript::Transcript;
 
-/// Which requests wait for the user.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ApprovalPolicy {
     run_everything: bool,

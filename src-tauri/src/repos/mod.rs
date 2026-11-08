@@ -28,11 +28,9 @@ pub struct LocalBranchRow {
     pub name: String,
     pub committed: String,
     pub subject: String,
-    /// Why it can't be deleted, if it can't.
     pub hold: Option<BranchHold>,
 }
 
-/// What keeps a local branch from being deleted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum BranchHold {
@@ -66,7 +64,6 @@ fn branch_hold(
     (!head.is_empty() && head == branch).then_some(BranchHold::RepoHead)
 }
 
-/// What happened to a local branch the user asked to delete.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum BranchDeletion {
@@ -208,7 +205,6 @@ pub async fn git_runtime(state: &AppState) -> Result<Vec<RepoGitRuntime>> {
     for repo in state.store.repos()? {
         let path = expand_tilde(&repo.path);
         let branch = repo.default_branch.as_str();
-        // One `rev-list --left-right` gives both counts, instead of a process per direction.
         let (ahead, behind) = state
             .git
             .ahead_behind(&path, branch, &format!("origin/{branch}"))
@@ -324,7 +320,6 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
     Ok(record)
 }
 
-/// Why a repo can't be removed: it still has live workspaces, or it's the only one.
 pub fn removal_block(repo: &RepoRecord, live_workspaces: usize, repos: usize) -> Option<String> {
     if live_workspaces > 0 {
         let tear = if live_workspaces == 1 { "it" } else { "them" };
@@ -345,7 +340,6 @@ pub struct RepoRemovalBlock {
     pub reason: String,
 }
 
-/// Each repo that can't be removed now, from the snapshot's repos and live workspaces.
 pub fn removal_blocks(
     repos: &[RepoRecord],
     live: &[crate::store::types::WorkspaceRow],

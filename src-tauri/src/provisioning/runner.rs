@@ -113,8 +113,6 @@ pub fn start(state: &AppState, plan: ProvisionPlan) {
     tauri::async_runtime::spawn(async move { run(&state, plan).await });
 }
 
-/// Makes the worktree, runs the repo's setup commands and hands the thread its first turn. Any
-/// error on the way fails the setup, so the workspace can be retried or skipped past.
 pub async fn run(state: &AppState, plan: ProvisionPlan) {
     let ran = run_plan(state, &plan).await;
     fail_on_error(state, &plan.workspace_id, ran).await;
@@ -127,7 +125,6 @@ async fn fail_on_error(state: &AppState, workspace_id: &str, ran: Result<()>) {
     }
 }
 
-/// Setup again, after it failed.
 pub async fn retry(state: &AppState, plan: ProvisionPlan) -> Result<()> {
     state
         .workspaces
@@ -389,13 +386,12 @@ fn write_intro(state: &AppState, workspace: &WorkspaceRecord, intro: &Intro) -> 
     Ok(())
 }
 
-/// Setup stopped: says why and reports it. A workspace being torn down stopped its own setup,
-/// so it's left alone.
 /// Fails a recorded workspace's setup before it ran, so it can be retried or torn down.
 pub async fn fail(state: &AppState, workspace_id: &str, message: &str) {
     mark_failed(state, workspace_id, None, message).await;
 }
 
+/// A workspace being torn down stopped its own setup, so it's left alone.
 async fn mark_failed(
     state: &AppState,
     workspace_id: &str,

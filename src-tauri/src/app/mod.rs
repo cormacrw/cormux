@@ -220,7 +220,6 @@ impl WorkspaceAppService {
         Ok(())
     }
 
-    /// With the repo's "one instance at a time" on, stops its app in every other workspace.
     async fn stop_other_instances(&self, state: &AppState, workspace_id: &str) -> Result<()> {
         let Ok(workspace) = state.workspaces.get(workspace_id).await else {
             return Ok(());
@@ -323,8 +322,6 @@ impl WorkspaceAppService {
             .collect()
     }
 
-    /// Follows one run until it exits or another run replaces it: finds its port while it
-    /// starts, and reports how it ended.
     async fn monitor(
         &self,
         state: AppState,
@@ -340,7 +337,6 @@ impl WorkspaceAppService {
 
         loop {
             if self.generation(workspace_id) != generation {
-                // Another run replaced this one; its own monitor takes over.
                 return;
             }
             if let Some(code) = events.exit_code() {

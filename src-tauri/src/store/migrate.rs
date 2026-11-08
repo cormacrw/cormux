@@ -27,8 +27,6 @@ enum Step {
     Rust(fn(&Connection) -> Result<()>),
 }
 
-/// Every migration, files and `rust` together, in version order. A version taken twice is a
-/// build mistake.
 fn ordered(rust: &[RustMigration]) -> Vec<(i64, &'static str, Step)> {
     let mut all: Vec<(i64, &'static str, Step)> = MIGRATIONS
         .iter()
@@ -46,7 +44,6 @@ fn ordered(rust: &[RustMigration]) -> Vec<(i64, &'static str, Step)> {
     all
 }
 
-/// Every version the migrations take, in order.
 #[cfg(test)]
 pub fn versions(rust: &[RustMigration]) -> Vec<i64> {
     ordered(rust)
@@ -189,7 +186,6 @@ mod tests {
         conn
     }
 
-    /// Runs the one migration numbered `version`, on a database migrated up to it.
     fn apply_version(conn: &Connection, version: i64) {
         let migration = MIGRATIONS
             .iter()

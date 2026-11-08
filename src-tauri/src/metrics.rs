@@ -97,8 +97,6 @@ const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(4);
 /// Nobody reads the sidebar label while the window is in the background, so only every 60s.
 const BACKGROUND_TICKS: u32 = 15;
 
-/// Samples memory for the life of the app, handing each sample to `publish`; less often while
-/// the window isn't `focused`.
 pub fn start(
     state: &AppState,
     focused: impl Fn() -> bool + Send + 'static,

@@ -122,7 +122,6 @@ impl SubscriptionHandle {
         *self.rx.borrow() || self.rx.has_changed().is_err()
     }
 
-    /// Resolves once the subscription is cancelled.
     pub async fn stopped(&mut self) {
         let _ = self.rx.wait_for(|stopped| *stopped).await;
     }
@@ -134,8 +133,6 @@ impl Drop for SubscriptionHandle {
     }
 }
 
-/// Feeds `channel` everything the thread's transcript gets until cancelled. Returns the id to
-/// cancel by.
 fn stream_agent_events(
     state: &AppState,
     subs: &Subscriptions,
@@ -169,7 +166,6 @@ fn stream_agent_events(
     id
 }
 
-/// Feeds `channel` a workspace's run/setup log, from the start, until cancelled.
 fn stream_pty(
     state: &AppState,
     subs: &Subscriptions,
@@ -212,7 +208,6 @@ fn stream_pty(
     id
 }
 
-/// Feeds `channel` a worktree's live diffs until cancelled.
 async fn stream_diffs(
     state: &AppState,
     subs: &Subscriptions,

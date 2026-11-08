@@ -45,7 +45,6 @@ pub struct CreateWorkspacePullRequestResult {
     pub title: String,
 }
 
-/// A workspace that's still around, for the PR commands.
 fn live_workspace(state: &AppState, workspace_id: &str) -> Result<WorkspaceRow> {
     state
         .store

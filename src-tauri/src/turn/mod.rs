@@ -180,7 +180,6 @@ pub async fn stop(state: &AppState, thread_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Only a running thread can pause; any other is left as it is.
 pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
     let thread = thread_row(state, thread_id)?;
     if thread.status != ThreadStatus::Running {
@@ -241,7 +240,6 @@ pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Points the thread at an earlier conversation's session; the next prompt's engine resumes it.
 pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -> Result<()> {
     let thread_id = input.thread_id;
     let thread = thread_row(state, &thread_id)?;

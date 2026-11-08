@@ -175,7 +175,6 @@ mod tests {
         );
     }
 
-    /// Writes `src/lib/ipc/bindings.ts`; CI fails when the committed file differs afterwards.
     #[test]
     fn export_typescript_bindings() {
         super::export_bindings(&super::builder());

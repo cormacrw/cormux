@@ -239,7 +239,6 @@ impl ClaudeSession {
     }
 
     #[cfg(test)]
-    /// Drive until a turn ends (`result`) or a tool needs a decision.
     pub async fn wait_for_turn_or_tool(&mut self) -> Result<Event> {
         loop {
             match self.next_event().await? {
@@ -255,9 +254,8 @@ impl ClaudeSession {
         self.child.id()
     }
 
-    /// Closes stdin, asks the CLI's whole process group to stop, and kills whatever is left
-    /// after a few seconds. The group is the CLI's own (`process_group(0)`), so the shells and
-    /// servers it started go with it rather than outliving the thread.
+    /// Stops the CLI's whole process group. The group is the CLI's own (`process_group(0)`), so
+    /// the shells and servers it started go with it rather than outliving the thread.
     pub async fn shutdown(&mut self) {
         let _ = self.stdin.shutdown().await;
         let pgid = self.child.id().map(|pid| pid as i32);

@@ -78,9 +78,8 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     })
 }
 
-/// Stops everything running in the workspace, removes its worktree (and branch, if asked) and
-/// archives it. Setup still running stops too: it checks the workspace is alive between steps,
-/// and its command's process is stopped with the rest.
+/// Setup still running stops too: it checks the workspace is alive between steps, and its
+/// command's process is stopped with the rest.
 pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
     let record = state.workspaces.get(&input.workspace_id).await?;
     if record.status == WorkspaceLifecycle::TearingDown {

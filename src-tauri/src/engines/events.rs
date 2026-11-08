@@ -76,7 +76,7 @@ pub enum MessageRole {
     Thought,
 }
 
-/// One internal event every adapter translates into (COR-56).
+/// What every engine adapter translates its output into.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AgentEvent {

@@ -27,7 +27,6 @@ pub use models::{ModelOption, ThreadModels, static_efforts, static_models};
 
 use crate::error::Result;
 
-/// How to start a session.
 #[derive(Debug, Clone, Default)]
 pub struct LaunchConfig {
     /// The thread the session serves, for its logs.
@@ -35,7 +34,6 @@ pub struct LaunchConfig {
     pub cwd: PathBuf,
     pub model: Option<String>,
     pub effort: Option<String>,
-    /// The session to carry on, if any.
     pub resume: Option<String>,
     /// Told to the agent once, at the start of the session.
     pub instructions: String,
@@ -74,7 +72,6 @@ pub enum EngineOutput {
     Permission(PermissionRequest),
     /// A message for one of the host's tool servers, waiting for its reply.
     HostTool(HostToolCall),
-    /// The engine process is gone.
     Exited,
 }
 

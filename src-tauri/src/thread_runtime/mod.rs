@@ -25,7 +25,7 @@ use crate::store::Store;
 use crate::transcript::Transcript;
 use crate::workspaces::{WorkspaceRecord, Workspaces};
 
-/// Just over what a session gets to exit before it's killed.
+/// Just over the 5 s `ClaudeSession::shutdown` gives the CLI before it kills the process group.
 const STOP_GRACE: Duration = Duration::from_secs(6);
 /// A Claude CLI sitting idle this long gives its memory back; the next prompt resumes it.
 const IDLE_REAP_AFTER: Duration = Duration::from_secs(30 * 60);
@@ -223,7 +223,6 @@ impl ThreadRuntime {
         Ok(())
     }
 
-    /// The thread's picked model and what it can switch to.
     pub fn thread_models(&self, thread_id: &str) -> Result<ThreadModels> {
         Ok(ThreadModels {
             current: self.store.thread_model(thread_id)?,
@@ -231,7 +230,6 @@ impl ThreadRuntime {
         })
     }
 
-    /// Saves the pick for future sessions and switches a live engine over now.
     pub fn set_thread_model(&self, thread_id: &str, model: Option<String>) -> Result<()> {
         self.store.set_thread_model(thread_id, model.as_deref())?;
         if self.has_thread(thread_id) {
@@ -240,7 +238,6 @@ impl ThreadRuntime {
         Ok(())
     }
 
-    /// The thread's picked effort level and what it can switch to.
     pub fn thread_efforts(&self, thread_id: &str) -> Result<ThreadModels> {
         Ok(ThreadModels {
             current: self.store.thread_effort(thread_id)?,
@@ -248,7 +245,6 @@ impl ThreadRuntime {
         })
     }
 
-    /// Saves the pick for future sessions and switches a live engine over now.
     pub fn set_thread_effort(&self, thread_id: &str, effort: Option<String>) -> Result<()> {
         self.store.set_thread_effort(thread_id, effort.as_deref())?;
         if self.has_thread(thread_id) {

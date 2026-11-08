@@ -27,7 +27,6 @@ impl Drop for SyncClaim {
     }
 }
 
-/// Notes the focus, and on gaining it syncs unless a sync is running or just ran.
 pub fn focus_changed(app: &AppHandle, focused: bool) {
     let Some(activity) = app.try_state::<WindowActivity>() else {
         return;
@@ -67,7 +66,6 @@ impl WindowActivity {
         self.focused.store(focused, Ordering::Relaxed);
     }
 
-    /// Refused while a sync runs or just ran.
     fn begin_sync(&self, now: Instant) -> Option<SyncClaim> {
         let mut last = self.last_sync.lock().ok()?;
         if self.syncing.load(Ordering::SeqCst)

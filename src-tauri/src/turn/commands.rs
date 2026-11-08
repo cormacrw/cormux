@@ -45,8 +45,8 @@ pub async fn new_thread_session(thread_id: String, state: State<'_, AppState>) -
     super::new_session(&state, &thread_id).await
 }
 
-/// Picks an earlier conversation in the thread back up: the agent resumes the session it
-/// ended with, and the thread shows that conversation again.
+/// Picks an earlier conversation in the thread back up: the thread shows it again, and the next
+/// prompt's engine resumes the session it ended with.
 #[tauri::command]
 #[specta::specta]
 pub async fn resume_thread_session(
@@ -56,7 +56,6 @@ pub async fn resume_thread_session(
     super::resume_session(&state, input).await
 }
 
-/// The models the thread's composer can pick from, and the current pick.
 #[tauri::command]
 #[specta::specta]
 pub async fn thread_models(thread_id: String, state: State<'_, AppState>) -> Result<ThreadModels> {
@@ -83,7 +82,6 @@ pub async fn set_thread_model(
     state.engines.set_thread_model(&thread_id, model)
 }
 
-/// The effort levels the thread's composer can pick from, and the current pick.
 #[tauri::command]
 #[specta::specta]
 pub async fn thread_efforts(thread_id: String, state: State<'_, AppState>) -> Result<ThreadModels> {

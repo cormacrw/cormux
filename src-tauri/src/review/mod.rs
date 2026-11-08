@@ -70,7 +70,6 @@ fn reviewer_rubric() -> String {
     )
 }
 
-/// The rubric for reviewing a regular workspace's own branch, uncommitted work included.
 fn branch_reviewer_rubric(base: &str) -> String {
     rubric_with_intro(
         &format!(
@@ -214,7 +213,6 @@ pub async fn create_review_workspace(
     })
 }
 
-/// How a PR review comes up: the PR's head checked out, then the Reviewer reading it.
 fn review_plan(
     workspace: &WorkspaceRecord,
     thread_id: &str,
@@ -280,9 +278,8 @@ fn review_status(store: &Store, workspace_id: &str) -> Option<ReviewStatus> {
         .and_then(|review| review.status)
 }
 
-/// Runs when any thread's turn ends. For a Reviewer whose review isn't done yet, reads
-/// the findings block from its last reply and turns it into the Findings list. If the
-/// block is missing or malformed, leaves a note in the thread and tries again next turn.
+/// Runs when any thread's turn ends. A missing or malformed findings block leaves the review
+/// running, so the next turn's reply is read again.
 async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     let Some(thread) = state.store.thread_by_id(thread_id)? else {
         return Ok(());
@@ -336,9 +333,8 @@ async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     complete_review(state, &workspace, thread_id, rows.len()).await
 }
 
-/// Review a regular workspace's own branch. The workspace's thread reads the changes against
-/// the base, and its findings fill the Findings panel, from where they can be sent back to
-/// the same thread to fix. Returns the thread's id.
+/// The workspace's own thread reviews its branch against the base, and its findings fill the
+/// Findings panel, from where they can be sent back to the same thread to fix.
 pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result<String> {
     let record = state.workspaces.get(workspace_id).await?;
     if record.kind == WorkspaceKind::PrReview {
@@ -370,8 +366,7 @@ pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result
     Ok(thread.id)
 }
 
-/// The turn-end handler has already replaced any earlier findings with this review's. The
-/// thread that ran the review gets the findings card; with none, a toast says so.
+/// The turn-end handler has already replaced any earlier findings with this review's.
 async fn complete_review(
     state: &AppState,
     workspace: &WorkspaceRow,

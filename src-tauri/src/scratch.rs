@@ -28,7 +28,6 @@ const SCRATCH_COLUMNS: &str = "SELECT s.id, s.repo_id, s.title, s.thread_id, t.e
         s.created_at
      FROM scratches s JOIN threads t ON t.id = s.thread_id";
 
-/// Every scratch, newest first.
 pub(crate) fn all(conn: &Connection) -> Result<Vec<ScratchRow>> {
     query_all(
         conn,

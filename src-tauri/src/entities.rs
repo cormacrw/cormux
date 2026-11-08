@@ -21,7 +21,6 @@ pub struct EntityRow {
 
 const ENTITY_FIELDS: &str = "id, thread_id, name, url, created_at";
 
-/// The visible threads' entities, oldest first.
 pub(crate) fn visible(conn: &Connection) -> Result<Vec<EntityRow>> {
     query_all(
         conn,
