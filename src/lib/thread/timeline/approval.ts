@@ -6,7 +6,7 @@ type ApprovalItem = Extract<TimelineItem, { kind: 'approval' }>
 function approvalState(row: ApprovalRow | undefined): ApprovalItem['state'] {
   if (!row) return 'pending'
   if (row.status === 'approved') return 'approved'
-  if (row.status === 'denied' || row.status === 'dismissed') return 'denied'
+  if (row.status === 'denied') return 'denied'
   return 'pending'
 }
 

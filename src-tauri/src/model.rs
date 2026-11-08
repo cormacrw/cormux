@@ -208,8 +208,6 @@ pub enum ApprovalStatus {
     Pending,
     Approved,
     Denied,
-    /// Older builds' word for a card a newer one replaced; reads as denied. Not written any more.
-    Dismissed,
 }
 
 impl ApprovalStatus {
@@ -218,7 +216,6 @@ impl ApprovalStatus {
             Self::Pending => "pending",
             Self::Approved => "approved",
             Self::Denied => "denied",
-            Self::Dismissed => "dismissed",
         }
     }
 
@@ -227,7 +224,6 @@ impl ApprovalStatus {
         match raw {
             "pending" => Self::Pending,
             "approved" => Self::Approved,
-            "dismissed" => Self::Dismissed,
             _ => Self::Denied,
         }
     }
@@ -412,7 +408,6 @@ mod tests {
             ApprovalStatus::Pending,
             ApprovalStatus::Approved,
             ApprovalStatus::Denied,
-            ApprovalStatus::Dismissed,
         ] {
             assert_eq!(ApprovalStatus::parse(status.as_str()), status);
             assert_eq!(serde_json::to_value(status).unwrap(), status.as_str());

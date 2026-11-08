@@ -90,6 +90,7 @@ const MIGRATIONS: &[Migration] = migrations![
     "027_retire_scratch_threads",
     "028_no_model_summaries",
     "029_drop_pr_cache_synced_at",
+    "031_no_dismissed_approvals",
 ];
 
 fn create_ledger(conn: &Connection) -> Result<()> {
@@ -653,6 +654,30 @@ mod tests {
             (approval("a"), approval("b")),
             ("denied".into(), "pending".into())
         );
+    }
+
+    #[test]
+    fn a_dismissed_approval_is_stored_as_denied() {
+        let conn = migrated_before(31);
+        conn.execute_batch(
+            "INSERT INTO threads (id, workspace_id, title, engine, status)
+                VALUES ('t', 'w', 'Lead', 'claude', 'idle');
+             INSERT INTO approvals (id, thread_id, status, tool, payload) VALUES
+                ('a', 't', 'dismissed', 'bash', '{}'),
+                ('b', 't', 'approved', 'bash', '{}');",
+        )
+        .unwrap();
+
+        run(&conn, &[]).unwrap();
+
+        let statuses: Vec<String> = conn
+            .prepare("SELECT status FROM approvals ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|status| status.unwrap())
+            .collect();
+        assert_eq!(statuses, ["denied", "approved"]);
     }
 
     #[test]

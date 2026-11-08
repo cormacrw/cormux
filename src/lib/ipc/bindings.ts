@@ -753,11 +753,7 @@ export type ApprovalRow = { id: string; threadId: string; status: ApprovalStatus
  * None when the stored card can't be read; the timeline falls back to the permission event.
  */
 payload: ApprovalPayload | null }
-export type ApprovalStatus = "pending" | "approved" | "denied" | 
-/**
- * Older builds' word for a card a newer one replaced; reads as denied. Not written any more.
- */
-"dismissed"
+export type ApprovalStatus = "pending" | "approved" | "denied"
 /**
  * A short name like `!test` that stands for a saved prompt.
  */
