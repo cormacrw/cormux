@@ -1,7 +1,8 @@
 /**
  * Machine-readable data an agent appends to a reply as `<name>JSON</name>`. The block that counts
  * is the one the core reads too (src-tauri/src/review/findings_block.rs): the last opening tag,
- * and only once it is closed. Earlier ones are quotes, so they stay in the prose.
+ * and only once it is closed. Earlier ones are quotes, so they stay in the prose. Both are tested
+ * against `$lib/ipc/rule-cases/findings-block.json`.
  */
 type TagBlockMatch =
   | { kind: 'block'; start: number; end: number; body: string }

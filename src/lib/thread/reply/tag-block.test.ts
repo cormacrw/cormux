@@ -1,11 +1,24 @@
 import { describe, expect, it } from 'vitest'
+import { FINDINGS_BLOCK_TAG } from '$lib/ipc/bindings'
+import blockCases from '$lib/ipc/rule-cases/findings-block.json?raw'
 import { parseReply, replyProse } from './parse'
 import { findTagBlock } from './tag-block'
+
+/** The cases the core's `findings_block.rs` finds its block in too. */
+const cases = JSON.parse(blockCases) as { reply: string; body: string | null }[]
 
 const shown = (text: string, streaming = false) =>
   replyProse(parseReply(text, { streaming }))
 
 describe('findTagBlock', () => {
+  it.each(cases)(
+    'finds the block the core reads in $reply',
+    ({ reply, body }) => {
+      const found = findTagBlock(reply, FINDINGS_BLOCK_TAG, false)
+      expect(found?.kind === 'block' ? found.body : null).toBe(body)
+    },
+  )
+
   it('takes the last block, as the core does', () => {
     const text = 'a <x>1</x> b <x>2</x> c'
     expect(findTagBlock(text, 'x', false)).toEqual({

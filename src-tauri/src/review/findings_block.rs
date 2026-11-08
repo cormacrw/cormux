@@ -41,20 +41,25 @@ struct RawFinding {
 /// Parses the last findings block in `reply`. `worktree` is used to turn absolute
 /// paths the agent may have written back into repo-relative ones.
 pub fn parse_findings_block(reply: &str, worktree: &str) -> Result<Vec<ReviewFinding>, BlockError> {
-    let open = open_tag();
-    let start = reply.rfind(&open).ok_or(BlockError::Missing)?;
-    let body_start = start + open.len();
-    let body_len = reply[body_start..]
-        .find(&close_tag())
-        .ok_or(BlockError::Missing)?;
-    let body = strip_code_fence(reply[body_start..body_start + body_len].trim());
-
+    let body = block_body(reply).ok_or(BlockError::Missing)?;
     let raw: Vec<RawFinding> =
         serde_json::from_str(body).map_err(|error| BlockError::Invalid(error.to_string()))?;
     Ok(raw
         .into_iter()
         .filter_map(|item| normalize(item, worktree))
         .collect())
+}
+
+/// What the last opening tag holds, once it is closed. Earlier blocks are quotes of the format.
+/// The webview finds the same block (`src/lib/thread/reply/tag-block.ts`); both are tested
+/// against `src/lib/ipc/rule-cases/findings-block.json`.
+fn block_body(reply: &str) -> Option<&str> {
+    let open = open_tag();
+    let body_start = reply.rfind(&open)? + open.len();
+    let body_len = reply[body_start..].find(&close_tag())?;
+    Some(strip_code_fence(
+        reply[body_start..body_start + body_len].trim(),
+    ))
 }
 
 /// Agents often wrap JSON in a ```json fence even when asked not to.
@@ -112,6 +117,27 @@ mod tests {
     use super::*;
 
     const WORKTREE: &str = "/Users/me/.harness/worktrees/app/feat-x";
+
+    #[test]
+    fn finds_the_block_the_webview_hides() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            reply: String,
+            body: Option<String>,
+        }
+        let cases: Vec<Case> = serde_json::from_str(include_str!(
+            "../../../src/lib/ipc/rule-cases/findings-block.json"
+        ))
+        .unwrap();
+        for case in cases {
+            assert_eq!(
+                block_body(&case.reply),
+                case.body.as_deref(),
+                "{}",
+                case.reply
+            );
+        }
+    }
 
     #[test]
     fn parses_block_at_end_of_reply() {
