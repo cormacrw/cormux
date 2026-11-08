@@ -24,7 +24,7 @@
 </script>
 
 <li
-  data-row-key={id}
+  use:ctx.trackRow={id}
   class={['py-1', className]}
   use:popIn={{ entries: ctx.entries, key: pop ? id : undefined, origin }}
 >

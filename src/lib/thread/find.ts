@@ -5,7 +5,7 @@ import { stepText, workedForLabel } from './timeline/step-text'
 /** One match: the row it's in, and which occurrence in that row's text it is. */
 type FindMatch = { row: number; occurrence: number }
 
-/** The key a row renders with (`data-row-key`), so a match can be found in the page. */
+/** The key a row is drawn and tracked with (`RowContext.trackRow`). */
 export function rowKey(row: TimelineRow): string {
   return row.kind === 'speaker' ? row.id : row.item.id
 }

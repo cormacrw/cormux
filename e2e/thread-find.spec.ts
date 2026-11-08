@@ -66,7 +66,7 @@ test('⌘F finds rows a long thread hasn’t rendered yet', async ({ page }) => 
   await expect(page.getByText('Answer 200', { exact: true })).toBeVisible()
   // The first answers are far above and not rendered.
   await expect(
-    page.locator('[data-row-key]', { hasText: 'Answer 3' }),
+    page.locator('#timeline li', { hasText: 'Answer 3' }),
   ).toHaveCount(0)
 
   await page.keyboard.press('ControlOrMeta+f')

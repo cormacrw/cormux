@@ -1,3 +1,4 @@
+import type { Action } from 'svelte/action'
 import type { SvelteSet } from 'svelte/reactivity'
 import type { DiffFile } from '$lib/ipc/bindings'
 import type { EntryScope } from '$lib/thread/entering'
@@ -27,6 +28,8 @@ export type RowContext = ConversationSource & {
   }
   /** Folds opened in this thread, kept while rows unmount off screen. */
   readonly openFolds: SvelteSet<string>
+  /** Put on each row's element with its key (`rowKey`), so the conversation can reach a drawn row. */
+  readonly trackRow: Action<HTMLElement, string>
   /** A scratch's reads are marked read-only, with no worktree. */
   readonly scratch: boolean
 }
