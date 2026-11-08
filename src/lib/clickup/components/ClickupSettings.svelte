@@ -1,7 +1,7 @@
 <script lang="ts">
   import { updateSettings } from '$lib/settings/actions'
-  import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
-  import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
+  import SettingsPanel from '$lib/settings/components/SettingsPanel.svelte'
+  import SettingsRow from '$lib/settings/components/SettingsRow.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import * as Select from '$lib/components/ui/select'

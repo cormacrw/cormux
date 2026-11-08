@@ -1,13 +1,13 @@
 <script lang="ts">
   import { windowDrag } from '$lib/primitives/window-drag'
   import { tick, untrack } from 'svelte'
-  import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
-  import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
+  import SettingsSectionHead from '$lib/settings/components/SettingsSectionHead.svelte'
+  import SettingsSectionNav from '$lib/settings/components/SettingsSectionNav.svelte'
   import {
     SETTINGS_SECTIONS,
     SETTINGS_SECTION_IDS,
     type SettingsSectionId,
-  } from '$lib/components/settings/sections'
+  } from '$lib/settings/components/sections'
   import { normalizeSettingsSection } from '$lib/settings/sections'
   import { nav } from '$lib/core/nav.svelte'
   import { settings } from '$lib/settings/store.svelte'

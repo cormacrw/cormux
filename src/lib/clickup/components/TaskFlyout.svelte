@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte'
-  import SprintTaskPanel from '$lib/components/sprint/SprintTaskPanel.svelte'
+  import SprintTaskPanel from '$lib/clickup/components/SprintTaskPanel.svelte'
   import { nav } from '$lib/core/nav.svelte'
   import { clickup } from '$lib/clickup/store.svelte'
   import {

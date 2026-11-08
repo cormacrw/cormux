@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
-  import { findings, threads, workspaceUi, workspaces } from '$lib/state'
+  import { threads, workspaceUi, workspaces } from '$lib/state'
+  import { findings } from '$lib/findings/store.svelte'
   import { nav } from '$lib/core/nav.svelte'
   import { loadStack } from '$lib/changes/actions'
   import { bindWorkspaceDiffSubscription } from '$lib/changes/diff-store.svelte'
@@ -8,10 +9,10 @@
   import { isWorkspaceProvisioning } from '$lib/state/activity'
   import ProvisioningFailureBanner from './ProvisioningFailureBanner.svelte'
   import WorkspaceHeader from './WorkspaceHeader.svelte'
-  import WorkspaceOutputPanel from './WorkspaceOutputPanel.svelte'
+  import WorkspaceOutputPanel from '../../run-app/components/WorkspaceOutputPanel.svelte'
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
-  import ChangesPanel from './changes/ChangesPanel.svelte'
+  import ChangesPanel from '../../changes/components/ChangesPanel.svelte'
   import { escClosesSlideOut, resizeEdge } from '$lib/primitives/slide-out'
 
   const workspace = $derived(

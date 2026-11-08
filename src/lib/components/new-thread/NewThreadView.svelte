@@ -21,7 +21,7 @@
     claimWorkspacePopover,
     releaseWorkspacePopover,
   } from '$lib/keyboard/popover-registry'
-  import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
+  import { resolveDefaultRepoId } from '$lib/settings/default-repo'
   import { appearance, repos } from '$lib/state'
   import { nav } from '$lib/core/nav.svelte'
   import { settings } from '$lib/settings/store.svelte'

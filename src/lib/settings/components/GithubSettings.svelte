@@ -1,6 +1,6 @@
 <script lang="ts">
-  import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
-  import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
+  import SettingsPanel from '$lib/settings/components/SettingsPanel.svelte'
+  import SettingsRow from '$lib/settings/components/SettingsRow.svelte'
   import { prs } from '$lib/state'
 </script>
 

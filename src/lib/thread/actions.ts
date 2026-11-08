@@ -3,7 +3,7 @@ import { toastCoreError } from '$lib/feedback/wire-feedback'
 import {
   threadTimeline,
   type ThreadActionError,
-} from '$lib/state/thread-timeline.svelte'
+} from '$lib/thread/timeline-store.svelte'
 import type { Conversation } from './conversations'
 
 function toastFailure(failure: ThreadActionError | null): boolean {

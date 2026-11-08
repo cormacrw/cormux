@@ -4,10 +4,12 @@ import type { ShellDialogId } from '$lib/state/shell-dialogs.svelte'
 type Loader = () => Promise<{ default: Component }>
 
 // Everything off the first screen, so startup only parses what it paints.
-export const loadSettings = () => import('../settings/SettingsView.svelte')
+export const loadSettings = () =>
+  import('../../settings/components/SettingsView.svelte')
 export const loadRepo = () => import('../repo/RepoView.svelte')
 export const loadScratch = () => import('../scratch/ScratchView.svelte')
-export const loadSprint = () => import('../sprint/SprintView.svelte')
+export const loadSprint = () =>
+  import('../../clickup/components/SprintView.svelte')
 
 /** Each shell dialog's component, mounted the first time it opens. */
 export const SHELL_DIALOGS: Record<ShellDialogId, Loader> = {

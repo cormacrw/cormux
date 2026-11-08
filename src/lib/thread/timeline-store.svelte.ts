@@ -31,12 +31,12 @@ import {
   mergeSaved,
   type TimedEvent,
 } from '$lib/thread/timed-events'
-import { appearance } from './appearance.svelte'
-import { findings } from './findings.svelte'
-import { scratches } from './scratches.svelte'
-import { threads, type Thread } from './threads.svelte'
-import { workspaces } from './workspaces.svelte'
-import { threadActivity } from './activity'
+import { appearance } from '../state/appearance.svelte'
+import { findings } from '../findings/store.svelte'
+import { scratches } from '../state/scratches.svelte'
+import { threads, type Thread } from '../state/threads.svelte'
+import { workspaces } from '../state/workspaces.svelte'
+import { threadActivity } from '../state/activity'
 
 const PAGE = 2000
 // Threads kept in memory for an instant switch back, on top of the ones on screen.

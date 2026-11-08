@@ -2,7 +2,7 @@
   import { onMount, tick, untrack } from 'svelte'
   import PlaceSwitcher from '$lib/components/shell/PlaceSwitcher.svelte'
   import { trackKeyboardInput } from '$lib/keyboard/focus-home'
-  import { switcher } from '$lib/state/switcher.svelte'
+  import { switcher } from '$lib/switcher/store.svelte'
   import { currentPlace, handleSwitcherKeyup } from '$lib/switcher/navigate'
   import { ModeWatcher } from 'mode-watcher'
   import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -22,9 +22,9 @@
     repos,
     scratches,
     shellDialogs,
-    threadTimeline,
     workspaces,
   } from '$lib/state'
+  import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { clickup } from '$lib/clickup/store.svelte'
   import { settings } from '$lib/settings/store.svelte'
   import { toastCoreError } from '$lib/feedback/wire-feedback'

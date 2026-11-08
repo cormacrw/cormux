@@ -4,7 +4,7 @@
   import ChevronUp from '@lucide/svelte/icons/chevron-up'
   import X from '@lucide/svelte/icons/x'
   import { Button } from '$lib/components/ui/button'
-  import { threadFind } from '$lib/state/thread-find.svelte'
+  import { threadFind } from '$lib/thread/find-store.svelte'
   import {
     findCounterText,
     findMatches,

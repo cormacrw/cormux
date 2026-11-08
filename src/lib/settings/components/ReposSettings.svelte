@@ -11,7 +11,7 @@
   import { Checkbox } from '$lib/components/ui/checkbox'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
-  import RepoDefaultBranchField from '$lib/components/settings/RepoDefaultBranchField.svelte'
+  import RepoDefaultBranchField from '$lib/settings/components/RepoDefaultBranchField.svelte'
   import { commands } from '$lib/ipc'
   import { coreErrorText } from '$lib/core/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'

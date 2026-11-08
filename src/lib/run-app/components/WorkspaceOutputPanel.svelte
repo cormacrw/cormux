@@ -1,5 +1,5 @@
 <script lang="ts">
-  import TrayControls from './TrayControls.svelte'
+  import TrayControls from '../../components/workspace/TrayControls.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Badge } from '$lib/components/ui/badge'
   import { subscribePty } from '$lib/ipc'
@@ -12,7 +12,7 @@
     OUTPUT_LINE_CAP,
     appendOutputLines,
     type OutputLine,
-  } from '$lib/workspace/output-log'
+  } from '$lib/run-app/output-log'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import Eraser from '@lucide/svelte/icons/eraser'

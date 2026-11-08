@@ -12,7 +12,7 @@
   import WorkspacePrimaryAction from './WorkspacePrimaryAction.svelte'
   import EarlierThreadsPicker from './EarlierThreadsPicker.svelte'
   import WorkspaceTrayButtons from './WorkspaceTrayButtons.svelte'
-  import WorkspaceRunControls from './WorkspaceRunControls.svelte'
+  import WorkspaceRunControls from '../../run-app/components/WorkspaceRunControls.svelte'
   import { formatCost, totalCost } from '$lib/usage/usage'
   import {
     openWorkspaceTerminal,

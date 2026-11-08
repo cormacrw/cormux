@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { ansiLineToHtml } from '$lib/workspace/ansi-html'
+  import { ansiLineToHtml } from '$lib/run-app/ansi-html'
   import {
     OUTPUT_LINE_CLASS,
     classifyOutputLine,
     type OutputLine,
-  } from '$lib/workspace/output-log'
+  } from '$lib/run-app/output-log'
 
   let {
     lines,

@@ -3,7 +3,7 @@
   import List from '@lucide/svelte/icons/list'
   import { severitySummary } from '$lib/findings/format'
   import { nav } from '$lib/core/nav.svelte'
-  import { findings } from '$lib/state'
+  import { findings } from '$lib/findings/store.svelte'
   import { openWorkspaceFindings } from '$lib/workspace/open'
   import type { TimelineItem } from '$lib/thread/timeline-types'
   import type { RowContext } from './context'

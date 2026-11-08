@@ -1,8 +1,8 @@
 <script lang="ts">
   import { updateSettings } from '$lib/settings/actions'
   import { Switch } from '$lib/components/ui/switch'
-  import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
-  import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
+  import SettingsPanel from '$lib/settings/components/SettingsPanel.svelte'
+  import SettingsRow from '$lib/settings/components/SettingsRow.svelte'
   import { settings } from '$lib/settings/store.svelte'
 </script>
 

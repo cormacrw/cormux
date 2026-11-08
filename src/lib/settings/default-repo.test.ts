@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveDefaultRepoId } from './settings-defaults'
+import { resolveDefaultRepoId } from './default-repo'
 
 describe('resolveDefaultRepoId', () => {
   it('resolves the default repo, falling back to the first', () => {

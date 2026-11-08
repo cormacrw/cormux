@@ -27,7 +27,7 @@
   import {
     sidebarWorkspaces,
     type ThreadListRowItem,
-  } from '$lib/state/sidebar-workspaces.svelte'
+  } from '$lib/sidebar/thread-list-store.svelte'
   import { cn } from '$lib/utils'
 
   const WORKING_OPEN_KEY = 'cormux-sidebar-working-open'

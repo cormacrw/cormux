@@ -12,7 +12,7 @@ import {
   toggleFinding,
 } from '$lib/findings/selection'
 import { openFindings, type FindingSeverity } from '$lib/findings/types'
-import { reuseRows } from './reuse-rows'
+import { reuseRows } from '../state/reuse-rows'
 import { onSnapshot } from '$lib/core/sync'
 
 function sameSet(a: Set<string>, b: Set<string>) {

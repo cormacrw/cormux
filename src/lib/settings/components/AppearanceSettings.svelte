@@ -5,8 +5,8 @@
   import * as Select from '$lib/components/ui/select'
   import { Switch } from '$lib/components/ui/switch'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
-  import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
-  import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
+  import SettingsPanel from '$lib/settings/components/SettingsPanel.svelte'
+  import SettingsRow from '$lib/settings/components/SettingsRow.svelte'
   import {
     CODE_FONTS,
     CODE_FONT_SIZES,

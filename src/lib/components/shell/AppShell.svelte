@@ -1,5 +1,5 @@
 <script lang="ts">
-  import TaskFlyout from '$lib/components/tasks/TaskFlyout.svelte'
+  import TaskFlyout from '$lib/clickup/components/TaskFlyout.svelte'
   import type { Snippet } from 'svelte'
   import {
     clampSidebarWidth,

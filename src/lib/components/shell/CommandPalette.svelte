@@ -8,7 +8,7 @@
   import { buildPaletteCommands } from '$lib/command-palette/registry'
   import { runBang } from '$lib/command-palette/actions'
   import type { PaletteCommand, PaletteIcon } from '$lib/command-palette/types'
-  import { bangPreview, paletteBang } from '$lib/settings/bangs'
+  import { bangPreview, paletteBang } from '$lib/bangs/bangs'
   import { palette } from '$lib/state/palette.svelte'
   import { settings } from '$lib/settings/store.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'

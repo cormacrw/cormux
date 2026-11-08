@@ -1,5 +1,5 @@
-import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
-import { bangPromptWithExtra } from '$lib/settings/bangs'
+import { resolveDefaultRepoId } from '$lib/settings/default-repo'
+import { bangPromptWithExtra } from '$lib/bangs/bangs'
 import { repos } from '$lib/state/repos.svelte'
 import { settings } from '$lib/settings/store.svelte'
 import { startThread } from '$lib/workspace/start-thread'

@@ -10,7 +10,7 @@
   } from '$lib/sidebar/status'
   import { nav } from '$lib/core/nav.svelte'
   import { workspaces } from '$lib/state/workspaces.svelte'
-  import type { ThreadListRowItem } from '$lib/state/sidebar-workspaces.svelte'
+  import type { ThreadListRowItem } from '$lib/sidebar/thread-list-store.svelte'
   import { cn } from '$lib/utils'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import StatusDot from './StatusDot.svelte'

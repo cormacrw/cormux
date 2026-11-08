@@ -3,9 +3,9 @@ import { navigate } from '$lib/core/nav.svelte'
 import { nav } from '$lib/core/nav.svelte'
 import { clickup } from '$lib/clickup/store.svelte'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
-import { switcher } from '$lib/state/switcher.svelte'
+import { switcher } from '$lib/switcher/store.svelte'
 import { threads } from '$lib/state/threads.svelte'
-import { sidebarWorkspaces } from '$lib/state/sidebar-workspaces.svelte'
+import { sidebarWorkspaces } from '$lib/sidebar/thread-list-store.svelte'
 import type { Place } from './places'
 
 /** Where the app is, as a place the switcher knows, or null (Settings, a scratch, a repo). */

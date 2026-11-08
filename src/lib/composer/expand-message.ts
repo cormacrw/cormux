@@ -3,7 +3,7 @@ import type { ClickupTask } from '$lib/ipc/bindings'
 import { clickup } from '$lib/clickup/store.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { settings } from '$lib/settings/store.svelte'
-import { expandBangs } from '$lib/settings/bangs'
+import { expandBangs } from '$lib/bangs/bangs'
 import { expandRepoAliases } from './repo-aliases'
 import { expandTaskAliases, taskContext } from './task-aliases'
 

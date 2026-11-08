@@ -48,7 +48,7 @@
     filterBangs,
     insertBang,
     type Bang,
-  } from '$lib/settings/bangs'
+  } from '$lib/bangs/bangs'
   import Zap from '@lucide/svelte/icons/zap'
   import { taskRef } from '$lib/clickup/board'
   import { clickup } from '$lib/clickup/store.svelte'
@@ -56,12 +56,12 @@
   import type { RepoRecord } from '$lib/ipc/bindings'
   import { coreErrorText } from '$lib/core/core-error'
   import { showToast } from '$lib/feedback/show-toast'
-  import { composerDrafts } from '$lib/state/composer-drafts.svelte'
+  import { composerDrafts } from '$lib/composer/drafts-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
   import { contextPercent, usageSummary } from '$lib/usage/usage'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
-  import { threadTimeline } from '$lib/state/thread-timeline.svelte'
+  import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import ThreadOptionPicker from './ThreadOptionPicker.svelte'

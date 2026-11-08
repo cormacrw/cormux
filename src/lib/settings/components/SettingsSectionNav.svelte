@@ -2,7 +2,7 @@
   import {
     SETTINGS_SECTIONS,
     type SettingsSectionId,
-  } from '$lib/components/settings/sections'
+  } from '$lib/settings/components/sections'
   import { cn } from '$lib/utils'
 
   let {
