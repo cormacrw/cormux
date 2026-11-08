@@ -180,16 +180,15 @@ Claude Code gets a native Rust translator so Cormux doesn't have to bundle or re
 
 ### Approval broker (`approvals`)
 
-Holds every pending permission request as a oneshot channel keyed by approval id. The engine adapter blocks on it; the UI resolves it with `approve` or `deny`.
+Owns each pending approval from request to answer: the stored row the card shows and the engine's waiter change together. `request` records the row and the waiter (or answers at once when the policy lets it through), `resolve` hands the answer to the engine and the row in one step, and `cancel_for_thread` drops a thread's open requests when its turn ends or its engine exits.
 
-- **Auto-approve read-only tools:** the broker answers requests for read and search tools itself when the setting is on, and records a `Read-only, auto-approved` chip. Edits, deletes and commands always reach the user.
-- **Timeouts:** Claude Code times out waiting after about a minute. The adapter keeps the request alive (or re-issues it) so an approval can wait while the user is away, which is the whole point of supervision.
-- **Cross-thread effects** like "Send to Lead" ([13](features/13-approvals.md)) are Harness actions, not engine permissions: approving posts a message into the target thread.
-- Pending counts feed the tab badges, sidebar, Homebase cards, dock badge and OS notifications.
+- **Policy:** "Run everything" approves every tool request without a card; questions always wait for the user. A session reads it when it starts.
+- **Denials:** the user's reason goes back to the agent as the tool's answer, once.
+- Pending counts feed the tab badges, sidebar, dock badge and OS notifications; requests are published as `ApprovalRequested` on the core's event bus, which orchestration uses to report blocked children.
 
-### Harness MCP server (`mcp`)
+### Host tools (`host_tools`)
 
-A small MCP server inside the core. Claude threads reach it over their existing stream-JSON connection rather than a separate process: `--mcp-config` declares an `sdk` server, the same name goes in `sdkMcpServers` on `initialize`, and each JSON-RPC message then arrives as a `mcp_message` control request. The session a message came through identifies the caller, so a tool can't act as another thread. Read-only scratches don't get these tools.
+A small MCP server inside the core, described by one table of tools: what a session is offered, which tools run without asking, what the agent is told and which calls are refused all come from it. Claude threads reach it over their existing stream-JSON connection rather than a separate process: `--mcp-config` declares an `sdk` server, the same name goes in `sdkMcpServers` on `initialize`, and each JSON-RPC message then arrives as a `mcp_message` control request. The session a message came through identifies the caller, so a tool can't act as another thread. Read-only scratches don't get these tools.
 
 | Tool | Approval | Purpose |
 | --- | --- | --- |
@@ -198,12 +197,14 @@ A small MCP server inside the core. Claude threads reach it over their existing 
 | `get_thread` | No | One thread's status, last reply, modified files, PR and pending approvals. |
 | `read_thread` | No | The transcript, a page at a time. |
 | `send_to_thread` | Yes | A follow-up message to a thread the caller started. |
+| `mark_finding_fixed` | No | Marks a review finding the thread was sent as fixed; the last one closes the batch. |
+| `attach_entity` | No | Pins a link to the References panel, while that experiment is on. |
 
 Threads are visible within a repo only. A child can't start threads of its own, a parent has at most five active children, and only the user can answer a child's approvals.
 
 Children report by push (`orchestration`): when one finishes a turn, is blocked on an approval or fails setup, its parent gets a `<thread_report>` prompt once it is idle, with waiting reports merged into one turn. Reports wait in memory, so one still queued at quit is lost; `list_threads` and `get_thread` recover the state.
 
-`report_finding`, `finish_review`, `mark_finding_fixed`, `read_app_output` and `restart_app` exist in `CormuxMcp::call` but aren't offered to any engine yet. Review findings currently come from the reviewer's reply.
+Review findings come from the reviewer's reply.
 
 ### Process supervisor (`process`)
 

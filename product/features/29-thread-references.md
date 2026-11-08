@@ -13,7 +13,7 @@ Off by default. **Settings › Experimental › References** turns it on, stored
 
 ## The tool
 
-Claude threads get `attach_entity` on the in-process `cormux` MCP server (`src-tauri/src/mcp.rs`), next to the orchestration tools, and the system prompt asks them to use it whenever the work involves something with a URL.
+Claude threads get `attach_entity` on the in-process `cormux` MCP server (`src-tauri/src/host_tools.rs`), next to the orchestration tools, and the system prompt asks them to use it whenever the work involves something with a URL.
 
 - Arguments: `name` (a short label, like "PR #42: Fix login redirect") and `url` (http or https only; anything else is refused).
 - It runs without an approval: it only writes to Cormux's own database.

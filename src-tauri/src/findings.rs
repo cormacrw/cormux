@@ -82,11 +82,7 @@ pub async fn send_workspace_findings(
     );
     // First, so findings that never reached the thread stay open to send again.
     crate::turn::start(state, &thread, &user_text, build_fix_prompt(&picked)).await?;
-    state.store.mark_findings_sent(&finding_ids, thread_id)?;
-    state.store.set_setting(
-        &findings_batch_key(thread_id),
-        &serde_json::to_string(&finding_ids).map_err(|error| Error::Store(error.to_string()))?,
-    )?;
+    record_batch(state, thread_id, &finding_ids)?;
 
     let titles = picked.iter().map(|row| row.title.clone()).collect();
     state.transcript.record_step(
@@ -132,6 +128,23 @@ pub async fn send_workspace_findings(
     Ok(())
 }
 
+/// The findings a thread was sent to fix, which it works through as one batch.
+pub fn record_batch(state: &AppState, thread_id: &str, finding_ids: &[String]) -> Result<()> {
+    state.store.mark_findings_sent(finding_ids, thread_id)?;
+    state.store.set_setting(
+        &findings_batch_key(thread_id),
+        &serde_json::to_string(finding_ids).map_err(|error| Error::Store(error.to_string()))?,
+    )
+}
+
+fn open_batch(state: &AppState, thread_id: &str) -> Result<Vec<String>> {
+    let raw = state
+        .store
+        .get_setting(&findings_batch_key(thread_id))?
+        .unwrap_or_default();
+    Ok(serde_json::from_str(&raw).unwrap_or_default())
+}
+
 /// Dismissed findings stay listed but aren't sent to an agent or posted with the review.
 pub fn dismiss_findings(state: &AppState, input: DismissWorkspaceFindingsInput) -> Result<()> {
     state
@@ -144,7 +157,7 @@ pub fn dismiss_findings(state: &AppState, input: DismissWorkspaceFindingsInput) 
 fn build_fix_prompt(findings: &[FindingRow]) -> String {
     let mut lines = vec![
         "Work through these review findings one at a time.".into(),
-        "After each fix, call the Cormux MCP tool `mark_finding_fixed` with the finding id and commit sha."
+        "After each fix, commit it and call the cormux tool mark_finding_fixed with the finding id and the commit's sha."
             .into(),
     ];
     for row in findings {
@@ -161,35 +174,31 @@ fn build_fix_prompt(findings: &[FindingRow]) -> String {
     lines.join("\n")
 }
 
-/// What the `mark_finding_fixed` tool the fix prompt names will do. The tool isn't offered to
-/// engines yet, so only tests call this.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the tool is offered in a later change")
-)]
-pub async fn mark_fixed(state: &AppState, finding_id: &str, commit_sha: &str) -> Result<()> {
+/// A finding in `thread_id`'s open batch is fixed. Once every finding in the batch is, the batch
+/// is recorded as done and the thread idles.
+pub async fn mark_fixed(
+    state: &AppState,
+    thread_id: &str,
+    finding_id: &str,
+    commit_sha: &str,
+) -> Result<()> {
+    let sent_here = state
+        .store
+        .finding_by_id(finding_id)?
+        .is_some_and(|finding| finding.sent_to_thread_id.as_deref() == Some(thread_id));
+    let batch = open_batch(state, thread_id)?;
+    if !sent_here || !batch.iter().any(|id| id == finding_id) {
+        return Err(Error::Workspace(format!(
+            "finding {finding_id} isn't one this thread was sent to fix"
+        )));
+    }
     state.store.mark_finding_fixed(finding_id, commit_sha)?;
-    on_finding_marked_fixed(state, finding_id).await
+    finish_batch_if_fixed(state, thread_id, &batch).await
 }
 
-/// Once every finding in the thread's batch is fixed, records it and idles the thread.
-async fn on_finding_marked_fixed(state: &AppState, finding_id: &str) -> Result<()> {
-    let Some(finding) = state.store.finding_by_id(finding_id)? else {
-        return Ok(());
-    };
-    let Some(thread_id) = finding.sent_to_thread_id.clone() else {
-        return Ok(());
-    };
-    let batch_raw = state
-        .store
-        .get_setting(&findings_batch_key(&thread_id))?
-        .unwrap_or_default();
-    let batch: Vec<String> = serde_json::from_str(&batch_raw).unwrap_or_default();
-    if batch.is_empty() || !batch.contains(&finding.id) {
-        return Ok(());
-    }
+async fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[String]) -> Result<()> {
     let mut batch_rows = Vec::with_capacity(batch.len());
-    for id in &batch {
+    for id in batch {
         if let Some(row) = state.store.finding_by_id(id)? {
             batch_rows.push(row);
         }
@@ -213,20 +222,188 @@ async fn on_finding_marked_fixed(state: &AppState, finding_id: &str) -> Result<(
         .into_iter()
         .collect();
     state.transcript.record_step(
-        &thread_id,
+        thread_id,
         TimelineStep::FindingsFixed {
             count: count as u32,
             files,
         },
     )?;
 
-    if let Some(thread) = state.store.thread_by_id(&thread_id)? {
+    if let Some(thread) = state.store.thread_by_id(thread_id)? {
         crate::turn::mark_idle(state, &thread).await?;
     }
     state
         .store
-        .set_setting(&findings_batch_key(&thread_id), "[]")?;
+        .set_setting(&findings_batch_key(thread_id), "[]")?;
 
     state.out.changed(Change::THREADS);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engines::EngineCommand;
+    use crate::feedback::RecordingOutput;
+    use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
+    use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
+    use crate::thread_runtime::fake::FakeEngines;
+    use std::sync::Arc;
+    use tokio::sync::mpsc::UnboundedReceiver;
+
+    const T: &str = "t1";
+    const W: &str = "w1";
+
+    async fn with_findings(
+        status: ThreadStatus,
+    ) -> (AppState, FakeEngines, Vec<String>, Arc<RecordingOutput>) {
+        let (state, recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
+        state
+            .store
+            .upsert_repo(&RepoRecord {
+                id: "r1".into(),
+                path: "/tmp/app".into(),
+                name: "app".into(),
+                default_branch: Some("main".into()),
+                setup_commands: String::new(),
+                run_command: None,
+                single_instance: false,
+            })
+            .unwrap();
+        state
+            .store
+            .insert_workspace(
+                &WorkspaceRow::new(
+                    WorkspaceKind::Lead,
+                    W,
+                    "r1",
+                    "Work",
+                    "feat/x",
+                    "main",
+                    std::env::temp_dir().display().to_string(),
+                )
+                .with_status(WorkspaceLifecycle::Idle),
+            )
+            .unwrap();
+        state
+            .store
+            .upsert_thread(&ThreadRow::new(T, W, ThreadRole::Lead, "claude").with_status(status))
+            .unwrap();
+        let ids = vec!["f1".to_string(), "f2".to_string()];
+        for id in &ids {
+            state
+                .store
+                .upsert_finding(&FindingRow {
+                    id: id.clone(),
+                    workspace_id: W.into(),
+                    severity: "blocking".into(),
+                    title: format!("Finding {id}"),
+                    file: None,
+                    line: None,
+                    explanation: "wrong".into(),
+                    status: "open".into(),
+                    commit_sha: None,
+                    sent_to_thread_id: None,
+                })
+                .unwrap();
+        }
+        (state, fake, ids, recording)
+    }
+
+    fn finding_status(state: &AppState, id: &str) -> String {
+        state.store.finding_by_id(id).unwrap().unwrap().status
+    }
+
+    fn thread_status(state: &AppState) -> String {
+        state.store.thread_by_id(T).unwrap().unwrap().status
+    }
+
+    fn stored_workspace(state: &AppState) -> String {
+        state.store.workspace_by_id(W).unwrap().unwrap().status
+    }
+
+    fn prompts(engine: &mut UnboundedReceiver<EngineCommand>) -> Vec<String> {
+        std::iter::from_fn(|| engine.try_recv().ok())
+            .filter_map(|command| match command {
+                EngineCommand::Prompt(prompt) => Some(prompt.text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn findings_that_cant_be_sent_say_so_and_can_be_sent_again() {
+        let (state, fake, ids, recording) = with_findings(ThreadStatus::Idle).await;
+        fake.refuse_sends(T);
+
+        let sent = send_workspace_findings(&state, W, T, ids).await;
+
+        assert!(sent.is_err(), "the failure reaches the caller");
+        assert_eq!(thread_status(&state), "idle");
+        assert_eq!(stored_workspace(&state), "idle");
+        assert_eq!(finding_status(&state, "f1"), "open");
+        assert!(recording.toasts().is_empty(), "nothing claims they went");
+    }
+
+    #[tokio::test]
+    async fn sent_findings_start_a_turn_that_names_the_tool_to_close_them() {
+        let (state, fake, ids, recording) = with_findings(ThreadStatus::Idle).await;
+        let mut engine = fake.engine(T);
+
+        send_workspace_findings(&state, W, T, ids).await.unwrap();
+
+        let sent = prompts(&mut engine);
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("mark_finding_fixed"));
+        assert_eq!(thread_status(&state), "running");
+        assert_eq!(stored_workspace(&state), "running");
+        assert_eq!(finding_status(&state, "f1"), "sent");
+        assert_eq!(recording.toasts().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn findings_sent_to_a_paused_thread_wait_for_its_resume() {
+        let (state, fake, ids, _recording) = with_findings(ThreadStatus::Paused).await;
+        let mut engine = fake.engine(T);
+
+        send_workspace_findings(&state, W, T, ids).await.unwrap();
+
+        assert_eq!(thread_status(&state), "paused");
+        assert!(prompts(&mut engine).is_empty());
+
+        crate::turn::resume(&state, T).await.unwrap();
+        assert!(prompts(&mut engine)[0].contains("id=f1"));
+    }
+
+    #[tokio::test]
+    async fn the_last_finding_fixed_idles_the_workspace_too() {
+        let (state, _fake, ids, _recording) = with_findings(ThreadStatus::Idle).await;
+        send_workspace_findings(&state, W, T, ids).await.unwrap();
+        assert_eq!(stored_workspace(&state), "running");
+
+        mark_fixed(&state, T, "f1", "abc").await.unwrap();
+        assert_eq!(thread_status(&state), "running");
+        mark_fixed(&state, T, "f2", "abc").await.unwrap();
+
+        assert_eq!(thread_status(&state), "idle");
+        assert_eq!(stored_workspace(&state), "idle");
+        assert_eq!(
+            state.workspaces.get(W).await.unwrap().status,
+            WorkspaceLifecycle::Idle
+        );
+    }
+
+    #[tokio::test]
+    async fn a_finding_outside_the_threads_batch_cant_be_marked() {
+        let (state, _fake, ids, _recording) = with_findings(ThreadStatus::Idle).await;
+        send_workspace_findings(&state, W, T, vec![ids[0].clone()])
+            .await
+            .unwrap();
+
+        assert!(mark_fixed(&state, T, "f2", "abc").await.is_err());
+        assert!(mark_fixed(&state, "other", "f1", "abc").await.is_err());
+        assert_eq!(finding_status(&state, "f2"), "open");
+        assert_eq!(finding_status(&state, "f1"), "sent");
+    }
 }
