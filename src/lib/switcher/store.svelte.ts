@@ -1,4 +1,6 @@
+import { nav } from '$lib/core/nav.svelte'
 import {
+  placeOf,
   startIndex,
   stepIndex,
   switcherPlaces,
@@ -8,7 +10,10 @@ import {
 
 /** Ctrl+Tab: the places visited, most recent first, and the switcher while it's held open. */
 class SwitcherStore {
-  history = $state<Place[]>([])
+  // Where the app already is counts as the first visit; `onNavigate` below adds the rest.
+  history = $state<Place[]>(
+    [placeOf(nav.route)].filter((place) => place !== null),
+  )
   open = $state(false)
   /** What the open switcher lists, fixed when it opened so it doesn't shift underfoot. */
   list = $state<Place[]>([])
@@ -53,3 +58,11 @@ class SwitcherStore {
 }
 
 export const switcher = new SwitcherStore()
+
+// Ctrl+Tab goes back through the places visited, most recent first.
+nav.onNavigate((to) => {
+  const place = placeOf(to)
+  if (place) switcher.visit(place)
+  if (to.view === 'workspace' && to.threadId)
+    switcher.rememberThread(to.workspaceId, to.threadId)
+})

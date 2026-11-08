@@ -3,7 +3,7 @@
   import PlaceSwitcher from '$lib/switcher/PlaceSwitcher.svelte'
   import { trackKeyboardInput } from '$lib/keyboard/focus-home'
   import { switcher } from '$lib/switcher/store.svelte'
-  import { currentPlace, handleSwitcherKeyup } from '$lib/switcher/navigate'
+  import { handleSwitcherKeyup } from '$lib/switcher/navigate'
   import { ModeWatcher } from 'mode-watcher'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
@@ -12,34 +12,27 @@
   import { bindNativeMenu } from '$lib/components/shell/menu'
   import { handleGlobalKeydown } from '$lib/components/shell/global-shortcuts'
   import { installOverlayFailsafe } from '$lib/overlay-failsafe'
-  import { events } from '$lib/ipc'
   import { listenForStateChanges, refreshSnapshot } from '$lib/core/sync'
   import { nav, navigate } from '$lib/core/nav.svelte'
-  import { NEW_THREAD, routeIsLive, windowTitle } from '$lib/core/route'
-  import { appName } from '$lib/build-mode'
   import {
-    memory,
-    repos,
-    scratches,
-    shellDialogs,
-    workspaces,
-  } from '$lib/state'
+    NEW_THREAD,
+    routeIsLive,
+    windowTitle,
+    type RouteLookups,
+  } from '$lib/core/route'
+  import { appName } from '$lib/build-mode'
+  import { repos, scratches, shellDialogs, workspaces } from '$lib/state'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { clickup } from '$lib/clickup/store.svelte'
   import { settings } from '$lib/settings/store.svelte'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import ToastsRegion from '$lib/components/feedback/ToastsRegion.svelte'
-  import NewThreadView from '$lib/components/new-thread/NewThreadView.svelte'
-  import WorkspaceView from '$lib/components/workspace/WorkspaceView.svelte'
   import LazyView from '$lib/components/shell/LazyView.svelte'
+  import { SHELL_DIALOGS } from '$lib/components/shell/lazy-views'
   import {
-    SHELL_DIALOGS,
-    loadRepo,
-    loadScratch,
-    loadSettings,
-    loadSprint,
+    ROUTE_VIEWS,
     preloadLazyViews,
-  } from '$lib/components/shell/lazy-views'
+  } from '$lib/components/shell/route-views'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { installSupervision } from '$lib/feedback/supervision'
   import { installClickupSync } from '$lib/clickup/sync'
@@ -97,11 +90,6 @@
       keep(await installSupervision(win))
       keep(await installClickupSync(win))
       keep(await listenForStateChanges())
-      keep(
-        await events.memorySampled.listen(({ payload }) =>
-          memory.hydrate(payload.sample),
-        ),
-      )
     })()
 
     return () => {
@@ -118,16 +106,20 @@
     ),
   )
 
+  const routeLookups: RouteLookups = {
+    workspace: (id) => workspaces.getById(id)?.name,
+    scratch: (id) => scratches.getById(id)?.title,
+    repo: (id) => repos.getById(id)?.name,
+    get sprint() {
+      return clickup.configured
+    },
+  }
+
   // A workspace torn down, a scratch ended, a repo removed or ClickUp disconnected takes
   // its page with it.
   $effect(() => {
-    const live = routeIsLive(nav.route, {
-      workspace: (id) => !!workspaces.getById(id),
-      scratch: (id) => !!scratches.getById(id),
-      repo: (id) => !!repos.getById(id),
-      sprint: clickup.configured,
-    })
-    if (!live) untrack(() => navigate(NEW_THREAD))
+    if (!routeIsLive(nav.route, routeLookups))
+      untrack(() => navigate(NEW_THREAD))
   })
 
   onMount(() => {
@@ -145,17 +137,6 @@
     }
   })
 
-  // Ctrl+Tab goes back through these, most recent first.
-  $effect(() => {
-    const place = currentPlace()
-    if (place) untrack(() => switcher.visit(place))
-  })
-
-  $effect(() => {
-    if (nav.view === 'workspace' && nav.workspaceId && nav.threadId)
-      switcher.rememberThread(nav.workspaceId, nav.threadId)
-  })
-
   $effect(() => {
     document.documentElement.classList.toggle(
       'reduce-motion',
@@ -163,18 +144,8 @@
     )
   })
 
-  const openName = $derived.by(() => {
-    const route = nav.route
-    if (route.view === 'workspace')
-      return workspaces.getById(route.workspaceId)?.name
-    if (route.view === 'scratch')
-      return scratches.getById(route.scratchId)?.title
-    if (route.view === 'repo') return repos.getById(route.repoId)?.name
-    return undefined
-  })
-
   $effect(() => {
-    const title = windowTitle(nav.route, openName, appName)
+    const title = windowTitle(nav.route, routeLookups, appName)
     void getCurrentWindow()
       .setTitle(title)
       .catch(() => {
@@ -194,18 +165,13 @@
   {/each}
   <CommandPalette />
   <AppShell>
-    {#if nav.view === 'settings'}
-      <LazyView load={loadSettings} />
-    {:else if nav.view === 'workspace'}
-      <WorkspaceView />
-    {:else if nav.view === 'scratch'}
-      <LazyView load={loadScratch} />
-    {:else if nav.view === 'sprint'}
-      <LazyView load={loadSprint} />
-    {:else if nav.view === 'repo'}
-      <LazyView load={loadRepo} />
-    {:else}
-      <NewThreadView />
-    {/if}
+    {#key nav.view}
+      {@const view = ROUTE_VIEWS[nav.view]}
+      {#if 'load' in view}
+        <LazyView load={view.load} />
+      {:else}
+        <view.component />
+      {/if}
+    {/key}
   </AppShell>
 </Tooltip.Provider>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   placeKey,
+  placeOf,
   startIndex,
   stepIndex,
   switcherPlaces,
@@ -66,5 +67,18 @@ describe('selection', () => {
   it('wraps around both ends', () => {
     expect(stepIndex(2, 3, 1)).toBe(0)
     expect(stepIndex(0, 3, -1)).toBe(2)
+  })
+})
+
+describe('placeOf', () => {
+  it('knows workspaces and the main pages, not Settings, scratches or repos', () => {
+    expect(
+      placeOf({ view: 'workspace', workspaceId: 'ws-1', threadId: null }),
+    ).toEqual(ws('ws-1'))
+    expect(placeOf({ view: 'sprint' })).toEqual({ kind: 'sprint' })
+    expect(placeOf({ view: 'newThread' })).toEqual({ kind: 'newThread' })
+    expect(placeOf({ view: 'settings' })).toBeNull()
+    expect(placeOf({ view: 'scratch', scratchId: 's-1' })).toBeNull()
+    expect(placeOf({ view: 'repo', repoId: 'r-1' })).toBeNull()
   })
 })
