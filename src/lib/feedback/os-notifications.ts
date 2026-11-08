@@ -30,7 +30,7 @@ async function ensurePermission() {
 let pendingTarget: ToastTarget | null = null
 
 /** A desktop notification titled with the app's name; `target` is what focusing the app opens. */
-export async function notifyHarness(body: string, target?: ToastTarget) {
+export async function notifyOs(body: string, target?: ToastTarget) {
   if (!(await ensurePermission())) return
   try {
     sendNotification({ title: appName, body })

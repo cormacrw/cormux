@@ -1,6 +1,6 @@
 import type { Window } from '@tauri-apps/api/window'
 import { onSnapshot } from '$lib/core/sync'
-import { notifyHarness, openNotifiedTarget } from './os-notifications'
+import { notifyOs, openNotifiedTarget } from './os-notifications'
 import { showToast } from './show-toast'
 import { createSupervisor } from './supervisor'
 
@@ -16,7 +16,7 @@ export async function installSupervision(win: Window): Promise<() => void> {
   })
   const supervise = createSupervisor({
     toast: showToast,
-    notify: notifyHarness,
+    notify: notifyOs,
     focused: () => focused,
   })
   const stopWatching = onSnapshot((snapshot) => void supervise(snapshot))
