@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { EditVerb, TranscriptEvent } from '$lib/ipc/bindings'
 import { TimelineBuilder } from './timeline/builder'
 import { buildTimelineRows } from './timeline-rows'
-import { splitConversations } from './conversations'
+import { currentConversation } from './conversations'
+import type { TimedEvent } from './timed-events'
 import { reuseRows } from '$lib/state/reuse-rows'
 
-type Timed = { seq: number; atMs: number; event: TranscriptEvent }
 function toolCall(id: string, edit: boolean): TranscriptEvent {
   const verb: EditVerb = 'Edited'
   return {
@@ -20,12 +20,17 @@ function toolCall(id: string, edit: boolean): TranscriptEvent {
 }
 
 /** A thread of `turns` turns, each: a prompt, a thought, 20 tool steps, a reply, a turn end. */
-export function syntheticThread(turns: number): Timed[] {
-  const events: Timed[] = []
+export function syntheticThread(turns: number): TimedEvent[] {
+  const events: TimedEvent[] = []
   let seq = 0
   const push = (event: TranscriptEvent) => {
     seq += 1
-    events.push({ seq, atMs: 1_700_000_000_000 + seq * 1000, event })
+    events.push({
+      seq,
+      atMs: 1_700_000_000_000 + seq * 1000,
+      conversation: 'first',
+      event,
+    })
   }
   for (let turn = 0; turn < turns; turn += 1) {
     push({ type: 'messageChunk', role: 'user', text: `Prompt ${turn}` })
@@ -73,7 +78,7 @@ describe('timeline pipeline at scale', () => {
     const events = syntheticThread(120)
     expect(events.length).toBeGreaterThan(5000)
     const builder = new TimelineBuilder()
-    const input = (list: Timed[]) => ({
+    const input = (list: TimedEvent[]) => ({
       events: list,
       approvals: [],
     })
@@ -91,6 +96,7 @@ describe('timeline pipeline at scale', () => {
           {
             seq: streamed.length + 1,
             atMs: 0,
+            conversation: 'first',
             event: { type: 'messageChunk', role: 'agent', text: `chunk ${i} ` },
           },
         ]
@@ -98,8 +104,8 @@ describe('timeline pipeline at scale', () => {
         buildTimelineRows(items, 'Lead', 'Claude Code')
       }
     })
-    const split = time('splitConversations (5k)', () =>
-      splitConversations(events),
+    const split = time('currentConversation (5k)', () =>
+      currentConversation(events),
     )
     expect(first).toBeLessThan(5000)
     expect(chunks).toBeLessThan(10_000)

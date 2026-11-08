@@ -4,6 +4,8 @@ export type TimedEvent = {
   /** Where the store saved it; for a signal, where the newest saved event before it is. */
   seq: number
   atMs: number
+  /** Which of the thread's conversations it is in. */
+  conversation: string
   event: TranscriptEvent
   /** Streamed but never saved, so no read of the store brings it back. */
   signal?: boolean
@@ -34,14 +36,14 @@ export function appendStreamed(
   let newest = shown.at(-1)?.seq ?? 0
   const added: TimedEvent[] = []
   const late: TimedEvent[] = []
-  for (const { seq, event } of batch) {
+  for (const { seq, conversation, event } of batch) {
     if (seq == null) {
-      added.push({ seq: newest, atMs, event, signal: true })
+      added.push({ seq: newest, atMs, conversation, event, signal: true })
     } else if (seq > newest) {
-      added.push({ seq, atMs, event })
+      added.push({ seq, atMs, conversation, event })
       newest = seq
     } else {
-      late.push({ seq, atMs, event })
+      late.push({ seq, atMs, conversation, event })
     }
   }
   const next = added.length ? [...shown, ...added] : shown

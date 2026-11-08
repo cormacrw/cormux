@@ -21,6 +21,7 @@
   import ThreadIntro from './ThreadIntro.svelte'
   import ThreadReferences from './ThreadReferences.svelte'
   import type { ConversationSource } from './rows/context'
+  import type { ConversationSummary } from '$lib/ipc/bindings'
 
   let {
     workspace,
@@ -69,9 +70,20 @@
     if (view.loaded) wordmark.showConversation(!showHero)
   })
 
-  // The greeting offers earlier conversations to resume, however far back they are.
+  // The greeting offers the earlier conversations the core lists. A resumed conversation can
+  // start further back than what's loaded, so it reads back to where it starts.
+  let earlier: ConversationSummary[] = $state([])
   $effect(() => {
-    if (showHero && view.hasOlder) void threadTimeline.loadOlder(threadId)
+    if (!showHero) return
+    // Read again for each conversation the greeting stands in for.
+    void view.conversation.id
+    let stale = false
+    void threadTimeline.earlierConversations(threadId).then((found) => {
+      if (!stale) earlier = found
+    })
+    return () => {
+      stale = true
+    }
   })
 
   onDestroy(() => wordmark.reset())
@@ -114,13 +126,13 @@
     {/snippet}
     {#snippet hero(nowMs: number)}
       <ThreadHero
-        greeting="{threadId}:{view.conversations.current.id}"
+        greeting="{threadId}:{view.conversation.id}"
         who={{
           role: thread.role,
           branch: workspace.branch,
           workspace: workspace.name,
         }}
-        earlier={view.conversations.earlier}
+        {earlier}
         {nowMs}
         onResume={(to) => switchConversation(threadId, to)}
       />

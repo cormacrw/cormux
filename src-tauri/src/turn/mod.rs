@@ -36,10 +36,8 @@ const RESUME_PROMPT: &str = "continue";
 #[serde(rename_all = "camelCase")]
 pub struct ResumeThreadSessionInput {
     pub thread_id: String,
-    /// The UI's id for the conversation, echoed back in the timeline.
+    /// One of the thread's conversations; see [`crate::transcript::ThreadConversations`].
     pub conversation_id: String,
-    /// The agent session it ended with; none starts the agent fresh.
-    pub session_id: Option<String>,
 }
 
 /// Prompts sent to paused threads, waiting for their resume. In memory: a restart ends every
@@ -243,15 +241,18 @@ pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Points the thread at an earlier session; the next prompt's engine resumes it.
+/// Points the thread at an earlier conversation's session; the next prompt's engine resumes it.
 pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -> Result<()> {
     let thread_id = input.thread_id;
     let thread = thread_row(state, &thread_id)?;
     refuse_retired(&thread)?;
+    let session = state
+        .transcript
+        .session_to_resume(&thread_id, &input.conversation_id)?;
     let ended = state.store.thread_session(&thread_id)?;
     state.engines.discard(&thread_id)?;
     state.paused.take(&thread_id);
-    match input.session_id.as_deref() {
+    match session.as_deref() {
         Some(session) => state.store.set_thread_session(&thread_id, session)?,
         None => state.store.clear_thread_session(&thread_id)?,
     }
@@ -523,8 +524,7 @@ mod tests {
         assert!(new_session(&state, T).await.is_err());
         let resume = ResumeThreadSessionInput {
             thread_id: T.into(),
-            conversation_id: "c1".into(),
-            session_id: None,
+            conversation_id: "first".into(),
         };
         assert!(resume_session(&state, resume).await.is_err());
         assert!(prompts(&mut engine).is_empty());
@@ -597,29 +597,49 @@ mod tests {
 
     #[tokio::test]
     async fn a_new_or_resumed_session_drops_the_engine_and_idles_the_thread() {
-        for session in [None, Some("earlier")] {
+        for resume in [false, true] {
             let (state, _engine, _recording) =
                 seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
-            state.store.set_thread_session(T, "current").unwrap();
+            state.store.set_thread_session(T, "opening").unwrap();
+            new_session(&state, T).await.unwrap();
+            assert_eq!(state.store.thread_session(T).unwrap(), None);
 
-            match session {
-                None => new_session(&state, T).await.unwrap(),
-                Some(session) => {
-                    let input = ResumeThreadSessionInput {
-                        thread_id: T.into(),
-                        conversation_id: "c1".into(),
-                        session_id: Some(session.into()),
-                    };
-                    resume_session(&state, input).await.unwrap();
-                }
+            if resume {
+                state.store.set_thread_session(T, "later").unwrap();
+                let input = ResumeThreadSessionInput {
+                    thread_id: T.into(),
+                    conversation_id: "first".into(),
+                };
+                resume_session(&state, input).await.unwrap();
+                assert_eq!(
+                    state.store.thread_session(T).unwrap().as_deref(),
+                    Some("opening"),
+                    "the core picks the session the conversation ended with"
+                );
+                assert_eq!(state.transcript.conversations(T).unwrap().current, "first");
             }
 
             assert!(!state.engines.has_thread(T));
-            assert_eq!(state.store.thread_session(T).unwrap().as_deref(), session);
             assert_eq!(thread_status(&state, T), "idle");
             assert_eq!(stored_workspace(&state), "idle");
             assert_eq!(live_workspace(&state).await, WorkspaceLifecycle::Idle);
         }
+    }
+
+    #[tokio::test]
+    async fn resuming_a_conversation_the_thread_does_not_have_is_refused() {
+        let (state, _engine, _recording) =
+            seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
+        state.store.set_thread_session(T, "current").unwrap();
+        let input = ResumeThreadSessionInput {
+            thread_id: T.into(),
+            conversation_id: "after-99".into(),
+        };
+        assert!(resume_session(&state, input).await.is_err());
+        assert_eq!(
+            state.store.thread_session(T).unwrap().as_deref(),
+            Some("current")
+        );
     }
 
     #[tokio::test]

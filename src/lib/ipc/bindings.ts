@@ -26,9 +26,17 @@ async reloadEnvironment() : Promise<Result<null, Error>> {
  * A window of a thread's transcript: its newest rows by default, those after `after_seq` to
  * catch up, or those before `before_seq` to scroll back.
  */
-async getThreadEvents(threadId: string, afterSeq: number | null, beforeSeq: number | null, limit: number | null) : Promise<Result<ThreadEventPage, Error>> {
+async getThreadEvents(threadId: string, afterSeq: number | null, beforeSeq: number | null, limit: number | null) : Promise<Result<TranscriptPage, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_thread_events", { threadId, afterSeq, beforeSeq, limit }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getThreadConversations(threadId: string) : Promise<Result<ThreadConversations, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_thread_conversations", { threadId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -867,6 +875,14 @@ export type ClickupTask = { id: string; customId: string | null; name: string; s
 export type ClickupTaskDetail = { task: ClickupTask; description: string; tags: ClickupTag[]; creator: ClickupUser | null; listName: string | null; dueMs: number | null; createdMs: number | null; updatedMs: number | null }
 export type ClickupUser = { id: number; username: string; initials: string; color: string | null }
 export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
+/**
+ * A conversation the thread can go back to.
+ */
+export type ConversationSummary = { id: string; 
+/**
+ * The first thing you asked, to name it by.
+ */
+firstPrompt: string | null; prompts: number; lastAtMs: number }
 export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number }
 export type CreateReviewWorkspaceResult = { workspaceId: string; created: boolean }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
@@ -1052,13 +1068,9 @@ singleInstance: boolean }
 export type RepoRunCommand = { repoId: string; command: string; source: RunCommandSource }
 export type ResumeThreadSessionInput = { threadId: string; 
 /**
- * The UI's id for the conversation, echoed back in the timeline.
+ * One of the thread's conversations; see [`crate::transcript::ThreadConversations`].
  */
-conversationId: string; 
-/**
- * The agent session it ended with; none starts the agent fresh.
- */
-sessionId: string | null }
+conversationId: string }
 export type ReviewRow = { workspaceId: string; 
 /**
  * None before a branch review starts.
@@ -1094,6 +1106,14 @@ export type RunCommandSource =
  * The repo's committed `.cormux/config.json`.
  */
 "config"
+/**
+ * A saved event as the timeline reads it.
+ */
+export type SavedEvent = { seq: number; 
+/**
+ * When it was saved, in Unix milliseconds.
+ */
+atMs: number; conversation: string; event: TranscriptEvent }
 /**
  * A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
  */
@@ -1233,7 +1253,11 @@ export type StreamLagged = { type: "streamLagged"; missed: number }
  * An event on its way to a subscriber, with where the store saved it: `None` for a signal, or an
  * event that failed to save.
  */
-export type StreamedEvent = { seq: number | null; event: TranscriptEvent }
+export type StreamedEvent = { seq: number | null; 
+/**
+ * The conversation it is in; see [`conversations`].
+ */
+conversation: string; event: TranscriptEvent }
 export type SubmitWorkspaceReviewInput = { workspaceId: string; verdict: ReviewVerdict }
 export type SwitchWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type TeardownDataLoss = { uncommittedFiles: number; unpushedCommits: number; hasDataLoss: boolean; warning: string | null }
@@ -1245,20 +1269,24 @@ export type TestRepoSetupResult = { ok: boolean; message: string }
  * The last message from the user or end of a turn. Streamed output doesn't count, so a working
  * thread holds its place in the sidebar.
  */
-export type ThreadActivityRow = { threadId: string; createdAt: string }
+export type ThreadActivityRow = { threadId: string; 
 /**
- * A window of a thread's transcript, oldest first.
+ * Unix milliseconds.
  */
-export type ThreadEventPage = { events: ThreadEventRow[]; 
+atMs: number }
 /**
- * Whether rows older than this window exist.
+ * The conversation showing now, and the earlier ones that can be resumed.
  */
-hasOlder: boolean }
-export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string; 
+export type ThreadConversations = { current: string; 
 /**
- * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+ * The current conversation's oldest saved row, if it has one; a resumed conversation's
+ * start can be far older than the newest page.
  */
-createdAt: string }
+currentStartsAt: number | null; 
+/**
+ * Those with something you asked, newest first.
+ */
+earlier: ConversationSummary[] }
 export type ThreadMedia = { 
 /**
  * `image` or `video`.
@@ -1358,6 +1386,11 @@ export type ToolRole = { kind: "read" } | { kind: "search" } | { kind: "edit"; v
  * own `type`, so they share one union in the UI.
  */
 export type TranscriptEvent = StepEvent | UserMessage | Briefing | StreamLagged | AgentEvent
+/**
+ * A window of a thread's transcript, oldest first. Rows this build can't read are left out (and
+ * logged); the seqs bound every row read, so paging carries on past them.
+ */
+export type TranscriptPage = { events: SavedEvent[]; oldestSeq: number | null; newestSeq: number | null; hasOlder: boolean; hasNewer: boolean }
 /**
  * What the user sent, as the thread shows it.
  */

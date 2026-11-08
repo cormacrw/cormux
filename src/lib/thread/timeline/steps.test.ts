@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TimelineStep, TranscriptEvent } from '$lib/ipc/bindings'
-import { splitConversations } from '../conversations'
 import { hasSessionToClear } from '../new-session'
-import { parseAgentEventPayload } from '../parse-agent-event'
 import { TimelineBuilder } from './builder'
 import { foldTimeline } from './fold'
 
@@ -90,11 +88,6 @@ describe('core steps in the timeline', () => {
     ).toHaveLength(1)
   })
 
-  it('read back from the store as a step', () => {
-    const event = typed({ kind: 'agentPaused' }, 'You paused the agent')
-    expect(parseAgentEventPayload(JSON.stringify(event))).toEqual(event)
-  })
-
   it('still show a kind this build does not know, between turns', () => {
     const event = {
       type: 'step',
@@ -138,34 +131,6 @@ describe('core steps in the timeline', () => {
     expect(builder.build({ ...input, events: rows })).toEqual(
       foldTimeline({ ...input, events: rows }),
     )
-  })
-
-  it('split conversations on session steps', () => {
-    const ask = (text: string): TranscriptEvent => ({
-      type: 'messageChunk',
-      role: 'user',
-      text,
-    })
-    const started = typed(
-      { kind: 'sessionStarted', ended_session: 'sess-1' },
-      'Rephrased',
-    )
-    const resumed = typed(
-      {
-        kind: 'sessionResumed',
-        conversation: 'first',
-        ended_session: 'sess-2',
-      },
-      'Also rephrased',
-    )
-    const rows = [ask('One'), started, ask('Two'), resumed, ask('Three')].map(
-      (event, index) => ({ seq: index + 1, atMs: index + 1, event }),
-    )
-    const { current, earlier } = splitConversations(rows)
-    expect(current).toMatchObject({ id: 'first', prompts: 2 })
-    expect(earlier).toMatchObject([
-      { id: 'after-2', firstPrompt: 'Two', sessionId: 'sess-2' },
-    ])
   })
 
   it('leave no session to clear right after a new session step', () => {

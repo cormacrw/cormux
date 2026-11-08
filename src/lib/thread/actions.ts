@@ -6,7 +6,7 @@ import {
   threadTimeline,
   type ThreadActionError,
 } from '$lib/thread/timeline-store.svelte'
-import type { Conversation } from './conversations'
+import type { ConversationSummary } from '$lib/ipc/bindings'
 import { firstPromptTransition, leaveConversation } from './conversation-motion'
 
 function toastFailure(failure: ThreadActionError | null): boolean {
@@ -40,7 +40,7 @@ export async function stopThread(threadId: string) {
  */
 export async function switchConversation(
   threadId: string,
-  to: Conversation | 'new',
+  to: ConversationSummary | 'new',
 ) {
   // For a new session the wordmark starts rising back at once, not after the swap lands.
   const stayDown = to === 'new' ? wordmark.riseEarly() : undefined

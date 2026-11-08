@@ -5,6 +5,7 @@ commands.allow = [
   "get_snapshot",
   "reload_environment",
   "get_thread_events",
+  "get_thread_conversations",
   "subscribe_agent_events",
   "subscribe_pty",
   "subscribe_diffs",

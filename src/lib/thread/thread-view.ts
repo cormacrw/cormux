@@ -1,6 +1,6 @@
 import type { ApprovalRow } from '$lib/ipc/bindings'
 import { promptHistory } from '$lib/composer/prompt-history'
-import { splitConversations, type Conversation } from './conversations'
+import { currentConversation, type CurrentConversation } from './conversations'
 import { activeIds, liveStatus, type LiveStatus } from './live-status'
 import { hasSessionToClear } from './new-session'
 import type { TimedEvent } from './timed-events'
@@ -16,7 +16,7 @@ export type ThreadView = {
   /** The conversation showing now; earlier ones can be resumed. */
   items: TimelineItem[]
   live: LiveStatus | null
-  conversations: { current: Conversation; earlier: Conversation[] }
+  conversation: CurrentConversation
   /** False when the agent has nothing to forget, so New session has nothing to do. */
   canClearSession: boolean
   /** Your prompts, oldest first, for ↑/↓ in the composer. */
@@ -50,19 +50,16 @@ export type ViewSources = {
 }
 
 const NO_EVENTS: TimedEvent[] = []
-const conversationsByEvents = new WeakMap<
-  TimedEvent[],
-  ReturnType<typeof splitConversations>
->()
+const conversationByEvents = new WeakMap<TimedEvent[], CurrentConversation>()
 const promptsByEvents = new WeakMap<TimedEvent[], string[]>()
 
-function conversationsOf(events: TimedEvent[]) {
-  let split = conversationsByEvents.get(events)
-  if (!split) {
-    split = splitConversations(events)
-    conversationsByEvents.set(events, split)
+function conversationOf(events: TimedEvent[]) {
+  let current = conversationByEvents.get(events)
+  if (!current) {
+    current = currentConversation(events)
+    conversationByEvents.set(events, current)
   }
-  return split
+  return current
 }
 
 function promptsOf(events: TimedEvent[]) {
@@ -101,9 +98,9 @@ export class ThreadViewBuilder {
       return this.last.view
     }
     const events = sources.events ?? NO_EVENTS
-    const conversations = conversationsOf(events)
+    const conversation = conversationOf(events)
     const fold = this.timeline.build({
-      events: conversations.current.events,
+      events: conversation.events,
       approvals: sources.approvals,
     })
     const meta = sources.meta
@@ -124,7 +121,7 @@ export class ThreadViewBuilder {
         previous?.live && live && sameLive(previous.live, live)
           ? previous.live
           : live,
-      conversations,
+      conversation,
       canClearSession: hasSessionToClear(events),
       get promptHistory() {
         return promptsOf(events)

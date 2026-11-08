@@ -1,12 +1,12 @@
 import type {
   EngineStatus,
   Snapshot,
-  ThreadEventRow,
   ThreadRow,
   WorkspaceRecord,
   WorkspaceRow,
 } from '$lib/ipc/bindings'
 import { clickupBoard } from './clickup-fixtures'
+import type { StoredEventRow } from './db'
 
 export const REPO_ID = 'my-app'
 const REPO_PATH = '/tmp/cormux-fixture/my-app'
@@ -158,7 +158,7 @@ export function createFixtures() {
     workspaceApps: [],
     repoRunCommands: [],
   }
-  const timeline: ThreadEventRow[] = [
+  const timeline: StoredEventRow[] = [
     {
       id: 1,
       threadId: SCRATCH_THREAD_ID,

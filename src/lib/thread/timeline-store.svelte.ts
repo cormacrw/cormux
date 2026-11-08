@@ -2,9 +2,9 @@
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import type {
   ApprovalRow,
+  ConversationSummary,
   StreamedEvent,
   ThreadActivityRow,
-  ThreadEventRow,
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc/bindings'
 import type { CoreError } from '$lib/ipc'
@@ -15,12 +15,9 @@ import {
 } from '$lib/composer/attachments'
 import { deepEqual } from '$lib/deep-equal'
 import { onSnapshot } from '$lib/core/sync'
-import type { Conversation } from '$lib/thread/conversations'
 import { createEventBatcher } from '$lib/thread/event-batcher'
 import { threadsToEvict } from '$lib/thread/evict-threads'
-import { parseAgentEventPayload } from '$lib/thread/parse-agent-event'
 import { SharedSubscriptions } from '$lib/thread/shared-subscriptions'
-import { eventCreatedAtMs } from '$lib/thread/thread-time'
 import { ThreadViewBuilder, type ThreadView } from '$lib/thread/thread-view'
 import {
   appendStreamed,
@@ -40,15 +37,6 @@ type ThreadHistory = {
   oldestSeq: number
   refreshing: boolean
   refreshAgain: boolean
-}
-
-function timedEvents(rows: ThreadEventRow[]): TimedEvent[] {
-  return rows.flatMap((row) => {
-    const event = parseAgentEventPayload(row.payload)
-    return event
-      ? [{ seq: row.seq, atMs: eventCreatedAtMs(row.createdAt), event }]
-      : []
-  })
 }
 
 /** Why an action failed: the core's error, or what threw, with what was being tried. */
@@ -132,10 +120,9 @@ export class ThreadTimelineStore {
   private mergeActivity(rows: ThreadActivityRow[]) {
     let next: Record<string, number> | null = null
     for (const row of rows) {
-      const atMs = eventCreatedAtMs(row.createdAt)
-      if (atMs > (this.activityByThread[row.threadId] ?? 0)) {
+      if (row.atMs > (this.activityByThread[row.threadId] ?? 0)) {
         next ??= { ...this.activityByThread }
-        next[row.threadId] = atMs
+        next[row.threadId] = row.atMs
       }
     }
     if (next) this.activityByThread = next
@@ -244,16 +231,12 @@ export class ThreadTimelineStore {
       this.readFailed(result.error)
       return
     }
-    const rows = result.data.events
-    const newest = rows.at(-1)?.seq ?? 0
-    history.newestSeq = newest
-    history.oldestSeq = rows[0]?.seq ?? 0
+    const page = result.data
+    history.newestSeq = page.newestSeq ?? 0
+    history.oldestSeq = page.oldestSeq ?? 0
     this.eventsByThread = {
       ...this.eventsByThread,
-      [threadId]: mergeSaved(
-        this.eventsByThread[threadId] ?? [],
-        timedEvents(rows),
-      ),
+      [threadId]: mergeSaved(this.eventsByThread[threadId] ?? [], page.events),
     }
     if (result.data.hasOlder) {
       this.olderByThread = { ...this.olderByThread, [threadId]: true }
@@ -261,11 +244,12 @@ export class ThreadTimelineStore {
   }
 
   private async loadNewer(threadId: string, history: ThreadHistory) {
-    const fetched: ThreadEventRow[] = []
+    const fetched: TimedEvent[] = []
+    let newest = history.newestSeq
     for (;;) {
       const result = await commands.getThreadEvents(
         threadId,
-        fetched.at(-1)?.seq ?? history.newestSeq,
+        newest,
         null,
         PAGE,
       )
@@ -275,11 +259,12 @@ export class ThreadTimelineStore {
         return
       }
       fetched.push(...result.data.events)
-      if (result.data.events.length < PAGE) break
+      newest = result.data.newestSeq ?? newest
+      if (!result.data.hasNewer) break
     }
-    history.newestSeq = fetched.at(-1)?.seq ?? history.newestSeq
+    history.newestSeq = newest
     const shown = this.eventsByThread[threadId] ?? []
-    const merged = mergeSaved(shown, timedEvents(fetched))
+    const merged = mergeSaved(shown, fetched)
     if (merged !== shown) {
       this.eventsByThread = { ...this.eventsByThread, [threadId]: merged }
     }
@@ -300,11 +285,11 @@ export class ThreadTimelineStore {
       this.readFailed(result.error)
       return false
     }
-    const rows = result.data.events
-    history.oldestSeq = rows[0]?.seq ?? history.oldestSeq
+    const page = result.data
+    history.oldestSeq = page.oldestSeq ?? history.oldestSeq
     this.olderByThread = {
       ...this.olderByThread,
-      [threadId]: result.data.hasOlder,
+      [threadId]: page.hasOlder,
     }
     this.historyGeneration = {
       ...this.historyGeneration,
@@ -312,12 +297,28 @@ export class ThreadTimelineStore {
     }
     this.eventsByThread = {
       ...this.eventsByThread,
-      [threadId]: mergeSaved(
-        this.eventsByThread[threadId] ?? [],
-        timedEvents(rows),
-      ),
+      [threadId]: mergeSaved(this.eventsByThread[threadId] ?? [], page.events),
     }
-    return rows.length > 0
+    return page.oldestSeq != null
+  }
+
+  /**
+   * The earlier conversations the thread can go back to. The current one can start further back
+   * than what's loaded (a resumed conversation), so this reads back to its start first.
+   */
+  async earlierConversations(threadId: string): Promise<ConversationSummary[]> {
+    const result = await commands.getThreadConversations(threadId)
+    if (result.status === 'error') {
+      this.readFailed(result.error)
+      return []
+    }
+    const startsAt = result.data.currentStartsAt
+    while (
+      startsAt != null &&
+      (this.history.get(threadId)?.oldestSeq ?? 0) > startsAt &&
+      (await this.loadOlder(threadId))
+    );
+    return result.data.earlier
   }
 
   /**
@@ -349,13 +350,10 @@ export class ThreadTimelineStore {
       : null
   }
 
-  /**
-   * Swaps the conversation for a fresh session, or back to an earlier one, whose session the
-   * agent resumes.
-   */
+  /** Swaps the conversation for a fresh session, or back to an earlier one, which the core resumes. */
   async switchConversation(
     threadId: string,
-    to: Conversation | 'new',
+    to: ConversationSummary | 'new',
   ): Promise<ThreadActionError | null> {
     const result =
       to === 'new'
@@ -363,7 +361,6 @@ export class ThreadTimelineStore {
         : await commands.resumeThreadSession({
             threadId,
             conversationId: to.id,
-            sessionId: to.sessionId,
           })
     if (result.status === 'ok') return null
     return {

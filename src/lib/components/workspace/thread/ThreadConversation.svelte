@@ -70,7 +70,7 @@
   } = $props()
 
   const view = $derived(threadTimeline.threadView(threadId))
-  const conversationId = $derived(view.conversations.current.id)
+  const conversationId = $derived(view.conversation.id)
   const loaded = $derived(view.loaded)
   const generation = $derived(view.generation)
   const showHero = $derived(Boolean(hero) && view.loaded && !view.items.length)

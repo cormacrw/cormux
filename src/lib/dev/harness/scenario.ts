@@ -5,8 +5,8 @@ import type {
   RepoGitRuntime,
   ResumeThreadSessionInput,
   Snapshot,
-  ThreadEventRow,
 } from '../../ipc/bindings'
+import type { StoredEventRow } from './db'
 import type { ToastPayload } from '../../feedback/toast-payload'
 import type { WireCommand } from './types'
 
@@ -36,7 +36,7 @@ export type HarnessScenario = {
    */
   stack?: 'none' | 'unavailable' | 'remote' | 'behind'
   /** A real thread's events (as exported from cormux.db) for the Lead thread. */
-  timeline?: ThreadEventRow[]
+  timeline?: StoredEventRow[]
   /** Approvals to go with `timeline`. */
   approvals?: ApprovalRow[]
   /** Review findings; this makes the fixture workspace a finished review. */

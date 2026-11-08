@@ -1,5 +1,10 @@
 import type { PromptAttachment } from '$lib/ipc/bindings'
-import { eventPage, shownMessage } from '../db'
+import {
+  eventPage,
+  sessionToResume,
+  shownMessage,
+  threadConversations,
+} from '../db'
 import { CHANGE, type HarnessRuntime } from '../runtime'
 import type { HandlerSlice, Input, Unsupported } from '../types'
 
@@ -106,6 +111,15 @@ export function threadHandlers(runtime: HarnessRuntime) {
     resume: Input<'resume_thread_session'>['input'] | null,
   ) => {
     const thread = findThread(threadId)
+    const resumes = resume
+      ? sessionToResume(db, threadId, resume.conversationId)
+      : null
+    if (resumes === undefined) {
+      throw {
+        kind: 'Invalid',
+        message: `unknown conversation ${resume?.conversationId}`,
+      }
+    }
     const ended = thread?.sessionId ?? null
     append(threadId, {
       type: 'step',
@@ -124,7 +138,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
     })
     if (thread) {
       thread.status = 'idle'
-      thread.sessionId = resume ? resume.sessionId : null
+      thread.sessionId = resumes
     }
     emitStateChanged(CHANGE.state)
     return null
@@ -133,6 +147,8 @@ export function threadHandlers(runtime: HarnessRuntime) {
   return {
     get_thread_events: (args: Parameters<typeof eventPage>[1]) =>
       eventPage(db, args),
+    get_thread_conversations: ({ threadId }: { threadId: string }) =>
+      threadConversations(db, threadId),
     subscribe_agent_events: ({
       threadId,
       channel,

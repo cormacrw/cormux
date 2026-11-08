@@ -1,5 +1,11 @@
 import type { Change, TranscriptEvent } from '$lib/ipc/bindings'
-import { appendEvent, findThread, findWorkspace, type HarnessDb } from './db'
+import {
+  appendEvent,
+  currentConversation,
+  findThread,
+  findWorkspace,
+  type HarnessDb,
+} from './db'
 import { createFixtures, LEAD_THREAD_ID } from './fixtures'
 import type { HarnessControls, HarnessScenario } from './scenario'
 import { seedFixtures } from './seed'
@@ -42,7 +48,13 @@ export function createRuntime(scenario: HarnessScenario) {
   const append = (threadId: string, event: TranscriptEvent) => {
     const { seq } = appendEvent(db, threadId, event)
     const channel = agentChannels.get(threadId)
-    if (channel) send(channel, { seq, event })
+    if (channel) {
+      send(channel, {
+        seq,
+        conversation: currentConversation(db, threadId),
+        event,
+      })
+    }
     return seq
   }
 

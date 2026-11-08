@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { eventCreatedAtMs, formatThreadTime } from './thread-time'
+import { formatThreadTime } from './thread-time'
 
-describe('eventCreatedAtMs', () => {
-  it('reads sqlite utc datetime to the minute', () => {
-    const ms = eventCreatedAtMs('2026-09-28 03:03:44')
-    expect(formatThreadTime(ms)).toMatch(/\d{1,2}:03/)
+describe('formatThreadTime', () => {
+  it('shows the clock time to the minute', () => {
+    expect(formatThreadTime(Date.UTC(2026, 8, 28, 3, 3, 44))).toMatch(
+      /\d{1,2}:03/,
+    )
+  })
+
+  it('is empty without a timestamp', () => {
+    expect(formatThreadTime(0)).toBe('')
   })
 })

@@ -11,7 +11,8 @@
   import { plural } from '$lib/format/plural'
   import * as Select from '$lib/components/ui/select'
   import { formatRelativeAge } from '$lib/format/relative-time'
-  import { heroLine, type Conversation } from '$lib/thread/conversations'
+  import type { ConversationSummary } from '$lib/ipc/bindings'
+  import { heroLine } from '$lib/thread/conversations'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import History from '@lucide/svelte/icons/history'
 
@@ -27,20 +28,20 @@
     /** The agent and where it works; none on the new thread page, until it's sent. */
     who?: { role: string; branch: string; workspace: string }
     /** Earlier conversations to resume. */
-    earlier?: Conversation[]
+    earlier?: ConversationSummary[]
     nowMs?: number
-    onResume?: (conversation: Conversation) => Promise<void>
+    onResume?: (conversation: ConversationSummary) => Promise<void>
   } = $props()
 
   const line = $derived(heroLine(greeting))
 
   let resuming = $state(false)
 
-  function title(conversation: Conversation) {
+  function title(conversation: ConversationSummary) {
     return conversation.firstPrompt ?? 'Untitled conversation'
   }
 
-  function meta(conversation: Conversation) {
+  function meta(conversation: ConversationSummary) {
     const count = plural(conversation.prompts, 'message')
     return `${formatRelativeAge(conversation.lastAtMs, nowMs)} · ${count}`
   }

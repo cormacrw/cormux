@@ -13,7 +13,7 @@ use tokio::sync::{broadcast, watch};
 use crate::error::Result;
 use crate::git::WorktreeDiff;
 use crate::state::AppState;
-use crate::transcript::{StreamLagged, StreamedEvent, TranscriptEvent};
+use crate::transcript::StreamedEvent;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -141,7 +141,8 @@ fn stream_agent_events(
     thread_id: String,
     channel: Channel<StreamedEvent>,
 ) -> u32 {
-    let mut rx = state.transcript.subscribe(&thread_id);
+    let transcript = state.transcript.clone();
+    let mut rx = transcript.subscribe(&thread_id);
     let mut sub = subs.register();
     let id = sub.id;
     tauri::async_runtime::spawn(async move {
@@ -153,10 +154,9 @@ fn stream_agent_events(
             let sent = match event {
                 Ok(event) => channel.send(event),
                 // What was saved can be read back; the signals in between are gone.
-                Err(broadcast::error::RecvError::Lagged(missed)) => channel.send(StreamedEvent {
-                    seq: None,
-                    event: TranscriptEvent::Lagged(StreamLagged::StreamLagged { missed }),
-                }),
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    channel.send(transcript.lagged(&thread_id, missed))
+                }
                 Err(broadcast::error::RecvError::Closed) => return,
             };
             // The webview that asked is gone (a reload), so nothing will cancel this.

@@ -8,7 +8,12 @@ import {
 } from './thread-view'
 
 const timed = (...events: TranscriptEvent[]): TimedEvent[] =>
-  events.map((event, index) => ({ seq: index + 1, atMs: index + 1, event }))
+  events.map((event, index) => ({
+    seq: index + 1,
+    atMs: index + 1,
+    conversation: 'first',
+    event,
+  }))
 
 const user = (text: string): TranscriptEvent => ({
   type: 'messageChunk',

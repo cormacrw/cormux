@@ -6,7 +6,6 @@ use crate::attachments::PromptAttachment;
 use crate::engines::{ModelOption, ThreadModels};
 use crate::error::Result;
 use crate::state::AppState;
-use crate::transcript::ThreadEventPage;
 
 use super::{ResumeThreadSessionInput, SentMessage, thread_row};
 
@@ -110,21 +109,4 @@ pub async fn set_thread_effort(
 ) -> Result<()> {
     thread_row(&state, &thread_id)?;
     state.engines.set_thread_effort(&thread_id, effort)
-}
-
-/// A window of a thread's transcript: its newest rows by default, those after `after_seq` to
-/// catch up, or those before `before_seq` to scroll back.
-#[tauri::command]
-#[specta::specta]
-pub async fn get_thread_events(
-    thread_id: String,
-    after_seq: Option<i64>,
-    before_seq: Option<i64>,
-    limit: Option<u32>,
-    state: State<'_, AppState>,
-) -> Result<ThreadEventPage> {
-    state
-        .store
-        .blocking(move |store| store.thread_event_page(&thread_id, after_seq, before_seq, limit))
-        .await
 }

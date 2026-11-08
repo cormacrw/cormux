@@ -1,6 +1,6 @@
 //! A thread's event log: everything the thread shows, saved in order and streamed to whoever is
-//! watching it. This is the only writer of `thread_events` and decodes its rows' kinds and
-//! payloads for the core; the webview still gets rows as stored from `get_thread_events`.
+//! watching it. This is the only writer of `thread_events` and the only reader of its rows' kinds
+//! and payloads: the webview gets them decoded, each with its time and the conversation it is in.
 //!
 //! What is saved and what is only streamed:
 //! - Saved ([`Transcript::append`]): the user's messages, what the engine said and did (messages,
@@ -11,6 +11,8 @@
 //!   the step that follows), the tool a permission is waiting on, and the stream falling behind.
 //!   A subscriber that lags can read back every saved event; the signals it missed are gone.
 
+pub mod commands;
+mod conversations;
 mod read;
 mod store;
 mod upgrade;
@@ -27,8 +29,10 @@ use crate::error::{Error, Result};
 use crate::store::Store;
 use crate::timeline::TimelineStep;
 
+pub use conversations::ThreadConversations;
+use conversations::{Conversations, Counted, is_boundary};
+pub use store::ThreadActivityRow;
 pub(crate) use store::activity_in;
-pub use store::{ThreadActivityRow, ThreadEventPage};
 pub use upgrade::MIGRATION;
 
 /// Events a subscriber can fall behind by before it's told to read the store instead.
@@ -112,6 +116,11 @@ impl TranscriptEvent {
         })
     }
 
+    /// A session step, which begins a conversation.
+    fn begins_conversation(&self) -> bool {
+        matches!(self, Self::Step(StepEvent::Step { step, .. }) if is_boundary(step))
+    }
+
     /// The `kind` column the event is saved under.
     fn kind(&self) -> Option<&'static str> {
         Some(match self {
@@ -150,7 +159,32 @@ const EXIT: &str = "exit";
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct StreamedEvent {
     pub seq: Option<i64>,
+    /// The conversation it is in; see [`conversations`].
+    pub conversation: String,
     pub event: TranscriptEvent,
+}
+
+/// A saved event as the timeline reads it.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedEvent {
+    pub seq: i64,
+    /// When it was saved, in Unix milliseconds.
+    pub at_ms: i64,
+    pub conversation: String,
+    pub event: TranscriptEvent,
+}
+
+/// A window of a thread's transcript, oldest first. Rows this build can't read are left out (and
+/// logged); the seqs bound every row read, so paging carries on past them.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptPage {
+    pub events: Vec<SavedEvent>,
+    pub oldest_seq: Option<i64>,
+    pub newest_seq: Option<i64>,
+    pub has_older: bool,
+    pub has_newer: bool,
 }
 
 /// The thread event log over the store, plus a live stream per watched thread.
@@ -158,6 +192,8 @@ pub struct StreamedEvent {
 pub struct Transcript {
     store: Store,
     streams: Arc<Mutex<HashMap<String, broadcast::Sender<StreamedEvent>>>>,
+    /// Each streamed thread's current conversation, until its next session step.
+    current: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Transcript {
@@ -165,7 +201,123 @@ impl Transcript {
         Self {
             store,
             streams: Arc::new(Mutex::new(HashMap::new())),
+            current: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// One window of a thread's transcript: its newest rows by default, those after `after_seq`
+    /// to catch up, or those before `before_seq` to scroll back.
+    pub fn window(
+        &self,
+        thread_id: &str,
+        after_seq: Option<i64>,
+        before_seq: Option<i64>,
+        limit: Option<u32>,
+    ) -> Result<TranscriptPage> {
+        let page = self
+            .store
+            .thread_event_page(thread_id, after_seq, before_seq, limit)?;
+        let conversations = self.conversations_of(thread_id)?;
+        let oldest_seq = page.events.first().map(|row| row.seq);
+        let newest_seq = page.events.last().map(|row| row.seq);
+        let events = page
+            .events
+            .into_iter()
+            .filter_map(|row| match serde_json::from_str(&row.payload) {
+                Ok(event) => Some(SavedEvent {
+                    seq: row.seq,
+                    at_ms: row.at_ms,
+                    conversation: conversations.at(row.seq).to_string(),
+                    event,
+                }),
+                Err(error) => {
+                    log::warn!(
+                        "thread {thread_id}: skipped unreadable {} row {}: {error}",
+                        row.kind,
+                        row.seq
+                    );
+                    None
+                }
+            })
+            .collect();
+        Ok(TranscriptPage {
+            events,
+            oldest_seq,
+            newest_seq,
+            has_older: page.has_older,
+            has_newer: page.has_newer,
+        })
+    }
+
+    /// The conversation showing now and the earlier ones the thread can go back to.
+    pub fn conversations(&self, thread_id: &str) -> Result<ThreadConversations> {
+        let steps = self.store.session_steps(thread_id)?;
+        let boundaries: std::collections::HashSet<i64> =
+            steps.iter().map(|(seq, _)| *seq).collect();
+        let conversations = Self::decode_boundaries(thread_id, steps);
+        let rows = self.store.message_rows(thread_id)?;
+        Ok(conversations::summarise(
+            &conversations,
+            rows.into_iter().map(|(seq, at_ms, payload)| Counted {
+                seq,
+                at_ms,
+                boundary: boundaries.contains(&seq),
+                user_text: payload.and_then(|payload| match serde_json::from_str(&payload) {
+                    Ok(TranscriptEvent::UserMessage(UserMessage::MessageChunk {
+                        text, ..
+                    })) => Some(text),
+                    _ => None,
+                }),
+            }),
+        ))
+    }
+
+    /// The agent session to resume conversation `id` with; none starts the agent fresh. Errors
+    /// for an id the thread doesn't have.
+    pub fn session_to_resume(&self, thread_id: &str, id: &str) -> Result<Option<String>> {
+        self.conversations_of(thread_id)?.session_of(id)
+    }
+
+    fn conversations_of(&self, thread_id: &str) -> Result<Conversations> {
+        Ok(Self::decode_boundaries(
+            thread_id,
+            self.store.session_steps(thread_id)?,
+        ))
+    }
+
+    fn decode_boundaries(thread_id: &str, steps: Vec<(i64, String)>) -> Conversations {
+        Conversations::from_boundaries(steps.into_iter().filter_map(|(seq, payload)| {
+            match serde_json::from_str(&payload) {
+                Ok(TranscriptEvent::Step(StepEvent::Step { step, .. })) => Some((seq, step)),
+                Ok(_) => None,
+                Err(error) => {
+                    log::warn!(
+                        "thread {thread_id}: skipped unreadable session step {seq}: {error}"
+                    );
+                    None
+                }
+            }
+        }))
+    }
+
+    /// The conversation newly streamed events are in.
+    fn current_conversation(&self, thread_id: &str) -> String {
+        let mut current = self
+            .current
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(id) = current.get(thread_id) {
+            return id.clone();
+        }
+        let id = match self.conversations_of(thread_id) {
+            Ok(conversations) => conversations.current().to_string(),
+            Err(error) => {
+                log::warn!("thread {thread_id}: reading its conversations failed: {error}");
+                return "first".into();
+            }
+        };
+        current.insert(thread_id.to_string(), id.clone());
+        id
     }
 
     /// Saves the event, then streams it with its `seq`. One that fails to save still streams,
@@ -173,10 +325,17 @@ impl Transcript {
     pub fn append(&self, thread_id: &str, event: impl Into<TranscriptEvent>) -> Result<i64> {
         let event = event.into();
         let saved = self.save(thread_id, &event);
+        if event.begins_conversation() {
+            self.current
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(thread_id);
+        }
         self.publish(
             thread_id,
             StreamedEvent {
                 seq: saved.as_ref().ok().copied(),
+                conversation: self.current_conversation(thread_id),
                 event,
             },
         );
@@ -189,9 +348,19 @@ impl Transcript {
             thread_id,
             StreamedEvent {
                 seq: None,
+                conversation: self.current_conversation(thread_id),
                 event: event.into(),
             },
         );
+    }
+
+    /// What a subscriber that fell `missed` events behind is sent instead of them.
+    pub fn lagged(&self, thread_id: &str, missed: u64) -> StreamedEvent {
+        StreamedEvent {
+            seq: None,
+            conversation: self.current_conversation(thread_id),
+            event: TranscriptEvent::Lagged(StreamLagged::StreamLagged { missed }),
+        }
     }
 
     pub fn record_step(&self, thread_id: &str, step: TimelineStep) -> Result<i64> {
@@ -344,6 +513,81 @@ mod tests {
         let second = rx.recv().await.unwrap();
         assert_eq!(second.seq, None);
         assert_eq!(rows(&transcript).len(), 1, "a signal isn't saved");
+    }
+
+    #[test]
+    fn a_window_is_decoded_with_times_and_conversations_and_skips_unreadable_rows() {
+        let transcript = with_threads(&["t1"]);
+        transcript.record_user_message("t1", "first ask").unwrap();
+        transcript
+            .store
+            .append_event("t1", "tool", "{not json")
+            .unwrap();
+        transcript
+            .record_step(
+                "t1",
+                TimelineStep::SessionStarted {
+                    ended_session: Some("s1".into()),
+                },
+            )
+            .unwrap();
+        transcript.record_user_message("t1", "second ask").unwrap();
+
+        let page = transcript.window("t1", None, None, None).unwrap();
+        let seen: Vec<_> = page
+            .events
+            .iter()
+            .map(|saved| (saved.seq, saved.conversation.as_str()))
+            .collect();
+        assert_eq!(seen, [(1, "first"), (3, "after-3"), (4, "after-3")]);
+        assert_eq!((page.oldest_seq, page.newest_seq), (Some(1), Some(4)));
+        assert!(page.events[0].at_ms > 1_700_000_000_000);
+        assert_eq!(
+            page.events[0].event,
+            TranscriptEvent::user_message("first ask")
+        );
+
+        let conversations = transcript.conversations("t1").unwrap();
+        assert_eq!(conversations.current, "after-3");
+        assert_eq!(conversations.current_starts_at, Some(4));
+        assert_eq!(conversations.earlier.len(), 1);
+        assert_eq!(
+            conversations.earlier[0].first_prompt.as_deref(),
+            Some("first ask")
+        );
+        assert_eq!(
+            transcript
+                .session_to_resume("t1", "first")
+                .unwrap()
+                .as_deref(),
+            Some("s1")
+        );
+    }
+
+    #[tokio::test]
+    async fn streamed_events_carry_the_conversation_a_session_step_begins() {
+        let transcript = with_threads(&["t1"]);
+        let mut rx = transcript.subscribe("t1");
+        transcript.record_user_message("t1", "go").unwrap();
+        transcript
+            .record_step(
+                "t1",
+                TimelineStep::SessionStarted {
+                    ended_session: None,
+                },
+            )
+            .unwrap();
+        transcript.signal("t1", AgentEvent::EngineExited { code: None });
+
+        let conversations: Vec<_> = [
+            rx.recv().await.unwrap(),
+            rx.recv().await.unwrap(),
+            rx.recv().await.unwrap(),
+        ]
+        .into_iter()
+        .map(|streamed| streamed.conversation)
+        .collect();
+        assert_eq!(conversations, ["first", "after-2", "after-2"]);
     }
 
     #[test]

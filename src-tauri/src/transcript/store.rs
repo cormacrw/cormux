@@ -10,26 +10,26 @@ use crate::store::{Store, query_all};
 const THREAD_EVENT_PAGE: u32 = 2_000;
 const THREAD_EVENT_PAGE_MAX: u32 = 10_000;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
+/// One saved row as stored.
+#[derive(Debug, Clone)]
 pub struct ThreadEventRow {
-    pub id: i64,
-    pub thread_id: String,
     pub seq: i64,
     pub kind: String,
     pub payload: String,
-    /// SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
-    pub created_at: String,
+    /// When it was saved, in Unix milliseconds (0 if the stored time can't be read).
+    pub at_ms: i64,
 }
 
-/// A window of a thread's transcript, oldest first.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
+/// A window of a thread's rows, oldest first.
+#[derive(Debug, Clone)]
 pub struct ThreadEventPage {
     pub events: Vec<ThreadEventRow>,
-    /// Whether rows older than this window exist.
     pub has_older: bool,
+    pub has_newer: bool,
 }
+
+/// `created_at` (SQLite `datetime('now')`, UTC to the second) as Unix milliseconds.
+const AT_MS: &str = "COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0)";
 
 /// The last message from the user or end of a turn. Streamed output doesn't count, so a working
 /// thread holds its place in the sidebar.
@@ -37,7 +37,8 @@ pub struct ThreadEventPage {
 #[serde(rename_all = "camelCase")]
 pub struct ThreadActivityRow {
     pub thread_id: String,
-    pub created_at: String,
+    /// Unix milliseconds.
+    pub at_ms: i64,
 }
 
 /// What the row-rewriting migration does with one transcript row.
@@ -105,7 +106,8 @@ pub(super) fn rewrite_rows(
 /// Threads that never have are left out. The row condition must stay word for word what the
 /// `thread_events_activity` partial index (migration 020) declares, or SQLite walks every
 /// streamed chunk of a thread mid-turn.
-const ACTIVITY_SQL: &str = "SELECT thread_id, created_at FROM (
+const ACTIVITY_SQL: &str = "SELECT thread_id,
+        COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) FROM (
         SELECT t.id AS thread_id, (
             SELECT e.created_at FROM thread_events e
             WHERE e.thread_id = t.id
@@ -120,7 +122,7 @@ pub(crate) fn activity_in(conn: &Connection) -> Result<Vec<ThreadActivityRow>> {
     query_all(conn, ACTIVITY_SQL, |row| {
         Ok(ThreadActivityRow {
             thread_id: row.get(0)?,
-            created_at: row.get(1)?,
+            at_ms: row.get(1)?,
         })
     })
 }
@@ -150,33 +152,73 @@ impl Store {
             .clamp(1, THREAD_EVENT_PAGE_MAX) as i64;
         self.with_read(|conn| {
             let mut events = if let Some(after) = after_seq {
-                let mut stmt = conn.prepare_cached(
-                    "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events
-                     WHERE thread_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
-                )?;
+                let mut stmt = conn.prepare_cached(&format!(
+                    "SELECT seq, kind, payload, {AT_MS} FROM thread_events
+                     WHERE thread_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3"
+                ))?;
                 stmt.query_map(rusqlite::params![thread_id, after, limit], row_to_event)?
                     .collect::<std::result::Result<Vec<_>, _>>()?
             } else {
-                let mut stmt = conn.prepare_cached(
-                    "SELECT id, thread_id, seq, kind, payload, created_at FROM thread_events
-                     WHERE thread_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3",
-                )?;
+                let mut stmt = conn.prepare_cached(&format!(
+                    "SELECT seq, kind, payload, {AT_MS} FROM thread_events
+                     WHERE thread_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3"
+                ))?;
                 let before = before_seq.unwrap_or(i64::MAX);
                 stmt.query_map(rusqlite::params![thread_id, before, limit], row_to_event)?
                     .collect::<std::result::Result<Vec<_>, _>>()?
             };
             events.sort_by_key(|row| row.seq);
-            let has_older = match events.first() {
-                Some(first) => conn
-                    .prepare_cached(
+            let exists = |condition: &str, seq: i64| -> Result<bool> {
+                Ok(conn
+                    .prepare_cached(&format!(
                         "SELECT EXISTS (
-                            SELECT 1 FROM thread_events WHERE thread_id = ?1 AND seq < ?2
-                         )",
-                    )?
-                    .query_row(rusqlite::params![thread_id, first.seq], |row| row.get(0))?,
+                            SELECT 1 FROM thread_events WHERE thread_id = ?1 AND seq {condition} ?2
+                         )"
+                    ))?
+                    .query_row(rusqlite::params![thread_id, seq], |row| row.get(0))?)
+            };
+            let has_older = match events.first() {
+                Some(first) => exists("<", first.seq)?,
                 None => false,
             };
-            Ok(ThreadEventPage { events, has_older })
+            let has_newer = match events.last() {
+                Some(last) => exists(">", last.seq)?,
+                None => false,
+            };
+            Ok(ThreadEventPage {
+                events,
+                has_older,
+                has_newer,
+            })
+        })
+    }
+
+    /// The thread's session steps as `(seq, payload)`, oldest first.
+    pub fn session_steps(&self, thread_id: &str) -> Result<Vec<(i64, String)>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "SELECT seq, payload FROM thread_events
+                 WHERE thread_id = ?1 AND kind = 'tool'
+                   AND CASE WHEN json_valid(payload) THEN json_extract(payload, '$.step.kind') END
+                       IN ('sessionStarted', 'sessionResumed')
+                 ORDER BY seq",
+            )?;
+            let rows = stmt.query_map([thread_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// Every row of the thread as `(seq, at_ms, payload if it is a message)`, oldest first.
+    pub fn message_rows(&self, thread_id: &str) -> Result<Vec<(i64, i64, Option<String>)>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(&format!(
+                "SELECT seq, {AT_MS}, CASE WHEN kind = 'message' THEN payload END
+                 FROM thread_events WHERE thread_id = ?1 ORDER BY seq"
+            ))?;
+            let rows = stmt.query_map([thread_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
         })
     }
 
@@ -263,12 +305,10 @@ impl Store {
 
 fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadEventRow> {
     Ok(ThreadEventRow {
-        id: row.get(0)?,
-        thread_id: row.get(1)?,
-        seq: row.get(2)?,
-        kind: row.get(3)?,
-        payload: row.get(4)?,
-        created_at: row.get(5)?,
+        seq: row.get(0)?,
+        kind: row.get(1)?,
+        payload: row.get(2)?,
+        at_ms: row.get(3)?,
     })
 }
 
@@ -302,8 +342,15 @@ mod tests {
         assert_eq!(seqs(&older), vec![1, 2, 3]);
         assert!(!older.has_older);
 
+        assert!(older.has_newer);
+
         let catch_up = store.thread_event_page("t1", Some(3), None, None).unwrap();
         assert_eq!(seqs(&catch_up), vec![4, 5]);
+        assert!(!catch_up.has_newer);
+        assert!(
+            catch_up.events[0].at_ms > 1_700_000_000_000,
+            "stored time in ms"
+        );
 
         let empty = store.thread_event_page("gone", None, None, None).unwrap();
         assert!(empty.events.is_empty() && !empty.has_older);

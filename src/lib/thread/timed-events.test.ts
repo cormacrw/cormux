@@ -10,6 +10,7 @@ const said = (text: string): TranscriptEvent => ({
 const row = (seq: number): TimedEvent => ({
   seq,
   atMs: seq,
+  conversation: 'first',
   event: said(`row ${seq}`),
 })
 const seqs = (rows: TimedEvent[]) => rows.map((entry) => entry.seq)
@@ -20,8 +21,8 @@ describe('timed events', () => {
     const next = appendStreamed(
       shown,
       [
-        { seq: 2, event: said('row 2') },
-        { seq: 3, event: said('row 3') },
+        { seq: 2, conversation: 'first', event: said('row 2') },
+        { seq: 3, conversation: 'first', event: said('row 3') },
       ],
       10,
     )
@@ -29,7 +30,11 @@ describe('timed events', () => {
   })
 
   it('skips rows a read brings that the stream already did', () => {
-    const shown = appendStreamed([], [{ seq: 3, event: said('row 3') }], 10)
+    const shown = appendStreamed(
+      [],
+      [{ seq: 3, conversation: 'first', event: said('row 3') }],
+      10,
+    )
     expect(seqs(mergeSaved(shown, [row(1), row(2), row(3)]))).toEqual([1, 2, 3])
   })
 
@@ -37,7 +42,7 @@ describe('timed events', () => {
     const exited: TranscriptEvent = { type: 'engineExited', code: null }
     const next = appendStreamed(
       [row(1), row(2)],
-      [{ seq: null, event: exited }],
+      [{ seq: null, conversation: 'first', event: exited }],
       10,
     )
     expect(next.at(-1)).toMatchObject({ seq: 2, signal: true, event: exited })
