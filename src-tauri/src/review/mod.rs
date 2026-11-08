@@ -150,13 +150,14 @@ pub async fn create_review_workspace(
     }
 
     let engine = crate::settings::Settings::load(&state.store).default_engine_name();
+    let branch = review_branch(state, &input.repo_id, pr.num).await?;
     let created = crate::provisioning::create(
         state,
         WorkspaceSpec {
             kind: WorkspaceKind::PrReview,
             repo_id: input.repo_id.clone(),
             name: format!("PR #{} Review", pr.num),
-            branch: pr.head.clone(),
+            branch,
             base: pr.base.clone(),
             pr: Some((
                 pr.num,
@@ -213,6 +214,25 @@ pub async fn create_review_workspace(
         workspace_id,
         created: true,
     })
+}
+
+/// The local branch a review checks the PR out on: Cormux's own, never the PR's head name. That
+/// name can be the default branch (a fork's PR from its `main`), a branch a Lead workspace has
+/// checked out (your own PR), or a local branch of yours that fetching would fast-forward or
+/// refuse. A name any branch or workspace already has gets a number.
+async fn review_branch(state: &AppState, repo_id: &str, pr_number: i64) -> Result<String> {
+    let repo = state.store.repo(repo_id)?;
+    let taken = crate::workspace_git::taken_branches(
+        state,
+        repo_id,
+        &crate::paths::expand_tilde(&repo.path),
+        None,
+    )
+    .await?;
+    Ok(crate::naming::unique_branch(
+        &format!("cormux/pr-{pr_number}"),
+        &taken,
+    ))
 }
 
 fn review_plan(
@@ -901,6 +921,82 @@ mod tests {
 
     /// Bug: the webview reopened an existing review itself, so this never ran and a
     /// retargeted PR's review kept comparing against the old base.
+    fn pr(num: i64, head: &str) -> crate::github::types::PullRequestPayload {
+        crate::github::types::PullRequestPayload {
+            num,
+            title: "Fix".into(),
+            author: "ana".into(),
+            head: head.into(),
+            base: "main".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+            checks: crate::github::types::PrChecksState::Pass,
+            review: crate::github::types::PrReviewState::Required,
+            files: 1,
+            is_draft: false,
+            html_url: String::new(),
+            repo_full_name: "o/r".into(),
+            repo_id: Some("r1".into()),
+        }
+    }
+
+    /// Bug: a review checked the PR out on a local branch named like its head, so a fork's PR
+    /// from `main` was refused as the default branch, your own PR clashed with its Lead
+    /// workspace, and an existing local branch of that name was fast-forwarded unasked.
+    #[tokio::test]
+    async fn a_review_checks_the_pr_out_on_a_branch_of_its_own() {
+        let (state, _recording, _fake) = workspace(ThreadStatus::Idle);
+        let repo = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap()
+                .status;
+            assert!(status.success(), "git {args:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ]);
+        git(&["branch", "cormux/pr-8"]);
+        state
+            .store
+            .upsert_repo(&RepoRecord {
+                path: repo.path().display().to_string(),
+                name: "app".into(),
+                ..crate::store::fixtures::repo("r1")
+            })
+            .unwrap();
+        state.store.upsert_pr(&pr(7, "main")).unwrap();
+        state.store.upsert_pr(&pr(8, "feat/x")).unwrap();
+
+        for (number, branch) in [(7, "cormux/pr-7"), (8, "cormux/pr-8-2")] {
+            let created = create_review_workspace(
+                &state,
+                CreateReviewWorkspaceInput {
+                    repo_id: "r1".into(),
+                    pr_number: number,
+                },
+            )
+            .await
+            .unwrap();
+
+            assert!(created.created, "#{number}");
+            let record = state.workspaces.get(&created.workspace_id).await.unwrap();
+            assert_eq!(record.branch, branch, "#{number}");
+            assert!(record.worktree_path.ends_with(&branch.replace('/', "-")));
+        }
+    }
+
     #[tokio::test]
     async fn reopening_a_review_follows_a_retargeted_pr() {
         let (state, recording, _fake) = workspace(ThreadStatus::Idle);
