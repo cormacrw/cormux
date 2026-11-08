@@ -710,6 +710,7 @@ toastRaised: "toast-raised"
 
 export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
 export const MEDIA_EXTENSIONS = {"gif":"image","jpeg":"image","jpg":"image","m4v":"video","mov":"video","mp4":"video","png":"image","webm":"video","webp":"image"} as const;
+export const MID_TURN_THREAD_STATUSES = ["running","paused"] as const;
 export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
 
 /** user-defined types **/
@@ -1348,7 +1349,15 @@ export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspac
 /**
  * With `workspace_id`, clicking the toast opens this thread's tab.
  */
-threadId: string | null }
+threadId: string | null; 
+/**
+ * With `workspace_id`, clicking the toast opens its Findings tab.
+ */
+opensFindings: boolean; 
+/**
+ * Also said as a desktop notification, when the window isn't in front.
+ */
+notification: string | null }
 export type ToastTone = "ok" | "bad" | "default"
 export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
 /**

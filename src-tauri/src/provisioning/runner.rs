@@ -354,6 +354,7 @@ async fn finish_after_setup(
                 parts: parts.clone(),
                 workspace_id: Some(id.clone()),
                 thread_id: Some(plan.thread_id.clone()),
+                ..Default::default()
             });
         }
     } else {
@@ -427,6 +428,7 @@ async fn mark_failed(
         }],
         workspace_id: Some(workspace_id.to_string()),
         thread_id: None,
+        ..Default::default()
     });
     state.bus.publish(DomainEvent::ProvisioningFailed {
         workspace_id: workspace_id.to_string(),

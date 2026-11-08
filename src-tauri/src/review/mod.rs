@@ -13,7 +13,7 @@ use crate::github::review::{
     ReviewLineComment, ReviewPosted, ReviewVerdict, SubmitPullRequestReviewInput,
 };
 use crate::github::types::PullRequestPayload;
-use crate::model::{ThreadStatus, WorkspaceKind};
+use crate::model::WorkspaceKind;
 use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
 use crate::store::Store;
@@ -203,6 +203,7 @@ pub async fn create_review_workspace(
         ],
         workspace_id: Some(workspace_id.clone()),
         thread_id: Some(thread_id.clone()),
+        ..Default::default()
     });
 
     let plan = review_plan(&created.workspace, &thread_id, &user_message, pr.num);
@@ -344,7 +345,7 @@ pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result
         .store
         .own_thread(workspace_id)?
         .ok_or_else(|| Error::Workspace(format!("no Lead in workspace {workspace_id}")))?;
-    if thread.status == ThreadStatus::Running {
+    if thread.status.is_working() {
         return Err(Error::Workspace(
             "the agent is still working; review once it's done".into(),
         ));
@@ -363,7 +364,9 @@ pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result
     Ok(thread.id)
 }
 
-/// The turn-end handler has already replaced any earlier findings with this review's.
+/// The turn-end handler has already replaced any earlier findings with this review's. The one
+/// place a review is said to have finished: a toast that opens the findings, also said as a
+/// desktop notification when the user wants one.
 async fn complete_review(
     state: &AppState,
     workspace: &WorkspaceRow,
@@ -393,24 +396,34 @@ async fn complete_review(
                 count: found as u32,
             },
         )?;
-    } else {
-        state.out.toast(ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![
-                ToastPart::Text {
-                    value: "Review of ".into(),
-                },
-                ToastPart::Code { value: reviewed },
-                ToastPart::Text {
-                    value: " finished · no findings".into(),
-                },
-            ],
-            workspace_id: Some(workspace.id.clone()),
-            thread_id: Some(thread_id.to_string()),
-        });
     }
+    let parts = review_finished_parts(&reviewed, found);
+    let notify = crate::settings::Settings::load(&state.store).notify_review_finished;
+    state.out.toast(ToastRaisedPayload {
+        tone: ToastTone::Ok,
+        notification: notify.then(|| ToastPart::plain(&parts)),
+        parts,
+        workspace_id: Some(workspace.id.clone()),
+        thread_id: Some(thread_id.to_string()),
+        opens_findings: found > 0,
+    });
     state.out.changed();
     Ok(())
+}
+
+/// `Review of #12 finished · 3 findings`, with what was reviewed and the count set as code.
+fn review_finished_parts(reviewed: &str, found: usize) -> Vec<ToastPart> {
+    let mut parts = vec![
+        ToastPart::text("Review of "),
+        ToastPart::code(reviewed),
+        ToastPart::text(" finished · "),
+    ];
+    match found {
+        0 => parts.push(ToastPart::text("no findings")),
+        1 => parts.extend([ToastPart::code("1"), ToastPart::text(" finding")]),
+        n => parts.extend([ToastPart::code(n.to_string()), ToastPart::text(" findings")]),
+    }
+    parts
 }
 
 pub async fn submit_workspace_review(
@@ -530,6 +543,7 @@ pub async fn submit_workspace_review(
         ],
         workspace_id: Some(input.workspace_id.clone()),
         thread_id: None,
+        ..Default::default()
     });
 
     state.out.changed();
@@ -582,7 +596,7 @@ mod tests {
 
     use crate::engines::EngineCommand;
     use crate::feedback::RecordingOutput;
-    use crate::model::{ThreadRole, WorkspaceLifecycle};
+    use crate::model::{ThreadRole, ThreadStatus, WorkspaceLifecycle};
     use crate::store::types::{RepoRecord, ThreadRow};
     use crate::thread_runtime::fake::FakeEngines;
 
@@ -678,7 +692,66 @@ mod tests {
         };
         assert!(card("t1"));
         assert!(!card("other"));
-        assert!(recording.toasts().is_empty());
+        assert_eq!(
+            recording.toasts(),
+            ["Review of feat/x finished · 1 finding"]
+        );
+    }
+
+    fn toast_payloads(recording: &RecordingOutput) -> Vec<ToastRaisedPayload> {
+        recording
+            .emitted()
+            .into_iter()
+            .filter_map(|event| match event {
+                crate::feedback::Emitted::Toast(payload) => Some(payload),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Bug: the webview said a review finished when the open findings went from none to some,
+    /// so restoring dismissed findings raised one, and a re-review with findings still open
+    /// raised none. The core says it once per finished review, findings or not.
+    #[tokio::test]
+    async fn every_finished_review_says_so_once_and_opens_its_findings() {
+        let block = "Two.\n\n<cormux-findings>\n[{\"severity\": \"blocking\", \"title\": \"A\", \"file\": null, \"line\": null, \"explanation\": \"x\"}, {\"severity\": \"nit\", \"title\": \"B\", \"file\": null, \"line\": null, \"explanation\": \"y\"}]\n</cormux-findings>";
+        let (state, recording) = reviewing(block);
+
+        on_reviewer_turn_end(&state, "t1").await.unwrap();
+        state
+            .store
+            .set_review_status("w1", ReviewStatus::Running)
+            .unwrap();
+        on_reviewer_turn_end(&state, "t1").await.unwrap();
+
+        let toasts = toast_payloads(&recording);
+        assert_eq!(toasts.len(), 2, "the re-review says so too");
+        for toast in &toasts {
+            assert!(toast.opens_findings);
+            assert_eq!(toast.workspace_id.as_deref(), Some("w1"));
+            assert_eq!(
+                toast.notification.as_deref(),
+                Some("Review of feat/x finished · 2 findings")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_finished_review_is_a_notification_only_when_the_user_wants_one() {
+        let (state, recording) =
+            reviewing("Looks fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
+        crate::settings::Settings {
+            notify_review_finished: false,
+            ..Default::default()
+        }
+        .save(&state.store);
+
+        on_reviewer_turn_end(&state, "t1").await.unwrap();
+
+        let toasts = toast_payloads(&recording);
+        assert_eq!(toasts.len(), 1);
+        assert!(!toasts[0].opens_findings, "nothing to open");
+        assert_eq!(toasts[0].notification, None);
     }
 
     #[tokio::test]
@@ -800,13 +873,20 @@ mod tests {
         assert_eq!(state.store.review("w1").unwrap(), None);
     }
 
+    /// Bug: only `running` was refused, so a review could start on a thread still being set
+    /// up, and setup's first turn then relaunched the engine under it.
     #[tokio::test]
-    async fn a_branch_review_is_refused_while_the_thread_is_running() {
-        let (state, _recording, fake) = workspace(ThreadStatus::Running);
-        let mut engine = fake.engine("t1");
+    async fn a_branch_review_is_refused_while_the_thread_is_working() {
+        for status in ThreadStatus::WORKING {
+            let (state, _recording, fake) = workspace(status);
+            let mut engine = fake.engine("t1");
 
-        assert!(start_branch_review(&state, "w1").await.is_err());
-        assert!(prompts(&mut engine).is_empty());
+            assert!(
+                start_branch_review(&state, "w1").await.is_err(),
+                "{status:?}"
+            );
+            assert!(prompts(&mut engine).is_empty());
+        }
     }
 
     #[test]

@@ -164,9 +164,12 @@ impl ThreadStatus {
         Self::WORKING.contains(&self)
     }
 
-    /// A turn was started and hasn't ended: it is running, or paused partway.
+    /// A turn was started and hasn't ended: it is running, or paused partway, so it can be
+    /// paused or resumed. The webview gets the list as `MID_TURN_THREAD_STATUSES`.
+    pub const MID_TURN: [Self; 2] = [Self::Running, Self::Paused];
+
     pub fn is_mid_turn(self) -> bool {
-        matches!(self, Self::Running | Self::Paused)
+        Self::MID_TURN.contains(&self)
     }
 
     /// Still has work to finish: working, or paused partway through a turn.

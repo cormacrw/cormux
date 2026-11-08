@@ -235,6 +235,7 @@ pub async fn create_workspace_pull_request(
         ],
         workspace_id: Some(input.workspace_id.clone()),
         thread_id: own_thread,
+        ..Default::default()
     });
 
     // One refetch covers the new PR row and the workspace's PR number.

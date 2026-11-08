@@ -1,4 +1,5 @@
 import type { ThreadStatus } from '$lib/ipc/bindings'
+import { isAgentWorking } from '$lib/state/activity'
 import type { RunningAgent, TimelineItem } from './timeline-types'
 
 /** What the agent is doing now, shown while it works or sits paused mid-turn. */
@@ -22,8 +23,7 @@ type LiveInput = {
 
 export function liveStatus(input: LiveInput): LiveStatus | null {
   const { status, paused } = input
-  const working = status === 'provisioning' || status === 'running'
-  if (!working && !(status === 'paused' && paused)) return null
+  if (!isAgentWorking(status) && !(status === 'paused' && paused)) return null
   return {
     title: paused ? 'Paused by you' : input.activity,
     subtitle: liveSubtitle(input),

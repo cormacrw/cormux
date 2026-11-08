@@ -282,6 +282,7 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
                 }],
                 workspace_id: None,
                 thread_id: None,
+                ..Default::default()
             });
             None
         }
@@ -313,6 +314,7 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
         }],
         workspace_id: None,
         thread_id: None,
+        ..Default::default()
     });
     resync_prs(state);
 
@@ -372,6 +374,7 @@ pub async fn remove(state: &AppState, input: RemoveRepoInput) -> Result<()> {
         }],
         workspace_id: None,
         thread_id: None,
+        ..Default::default()
     });
     resync_prs(state);
     Ok(())

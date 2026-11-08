@@ -32,11 +32,12 @@ impl Change {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ToastTone {
     Ok,
     Bad,
+    #[default]
     Default,
 }
 
@@ -59,9 +60,19 @@ impl ToastPart {
             value: value.into(),
         }
     }
+
+    /// The parts as one line of plain text.
+    pub fn plain(parts: &[Self]) -> String {
+        parts
+            .iter()
+            .map(|part| match part {
+                Self::Text { value } | Self::Code { value } => value.as_str(),
+            })
+            .collect()
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ToastRaisedPayload {
     pub tone: ToastTone,
@@ -69,6 +80,10 @@ pub struct ToastRaisedPayload {
     pub workspace_id: Option<String>,
     /// With `workspace_id`, clicking the toast opens this thread's tab.
     pub thread_id: Option<String>,
+    /// With `workspace_id`, clicking the toast opens its Findings tab.
+    pub opens_findings: bool,
+    /// Also said as a desktop notification, when the window isn't in front.
+    pub notification: Option<String>,
 }
 
 pub trait UserOutput: Send + Sync {
@@ -177,6 +192,7 @@ impl Notifier {
             parts,
             workspace_id,
             thread_id: None,
+            ..Default::default()
         });
     }
 

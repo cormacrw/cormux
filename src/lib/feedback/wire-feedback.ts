@@ -1,8 +1,9 @@
 import { events, type CoreError } from '$lib/ipc'
 import { coreErrorText } from '$lib/core/core-error'
-import type { ToastRaised } from '$lib/ipc/bindings'
+import type { ToastRaised, ToastRaisedPayload } from '$lib/ipc/bindings'
 import { coreErrorToast, environmentReloadToast } from './toast-payload'
 import { showToast } from './show-toast'
+import type { ToastTarget } from './toast-target'
 
 export function bindFeedbackEvents() {
   return events.toastRaised.listen((event) => showCoreToast(event.payload))
@@ -12,10 +13,18 @@ function showCoreToast(event: ToastRaised) {
   const payload = event.payload
   showToast({
     tone: payload.tone,
+    parts: payload.parts,
+    ...coreToastTarget(payload),
+  })
+}
+
+/** What clicking a toast the core raised opens, or its notification once the app is in front. */
+export function coreToastTarget(payload: ToastRaisedPayload): ToastTarget {
+  return {
     workspaceId: payload.workspaceId ?? undefined,
     threadId: payload.threadId ?? undefined,
-    parts: payload.parts,
-  })
+    findings: payload.opensFindings || undefined,
+  }
 }
 
 /** A bad toast for a failure: a core error, something thrown, or a message; `fallback` when it says nothing. */

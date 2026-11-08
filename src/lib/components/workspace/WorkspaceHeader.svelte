@@ -3,7 +3,7 @@
   import { Button } from '$lib/components/ui/button'
   import { repos, shellDialogs, threads } from '$lib/state'
   import { appControls, controlApp } from '$lib/run-app/actions'
-  import { isWorkspaceProvisioning } from '$lib/state/activity'
+  import { isAgentWorking, isWorkspaceProvisioning } from '$lib/state/activity'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import GitConflictBanner from './GitConflictBanner.svelte'
   import WorkspaceBranchTag from './WorkspaceBranchTag.svelte'
@@ -47,7 +47,7 @@
   )
   // A review runs in the workspace's one thread, so it waits for that thread to finish.
   const reviewing = $derived(
-    wsThreads.some((thread) => thread.status === 'running'),
+    wsThreads.some((thread) => isAgentWorking(thread.status)),
   )
 
   // Handled here rather than on the buttons, since most actions live in ⋯.

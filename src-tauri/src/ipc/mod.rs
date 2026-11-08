@@ -114,6 +114,10 @@ pub fn builder() -> Builder {
             "WORKING_THREAD_STATUSES",
             crate::model::ThreadStatus::WORKING,
         )
+        .constant(
+            "MID_TURN_THREAD_STATUSES",
+            crate::model::ThreadStatus::MID_TURN,
+        )
         .events(tauri_specta::collect_events![
             events::StateChanged,
             events::MemorySampled,
