@@ -28,6 +28,42 @@ pub struct LocalBranchRow {
     pub name: String,
     pub committed: String,
     pub subject: String,
+    /// Why it can't be deleted, if it can't.
+    pub hold: Option<BranchHold>,
+}
+
+/// What keeps a local branch from being deleted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BranchHold {
+    DefaultBranch,
+    /// Live workspaces have it checked out, by name.
+    CheckedOutBy {
+        workspaces: Vec<String>,
+    },
+    /// The repo's own checkout is on it.
+    RepoHead,
+}
+
+/// Why `branch` can't be deleted from `repo`, whose checkout is on `head` ('' when detached).
+fn branch_hold(
+    repo: &RepoRecord,
+    live: &[crate::store::types::WorkspaceRow],
+    head: &str,
+    branch: &str,
+) -> Option<BranchHold> {
+    if branch == repo.default_branch {
+        return Some(BranchHold::DefaultBranch);
+    }
+    let workspaces: Vec<String> = live
+        .iter()
+        .filter(|row| row.repo_id == repo.id && row.branch == branch)
+        .map(|row| row.name.clone())
+        .collect();
+    if !workspaces.is_empty() {
+        return Some(BranchHold::CheckedOutBy { workspaces });
+    }
+    (!head.is_empty() && head == branch).then_some(BranchHold::RepoHead)
 }
 
 /// What happened to a local branch the user asked to delete.
@@ -426,9 +462,11 @@ pub async fn list_local_branches(state: &AppState, repo_id: &str) -> Result<Loca
         state.git.list_local_branch_tips(&repo_path),
     );
     let head = head.unwrap_or_default();
+    let live = state.store.live_workspaces()?;
     let branches = tips?
         .into_iter()
         .map(|tip| LocalBranchRow {
+            hold: branch_hold(&repo, &live, &head, &tip.name),
             name: tip.name,
             committed: tip.committed,
             subject: tip.subject,
@@ -448,28 +486,21 @@ pub async fn delete_local_branch(
         return Err(Error::Git("missing branch name".into()));
     }
     let repo = state.store.repo(repo_id)?;
-    if branch == repo.default_branch {
-        return Err(Error::Git(format!("{branch} is the default branch")));
-    }
-    if let Some(workspace) = state
-        .store
-        .live_workspaces()?
-        .iter()
-        .find(|row| row.repo_id == repo_id && row.branch == branch)
-    {
-        return Err(Error::Git(format!(
-            "{branch} is checked out by {}",
-            workspace.name
-        )));
-    }
     let repo_path = expand_tilde(&repo.path);
     let head = state
         .git
         .current_branch(&repo_path)
         .await
         .unwrap_or_default();
-    if !head.is_empty() && head == branch {
-        return Err(Error::Git(format!("{branch} is checked out in the repo")));
+    let live = state.store.live_workspaces()?;
+    if let Some(hold) = branch_hold(&repo, &live, &head, branch) {
+        return Err(Error::Git(match hold {
+            BranchHold::DefaultBranch => format!("{branch} is the default branch"),
+            BranchHold::CheckedOutBy { workspaces } => {
+                format!("{branch} is checked out by {}", workspaces.join(", "))
+            }
+            BranchHold::RepoHead => format!("{branch} is checked out in the repo"),
+        }));
     }
     if !force && !state.git.in_sync_with_origin(&repo_path, branch).await? {
         return Ok(BranchDeletion::Unpushed);
@@ -730,6 +761,23 @@ mod tests {
         let tips = list_local_branches(&state, "app").await.unwrap();
         assert_eq!(tips.head, "current");
         assert!(!tips.branches.iter().any(|row| row.name == "old"));
+        // The list says what the delete would refuse, by the same rule.
+        let hold = |name: &str| {
+            tips.branches
+                .iter()
+                .find(|row| row.name == name)
+                .unwrap()
+                .hold
+                .clone()
+        };
+        assert_eq!(hold("main"), Some(BranchHold::DefaultBranch));
+        assert_eq!(
+            hold("feat/x"),
+            Some(BranchHold::CheckedOutBy {
+                workspaces: vec!["Work".into()]
+            })
+        );
+        assert_eq!(hold("current"), Some(BranchHold::RepoHead));
     }
 
     #[tokio::test]

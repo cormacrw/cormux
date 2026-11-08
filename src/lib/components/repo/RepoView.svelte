@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { openWorkspace } from '$lib/nav/open'
   import { nav, navigate } from '$lib/core/nav.svelte'
   import { windowDrag } from '$lib/primitives/window-drag'
@@ -12,7 +13,7 @@
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
-  import { branchHoldReason } from '$lib/repo/branch-hold'
+  import { branchHoldLabel } from '$lib/repo/branch-hold'
   import { workspaceStatusWord } from '$lib/sidebar/status'
   import { prs, repos, scratches, workspaces } from '$lib/state'
   import type { Workspace } from '$lib/state/workspaces.svelte'
@@ -23,7 +24,6 @@
 
   let titleEl = $state<HTMLHeadingElement | null>(null)
   let branches = $state<LocalBranchRow[]>([])
-  let head = $state('')
   let loading = $state(true)
   let loadError = $state<string | null>(null)
   let deleting = $state<string | null>(null)
@@ -53,34 +53,32 @@
     titleEl?.focus()
   })
 
+  // Read again when the repo's workspaces move branches: the core says which it holds.
+  const workspaceBranches = $derived(
+    repoWorkspaces.map((row) => row.branch).join('\n'),
+  )
+
   $effect(() => {
     const id = nav.repoId
     if (!id || nav.view !== 'repo') return
+    void workspaceBranches
     let cancelled = false
-    loading = true
+    loading = untrack(() => branches.length === 0)
     loadError = null
     void commands.listRepoLocalBranches(id).then((result) => {
       if (cancelled) return
       loading = false
       if (result.status === 'error') {
         branches = []
-        head = ''
         loadError = coreErrorText(result.error, 'Could not read branches')
         return
       }
       branches = result.data.branches
-      head = result.data.head
     })
     return () => {
       cancelled = true
     }
   })
-
-  function checkedOutBy(branch: string) {
-    return repoWorkspaces
-      .filter((row) => row.branch === branch)
-      .map((row) => row.name)
-  }
 
   function statusWord(workspace: Workspace) {
     return workspaceStatusWord({
@@ -239,12 +237,7 @@
             class="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
           >
             {#each branches as branch (branch.name)}
-              {@const reason = branchHoldReason({
-                name: branch.name,
-                defaultBranch,
-                head,
-                checkedOutBy: checkedOutBy(branch.name),
-              })}
+              {@const reason = branch.hold && branchHoldLabel(branch.hold)}
               {@const pr = prs.forBranch(repo.id, branch.name)}
               <li
                 class="flex items-start justify-between gap-4 px-4 py-3.5"

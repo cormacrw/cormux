@@ -1,21 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { branchHoldReason } from './branch-hold'
+import { branchHoldLabel } from './branch-hold'
 
-describe('branchHoldReason', () => {
-  const base = { defaultBranch: 'main', head: 'main', checkedOutBy: [] }
-
-  it('holds a workspace checkout, the default branch, and the repo checkout', () => {
+describe('branchHoldLabel', () => {
+  it('words each hold the core reports', () => {
     expect(
-      branchHoldReason({
-        ...base,
-        name: 'feat/oauth-login',
-        checkedOutBy: ['OAuth login'],
-      }),
+      branchHoldLabel({ kind: 'checkedOutBy', workspaces: ['OAuth login'] }),
     ).toBe('Checked out by OAuth login')
-    expect(branchHoldReason({ ...base, name: 'main' })).toBe('Default branch')
-    expect(
-      branchHoldReason({ ...base, name: 'feat/wip', head: 'feat/wip' }),
-    ).toBe('Checked out in the repo')
-    expect(branchHoldReason({ ...base, name: 'feat/colors' })).toBe(null)
+    expect(branchHoldLabel({ kind: 'defaultBranch' })).toBe('Default branch')
+    expect(branchHoldLabel({ kind: 'repoHead' })).toBe(
+      'Checked out in the repo',
+    )
   })
 })

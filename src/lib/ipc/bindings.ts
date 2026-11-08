@@ -840,6 +840,18 @@ export type BranchDeletion = "deleted" |
  */
 "unpushed"
 /**
+ * What keeps a local branch from being deleted.
+ */
+export type BranchHold = { kind: "defaultBranch" } | 
+/**
+ * Live workspaces have it checked out, by name.
+ */
+{ kind: "checkedOutBy"; workspaces: string[] } | 
+/**
+ * The repo's own checkout is on it.
+ */
+{ kind: "repoHead" }
+/**
  * A prompt the thread was started with that the timeline doesn't show: a review's instructions,
  * which its checked-out-PR step stands for. Readers of what the user asked still see it.
  */
@@ -989,7 +1001,11 @@ export type LineCounts = { added: number; deleted: number }
 /**
  * A local branch tip. `committed` is git's relative date ("2 hours ago").
  */
-export type LocalBranchRow = { name: string; committed: string; subject: string }
+export type LocalBranchRow = { name: string; committed: string; subject: string; 
+/**
+ * Why it can't be deleted, if it can't.
+ */
+hold: BranchHold | null }
 export type LocalBranchesResult = { 
 /**
  * Branch checked out in the repo itself. Empty when detached.

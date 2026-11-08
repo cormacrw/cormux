@@ -1,4 +1,4 @@
-import type { WorkspaceStack } from '$lib/ipc/bindings'
+import type { BranchHold, WorkspaceStack } from '$lib/ipc/bindings'
 import { CHANGE, type HarnessRuntime } from '../runtime'
 import type { HandlerSlice, Input, Unsupported } from '../types'
 
@@ -23,6 +23,7 @@ const STACK_PRS: Record<string, number> = { 'feat/oauth-api': 101 }
 const UNPUSHED_BRANCHES = ['feat/oauth-api']
 
 export function gitHandlers({
+  db,
   scenario,
   controls,
   findWorkspace,
@@ -166,10 +167,26 @@ export function gitHandlers({
     list_repo_branches: () => ({
       branches: ['main', 'develop', 'feat/oauth-login'],
     }),
-    list_repo_local_branches: () => ({
-      head: 'main',
-      branches: localBranches.map((row) => ({ ...row })),
-    }),
+    // Holds by the core's `branch_hold`: the default branch, live workspaces' branches, the head.
+    list_repo_local_branches: ({ repoId }: { repoId: string }) => {
+      const head = 'main'
+      const repo = db.snapshot.persisted.repos.find((row) => row.id === repoId)
+      const hold = (name: string): BranchHold | null => {
+        if (name === repo?.defaultBranch) return { kind: 'defaultBranch' }
+        const names = db.snapshot.persisted.workspaces
+          .filter((row) => row.repoId === repoId && row.branch === name)
+          .map((row) => row.name)
+        if (names.length) return { kind: 'checkedOutBy', workspaces: names }
+        return name === head ? { kind: 'repoHead' } : null
+      }
+      return {
+        head,
+        branches: localBranches.map((row) => ({
+          ...row,
+          hold: hold(row.name),
+        })),
+      }
+    },
     delete_local_branch: ({
       branch: name,
       force,
