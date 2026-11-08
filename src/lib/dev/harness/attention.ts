@@ -22,31 +22,35 @@ export function needsAttention(
   return !working || pending > 0
 }
 
-/** The snapshot's `workspacesNeedingAttention`, from the rest of it. */
-export function workspacesNeedingAttention(snapshot: Snapshot): string[] {
+/** The snapshot's `workspacePendingApprovals`, from its approvals. */
+export function workspacePendingApprovals(
+  snapshot: Snapshot,
+): Snapshot['workspacePendingApprovals'] {
   const { threads, approvals } = snapshot.persisted
-  const pending = new Map<string, number>()
+  const counts = new Map<string, number>()
   for (const approval of approvals) {
     if (approval.status !== 'pending') continue
     const thread = threads.find((row) => row.id === approval.threadId)
     if (thread) {
-      pending.set(
-        thread.workspaceId,
-        (pending.get(thread.workspaceId) ?? 0) + 1,
-      )
+      counts.set(thread.workspaceId, (counts.get(thread.workspaceId) ?? 0) + 1)
     }
   }
+  return [...counts].map(([workspaceId, count]) => ({ workspaceId, count }))
+}
+
+/** The snapshot's `workspacesNeedingAttention`, from the rest of it. */
+export function workspacesNeedingAttention(snapshot: Snapshot): string[] {
+  const { threads } = snapshot.persisted
   return snapshot.workspaces
     .filter((workspace) => {
       const ownId = snapshot.workspaceOwnThreads.find(
         (row) => row.workspaceId === workspace.id,
       )?.threadId
       const own = threads.find((row) => row.id === ownId)?.status ?? null
-      return needsAttention(
-        workspace.status,
-        own,
-        pending.get(workspace.id) ?? 0,
+      const pending = snapshot.workspacePendingApprovals.find(
+        (row) => row.workspaceId === workspace.id,
       )
+      return needsAttention(workspace.status, own, pending?.count ?? 0)
     })
     .map((workspace) => workspace.id)
 }

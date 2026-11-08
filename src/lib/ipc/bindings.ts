@@ -1273,10 +1273,6 @@ export type Snapshot = { version: number; settings: Settings; persisted: Persist
  */
 workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
 /**
- * Approvals waiting on the user, which the dock badge also shows.
- */
-pendingApprovals: number; 
-/**
  * True when the last PR sync was signed in to `gh`, or, before one has run, when an earlier
  * sync's time is stored.
  */
@@ -1320,7 +1316,11 @@ workspaceOwnThreads: WorkspaceOwnThread[];
 /**
  * The live workspaces that need the user, by `workspaces::needs_attention`.
  */
-workspacesNeedingAttention: string[] }
+workspacesNeedingAttention: string[]; 
+/**
+ * How many approvals wait on the user in each live workspace, for those with any.
+ */
+workspacePendingApprovals: WorkspacePendingApprovals[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
@@ -1571,6 +1571,7 @@ export type WorkspaceKind =
  */
 export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "paused" | "idle" | "tearingDown" | "provisioningFailed"
 export type WorkspaceOwnThread = { workspaceId: string; threadId: string }
+export type WorkspacePendingApprovals = { workspaceId: string; count: number }
 /**
  * A workspace as the webview shows it: its row, plus what only the running app knows.
  */

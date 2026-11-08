@@ -50,8 +50,6 @@ pub struct Snapshot {
     pub workspaces: Vec<WorkspaceRecord>,
     pub workspace_git: Vec<WorkspaceGitRuntime>,
     pub memory: Option<MemorySample>,
-    /// Approvals waiting on the user, which the dock badge also shows.
-    pub pending_approvals: usize,
     /// True when the last PR sync was signed in to `gh`, or, before one has run, when an earlier
     /// sync's time is stored.
     pub github_auth_configured: bool,
@@ -76,6 +74,43 @@ pub struct Snapshot {
     pub workspace_own_threads: Vec<WorkspaceOwnThread>,
     /// The live workspaces that need the user, by `workspaces::needs_attention`.
     pub workspaces_needing_attention: Vec<String>,
+    /// How many approvals wait on the user in each live workspace, for those with any.
+    pub workspace_pending_approvals: Vec<WorkspacePendingApprovals>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspacePendingApprovals {
+    pub workspace_id: String,
+    pub count: u32,
+}
+
+/// The pending approvals in `persisted`, counted by the workspace of the thread asking.
+fn pending_approvals(persisted: &PersistedSnapshot) -> Vec<WorkspacePendingApprovals> {
+    let mut counts: Vec<WorkspacePendingApprovals> = Vec::new();
+    for approval in &persisted.approvals {
+        if approval.status != crate::model::ApprovalStatus::Pending {
+            continue;
+        }
+        let Some(thread) = persisted
+            .threads
+            .iter()
+            .find(|thread| thread.id == approval.thread_id)
+        else {
+            continue;
+        };
+        match counts
+            .iter_mut()
+            .find(|row| row.workspace_id == thread.workspace_id)
+        {
+            Some(row) => row.count += 1,
+            None => counts.push(WorkspacePendingApprovals {
+                workspace_id: thread.workspace_id.clone(),
+                count: 1,
+            }),
+        }
+    }
+    counts
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -98,6 +133,7 @@ fn needing_attention(
     workspaces: &[WorkspaceRecord],
     persisted: &PersistedSnapshot,
     own: &[WorkspaceOwnThread],
+    pending: &[WorkspacePendingApprovals],
 ) -> Vec<String> {
     let status_of = |thread_id: &str| {
         persisted
@@ -106,19 +142,6 @@ fn needing_attention(
             .find(|thread| thread.id == thread_id)
             .map(|thread| thread.status)
     };
-    let mut pending = std::collections::HashMap::<&str, usize>::new();
-    for approval in &persisted.approvals {
-        if approval.status != crate::model::ApprovalStatus::Pending {
-            continue;
-        }
-        if let Some(thread) = persisted
-            .threads
-            .iter()
-            .find(|thread| thread.id == approval.thread_id)
-        {
-            *pending.entry(thread.workspace_id.as_str()).or_default() += 1;
-        }
-    }
     workspaces
         .iter()
         .filter(|workspace| {
@@ -126,7 +149,10 @@ fn needing_attention(
                 .iter()
                 .find(|own| own.workspace_id == workspace.id)
                 .and_then(|own| status_of(&own.thread_id));
-            let waiting = pending.get(workspace.id.as_str()).copied().unwrap_or(0);
+            let waiting = pending
+                .iter()
+                .find(|row| row.workspace_id == workspace.id)
+                .map_or(0, |row| row.count as usize);
             crate::workspaces::needs_attention(workspace, own_status, waiting)
         })
         .map(|workspace| workspace.id.clone())
@@ -173,8 +199,13 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let workspace_review_blocks = crate::review::review_blocks(&workspaces, &own);
     let workspace_own_threads = own_threads(&own);
     let workspace_run_blocks = crate::app::run_blocks(&workspaces, &workspace_run_commands);
-    let workspaces_needing_attention =
-        needing_attention(&workspaces, &persisted, &workspace_own_threads);
+    let workspace_pending_approvals = pending_approvals(&persisted);
+    let workspaces_needing_attention = needing_attention(
+        &workspaces,
+        &persisted,
+        &workspace_own_threads,
+        &workspace_pending_approvals,
+    );
 
     Ok(Snapshot {
         version: state.out.version(),
@@ -183,7 +214,6 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         workspaces,
         workspace_git,
         memory: state.metrics.latest(),
-        pending_approvals: state.approvals.pending_count(),
         github_auth_configured: state.pr_sync.auth_configured(&state),
         clickup_configured: state.clickup.is_configured(),
         workspace_apps: state.apps.snapshot(),
@@ -196,6 +226,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         workspace_run_blocks,
         workspace_own_threads,
         workspaces_needing_attention,
+        workspace_pending_approvals,
     })
 }
 
@@ -264,7 +295,17 @@ mod tests {
             .unwrap();
         let own = own_threads(&crate::store::types::own_threads(&persisted.threads));
 
-        assert_eq!(needing_attention(&records, &persisted, &own), ["asks"]);
+        let pending = pending_approvals(&persisted);
+
+        let counts: Vec<_> = pending
+            .iter()
+            .map(|row| (row.workspace_id.as_str(), row.count))
+            .collect();
+        assert_eq!(counts, [("asks", 1)]);
+        assert_eq!(
+            needing_attention(&records, &persisted, &own, &pending),
+            ["asks"]
+        );
     }
 
     #[test]

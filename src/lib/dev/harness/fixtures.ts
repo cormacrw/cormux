@@ -140,7 +140,6 @@ export function createFixtures() {
     workspaces: [oauth.record],
     workspaceGit: [],
     memory: { totalBytes: 1_400_000_000 },
-    pendingApprovals: 0,
     githubAuthConfigured: false,
     clickupConfigured: false,
     workspaceApps: [],
@@ -160,6 +159,7 @@ export function createFixtures() {
       { workspaceId: WORKSPACE_ID, threadId: LEAD_THREAD_ID },
     ],
     workspacesNeedingAttention: [],
+    workspacePendingApprovals: [],
   }
   const timeline: StoredEventRow[] = [
     {
