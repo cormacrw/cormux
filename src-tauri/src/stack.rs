@@ -323,6 +323,18 @@ pub fn parents(names_and_merged: &[(String, bool)], trunk: &str) -> Vec<String> 
         .collect()
 }
 
+/// Whether `branch` lacks commits `base` has. One git can't compare (a branch deleted under the
+/// stack) shows as needing a rebase.
+async fn needs_rebase(state: &AppState, worktree: &Path, base: &str, branch: &str) -> bool {
+    match state.git.is_ancestor(worktree, base, branch).await {
+        Ok(contained) => !contained,
+        Err(error) => {
+            log::warn!("comparing {branch} with {base}: {error}; showing it as needing a rebase");
+            true
+        }
+    }
+}
+
 /// The workspace's stack. When its branch reads as unstacked, a stack made in another worktree
 /// or on GitHub is set up here first (`gh stack init`/`checkout`), which writes to the
 /// worktree: the workspace record follows whatever branch that leaves checked out. That switches
@@ -332,8 +344,8 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
     let solo_needs_rebase = record.branch != record.base && {
-        let trunk = state.git.freshest_ref(&worktree, &record.base).await;
-        !state.git.is_ancestor(&worktree, &trunk, "HEAD").await
+        let trunk = state.git.freshest_ref(&worktree, &record.base).await?;
+        needs_rebase(state, &worktree, &trunk, "HEAD").await
     };
     let empty = |status, message| WorkspaceStack {
         workspace_id: workspace_id.to_string(),
@@ -398,7 +410,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         }
     };
 
-    let trunk_ref = state.git.freshest_ref(&worktree, &json.trunk).await;
+    let trunk_ref = state.git.freshest_ref(&worktree, &json.trunk).await?;
     let parents = json.parents();
     let holds = crate::repos::BranchHolds::read(state, state.store.repo(&record.repo_id)?)
         .await?
@@ -431,7 +443,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
                     log::warn!("stack commit count for {}: {error}", branch.name);
                     0
                 });
-            let behind = !state.git.is_ancestor(&worktree, &base, &branch.name).await;
+            let behind = needs_rebase(state, &worktree, &base, &branch.name).await;
             (stat, commits, behind)
         };
         branches.push(StackBranch {

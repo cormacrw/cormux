@@ -941,9 +941,9 @@ export type LineCounts = { added: number; deleted: number }
 export type LocalBranchRow = { name: string; committed: string; subject: string; hold: BranchHold | null }
 export type LocalBranchesResult = { 
 /**
- * Branch checked out in the repo itself. Empty when detached.
+ * Branch checked out in the repo itself; none when detached.
  */
-head: string; branches: LocalBranchRow[] }
+head: string | null; branches: LocalBranchRow[] }
 /**
  * One line of a workspace's log: what a command printed, or what Cormux says about the run.
  */

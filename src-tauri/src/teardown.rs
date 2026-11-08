@@ -137,12 +137,17 @@ async fn run_teardown_steps(
     let repo = PathBuf::from(&record.repo_path);
     let worktree = PathBuf::from(&record.worktree_path);
     if worktree.exists() {
-        let force = state
-            .git
-            .status_porcelain(&worktree)
-            .await
-            .map(|status| !status.trim().is_empty())
-            .unwrap_or(false);
+        // A worktree git can't read is removed without --force, so git refuses it if it's dirty.
+        let force = match state.git.status_porcelain(&worktree).await {
+            Ok(status) => !status.trim().is_empty(),
+            Err(error) => {
+                log::warn!(
+                    "reading {}'s changes before removing it: {error}",
+                    record.id
+                );
+                false
+            }
+        };
         state.git.worktree_remove(&repo, &worktree, force).await?;
     }
 

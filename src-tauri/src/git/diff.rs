@@ -548,7 +548,7 @@ async fn compute_diff(
     let range = match target {
         Some(target) => Some(format!(
             "{}...{}",
-            git.freshest_ref(path, &target.base).await,
+            git.freshest_ref(path, &target.base).await?,
             target.head
         )),
         None => None,
@@ -706,11 +706,11 @@ mod tests {
         assert_eq!(paths(uncommitted), ["wip.txt"]);
 
         // feat/a needs a rebase once main moves on without it.
-        assert!(git.is_ancestor(repo, "main", "feat/a").await);
+        assert!(git.is_ancestor(repo, "main", "feat/a").await.unwrap());
         run(&["switch", "-q", "main"]);
         commit_file(repo, "later.txt");
-        assert!(!git.is_ancestor(repo, "main", "feat/a").await);
-        assert!(git.is_ancestor(repo, "feat/a", "feat/b").await);
+        assert!(!git.is_ancestor(repo, "main", "feat/a").await.unwrap());
+        assert!(git.is_ancestor(repo, "feat/a", "feat/b").await.unwrap());
     }
 
     /// Bug: computes for a quick retarget and back ran side by side, and the slower one, for the

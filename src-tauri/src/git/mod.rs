@@ -258,7 +258,7 @@ impl Git {
 
     /// Where a new branch off `base` should start: the freshest of local and origin's, fetched
     /// now. A fetch that fails (offline, no remote) falls back to what's already here.
-    pub async fn latest_base(&self, repo: &Path, base: &str) -> String {
+    pub async fn latest_base(&self, repo: &Path, base: &str) -> Result<String> {
         self.fetch_base(repo, base).await;
         self.freshest_ref(repo, base).await
     }
@@ -330,7 +330,7 @@ impl Git {
     }
 
     pub async fn behind_count(&self, worktree: &Path, base: &str) -> Result<u32> {
-        let base = self.freshest_ref(worktree, base).await;
+        let base = self.freshest_ref(worktree, base).await?;
         self.rev_list_count(worktree, &format!("HEAD..{base}"))
             .await
     }
@@ -598,7 +598,7 @@ impl Git {
     /// Stopping on conflicts is `Error::GitConflict`, with the merge left in progress.
     pub async fn merge_base(&self, worktree: &Path, base: &str) -> Result<()> {
         self.require_clean_worktree(worktree, "merge").await?;
-        let rev = self.freshest_ref(worktree, base).await;
+        let rev = self.freshest_ref(worktree, base).await?;
         let output = self.run(worktree, &["merge", &rev]).await?;
         if output.status.success() {
             return Ok(());
@@ -732,30 +732,31 @@ impl Git {
     }
 
     /// Commits only `left` has and only `right` has, as `(ahead, behind)` from `left`'s point of
-    /// view, in one process. `(0, 0)` when either ref is missing.
+    /// view, in one process. `None` when either ref is missing.
     pub async fn ahead_behind(
         &self,
         worktree: &Path,
         left: &str,
         right: &str,
-    ) -> Result<(u32, u32)> {
+    ) -> Result<Option<(u32, u32)>> {
         let range = format!("{left}...{right}");
         let output = self
             .run(worktree, &["rev-list", "--left-right", "--count", &range])
             .await?;
         if !output.status.success() {
-            return Ok((0, 0));
+            if self.ref_exists(worktree, left).await? && self.ref_exists(worktree, right).await? {
+                return Err(Self::fail(&output, "rev-list --left-right"));
+            }
+            return Ok(None);
         }
         parse_left_right(&Self::stdout(&output))
+            .map(Some)
             .ok_or_else(|| Error::Git("rev-list --left-right: unexpected output".into()))
     }
 
     pub async fn remote_branch_exists(&self, repo: &Path, branch: &str) -> Result<bool> {
-        let reference = format!("refs/remotes/origin/{branch}");
-        let output = self
-            .run(repo, &["show-ref", "--verify", &reference])
-            .await?;
-        Ok(output.status.success())
+        self.ref_exists(repo, &format!("refs/remotes/origin/{branch}"))
+            .await
     }
 
     /// Commits on HEAD that neither a remote nor `base` has, so removing the branch loses
@@ -810,35 +811,51 @@ impl Git {
         let output = self
             .run(worktree, &["rev-parse", "--verify", "--quiet", reference])
             .await?;
-        Ok(output.status.success())
+        match output.status.code() {
+            Some(0) => Ok(true),
+            // git's "no such ref".
+            Some(1) => Ok(false),
+            _ => Err(Self::fail(&output, "rev-parse --verify")),
+        }
     }
 
-    pub async fn is_ancestor(&self, worktree: &Path, ancestor: &str, descendant: &str) -> bool {
-        self.run(
-            worktree,
-            &["merge-base", "--is-ancestor", ancestor, descendant],
-        )
-        .await
-        .is_ok_and(|output| output.status.success())
+    pub async fn is_ancestor(
+        &self,
+        worktree: &Path,
+        ancestor: &str,
+        descendant: &str,
+    ) -> Result<bool> {
+        let output = self
+            .run(
+                worktree,
+                &["merge-base", "--is-ancestor", ancestor, descendant],
+            )
+            .await?;
+        match output.status.code() {
+            Some(0) => Ok(true),
+            // git's "not an ancestor".
+            Some(1) => Ok(false),
+            _ => Err(Self::fail(&output, "merge-base --is-ancestor")),
+        }
     }
 
     /// The ref that stands for `branch` wherever a workspace is compared with or brought up to
     /// its base (behind counts, pull, Changes, new branches): `origin/<branch>` when it
     /// has everything the local branch has (a stale local trunk), else the local branch (a
     /// stack branch rebased but not pushed yet).
-    pub async fn freshest_ref(&self, worktree: &Path, branch: &str) -> String {
+    pub async fn freshest_ref(&self, worktree: &Path, branch: &str) -> Result<String> {
         let remote = format!("origin/{branch}");
-        if !self.ref_exists(worktree, &remote).await.unwrap_or(false) {
-            return branch.to_string();
+        if !self.ref_exists(worktree, &remote).await? {
+            return Ok(branch.to_string());
         }
-        if !self.ref_exists(worktree, branch).await.unwrap_or(false) {
-            return remote;
+        if !self.ref_exists(worktree, branch).await? {
+            return Ok(remote);
         }
-        if self.is_ancestor(worktree, branch, &remote).await {
+        Ok(if self.is_ancestor(worktree, branch, &remote).await? {
             remote
         } else {
             branch.to_string()
-        }
+        })
     }
 
     pub async fn shortstat(&self, worktree: &Path, range: &str) -> Result<ShortStat> {
@@ -1188,7 +1205,7 @@ mod tests {
         commit(&clone, "a2.txt");
         run_ok(&clone, &["git", "switch", "-q", "feat/b"]);
 
-        assert_eq!(git.freshest_ref(&clone, "feat/a").await, "feat/a");
+        assert_eq!(git.freshest_ref(&clone, "feat/a").await.unwrap(), "feat/a");
         assert_eq!(git.behind_count(&clone, "feat/a").await.unwrap(), 1);
         git.merge_base(&clone, "feat/a").await.unwrap();
         assert_eq!(git.behind_count(&clone, "feat/a").await.unwrap(), 0);
@@ -1203,10 +1220,13 @@ mod tests {
         let git = git_with_env().await;
         let (_origin_dir, origin) = init_repo();
         let (_clone_dir, clone) = clone_of(&origin);
-        assert_eq!(git.latest_base(&clone, "main").await, "origin/main");
+        assert_eq!(
+            git.latest_base(&clone, "main").await.unwrap(),
+            "origin/main"
+        );
         // Inside the window a new commit waits for the next fetch.
         commit(&origin, "landed.txt");
-        git.latest_base(&clone, "main").await;
+        git.latest_base(&clone, "main").await.unwrap();
         assert!(!git.ref_has(&clone, "origin/main", "landed.txt").await);
 
         let (_missing_dir, missing) = clone_of(&origin);
@@ -1214,14 +1234,14 @@ mod tests {
             &missing,
             &["git", "remote", "set-url", "origin", "/nowhere"],
         );
-        git.latest_base(&missing, "main").await;
+        git.latest_base(&missing, "main").await.unwrap();
         let origin_path = origin.to_string_lossy().to_string();
         run_ok(
             &missing,
             &["git", "remote", "set-url", "origin", &origin_path],
         );
         commit(&origin, "later.txt");
-        git.latest_base(&missing, "main").await;
+        git.latest_base(&missing, "main").await.unwrap();
         assert!(git.ref_has(&missing, "origin/main", "later.txt").await);
     }
 
@@ -1256,6 +1276,24 @@ mod tests {
         assert!(!git.ref_exists(&repo, "origin/main").await.unwrap());
     }
 
+    /// Bug: every one of these read "no" when git couldn't answer at all, so a PR's base read as
+    /// not pushed and a base branch as missing.
+    #[tokio::test]
+    async fn checks_git_cant_answer_fail_instead_of_saying_no() {
+        let git = git_with_env().await;
+        let outside = tempfile::tempdir().unwrap();
+        let path = outside.path();
+        assert!(git.ref_exists(path, "main").await.is_err());
+        assert!(git.remote_branch_exists(path, "main").await.is_err());
+        assert!(git.is_ancestor(path, "main", "HEAD").await.is_err());
+        assert!(git.freshest_ref(path, "main").await.is_err());
+        assert!(git.ahead_behind(path, "main", "origin/main").await.is_err());
+
+        let (_dir, repo) = init_repo();
+        assert!(git.is_ancestor(&repo, "main", "nope").await.is_err());
+        assert_eq!(git.freshest_ref(&repo, "nope").await.unwrap(), "nope");
+    }
+
     #[tokio::test]
     async fn counts_ahead_and_behind_in_one_call() {
         let git = git_with_env().await;
@@ -1265,7 +1303,7 @@ mod tests {
             git.ahead_behind(&clone, "main", "origin/main")
                 .await
                 .unwrap(),
-            (0, 0)
+            Some((0, 0))
         );
         commit(&clone, "local.txt");
         commit(&origin, "remote-1.txt");
@@ -1275,13 +1313,13 @@ mod tests {
             git.ahead_behind(&clone, "main", "origin/main")
                 .await
                 .unwrap(),
-            (1, 2)
+            Some((1, 2))
         );
         assert_eq!(
             git.ahead_behind(&clone, "main", "origin/nope")
                 .await
                 .unwrap(),
-            (0, 0)
+            None
         );
         assert_eq!(parse_left_right("3\t4\n"), Some((3, 4)));
         assert_eq!(parse_left_right(""), None);
@@ -1471,7 +1509,7 @@ mod tests {
         // Local main is now behind, and nothing has fetched since.
         commit(&origin, "landed.txt");
 
-        let start = git.latest_base(&clone, "main").await;
+        let start = git.latest_base(&clone, "main").await.unwrap();
         assert_eq!(start, "origin/main");
 
         let worktree = clone.parent().unwrap().join("wt");
@@ -1494,7 +1532,7 @@ mod tests {
         let (_origin_dir, origin) = init_repo();
         let (_clone_dir, clone) = clone_of(&origin);
         commit(&clone, "unpushed.txt");
-        assert_eq!(git.latest_base(&clone, "main").await, "main");
+        assert_eq!(git.latest_base(&clone, "main").await.unwrap(), "main");
     }
 
     #[tokio::test]
@@ -1504,10 +1542,13 @@ mod tests {
         let (_clone_dir, clone) = clone_of(&origin);
         run_ok(&clone, &["git", "remote", "set-url", "origin", "/nowhere"]);
         // Its last fetch is what it knows: origin/main, level with main.
-        assert_eq!(git.latest_base(&clone, "main").await, "origin/main");
+        assert_eq!(
+            git.latest_base(&clone, "main").await.unwrap(),
+            "origin/main"
+        );
 
         let (_dir, alone) = init_repo();
-        assert_eq!(git.latest_base(&alone, "main").await, "main");
+        assert_eq!(git.latest_base(&alone, "main").await.unwrap(), "main");
     }
 
     #[tokio::test]

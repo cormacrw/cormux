@@ -59,17 +59,21 @@ pub enum BranchHold {
 pub struct BranchHolds {
     repo: RepoRecord,
     live: Vec<crate::store::types::WorkspaceRow>,
-    /// The branch the repo's checkout is on; '' when detached.
-    head: String,
+    /// The branch the repo's checkout is on; none when it's detached.
+    head: Option<String>,
 }
 
 impl BranchHolds {
+    /// A checkout git can't read holds no branch: whatever would move one there fails on its
+    /// own, saying why.
     pub async fn read(state: &AppState, repo: RepoRecord) -> Result<Self> {
-        let head = state
-            .git
-            .current_branch(&expand_tilde(&repo.path))
-            .await
-            .unwrap_or_default();
+        let head = match state.git.current_branch(&expand_tilde(&repo.path)).await {
+            Ok(branch) => Some(branch).filter(|branch| !branch.is_empty()),
+            Err(error) => {
+                log::warn!("reading the branch {}'s checkout is on: {error}", repo.id);
+                None
+            }
+        };
         Ok(Self {
             head,
             ..Self::recorded(state, repo)?
@@ -90,7 +94,7 @@ impl BranchHolds {
         Self {
             repo,
             live: Vec::new(),
-            head: String::new(),
+            head: None,
         }
     }
 
@@ -114,7 +118,7 @@ impl BranchHolds {
         if !workspaces.is_empty() {
             return Some(BranchHold::CheckedOutBy { workspaces });
         }
-        (!self.head.is_empty() && self.head == branch).then_some(BranchHold::RepoHead)
+        (self.head.as_deref() == Some(branch)).then_some(BranchHold::RepoHead)
     }
 
     fn checked_out(&self) -> impl Iterator<Item = &crate::store::types::WorkspaceRow> {
@@ -151,8 +155,8 @@ pub enum BranchDeletion {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalBranchesResult {
-    /// Branch checked out in the repo itself. Empty when detached.
-    pub head: String,
+    /// Branch checked out in the repo itself; none when detached.
+    pub head: Option<String>,
     pub branches: Vec<LocalBranchRow>,
 }
 
@@ -284,8 +288,9 @@ pub async fn git_runtime(state: &AppState) -> Result<Vec<RepoGitRuntime>> {
             .await
             .unwrap_or_else(|error| {
                 log::warn!("counting {}'s commits against origin: {error}", repo.id);
-                (0, 0)
-            });
+                None
+            })
+            .unwrap_or((0, 0));
         rows.push(RepoGitRuntime {
             repo_id: repo.id,
             behind,
@@ -933,7 +938,7 @@ mod tests {
         let deleted = delete_local_branch(&state, "app", "old", true).await;
         assert!(matches!(deleted, Ok(BranchDeletion::Deleted)));
         let tips = list_local_branches(&state, "app").await.unwrap();
-        assert_eq!(tips.head, "current");
+        assert_eq!(tips.head.as_deref(), Some("current"));
         assert!(!tips.branches.iter().any(|row| row.name == "old"));
         // The list says what the delete would refuse, by the same rule.
         let hold = |name: &str| {

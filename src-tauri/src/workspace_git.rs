@@ -256,7 +256,7 @@ pub async fn add_worktree(
                     .worktree_add_detached(&repo, &worktree, &workspace.branch)
                     .await?;
             } else {
-                let start = state.git.latest_base(&repo, &workspace.base).await;
+                let start = state.git.latest_base(&repo, &workspace.base).await?;
                 state
                     .git
                     .worktree_add(&repo, &worktree, &workspace.branch, &start)
@@ -269,19 +269,16 @@ pub async fn add_worktree(
 
 pub async fn refresh_stats(state: &AppState, workspace: &WorkspaceRecord) {
     let worktree = workspace.worktree();
-    let behind = state
-        .git
-        .behind_count(&worktree, &workspace.base)
-        .await
-        .unwrap_or_else(|error| {
-            log::warn!("behind count for {}: {error}", workspace.id);
-            0
-        });
+    let behind = state.git.behind_count(&worktree, &workspace.base).await;
     let conflict = state.git.merge_conflict(&worktree).await;
     state
         .workspace_git
         .patch(&workspace.id, |stats| {
-            stats.behind = behind;
+            // A count git can't make leaves the last one standing rather than reading as none.
+            match behind {
+                Ok(behind) => stats.behind = behind,
+                Err(error) => log::warn!("behind count for {}: {error}", workspace.id),
+            }
             match conflict {
                 Ok(conflict) => stats.conflict = conflict,
                 Err(error) => log::warn!("merge conflict for {}: {error}", workspace.id),
@@ -520,7 +517,7 @@ pub async fn pull(state: &AppState, workspace_id: &str) -> Result<()> {
     let (base, branch) = (workspace.base.clone(), workspace.branch.clone());
     let worktree = workspace.worktree();
     // Counted now, after a fetch: the count the header shows can be minutes old.
-    state.git.latest_base(&worktree, &base).await;
+    state.git.latest_base(&worktree, &base).await?;
     let behind = state.git.behind_count(&worktree, &base).await?;
     if behind == 0 {
         return Err(Error::Git(format!("already up to date with {base}")));
@@ -958,5 +955,29 @@ mod tests {
 
         let error = create_branch(&state, "w1", "feat/b").await.unwrap_err();
         assert!(matches!(error, Error::Invalid(_)), "{error}");
+    }
+
+    /// Bug: a behind count git couldn't make read as 0, so the header said the branch was up to
+    /// date with its base.
+    #[tokio::test]
+    async fn a_behind_count_git_cant_make_keeps_the_last_one() {
+        let root = tempfile::tempdir().unwrap();
+        let (state, repo) = workspace_in_a_repo(root.path()).await;
+        git(&repo, &["switch", "-q", "main"]);
+        std::fs::write(repo.join("g.txt"), "later\n").unwrap();
+        git(&repo, &["add", "g.txt"]);
+        git(&repo, &["commit", "-q", "-m", "later"]);
+        git(&repo, &["switch", "-q", "feat/a"]);
+        let record = state.workspaces.get("w").await.unwrap();
+        let behind = |state: AppState| async move {
+            state.workspace_git.snapshot(&["w".to_string()]).await[0].behind
+        };
+
+        refresh_stats(&state, &record).await;
+        assert_eq!(behind(state.clone()).await, 1);
+
+        std::fs::remove_dir_all(repo.join(".git")).unwrap();
+        refresh_stats(&state, &record).await;
+        assert_eq!(behind(state.clone()).await, 1);
     }
 }

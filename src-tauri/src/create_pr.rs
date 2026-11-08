@@ -113,13 +113,7 @@ pub async fn create_workspace_pull_request(
 
     // A stacked branch's PR targets the branch below it, which GitHub needs on the remote.
     let pr_base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await?;
-    if pr_base != record.base
-        && !state
-            .git
-            .remote_branch_exists(worktree, &pr_base)
-            .await
-            .unwrap_or(false)
-    {
+    if pr_base != record.base && !state.git.remote_branch_exists(worktree, &pr_base).await? {
         return Err(Error::Git(format!(
             "{} is stacked on {pr_base}, which isn't on GitHub yet. Push the stack from the Stack tab, then try again.",
             record.branch
