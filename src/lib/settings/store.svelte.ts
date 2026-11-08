@@ -1,26 +1,8 @@
 import type { Settings, SettingsPatch } from '$lib/ipc/bindings'
+import { defaultSettings } from './defaults'
 import { commands, type CoreError } from '$lib/ipc'
 import { onSnapshot } from '$lib/core/sync'
 import { deepEqual } from '$lib/deep-equal'
-
-/** What shows for the moment before the first snapshot; the core's settings replace it. */
-const BEFORE_FIRST_SNAPSHOT: Settings = {
-  reduceMotion: false,
-  runEverything: false,
-  experimentalReferences: false,
-  notifyApprovals: true,
-  notifyReviewFinished: true,
-  defaultEngine: 'claude',
-  defaultRepo: '',
-  worktreeRoot: '',
-  terminalApp: '',
-  prPrompt: '',
-  bangs: [],
-  clickupWorkspaceId: '',
-  clickupSpaceId: '',
-  clickupFolderId: '',
-  clickupHiddenStatuses: [],
-}
 
 function applied(settings: Settings, patch: SettingsPatch): Settings {
   const changes = Object.fromEntries(
@@ -31,7 +13,7 @@ function applied(settings: Settings, patch: SettingsPatch): Settings {
 
 export class SettingsStore {
   // Raw and replaced whole: readers see a new object only when a setting changed.
-  values = $state.raw<Settings>(BEFORE_FIRST_SNAPSHOT)
+  values = $state.raw<Settings>(defaultSettings())
 
   get reduceMotion() {
     return this.values.reduceMotion

@@ -664,7 +664,10 @@ mod tests {
         let service = WorkspaceAppService::new();
         service.set_status("a", WorkspaceAppStatus::Running, Some(8000), None);
         let process = ProcessSupervisor::new(Default::default());
-        assert_eq!(service.pick_port_with_log(&process, "b", AppKind::Python), 8001);
+        assert_eq!(
+            service.pick_port_with_log(&process, "b", AppKind::Python),
+            8001
+        );
         assert_eq!(
             process.take_log_snapshot("b"),
             [LogEntry::new(

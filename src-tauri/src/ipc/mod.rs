@@ -113,6 +113,7 @@ commands![
 pub fn builder() -> Builder {
     Builder::<tauri::Wry>::new()
         .commands(commands())
+        .constant("DEFAULT_SETTINGS", settings::Settings::default())
         .events(tauri_specta::collect_events![
             events::StateChanged,
             events::MemorySampled,

@@ -5,6 +5,7 @@ import type {
   WorkspaceRecord,
   WorkspaceRow,
 } from '$lib/ipc/bindings'
+import { defaultSettings } from '$lib/settings/defaults'
 import { clickupBoard } from './clickup-fixtures'
 import type { StoredEventRow } from './db'
 
@@ -97,23 +98,7 @@ export function createFixtures() {
   const snapshot: Snapshot = {
     version: 1,
     // The core's defaults.
-    settings: {
-      reduceMotion: false,
-      runEverything: false,
-      experimentalReferences: false,
-      notifyApprovals: true,
-      notifyReviewFinished: true,
-      defaultEngine: 'claude',
-      defaultRepo: '',
-      worktreeRoot: '~/.harness/worktrees',
-      terminalApp: '',
-      prPrompt: '',
-      bangs: [],
-      clickupWorkspaceId: '',
-      clickupSpaceId: '',
-      clickupFolderId: '',
-      clickupHiddenStatuses: [],
-    },
+    settings: defaultSettings(),
     persisted: {
       reviews: [],
       repos: [

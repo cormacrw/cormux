@@ -8,7 +8,7 @@ use super::{Settings, SettingsPatch};
 #[tauri::command]
 #[specta::specta]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<Settings> {
-    Ok(Settings::load(&state.store))
+    Settings::read(&state.store)
 }
 
 /// Saves the fields `patch` sets and returns every setting as now stored.

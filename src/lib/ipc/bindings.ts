@@ -771,7 +771,7 @@ toastRaised: "toast-raised"
 
 /** user-defined constants **/
 
-
+export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
 
 /** user-defined types **/
 

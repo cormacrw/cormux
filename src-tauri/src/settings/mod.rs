@@ -1,34 +1,22 @@
 //! The user's app-wide preferences: one typed struct, stored one row per field in the settings
-//! table under the keys below, which nothing else names.
+//! table under the field's wire name, so the struct is the only list of keys (and, through its
+//! `Default`, of defaults: the webview gets them as `DEFAULT_SETTINGS`).
 
 pub mod commands;
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use specta::Type;
 
 use crate::engines::EngineKind;
 use crate::error::Result;
 use crate::store::Store;
 
-const REDUCE_MOTION: &str = "reduceMotion";
-const RUN_EVERYTHING: &str = "runEverything";
-const EXPERIMENTAL_REFERENCES: &str = "experimentalReferences";
-const NOTIFY_APPROVALS: &str = "notifyApprovals";
-const NOTIFY_REVIEW_FINISHED: &str = "notifyReviewFinished";
-const DEFAULT_ENGINE: &str = "defaultEngine";
-const DEFAULT_REPO: &str = "defaultRepo";
-const WORKTREE_ROOT: &str = "worktreeRoot";
-const TERMINAL_APP: &str = "terminalApp";
-const PR_PROMPT: &str = "prPrompt";
-const BANGS: &str = "bangs";
 /// Scratch macros, which bangs replaced; read while no bangs are saved.
 const LEGACY_MACROS: &str = "scratchMacros";
-const CLICKUP_WORKSPACE: &str = "clickupWorkspaceId";
-const CLICKUP_SPACE: &str = "clickupSpaceId";
-const CLICKUP_FOLDER: &str = "clickupFolderId";
-const CLICKUP_HIDDEN_STATUSES: &str = "clickupHiddenStatuses";
+const BANGS: &str = "bangs";
 
 /// Where new worktrees go when the user hasn't picked a folder.
 pub const DEFAULT_WORKTREE_ROOT: &str = "~/.harness/worktrees";
@@ -147,90 +135,57 @@ impl Settings {
         Ok(Self::from_rows(rows.into_iter().collect()))
     }
 
+    /// Each stored row over the defaults, field by field: a row that doesn't read as its
+    /// field's type (a word no engine has, `maybe` for a flag) leaves the default.
     fn from_rows(rows: HashMap<String, String>) -> Self {
         let defaults = Self::default();
-        let text = |key: &str| rows.get(key).map(|value| value.trim()).unwrap_or("");
-        let flag = |key: &str, default: bool| match text(key) {
-            "true" => true,
-            "false" => false,
-            _ => default,
+        let mut fields = match serde_json::to_value(&defaults) {
+            Ok(Value::Object(fields)) => fields,
+            _ => return defaults,
         };
-        let string = |key: &str, default: String| match text(key) {
-            "" => default,
-            value => value.to_string(),
-        };
-        let bangs = parse_bangs(rows.get(BANGS))
+        let keys: Vec<String> = fields.keys().cloned().collect();
+        for key in keys {
+            let Some(stored) = rows
+                .get(&key)
+                .and_then(|raw| stored_value(&fields[&key], raw))
+            else {
+                continue;
+            };
+            let default = fields.insert(key.clone(), stored);
+            if serde_json::from_value::<Self>(Value::Object(fields.clone())).is_err()
+                && let Some(default) = default
+            {
+                fields.insert(key, default);
+            }
+        }
+        let mut settings: Self = serde_json::from_value(Value::Object(fields)).unwrap_or(defaults);
+        settings.bangs = parse_bangs(rows.get(BANGS))
             .or_else(|| parse_bangs(rows.get(LEGACY_MACROS)))
             .unwrap_or_default();
-        Self {
-            reduce_motion: flag(REDUCE_MOTION, defaults.reduce_motion),
-            run_everything: flag(RUN_EVERYTHING, defaults.run_everything),
-            experimental_references: flag(
-                EXPERIMENTAL_REFERENCES,
-                defaults.experimental_references,
-            ),
-            notify_approvals: flag(NOTIFY_APPROVALS, defaults.notify_approvals),
-            notify_review_finished: flag(NOTIFY_REVIEW_FINISHED, defaults.notify_review_finished),
-            default_engine: serde_json::from_value(text(DEFAULT_ENGINE).into())
-                .unwrap_or(defaults.default_engine),
-            default_repo: string(DEFAULT_REPO, defaults.default_repo),
-            worktree_root: string(WORKTREE_ROOT, defaults.worktree_root),
-            terminal_app: string(TERMINAL_APP, defaults.terminal_app),
-            // Not trimmed: the user's own text.
-            pr_prompt: rows.get(PR_PROMPT).cloned().unwrap_or_default(),
-            bangs,
-            clickup_workspace_id: string(CLICKUP_WORKSPACE, defaults.clickup_workspace_id),
-            clickup_space_id: string(CLICKUP_SPACE, defaults.clickup_space_id),
-            clickup_folder_id: string(CLICKUP_FOLDER, defaults.clickup_folder_id),
-            clickup_hidden_statuses: rows
-                .get(CLICKUP_HIDDEN_STATUSES)
-                .and_then(|raw| serde_json::from_str(raw).ok())
-                .unwrap_or_default(),
-        }
+        settings
     }
 
     /// Saves what `patch` changes, all or nothing.
-    pub fn update(store: &Store, patch: SettingsPatch) -> Result<()> {
-        let flag = |on: bool| if on { "true" } else { "false" }.to_string();
-        let mut rows: Vec<(&str, String)> = Vec::new();
-        let mut put = |key: &'static str, value: Option<String>| {
-            if let Some(value) = value {
-                rows.push((key, value));
-            }
+    pub fn update(store: &Store, mut patch: SettingsPatch) -> Result<()> {
+        for path in [&mut patch.worktree_root, &mut patch.terminal_app]
+            .into_iter()
+            .flatten()
+        {
+            *path = path.trim().to_string();
+        }
+        let fields = match serde_json::to_value(&patch) {
+            Ok(Value::Object(fields)) => fields,
+            _ => return Ok(()),
         };
-        put(REDUCE_MOTION, patch.reduce_motion.map(flag));
-        put(RUN_EVERYTHING, patch.run_everything.map(flag));
-        put(
-            EXPERIMENTAL_REFERENCES,
-            patch.experimental_references.map(flag),
-        );
-        put(NOTIFY_APPROVALS, patch.notify_approvals.map(flag));
-        put(
-            NOTIFY_REVIEW_FINISHED,
-            patch.notify_review_finished.map(flag),
-        );
-        put(
-            DEFAULT_ENGINE,
-            patch.default_engine.map(|engine| word(&engine)),
-        );
-        put(DEFAULT_REPO, patch.default_repo);
-        put(
-            WORKTREE_ROOT,
-            patch.worktree_root.map(|root| root.trim().into()),
-        );
-        put(
-            TERMINAL_APP,
-            patch.terminal_app.map(|app| app.trim().into()),
-        );
-        put(PR_PROMPT, patch.pr_prompt);
-        put(BANGS, patch.bangs.map(|bangs| json(&bangs)));
-        put(CLICKUP_WORKSPACE, patch.clickup_workspace_id);
-        put(CLICKUP_SPACE, patch.clickup_space_id);
-        put(CLICKUP_FOLDER, patch.clickup_folder_id);
-        put(
-            CLICKUP_HIDDEN_STATUSES,
-            patch.clickup_hidden_statuses.map(|names| json(&names)),
-        );
+        let rows: Vec<(String, String)> = fields
+            .into_iter()
+            .filter(|(_, value)| !value.is_null())
+            .map(|(key, value)| (key, stored_text(value)))
+            .collect();
+        let rows: Vec<(&str, String)> = rows
+            .iter()
+            .map(|(key, text)| (key.as_str(), text.clone()))
+            .collect();
         store.set_settings(&rows)
     }
 
@@ -239,29 +194,42 @@ impl Settings {
         word(&self.default_engine)
     }
 
+    /// Saves every field.
     #[cfg(test)]
     pub fn save(&self, store: &Store) {
-        Self::update(
-            store,
-            SettingsPatch {
-                run_everything: Some(self.run_everything),
-                experimental_references: Some(self.experimental_references),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let patch = serde_json::from_value(serde_json::to_value(self).unwrap()).unwrap();
+        Self::update(store, patch).unwrap();
     }
 }
 
-fn json(value: &impl Serialize) -> String {
-    serde_json::to_string(value).expect("plain data serializes")
+/// How a field is stored: strings (enum words too) as they are, flags as `true`/`false`, lists
+/// as JSON.
+fn stored_text(value: Value) -> String {
+    match value {
+        Value::String(text) => text,
+        other => other.to_string(),
+    }
 }
 
-/// An enum's wire word, stored without JSON quotes.
+/// A stored row read as its field's type, which its default shows; `None` leaves the default.
+/// A blank string reads as the default, which is how "back to the default folder" is saved.
+fn stored_value(default: &Value, raw: &str) -> Option<Value> {
+    match default {
+        Value::Bool(_) => match raw.trim() {
+            "true" => Some(Value::Bool(true)),
+            "false" => Some(Value::Bool(false)),
+            _ => None,
+        },
+        Value::String(_) => (!raw.trim().is_empty()).then(|| Value::String(raw.to_string())),
+        _ => serde_json::from_str(raw).ok(),
+    }
+}
+
+/// An enum's wire word, as threads store it.
 fn word(value: &impl Serialize) -> String {
     match serde_json::to_value(value) {
-        Ok(serde_json::Value::String(word)) => word,
-        _ => json(value),
+        Ok(Value::String(word)) => word,
+        _ => String::new(),
     }
 }
 
@@ -353,6 +321,37 @@ mod tests {
         assert_eq!(settings.bangs[0].name, "test");
         assert_eq!(settings.clickup_hidden_statuses, ["done"]);
         assert_eq!(settings.default_engine_name(), "claude");
+    }
+
+    #[test]
+    fn rows_are_stored_under_the_wire_names_in_the_form_older_builds_wrote() {
+        let store = Store::in_memory().unwrap();
+        let settings = Settings {
+            run_everything: true,
+            terminal_app: " iTerm ".into(),
+            pr_prompt: "  Keep it short".into(),
+            clickup_hidden_statuses: vec!["done".into()],
+            ..Settings::default()
+        };
+        settings.save(&store);
+        let rows: HashMap<_, _> = store
+            .with_read(crate::store::settings_in)
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert_eq!(rows["runEverything"], "true");
+        assert_eq!(rows["defaultEngine"], "claude");
+        assert_eq!(rows["terminalApp"], "iTerm");
+        assert_eq!(rows["prPrompt"], "  Keep it short");
+        assert_eq!(rows["clickupHiddenStatuses"], r#"["done"]"#);
+        assert_eq!(rows["bangs"], "[]");
+        assert_eq!(
+            Settings::load(&store),
+            Settings {
+                terminal_app: "iTerm".into(),
+                ..settings
+            }
+        );
     }
 
     #[test]
