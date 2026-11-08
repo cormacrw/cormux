@@ -114,10 +114,7 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
     }
 
     state.workspaces.archive(&input.workspace_id).await?;
-    state.diffs.unwatch(&input.workspace_id);
-    state.process.forget_workspace(&input.workspace_id);
-    state.workspace_git.forget(&input.workspace_id).await;
-    state.stacks.forget(&input.workspace_id);
+    state.forget_workspace(&input.workspace_id).await;
 
     state.out.changed();
 

@@ -90,6 +90,16 @@ impl AppState {
         ))
     }
 
+    /// Lets go of what the running app keeps for a workspace once it's archived. Each service
+    /// that keeps something per workspace forgets it here.
+    pub async fn forget_workspace(&self, workspace_id: &str) {
+        self.diffs.unwatch(workspace_id);
+        self.process.forget_workspace(workspace_id);
+        self.workspace_git.forget(workspace_id).await;
+        self.stacks.forget(workspace_id);
+        self.apps.forget(workspace_id);
+    }
+
     fn with_store(
         data_dir: DataDir,
         store: Store,

@@ -358,6 +358,12 @@ impl WorkspaceAppService {
         generation
     }
 
+    /// Drops a torn-down workspace's app; a monitor still running for it sees it was replaced.
+    pub fn forget(&self, workspace_id: &str) {
+        self.inner.lock().unwrap().remove(workspace_id);
+        self.runs.send_modify(|runs| *runs += 1);
+    }
+
     fn generation(&self, workspace_id: &str) -> u64 {
         self.inner
             .lock()
@@ -698,6 +704,25 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(state.apps.runtime(id).status, WorkspaceAppStatus::Stopped);
+    }
+
+    /// Bug: teardown forgot every per-workspace cache but the app's, so a torn-down workspace's
+    /// app stayed in every snapshot.
+    #[tokio::test]
+    async fn a_torn_down_workspaces_app_is_forgotten() {
+        let (state, _dir, workspace) = workspace_with_run_command("sleep 30").await;
+        let id = workspace.id.as_str();
+        state
+            .apps
+            .control(id, WorkspaceAppControlAction::Run)
+            .await
+            .unwrap();
+        status_becomes(&state, id, WorkspaceAppStatus::Starting).await;
+
+        state.process.stop_workspace_sessions(id).await;
+        state.forget_workspace(id).await;
+
+        assert!(state.apps.snapshot().is_empty());
     }
 
     #[tokio::test]
