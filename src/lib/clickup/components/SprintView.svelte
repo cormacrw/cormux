@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
+  import type { Action } from 'svelte/action'
   import { moveTask, setLaneHidden, showAllLanes } from '$lib/clickup/actions'
   import { openSettings } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
@@ -157,6 +158,19 @@
   }
 
   $effect(() => endDrag)
+
+  // Each task card's button, for the flyout to hand focus back to and to tell a card from
+  // elsewhere. Read only in handlers, never rendered.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const cardButtons = new Map<string, HTMLElement>()
+  const trackCard: Action<HTMLElement, string> = (node, id) => {
+    cardButtons.set(id, node)
+    return {
+      destroy: () => {
+        if (cardButtons.get(id) === node) cardButtons.delete(id)
+      },
+    }
+  }
 
   function selectTask(task: ClickupTask) {
     if (swallowClick) return
@@ -417,6 +431,7 @@
               {#each lane.tasks as task (task.id)}
                 <SprintTaskCard
                   {task}
+                  track={trackCard}
                   selected={clickup.selectedTaskId === task.id}
                   dragging={drag?.active === true && drag.task.id === task.id}
                   onSelect={() => selectTask(task)}
@@ -452,7 +467,11 @@
 </section>
 
 <!-- A task opened here slides out over the page. -->
-<TaskFlyout />
+<TaskFlyout
+  focusTask={(id) => cardButtons.get(id)?.focus()}
+  isTaskCard={(target) =>
+    [...cardButtons.values()].some((button) => button.contains(target))}
+/>
 
 {#if drag?.active}
   <div

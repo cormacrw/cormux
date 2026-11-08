@@ -38,6 +38,7 @@
   }
 
   let query = $state('')
+  let inputEl = $state<HTMLInputElement | null>(null)
   /** `!name more words`: start a thread with that bang's prompt, the words added. */
   const bangRun = $derived(paletteBang(query, settings.values.bangs))
 
@@ -59,11 +60,8 @@
   function completeBang(label: string) {
     query = `${label} `
     queueMicrotask(() => {
-      const field = document.querySelector<HTMLInputElement>(
-        '[data-slot="command-input"]',
-      )
-      field?.focus()
-      field?.setSelectionRange(query.length, query.length)
+      inputEl?.focus()
+      inputEl?.setSelectionRange(query.length, query.length)
     })
   }
 
@@ -114,6 +112,7 @@
   class="glass-pop max-w-[600px] rounded-[16px]! sm:max-w-[600px]"
 >
   <Command.Input
+    bind:ref={inputEl}
     bind:value={query}
     placeholder="Type a command, thread, or !bang…"
     aria-controls="pal-list"

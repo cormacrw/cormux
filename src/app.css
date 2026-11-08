@@ -1191,12 +1191,8 @@ summary.reply-card-head::-webkit-details-marker {
   }
 }
 
-/* Sending the first prompt: the greeting falls down out of view, clipped at
-   its own bottom edge so it drops behind the prompt bar, as the message pops in. */
-[data-od-id='thread-hero'] {
-  view-transition-name: thread-hero;
-}
-
+/* Sending the first prompt: the greeting (ThreadHero names it thread-hero) falls down out of
+   view, clipped at its own bottom edge so it drops behind the prompt bar, as the message pops in. */
 /* Everything else paints live meanwhile (see firstPromptTransition). */
 :root.first-prompt,
 :root.first-prompt .workspace-main,

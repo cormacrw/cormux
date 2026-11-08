@@ -41,6 +41,7 @@
   import { startsOver } from '$lib/core/owner-scoped'
   import {
     composerMayTakeFocus,
+    INLINE_PICKER_ATTR,
     isEditable,
     PROMPT_ID,
   } from '$lib/keyboard/focus-home'
@@ -514,7 +515,7 @@
 <svelte:window onkeydown={typeToFocus} onfocus={onWindowFocus} />
 
 <div
-  class="composer-wrap sticky bottom-0 z-10 px-1 pt-2 pb-4"
+  class="composer-wrap sticky bottom-0 z-10 pt-2 pb-4 pl-1"
   data-od-id="composer-wrap"
 >
   {#if status && !pickerOpen}
@@ -529,6 +530,7 @@
     {@const shownKind = pickerOptions[0]?.kind ?? 'skill'}
     <ul
       id="composer-picker"
+      {...{ [INLINE_PICKER_ATTR]: '' }}
       role="listbox"
       aria-label={shownKind === 'repo'
         ? 'Repositories'
@@ -827,6 +829,11 @@
 </div>
 
 <style>
+  /* A pane docked beside the conversation (ThreadPanel's references) sets the gutter. */
+  .composer-wrap {
+    padding-right: var(--references-gutter, calc(var(--spacing) * 1));
+  }
+
   .composer-picker {
     transform-origin: bottom center;
     animation: composer-picker-in var(--dur-med) var(--ease-out-snappy);

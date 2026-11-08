@@ -31,10 +31,12 @@ export function overlaySelector(state = ''): string {
   return OVERLAY_ROLES.map((role) => `[role="${role}"]${state}`).join(', ')
 }
 
-// A layer on its way out (`data-state="closed"`) no longer counts. The composer's own
-// picker isn't an overlay: it sits in the prompt and handles its keys itself.
+/** Marks a list that sits in the prompt and handles its keys itself (the composer's picker): not an overlay. */
+export const INLINE_PICKER_ATTR = 'data-inline-picker'
+
+// A layer on its way out (`data-state="closed"`) no longer counts.
 const OPEN_OVERLAY = overlaySelector(
-  ':not([data-state="closed"]):not(#composer-picker)',
+  `:not([data-state="closed"]):not([${INLINE_PICKER_ATTR}])`,
 )
 
 /** An open dialog, menu or list holds the keyboard for now: focus and Esc are its own. */

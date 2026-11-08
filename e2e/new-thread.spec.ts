@@ -39,7 +39,7 @@ test('the new thread’s conversation rises in once it has opened', async ({
     w.__rises = 0
     const animate = Element.prototype.animate
     Element.prototype.animate = function (...args) {
-      if (this.matches('#thread-scroll [data-conversation-part]')) {
+      if (this.id === 'timeline') {
         w.__rises! += 1
       }
       return animate.apply(this, args)

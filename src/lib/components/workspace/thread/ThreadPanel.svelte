@@ -276,9 +276,8 @@
 
   /* Short of a gutter that fits it, the conversation and prompt bar move over to make room. */
   @container thread (min-width: 900px) and (max-width: 1319px) {
-    [data-references='true'] :global(#thread-scroll),
-    [data-references='true'] :global(.composer-wrap) {
-      padding-right: 280px;
+    [data-references='true'] > :global(*) {
+      --references-gutter: 280px;
     }
   }
 
