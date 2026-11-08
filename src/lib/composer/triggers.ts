@@ -70,7 +70,7 @@ export function replaceWord(
 }
 
 /** What the pickers choose from; skills are null until they've been read. */
-export type PickerSources = {
+type PickerSources = {
   skills: Skill[] | null
   repos: RepoRecord[]
   tasks: ClickupTask[]
@@ -85,7 +85,7 @@ type Option = {
   as: 'word' | 'text'
 }
 
-export type Picker =
+type Picker =
   | { kind: 'skill'; word: TriggerWord; options: (Option & { item: Skill })[] }
   | {
       kind: 'repo'

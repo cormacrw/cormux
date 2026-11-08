@@ -83,7 +83,7 @@ export function newChips(
   )
 }
 
-export type StepSegment = { id: string; quiet: boolean; steps: RunStep[] }
+type StepSegment = { id: string; quiet: boolean; steps: RunStep[] }
 
 // A run's steps array is replaced only when the run changes, so its segments are kept with it.
 const segmentsByRun = new WeakMap<RunStep[], StepSegment[]>()

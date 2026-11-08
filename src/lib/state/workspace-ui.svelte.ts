@@ -62,7 +62,7 @@ function layoutTransition(update: () => void) {
 
 let latestTransition: ViewTransition | null = null
 
-export class WorkspaceUiStore {
+class WorkspaceUiStore {
   activeTab = $state<WorkspacePanel>('thread')
   readonly slideOut = $derived<WorkspaceSlideOut | null>(
     isSlideOut(this.activeTab) ? this.activeTab : null,

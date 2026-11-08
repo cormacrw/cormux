@@ -7,7 +7,7 @@ import {
 } from '$lib/switcher/places'
 
 /** Ctrl+Tab: the places visited, most recent first, and the switcher while it's held open. */
-export class SwitcherStore {
+class SwitcherStore {
   history = $state<Place[]>([])
   open = $state(false)
   /** What the open switcher lists, fixed when it opened so it doesn't shift underfoot. */

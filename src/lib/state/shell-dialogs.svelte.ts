@@ -30,7 +30,7 @@ const guards: {
  * The app-wide modal gate. Shell dialogs open through here; dialogs that keep their own open
  * state `hold` it while open. Shortcuts and the command palette wait while any is open.
  */
-export class ShellDialogsStore {
+class ShellDialogsStore {
   private openArgs = $state<{ [K in ShellDialogId]?: ShellDialogArgs[K] }>({})
   private holds = $state(0)
 

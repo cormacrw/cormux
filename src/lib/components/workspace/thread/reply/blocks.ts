@@ -9,7 +9,7 @@ import RunSummaryCard from './RunSummaryCard.svelte'
 import TaskDraftCards from './TaskDraftCards.svelte'
 
 /** The props every block component takes. ReplyMarkdown wraps each in `data-reply-block`. */
-export type BlockProps<K extends BlockKind> = {
+type BlockProps<K extends BlockKind> = {
   data: Extract<ReplyBlock, { kind: K }>['data']
   /** The thread's worktree, for blocks that point at its files. */
   workdir?: string

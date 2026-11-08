@@ -1,7 +1,7 @@
 import type { RunStep, ToolStep } from '../timeline-types'
 
 /** What a step says: its title, a short detail beside it, and the full detail behind it. */
-export type StepText = {
+type StepText = {
   title: string
   detail?: string
   full?: string

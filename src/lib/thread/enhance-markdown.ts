@@ -7,7 +7,7 @@ const BLOCK = '[data-reply-block]'
 type Checks = 'pass' | 'fail' | 'running' | 'none'
 
 /** What a PR card shows of a pull request Cormux knows. */
-export type PullRequestCard = { title: string; checks: Checks; review: string }
+type PullRequestCard = { title: string; checks: Checks; review: string }
 
 export type FindPullRequest = (
   repoFullName: string,
