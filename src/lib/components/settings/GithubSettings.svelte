@@ -18,8 +18,3 @@
     {/snippet}
   </SettingsRow>
 </SettingsPanel>
-
-<p class="mt-2 text-xs text-muted-foreground">
-  Org and PR filter preferences are not configurable yet — Homebase uses All,
-  Review requested, and Yours.
-</p>

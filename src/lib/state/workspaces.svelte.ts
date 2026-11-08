@@ -3,7 +3,7 @@
 import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 import { reuseRows } from './reuse-rows'
 
-/** Homebase card vocabulary — sidebar uses finer-grained status via lifecycle. */
+/** A workspace at a glance; the sidebar reads the finer `lifecycle` instead. */
 export type WorkspaceCardStatus = 'idle' | 'working' | 'needsAttention'
 
 export type Workspace = {
@@ -14,7 +14,6 @@ export type Workspace = {
   paused: boolean
   activityText: string
   pendingApprovals: number
-  /** Card rollup for Homebase (unchanged from earlier stub). */
   cardStatus: WorkspaceCardStatus
   createdAtMs: number | null
   summary: string | null

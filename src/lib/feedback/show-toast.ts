@@ -6,7 +6,6 @@ import { formatToastPayload } from './toast-payload'
 
 const TOAST_DURATION_MS = 3600
 
-/** Show one Harness toast (spec §03). */
 export function showToast(payload: ToastPayload) {
   const label = formatToastPayload(payload)
 

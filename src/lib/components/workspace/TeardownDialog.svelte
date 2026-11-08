@@ -85,7 +85,7 @@
   const description = $derived.by(() => {
     if (!preview) return ''
     const appPart = preview.appRunning ? ' and the running app' : ''
-    return `Stops ${preview.engineLabel}${appPart}, then deletes ${preview.worktreePath}. Homebase is not affected.`
+    return `Stops ${preview.engineLabel}${appPart}, then deletes ${preview.worktreePath}.`
   })
 </script>
 

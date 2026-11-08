@@ -124,12 +124,10 @@ export class WorkspaceUiStore {
     this.activeTab = 'thread'
   }
 
-  /** ⌘G: shows or hides Git. */
   toggleGit() {
     this.toggleTray('changes')
   }
 
-  /** ⌘O or Ctrl+`: shows or hides Output. */
   toggleOutputTab() {
     this.toggleTray('output')
   }
