@@ -1,0 +1,133 @@
+{
+  "rows": [
+    {
+      "threadId": "t1",
+      "seq": 1,
+      "kind": "message",
+      "payload": "{\"type\":\"messageChunk\",\"role\":\"user\",\"text\":\"Fix login\"}",
+      "createdAt": "2026-09-28 12:00:00"
+    },
+    {
+      "threadId": "t1",
+      "seq": 2,
+      "kind": "message",
+      "payload": "{\"type\":\"messageChunk\",\"role\":\"agent\",\"text\":\"On it\"}",
+      "createdAt": "2026-09-28 12:00:05"
+    },
+    {
+      "threadId": "t1",
+      "seq": 3,
+      "kind": "turn_end",
+      "payload": "{\"type\":\"turnEnd\",\"stop_reason\":\"end_turn\",\"error\":null}",
+      "createdAt": "2026-09-28 12:00:10"
+    },
+    {
+      "threadId": "t1",
+      "seq": 4,
+      "kind": "tool",
+      "payload": "{\"type\":\"step\",\"id\":\"s4\",\"title\":\"Started a new session\",\"detail\":null,\"step\":{\"kind\":\"sessionStarted\",\"ended_session\":\"sess-1\"}}",
+      "createdAt": "2026-09-28 12:01:00"
+    },
+    {
+      "threadId": "t1",
+      "seq": 5,
+      "kind": "message",
+      "payload": "{\"type\":\"messageChunk\",\"role\":\"user\",\"text\":\"  Try again  \"}",
+      "createdAt": "2026-09-28 12:01:05"
+    },
+    {
+      "threadId": "t1",
+      "seq": 6,
+      "kind": "message",
+      "payload": "{\"type\":\"messageChunk\",\"role\":\"agent\",\"text\":\"Trying\"}",
+      "createdAt": "2026-09-28 12:01:10"
+    },
+    {
+      "threadId": "t1",
+      "seq": 7,
+      "kind": "tool",
+      "payload": "{\"type\":\"step\",\"id\":\"s7\",\"title\":\"Resumed an earlier conversation\",\"detail\":null,\"step\":{\"kind\":\"sessionResumed\",\"conversation\":\"first\",\"ended_session\":\"sess-2\"}}",
+      "createdAt": "2026-09-28 12:02:00"
+    },
+    {
+      "threadId": "t1",
+      "seq": 8,
+      "kind": "message",
+      "payload": "{\"type\":\"messageChunk\",\"role\":\"user\",\"text\":\"Back to it\"}",
+      "createdAt": "2026-09-28 12:02:05"
+    },
+    {
+      "threadId": "t1",
+      "seq": 9,
+      "kind": "message",
+      "payload": "{\"type\":\"messageChunk\",\"role\":\"agent\",\"text\":\"Done\"}",
+      "createdAt": "2026-09-28 12:02:20"
+    },
+    {
+      "threadId": "t2",
+      "seq": 1,
+      "kind": "message",
+      "payload": "{\"type\":\"messageChunk\",\"role\":\"agent\",\"text\":\"Hello\"}",
+      "createdAt": "2026-09-28 12:03:00"
+    }
+  ],
+  "activity": [
+    {
+      "threadId": "t1",
+      "atMs": 1790596925000
+    }
+  ],
+  "conversationAt": {
+    "t1": {
+      "1": "first",
+      "2": "first",
+      "3": "first",
+      "4": "after-4",
+      "5": "after-4",
+      "6": "after-4",
+      "7": "first",
+      "8": "first",
+      "9": "first"
+    },
+    "t2": {
+      "1": "first"
+    }
+  },
+  "conversations": {
+    "t1": {
+      "current": "first",
+      "currentStartsAt": 1,
+      "earlier": [
+        {
+          "id": "after-4",
+          "firstPrompt": "Try again",
+          "prompts": 1,
+          "lastAtMs": 1790596870000
+        }
+      ]
+    },
+    "t2": {
+      "current": "first",
+      "currentStartsAt": 1,
+      "earlier": []
+    }
+  },
+  "resume": [
+    {
+      "threadId": "t1",
+      "id": "first",
+      "session": "sess-1"
+    },
+    {
+      "threadId": "t1",
+      "id": "after-4",
+      "session": "sess-2"
+    },
+    {
+      "threadId": "t2",
+      "id": "first",
+      "session": null
+    }
+  ],
+  "unknownConversations": ["after-99"]
+}

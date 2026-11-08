@@ -12,6 +12,10 @@ use specta::Type;
 use crate::engines::prompt::{Prompt, PromptImage};
 use crate::error::{Error, Result};
 
+/// What starts the line naming a message's attachments where the thread shows it. The browser
+/// harness gets it as `ATTACHED_LINE_PREFIX`.
+pub const ATTACHED_LINE_PREFIX: &str = "Attached: ";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptAttachment {
@@ -101,11 +105,11 @@ pub fn build_prompt(
         .collect::<Vec<_>>()
         .join(", ");
     let (engine_text, shown) = if text.is_empty() {
-        (listing, format!("Attached: {names}"))
+        (listing, format!("{ATTACHED_LINE_PREFIX}{names}"))
     } else {
         (
             format!("{text}\n\n{listing}"),
-            format!("{text}\n\nAttached: {names}"),
+            format!("{text}\n\n{ATTACHED_LINE_PREFIX}{names}"),
         )
     };
     Ok((

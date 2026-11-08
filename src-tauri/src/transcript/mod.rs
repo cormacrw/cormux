@@ -14,6 +14,8 @@
 pub mod commands;
 mod conversations;
 mod read;
+#[cfg(test)]
+mod rule_cases;
 mod store;
 mod upgrade;
 
@@ -201,6 +203,23 @@ const EXIT: &str = "exit";
 /// The event types after which a thread's turn is over: the ones saved under `TURN_END` and
 /// `EXIT`, which the activity lookup reads. The webview gets it as `TURN_ENDING_EVENTS`.
 pub const TURN_ENDING_EVENTS: [&str; 2] = ["turnEnd", "engineExited"];
+
+/// The `kind` column each saved event type goes under, as `TranscriptEvent::kind` files it. The
+/// browser harness gets it as `TRANSCRIPT_KINDS`, and a test holds the two together.
+pub const KINDS: [(&str, &str); 12] = [
+    ("step", TOOL),
+    ("toolCall", TOOL),
+    ("messageChunk", MESSAGE),
+    ("briefing", MESSAGE),
+    ("sessionStarted", "session"),
+    ("plan", "plan"),
+    ("permission", "permission"),
+    ("toolCallUpdate", "tool_update"),
+    ("currentTool", "current_tool"),
+    ("usage", "usage"),
+    ("turnEnd", TURN_END),
+    ("engineExited", EXIT),
+];
 
 /// An event on its way to a subscriber, with where the store saved it: `None` for a signal, or an
 /// event that failed to save.

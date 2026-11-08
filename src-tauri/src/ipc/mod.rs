@@ -119,6 +119,16 @@ pub fn builder() -> Builder {
         )
         .constant("TURN_ENDING_EVENTS", crate::transcript::TURN_ENDING_EVENTS)
         .constant(
+            "TRANSCRIPT_KINDS",
+            std::collections::BTreeMap::from(crate::transcript::KINDS),
+        )
+        .constant(
+            "ATTACHED_LINE_PREFIX",
+            crate::attachments::ATTACHED_LINE_PREFIX,
+        )
+        .constant("ENGINE_MODELS", crate::engines::static_models())
+        .constant("ENGINE_EFFORTS", crate::engines::static_efforts())
+        .constant(
             "WORKING_THREAD_STATUSES",
             crate::model::ThreadStatus::WORKING,
         )

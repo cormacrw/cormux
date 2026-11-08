@@ -5,7 +5,11 @@ import type {
   TranscriptEvent,
   TranscriptPage,
 } from '$lib/ipc/bindings'
-import { FIRST_CONVERSATION } from '$lib/ipc/bindings'
+import {
+  ATTACHED_LINE_PREFIX,
+  FIRST_CONVERSATION,
+  TRANSCRIPT_KINDS,
+} from '$lib/ipc/bindings'
 import { isSessionStep } from '$lib/thread/conversations'
 import { createFixtures } from './fixtures'
 
@@ -36,32 +40,15 @@ export function storeNow() {
 /** A sent message as the core saves it, with any attachments named after it. */
 export function shownMessage(text: string, names: string[]): string {
   if (!names.length) return text
-  const line = `Attached: ${names.join(', ')}`
+  const line = `${ATTACHED_LINE_PREFIX}${names.join(', ')}`
   return text ? `${text}\n\n${line}` : line
 }
 
-/** The `kind` column the core's transcript files an event under. */
 function kindOf(event: TranscriptEvent): string {
-  switch (event.type) {
-    case 'step':
-    case 'toolCall':
-      return 'tool'
-    case 'messageChunk':
-    case 'briefing':
-      return 'message'
-    case 'sessionStarted':
-      return 'session'
-    case 'toolCallUpdate':
-      return 'tool_update'
-    case 'currentTool':
-      return 'current_tool'
-    case 'turnEnd':
-      return 'turn_end'
-    case 'engineExited':
-      return 'exit'
-    default:
-      return event.type
-  }
+  const kinds: Partial<Record<string, string>> = TRANSCRIPT_KINDS
+  const kind = kinds[event.type]
+  if (!kind) throw new Error(`the core never saves a ${event.type} event`)
+  return kind
 }
 
 /** The next `seq` in a thread: the store numbers rows at write time. */

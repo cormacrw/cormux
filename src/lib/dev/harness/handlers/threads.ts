@@ -1,4 +1,8 @@
-import type { PromptAttachment } from '$lib/ipc/bindings'
+import {
+  ENGINE_EFFORTS,
+  ENGINE_MODELS,
+  type PromptAttachment,
+} from '$lib/ipc/bindings'
 import {
   eventPage,
   sessionToResume,
@@ -13,20 +17,8 @@ export const threadUnsupported = [
   'resume_thread',
 ] as const satisfies Unsupported
 
-const MODELS = [
-  { id: 'fable', label: 'Fable' },
-  { id: 'opus', label: 'Opus' },
-  { id: 'sonnet', label: 'Sonnet' },
-  { id: 'haiku', label: 'Haiku' },
-]
-
-const EFFORTS = [
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' },
-  { id: 'xhigh', label: 'Extra high' },
-  { id: 'max', label: 'Max' },
-]
+const MODELS = [...ENGINE_MODELS]
+const EFFORTS = [...ENGINE_EFFORTS]
 
 const PIXEL_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII='
