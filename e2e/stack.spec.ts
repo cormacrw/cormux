@@ -17,6 +17,8 @@ test('Changes shows the gh-stack stack beside the diff, checks out, pushes and a
 }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
+  // Long enough to see Push wait for it.
+  await setScenario(page, { slow: { push_stack: 300 } })
   const panel = await openStack(page)
   await expect(page.getByRole('tab', { name: /^Stack/ })).toHaveCount(0)
   const cards = panel.locator('[data-stack-branch]')

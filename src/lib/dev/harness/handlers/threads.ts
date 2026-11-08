@@ -1,8 +1,13 @@
-import type { PromptAttachment, TranscriptEvent } from '$lib/ipc/bindings'
-import { fixtureSnapshot, fixtureTimeline } from '../../fixture-snapshot'
-import type { HarnessRuntime } from '../runtime'
-import { nextSeq, shownMessage } from '../seed'
-import type { HandlerSlice, Input } from '../types'
+import type { PromptAttachment } from '$lib/ipc/bindings'
+import { eventPage, shownMessage } from '../db'
+import { CHANGE, type HarnessRuntime } from '../runtime'
+import type { HandlerSlice, Input, Unsupported } from '../types'
+
+export const threadUnsupported = [
+  'pause_thread',
+  'resume_thread',
+  'resolve_all_approvals',
+] as const satisfies Unsupported
 
 const MODELS = [
   { id: 'fable', label: 'Fable' },
@@ -22,61 +27,19 @@ const EFFORTS = [
 const PIXEL_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII='
 
-function findThread(threadId: string) {
-  return fixtureSnapshot.persisted.threads.find((row) => row.id === threadId)
-}
-
-/** Matches `thread_event_page` in the core's store. */
-function threadEventPage(args: {
-  threadId: string
-  afterSeq: number | null
-  beforeSeq: number | null
-  limit: number | null
-}) {
-  const rows = fixtureTimeline
-    .filter((row) => row.threadId === args.threadId)
-    .sort((a, b) => a.seq - b.seq)
-  const limit = args.limit ?? 2000
-  const after = args.afterSeq
-  const before = args.beforeSeq
-  const events =
-    after != null
-      ? rows.filter((row) => row.seq > after).slice(0, limit)
-      : rows.filter((row) => before == null || row.seq < before).slice(-limit)
-  const first = events[0]
-  return {
-    events,
-    hasOlder: first ? rows.some((row) => row.seq < first.seq) : false,
-  }
-}
-
 export function threadHandlers(runtime: HarnessRuntime) {
   const {
+    db,
     scenario,
     controls,
-    agentChannels,
     threadModels,
     threadEfforts,
+    append,
+    findThread,
     emitStateChanged,
   } = runtime
   // Stops the reply running in a thread, as interrupting the engine would.
   const stopReply = new Map<string, () => void>()
-
-  /** Saves the event like the core's transcript, then streams it with its `seq`. */
-  const append = (threadId: string, kind: string, event: TranscriptEvent) => {
-    const seq = nextSeq(threadId)
-    fixtureTimeline.push({
-      id: 900_000 + seq,
-      threadId,
-      seq,
-      kind,
-      payload: JSON.stringify(event),
-      createdAt: new Date().toISOString().replace('T', ' ').replace('Z', ''),
-    })
-    const channel = agentChannels.get(threadId)
-    if (channel) runtime.send(channel, { seq, event })
-    return seq
-  }
 
   // Stream a reply the way a real engine does: many small chunks, then a turn end that
   // the backend follows with a state-changed refetch.
@@ -88,9 +51,9 @@ export function threadHandlers(runtime: HarnessRuntime) {
     // One tool call first, the way agents read before they answer.
     setTimeout(() => {
       if (stopped) return
-      append(threadId, 'tool', {
+      append(threadId, {
         type: 'toolCall',
-        id: `harness-read-${nextSeq(threadId)}`,
+        id: `harness-read-${runtime.newId()}`,
         title: 'Read',
         role: { kind: 'read' },
         status: 'completed',
@@ -111,7 +74,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
       setTimeout(
         () => {
           if (stopped) return
-          append(threadId, 'message', {
+          append(threadId, {
             type: 'messageChunk',
             role: 'agent',
             text: `${i ? ' ' : ''}${word}`,
@@ -124,14 +87,14 @@ export function threadHandlers(runtime: HarnessRuntime) {
       () => {
         if (stopped) return
         stopReply.delete(threadId)
-        append(threadId, 'turn_end', {
+        append(threadId, {
           type: 'turnEnd',
           stop_reason: 'end_turn',
           error: null,
         })
-        const lead = findThread(threadId)
-        if (lead) lead.status = 'idle'
-        emitStateChanged()
+        const thread = findThread(threadId)
+        if (thread) thread.status = 'idle'
+        emitStateChanged(CHANGE.threads)
       },
       80 + words.length * wordMs,
     )
@@ -144,9 +107,9 @@ export function threadHandlers(runtime: HarnessRuntime) {
   ) => {
     const thread = findThread(threadId)
     const ended = thread?.sessionId ?? null
-    append(threadId, 'tool', {
+    append(threadId, {
       type: 'step',
-      id: `step-${nextSeq(threadId)}`,
+      id: `step-${runtime.newId()}`,
       title: resume
         ? 'Resumed an earlier conversation'
         : 'Started a new session',
@@ -163,12 +126,13 @@ export function threadHandlers(runtime: HarnessRuntime) {
       thread.status = 'idle'
       thread.sessionId = resume ? resume.sessionId : null
     }
-    emitStateChanged()
+    emitStateChanged(CHANGE.threads)
     return null
   }
 
   return {
-    get_thread_events: threadEventPage,
+    get_thread_events: (args: Parameters<typeof eventPage>[1]) =>
+      eventPage(db, args),
     subscribe_agent_events: ({
       threadId,
       channel,
@@ -176,7 +140,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
       threadId: string
       channel: { id: number }
     }) => {
-      agentChannels.set(threadId, { id: channel.id, index: 0 })
+      runtime.agentChannels.set(threadId, { id: channel.id, index: 0 })
       return runtime.newId()
     },
     send_thread_prompt: (args: {
@@ -190,35 +154,35 @@ export function threadHandlers(runtime: HarnessRuntime) {
         args.attachments.map((attachment) => attachment.name),
       )
       if (!text) return null
-      const seq = append(args.threadId, 'message', {
+      const seq = append(args.threadId, {
         type: 'messageChunk',
         role: 'user',
         text,
       })
       const thread = findThread(args.threadId)
       if (thread) thread.status = 'running'
-      emitStateChanged()
-      if (args.threadId === 'th-lead') streamReply('th-lead', args.text)
+      emitStateChanged(CHANGE.threads)
+      streamReply(args.threadId, args.text)
       return { seq, text }
     },
     cancel_thread_turn: ({ threadId }: { threadId: string }) => {
       stopReply.get(threadId)?.()
       stopReply.delete(threadId)
-      append(threadId, 'turn_end', {
+      append(threadId, {
         type: 'turnEnd',
         stop_reason: 'cancelled',
         error: null,
       })
-      append(threadId, 'tool', {
+      append(threadId, {
         type: 'step',
-        id: `step-${nextSeq(threadId)}`,
+        id: `step-${runtime.newId()}`,
         title: 'You stopped the agent',
         detail: null,
         step: { kind: 'agentStopped' },
       })
       const thread = findThread(threadId)
       if (thread) thread.status = 'idle'
-      emitStateChanged()
+      emitStateChanged(CHANGE.threads)
       return null
     },
     new_thread_session: ({ threadId }: { threadId: string }) =>
@@ -282,14 +246,14 @@ export function threadHandlers(runtime: HarnessRuntime) {
       answers: Record<string, string>
     }) => {
       controls.answered.push({ id, answers })
-      const row = fixtureSnapshot.persisted.approvals.find(
+      const row = db.snapshot.persisted.approvals.find(
         (entry) => entry.id === id,
       )
       if (row?.payload) {
         row.status = 'approved'
         row.payload = { ...row.payload, resolvedAtMs: Date.now(), answers }
       }
-      emitStateChanged()
+      emitStateChanged(CHANGE.threads)
       return null
     },
     resolve_approval: ({
@@ -303,7 +267,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
     }) => {
       const reason = denyReason ?? null
       controls.resolved.push({ id, approved, denyReason: reason })
-      const row = fixtureSnapshot.persisted.approvals.find(
+      const row = db.snapshot.persisted.approvals.find(
         (entry) => entry.id === id,
       )
       if (row) {
@@ -316,7 +280,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
           }
         }
       }
-      emitStateChanged()
+      emitStateChanged(CHANGE.threads)
       return null
     },
     resolve_thread_media: ({ source }: { source: string }) => {

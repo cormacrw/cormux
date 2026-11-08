@@ -1,40 +1,60 @@
-import {
-  fixtureDiff,
-  fixtureSnapshot,
-  fixtureTimeline,
-} from '../fixture-snapshot'
+import type { Change, TranscriptEvent } from '$lib/ipc/bindings'
+import { appendEvent, findThread, findWorkspace, type HarnessDb } from './db'
+import { createFixtures, LEAD_THREAD_ID } from './fixtures'
 import type { HarnessControls, HarnessScenario } from './scenario'
-import { nextSeq } from './seed'
+import { seedFixtures } from './seed'
 
 type Callback = (...args: unknown[]) => void
 
 export type HarnessChannel = { id: number; index: number }
 
-/** What the handlers share: the scenario, and Tauri's callback, channel and event plumbing. */
+/** The `Change` flags the core sends, by what moved. */
+export const CHANGE = {
+  /** Only what the snapshot carries. */
+  snapshot: { threads: false, repoGit: false },
+  threads: { threads: true, repoGit: false },
+  /** A branch switch: a step in the thread, and the repo's branches. */
+  branch: { threads: true, repoGit: true },
+} satisfies Record<string, Change>
+
+/**
+ * One browser session's core: its data, the scenario it started from, and Tauri's callback,
+ * channel and event plumbing.
+ */
 export type HarnessRuntime = ReturnType<typeof createRuntime>
 
 export function createRuntime(scenario: HarnessScenario) {
+  const db: HarnessDb = createFixtures()
+  seedFixtures(db, scenario)
   const callbacks = new Map<number, Callback>()
-  const eventListeners = new Map<string, number[]>()
+  /** Per event, each listener's id and the callback it calls. */
+  const eventListeners = new Map<string, Map<number, number>>()
   const agentChannels = new Map<string, HarnessChannel>()
   let nextCallbackId = 1
-  let nextEventId = 1
+  let nextId = 1
 
-  const newId = () => nextEventId++
+  const newId = () => nextId++
 
   const send = (channel: HarnessChannel, message: unknown) => {
     callbacks.get(channel.id)?.({ index: channel.index++, message })
   }
 
-  const emitStateChanged = () => {
-    for (const handler of eventListeners.get('state-changed') ?? []) {
+  /** Saves an event in a thread's transcript, then streams it with its `seq`. */
+  const append = (threadId: string, event: TranscriptEvent) => {
+    const { seq } = appendEvent(db, threadId, event)
+    const channel = agentChannels.get(threadId)
+    if (channel) send(channel, { seq, event })
+    return seq
+  }
+
+  /** Like the core's notifier: numbered one after the snapshot's version, which it moves. */
+  const emitStateChanged = (change: Change) => {
+    db.snapshot.version += 1
+    for (const handler of eventListeners.get('state-changed')?.values() ?? []) {
       callbacks.get(handler)?.({
         event: 'state-changed',
         id: newId(),
-        payload: {
-          version: nextEventId,
-          change: { threads: true, repoGit: false },
-        },
+        payload: { version: db.snapshot.version, change },
       })
     }
   }
@@ -49,19 +69,18 @@ export function createRuntime(scenario: HarnessScenario) {
     clickupCalls: [],
     stackRemoteUp: false,
     setStatus(name, status) {
-      for (const row of fixtureSnapshot.workspaces) {
-        if (row.name === name) row.status = status as typeof row.status
+      for (const record of db.snapshot.workspaces) {
+        if (record.name === name) record.status = status as typeof record.status
       }
-      emitStateChanged()
+      emitStateChanged(CHANGE.threads)
     },
     setThreadStatus(threadId, status) {
-      for (const row of fixtureSnapshot.persisted.threads) {
-        if (row.id === threadId) row.status = status as typeof row.status
-      }
-      emitStateChanged()
+      const thread = findThread(db, threadId)
+      if (thread) thread.status = status as typeof thread.status
+      emitStateChanged(CHANGE.threads)
     },
     requestApproval(threadId) {
-      const approvals = fixtureSnapshot.persisted.approvals
+      const approvals = db.snapshot.persisted.approvals
       approvals.push({
         id: `approval-${approvals.length + 1}`,
         threadId,
@@ -75,34 +94,19 @@ export function createRuntime(scenario: HarnessScenario) {
           noLabel: 'Deny',
         },
       })
-      emitStateChanged()
+      emitStateChanged(CHANGE.threads)
     },
     agentEvents(events) {
       for (const event of events) {
-        const seq = nextSeq('th-lead')
-        const { type } = event as { type: string }
-        const kind = type === 'toolCall' || type === 'step' ? 'tool' : 'message'
-        fixtureTimeline.push({
-          id: 950_000 + seq,
-          threadId: 'th-lead',
-          seq,
-          kind,
-          payload: JSON.stringify(event),
-          createdAt: new Date()
-            .toISOString()
-            .replace('T', ' ')
-            .replace('Z', ''),
-        })
-        const channel = agentChannels.get('th-lead')
-        if (channel) send(channel, { seq, event })
+        append(LEAD_THREAD_ID, event as TranscriptEvent)
       }
     },
     commit() {
       if (!runtime.diffChannel) return
       send(runtime.diffChannel, {
-        workspaceId: fixtureDiff.workspaceId,
+        workspaceId: db.diff.workspaceId,
         diff: {
-          ...fixtureDiff,
+          ...db.diff,
           files: [],
           uncommitted: { added: 0, deleted: 0 },
         },
@@ -111,10 +115,14 @@ export function createRuntime(scenario: HarnessScenario) {
   }
 
   const runtime = {
+    db,
     scenario,
     newId,
     send,
+    append,
     emitStateChanged,
+    findThread: (threadId: string) => findThread(db, threadId),
+    findWorkspace: (workspaceId: string) => findWorkspace(db, workspaceId),
     agentChannels,
     /** Changes' subscription to the fixture workspace, once it has one. */
     diffChannel: null as HarnessChannel | null,
@@ -123,7 +131,13 @@ export function createRuntime(scenario: HarnessScenario) {
     threadModels: new Map<string, string | null>(),
     threadEfforts: new Map<string, string | null>(),
     listen(event: string, handler: number) {
-      eventListeners.set(event, [...(eventListeners.get(event) ?? []), handler])
+      const id = newId()
+      const listeners = eventListeners.get(event) ?? new Map<number, number>()
+      eventListeners.set(event, listeners.set(id, handler))
+      return id
+    },
+    unlisten(event: string, id: number) {
+      eventListeners.get(event)?.delete(id)
     },
     transformCallback(callback?: Callback, once = false) {
       const id = nextCallbackId++

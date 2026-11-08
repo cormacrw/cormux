@@ -45,7 +45,7 @@ function task(
 
 const DAY = 86_400_000
 
-export function fixtureClickupBoard(): ClickupBoard {
+export function clickupBoard(): ClickupBoard {
   const now = Date.now()
   return {
     sprint: {
@@ -121,7 +121,7 @@ export function fixtureClickupBoard(): ClickupBoard {
   }
 }
 
-export function fixtureClickupDetail(source: ClickupTask): ClickupTaskDetail {
+export function clickupTaskDetail(source: ClickupTask): ClickupTaskDetail {
   return {
     task: source,
     description: [
