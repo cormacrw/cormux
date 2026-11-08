@@ -8,9 +8,9 @@ use crate::workspaces::WorkspaceRecord;
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TeardownDataLoss {
-    pub uncommitted_files: u32,
-    pub unpushed_commits: u32,
-    pub has_data_loss: bool,
+    /// The worktree teardown deletes has uncommitted changes, or git couldn't say, so the user
+    /// confirms first. Unpushed commits alone don't ask: the branch is then kept by default.
+    pub ask_first: bool,
     pub warning: Option<String>,
 }
 
@@ -19,7 +19,6 @@ pub struct TeardownDataLoss {
 pub struct TeardownPreview {
     pub workspace_id: String,
     pub workspace_name: String,
-    pub engine_label: String,
     pub branch: String,
     pub worktree_path: String,
     pub app_running: bool,
@@ -55,25 +54,19 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     } else {
         Some(0)
     };
-    let (uncommitted_files, unpushed_commits) = (uncommitted.unwrap_or(0), unpushed.unwrap_or(0));
-    let warning = data_loss_warning(uncommitted, unpushed);
-    let has_data_loss = warning.is_some();
 
     let branch = record.branch.clone();
     Ok(TeardownPreview {
         workspace_id: workspace_id.to_string(),
         workspace_name: record.name.clone(),
-        engine_label: "Claude Code".into(),
         branch: branch.clone(),
         worktree_path: record.worktree_path.clone(),
         app_running: state.process.workspace_has_session(workspace_id),
         // A branch holding the only copy of its commits stays, so a later thread can pick it up.
         delete_branch_default: row.pr_number.is_none() && unpushed == Some(0),
         data_loss: TeardownDataLoss {
-            uncommitted_files,
-            unpushed_commits,
-            has_data_loss,
-            warning,
+            ask_first: uncommitted != Some(0),
+            warning: data_loss_warning(uncommitted, unpushed),
         },
     })
 }
@@ -250,10 +243,7 @@ mod tests {
     use crate::model::{ThreadRole, WorkspaceKind};
     use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
 
-    /// Teardown used to leave a workspace mid-setup marked as provisioning, so setup carried on
-    /// into the folder being deleted.
-    #[tokio::test]
-    async fn a_workspace_mid_setup_is_torn_down_and_its_setup_told() {
+    async fn registered(worktree: &str) -> AppState {
         let (state, _recording) =
             AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         state
@@ -271,7 +261,7 @@ mod tests {
             "Work",
             "feat/x",
             "main",
-            "/tmp/cormux-no-such-worktree",
+            worktree,
         );
         let repo = state.store.repo_by_id("r1").unwrap().unwrap();
         state
@@ -284,6 +274,14 @@ mod tests {
             )
             .await
             .unwrap();
+        state
+    }
+
+    /// Teardown used to leave a workspace mid-setup marked as provisioning, so setup carried on
+    /// into the folder being deleted.
+    #[tokio::test]
+    async fn a_workspace_mid_setup_is_torn_down_and_its_setup_told() {
+        let state = registered("/tmp/cormux-no-such-worktree").await;
 
         execute(
             &state,
@@ -299,6 +297,27 @@ mod tests {
         let archived = state.store.workspace_by_id("w").unwrap().unwrap();
         assert!(archived.archived_at.is_some());
         assert_eq!(archived.status, WorkspaceLifecycle::TearingDown);
+    }
+
+    /// Bug: when git couldn't count the uncommitted files the preview sent 0, and the dialog
+    /// tore the worktree down without asking.
+    #[tokio::test]
+    async fn a_worktree_git_cannot_read_is_asked_about_first() {
+        let folder = tempfile::tempdir().unwrap();
+        let worktree = folder.path().join("not-a-repo");
+        let state = registered(worktree.to_str().unwrap()).await;
+        std::fs::create_dir(&worktree).unwrap();
+
+        let preview = preview(&state, "w").await.unwrap();
+
+        assert!(preview.data_loss.ask_first);
+        let warning = preview.data_loss.warning.unwrap();
+        assert!(warning.contains("uncommitted changes"), "{warning}");
+        assert!(!preview.delete_branch_default);
+
+        let state = registered("/tmp/cormux-no-such-worktree").await;
+        let preview = super::preview(&state, "w").await.unwrap();
+        assert!(!preview.data_loss.ask_first);
     }
 
     #[test]

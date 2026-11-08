@@ -708,8 +708,8 @@ toastRaised: "toast-raised"
 
 /** user-defined constants **/
 
-export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
 export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
+export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
 
 /** user-defined types **/
 
@@ -1245,9 +1245,14 @@ export type StreamedEvent = { seq: number | null;
 conversation: string; event: TranscriptEvent }
 export type SubmitWorkspaceReviewInput = { workspaceId: string; verdict: ReviewVerdict }
 export type SwitchWorkspaceBranchInput = { workspaceId: string; branch: string }
-export type TeardownDataLoss = { uncommittedFiles: number; unpushedCommits: number; hasDataLoss: boolean; warning: string | null }
+export type TeardownDataLoss = { 
+/**
+ * The worktree teardown deletes has uncommitted changes, or git couldn't say, so the user
+ * confirms first. Unpushed commits alone don't ask: the branch is then kept by default.
+ */
+askFirst: boolean; warning: string | null }
 export type TeardownInput = { workspaceId: string; deleteBranch: boolean }
-export type TeardownPreview = { workspaceId: string; workspaceName: string; engineLabel: string; branch: string; worktreePath: string; appRunning: boolean; deleteBranchDefault: boolean; dataLoss: TeardownDataLoss }
+export type TeardownPreview = { workspaceId: string; workspaceName: string; branch: string; worktreePath: string; appRunning: boolean; deleteBranchDefault: boolean; dataLoss: TeardownDataLoss }
 export type TestRepoSetupInput = { repoId: string }
 export type TestRepoSetupResult = { ok: boolean; message: string }
 /**

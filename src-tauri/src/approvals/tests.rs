@@ -254,3 +254,24 @@ async fn running_everything_lets_tools_through_but_questions_still_ask() {
     setup.broker.cancel_for_thread("t1");
     assert!(asked.await.is_err());
 }
+
+/// Bug: a card that couldn't be saved left the agent waiting on a request nobody could see.
+#[tokio::test]
+async fn a_request_whose_card_cannot_be_saved_is_denied_at_once() {
+    let mut setup = setup();
+    setup
+        .store
+        .with_conn(|conn| Ok(conn.execute_batch("DROP TABLE approvals")?))
+        .unwrap();
+
+    let decided = setup
+        .broker
+        .request("t1", &command("a1"), ApprovalPolicy::default());
+
+    let answer = tokio::time::timeout(std::time::Duration::from_secs(5), decided);
+    let ApprovalDecision::Denied { message } = answer.await.expect("still waiting").unwrap() else {
+        panic!("not denied");
+    };
+    assert!(message.contains("couldn't record"), "{message}");
+    assert!(setup.events.try_recv().is_err(), "no card was announced");
+}

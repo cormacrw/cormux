@@ -94,23 +94,15 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
     get_teardown_preview: ({ workspaceId }: { workspaceId: string }) => ({
       workspaceId,
       workspaceName: 'OAuth login',
-      engineLabel: 'Claude Code',
       branch: 'feat/oauth-login',
       worktreePath: '/tmp/cormux-fixture/oauth',
       appRunning: false,
       deleteBranchDefault: true,
       dataLoss:
         workspaceId === scenario.cleanTeardown
-          ? {
-              uncommittedFiles: 0,
-              unpushedCommits: 0,
-              hasDataLoss: false,
-              warning: null,
-            }
+          ? { askFirst: false, warning: null }
           : {
-              uncommittedFiles: 2,
-              unpushedCommits: 0,
-              hasDataLoss: true,
+              askFirst: true,
               warning:
                 "2 uncommitted file changes will be discarded. This can't be undone.",
             },

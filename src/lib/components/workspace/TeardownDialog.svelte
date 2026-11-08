@@ -6,7 +6,8 @@
   import { commands } from '$lib/ipc'
   import type { TeardownPreview } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { shellDialogs, workspaces } from '$lib/state'
+  import { shellDialogs, threads, workspaces } from '$lib/state'
+  import { engineDisplayName } from '$lib/engine/engines'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
   import Trash2 from '@lucide/svelte/icons/trash-2'
@@ -40,7 +41,7 @@
       return
     }
     deleteBranch = result.data.deleteBranchDefault
-    if (result.data.dataLoss.uncommittedFiles === 0) {
+    if (!result.data.dataLoss.askFirst) {
       confirmTeardown()
       return
     }
@@ -78,8 +79,11 @@
 
   const description = $derived.by(() => {
     if (!preview) return ''
+    const engine = engineDisplayName(
+      threads.liveFor(preview.workspaceId)?.engine ?? 'claude',
+    )
     const appPart = preview.appRunning ? ' and the running app' : ''
-    return `Stops ${preview.engineLabel}${appPart}, then deletes ${preview.worktreePath}.`
+    return `Stops ${engine}${appPart}, then deletes ${preview.worktreePath}.`
   })
 </script>
 

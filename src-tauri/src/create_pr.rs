@@ -61,7 +61,7 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
 
     let record = state.workspaces.get(workspace_id).await?;
     let worktree = Path::new(&record.worktree_path);
-    let base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await;
+    let base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await?;
     let diff = pr_diff(state, workspace_id, worktree, &base).await?;
 
     let thread = state
@@ -123,7 +123,7 @@ pub async fn create_workspace_pull_request(
     }
 
     // A stacked branch's PR targets the branch below it, which GitHub needs on the remote.
-    let pr_base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await;
+    let pr_base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await?;
     if pr_base != record.base
         && !state
             .git

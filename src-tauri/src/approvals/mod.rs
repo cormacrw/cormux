@@ -89,7 +89,8 @@ impl ApprovalBroker {
     }
 
     /// The decision for `request`: at once if `policy` lets it through, otherwise once the user
-    /// answers. The receiver closes unanswered if the thread's turn ends first.
+    /// answers. The receiver closes unanswered if the thread's turn ends first. A request whose
+    /// card can't be saved is denied at once, since nothing would be shown to answer it.
     pub fn request(
         &self,
         thread_id: &str,
@@ -108,6 +109,16 @@ impl ApprovalBroker {
                 log::warn!("approvals lock poisoned; {} goes unanswered", request.id);
                 return decision;
             };
+            if let Err(error) =
+                self.store
+                    .insert_pending_approval(&request.id, thread_id, tool, &card)
+            {
+                log::warn!("saving {thread_id}'s approval {}: {error}", request.id);
+                let _ = decided.send(ApprovalDecision::Denied {
+                    message: "Cormux couldn't record this request, so it can't be answered.".into(),
+                });
+                return decision;
+            }
             waiting.insert(
                 request.id.clone(),
                 Waiter {
@@ -115,11 +126,7 @@ impl ApprovalBroker {
                     decided,
                 },
             );
-            let recorded = self
-                .store
-                .insert_pending_approval(&request.id, thread_id, tool, &card)
-                .and_then(|()| self.transcript.append(thread_id, request.event(false)));
-            if let Err(error) = recorded {
+            if let Err(error) = self.transcript.append(thread_id, request.event(false)) {
                 log::warn!("recording {thread_id}'s approval {}: {error}", request.id);
             }
         }

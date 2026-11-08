@@ -795,17 +795,24 @@ async fn run(state: &AppState, worktree: &Path, args: &[&str], action: &str) -> 
 }
 
 /// The branch a pull request for `branch` should target: the nearest unmerged branch
-/// below it when it's stacked, otherwise `trunk`.
-pub async fn pr_base(state: &AppState, worktree: &Path, branch: &str, trunk: &str) -> String {
-    let Ok(View::Stacked(json)) = view(state, worktree).await else {
-        return trunk.to_string();
+/// below it when it's stacked, otherwise `trunk`. A stack that can't be read is an error, not
+/// "not stacked": guessing trunk would open a stacked branch's PR with the whole stack's diff.
+pub async fn pr_base(
+    state: &AppState,
+    worktree: &Path,
+    branch: &str,
+    trunk: &str,
+) -> Result<String> {
+    let View::Stacked(json) = view(state, worktree).await? else {
+        return Ok(trunk.to_string());
     };
     let parents = json.parents();
-    json.branches
+    Ok(json
+        .branches
         .iter()
         .position(|row| row.name == branch && !row.is_merged)
         .map(|index| parents[index].clone())
-        .unwrap_or_else(|| trunk.to_string())
+        .unwrap_or_else(|| trunk.to_string()))
 }
 
 fn toast(state: &AppState, workspace_id: &str, text: &str) {
@@ -1226,6 +1233,36 @@ mod tests {
             describe_view(view(&state, cwd.path()).await),
             format!("unavailable: {GH_MISSING}")
         );
+    }
+
+    /// Bug: any failure to read the stack (gh-stack busy, bad output) targeted trunk, so a
+    /// stacked branch's PR opened against main with the whole stack's diff.
+    #[tokio::test]
+    async fn a_pr_targets_trunk_only_when_the_branch_is_not_stacked() {
+        let fake = FakeGh::new();
+        let (state, _) = state_on(fake.env()).await;
+        let cwd = tempfile::tempdir().unwrap();
+        let base = |state: AppState, cwd: PathBuf| async move {
+            pr_base(&state, &cwd, "b", "main")
+                .await
+                .map_err(|error| error.to_string())
+        };
+
+        fake.reply("view", exits(0, &view_json("main", "b", &["a", "b"]), ""));
+        assert_eq!(base(state.clone(), cwd.path().into()).await.unwrap(), "a");
+        fake.reply("view", exits(2, "", "not in a stack\n"));
+        assert_eq!(
+            base(state.clone(), cwd.path().into()).await.unwrap(),
+            "main"
+        );
+        fake.reply("view", exits(EXIT_LOCKED, "", "locked\n"));
+        let error = base(state.clone(), cwd.path().into()).await.unwrap_err();
+        assert!(
+            error.contains("waiting on another gh stack command"),
+            "{error}"
+        );
+        fake.reply("view", exits(0, "not json", ""));
+        assert!(base(state.clone(), cwd.path().into()).await.is_err());
     }
 
     #[tokio::test]
