@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { prefersReducedMotion } from '$lib/motion'
   import { windowDrag } from '$lib/primitives/window-drag'
   import { tick, untrack } from 'svelte'
   import SettingsSectionHead from './SettingsSectionHead.svelte'
@@ -6,7 +7,6 @@
   import { SETTINGS_SECTIONS } from './sections'
   import type { SettingsSectionId } from '$lib/core/route'
   import { nav } from '$lib/core/nav.svelte'
-  import { settings } from '$lib/settings/store.svelte'
 
   const SCROLL_SPY_OFFSET = 120
 
@@ -38,7 +38,7 @@
     const target = sectionRefs[section]
     if (!target) return
     target.scrollIntoView({
-      behavior: settings.reduceMotion ? 'auto' : 'smooth',
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
       block: 'start',
     })
     target.focus({ preventScroll: true })

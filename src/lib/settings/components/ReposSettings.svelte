@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { prefersReducedMotion } from '$lib/motion'
   import { plural } from '$lib/format/plural'
   import { debouncedSaves } from '$lib/primitives/debounced-saves'
   import { tick, untrack } from 'svelte'
@@ -22,7 +23,6 @@
     workspaceCountForRepo,
   } from '$lib/settings/repos-validation'
   import { repos, workspaces } from '$lib/state'
-  import { settings } from '$lib/settings/store.svelte'
   import { nav } from '$lib/core/nav.svelte'
   import type { RepoField } from '$lib/core/route'
   import { cn } from '$lib/utils'
@@ -82,7 +82,7 @@
     const key = repoDomKey(repoId)
     const el = document.querySelector(`[data-od-id="settings-repo-${key}"]`)
     el?.scrollIntoView({
-      behavior: settings.reduceMotion ? 'auto' : 'smooth',
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
       block: 'start',
     })
   }

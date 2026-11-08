@@ -26,7 +26,7 @@
   import type { ClassValue } from 'svelte/elements'
   import { createVirtualizer } from '@tanstack/svelte-virtual'
   import { Button } from '$lib/components/ui/button'
-  import { enterConversation } from '$lib/conversation-motion'
+  import { enterConversation } from '$lib/thread/conversation-motion'
   import { prs, workspaceUi } from '$lib/state'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { nav } from '$lib/core/nav.svelte'

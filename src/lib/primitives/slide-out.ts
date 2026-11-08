@@ -1,19 +1,13 @@
+import { readPref, writePref } from './local-pref'
+
 /** A pane width saved under `key`, or `fallback` when none is saved (or it's under `min`). */
 export function readPaneWidth(key: string, min: number, fallback: number) {
-  try {
-    const stored = Number(globalThis.localStorage?.getItem(key))
-    return stored >= min ? stored : fallback
-  } catch {
-    return fallback
-  }
+  const stored = Number(readPref(key))
+  return stored >= min ? stored : fallback
 }
 
 export function savePaneWidth(key: string, width: number) {
-  try {
-    globalThis.localStorage?.setItem(key, String(width))
-  } catch {
-    // Optional; the width holds for this session.
-  }
+  writePref(key, String(width))
 }
 
 type ResizeEdgeOptions = {

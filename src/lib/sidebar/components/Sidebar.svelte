@@ -2,6 +2,7 @@
   import { openSettings } from '$lib/settings/open'
   import { navigate } from '$lib/core/nav.svelte'
   import { windowDrag } from '$lib/primitives/window-drag'
+  import { readPref, writePref } from '$lib/primitives/local-pref'
   import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { isDevBuild } from '$lib/build-mode'
@@ -36,23 +37,11 @@
   let fullscreen = $state(false)
 
   // Working threads are out of the way until you ask to see them.
-  let workingOpen = $state(rememberedWorkingOpen())
-
-  function rememberedWorkingOpen() {
-    try {
-      return globalThis.localStorage?.getItem(WORKING_OPEN_KEY) === 'true'
-    } catch {
-      return false
-    }
-  }
+  let workingOpen = $state(readPref(WORKING_OPEN_KEY) === 'true')
 
   function toggleWorking() {
     workingOpen = !workingOpen
-    try {
-      globalThis.localStorage?.setItem(WORKING_OPEN_KEY, String(workingOpen))
-    } catch {
-      // Optional: the section just starts collapsed next time.
-    }
+    writePref(WORKING_OPEN_KEY, String(workingOpen))
   }
 
   const threadRows = $derived(sidebarWorkspaces.sections.threads)

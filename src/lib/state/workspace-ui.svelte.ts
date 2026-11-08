@@ -2,6 +2,8 @@ import { tick } from 'svelte'
 import { nav } from '$lib/core/nav.svelte'
 import type { WorkspacePanel } from '$lib/core/route'
 import { readPaneWidth, savePaneWidth } from '$lib/primitives/slide-out'
+import { readPref, writePref } from '$lib/primitives/local-pref'
+import { prefersReducedMotion } from '$lib/motion'
 
 /** Everything but the conversation slides out over it instead of replacing it. */
 type WorkspaceSlideOut = Exclude<WorkspacePanel, 'thread'>
@@ -17,23 +19,12 @@ function isPinnable(tab: WorkspacePanel): tab is PinnableTray {
 }
 
 const PINNED_TRAY_KEY = 'cormux-pinned-tray'
+// Named before Output became a tray too; kept so saved widths still apply.
 const TRAY_WIDTH_KEY = 'cormux-git-pane-width'
 
 function readPinnedTray(): PinnableTray | null {
-  try {
-    const stored = globalThis.localStorage?.getItem(PINNED_TRAY_KEY)
-    return stored === 'changes' || stored === 'output' ? stored : null
-  } catch {
-    return null
-  }
-}
-
-function writePinnedTray(tray: PinnableTray | null) {
-  try {
-    globalThis.localStorage?.setItem(PINNED_TRAY_KEY, tray ?? '')
-  } catch {
-    // Storage is optional; the pin just won't survive a restart.
-  }
+  const stored = readPref(PINNED_TRAY_KEY)
+  return stored === 'changes' || stored === 'output' ? stored : null
 }
 
 /**
@@ -43,10 +34,11 @@ function writePinnedTray(tray: PinnableTray | null) {
  */
 function layoutTransition(update: () => void) {
   const doc = globalThis.document
-  const reduced =
-    doc?.documentElement.classList.contains('reduce-motion') ||
-    globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  if (!doc || reduced || typeof doc.startViewTransition !== 'function') {
+  if (
+    !doc ||
+    prefersReducedMotion() ||
+    typeof doc.startViewTransition !== 'function'
+  ) {
     update()
     return
   }
@@ -137,7 +129,7 @@ export class WorkspaceUiStore {
 
   private pinTray(tray: PinnableTray | null) {
     this.pinnedTray = tray
-    writePinnedTray(tray)
+    writePref(PINNED_TRAY_KEY, tray)
   }
 
   setTrayWidth(width: number) {

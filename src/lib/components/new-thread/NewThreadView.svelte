@@ -6,6 +6,7 @@
   import { openWorkspace } from '$lib/nav/open'
   import { openSettings } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
+  import { readPref, writePref } from '$lib/primitives/local-pref'
   import { tick, untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Select from '$lib/components/ui/select'
@@ -22,33 +23,18 @@
     releaseWorkspacePopover,
   } from '$lib/keyboard/popover-registry'
   import { resolveDefaultRepoId } from '$lib/settings/default-repo'
-  import { appearance, repos } from '$lib/state'
+  import { repos } from '$lib/state'
+  import { wordmark } from '$lib/background/wordmark.svelte'
   import { nav } from '$lib/core/nav.svelte'
   import { settings } from '$lib/settings/store.svelte'
   import {
     enterConversation,
     firstPromptTransition,
-  } from '$lib/conversation-motion'
+  } from '$lib/thread/conversation-motion'
   import { startThread } from '$lib/workspace/start-thread'
   import Folder from '@lucide/svelte/icons/folder'
 
   const LAST_REPO_KEY = 'cormux-last-repo'
-
-  function lastRepo() {
-    try {
-      return globalThis.localStorage?.getItem(LAST_REPO_KEY) ?? ''
-    } catch {
-      return ''
-    }
-  }
-
-  function rememberRepo(id: string) {
-    try {
-      globalThis.localStorage?.setItem(LAST_REPO_KEY, id)
-    } catch {
-      // Optional: the next thread just starts on the default repo.
-    }
-  }
 
   let repoId = $state('')
   let repoOpen = $state(false)
@@ -64,7 +50,10 @@
     const items = repos.items
     untrack(() => {
       if (!items.some((row) => row.id === repoId)) {
-        repoId = resolveDefaultRepoId(items, lastRepo() || settings.defaultRepo)
+        repoId = resolveDefaultRepoId(
+          items,
+          readPref(LAST_REPO_KEY) || settings.defaultRepo,
+        )
       }
     })
   })
@@ -109,12 +98,12 @@
       attachments,
     })
     if (!workspaceId) return false
-    rememberRepo(id)
+    writePref(LAST_REPO_KEY, id)
     if (stay) return true
     // The greeting falls away and the conversation rises in, as on a first prompt in a thread.
     firstPromptTransition(
       () => openWorkspace(workspaceId),
-      () => appearance.glideWordmark(),
+      () => wordmark.glide(),
     )
     void tick().then(enterConversation)
     return true

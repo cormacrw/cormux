@@ -7,7 +7,7 @@
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
   import { openWorkspace } from '$lib/nav/open'
-  import { appearance } from '$lib/state/appearance.svelte'
+  import { wordmark } from '$lib/background/wordmark.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { engineDisplayName } from '$lib/engine/engines'
@@ -44,10 +44,8 @@
   // The live status floats over the end of the timeline, which leaves room for all of it.
   let liveStatusHeight = $state(0)
 
-  // The backdrop's wordmark is away while a conversation's going (it only
-  // animates when one starts or is cleared; see glideWordmark).
   $effect(() => {
-    if (view.loaded) appearance.wordmarkAway = !showHero
+    if (view.loaded) wordmark.showConversation(!showHero)
   })
 
   // The greeting offers earlier conversations to resume, however far back they are.
@@ -55,7 +53,7 @@
     if (showHero && view.hasOlder) void threadTimeline.loadOlder(threadId)
   })
 
-  onDestroy(() => appearance.resetWordmark())
+  onDestroy(() => wordmark.reset())
 </script>
 
 <div

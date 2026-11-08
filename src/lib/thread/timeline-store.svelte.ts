@@ -13,10 +13,6 @@ import {
   toPromptAttachment,
   type ComposerAttachment,
 } from '$lib/composer/attachments'
-import {
-  firstPromptTransition,
-  leaveConversation,
-} from '$lib/conversation-motion'
 import { deepEqual } from '$lib/deep-equal'
 import { onSnapshot } from '$lib/core/sync'
 import type { Conversation } from '$lib/thread/conversations'
@@ -31,7 +27,6 @@ import {
   mergeSaved,
   type TimedEvent,
 } from '$lib/thread/timed-events'
-import { appearance } from '../state/appearance.svelte'
 import { findings } from '../findings/store.svelte'
 import { scratches } from '../state/scratches.svelte'
 import { threads, type Thread } from '../state/threads.svelte'
@@ -358,10 +353,6 @@ export class ThreadTimelineStore {
     text: string,
     attachments: ComposerAttachment[] = [],
   ): Promise<ThreadActionError | null> {
-    firstPromptTransition(
-      () => this.userMessageShown(threadId),
-      () => appearance.glideWordmark(),
-    )
     const doing = 'Could not reach the agent'
     try {
       const result = await commands.sendThreadPrompt(
@@ -383,19 +374,13 @@ export class ThreadTimelineStore {
   }
 
   /**
-   * Swaps the conversation on screen for a fresh session, or back to an earlier one, whose
-   * session the agent resumes. The one on screen fades out first and comes back if it fails.
+   * Swaps the conversation for a fresh session, or back to an earlier one, whose session the
+   * agent resumes.
    */
   async switchConversation(
     threadId: string,
     to: Conversation | 'new',
   ): Promise<ThreadActionError | null> {
-    if (to === 'new') {
-      // The wordmark starts rising back at once, not after the swap lands.
-      appearance.glideWordmark()
-      appearance.wordmarkAway = false
-    }
-    const restore = await leaveConversation()
     const result =
       to === 'new'
         ? await commands.newThreadSession(threadId)
@@ -405,8 +390,6 @@ export class ThreadTimelineStore {
             sessionId: to.sessionId,
           })
     if (result.status === 'ok') return null
-    restore()
-    if (to === 'new') appearance.wordmarkAway = true
     return {
       error: result.error,
       doing:
@@ -423,7 +406,7 @@ export class ThreadTimelineStore {
   }
 
   /** Resolves once a message from you lands in the thread, or after `ms`. */
-  private userMessageShown(threadId: string, ms = 1000): Promise<void> {
+  userMessageShown(threadId: string, ms = 1000): Promise<void> {
     return new Promise((resolve) => {
       const done = () => {
         clearTimeout(timer)
