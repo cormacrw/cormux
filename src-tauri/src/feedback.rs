@@ -82,25 +82,26 @@ pub struct ToastRaisedPayload {
     pub thread_id: Option<String>,
     /// With `workspace_id`, clicking the toast opens its Findings tab.
     pub opens_findings: bool,
-    /// Also said as a desktop notification, when the window isn't in front.
-    pub notification: Option<String>,
+}
+
+/// Something the user asked to hear about even while away: the webview shows it as a desktop
+/// notification when the window isn't in front, and focusing the app then opens its target.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPayload {
+    pub body: String,
+    pub workspace_id: Option<String>,
+    /// With `workspace_id`, opens this thread's tab.
+    pub thread_id: Option<String>,
+    /// With `workspace_id`, opens its Findings tab.
+    pub opens_findings: bool,
 }
 
 pub trait UserOutput: Send + Sync {
     fn state_changed(&self, version: u64, change: Change);
     fn toast(&self, payload: ToastRaisedPayload);
+    fn notification(&self, payload: NotificationPayload);
     fn dock_badge(&self, count: Option<i64>);
-}
-
-/// Refreshes the webview, and with it the dock badge, whenever an agent asks for an approval.
-pub fn start(bus: &crate::bus::Bus, out: &Notifier) {
-    let out = out.clone();
-    bus.listen(move |event| {
-        if let crate::bus::DomainEvent::ApprovalRequested { .. } = event {
-            out.changed();
-        }
-        std::future::ready(())
-    });
 }
 
 /// Numbers state changes, merges bursts of them, and keeps the dock badge on the number of
@@ -144,15 +145,15 @@ impl Notifier {
     /// consecutively: the webview treats a jump as a dropped event and does a full resync,
     /// which a merged burst must not look like.
     pub fn changed(&self) {
-        self.notify(Change::default());
+        self.note(Change::default());
     }
 
     /// Like `changed`, when `origin` moved too, so the webview re-reads the repos' git state.
     pub fn repo_git_moved(&self) {
-        self.notify(Change { repo_git: true });
+        self.note(Change { repo_git: true });
     }
 
-    fn notify(&self, change: Change) {
+    fn note(&self, change: Change) {
         let decision = match self.0.changes.lock() {
             Ok(mut changes) => changes.record(change, Instant::now()),
             Err(_) => Decision::EmitNow(change),
@@ -179,6 +180,11 @@ impl Notifier {
     /// A toast carries its own payload, so it needs no state change.
     pub fn toast(&self, payload: ToastRaisedPayload) {
         self.0.output.toast(payload);
+    }
+
+    /// Callers raise one only when the user's settings ask for it.
+    pub fn notification(&self, payload: NotificationPayload) {
+        self.0.output.notification(payload);
     }
 
     pub fn toast_parts(
@@ -261,6 +267,7 @@ impl ChangeCoalescer {
 pub enum Emitted {
     State(Change),
     Toast(ToastRaisedPayload),
+    Notification(NotificationPayload),
     Badge(Option<i64>),
 }
 
@@ -282,6 +289,16 @@ impl RecordingOutput {
             .into_iter()
             .filter_map(|event| match event {
                 Emitted::State(change) => Some(change),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn notifications(&self) -> Vec<NotificationPayload> {
+        self.emitted()
+            .into_iter()
+            .filter_map(|event| match event {
+                Emitted::Notification(payload) => Some(payload),
                 _ => None,
             })
             .collect()
@@ -320,6 +337,13 @@ impl UserOutput for RecordingOutput {
 
     fn toast(&self, payload: ToastRaisedPayload) {
         self.emitted.lock().unwrap().push(Emitted::Toast(payload));
+    }
+
+    fn notification(&self, payload: NotificationPayload) {
+        self.emitted
+            .lock()
+            .unwrap()
+            .push(Emitted::Notification(payload));
     }
 
     fn dock_badge(&self, count: Option<i64>) {

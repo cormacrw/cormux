@@ -122,6 +122,7 @@ pub fn builder() -> Builder {
             events::StateChanged,
             events::MemorySampled,
             events::ToastRaised,
+            events::NotificationRaised,
             menu::MenuChosen,
         ])
 }

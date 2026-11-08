@@ -3,7 +3,7 @@ use specta::Type;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
-use crate::feedback::{Change, ToastRaisedPayload, UserOutput};
+use crate::feedback::{Change, NotificationPayload, ToastRaisedPayload, UserOutput};
 
 /// Low-volume core → UI notification. `version` is monotonic; a gap means the
 /// webview should call `get_snapshot` and replace local state.
@@ -27,6 +27,12 @@ pub struct ToastRaised {
     pub payload: ToastRaisedPayload,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationRaised {
+    pub payload: NotificationPayload,
+}
+
 /// `UserOutput` for the real app: events to the webview, the count to the dock.
 pub struct TauriOutput(pub AppHandle);
 
@@ -37,6 +43,10 @@ impl UserOutput for TauriOutput {
 
     fn toast(&self, payload: ToastRaisedPayload) {
         let _ = ToastRaised { payload }.emit(&self.0);
+    }
+
+    fn notification(&self, payload: NotificationPayload) {
+        let _ = NotificationRaised { payload }.emit(&self.0);
     }
 
     fn dock_badge(&self, count: Option<i64>) {

@@ -1,6 +1,10 @@
 import { events, type CoreError } from '$lib/ipc'
 import { coreErrorText } from '$lib/core/core-error'
-import type { ToastRaised, ToastRaisedPayload } from '$lib/ipc/bindings'
+import type {
+  NotificationPayload,
+  ToastRaised,
+  ToastRaisedPayload,
+} from '$lib/ipc/bindings'
 import { coreErrorToast, environmentReloadToast } from './toast-payload'
 import { showToast } from './show-toast'
 import type { ToastTarget } from './toast-target'
@@ -19,7 +23,9 @@ function showCoreToast(event: ToastRaised) {
 }
 
 /** What clicking a toast the core raised opens, or its notification once the app is in front. */
-export function coreToastTarget(payload: ToastRaisedPayload): ToastTarget {
+export function coreToastTarget(
+  payload: ToastRaisedPayload | NotificationPayload,
+): ToastTarget {
   return {
     workspaceId: payload.workspaceId ?? undefined,
     threadId: payload.threadId ?? undefined,

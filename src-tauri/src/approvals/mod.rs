@@ -19,8 +19,10 @@ pub(crate) use store::visible as visible_in;
 use crate::bus::{Bus, DomainEvent};
 use crate::engines::{AgentEvent, PermissionRequest};
 use crate::error::{Error, Result};
+use crate::feedback::NotificationPayload;
 use crate::model::ApprovalStatus;
 use crate::settings::Settings;
+use crate::state::AppState;
 use crate::store::Store;
 use crate::transcript::Transcript;
 
@@ -74,6 +76,7 @@ pub struct ApprovalBroker {
 }
 
 struct Waiter {
+    thread_id: String,
     /// The engine launch that asked; see `ThreadRuntime::is_current`.
     engine: u64,
     decided: oneshot::Sender<ApprovalDecision>,
@@ -121,7 +124,14 @@ impl ApprovalBroker {
                 });
                 return decision;
             }
-            waiting.insert(request.id.clone(), Waiter { engine, decided });
+            waiting.insert(
+                request.id.clone(),
+                Waiter {
+                    thread_id: thread_id.to_string(),
+                    engine,
+                    decided,
+                },
+            );
             if let Err(error) = self.transcript.append(thread_id, request.event(false)) {
                 log::warn!("recording {thread_id}'s approval {}: {error}", request.id);
             }
@@ -142,8 +152,8 @@ impl ApprovalBroker {
     }
 
     /// `engine` stopped waiting (its turn ended, or it exited), so its open requests are denied
-    /// and their waiters dropped. Another engine's, such as the one that replaced it on the same
-    /// thread, stay open.
+    /// and their waiters dropped, and the cards stop asking. Another engine's, such as the one
+    /// that replaced it on the same thread, stay open.
     pub fn cancel_for_engine(&self, engine: u64) {
         let Ok(mut waiting) = self.waiting.lock() else {
             return;
@@ -153,14 +163,22 @@ impl ApprovalBroker {
             .filter(|(_, waiter)| waiter.engine == engine)
             .map(|(id, _)| id.clone())
             .collect();
+        let mut threads = std::collections::BTreeSet::new();
         for id in ids {
-            waiting.remove(&id);
+            let Some(waiter) = waiting.remove(&id) else {
+                continue;
+            };
             if let Err(error) = self
                 .store
                 .decide_approval(&id, ApprovalStatus::Denied, None)
             {
                 log::warn!("denying approval {id}: {error}");
             }
+            threads.insert(waiter.thread_id);
+        }
+        for thread_id in threads {
+            self.bus
+                .publish(DomainEvent::ApprovalsCancelled { thread_id });
         }
     }
 
@@ -226,6 +244,53 @@ impl ApprovalBroker {
             log::warn!("counting pending approvals: {error}");
             0
         })
+    }
+}
+
+/// Refreshes the webview, and with it the dock badge, whenever an approval starts or stops
+/// waiting, and tells the user an agent is waiting when they asked to hear, for the life of the
+/// app.
+pub fn start(state: &AppState) {
+    let state = state.clone();
+    state.bus.clone().listen(move |event| {
+        let state = state.clone();
+        async move {
+            match event {
+                DomainEvent::ApprovalRequested { thread_id, .. } => {
+                    notify_waiting(&state, &thread_id);
+                    state.out.changed();
+                }
+                DomainEvent::ApprovalsCancelled { .. } => state.out.changed(),
+                _ => {}
+            }
+        }
+    });
+}
+
+fn notify_waiting(state: &AppState, thread_id: &str) {
+    if !Settings::load(&state.store).notify_approvals {
+        return;
+    }
+    let workspace_id = match state.store.thread_by_id(thread_id) {
+        Ok(thread) => thread.map(|thread| thread.workspace_id),
+        Err(error) => {
+            log::warn!("reading thread {thread_id} to notify: {error}");
+            None
+        }
+    };
+    state.out.notification(NotificationPayload {
+        body: waiting_text(state.approvals.pending_count()),
+        thread_id: workspace_id.is_some().then(|| thread_id.to_string()),
+        workspace_id,
+        opens_findings: false,
+    });
+}
+
+fn waiting_text(pending: usize) -> String {
+    if pending <= 1 {
+        "An agent is waiting for your approval.".into()
+    } else {
+        format!("{pending} agents are waiting for your approval.")
     }
 }
 

@@ -33,8 +33,3 @@ export function coreErrorToast(message: string): ToastPayload {
     parts: [{ type: 'text', value: message }],
   }
 }
-
-export function approvalNeededNotificationBody(pending: number): string {
-  if (pending === 1) return 'An agent is waiting for your approval.'
-  return `${pending} agents are waiting for your approval.`
-}

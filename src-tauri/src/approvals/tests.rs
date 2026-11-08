@@ -198,6 +198,73 @@ async fn a_turn_ending_cancels_only_that_engines_requests_and_their_cards() {
     assert_eq!(replacement.await.unwrap(), ApprovalDecision::Approved);
 }
 
+/// Bug: cancelled cards were denied silently, so after a pause the card still offered Approve
+/// and every badge still counted it until something else refreshed the webview.
+#[tokio::test]
+async fn cancelled_cards_are_announced_once_per_thread_and_only_when_some_were() {
+    let mut setup = setup();
+    let _waiting: Vec<_> = ["a1", "a2"]
+        .into_iter()
+        .map(|id| {
+            setup
+                .broker
+                .request("t1", 1, &command(id), ApprovalPolicy::default())
+        })
+        .collect();
+    while setup.events.try_recv().is_ok() {}
+
+    setup.broker.cancel_for_engine(2);
+    assert!(setup.events.try_recv().is_err(), "nothing was cancelled");
+    setup.broker.cancel_for_engine(1);
+
+    assert_eq!(
+        setup.events.try_recv().unwrap(),
+        DomainEvent::ApprovalsCancelled {
+            thread_id: "t1".into()
+        }
+    );
+    assert!(setup.events.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn an_agent_waiting_refreshes_and_notifies_when_the_user_wants_to_hear() {
+    for wanted in [true, false] {
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        Settings {
+            notify_approvals: wanted,
+            ..Default::default()
+        }
+        .save(&state.store);
+        state
+            .store
+            .seed_workspace("w1", crate::model::WorkspaceLifecycle::Running);
+        state
+            .store
+            .seed_thread("t1", "w1", crate::model::ThreadStatus::Running);
+        start(&state);
+
+        let _waiting = state
+            .approvals
+            .request("t1", 1, &command("a1"), ApprovalPolicy::default());
+        for _ in 0..250 {
+            if !recording.state_changes().is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        assert!(!recording.state_changes().is_empty());
+        let expected = wanted.then(|| crate::feedback::NotificationPayload {
+            body: "An agent is waiting for your approval.".into(),
+            workspace_id: Some("w1".into()),
+            thread_id: Some("t1".into()),
+            opens_findings: false,
+        });
+        assert_eq!(recording.notifications().into_iter().next(), expected);
+    }
+}
+
 #[tokio::test]
 async fn an_answer_nothing_waits_for_is_refused_and_the_card_stops_asking() {
     let setup = setup();
