@@ -62,6 +62,8 @@ pub struct Snapshot {
     pub repo_run_commands: Vec<RepoRunCommand>,
     /// What Run starts in each live workspace (its own, else its repo's), for those with one.
     pub workspace_run_commands: Vec<WorkspaceRunCommand>,
+    /// Repos Remove would refuse now, and why.
+    pub repo_removal_blocks: Vec<crate::repos::RepoRemovalBlock>,
 }
 
 fn persisted(store: &crate::store::Store) -> Result<PersistedSnapshot> {
@@ -95,6 +97,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let workspace_ids: Vec<String> = workspaces.iter().map(|row| row.id.clone()).collect();
     let workspace_git = state.workspace_git.snapshot(&workspace_ids).await;
     let repo_run_commands = crate::harness_config::repo_run_commands(&persisted.repos);
+    let repo_removal_blocks = crate::repos::removal_blocks(&persisted.repos, &persisted.workspaces);
     let workspace_run_commands =
         crate::harness_config::workspace_run_commands(&persisted.workspaces, &repo_run_commands);
 
@@ -111,6 +114,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         workspace_apps: state.apps.snapshot(),
         repo_run_commands,
         workspace_run_commands,
+        repo_removal_blocks,
     })
 }
 

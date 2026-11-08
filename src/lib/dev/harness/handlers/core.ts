@@ -41,6 +41,17 @@ export function coreHandlers({
           return run ? [{ workspaceId: row.id, ...run }] : []
         },
       )
+      // As the core's `repos::removal_block`.
+      const { repos, workspaces } = snapshot.persisted
+      snapshot.repoRemovalBlocks = repos.flatMap((repo) => {
+        const used = workspaces.filter((row) => row.repoId === repo.id).length
+        const reason = used
+          ? `${repo.name} has ${used} workspace${used === 1 ? '' : 's'}. Tear ${used === 1 ? 'it' : 'them'} down first.`
+          : repos.length <= 1
+            ? 'Cormux needs at least one repo'
+            : null
+        return reason ? [{ repoId: repo.id, reason }] : []
+      })
       // A copy, as the real IPC deserialises one: the stores keep rows whose contents didn't
       // change, so handing them the harness's own objects would hide its edits.
       return structuredClone(snapshot)

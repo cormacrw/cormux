@@ -3,6 +3,7 @@
 import type {
   RepoGitRuntime,
   RepoRecord,
+  RepoRemovalBlock,
   RepoRunCommand,
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc'
@@ -24,12 +25,24 @@ export class ReposStore {
 
   private gitRead = false
 
-  /** `runCommands` replaces the known run commands; without it they stay as they are. */
-  hydrate(items: RepoRecord[], runCommands?: RepoRunCommand[]) {
+  /** Why Remove would be refused now, by repo id; the core's own words. */
+  removalBlockById = $state.raw<Record<string, string>>({})
+
+  /** `snapshot` replaces the run commands and removal blocks; without it they stay as they are. */
+  hydrate(
+    items: RepoRecord[],
+    snapshot?: {
+      runCommands: RepoRunCommand[]
+      removalBlocks: RepoRemovalBlock[]
+    },
+  ) {
     this.items = reuseRows(this.items, items)
-    if (runCommands) {
+    if (snapshot) {
       this.runCommandById = Object.fromEntries(
-        runCommands.map((row) => [row.repoId, row]),
+        snapshot.runCommands.map((row) => [row.repoId, row]),
+      )
+      this.removalBlockById = Object.fromEntries(
+        snapshot.removalBlocks.map((row) => [row.repoId, row.reason]),
       )
     }
     // After the first, the core says when the counts move (`repoGit`).
@@ -66,7 +79,10 @@ export class ReposStore {
 export const repos = new ReposStore()
 
 onSnapshot((snapshot) =>
-  repos.hydrate(snapshot.persisted.repos, snapshot.repoRunCommands),
+  repos.hydrate(snapshot.persisted.repos, {
+    runCommands: snapshot.repoRunCommands,
+    removalBlocks: snapshot.repoRemovalBlocks,
+  }),
 )
 onChange((change) => {
   if (change === 'gap' || change.repoGit) void repos.refreshGit()

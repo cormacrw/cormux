@@ -324,20 +324,49 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
     Ok(record)
 }
 
+/// Why a repo can't be removed: it still has live workspaces, or it's the only one.
+pub fn removal_block(repo: &RepoRecord, live_workspaces: usize, repos: usize) -> Option<String> {
+    if live_workspaces > 0 {
+        let tear = if live_workspaces == 1 { "it" } else { "them" };
+        return Some(format!(
+            "{} has {live_workspaces} workspace{}. Tear {tear} down first.",
+            repo.name,
+            if live_workspaces == 1 { "" } else { "s" }
+        ));
+    }
+    (repos <= 1).then(|| "Cormux needs at least one repo".to_string())
+}
+
+/// A repo the webview should offer no Remove for, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRemovalBlock {
+    pub repo_id: String,
+    pub reason: String,
+}
+
+/// Each repo that can't be removed now, from the snapshot's repos and live workspaces.
+pub fn removal_blocks(
+    repos: &[RepoRecord],
+    live: &[crate::store::types::WorkspaceRow],
+) -> Vec<RepoRemovalBlock> {
+    repos
+        .iter()
+        .filter_map(|repo| {
+            let used = live.iter().filter(|row| row.repo_id == repo.id).count();
+            removal_block(repo, used, repos.len()).map(|reason| RepoRemovalBlock {
+                repo_id: repo.id.clone(),
+                reason,
+            })
+        })
+        .collect()
+}
+
 pub async fn remove(state: &AppState, input: RemoveRepoInput) -> Result<()> {
     let repo = state.store.repo(&input.repo_id)?;
-
     let used = state.store.count_active_workspaces_for_repo(&repo.id)?;
-    if used > 0 {
-        let tear = if used == 1 { "it" } else { "them" };
-        return Err(Error::Workspace(format!(
-            "{} has {used} workspace{}. Tear {tear} down first.",
-            repo.name,
-            if used == 1 { "" } else { "s" }
-        )));
-    }
-    if state.store.repo_count()? <= 1 {
-        return Err(Error::Workspace("Harness needs at least one repo".into()));
+    if let Some(reason) = removal_block(&repo, used, state.store.repo_count()?) {
+        return Err(Error::Workspace(reason));
     }
 
     state.store.delete_repo(&repo.id)?;
@@ -730,6 +759,29 @@ mod tests {
         set_run_command(&state, input("   ")).unwrap();
         let repo = state.store.repo_by_id("app").unwrap().unwrap();
         assert_eq!(repo.run_command, None);
+    }
+
+    #[test]
+    fn a_repo_with_live_workspaces_or_the_only_repo_cannot_be_removed() {
+        let repos = [
+            crate::store::fixtures::repo("r1"),
+            crate::store::fixtures::repo("r2"),
+        ];
+        let live = [crate::store::fixtures::workspace(
+            "w1",
+            crate::model::WorkspaceLifecycle::Idle,
+        )];
+        assert_eq!(
+            removal_blocks(&repos, &live),
+            [RepoRemovalBlock {
+                repo_id: "r1".into(),
+                reason: "r1 has 1 workspace. Tear it down first.".into(),
+            }]
+        );
+        assert_eq!(
+            removal_block(&repos[1], 0, 1).as_deref(),
+            Some("Cormux needs at least one repo")
+        );
     }
 
     #[tokio::test]

@@ -1123,6 +1123,10 @@ defaultBranch: string; setupCommands: string; runCommand: string | null;
  */
 singleInstance: boolean }
 /**
+ * A repo the webview should offer no Remove for, and why.
+ */
+export type RepoRemovalBlock = { repoId: string; reason: string }
+/**
  * A repo's run command, for the webview: what Run starts in its workspaces unless they set
  * their own.
  */
@@ -1272,7 +1276,11 @@ repoRunCommands: RepoRunCommand[];
 /**
  * What Run starts in each live workspace (its own, else its repo's), for those with one.
  */
-workspaceRunCommands: WorkspaceRunCommand[] }
+workspaceRunCommands: WorkspaceRunCommand[]; 
+/**
+ * Repos Remove would refuse now, and why.
+ */
+repoRemovalBlocks: RepoRemovalBlock[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.

@@ -18,7 +18,6 @@
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { showToast } from '$lib/feedback/show-toast'
   import {
-    removeRepoBlockReason,
     repoDomKey,
     workspaceCountForRepo,
   } from '$lib/settings/repos-validation'
@@ -225,7 +224,7 @@
   {#each repos.items as repo (repo.id)}
     {@const key = repoDomKey(repo.id)}
     {@const used = workspaceCountForRepo(repo.id, workspaces.items)}
-    {@const block = removeRepoBlockReason(repo, repos.items.length, used)}
+    {@const block = repos.removalBlockById[repo.id] ?? null}
     <!-- Follows what's being typed, so the flag clears as you type, not when the save lands. -->
     {@const run =
       fieldValue(`run-${repo.id}`, repo.runCommand ?? '').trim() ||

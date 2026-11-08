@@ -140,6 +140,7 @@ export function createFixtures() {
     workspaceApps: [],
     repoRunCommands: [],
     workspaceRunCommands: [],
+    repoRemovalBlocks: [],
   }
   const timeline: StoredEventRow[] = [
     {
