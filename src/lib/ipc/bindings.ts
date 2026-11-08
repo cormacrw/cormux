@@ -263,11 +263,12 @@ async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : P
 }
 },
 /**
- * Throw away uncommitted changes to `paths` (all of them when empty), then refresh Changes.
+ * Throw away the uncommitted change to one file (every one when `None`), then refresh
+ * Changes.
  */
-async discardWorkspaceChanges(workspaceId: string, paths: string[]) : Promise<Result<null, Error>> {
+async discardWorkspaceChanges(workspaceId: string, path: string | null) : Promise<Result<null, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("discard_workspace_changes", { workspaceId, paths }) };
+    return { status: "ok", data: await TAURI_INVOKE("discard_workspace_changes", { workspaceId, path }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -910,7 +911,7 @@ export type DiffFile = { path: string;
 /**
  * Where a renamed or moved file came from.
  */
-oldPath: string | null; added: number; deleted: number; hunks: DiffHunk[]; 
+oldPath: string | null; status: FileStatus; added: number; deleted: number; hunks: DiffHunk[]; 
 /**
  * Set when the patch was too big to send whole; `hunks` is the part that fit.
  */
@@ -959,6 +960,10 @@ export type Error =
  * The request itself was wrong: a missing value, an unknown id, a finding in the wrong state.
  */
 { kind: "Invalid"; message: string } | { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: GitConflictOperation; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
+/**
+ * What happened to a file, as git reports it.
+ */
+export type FileStatus = "added" | "modified" | "deleted" | "renamed"
 export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: FindingStatus; commitSha: string | null; sentToThreadId: string | null }
 export type FindingStatus = "open" | 
 /**

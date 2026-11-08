@@ -56,10 +56,23 @@ pub async fn set_target(
 }
 
 /// Throws away uncommitted changes to `paths` (all of them when empty).
-pub async fn discard(state: &AppState, workspace_id: &str, paths: &[String]) -> Result<()> {
+/// Throws away the uncommitted change to the file at `path`, or every one when `None`. A renamed
+/// file goes back to where it came from.
+pub async fn discard(state: &AppState, workspace_id: &str, path: Option<&str>) -> Result<()> {
     let workspace = load(state, workspace_id).await?;
     let worktree = Path::new(&workspace.worktree_path);
-    state.git.discard(worktree, paths).await?;
+    let paths = match path {
+        None => Vec::new(),
+        Some(path) => state
+            .git
+            .numstat(worktree)
+            .await?
+            .into_iter()
+            .find(|stat| stat.path == path)
+            .map(|stat| stat.paths())
+            .unwrap_or_else(|| vec![path.to_string()]),
+    };
+    state.git.discard(worktree, &paths).await?;
     state.diffs.compute(workspace_id, worktree).await?;
     Ok(())
 }
@@ -92,14 +105,15 @@ pub mod commands {
         super::set_target(&state, &workspace_id, target).await
     }
 
-    /// Throw away uncommitted changes to `paths` (all of them when empty), then refresh Changes.
+    /// Throw away the uncommitted change to one file (every one when `None`), then refresh
+    /// Changes.
     #[tauri::command]
     #[specta::specta]
     pub async fn discard_workspace_changes(
         workspace_id: String,
-        paths: Vec<String>,
+        path: Option<String>,
         state: State<'_, AppState>,
     ) -> Result<()> {
-        super::discard(&state, &workspace_id, &paths).await
+        super::discard(&state, &workspace_id, path.as_deref()).await
     }
 }

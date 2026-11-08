@@ -262,6 +262,7 @@ function oauthDiff() {
       {
         path: 'src/auth/session.ts',
         oldPath: null,
+        status: 'modified' as const,
         added: 4,
         deleted: 1,
         hunks: [
@@ -285,6 +286,7 @@ function oauthDiff() {
       {
         path: 'src/auth/providers.ts',
         oldPath: null,
+        status: 'added' as const,
         added: 60,
         deleted: 0,
         hunks: [

@@ -10,7 +10,6 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
-  import { inferFileStatus } from '$lib/changes/file-status'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
@@ -43,13 +42,10 @@
   async function confirm() {
     if (!request || busy) return
     busy = true
-    const { file } = request
-    const paths = file
-      ? file.oldPath
-        ? [file.oldPath, file.path]
-        : [file.path]
-      : []
-    const result = await commands.discardWorkspaceChanges(workspaceId, paths)
+    const result = await commands.discardWorkspaceChanges(
+      workspaceId,
+      request.file?.path ?? null,
+    )
     busy = false
     onClose()
     if (result.status === 'error') toastCoreError(result.error)
@@ -70,11 +66,11 @@
       </AlertDialog.Title>
       <AlertDialog.Description>
         {#if shown?.file}
-          {@const status = inferFileStatus(shown.file)}
+          {@const status = shown.file.status}
           <code class="font-mono text-xs break-all">{shown.file.path}</code>
-          {#if status === 'A'}
+          {#if status === 'added'}
             is new, so it will be deleted.
-          {:else if status === 'R'}
+          {:else if status === 'renamed'}
             moves back to
             <code class="font-mono text-xs break-all">{shown.file.oldPath}</code
             >, as it was at the last commit.

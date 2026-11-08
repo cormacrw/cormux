@@ -881,7 +881,7 @@ where
     for stat in stats {
         let patch = match patches.remove(stat.patch_header().as_str()) {
             Some(patch) => patch.to_string(),
-            None => file_patch(stat.paths().into_iter().map(str::to_string).collect()).await?,
+            None => file_patch(stat.paths()).await?,
         };
         changes.push((stat, patch));
     }
@@ -933,13 +933,9 @@ pub struct FileStat {
 }
 
 impl FileStat {
-    /// Pathspecs for this file's diff; a rename needs both sides to be paired.
-    fn paths(&self) -> Vec<&str> {
-        self.old_path
-            .iter()
-            .map(String::as_str)
-            .chain([self.path.as_str()])
-            .collect()
+    /// Pathspecs for this file: a rename needs both sides, to pair them in a diff or to undo it.
+    pub fn paths(&self) -> Vec<String> {
+        self.old_path.iter().chain([&self.path]).cloned().collect()
     }
 
     /// The first line of this file's section in a `PATCH_ARGS` diff. Git quotes the paths it
@@ -1178,7 +1174,8 @@ mod tests {
         for (stat, patch) in &changes {
             let mut args = PATCH_ARGS.to_vec();
             args.extend(["HEAD", "--"]);
-            args.extend(stat.paths());
+            let paths = stat.paths();
+            args.extend(paths.iter().map(String::as_str));
             let alone = git.run_with_env(Some(&repo), &args, &env).await.unwrap();
             assert_eq!(*patch, Git::stdout(&alone), "{}", stat.path);
             assert!(!patch.is_empty(), "{}", stat.path);

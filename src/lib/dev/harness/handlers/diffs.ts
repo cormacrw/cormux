@@ -17,6 +17,7 @@ export function diffHandlers(runtime: HarnessRuntime) {
       return {
         path: `src/generated/module-${file}.ts`,
         oldPath: null,
+        status: 'added' as const,
         added: lines.length,
         deleted: 0,
         hunks: [
@@ -76,14 +77,14 @@ export function diffHandlers(runtime: HarnessRuntime) {
     },
     discard_workspace_changes: ({
       workspaceId,
-      paths,
+      path,
     }: {
       workspaceId: string
-      paths: string[]
+      path: string | null
     }) => {
       if (workspaceId === db.diff.workspaceId) {
-        if (!paths.length) discarded = null
-        else for (const path of paths) discarded?.add(path)
+        if (path == null) discarded = null
+        else discarded?.add(path)
         sendDiff(null)
       }
       return null

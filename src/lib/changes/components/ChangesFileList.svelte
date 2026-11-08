@@ -2,11 +2,7 @@
   import { pluralWord } from '$lib/format/plural'
   import type { DiffFile } from '$lib/ipc/bindings'
   import { diffComments } from '$lib/changes/diff-comments.svelte'
-  import {
-    inferFileStatus,
-    splitPath,
-    statusLabel,
-  } from '$lib/changes/file-status'
+  import { splitPath, STATUS_MARK } from '$lib/changes/file-status'
   import { changesUi } from '$lib/changes/changes-ui.svelte'
   import { cn } from '$lib/utils'
   import LazyDiff from './LazyDiff.svelte'
@@ -34,7 +30,7 @@
 
 <ul class="flex flex-col" aria-label="Changed files">
   {#each files as file (file.path)}
-    {@const status = inferFileStatus(file)}
+    {@const status = file.status}
     {@const parts = splitPath(file.path)}
     {@const open = !changesUi.isCollapsed(file)}
     {@const commentCount = diffComments.forFile(
@@ -92,14 +88,14 @@
           <span
             class={cn(
               'shrink-0 font-mono text-xs font-semibold',
-              status === 'A' && 'text-[var(--success)]',
-              status === 'D' && 'text-destructive',
-              status === 'M' && 'text-[var(--warning)]',
-              status === 'R' && 'text-info',
+              status === 'added' && 'text-[var(--success)]',
+              status === 'deleted' && 'text-destructive',
+              status === 'modified' && 'text-[var(--warning)]',
+              status === 'renamed' && 'text-info',
             )}
           >
-            <span aria-hidden="true">{status}</span>
-            <span class="sr-only">{statusLabel[status]}</span>
+            <span aria-hidden="true">{STATUS_MARK[status].letter}</span>
+            <span class="sr-only">{STATUS_MARK[status].label}</span>
           </span>
         </button>
         {#if onDiscard}

@@ -1,24 +1,14 @@
-import type { DiffFile } from '$lib/ipc/bindings'
+import type { DiffFile, FileStatus } from '$lib/ipc/bindings'
 
-type FileChangeStatus = 'M' | 'A' | 'D' | 'R'
-
-export function inferFileStatus(file: DiffFile): FileChangeStatus {
-  if (file.oldPath) return 'R'
-  if (file.deleted > 0 && file.added === 0) return 'D'
-  if (file.added > 0 && file.deleted === 0) {
-    const onlyAdds = file.hunks.every((hunk) =>
-      hunk.body.split('\n').every((line) => !line.startsWith('-')),
-    )
-    if (onlyAdds) return 'A'
-  }
-  return 'M'
-}
-
-export const statusLabel: Record<FileChangeStatus, string> = {
-  M: 'Modified',
-  A: 'Added',
-  D: 'Deleted',
-  R: 'Renamed',
+/** The letter a file list shows for each status, and its word for screen readers. */
+export const STATUS_MARK: Record<
+  FileStatus,
+  { letter: string; label: string }
+> = {
+  added: { letter: 'A', label: 'Added' },
+  modified: { letter: 'M', label: 'Modified' },
+  deleted: { letter: 'D', label: 'Deleted' },
+  renamed: { letter: 'R', label: 'Renamed' },
 }
 
 export function splitPath(path: string): { dir: string; name: string } {

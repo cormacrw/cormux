@@ -43,12 +43,45 @@ pub struct DiffHunk {
     pub body: String,
 }
 
+/// What happened to a file, as git reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FileStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+impl FileStatus {
+    /// From a file's patch: git's extended header says whether it is new, gone or moved. Without
+    /// a patch (one that couldn't be shown), only a rename is known.
+    fn of(old_path: Option<&str>, patch: &str) -> Self {
+        if old_path.is_some() {
+            return Self::Renamed;
+        }
+        for line in patch.lines().skip(1) {
+            if line.starts_with("@@") || line.starts_with("--- ") {
+                break;
+            }
+            if line.starts_with("new file mode") {
+                return Self::Added;
+            }
+            if line.starts_with("deleted file mode") {
+                return Self::Deleted;
+            }
+        }
+        Self::Modified
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffFile {
     pub path: String,
     /// Where a renamed or moved file came from.
     pub old_path: Option<String>,
+    pub status: FileStatus,
     pub added: u32,
     pub deleted: u32,
     pub hunks: Vec<DiffHunk>,
@@ -524,6 +557,7 @@ async fn compute_diff(
         .map(|(stat, patch)| {
             let (hunks, truncated) = capped_hunks(parse_hunks(&patch));
             DiffFile {
+                status: FileStatus::of(stat.old_path.as_deref(), &patch),
                 path: stat.path,
                 old_path: stat.old_path,
                 added: stat.added,
@@ -669,6 +703,56 @@ mod tests {
         commit_file(repo, "later.txt");
         assert!(!git.is_ancestor(repo, "main", "feat/a").await);
         assert!(git.is_ancestor(repo, "feat/a", "feat/b").await);
+    }
+
+    /// Bug: the UI guessed status from line counts, so a file only appended to read "Added" and
+    /// Discard offered to delete it.
+    #[tokio::test]
+    async fn file_status_comes_from_git_not_line_counts() {
+        use crate::shell_env::ShellEnv;
+        use tokio::sync::RwLock;
+
+        let git = Git::new(Arc::new(RwLock::new(ShellEnv::new())));
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        };
+        run(&["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("grow.txt"), "one\n").unwrap();
+        std::fs::write(repo.join("shrink.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo.join("gone.txt"), "bye\n").unwrap();
+        std::fs::write(repo.join("move.txt"), "a\nb\nc\nd\n").unwrap();
+        run(&["add", "-A"]);
+        commit_file(repo, "base.txt");
+        std::fs::write(repo.join("grow.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo.join("shrink.txt"), "one\n").unwrap();
+        std::fs::remove_file(repo.join("gone.txt")).unwrap();
+        std::fs::rename(repo.join("move.txt"), repo.join("moved.txt")).unwrap();
+        std::fs::write(repo.join("new.txt"), "hi\n").unwrap();
+
+        let diff = compute_diff(&git, "w", repo, None).await.unwrap();
+        let mut statuses: Vec<_> = diff
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.status))
+            .collect();
+        statuses.sort_by_key(|(path, _)| *path);
+        assert_eq!(
+            statuses,
+            [
+                ("gone.txt", FileStatus::Deleted),
+                ("grow.txt", FileStatus::Modified),
+                ("moved.txt", FileStatus::Renamed),
+                ("new.txt", FileStatus::Added),
+                ("shrink.txt", FileStatus::Modified),
+            ]
+        );
     }
 
     #[test]
