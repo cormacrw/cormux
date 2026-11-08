@@ -83,6 +83,17 @@ pub trait UserOutput: Send + Sync {
     fn dock_badge(&self, count: Option<i64>);
 }
 
+/// Refreshes the webview, and with it the dock badge, whenever an agent asks for an approval.
+pub fn start(bus: &crate::bus::Bus, out: &Notifier) {
+    let out = out.clone();
+    bus.listen(move |event| {
+        if let crate::bus::DomainEvent::ApprovalRequested { .. } = event {
+            out.changed(Change::THREADS);
+        }
+        std::future::ready(())
+    });
+}
+
 /// Numbers state changes, merges bursts of them, and keeps the dock badge on the number of
 /// approvals waiting. Cheap to clone: clones share one sequence.
 #[derive(Clone)]

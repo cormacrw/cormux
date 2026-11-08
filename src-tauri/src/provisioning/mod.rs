@@ -4,8 +4,7 @@
 mod runner;
 
 pub use runner::{
-    ProvisionPlan, SETUP_ACTIVITY, SetupFailed, WorkspaceSpec, create, retry, run, skip_setup,
-    start,
+    ProvisionPlan, SETUP_ACTIVITY, WorkspaceSpec, create, retry, run, skip_setup, start,
 };
 
 use std::time::Duration;

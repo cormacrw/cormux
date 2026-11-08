@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use uuid::Uuid;
 
+use crate::bus::DomainEvent;
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
@@ -55,13 +56,6 @@ pub struct ProvisionPlan {
     pub seed_summary: Option<SeedSummary>,
     /// Raised once the agent has its prompt.
     pub started_toast: Option<Vec<ToastPart>>,
-}
-
-/// Setup failed for good; reported to whoever is waiting on the workspace.
-#[derive(Debug, Clone)]
-pub struct SetupFailed {
-    pub workspace_id: String,
-    pub message: String,
 }
 
 /// Records the workspace and its thread, having checked everything that can be checked before
@@ -316,10 +310,7 @@ async fn finish_after_setup(
             .set_activity(id, "Starting agent…", 2, None)
             .await?;
         state.out.changed(Change::THREADS);
-        state
-            .engines
-            .start(&plan.thread_id, id, Some(prompt.clone()))
-            .await?;
+        crate::turn::begin(state, &plan.thread_id, id, prompt.clone()).await?;
     }
 
     let workspace = state.workspaces.get(id).await?;
@@ -426,7 +417,7 @@ async fn mark_failed(
         workspace_id: Some(workspace_id.to_string()),
         thread_id: None,
     });
-    let _ = state.setup_failed.send(SetupFailed {
+    state.bus.publish(DomainEvent::ProvisioningFailed {
         workspace_id: workspace_id.to_string(),
         message: message.to_string(),
     });

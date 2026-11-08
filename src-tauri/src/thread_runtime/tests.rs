@@ -5,10 +5,12 @@ use tokio::sync::RwLock;
 
 use super::fake::FakeEngines;
 use super::*;
+use crate::approvals::Answer;
+use crate::bus::Bus;
 use crate::engines::{ClaudeEngines, ToolRole};
-use crate::model::{StopReason, ThreadRole, WorkspaceKind};
+use crate::model::{ApprovalPayload, StopReason, ThreadRole, WorkspaceKind};
 use crate::shell_env::ShellEnv;
-use crate::store::types::{ApprovalRow, RepoRecord, ThreadRow, WorkspaceRow};
+use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
 use crate::transcript::{StreamedEvent, TranscriptEvent};
 
 const W: &str = "w1";
@@ -48,18 +50,28 @@ fn setup(engines: Arc<dyn Engines>) -> Setup {
         ))
         .unwrap();
     let transcript = Transcript::new(store.clone());
-    let approvals = Arc::new(ApprovalBroker::new());
-    let (turn_end_notify, turn_ends) = broadcast::channel(8);
+    let approvals = Arc::new(ApprovalBroker::new(
+        store.clone(),
+        transcript.clone(),
+        Bus::default(),
+    ));
     let runtime = ThreadRuntime::new(RuntimeParts {
         engines,
         approvals: approvals.clone(),
         store: store.clone(),
         transcript: transcript.clone(),
         workspaces: Workspaces::new(store.clone()),
-        host: CormuxMcp::new(store.clone(), transcript.clone()),
-        approval_notify: broadcast::channel(4).0,
-        turn_end_notify,
+        host_tools: Arc::new(|settings| HostToolsConfig {
+            server_name: "host".into(),
+            disallowed: if settings.references {
+                Vec::new()
+            } else {
+                vec!["attach".into()]
+            },
+            ..HostToolsConfig::default()
+        }),
     });
+    let turn_ends = runtime.turn_ends();
     Setup {
         runtime,
         store,
@@ -158,7 +170,7 @@ async fn only_a_quiet_resumable_idle_engine_is_reaped() {
     for (id, status, session) in [
         ("idle", "idle", Some("s")),
         ("running", "running", Some("s")),
-        ("held", "idle", Some("s")),
+        ("paused", "paused", Some("s")),
         ("asking", "idle", Some("s")),
         ("fresh", "idle", None),
     ] {
@@ -166,16 +178,9 @@ async fn only_a_quiet_resumable_idle_engine_is_reaped() {
         engines.push(fake.engine(id));
         setup.runtime.ensure(id, W).await.unwrap();
     }
-    setup.runtime.hold_thread("held").unwrap();
     setup
         .store
-        .upsert_approval(&ApprovalRow {
-            id: "a1".into(),
-            thread_id: "asking".into(),
-            status: "pending".into(),
-            tool: "edit".into(),
-            payload: "{}".into(),
-        })
+        .insert_pending_approval("a1", "asking", "edit", &ApprovalPayload::titled("Edit"))
         .unwrap();
 
     assert!(setup.runtime.reap_idle(Duration::from_secs(60)).is_empty());
@@ -188,7 +193,7 @@ async fn only_a_quiet_resumable_idle_engine_is_reaped() {
 }
 
 #[tokio::test]
-async fn a_session_starts_with_the_threads_choices_and_the_cormux_tools() {
+async fn a_session_starts_with_the_threads_choices_and_the_host_tools_its_settings_allow() {
     let fake = FakeEngines::default();
     let setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "idle", Some("sess-9"));
@@ -201,13 +206,49 @@ async fn a_session_starts_with_the_threads_choices_and_the_cormux_tools() {
     assert!(launched.instructions.contains("git reset --hard <branch>"));
     assert!(launched.instructions.contains(&crate::media::instruction()));
     let tools = launched.host_tools.unwrap();
-    assert_eq!(tools.server_name, crate::mcp::SERVER_NAME);
-    assert_eq!(tools.disallowed, ["attach_entity"], "References is off");
-    assert!(!tools.instructions.contains("attach_entity"));
+    assert_eq!(tools.server_name, "host");
+    assert_eq!(tools.disallowed, ["attach"], "References is off");
+
+    Settings {
+        references: true,
+        ..Settings::default()
+    }
+    .save(&setup.store);
+    setup.runtime.start("t1", W).await.unwrap();
+    let relaunched = fake.launches().remove(1);
+    assert!(relaunched.host_tools.unwrap().disallowed.is_empty());
 }
 
 #[tokio::test]
-async fn a_turn_end_idles_the_thread_drops_its_approvals_and_is_published_once() {
+async fn host_tool_calls_wait_for_the_server_with_their_thread() {
+    let fake = FakeEngines::default();
+    let setup = setup(Arc::new(fake.clone()));
+    add_thread(&setup.store, "t1", "idle", None);
+    setup.runtime.ensure("t1", W).await.unwrap();
+    let (respond, replied) = tokio::sync::oneshot::channel();
+    fake.report(
+        "t1",
+        EngineOutput::HostTool(HostToolCall {
+            server: "host".into(),
+            message: serde_json::json!({ "id": 1, "method": "ping" }),
+            respond,
+        }),
+    );
+
+    let mut requests = setup.runtime.take_host_requests().unwrap();
+    assert!(setup.runtime.take_host_requests().is_none(), "one server");
+    let request = requests.recv().await.unwrap();
+    assert_eq!(request.thread_id, "t1");
+    request
+        .call
+        .respond
+        .send(serde_json::json!({ "ok": true }))
+        .unwrap();
+    assert_eq!(replied.await.unwrap()["ok"], true);
+}
+
+#[tokio::test]
+async fn a_turn_end_drops_its_approvals_and_is_reported_once() {
     let fake = FakeEngines::default();
     let mut setup = setup(Arc::new(fake.clone()));
     add_thread(&setup.store, "t1", "running", None);
@@ -255,8 +296,6 @@ async fn a_turn_end_idles_the_thread_drops_its_approvals_and_is_published_once()
     );
     assert_eq!(setup.turn_ends.recv().await.unwrap(), "t1");
     assert!(answered.await.is_err(), "the engine stopped waiting");
-    let thread = setup.store.thread_by_id("t1").unwrap().unwrap();
-    assert!(thread.has_status(ThreadStatus::Idle));
     assert!(
         setup
             .store
@@ -294,7 +333,11 @@ async fn questions_wait_for_answers_even_with_auto_approve_on() {
     let (engines, _shim) = mock_claude();
     let setup = setup(engines);
     add_thread(&setup.store, "t-ask", "idle", None);
-    setup.store.set_setting("runEverything", "true").unwrap();
+    Settings {
+        run_everything: true,
+        ..Settings::default()
+    }
+    .save(&setup.store);
     let mut events = setup.transcript.subscribe("t-ask");
     setup.runtime.ensure("t-ask", W).await.unwrap();
     setup.runtime.prompt("t-ask", "ask me something").unwrap();
@@ -310,7 +353,7 @@ async fn questions_wait_for_answers_even_with_auto_approve_on() {
 
     let row = setup.store.get_approval(&id).unwrap().unwrap();
     assert_eq!(row.tool, crate::approvals::QUESTION_TOOL);
-    assert!(row.payload.contains("Which colour?"));
+    assert_eq!(row.payload.unwrap().questions[0].question, "Which colour?");
 
     let answers = std::collections::BTreeMap::from([(
         "Which colour?".to_string(),
@@ -318,7 +361,7 @@ async fn questions_wait_for_answers_even_with_auto_approve_on() {
     )]);
     setup
         .approvals
-        .complete(&id, ApprovalDecision::Answered { answers })
+        .resolve(&id, Answer::Answers(answers))
         .unwrap();
 
     // The mock echoes the decision back as a message.
@@ -380,8 +423,7 @@ async fn claude_mock_prompt_permission_and_cancel() {
     };
     setup
         .approvals
-        .resolve(&permission_id, true, None)
-        .await
+        .resolve(&permission_id, Answer::Approve)
         .unwrap();
     loop {
         match next_event(&mut events).await {
@@ -419,7 +461,11 @@ async fn live_background_agent(thread_id: &str) -> (Setup, broadcast::Receiver<S
         .store
         .set_thread_model(thread_id, Some("haiku"))
         .unwrap();
-    setup.store.set_setting("runEverything", "true").unwrap();
+    Settings {
+        run_everything: true,
+        ..Settings::default()
+    }
+    .save(&setup.store);
     let events = setup.transcript.subscribe(thread_id);
     setup.runtime.ensure(thread_id, W).await.unwrap();
     setup
@@ -517,40 +563,52 @@ async fn live_claude_stop_reaches_a_background_agent() {
     assert!(stopped.is_ok(), "the agent kept running after Stop");
 }
 
-/// Needs a signed-in `claude` on PATH, and spends one small Haiku turn.
+/// The reason reaches the agent as its tool's answer; it isn't sent again as a prompt.
 #[tokio::test]
-#[ignore]
-async fn live_claude_reaches_the_cormux_tools() {
-    let engines = Arc::new(ClaudeEngines::new(Arc::new(RwLock::new(ShellEnv::new()))));
-    let setup = setup(engines);
-    add_thread(&setup.store, "live", "idle", None);
-    setup.store.set_thread_model("live", Some("haiku")).unwrap();
-    let mut events = setup.transcript.subscribe("live");
-    setup.runtime.ensure("live", W).await.unwrap();
+async fn a_denial_reaches_the_engine_as_its_answer_and_nothing_else() {
+    let fake = FakeEngines::default();
+    let setup = setup(Arc::new(fake.clone()));
+    add_thread(&setup.store, "t1", "running", None);
+    let mut engine = fake.engine("t1");
+    setup.runtime.ensure("t1", W).await.unwrap();
+    let mut events = setup.transcript.subscribe("t1");
+    let (respond, answered) = tokio::sync::oneshot::channel();
+    fake.report(
+        "t1",
+        EngineOutput::Permission(PermissionRequest {
+            id: "p1".into(),
+            tool_call_id: None,
+            tool: "Bash".into(),
+            role: ToolRole::Command {
+                command: "rm -rf build".into(),
+                description: None,
+            },
+            detail: None,
+            questions: Vec::new(),
+            respond,
+        }),
+    );
+    while !matches!(
+        events.recv().await.unwrap().event,
+        TranscriptEvent::Agent(AgentEvent::Permission { .. })
+    ) {}
+
+    let reason = Some("keep the build folder".to_string());
     setup
-        .runtime
-        .prompt(
-            "live",
-            "Call mcp__cormux__get_thread with id \"nonexistent\", then quote its error.",
-        )
+        .approvals
+        .resolve("p1", Answer::Deny { reason })
         .unwrap();
-    let mut reply = String::new();
-    let mut used_tool = false;
-    loop {
-        match next_live_event(&mut events).await {
-            AgentEvent::ToolCall {
-                role: ToolRole::Mcp { action, .. },
-                ..
-            } => {
-                used_tool |= action == "Get thread";
-            }
-            AgentEvent::Permission { .. } => panic!("a read tool asked for approval"),
-            AgentEvent::MessageChunk { text, .. } => reply.push_str(&text),
-            AgentEvent::TurnEnd { .. } => break,
-            _ => {}
+
+    assert_eq!(
+        answered.await.unwrap(),
+        PermissionAnswer::Deny {
+            message: "keep the build folder".into()
         }
+    );
+    while let Ok(command) = engine.try_recv() {
+        assert!(
+            !matches!(command, EngineCommand::Prompt(_)),
+            "the denial was sent again as a prompt"
+        );
     }
-    setup.runtime.stop("live").await.unwrap();
-    assert!(used_tool, "never called the tool: {reply}");
-    assert!(reply.contains("unknown thread"), "{reply}");
 }

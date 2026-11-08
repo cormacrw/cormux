@@ -1,27 +1,27 @@
 //! Each thread's live engine: launching one in the thread's worktree when a prompt needs it,
 //! routing what it reports (events into the transcript, permission requests to approvals, tool
-//! calls to the host's tools), adding up its cost, publishing each turn's end once, and shutting
-//! down engines that sit idle.
+//! calls to whoever serves the host's tools), adding up its cost, reporting each turn's end once,
+//! and shutting down engines that sit idle.
 
 #[cfg(test)]
 pub mod fake;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, mpsc};
 
-use crate::approvals::{ApprovalBroker, ApprovalDecision};
+use crate::approvals::{ApprovalBroker, ApprovalDecision, ApprovalPolicy};
 use crate::engines::prompt::Prompt;
 use crate::engines::{
     AgentEvent, EngineCommand, EngineOutput, Engines, HostToolCall, HostToolsConfig, LaunchConfig,
     PermissionAnswer, PermissionRequest, ThreadModels, static_efforts, static_models,
 };
 use crate::error::{Error, Result};
-use crate::mcp::CormuxMcp;
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
+use crate::settings::Settings;
 use crate::store::Store;
 use crate::transcript::Transcript;
 use crate::workspaces::Workspaces;
@@ -36,11 +36,16 @@ const IDLE_REAP_TICK: Duration = Duration::from_secs(5 * 60);
 /// prompt says otherwise.
 const BRANCH_INSTRUCTION: &str = "This thread starts on a new branch cut from the repo's default branch, with a worktree of its own. If the user's first message names another branch to start from, or asks to pick up earlier work, run `git reset --hard <branch>` (`origin/<branch>` if it only exists there) before anything else, while this branch has no commits of its own, and say which branch you started from. Ignore this for later messages, and don't do it for a branch the user only mentions.";
 
-#[derive(Default)]
-struct HoldState {
-    paused: bool,
-    queued: Vec<Prompt>,
+/// A message for the host's tools from a thread's engine, waiting for its reply.
+#[derive(Debug)]
+pub struct HostRequest {
+    /// The thread whose session sent it, so no tool argument can claim to be another.
+    pub thread_id: String,
+    pub call: HostToolCall,
 }
+
+/// The host's tools as a session is told them, for the settings it starts with.
+pub type HostToolsFor = Arc<dyn Fn(&Settings) -> HostToolsConfig + Send + Sync>;
 
 #[derive(Clone)]
 pub struct ThreadRuntime {
@@ -49,12 +54,12 @@ pub struct ThreadRuntime {
     store: Store,
     transcript: Transcript,
     workspaces: Workspaces,
-    host: CormuxMcp,
-    approval_notify: broadcast::Sender<()>,
-    /// Thread ids whose turn just ended (or whose engine exited).
-    turn_end_notify: broadcast::Sender<String>,
+    host_tools: HostToolsFor,
+    host_requests: mpsc::UnboundedSender<HostRequest>,
+    /// Taken once, by whoever serves the host's tools; requests wait in it until then.
+    host_inbox: Arc<Mutex<Option<mpsc::UnboundedReceiver<HostRequest>>>>,
+    ended: broadcast::Sender<String>,
     threads: Arc<Mutex<HashMap<String, ThreadSlot>>>,
-    holds: Arc<Mutex<HashMap<String, HoldState>>>,
     /// One per thread, held from "no engine here" to the new one being registered, so two
     /// callers can't both launch a CLI for the same session (the second would replace the
     /// first's slot and shut it down mid-prompt).
@@ -88,26 +93,36 @@ pub struct RuntimeParts {
     pub store: Store,
     pub transcript: Transcript,
     pub workspaces: Workspaces,
-    pub host: CormuxMcp,
-    pub approval_notify: broadcast::Sender<()>,
-    pub turn_end_notify: broadcast::Sender<String>,
+    pub host_tools: HostToolsFor,
 }
 
 impl ThreadRuntime {
     pub fn new(parts: RuntimeParts) -> Self {
+        let (host_requests, host_inbox) = mpsc::unbounded_channel();
         Self {
             engines: parts.engines,
             approvals: parts.approvals,
             store: parts.store,
             transcript: parts.transcript,
             workspaces: parts.workspaces,
-            host: parts.host,
-            approval_notify: parts.approval_notify,
-            turn_end_notify: parts.turn_end_notify,
+            host_tools: parts.host_tools,
+            host_requests,
+            host_inbox: Arc::new(Mutex::new(Some(host_inbox))),
+            ended: broadcast::channel(64).0,
             threads: Arc::new(Mutex::new(HashMap::new())),
-            holds: Arc::new(Mutex::new(HashMap::new())),
             launch_locks: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Thread ids whose engine's turn just ended, or whose engine exited, once each. The open
+    /// approvals of that turn are already cancelled; the thread's status is the listener's.
+    pub fn turn_ends(&self) -> broadcast::Receiver<String> {
+        self.ended.subscribe()
+    }
+
+    /// The engines' messages for the host's tools. There is one server; it takes them once.
+    pub fn take_host_requests(&self) -> Option<mpsc::UnboundedReceiver<HostRequest>> {
+        self.host_inbox.lock().ok()?.take()
     }
 
     /// Whether a live engine serves the thread. An engine whose pump has ended (the CLI
@@ -149,34 +164,23 @@ impl ThreadRuntime {
         if self.has_thread(thread_id) {
             return Ok(());
         }
-        self.start(thread_id, workspace_id, None).await
+        self.start(thread_id, workspace_id).await
     }
 
-    /// Launches a new engine for the thread in its workspace's worktree, replacing any it has,
-    /// and sends it `prompt` first when there is one.
-    pub async fn start(
-        &self,
-        thread_id: &str,
-        workspace_id: &str,
-        prompt: Option<Prompt>,
-    ) -> Result<()> {
+    /// Launches a new engine for the thread in its workspace's worktree, replacing any it has.
+    pub async fn start(&self, thread_id: &str, workspace_id: &str) -> Result<()> {
         let workspace = self.workspaces.get(workspace_id).await?;
         if workspace.status == WorkspaceLifecycle::TearingDown {
             return Err(Error::Workspace(format!(
                 "workspace {workspace_id} is being torn down"
             )));
         }
-        self.launch(thread_id, workspace.worktree()).await?;
-        if let Some(prompt) =
-            prompt.filter(|prompt| !prompt.text.is_empty() || !prompt.images.is_empty())
-        {
-            self.prompt(thread_id, prompt)?;
-        }
-        Ok(())
+        self.launch(thread_id, workspace.worktree()).await
     }
 
     async fn launch(&self, thread_id: &str, cwd: PathBuf) -> Result<()> {
         let _ = self.stop(thread_id).await;
+        let settings = Settings::load(&self.store);
         let config = LaunchConfig {
             thread_id: thread_id.to_string(),
             cwd,
@@ -184,7 +188,7 @@ impl ThreadRuntime {
             effort: self.store.thread_effort(thread_id)?,
             resume: self.store.thread_session(thread_id)?,
             instructions: format!("{BRANCH_INSTRUCTION}\n\n{}", crate::media::instruction()),
-            host_tools: Some(self.host_tools()),
+            host_tools: Some((self.host_tools)(&settings)),
         };
         let last_active = Arc::new(Mutex::new(Instant::now()));
         let (output, reported) = mpsc::unbounded_channel();
@@ -193,11 +197,9 @@ impl ThreadRuntime {
             store: self.store.clone(),
             transcript: self.transcript.clone(),
             approvals: self.approvals.clone(),
-            host: self.host.clone(),
-            approval_notify: self.approval_notify.clone(),
-            turn_end_notify: self.turn_end_notify.clone(),
-            auto_approve_all: crate::approvals::run_everything_from_store(&self.store),
-            outstanding: HashSet::new(),
+            host_requests: self.host_requests.clone(),
+            ended: self.ended.clone(),
+            policy: ApprovalPolicy::from(&settings),
             last_active: last_active.clone(),
         };
         tokio::spawn(pump.run(reported));
@@ -214,27 +216,6 @@ impl ThreadRuntime {
                 },
             );
         Ok(())
-    }
-
-    /// The Cormux tools every session gets. References' tool is withheld while that experiment
-    /// is off.
-    fn host_tools(&self) -> HostToolsConfig {
-        let references = crate::mcp::references_enabled(&self.store);
-        let mut instructions = crate::mcp::ORCHESTRATION_INSTRUCTION.to_string();
-        if references {
-            instructions.push_str("\n\n");
-            instructions.push_str(crate::mcp::REFERENCES_INSTRUCTION);
-        }
-        HostToolsConfig {
-            server_name: crate::mcp::SERVER_NAME.into(),
-            allowed: crate::mcp::read_only_tools(),
-            disallowed: if references {
-                Vec::new()
-            } else {
-                vec![crate::mcp::ATTACH_ENTITY_TOOL.into()]
-            },
-            instructions,
-        }
     }
 
     /// The thread's picked model and what it can switch to.
@@ -271,73 +252,13 @@ impl ThreadRuntime {
         Ok(())
     }
 
+    /// Only `turn` sends prompts: it keeps the thread's status in step with them.
     pub fn prompt(&self, thread_id: &str, prompt: impl Into<Prompt>) -> Result<()> {
         self.send(thread_id, EngineCommand::Prompt(prompt.into()))
     }
 
     pub fn cancel(&self, thread_id: &str) -> Result<()> {
         self.send(thread_id, EngineCommand::Cancel)
-    }
-
-    pub fn thread_is_held(&self, thread_id: &str) -> bool {
-        self.holds
-            .lock()
-            .ok()
-            .and_then(|holds| holds.get(thread_id).map(|row| row.paused))
-            .unwrap_or(false)
-    }
-
-    pub fn hold_thread(&self, thread_id: &str) -> Result<()> {
-        if let Err(error) = self.cancel(thread_id) {
-            log::warn!("pausing {thread_id}: {error}");
-        }
-        let mut holds = self
-            .holds
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?;
-        holds.entry(thread_id.to_string()).or_default().paused = true;
-        Ok(())
-    }
-
-    /// Ends a pause. The prompt is what queued during it, or `continue` if nothing did.
-    pub fn release_thread(&self, thread_id: &str) -> Result<Prompt> {
-        let mut holds = self
-            .holds
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?;
-        let slot = holds.entry(thread_id.to_string()).or_default();
-        slot.paused = false;
-        let queued = std::mem::take(&mut slot.queued);
-        if queued.is_empty() {
-            return Ok("continue".into());
-        }
-        Ok(Prompt::merge(queued))
-    }
-
-    pub fn enqueue_while_held(&self, thread_id: &str, prompt: Prompt) -> Result<()> {
-        let mut holds = self
-            .holds
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?;
-        holds
-            .entry(thread_id.to_string())
-            .or_default()
-            .queued
-            .push(prompt);
-        Ok(())
-    }
-
-    pub fn submit_prompt(
-        &self,
-        thread_id: &str,
-        prompt: impl Into<Prompt>,
-        held: bool,
-    ) -> Result<()> {
-        let prompt = prompt.into();
-        if held || self.thread_is_held(thread_id) {
-            return self.enqueue_while_held(thread_id, prompt);
-        }
-        self.prompt(thread_id, prompt)
     }
 
     /// Signals every live engine's process group. For app quit, which can't wait on the
@@ -375,8 +296,7 @@ impl ThreadRuntime {
         Ok(())
     }
 
-    /// Shuts the engine down without waiting for it, and drops any paused turn and queued prompts.
-    /// The next prompt launches a new engine.
+    /// Shuts the engine down without waiting for it. The next prompt launches a new engine.
     pub fn discard(&self, thread_id: &str) -> Result<()> {
         let slot = self
             .threads
@@ -386,10 +306,6 @@ impl ThreadRuntime {
         if let Some(slot) = slot {
             let _ = slot.commands.send(EngineCommand::Shutdown);
         }
-        self.holds
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?
-            .remove(thread_id);
         Ok(())
     }
 
@@ -422,7 +338,8 @@ impl ThreadRuntime {
 
     /// Shuts down engines nothing has touched for `idle_for`, returning their threads. Only one
     /// with a saved session goes, since that's what the next prompt resumes. A turn the engine is
-    /// holding for background agents keeps its thread running, so that never reads as idle.
+    /// holding for background agents keeps its thread running, and a paused one is paused, so
+    /// neither reads as idle.
     fn reap_idle(&self, idle_for: Duration) -> Vec<String> {
         let Ok(mut threads) = self.threads.lock() else {
             return Vec::new();
@@ -461,7 +378,7 @@ impl ThreadRuntime {
             .store
             .pending_approvals_for_thread(thread_id)
             .map_or(true, |approvals| !approvals.is_empty());
-        quiet && resumable && idle && !unanswered && !self.thread_is_held(thread_id)
+        quiet && resumable && idle && !unanswered
     }
 
     fn send(&self, thread_id: &str, command: EngineCommand) -> Result<()> {
@@ -479,24 +396,21 @@ impl ThreadRuntime {
     }
 }
 
-/// One engine's way out to the rest of the app, in the order it reported. It keeps the approvals
-/// the engine is waiting on, so a turn that ends (or an engine that dies) with one still open drops
-/// it instead of leaving the dock badge counting a request nothing will ever answer.
+/// One engine's way out to the rest of the app, in the order it reported.
 struct Pump {
     thread_id: String,
     store: Store,
     transcript: Transcript,
     approvals: Arc<ApprovalBroker>,
-    host: CormuxMcp,
-    approval_notify: broadcast::Sender<()>,
-    turn_end_notify: broadcast::Sender<String>,
-    auto_approve_all: bool,
-    outstanding: HashSet<String>,
+    host_requests: mpsc::UnboundedSender<HostRequest>,
+    ended: broadcast::Sender<String>,
+    policy: ApprovalPolicy,
     last_active: Arc<Mutex<Instant>>,
 }
 
 impl Pump {
-    async fn run(mut self, mut reported: mpsc::UnboundedReceiver<EngineOutput>) {
+    async fn run(self, mut reported: mpsc::UnboundedReceiver<EngineOutput>) {
+        let mut exited = false;
         while let Some(output) = reported.recv().await {
             touch(&self.last_active);
             match output {
@@ -509,24 +423,26 @@ impl Pump {
                 EngineOutput::Permission(request) => self.permission(request),
                 EngineOutput::HostTool(call) => self.host_tool(call),
                 EngineOutput::Exited => {
+                    exited = true;
                     self.transcript
                         .signal(&self.thread_id, AgentEvent::EngineExited { code: None });
                     self.ended();
                 }
             }
         }
+        // An engine whose output broke off without saying it exited waits on nothing either.
+        if !exited {
+            self.ended();
+        }
     }
 
-    fn event(&mut self, event: AgentEvent) {
+    fn event(&self, event: AgentEvent) {
         if let AgentEvent::SessionStarted { session_id } = &event
             && let Err(error) = self.store.set_thread_session(&self.thread_id, session_id)
         {
             log::warn!("saving {}'s session: {error}", self.thread_id);
         }
         let turn_ended = matches!(event, AgentEvent::TurnEnd { .. });
-        if turn_ended {
-            self.settle();
-        }
         if let Err(error) = self.transcript.append(&self.thread_id, event) {
             log::warn!("saving an event to {}: {error}", self.thread_id);
         }
@@ -535,27 +451,10 @@ impl Pump {
         }
     }
 
-    /// Idles the thread before anyone hears its turn ended, so nobody who does reads it as still
-    /// running. A paused thread stays paused: pausing interrupts the CLI, which answers with a turn
-    /// end of its own, and idling the thread then would strand its hold.
-    fn settle(&self) {
-        let paused = matches!(
-            self.store.thread_by_id(&self.thread_id),
-            Ok(Some(thread)) if thread.has_status(ThreadStatus::Paused)
-        );
-        if !paused
-            && let Err(error) = self
-                .store
-                .set_thread_status(&self.thread_id, ThreadStatus::Idle)
-        {
-            log::warn!("idling {}: {error}", self.thread_id);
-        }
-    }
-
     /// The engine stopped waiting on anything: its turn is over, or it is gone.
-    fn ended(&mut self) {
-        self.cancel_outstanding();
-        let _ = self.turn_end_notify.send(self.thread_id.clone());
+    fn ended(&self) {
+        self.approvals.cancel_for_thread(&self.thread_id);
+        let _ = self.ended.send(self.thread_id.clone());
     }
 
     /// Claude reports each turn's cost, so the thread's total adds them up across sessions.
@@ -587,47 +486,10 @@ impl Pump {
         }
     }
 
-    fn permission(&mut self, request: PermissionRequest) {
-        // Only the user can answer a question, so no auto-approve setting applies to one.
-        if request.questions.is_empty() && self.auto_approve_all {
-            self.transcript.signal(&self.thread_id, request.event(true));
-            let _ = request.respond.send(PermissionAnswer::Allow);
-            return;
-        }
-        // Registered before the UI hears of it, so an answer can't arrive for a request the
-        // broker doesn't know yet.
-        let decided = self.approvals.register(request.id.clone());
-        self.outstanding.insert(request.id.clone());
-        let event = request.event(false);
-        let recorded = if request.questions.is_empty() {
-            crate::approvals::record_pending_permission(
-                &self.store,
-                &self.transcript,
-                &self.thread_id,
-                &event,
-            )
-        } else {
-            crate::approvals::record_pending_question(
-                &self.store,
-                &self.transcript,
-                &self.thread_id,
-                &event,
-                request.questions,
-            )
-        };
-        match recorded {
-            Ok(()) => {
-                let _ = self.approval_notify.send(());
-            }
-            Err(error) => log::warn!("recording {}'s approval: {error}", self.thread_id),
-        }
-        self.transcript.signal(
-            &self.thread_id,
-            AgentEvent::CurrentTool {
-                id: request.tool_call_id,
-                title: request.tool,
-            },
-        );
+    fn permission(&self, request: PermissionRequest) {
+        let decided = self
+            .approvals
+            .request(&self.thread_id, &request, self.policy);
         let respond = request.respond;
         tokio::spawn(async move {
             // A closed channel means the request was cancelled: the turn it belonged to is over.
@@ -638,34 +500,11 @@ impl Pump {
     }
 
     fn host_tool(&self, call: HostToolCall) {
-        let host = self.host.clone();
-        let thread_id = self.thread_id.clone();
-        tokio::spawn(async move {
-            let reply = if call.server == crate::mcp::SERVER_NAME {
-                host.handle_message(&thread_id, &call.message).await
-            } else {
-                crate::mcp::unknown_server_reply(&call.message, &call.server)
-            };
-            let _ = call.respond.send(reply);
+        // With no server left the call is dropped, and the engine answers its tool with an error.
+        let _ = self.host_requests.send(HostRequest {
+            thread_id: self.thread_id.clone(),
+            call,
         });
-    }
-
-    /// The engine stops waiting for an answer once its turn ends, so neither should the broker,
-    /// nor the store: an engine shut down mid-question (new session, stop, replaced) sends no
-    /// turn end, so without this its row would stay `pending` and badge the thread forever.
-    fn cancel_outstanding(&mut self) {
-        for id in self.outstanding.drain() {
-            self.approvals.cancel(&id);
-            if let Err(error) = self.store.deny_pending_approval(&id) {
-                log::warn!("denying abandoned approval {id}: {error}");
-            }
-        }
-    }
-}
-
-impl Drop for Pump {
-    fn drop(&mut self) {
-        self.cancel_outstanding();
     }
 }
 

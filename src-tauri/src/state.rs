@@ -1,25 +1,26 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::RwLock;
 
 use crate::app::WorkspaceAppService;
+use crate::bus::Bus;
 use crate::clickup::ClickupClient;
 use crate::engines::{ClaudeEngines, Engines};
 use crate::error::Result;
 use crate::feedback::{Notifier, UserOutput};
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::github::Github;
-use crate::orchestration::ReportQueue;
+use crate::orchestration::Orchestration;
 use crate::paths::DataDir;
 use crate::stack::RemoteStackCache;
 use crate::summaries::Summaries;
 use crate::thread_runtime::{RuntimeParts, ThreadRuntime};
 use crate::transcript::Transcript;
 use crate::{
-    approvals::ApprovalBroker, git::Git, github::PrSyncScheduler, llm::LlmClient, mcp::CormuxMcp,
-    metrics::Metrics, process::ProcessSupervisor, shell_env::ShellEnv, store::Store,
-    workspace_git::WorkspaceGit, workspaces::Workspaces,
+    approvals::ApprovalBroker, git::Git, github::PrSyncScheduler, llm::LlmClient, metrics::Metrics,
+    process::ProcessSupervisor, shell_env::ShellEnv, store::Store, workspace_git::WorkspaceGit,
+    workspaces::Workspaces,
 };
 
 /// Process-wide core state. The webview never holds this; IPC commands borrow it. A handle to
@@ -39,6 +40,8 @@ pub struct Core {
     pub data_dir: DataDir,
     /// What workflows tell the user through.
     pub out: Notifier,
+    /// What happened in the core, for the features that react to it.
+    pub bus: Bus,
     pub shell_env: Arc<RwLock<ShellEnv>>,
     pub git: Git,
     pub workspaces: Workspaces,
@@ -47,7 +50,8 @@ pub struct Core {
     pub engines: ThreadRuntime,
     pub transcript: Transcript,
     pub approvals: Arc<ApprovalBroker>,
-    pub mcp: CormuxMcp,
+    /// Prompts waiting for their paused thread's resume.
+    pub paused: crate::turn::PausedQueues,
     pub process: ProcessSupervisor,
     pub apps: WorkspaceAppService,
     pub clickup: ClickupClient,
@@ -60,10 +64,7 @@ pub struct Core {
     pub pr_sync: PrSyncScheduler,
     pub stacks: RemoteStackCache,
     pub summaries: Summaries,
-    pub approval_notify: broadcast::Sender<()>,
-    pub turn_end_notify: broadcast::Sender<String>,
-    pub setup_failed: broadcast::Sender<crate::provisioning::SetupFailed>,
-    pub reports: ReportQueue,
+    pub orchestration: Orchestration,
 }
 
 impl AppState {
@@ -94,31 +95,29 @@ impl AppState {
         let process = ProcessSupervisor::new(shell_env.clone());
         let apps = WorkspaceAppService::new();
         let workspaces = Workspaces::new(store.clone());
-        let approvals = Arc::new(ApprovalBroker::new());
-        let out = {
-            let (store, approvals) = (store.clone(), approvals.clone());
-            Notifier::new(output, move || {
-                crate::approvals::pending_count(&store, &approvals)
-            })
-        };
-        let (approval_notify, _) = broadcast::channel(32);
-        let (turn_end_notify, _) = broadcast::channel(64);
-        let (setup_failed, _) = broadcast::channel(16);
+        let bus = Bus::default();
         let transcript = Transcript::new(store.clone());
-        let mcp = CormuxMcp::new(store.clone(), transcript.clone());
+        let approvals = Arc::new(ApprovalBroker::new(
+            store.clone(),
+            transcript.clone(),
+            bus.clone(),
+        ));
+        let out = {
+            let approvals = approvals.clone();
+            Notifier::new(output, move || approvals.pending_count())
+        };
         let engines = ThreadRuntime::new(RuntimeParts {
             engines,
             approvals: approvals.clone(),
             store: store.clone(),
             transcript: transcript.clone(),
             workspaces: workspaces.clone(),
-            host: mcp.clone(),
-            approval_notify: approval_notify.clone(),
-            turn_end_notify: turn_end_notify.clone(),
+            host_tools: Arc::new(crate::host_tools::session_config),
         });
         Self(Arc::new(Core {
             data_dir,
             out,
+            bus,
             shell_env: shell_env.clone(),
             git,
             workspaces,
@@ -126,7 +125,7 @@ impl AppState {
             engines,
             transcript,
             approvals,
-            mcp,
+            paused: Default::default(),
             process,
             apps,
             clickup: ClickupClient::new(),
@@ -139,10 +138,7 @@ impl AppState {
             pr_sync: PrSyncScheduler::default(),
             stacks: RemoteStackCache::default(),
             summaries: Summaries::default(),
-            approval_notify,
-            turn_end_notify,
-            setup_failed,
-            reports: ReportQueue::default(),
+            orchestration: Orchestration::default(),
         }))
     }
 
@@ -151,6 +147,18 @@ impl AppState {
     pub fn recorded(data_dir: DataDir) -> (Self, Arc<crate::feedback::RecordingOutput>) {
         let (state, recording, _) = Self::faked(data_dir);
         (state, recording)
+    }
+
+    /// Like `recorded`, over the given engines.
+    #[cfg(test)]
+    pub fn with_engines(data_dir: DataDir, engines: Arc<dyn Engines>) -> Self {
+        Self::with_store(
+            data_dir,
+            Store::in_memory().expect("in-memory store"),
+            Arc::new(crate::feedback::RecordingOutput::default()),
+            Arc::new(RwLock::new(ShellEnv::new())),
+            engines,
+        )
     }
 
     /// Like `recorded`, with engines the test drives.

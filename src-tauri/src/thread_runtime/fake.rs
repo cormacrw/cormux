@@ -56,6 +56,10 @@ impl FakeEngines {
         self.state.lock().unwrap().refused.insert(thread_id.into());
     }
 
+    pub fn accept_sends(&self, thread_id: &str) {
+        self.state.lock().unwrap().refused.remove(thread_id);
+    }
+
     /// Reports as the thread's engine, once it has been launched.
     pub fn report(&self, thread_id: &str, output: EngineOutput) {
         let state = self.state.lock().unwrap();

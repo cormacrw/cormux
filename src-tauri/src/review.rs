@@ -1,4 +1,4 @@
-use tokio::sync::broadcast::error::RecvError;
+use crate::bus::DomainEvent;
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
@@ -304,17 +304,13 @@ pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<Prov
 /// Reads each Reviewer's findings when its turn ends, for the life of the app.
 pub fn start(state: &AppState) {
     let state = state.clone();
-    let mut rx = state.turn_end_notify.subscribe();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(thread_id) => {
-                    if let Err(error) = on_reviewer_turn_end(&state, &thread_id).await {
-                        log::warn!("reading review findings failed: {error}");
-                    }
-                }
-                Err(RecvError::Lagged(_)) => continue,
-                Err(RecvError::Closed) => break,
+    state.bus.clone().listen(move |event| {
+        let state = state.clone();
+        async move {
+            if let DomainEvent::TurnEnded { thread_id } = event
+                && let Err(error) = on_reviewer_turn_end(&state, &thread_id).await
+            {
+                log::warn!("reading review findings failed: {error}");
             }
         }
     });
@@ -779,7 +775,9 @@ mod tests {
         let (state, recording) = reviewing("Fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
         start(&state);
 
-        state.turn_end_notify.send("t1".into()).unwrap();
+        state.bus.publish(DomainEvent::TurnEnded {
+            thread_id: "t1".into(),
+        });
 
         for _ in 0..250 {
             if review_is_ready(&state.store, "w1") {
