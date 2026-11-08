@@ -325,13 +325,7 @@ pub mod commands {
         state: State<'_, AppState>,
     ) -> Result<()> {
         let plan = resume_plan(&state, &workspace_id).await?;
-        let state = state.inner().clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(error) = crate::provisioning::retry(&state, plan).await {
-                log::warn!("retrying setup of {workspace_id}: {error}");
-            }
-        });
-        Ok(())
+        crate::provisioning::retry(&state, plan).await
     }
 
     #[tauri::command]
@@ -341,13 +335,7 @@ pub mod commands {
         state: State<'_, AppState>,
     ) -> Result<()> {
         let plan = resume_plan(&state, &workspace_id).await?;
-        let state = state.inner().clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(error) = crate::provisioning::skip_setup(&state, plan).await {
-                log::warn!("skipping setup of {workspace_id}: {error}");
-            }
-        });
-        Ok(())
+        crate::provisioning::skip_setup(&state, plan).await
     }
 
     async fn resume_plan(state: &AppState, workspace_id: &str) -> Result<ProvisionPlan> {

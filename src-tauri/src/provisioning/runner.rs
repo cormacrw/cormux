@@ -125,36 +125,41 @@ async fn fail_on_error(state: &AppState, workspace_id: &str, ran: Result<()>) {
     }
 }
 
+/// Runs a failed setup again in the background. Refused unless setup failed.
 pub async fn retry(state: &AppState, plan: ProvisionPlan) -> Result<()> {
     state
         .workspaces
-        .set_status(&plan.workspace_id, WorkspaceLifecycle::Provisioning)
+        .restart_provisioning(&plan.workspace_id)
         .await?;
-    state
-        .workspaces
-        .set_activity(&plan.workspace_id, WorkspaceActivity::SettingUp)
-        .await?;
-    run(state, plan).await;
+    state.out.changed();
+    start(state, plan);
     Ok(())
 }
 
-/// Carries on past failed setup as if it had finished.
+/// Carries on past failed setup as if it had finished, in the background. Refused unless
+/// setup failed after making the worktree, which the agent needs to start in.
 pub async fn skip_setup(state: &AppState, plan: ProvisionPlan) -> Result<()> {
+    let workspace = state.workspaces.get(&plan.workspace_id).await?;
+    if !workspace.worktree().exists() {
+        return Err(Error::Workspace(
+            "The worktree was never made, so setup can't be skipped. Retry it instead.".into(),
+        ));
+    }
     state
         .workspaces
-        .set_status(&plan.workspace_id, WorkspaceLifecycle::Provisioning)
+        .restart_provisioning(&plan.workspace_id)
         .await?;
-    state
-        .workspaces
-        .set_activity(&plan.workspace_id, WorkspaceActivity::SettingUp)
-        .await?;
+    state.out.changed();
     state.process.log(
         &plan.workspace_id,
         LogKind::Marker,
         "Skipped remaining setup — continuing",
     );
-    let finished = finish_after_setup(state, &plan, 0).await;
-    fail_on_error(state, &plan.workspace_id, finished).await;
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let finished = finish_after_setup(&state, &plan, 0).await;
+        fail_on_error(&state, &plan.workspace_id, finished).await;
+    });
     Ok(())
 }
 
@@ -255,7 +260,7 @@ async fn run_setup_commands(
             .run_to_exit(session, &shell, SETUP_COMMAND_TIMEOUT, Some(log_id))
             .await?;
         let Exit::Code(code) = exit else {
-            let failure = Some((command.clone(), -1));
+            let failure = Some((command.clone(), None));
             let error = Error::Process("timed out waiting for setup command".into());
             mark_failed(state, &workspace.id, failure, &error.to_string()).await;
             return Ok(false);
@@ -281,7 +286,7 @@ async fn run_setup_commands(
             mark_failed(
                 state,
                 &workspace.id,
-                Some((command.clone(), code)),
+                Some((command.clone(), Some(code))),
                 &format!("Setup command failed with exit code {code}"),
             )
             .await;
@@ -310,6 +315,18 @@ async fn finish_after_setup(
             .await?;
         state.out.changed();
         crate::turn::begin(state, &plan.thread_id, id, prompt.clone()).await?;
+        // At once, so a turn that ends quickly isn't marked running after it settled.
+        state
+            .workspaces
+            .finish_provisioning(
+                id,
+                &plan.thread_id,
+                ThreadStatus::Running,
+                WorkspaceLifecycle::Running,
+                WorkspaceActivity::AgentStarted,
+            )
+            .await?;
+        state.out.changed();
     }
 
     let workspace = state.workspaces.get(id).await?;
@@ -332,19 +349,6 @@ async fn finish_after_setup(
         if let Some(intro) = &plan.intro {
             write_intro(state, &workspace, intro)?;
         }
-        state
-            .workspaces
-            .set_thread_status(&plan.thread_id, id, ThreadStatus::Running)
-            .await?;
-        state
-            .workspaces
-            .set_status(id, WorkspaceLifecycle::Running)
-            .await?;
-        state
-            .workspaces
-            .set_activity(id, WorkspaceActivity::AgentStarted)
-            .await?;
-        state.out.changed();
         if let Some(parts) = &plan.started_toast {
             state.out.toast(ToastRaisedPayload {
                 tone: ToastTone::Ok,
@@ -356,15 +360,13 @@ async fn finish_after_setup(
     } else {
         state
             .workspaces
-            .set_status(id, WorkspaceLifecycle::Ready)
-            .await?;
-        state
-            .workspaces
-            .set_thread_status(&plan.thread_id, id, ThreadStatus::Idle)
-            .await?;
-        state
-            .workspaces
-            .set_activity(id, WorkspaceActivity::None)
+            .finish_provisioning(
+                id,
+                &plan.thread_id,
+                ThreadStatus::Idle,
+                WorkspaceLifecycle::Ready,
+                WorkspaceActivity::None,
+            )
             .await?;
     }
     state.out.changed();
@@ -395,7 +397,7 @@ pub async fn fail(state: &AppState, workspace_id: &str, message: &str) {
 async fn mark_failed(
     state: &AppState,
     workspace_id: &str,
-    failure: Option<(String, i32)>,
+    failure: Option<(String, Option<i32>)>,
     message: &str,
 ) {
     if !workspace_alive(state, workspace_id).await {
@@ -406,7 +408,7 @@ async fn mark_failed(
         .set_activity(
             workspace_id,
             WorkspaceActivity::SetupFailed {
-                exit_code: failure.as_ref().map(|(_, code)| *code),
+                exit_code: failure.as_ref().and_then(|(_, code)| *code),
                 command: failure.map(|(command, _)| command),
             },
         )
@@ -524,7 +526,7 @@ mod tests {
             WorkspaceActivity::SettingUp
         );
 
-        mark_failed(&state, &id, Some(("pnpm i".into(), 1)), "Setup broke").await;
+        mark_failed(&state, &id, Some(("pnpm i".into(), Some(1))), "Setup broke").await;
 
         assert_eq!(recording.toasts(), ["Setup broke"]);
         assert!(matches!(
@@ -555,7 +557,13 @@ mod tests {
             .await
             .unwrap();
 
-        mark_failed(&state, &id, Some(("pnpm install".into(), 143)), "killed").await;
+        mark_failed(
+            &state,
+            &id,
+            Some(("pnpm install".into(), Some(143))),
+            "killed",
+        )
+        .await;
 
         assert!(recording.emitted().is_empty());
         assert_eq!(
@@ -590,5 +598,81 @@ mod tests {
             WorkspaceLifecycle::ProvisioningFailed
         );
         assert_eq!(recording.toasts().len(), 1);
+    }
+
+    fn plan(id: &str, thread_id: &str, prompt: Option<&str>) -> ProvisionPlan {
+        ProvisionPlan {
+            workspace_id: id.into(),
+            thread_id: thread_id.into(),
+            checkout: Checkout::NewBranch,
+            first_prompt: prompt.map(Into::into),
+            intro: None,
+            started_toast: None,
+        }
+    }
+
+    async fn with_worktree() -> (AppState, tempfile::TempDir, String, String) {
+        let (state, _recording, _fake, dir, id) = provisioning_workspace_faked().await;
+        let workspace = state.workspaces.get(&id).await.unwrap();
+        std::fs::create_dir_all(workspace.worktree()).unwrap();
+        let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
+        (state, dir, id, thread_id)
+    }
+
+    /// Bug: setting the thread idle after the workspace re-derived its status, so a workspace
+    /// set up with no prompt read as idle rather than ready.
+    #[tokio::test]
+    async fn setup_ends_ready_with_no_prompt_and_running_with_one() {
+        for (prompt, thread, lifecycle) in [
+            (None, ThreadStatus::Idle, WorkspaceLifecycle::Ready),
+            (
+                Some("Go"),
+                ThreadStatus::Running,
+                WorkspaceLifecycle::Running,
+            ),
+        ] {
+            let (state, _dir, id, thread_id) = with_worktree().await;
+
+            run(&state, plan(&id, &thread_id, prompt)).await;
+
+            let record = state.workspaces.get(&id).await.unwrap();
+            assert_eq!(record.status, lifecycle, "{prompt:?}");
+            let row = state.store.workspace_by_id(&id).unwrap().unwrap();
+            assert_eq!(row.status, lifecycle, "{prompt:?}");
+            let own = state.store.own_thread(&id).unwrap().unwrap();
+            assert_eq!(own.status, thread, "{prompt:?}");
+        }
+    }
+
+    /// Bug: Retry and Skip ran whatever the status, so a second click started a second run
+    /// over the first, and Skip started an agent in a worktree that was never made.
+    #[tokio::test]
+    async fn retry_and_skip_only_take_a_failed_setup() {
+        let (state, _dir, id, thread_id) = with_worktree().await;
+        let refused = retry(&state, plan(&id, &thread_id, None))
+            .await
+            .unwrap_err();
+        assert!(refused.to_string().contains("isn't failed"), "{refused}");
+
+        mark_failed(&state, &id, None, "broke").await;
+        retry(&state, plan(&id, &thread_id, None)).await.unwrap();
+        assert!(retry(&state, plan(&id, &thread_id, None)).await.is_err());
+        assert!(
+            skip_setup(&state, plan(&id, &thread_id, None))
+                .await
+                .is_err()
+        );
+
+        let (state, _recording, _dir, id) = provisioning_workspace().await;
+        let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
+        mark_failed(&state, &id, None, "no worktree").await;
+        let refused = skip_setup(&state, plan(&id, &thread_id, None))
+            .await
+            .unwrap_err();
+        assert!(refused.to_string().contains("never made"), "{refused}");
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().status,
+            WorkspaceLifecycle::ProvisioningFailed
+        );
     }
 }

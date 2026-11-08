@@ -1429,8 +1429,8 @@ export type WorkspaceKind =
  */
 "review"
 /**
- * A workspace's lifecycle. `ready` is idle with no threads; running, paused and idle describe
- * its threads after provisioning (see `status_from_threads`).
+ * A workspace's lifecycle. `ready` is set up with nothing run yet (or no threads); running,
+ * paused and idle then follow its threads (see `status_from_threads`).
  */
 export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "paused" | "idle" | "tearingDown" | "provisioningFailed"
 /**

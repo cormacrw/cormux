@@ -198,6 +198,40 @@ impl Workspaces {
         .await
     }
 
+    /// Takes a failed setup back to provisioning. Anything else is refused, so a second Retry
+    /// or Skip can't start a run over one already going.
+    pub async fn restart_provisioning(&self, id: &str) -> Result<WorkspaceRecord> {
+        self.update(id, |store, record| {
+            if record.status != WorkspaceLifecycle::ProvisioningFailed {
+                return Err(Error::Workspace(
+                    "Setup isn't failed, so there's nothing to retry or skip".into(),
+                ));
+            }
+            store.set_workspace_status(id, WorkspaceLifecycle::Provisioning)?;
+            record.status = WorkspaceLifecycle::Provisioning;
+            record.activity = WorkspaceActivity::SettingUp;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Ends setup: the thread's status, then the workspace's. In that order, the thread
+    /// moving can't re-derive the workspace's status, which setup still holds, so `lifecycle`
+    /// is what it ends as.
+    pub async fn finish_provisioning(
+        &self,
+        id: &str,
+        thread_id: &str,
+        thread: ThreadStatus,
+        lifecycle: WorkspaceLifecycle,
+        activity: WorkspaceActivity,
+    ) -> Result<()> {
+        self.set_thread_status(thread_id, id, thread).await?;
+        self.set_status(id, lifecycle).await?;
+        self.set_activity(id, activity).await?;
+        Ok(())
+    }
+
     pub async fn rename(&self, id: &str, name: &str) -> Result<WorkspaceRecord> {
         let name = name.trim();
         if name.is_empty() {
