@@ -11,6 +11,7 @@ use std::sync::Mutex;
 
 use tokio::sync::oneshot;
 
+#[cfg(test)]
 pub use payload::QUESTION_TOOL;
 pub use store::ApprovalRow;
 pub(crate) use store::visible as visible_in;
@@ -203,31 +204,6 @@ impl ApprovalBroker {
             log::warn!("approval {id} was answered after its engine stopped reading");
         }
         Ok(())
-    }
-
-    /// Answers every request the thread has open. Approving all leaves its questions, which
-    /// an approval can't answer, for the user. One that can't be answered doesn't stop the
-    /// rest; the first error comes back once they're done.
-    pub fn resolve_all(
-        &self,
-        thread_id: &str,
-        approved: bool,
-        reason: Option<String>,
-    ) -> Result<()> {
-        let mut first_error = None;
-        for row in self.store.pending_approvals_for_thread(thread_id)? {
-            let answer = match approved {
-                true if row.tool == QUESTION_TOOL => continue,
-                true => Answer::Approve,
-                false => Answer::Deny {
-                    reason: reason.clone(),
-                },
-            };
-            if let Err(error) = self.resolve(&row.id, answer) {
-                first_error.get_or_insert(error);
-            }
-        }
-        first_error.map_or(Ok(()), Err)
     }
 
     /// Approvals waiting on the user, which the dock badge shows.

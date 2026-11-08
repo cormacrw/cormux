@@ -14,7 +14,7 @@ async function runGit(
   return result.status === 'ok'
 }
 
-/** Merges or rebases the base branch in, as the repo is set up to. */
+/** Merges the latest base branch in. */
 export function pullWorkspace(workspaceId: string) {
   return runGit(() => commands.pullWorkspace(workspaceId))
 }

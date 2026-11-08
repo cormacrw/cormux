@@ -42,21 +42,6 @@ fn answer_and_notify(state: &AppState, id: &str, answer: Answer) -> Result<()> {
     resolved
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn resolve_all_approvals(
-    thread_id: String,
-    approved: bool,
-    deny_reason: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    let resolved = state
-        .approvals
-        .resolve_all(&thread_id, approved, deny_reason);
-    state.out.changed();
-    resolved
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -11,7 +11,6 @@ import type { HandlerSlice, Input, Unsupported } from '../types'
 export const threadUnsupported = [
   'pause_thread',
   'resume_thread',
-  'resolve_all_approvals',
 ] as const satisfies Unsupported
 
 const MODELS = [

@@ -1,5 +1,5 @@
-//! Git state per workspace: how far it is behind its base and ahead of origin, any conflict a
-//! pull or rebase stopped on, and every way its branch moves.
+//! Git state per workspace: how far it is behind its base, any conflict a pull stopped on, and
+//! every way its branch moves.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,6 @@ use tokio::sync::RwLock;
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::git::{BehindUpdate, GitConflictState, RepoFetchTarget, WorkspaceFetchTarget};
-use crate::model::GitConflictOperation;
 use crate::state::AppState;
 use crate::timeline::{BranchChange, TimelineStep};
 use crate::workspaces::WorkspaceRecord;
@@ -24,7 +23,6 @@ const BRANCH_WATCH_INTERVAL: Duration = Duration::from_secs(3);
 #[derive(Debug, Clone, Default)]
 struct Stats {
     behind: u32,
-    ahead: u32,
     conflict: Option<GitConflictState>,
 }
 
@@ -33,7 +31,6 @@ struct Stats {
 pub struct WorkspaceGitRuntime {
     pub workspace_id: String,
     pub behind: u32,
-    pub ahead: u32,
     pub conflict: Option<GitConflictState>,
 }
 
@@ -63,7 +60,6 @@ impl WorkspaceGit {
                 WorkspaceGitRuntime {
                     workspace_id: id.clone(),
                     behind: git.behind,
-                    ahead: git.ahead,
                     conflict: git.conflict,
                 }
             })
@@ -215,22 +211,9 @@ pub async fn refresh_stats(state: &AppState, workspace: &WorkspaceRecord) {
             log::warn!("behind count for {}: {error}", workspace.id);
             0
         });
-    // A branch origin doesn't have yet has nothing there to be ahead of.
-    let ahead = state
-        .git
-        .unpushed_commit_count(&worktree, &workspace.branch)
-        .await
-        .unwrap_or_else(|error| {
-            log::warn!("ahead count for {}: {error}", workspace.id);
-            None
-        })
-        .unwrap_or(0);
     state
         .workspace_git
-        .patch(&workspace.id, |stats| {
-            stats.behind = behind;
-            stats.ahead = ahead;
-        })
+        .patch(&workspace.id, |stats| stats.behind = behind)
         .await;
 }
 
@@ -358,20 +341,8 @@ async fn adopt_outside_checkouts(state: &AppState) {
     }
 }
 
+/// Merges the latest base in. A conflict is kept for the header to resolve or abort.
 pub async fn pull(state: &AppState, workspace_id: &str) -> Result<()> {
-    integrate_base(state, workspace_id, GitConflictOperation::Merge).await
-}
-
-pub async fn rebase(state: &AppState, workspace_id: &str) -> Result<()> {
-    integrate_base(state, workspace_id, GitConflictOperation::Rebase).await
-}
-
-/// A conflict is kept for the header to resolve or abort.
-async fn integrate_base(
-    state: &AppState,
-    workspace_id: &str,
-    operation: GitConflictOperation,
-) -> Result<()> {
     let workspace = state.workspaces.get(workspace_id).await?;
     let (base, branch) = (workspace.base.clone(), workspace.branch.clone());
     let worktree = workspace.worktree();
@@ -379,24 +350,21 @@ async fn integrate_base(
     state.git.latest_base(&worktree, &base).await;
     let behind = state.git.behind_count(&worktree, &base).await?;
     if behind == 0 {
-        return Err(Error::Git(match operation {
-            GitConflictOperation::Merge => format!("already up to date with {base}"),
-            GitConflictOperation::Rebase => format!("already on the latest {base}"),
-        }));
+        return Err(Error::Git(format!("already up to date with {base}")));
     }
-    match state.git.integrate(&worktree, &base, operation).await {
+    match state.git.merge_base(&worktree, &base).await {
         Ok(()) => {}
-        Err(Error::GitConflict { operation, paths }) => {
+        Err(Error::GitConflict { paths }) => {
             state
                 .workspace_git
                 .patch(workspace_id, |stats| {
-                    stats.conflict = Some(GitConflictState { operation, paths });
+                    stats.conflict = Some(GitConflictState { paths });
                 })
                 .await;
             state.out.repo_git_moved();
-            return Err(Error::Git(format!(
-                "{operation} stopped with conflicts — resolve or abort from the workspace header"
-            )));
+            return Err(Error::Git(
+                "merge stopped with conflicts — resolve or abort from the workspace header".into(),
+            ));
         }
         Err(error) => return Err(error),
     }
@@ -407,49 +375,27 @@ async fn integrate_base(
         .await;
     refresh_stats(state, &workspace).await;
     refresh_diff(state, &workspace).await;
-    let (step, parts) = match operation {
-        GitConflictOperation::Merge => (
-            TimelineStep::CommitsPulled {
-                count: behind,
-                base: base.clone(),
-                branch,
-            },
-            vec![
-                text("Pulled "),
-                code(&behind.to_string()),
-                text(&format!(
-                    " commit{} from ",
-                    if behind == 1 { "" } else { "s" }
-                )),
-                code(&base),
-            ],
-        ),
-        GitConflictOperation::Rebase => (
-            TimelineStep::BranchRebased {
-                branch: branch.clone(),
-                base: base.clone(),
-                replayed_onto: behind,
-            },
-            vec![text("Rebased "), code(&branch), text(" onto "), code(&base)],
-        ),
-    };
-    record_in_own_thread(state, workspace_id, step);
-    toast(state, workspace_id, parts);
-    state.out.repo_git_moved();
-    Ok(())
-}
-
-pub async fn push(state: &AppState, workspace_id: &str) -> Result<()> {
-    let workspace = state.workspaces.get(workspace_id).await?;
-    state
-        .git
-        .push(&workspace.worktree(), &workspace.branch)
-        .await?;
-    refresh_stats(state, &workspace).await;
+    record_in_own_thread(
+        state,
+        workspace_id,
+        TimelineStep::CommitsPulled {
+            count: behind,
+            base: base.clone(),
+            branch,
+        },
+    );
     toast(
         state,
         workspace_id,
-        vec![text("Pushed "), code(&workspace.branch)],
+        vec![
+            text("Pulled "),
+            code(&behind.to_string()),
+            text(&format!(
+                " commit{} from ",
+                if behind == 1 { "" } else { "s" }
+            )),
+            code(&base),
+        ],
     );
     state.out.repo_git_moved();
     Ok(())
@@ -457,14 +403,16 @@ pub async fn push(state: &AppState, workspace_id: &str) -> Result<()> {
 
 pub async fn abort_conflict(state: &AppState, workspace_id: &str) -> Result<()> {
     let workspace = state.workspaces.get(workspace_id).await?;
-    let Some(conflict) = state.workspace_git.get(workspace_id).await.conflict else {
+    if state
+        .workspace_git
+        .get(workspace_id)
+        .await
+        .conflict
+        .is_none()
+    {
         return Ok(());
-    };
-    let worktree = workspace.worktree();
-    match conflict.operation {
-        GitConflictOperation::Merge => state.git.abort_merge(&worktree).await?,
-        GitConflictOperation::Rebase => state.git.abort_rebase(&worktree).await?,
     }
+    state.git.abort_merge(&workspace.worktree()).await?;
     state
         .workspace_git
         .patch(workspace_id, |stats| stats.conflict = None)
@@ -562,21 +510,6 @@ pub mod commands {
     #[specta::specta]
     pub async fn pull_workspace(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
         super::pull(&state, &workspace_id).await
-    }
-
-    #[tauri::command]
-    #[specta::specta]
-    pub async fn rebase_workspace(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
-        super::rebase(&state, &workspace_id).await
-    }
-
-    #[tauri::command]
-    #[specta::specta]
-    pub async fn push_workspace_branch(
-        workspace_id: String,
-        state: State<'_, AppState>,
-    ) -> Result<()> {
-        super::push(&state, &workspace_id).await
     }
 
     #[tauri::command]

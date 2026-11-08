@@ -7,8 +7,6 @@ export const gitUnsupported = [
   'create_workspace_branch',
   'create_workspace_pull_request',
   'pull_workspace',
-  'push_workspace_branch',
-  'rebase_workspace',
 ] as const satisfies Unsupported
 
 const FULL_STACK = ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']

@@ -14,12 +14,6 @@
     base: string
     conflict: GitConflictState
   } = $props()
-
-  const headline = $derived(
-    conflict.operation === 'rebase'
-      ? `Rebase of ${branch} onto ${base} has conflicts`
-      : `Merge from ${base} into ${branch} has conflicts`,
-  )
 </script>
 
 <div
@@ -27,7 +21,7 @@
   role="status"
   data-od-id="ws-git-conflict"
 >
-  <p class="font-medium">{headline}</p>
+  <p class="font-medium">Merge from {base} into {branch} has conflicts</p>
   <ul class="list-inside list-disc font-mono text-xs text-muted-foreground">
     {#each conflict.paths as path (path)}
       <li class="truncate">{path}</li>
@@ -39,7 +33,7 @@
       variant="secondary"
       onclick={() => void abortWorkspaceGit(workspaceId)}
     >
-      Abort {conflict.operation}
+      Abort merge
     </Button>
   </div>
 </div>

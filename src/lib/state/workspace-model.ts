@@ -16,7 +16,6 @@ export type WorkspaceRuntime = {
   /** The app announced an `https://` URL. */
   https: boolean
   behind: number
-  ahead: number
   conflict: GitConflictState | null
   exitCode: number | null
   /** Bumped by Clear, so the log view starts over. */
@@ -28,7 +27,6 @@ export const IDLE_RUNTIME: WorkspaceRuntime = Object.freeze({
   port: null,
   https: false,
   behind: 0,
-  ahead: 0,
   conflict: null,
   exitCode: null,
   logVersion: 0,
@@ -111,7 +109,6 @@ export function workspacesFromSnapshot(
     const runtime = { ...(previous(record.id) ?? IDLE_RUNTIME) }
     if (gitRow) {
       runtime.behind = gitRow.behind
-      runtime.ahead = gitRow.ahead
       runtime.conflict = gitRow.conflict
     }
     if (app) {

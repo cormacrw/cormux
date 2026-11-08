@@ -5,17 +5,11 @@ use crate::state::AppState;
 
 use super::{Settings, SettingsPatch};
 
-#[tauri::command]
-#[specta::specta]
-pub async fn get_settings(state: State<'_, AppState>) -> Result<Settings> {
-    Settings::read(&state.store)
-}
-
 /// Saves the fields `patch` sets and returns every setting as now stored.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_settings(patch: SettingsPatch, state: State<'_, AppState>) -> Result<Settings> {
     Settings::update(&state.store, patch)?;
     state.out.changed();
-    Ok(Settings::load(&state.store))
+    Settings::read(&state.store)
 }

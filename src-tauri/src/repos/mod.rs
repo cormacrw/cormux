@@ -218,9 +218,8 @@ pub async fn git_runtime(state: &AppState) -> Result<Vec<RepoGitRuntime>> {
     Ok(rows)
 }
 
-/// A path typed into "Add repo", without its trailing slashes, and the id its last folder
-/// name gives the repo.
-fn validate_add_path(path: &str) -> Result<(String, String)> {
+/// A path typed into "Add repo", without its trailing slashes.
+fn validate_add_path(path: &str) -> Result<String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err(Error::Workspace("Enter the path to a folder".into()));
@@ -233,12 +232,11 @@ fn validate_add_path(path: &str) -> Result<(String, String)> {
             "Use a full path, like ~/code/my-project".into(),
         ));
     }
-    let id = segment.to_string();
-    Ok((normalized, id))
+    Ok(normalized)
 }
 
 pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
-    let (normalized, id) = validate_add_path(&input.path)?;
+    let normalized = validate_add_path(&input.path)?;
     let expanded = expand_tilde(&normalized);
     if !expanded.is_dir() {
         return Err(Error::Git(format!(
@@ -253,6 +251,7 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
         .await
         .map_err(|_| Error::Git("That folder is not a git repository".into()))?;
     let display_path = crate::paths::for_display(&toplevel);
+    let id = crate::paths::repo_dir_name(&toplevel).to_string();
 
     let repos = state.store.repos()?;
     if repos
@@ -644,6 +643,7 @@ mod tests {
             expand_tilde(&record.path).canonicalize().unwrap(),
             repo.canonicalize().unwrap()
         );
+        assert_eq!((record.id.as_str(), record.name.as_str()), ("app", "app"));
     }
 
     #[tokio::test]
@@ -888,9 +888,10 @@ mod tests {
         assert!(validate_add_path("relative/path").is_err());
         assert!(validate_add_path("~code/app").is_err());
         assert!(validate_add_path("~/").is_err());
-        let (path, id) = validate_add_path("~/code/my-app/").unwrap();
-        assert_eq!((path.as_str(), id.as_str()), ("~/code/my-app", "my-app"));
-        let (path, id) = validate_add_path("/srv/app").unwrap();
-        assert_eq!((path.as_str(), id.as_str()), ("/srv/app", "app"));
+        assert_eq!(
+            validate_add_path("~/code/my-app/").unwrap(),
+            "~/code/my-app"
+        );
+        assert_eq!(validate_add_path("/srv/app").unwrap(), "/srv/app");
     }
 }

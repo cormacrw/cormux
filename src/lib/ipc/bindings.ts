@@ -192,14 +192,6 @@ async answerQuestion(id: string, answers: Partial<{ [key in string]: string }>) 
     else return { status: "error", error: e  as any };
 }
 },
-async resolveAllApprovals(threadId: string, approved: boolean, denyReason: string | null) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("resolve_all_approvals", { threadId, approved, denyReason }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 /**
  * High-volume ordered stream of PTY output for a workspace's run/setup log.
  */
@@ -456,22 +448,6 @@ async pullWorkspace(workspaceId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async rebaseWorkspace(workspaceId: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("rebase_workspace", { workspaceId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async pushWorkspaceBranch(workspaceId: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("push_workspace_branch", { workspaceId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 /**
  * The PR prompt Settings shows until the user writes their own.
  */
@@ -649,14 +625,6 @@ async testRepoSetup(input: TestRepoSetupInput) : Promise<Result<TestRepoSetupRes
     else return { status: "error", error: e  as any };
 }
 },
-async getSettings() : Promise<Result<Settings, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_settings") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 /**
  * Saves the fields `patch` sets and returns every setting as now stored.
  */
@@ -740,8 +708,8 @@ toastRaised: "toast-raised"
 
 /** user-defined constants **/
 
-export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
 export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
+export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
 
 /** user-defined types **/
 
@@ -935,7 +903,7 @@ export type Error =
 /**
  * The request itself was wrong: a missing value, an unknown id, a finding in the wrong state.
  */
-{ kind: "Invalid"; message: string } | { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: GitConflictOperation; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
+{ kind: "Invalid"; message: string } | { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
 /**
  * What happened to a file, as git reports it.
  */
@@ -951,13 +919,9 @@ export type FindingStatus = "open" |
  */
 "dismissed"
 /**
- * The git operation a conflict stopped.
+ * A merge stopped on these paths, waiting for the user to resolve or abort it.
  */
-export type GitConflictOperation = "merge" | "rebase"
-/**
- * A merge or rebase stopped on these paths, waiting for the user to resolve or abort it.
- */
-export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
+export type GitConflictState = { paths: string[] }
 export type LineCounts = { added: number; deleted: number }
 /**
  * A local branch tip. `committed` is git's relative date ("2 hours ago").
@@ -1354,7 +1318,11 @@ export type TimelineStep = { kind: "agentStopped" } | { kind: "agentPaused" } | 
 /**
  * `ended_session` is what the conversation before it can be resumed from.
  */
-{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | { kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | 
+{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | { kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | 
+/**
+ * No longer recorded: older builds could rebase a workspace onto its base.
+ */
+{ kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | 
 /**
  * The review this thread ran found something; its card opens the Findings panel.
  */
@@ -1442,7 +1410,7 @@ export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppSta
  */
 https: boolean; exitCode: number | null }
 export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
-export type WorkspaceGitRuntime = { workspaceId: string; behind: number; ahead: number; conflict: GitConflictState | null }
+export type WorkspaceGitRuntime = { workspaceId: string; behind: number; conflict: GitConflictState | null }
 /**
  * What a workspace is for. Stored as `lead` or `review`.
  */

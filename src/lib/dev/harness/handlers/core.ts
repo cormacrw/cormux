@@ -55,7 +55,6 @@ export function coreHandlers({ db, emitStateChanged }: HarnessRuntime) {
     // There's no shell environment to read again.
     reload_environment: () => null,
     detect_engines: () => fixtureEngines,
-    get_settings: () => db.snapshot.settings,
     update_settings: ({ patch }: { patch: SettingsPatch }) => {
       const changes = Object.fromEntries(
         Object.entries(patch).filter(([, value]) => value != null),

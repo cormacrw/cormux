@@ -12,18 +12,17 @@ use tokio::process::Command;
 use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 use crate::error::{Error, Result};
-use crate::model::{FALLBACK_DEFAULT_BRANCH, GitConflictOperation};
+use crate::model::FALLBACK_DEFAULT_BRANCH;
 use crate::shell_env::ShellEnv;
 
 pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
 pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
 pub use queue::WorktreeQueue;
 
-/// A merge or rebase stopped on these paths, waiting for the user to resolve or abort it.
+/// A merge stopped on these paths, waiting for the user to resolve or abort it.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct GitConflictState {
-    pub operation: GitConflictOperation,
     pub paths: Vec<String>,
 }
 
@@ -589,40 +588,25 @@ impl Git {
         Ok(())
     }
 
-    /// Brings `base` (as [`Self::freshest_ref`] picks it) into the checked-out branch by
-    /// `operation` (merge or rebase).
-    /// Stopping on conflicts is `Error::GitConflict`, with the operation left in progress.
-    pub async fn integrate(
-        &self,
-        worktree: &Path,
-        base: &str,
-        operation: GitConflictOperation,
-    ) -> Result<()> {
-        let verb = match operation {
-            GitConflictOperation::Merge => "merge",
-            GitConflictOperation::Rebase => "rebase",
-        };
-        self.require_clean_worktree(worktree, verb).await?;
+    /// Merges `base` (as [`Self::freshest_ref`] picks it) into the checked-out branch.
+    /// Stopping on conflicts is `Error::GitConflict`, with the merge left in progress.
+    pub async fn merge_base(&self, worktree: &Path, base: &str) -> Result<()> {
+        self.require_clean_worktree(worktree, "merge").await?;
         let rev = self.freshest_ref(worktree, base).await;
-        let output = self.run(worktree, &[verb, &rev]).await?;
+        let output = self.run(worktree, &["merge", &rev]).await?;
         if output.status.success() {
             return Ok(());
         }
         let paths = self.unmerged_paths(worktree).await?;
         if !paths.is_empty() {
-            return Err(Error::GitConflict { operation, paths });
+            return Err(Error::GitConflict { paths });
         }
-        Err(Self::fail(&output, verb))
+        Err(Self::fail(&output, "merge"))
     }
 
     pub async fn abort_merge(&self, worktree: &Path) -> Result<()> {
         let output = self.run(worktree, &["merge", "--abort"]).await?;
         Self::require_success(&output, "merge --abort")
-    }
-
-    pub async fn abort_rebase(&self, worktree: &Path) -> Result<()> {
-        let output = self.run(worktree, &["rebase", "--abort"]).await?;
-        Self::require_success(&output, "rebase --abort")
     }
 
     /// Local branch tips, newest commit first. `committed` is git's relative date.
@@ -753,24 +737,8 @@ impl Git {
         Ok(output.status.success())
     }
 
-    /// Commits on HEAD that `origin/<branch>` doesn't have; `None` when origin has no such
-    /// branch to compare with (it was never pushed).
-    pub async fn unpushed_commit_count(
-        &self,
-        worktree: &Path,
-        branch: &str,
-    ) -> Result<Option<u32>> {
-        let remote = format!("refs/remotes/origin/{branch}");
-        if !self.ref_exists(worktree, &remote).await? {
-            return Ok(None);
-        }
-        self.rev_list_count(worktree, &format!("{remote}..HEAD"))
-            .await
-            .map(Some)
-    }
-
     /// Commits on HEAD that neither a remote nor `base` has, so removing the branch loses
-    /// them. Unlike [`Self::unpushed_commit_count`], this sees a branch that was never pushed.
+    /// them, pushed or not.
     pub async fn commits_only_here(&self, worktree: &Path, base: &str) -> Result<u32> {
         let mut args = vec!["rev-list", "--count", "HEAD", "--not", "--remotes"];
         if self.ref_exists(worktree, base).await? {
@@ -834,7 +802,7 @@ impl Git {
     }
 
     /// The ref that stands for `branch` wherever a workspace is compared with or brought up to
-    /// its base (behind counts, pull/rebase, Changes, new branches): `origin/<branch>` when it
+    /// its base (behind counts, pull, Changes, new branches): `origin/<branch>` when it
     /// has everything the local branch has (a stale local trunk), else the local branch (a
     /// stack branch rebased but not pushed yet).
     pub async fn freshest_ref(&self, worktree: &Path, branch: &str) -> String {
@@ -1194,9 +1162,7 @@ mod tests {
 
         assert_eq!(git.freshest_ref(&clone, "feat/a").await, "feat/a");
         assert_eq!(git.behind_count(&clone, "feat/a").await.unwrap(), 1);
-        git.integrate(&clone, "feat/a", GitConflictOperation::Merge)
-            .await
-            .unwrap();
+        git.merge_base(&clone, "feat/a").await.unwrap();
         assert_eq!(git.behind_count(&clone, "feat/a").await.unwrap(), 0);
         // A stale local trunk still counts against origin's.
         commit(&origin, "landed.txt");
@@ -1236,11 +1202,6 @@ mod tests {
         let git = git_with_env().await;
         let (_dir, repo) = init_repo();
         assert!(git.rev_list_count(&repo, "nope..HEAD").await.is_err());
-        // Never pushed: nothing on origin to count against, which isn't "nothing to push".
-        assert_eq!(
-            git.unpushed_commit_count(&repo, "main").await.unwrap(),
-            None
-        );
         assert_eq!(git.config_get(&repo, "cormux.unset").await.unwrap(), None);
         let (own, common) = git.git_dirs(&repo).await.unwrap();
         assert_eq!(own, common);

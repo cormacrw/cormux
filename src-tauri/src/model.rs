@@ -1,8 +1,6 @@
 //! Status vocabularies shared by the store, the workflows and the webview. Each keeps the word
 //! it is stored and sent as.
 
-use std::fmt;
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -361,23 +359,6 @@ impl From<StopReason> for String {
             StopReason::EndTurn => StopReason::END_TURN.into(),
             StopReason::Failed(subtype) => subtype,
         }
-    }
-}
-
-/// The git operation a conflict stopped.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum GitConflictOperation {
-    Merge,
-    Rebase,
-}
-
-impl fmt::Display for GitConflictOperation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Merge => "merge",
-            Self::Rebase => "rebase",
-        })
     }
 }
 

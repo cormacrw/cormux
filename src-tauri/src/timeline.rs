@@ -94,6 +94,7 @@ pub enum TimelineStep {
         base: String,
         branch: String,
     },
+    /// No longer recorded: older builds could rebase a workspace onto its base.
     BranchRebased {
         branch: String,
         base: String,

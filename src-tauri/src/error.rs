@@ -21,11 +21,8 @@ pub enum Error {
     #[error("git: {0}")]
     Git(String),
 
-    #[error("git conflict during {operation}")]
-    GitConflict {
-        operation: crate::model::GitConflictOperation,
-        paths: Vec<String>,
-    },
+    #[error("git conflict during merge")]
+    GitConflict { paths: Vec<String> },
 
     #[error("workspace: {0}")]
     Workspace(String),
