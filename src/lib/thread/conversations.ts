@@ -2,7 +2,6 @@ import {
   CONVERSATION_STEP_KINDS,
   FIRST_CONVERSATION,
   type TimelineStep,
-  type TranscriptEvent,
 } from '$lib/ipc/bindings'
 import type { TimedEvent } from './timed-events'
 
