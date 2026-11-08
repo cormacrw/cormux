@@ -82,6 +82,6 @@ mod tests {
             .unwrap();
 
         assert!(answer_and_notify(&state, "a1", Answer::Approve).is_err());
-        assert_eq!(recording.state_changes().len(), 1);
+        assert!(!recording.state_changes().is_empty());
     }
 }

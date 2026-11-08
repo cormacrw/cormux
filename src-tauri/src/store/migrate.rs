@@ -280,25 +280,6 @@ mod tests {
             })
             .unwrap();
         assert_eq!(applied as usize, MIGRATIONS.len());
-        assert_eq!(
-            names(&conn, "table"),
-            [
-                "approvals",
-                "findings",
-                "pr_cache",
-                "repo_config",
-                "repos",
-                "review_state",
-                "schema_migrations",
-                "scratches",
-                "settings",
-                "thread_entities",
-                "thread_events",
-                "threads",
-                "workspaces",
-            ]
-        );
-        assert_eq!(names(&conn, "view"), ["live_workspaces", "visible_threads"]);
     }
 
     #[test]

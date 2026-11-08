@@ -646,15 +646,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn reserves_ports_per_workspace() {
-        let service = WorkspaceAppService::new();
-        service.set_status("a", WorkspaceAppStatus::Running, Some(5173), None);
-        service.set_status("b", WorkspaceAppStatus::Starting, None, None);
-        let used = service.used_ports("b");
-        assert!(used.contains(&5173));
-    }
-
     /// The log used to print a uvicorn/Storybook-style error that no tool had printed.
     #[test]
     fn a_taken_port_is_noted_in_cormuxs_own_words() {

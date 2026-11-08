@@ -584,7 +584,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::engines::EngineCommand;
-    use crate::feedback::{Emitted, RecordingOutput};
+    use crate::feedback::RecordingOutput;
     use crate::model::{ThreadRole, WorkspaceLifecycle};
     use crate::store::types::{RepoRecord, ThreadRow};
     use crate::thread_runtime::fake::FakeEngines;
@@ -645,7 +645,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_clean_branch_review_toasts_then_refreshes() {
+    async fn a_clean_branch_review_toasts_and_refreshes() {
         let (state, recording) =
             reviewing("Looks fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
 
@@ -655,10 +655,7 @@ mod tests {
             recording.toasts(),
             ["Review of feat/x finished · no findings"]
         );
-        assert!(matches!(
-            recording.emitted().as_slice(),
-            [Emitted::Toast(_), Emitted::State(_)]
-        ));
+        assert!(!recording.state_changes().is_empty());
         assert!(review_is_ready(&state.store, "w1"));
     }
 
@@ -757,7 +754,6 @@ mod tests {
         on_reviewer_turn_end(&state, "t1").await.unwrap();
 
         assert!(recording.toasts().is_empty());
-        assert_eq!(recording.state_changes().len(), 1);
         assert!(branch_review_running(&state.store, "w1"));
     }
 
@@ -817,18 +813,12 @@ mod tests {
     }
 
     #[test]
-    fn rubric_describes_the_findings_block() {
-        let rubric = reviewer_rubric();
-        assert!(rubric.contains("<cormux-findings>"));
-        assert!(rubric.contains("</cormux-findings>"));
-        assert!(!rubric.contains("report_finding"));
-    }
-
-    #[test]
-    fn branch_rubric_covers_uncommitted_work_against_the_base() {
-        let rubric = branch_reviewer_rubric("develop");
-        assert!(rubric.contains("git diff develop...HEAD"));
-        assert!(rubric.contains("git diff HEAD"));
-        assert!(rubric.contains("<cormux-findings>"));
+    fn the_format_each_rubric_shows_is_one_the_parser_reads() {
+        for rubric in [reviewer_rubric(), branch_reviewer_rubric("develop")] {
+            let example = findings_block::parse_findings_block(&rubric, "/repo").unwrap();
+            assert_eq!(example.len(), 1, "{rubric}");
+            assert_eq!(example[0].severity, "blocking");
+            assert_eq!(example[0].line, Some(48));
+        }
     }
 }

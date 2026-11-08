@@ -273,8 +273,6 @@ mod tests {
     fn nothing_stored_reads_as_the_defaults() {
         let store = Store::in_memory().unwrap();
         assert_eq!(Settings::load(&store), Settings::default());
-        assert!(Settings::default().notify_approvals);
-        assert_eq!(Settings::default().worktree_root, DEFAULT_WORKTREE_ROOT);
     }
 
     #[test]

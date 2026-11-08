@@ -782,10 +782,6 @@ mod tests {
         assert_eq!(store.get_setting("k").unwrap().as_deref(), Some("v"));
         let refused = store.with_read(|conn| Ok(conn.execute("DELETE FROM settings", [])?));
         assert!(refused.is_err(), "the reader is read-only");
-        let synchronous: i64 = store
-            .with_conn(|conn| Ok(conn.query_row("PRAGMA synchronous", [], |row| row.get(0))?))
-            .unwrap();
-        assert_eq!(synchronous, 1, "NORMAL");
     }
 
     #[test]

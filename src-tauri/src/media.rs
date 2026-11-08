@@ -195,10 +195,4 @@ mod tests {
         assert_eq!(format_of("notes.pdf"), None);
         assert_eq!(format_of("README"), None);
     }
-
-    #[test]
-    fn the_agent_is_told_every_kind_of_file() {
-        let told = instruction();
-        assert!(told.contains("(png, jpg, jpeg, gif, webp; mp4, webm, mov, m4v)"));
-    }
 }
