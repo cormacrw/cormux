@@ -265,8 +265,6 @@ export function threadHandlers(runtime: HarnessRuntime) {
       approved: boolean
       denyReason: string | null
     }) => {
-      const reason = denyReason ?? null
-      controls.resolved.push({ id, approved, denyReason: reason })
       const row = db.snapshot.persisted.approvals.find(
         (entry) => entry.id === id,
       )
@@ -276,7 +274,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
           row.payload = {
             ...row.payload,
             resolvedAtMs: Date.now(),
-            ...(reason ? { denyReason: reason } : {}),
+            ...(denyReason ? { denyReason } : {}),
           }
         }
       }
