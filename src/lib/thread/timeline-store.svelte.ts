@@ -28,10 +28,8 @@ import {
   type TimedEvent,
 } from '$lib/thread/timed-events'
 import { findings } from '../findings/store.svelte'
-import { scratches } from '../state/scratches.svelte'
 import { threads, type Thread } from '../state/threads.svelte'
 import { workspaces } from '../state/workspaces.svelte'
-import { threadActivity } from '../state/activity'
 
 const PAGE = 2000
 // Threads kept in memory for an instant switch back, on top of the ones on screen.
@@ -162,27 +160,18 @@ export class ThreadTimelineStore {
       builder = new ThreadViewBuilder()
       this.views.set(threadId, builder)
     }
+    // A scratch has no thread row: it can't run any more, so it has nothing live to show.
     const thread = threads.getById(threadId)
-    const scratch = thread ? undefined : scratches.forThread(threadId)
     return builder.view({
       events: this.eventsByThread[threadId],
       approvals: this.approvalsByThread.get(threadId) ?? NO_APPROVALS,
       findingsFor: this.findingsFor(thread),
-      meta: thread
-        ? {
-            status: thread.status,
-            paused: thread.paused,
-            activity: thread.activity,
-            lead: thread.ownRole === 'lead',
-            scratch: false,
-          }
-        : scratch && {
-            status: scratch.status,
-            paused: scratch.status === 'paused',
-            activity: threadActivity(scratch.status),
-            lead: false,
-            scratch: true,
-          },
+      meta: thread && {
+        status: thread.status,
+        paused: thread.paused,
+        activity: thread.activity,
+        lead: thread.ownRole === 'lead',
+      },
       currentTool: this.currentToolByThread[threadId] ?? null,
       hasOlder: this.olderByThread[threadId] ?? false,
       generation: this.historyGeneration[threadId] ?? 0,

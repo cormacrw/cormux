@@ -96,7 +96,6 @@
       engine={engineName}
       {source}
       scratch
-      liveInline
       odId="session-thread"
       contentClass="pb-4 pt-6"
     />

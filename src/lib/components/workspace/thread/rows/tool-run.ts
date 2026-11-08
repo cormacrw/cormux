@@ -58,7 +58,7 @@ export function isQuiet(step: RunStep): boolean {
 
 export function stepChips(step: RunStep, scratch: boolean): Chip[] {
   if (step.kind === 'tool' && step.role.kind === 'edit') return []
-  // A scratch runs on the main checkout in the engine's read-only mode.
+  // Steps a scratch took, back when scratches ran, are marked as its reads.
   if (step.autoApproved) return [scratch ? SCRATCH : AUTO_APPROVED]
   if (step.kind === 'step') {
     return step.step.kind === 'findingsFixed' ? FINDINGS_FIXED : []

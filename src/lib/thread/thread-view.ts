@@ -37,7 +37,6 @@ export type ThreadMeta = {
   paused: boolean
   activity: string
   lead: boolean
-  scratch: boolean
 }
 
 export type ViewSources = {
@@ -87,8 +86,7 @@ function sameSources(a: ViewSources, b: ViewSources) {
     a.meta?.status === b.meta?.status &&
     a.meta?.paused === b.meta?.paused &&
     a.meta?.activity === b.meta?.activity &&
-    a.meta?.lead === b.meta?.lead &&
-    a.meta?.scratch === b.meta?.scratch
+    a.meta?.lead === b.meta?.lead
   )
 }
 

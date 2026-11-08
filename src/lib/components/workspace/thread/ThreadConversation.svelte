@@ -32,7 +32,6 @@
   import { createEntryScope } from '$lib/thread/entering'
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
   import type { ConversationSource, RowContext } from './rows/context'
-  import LiveRow from './rows/LiveRow.svelte'
   import ThreadFind from './ThreadFind.svelte'
   import TimelineMessages from './TimelineMessages.svelte'
 
@@ -43,7 +42,6 @@
     source,
     shown = true,
     scratch = false,
-    liveInline = false,
     odId,
     contentClass,
     padBottom,
@@ -60,8 +58,6 @@
     /** On screen rather than under a slide-out; coming back lands on the newest message. */
     shown?: boolean
     scratch?: boolean
-    /** Draw what the agent is doing as the last row, for a thread with no prompt bar to float it over. */
-    liveInline?: boolean
     odId?: string
     contentClass?: ClassValue
     padBottom?: string
@@ -417,9 +413,6 @@
           </div>
         {:else}
           <TimelineMessages {rows} {ctx} />
-        {/if}
-        {#if liveInline && view.live}
-          <LiveRow live={view.live} />
         {/if}
       </ol>
     </div>
