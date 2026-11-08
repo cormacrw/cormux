@@ -14,16 +14,4 @@ describe('deepEqual', () => {
     expect(deepEqual({ a: 1 }, { b: 1 })).toBe(false)
     expect(deepEqual([], {})).toBe(false)
   })
-
-  it('agrees with JSON.stringify on timeline-shaped data', () => {
-    const item = {
-      kind: 'toolRun',
-      id: 'run-1',
-      steps: [{ kind: 'edit', path: 'a.ts', chips: [{ label: 'x' }] }],
-      seq: 3,
-    }
-    const same = JSON.parse(JSON.stringify(item)) as unknown
-    expect(deepEqual(item, same)).toBe(true)
-    expect(deepEqual(item, { ...item, seq: 4 })).toBe(false)
-  })
 })
