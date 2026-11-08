@@ -60,6 +60,7 @@ export type HarnessScenario = {
     Pick<
       Snapshot,
       | 'workspaceReviewBlocks'
+      | 'workspaceCreatePrBlocks'
       | 'workspaceBranchLocks'
       | 'workspaceRunBlocks'
       | 'repoRemovalBlocks'

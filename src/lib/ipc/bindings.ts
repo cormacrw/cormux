@@ -1310,6 +1310,10 @@ workspaceReviewBlocks: WorkspaceReviewBlock[];
  */
 workspaceRunBlocks: WorkspaceRunBlock[]; 
 /**
+ * Workspaces whose branch can't open a pull request now, and why.
+ */
+workspaceCreatePrBlocks: WorkspaceCreatePrBlock[]; 
+/**
  * Each live workspace's own thread, for those with one.
  */
 workspaceOwnThreads: WorkspaceOwnThread[]; 
@@ -1552,6 +1556,10 @@ export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
  * A workspace whose branch can't move now, and why, for the snapshot.
  */
 export type WorkspaceBranchLock = { workspaceId: string; reason: string }
+/**
+ * A workspace that can't open a pull request now, and why, for the snapshot.
+ */
+export type WorkspaceCreatePrBlock = { workspaceId: string; reason: string }
 export type WorkspaceGitRuntime = { workspaceId: string; behind: number; conflict: GitConflictState | null }
 /**
  * What a workspace is for. Stored as `lead` or `review`.

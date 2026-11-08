@@ -1,4 +1,5 @@
 pub mod auth;
+mod branch_pr;
 mod client;
 pub mod create;
 pub mod gh;
@@ -11,6 +12,7 @@ pub mod types;
 
 use crate::shell_env::SharedEnv;
 
+pub use branch_pr::{WorkspaceCreatePrBlock, create_pr_block, create_pr_blocks};
 pub use gh::Gh;
 pub use r#match::RepoSlug;
 pub use rest::RestGithubClient;

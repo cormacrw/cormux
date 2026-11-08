@@ -59,6 +59,13 @@ function seedReviewFindings(
         'This is a review workspace; its Reviewer already reviews the PR.',
     },
   ]
+  db.snapshot.workspaceCreatePrBlocks = [
+    {
+      workspaceId: WORKSPACE_ID,
+      reason:
+        'A review workspace submits a review rather than opening a pull request.',
+    },
+  ]
   persisted.reviews = [
     { workspaceId: WORKSPACE_ID, status: 'ready', submitted: false },
   ]

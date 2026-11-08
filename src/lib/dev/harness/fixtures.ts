@@ -154,6 +154,7 @@ export function createFixtures() {
     ],
     workspaceBranchLocks: [],
     workspaceReviewBlocks: [],
+    workspaceCreatePrBlocks: [],
     workspaceRunBlocks: [{ workspaceId: WORKSPACE_ID, reason: NO_RUN_COMMAND }],
     workspaceOwnThreads: [
       { workspaceId: WORKSPACE_ID, threadId: LEAD_THREAD_ID },

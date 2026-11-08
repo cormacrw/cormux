@@ -349,6 +349,14 @@ async fn needs_rebase(state: &AppState, worktree: &Path, base: &str, branch: &st
 /// worktree: a branch move, so the workspace record follows whatever branch that leaves checked
 /// out, and it waits while the branch is locked (an agent working, or setup running).
 pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<WorkspaceStack> {
+    let stack = read_stack(state, workspace_id).await?;
+    if state.stacks.remember_prs(&stack) {
+        state.out.changed();
+    }
+    Ok(stack)
+}
+
+async fn read_stack(state: &AppState, workspace_id: &str) -> Result<WorkspaceStack> {
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
     let solo_needs_rebase = record.branch != record.base && {
@@ -596,9 +604,13 @@ async fn stack_in_other_worktrees(
 /// When GitHub last said each workspace's branch has no stack. Asking means a network call on
 /// every open of an unstacked branch, the common case; a stack made here shows up regardless,
 /// since `view` is asked first.
+///
+/// Also the pull requests each workspace's stack last read as having, by branch, which
+/// [`crate::github::create_pr_block`] counts.
 #[derive(Default)]
 pub struct RemoteStackCache {
     unstacked: Mutex<HashMap<(String, String), Instant>>,
+    prs: Mutex<HashMap<String, Vec<(String, u32)>>>,
 }
 
 impl RemoteStackCache {
@@ -623,12 +635,47 @@ impl RemoteStackCache {
         unstacked.insert(Self::key(workspace_id, branch), Instant::now());
     }
 
+    /// Keeps the pull requests `stack` has; returns whether they changed.
+    fn remember_prs(&self, stack: &WorkspaceStack) -> bool {
+        let prs: Vec<(String, u32)> = stack
+            .branches
+            .iter()
+            .filter_map(|branch| Some((branch.name.clone(), branch.pr.as_ref()?.number)))
+            .collect();
+        let mut remembered = self.prs.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = remembered
+            .get(&stack.workspace_id)
+            .cloned()
+            .unwrap_or_default();
+        if prs.is_empty() {
+            remembered.remove(&stack.workspace_id);
+        } else {
+            remembered.insert(stack.workspace_id.clone(), prs.clone());
+        }
+        before != prs
+    }
+
+    /// The pull request gh-stack last said `branch` has in the workspace's stack.
+    pub fn pr(&self, workspace_id: &str, branch: &str) -> Option<u32> {
+        self.prs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(workspace_id)?
+            .iter()
+            .find(|(name, _)| name == branch)
+            .map(|(_, number)| *number)
+    }
+
     /// A torn-down workspace's answers go with it.
     pub fn forget(&self, workspace_id: &str) {
         self.unstacked
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|(workspace, _), _| workspace != workspace_id);
+        self.prs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(workspace_id);
     }
 }
 
@@ -894,6 +941,46 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn the_cache_keeps_the_stacks_prs_until_they_change_or_the_workspace_goes() {
+        let cache = RemoteStackCache::default();
+        let branch = |name: &str, pr: Option<u32>| StackBranch {
+            name: name.into(),
+            parent: "main".into(),
+            files: 0,
+            additions: 0,
+            deletions: 0,
+            commits: 0,
+            current: false,
+            merged: false,
+            queued: false,
+            needs_rebase: false,
+            pr: pr.map(|number| StackPullRequest {
+                number,
+                url: None,
+                state: StackPrState::Open,
+            }),
+            hold: None,
+        };
+        let stack = |branches| WorkspaceStack {
+            workspace_id: "w1".into(),
+            status: StackStatus::Stacked,
+            message: None,
+            install_command: None,
+            trunk: "main".into(),
+            current_branch: "b".into(),
+            current_needs_rebase: false,
+            branches,
+            add_block: None,
+        };
+
+        assert!(cache.remember_prs(&stack(vec![branch("a", Some(4)), branch("b", None)])));
+        assert!(!cache.remember_prs(&stack(vec![branch("a", Some(4)), branch("b", None)])));
+        assert_eq!((cache.pr("w1", "a"), cache.pr("w1", "b")), (Some(4), None));
+        cache.forget("w1");
+        assert_eq!(cache.pr("w1", "a"), None);
+    }
     use crate::model::WorkspaceLifecycle;
     use crate::shell_env::ShellEnv;
     use crate::store::types::{RepoRecord, WorkspaceRow};

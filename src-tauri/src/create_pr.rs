@@ -45,10 +45,16 @@ pub struct CreateWorkspacePullRequestResult {
 }
 
 async fn ensure_no_pr(state: &AppState, workspace_id: &str) -> Result<()> {
-    if state.workspaces.pr_number(workspace_id).await?.is_some() {
-        return Err(Error::Workspace("pull request already opened".into()));
+    let workspace = state
+        .store
+        .workspace_by_id(workspace_id)?
+        .ok_or_else(|| Error::unknown_workspace(workspace_id))?;
+    let pull_requests = state.store.with_read(crate::github::pull_requests_in)?;
+    let stack_pr = state.stacks.pr(workspace_id, &workspace.branch);
+    match crate::github::create_pr_block(&workspace, &pull_requests, stack_pr) {
+        Some(reason) => Err(Error::Workspace(reason.into())),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftPrWhyResult> {
@@ -304,6 +310,41 @@ mod tests {
             .output()
             .unwrap();
         assert!(output.status.success(), "git {args:?}: {output:?}");
+    }
+
+    fn synced(repo_id: &str, number: i64, head: &str) -> PullRequestPayload {
+        PullRequestPayload {
+            author: "ana".into(),
+            ..PullRequestPayload::opened_by_viewer(OpenedPullRequest {
+                number,
+                title: "Work".into(),
+                head: head.into(),
+                base: "main".into(),
+                files: 1,
+                html_url: format!("https://github.com/o/r/pull/{number}"),
+                repo_full_name: "o/r".into(),
+                repo_id: repo_id.into(),
+            })
+        }
+    }
+
+    /// Bug: only a PR this workspace opened counted, so one opened outside Cormux let Create
+    /// PR push and then fail at GitHub.
+    #[tokio::test]
+    async fn create_pr_is_refused_for_a_branch_whose_pr_was_opened_elsewhere() {
+        let (state, _recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        state
+            .store
+            .seed_workspace("feat", crate::model::WorkspaceLifecycle::Idle);
+        state.store.upsert_pr(&synced("r1", 8, "feat")).unwrap();
+
+        let refused = draft_pr_why(&state, "feat").await.unwrap_err();
+
+        assert!(
+            refused.to_string().contains("already has a pull request"),
+            "{refused}"
+        );
     }
 
     #[tokio::test]

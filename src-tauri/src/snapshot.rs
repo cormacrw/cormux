@@ -70,6 +70,8 @@ pub struct Snapshot {
     pub workspace_review_blocks: Vec<crate::review::WorkspaceReviewBlock>,
     /// Workspaces whose app Run can't start now, and why.
     pub workspace_run_blocks: Vec<crate::app::WorkspaceRunBlock>,
+    /// Workspaces whose branch can't open a pull request now, and why.
+    pub workspace_create_pr_blocks: Vec<crate::github::WorkspaceCreatePrBlock>,
     /// Each live workspace's own thread, for those with one.
     pub workspace_own_threads: Vec<WorkspaceOwnThread>,
     /// The live workspaces that need the user, by `workspaces::needs_attention`.
@@ -199,6 +201,10 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let workspace_review_blocks = crate::review::review_blocks(&workspaces, &own);
     let workspace_own_threads = own_threads(&own);
     let workspace_run_blocks = crate::app::run_blocks(&workspaces, &workspace_run_commands);
+    let workspace_create_pr_blocks =
+        crate::github::create_pr_blocks(&persisted.workspaces, &persisted.pull_requests, |row| {
+            state.stacks.pr(&row.id, &row.branch)
+        });
     let workspace_pending_approvals = pending_approvals(&persisted);
     let workspaces_needing_attention = needing_attention(
         &workspaces,
@@ -224,6 +230,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         workspace_branch_locks,
         workspace_review_blocks,
         workspace_run_blocks,
+        workspace_create_pr_blocks,
         workspace_own_threads,
         workspaces_needing_attention,
         workspace_pending_approvals,
