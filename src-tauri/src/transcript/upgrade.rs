@@ -151,12 +151,13 @@ fn permission(row: &Map<String, Value>) -> TranscriptEvent {
     .into()
 }
 
-/// An approval card named the raw tool, which the timeline swapped for its words.
-fn rewrite_approval(tool: &str, payload: &str) -> Option<String> {
-    if tool == crate::approvals::QUESTION_TOOL {
+/// An approval card named the raw tool, which the timeline swapped for its words. A question's
+/// card names no tool.
+fn rewrite_approval(payload: &str) -> Option<String> {
+    let mut card: Map<String, Value> = serde_json::from_str(payload).ok()?;
+    if card.contains_key("questions") {
         return None;
     }
-    let mut card: Map<String, Value> = serde_json::from_str(payload).ok()?;
     let raw = card.get("why").and_then(Value::as_str)?.to_string();
     let (words, _) = restore_permission_tool(&raw, "other", None);
     if raw.is_empty() || words == raw {

@@ -922,7 +922,7 @@ impl Store {
         version: i64,
         name: &str,
         mut event: impl FnMut(&str, i64, &str, &str) -> Rewrite,
-        mut approval: impl FnMut(&str, &str) -> Option<String>,
+        mut approval: impl FnMut(&str) -> Option<String>,
     ) -> Result<bool> {
         self.with_tx(|conn| {
             let done: bool = conn.query_row(
@@ -964,18 +964,14 @@ impl Store {
                 }
             }
             let approvals = {
-                let mut stmt = conn.prepare("SELECT id, tool, payload FROM approvals")?;
+                let mut stmt = conn.prepare("SELECT id, payload FROM approvals")?;
                 stmt.query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?
             };
-            for (id, tool, payload) in approvals {
-                if let Some(payload) = approval(&tool, &payload) {
+            for (id, payload) in approvals {
+                if let Some(payload) = approval(&payload) {
                     conn.execute(
                         "UPDATE approvals SET payload = ?1 WHERE id = ?2",
                         rusqlite::params![payload, id],
