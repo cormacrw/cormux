@@ -34,6 +34,9 @@ export type RowContext = ConversationSource & {
   readonly openFolds: SvelteSet<string>
   /** Put on each row's element with its key (`rowKey`), so the conversation can reach a drawn row. */
   readonly trackRow: Action<HTMLElement, string>
-  /** A scratch's reads, from when scratches still ran, are marked read-only with no worktree. */
+  /**
+   * No workspace behind it: a scratch, whose reads (from when scratches still ran) are marked
+   * read-only.
+   */
   readonly scratch: boolean
 }

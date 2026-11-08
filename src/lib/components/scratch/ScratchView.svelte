@@ -95,7 +95,6 @@
       role=""
       engine={engineName}
       {source}
-      scratch
       odId="session-thread"
       contentClass="pb-4 pt-6"
     />
