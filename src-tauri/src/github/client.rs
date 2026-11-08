@@ -81,36 +81,11 @@ pub async fn fetch_open_prs(
         if let Some(after_arg) = &after_arg {
             args.extend(["-f", after_arg]);
         }
-        let output = gh.stdout(&args).await.map_err(|error| {
-            let message = error.to_string();
-            if is_signed_out(&message) {
-                FetchError::SignedOut(message)
-            } else {
-                FetchError::Other(Error::Github(message))
-            }
-        })?;
-
-        let payload: GraphQlResponse = serde_json::from_str(&output).map_err(|error| {
-            FetchError::Other(Error::Github(format!("gh api graphql: {error}")))
-        })?;
-
-        if let Some(errors) = payload.errors {
-            let message = errors
-                .into_iter()
-                .map(|error| error.message)
-                .collect::<Vec<_>>()
-                .join("; ");
-            // GitHub returns partial data plus errors (e.g. SAML-protected orgs the
-            // token can't see); keep what came back rather than dropping the sync.
-            if payload.data.is_none() {
-                return Err(FetchError::Other(Error::Github(message)));
-            }
-            log::warn!("gh api graphql returned partial results: {message}");
-        }
-
-        let data = payload
-            .data
-            .ok_or_else(|| FetchError::Other(Error::Github("empty GraphQL response".into())))?;
+        let output = gh
+            .output(None, &args, &[])
+            .await
+            .map_err(|failure| FetchError::Other(failure.into()))?;
+        let data = read_page(output.status.success(), &output.stdout, &output.stderr)?;
         viewer = data.viewer.login;
         nodes.extend(data.search.nodes.into_iter().flatten());
         match data.search.page_info {
@@ -132,6 +107,50 @@ pub async fn fetch_open_prs(
 
     items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(items)
+}
+
+/// One page of the search from `gh api graphql`'s output. GitHub returns partial data plus
+/// errors (e.g. SAML-protected orgs the token can't see), and `gh` exits non-zero for it, so
+/// the body is read whatever the exit status: what came back is kept rather than dropping the
+/// sync.
+fn read_page(
+    succeeded: bool,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> std::result::Result<GraphQlData, FetchError> {
+    let parsed = serde_json::from_slice::<GraphQlResponse>(stdout);
+    let payload = match parsed {
+        Ok(payload) if succeeded || payload.data.is_some() => payload,
+        Err(error) if succeeded => {
+            return Err(FetchError::Other(Error::Github(format!(
+                "gh api graphql: {error}"
+            ))));
+        }
+        _ => {
+            let message = format!("gh api failed: {}", String::from_utf8_lossy(stderr).trim());
+            return Err(if is_signed_out(&message) {
+                FetchError::SignedOut(message)
+            } else {
+                FetchError::Other(Error::Github(message))
+            });
+        }
+    };
+
+    if let Some(errors) = payload.errors {
+        let message = errors
+            .into_iter()
+            .map(|error| error.message)
+            .collect::<Vec<_>>()
+            .join("; ");
+        if payload.data.is_none() {
+            return Err(FetchError::Other(Error::Github(message)));
+        }
+        log::warn!("gh api graphql returned partial results: {message}");
+    }
+
+    payload
+        .data
+        .ok_or_else(|| FetchError::Other(Error::Github("empty GraphQL response".into())))
 }
 
 fn map_pr(
@@ -319,6 +338,38 @@ mod tests {
         assert!(matches!(prs[0].checks, PrChecksState::None));
         assert!(matches!(prs[1].checks, PrChecksState::Pass));
         assert_eq!(prs[1].author, "ghost");
+    }
+
+    /// Bug: `gh` exits 1 when the response has errors beside data, and that exit was treated
+    /// as a failed sync, so one SAML-protected org stopped every PR from syncing.
+    #[test]
+    fn partial_results_are_kept_whatever_gh_exits_with() {
+        let partial = RESPONSE.replacen(
+            "{",
+            r#"{ "errors": [{ "message": "Resource protected by organization SAML enforcement" }],"#,
+            1,
+        );
+        let data = read_page(
+            false,
+            partial.as_bytes(),
+            b"gh: GraphQL: Resource protected",
+        )
+        .unwrap();
+        assert_eq!(data.search.nodes.len(), 3);
+
+        let only_errors = r#"{ "errors": [{ "message": "Something went wrong" }] }"#;
+        assert!(matches!(
+            read_page(
+                false,
+                only_errors.as_bytes(),
+                b"gh: GraphQL: Something went wrong"
+            ),
+            Err(FetchError::Other(_))
+        ));
+        assert!(matches!(
+            read_page(false, b"", b"HTTP 401: Bad credentials"),
+            Err(FetchError::SignedOut(_))
+        ));
     }
 
     #[test]
