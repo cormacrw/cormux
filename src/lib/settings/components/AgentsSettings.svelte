@@ -5,33 +5,39 @@
   import SettingsPanel from '$lib/settings/components/SettingsPanel.svelte'
   import SettingsRow from '$lib/settings/components/SettingsRow.svelte'
   import { commands } from '$lib/ipc'
-  import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
-  import { ENGINE_OPTIONS, engineInstallLabel } from '$lib/engine/engines'
+  import type { EngineKind } from '$lib/ipc/bindings'
+  import { coreErrorText } from '$lib/core/core-error'
+  import {
+    ENGINE_OPTIONS,
+    engineInstallLabel,
+    engineStatusLine,
+    type EngineDetection,
+  } from '$lib/engine/engines'
   import { engineMark } from '$lib/engine/engines'
   import { settings } from '$lib/settings/store.svelte'
   import { cn } from '$lib/utils'
 
-  let engineStatuses = $state<EngineStatus[]>([])
+  let detection = $state<EngineDetection>({ state: 'checking' })
 
   const statusByKind = $derived(
-    new Map(engineStatuses.map((row) => [row.kind, row])),
+    new Map(
+      detection.state === 'detected'
+        ? detection.statuses.map((row) => [row.kind, row])
+        : [],
+    ),
   )
 
   onMount(() => {
     void commands.detectEngines().then((result) => {
-      if (result.status === 'ok') engineStatuses = result.data
+      detection =
+        result.status === 'ok'
+          ? { state: 'detected', statuses: result.data }
+          : {
+              state: 'failed',
+              error: coreErrorText(result.error, 'Could not check for agents'),
+            }
     })
   })
-
-  function engineStatusLine(status: EngineStatus | undefined) {
-    if (!status?.installed) return 'Not installed'
-    const parts: string[] = []
-    if (status.binary) parts.push(status.binary)
-    if (status.version) parts.push(`v${status.version}`)
-    if (status.signedIn === false) parts.push('Sign in required')
-    if (status.signedIn === true) parts.push('Signed in')
-    return parts.join(' · ') || 'Installed'
-  }
 
   async function chooseEngine(kind: EngineKind) {
     await updateSettings({ defaultEngine: kind })
@@ -83,8 +89,13 @@
               <span class="text-[10px] text-destructive">{install}</span>
             {/if}
           </span>
-          <span class="mt-1 block font-mono text-[10px] text-muted-foreground"
-            >{engineStatusLine(status)}</span
+          <span
+            class={cn(
+              'mt-1 block font-mono text-[10px]',
+              detection.state === 'failed'
+                ? 'text-destructive'
+                : 'text-muted-foreground',
+            )}>{engineStatusLine(detection, option.kind)}</span
           >
         </span>
         <span
