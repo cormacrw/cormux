@@ -29,8 +29,6 @@ use crate::store::types::ThreadRow;
 use crate::transcript::Transcript;
 use crate::workspaces::{WorkspaceRecord, Workspaces};
 
-/// Just over the 5 s `ClaudeSession::shutdown` gives the CLI before it kills the process group.
-const STOP_GRACE: Duration = Duration::from_secs(6);
 /// A Claude CLI sitting idle this long gives its memory back; the next prompt resumes it.
 const IDLE_REAP_AFTER: Duration = Duration::from_secs(30 * 60);
 const IDLE_REAP_TICK: Duration = Duration::from_secs(5 * 60);
@@ -71,8 +69,6 @@ struct EngineTurn {
     open: bool,
     /// Cancelled while open; the turn's end says so.
     interrupted: bool,
-    /// The engine said the turn ending next leaves it a message to start the next on.
-    queued: bool,
 }
 
 #[derive(Clone)]
@@ -107,6 +103,8 @@ struct ThreadSlot {
     last_active: Arc<Mutex<Instant>>,
     /// The CLI's process group, so quitting the app can take it down synchronously.
     pgid: Option<u32>,
+    /// How long `stop` waits for the engine to go down, as its adapter says.
+    stops_within: Duration,
 }
 
 impl ThreadSlot {
@@ -293,6 +291,7 @@ impl ThreadRuntime {
                     turn,
                     last_active,
                     pgid: handle.pgid,
+                    stops_within: handle.stops_within,
                 },
             );
         self.current
@@ -391,12 +390,13 @@ impl ThreadRuntime {
                 .lock()
                 .map_err(|error| Error::Engine(error.to_string()))?;
             self.dismiss(thread_id);
-            threads.remove(thread_id).map(|slot| slot.commands)
+            threads
+                .remove(thread_id)
+                .map(|slot| (slot.commands, slot.stops_within))
         };
-        if let Some(commands) = commands {
+        if let Some((commands, stops_within)) = commands {
             let _ = commands.send(EngineCommand::Shutdown);
-            // The engine drops its receiver once it is down.
-            let _ = tokio::time::timeout(STOP_GRACE, commands.closed()).await;
+            let _ = tokio::time::timeout(stops_within, commands.closed()).await;
         }
         Ok(())
     }
@@ -561,7 +561,12 @@ impl Pump {
         while let Some(output) = reported.recv().await {
             touch(&self.last_active);
             match output {
-                EngineOutput::Event(event) => self.event(event),
+                EngineOutput::Event(event) => self.event(event, false),
+                EngineOutput::TurnEnded {
+                    stop_reason,
+                    error,
+                    next_queued,
+                } => self.event(AgentEvent::TurnEnd { stop_reason, error }, next_queued),
                 EngineOutput::Usage {
                     used_tokens,
                     context_size,
@@ -572,11 +577,6 @@ impl Pump {
                     self.permission(request)
                 }
                 EngineOutput::HostTool(call) => self.host_tool(call),
-                EngineOutput::NextTurnQueued => {
-                    if let Ok(mut turn) = self.turn.lock() {
-                        turn.queued = true;
-                    }
-                }
                 EngineOutput::Exited => {
                     exited = true;
                     if launch.succeeded().await {
@@ -593,7 +593,8 @@ impl Pump {
         }
     }
 
-    fn event(&self, event: AgentEvent) {
+    /// `next_queued` only means anything on a turn end.
+    fn event(&self, event: AgentEvent, next_queued: bool) {
         if let AgentEvent::SessionStarted { session_id } = &event
             && let Err(error) = self.store.set_thread_session(&self.thread_id, session_id)
         {
@@ -607,7 +608,7 @@ impl Pump {
             log::warn!("saving an event to {}: {error}", self.thread_id);
         }
         if turn_ended {
-            self.ended();
+            self.ended(next_queued);
         }
     }
 
@@ -624,7 +625,7 @@ impl Pump {
     fn gone(&self) {
         let open = self.turn.lock().is_ok_and(|turn| turn.open);
         if open {
-            self.ended();
+            self.ended(false);
         } else {
             self.approvals.cancel_for_engine(self.engine);
         }
@@ -632,16 +633,13 @@ impl Pump {
 
     /// The engine stopped waiting on anything: its turn is over, or it is gone. Its open
     /// requests go either way; the end is reported only while it is the thread's current engine.
-    fn ended(&self) {
-        let (interrupted, queued) = match self.turn.lock() {
+    fn ended(&self, queued: bool) {
+        let interrupted = match self.turn.lock() {
             Ok(mut turn) => {
                 turn.open = false;
-                (
-                    std::mem::take(&mut turn.interrupted),
-                    std::mem::take(&mut turn.queued),
-                )
+                std::mem::take(&mut turn.interrupted)
             }
-            Err(_) => (false, false),
+            Err(_) => false,
         };
         self.approvals.cancel_for_engine(self.engine);
         if is_current(&self.current, &self.thread_id, self.engine) {

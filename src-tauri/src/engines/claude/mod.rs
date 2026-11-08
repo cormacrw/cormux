@@ -83,7 +83,11 @@ impl Engines for ClaudeEngines {
             let pgid = session.pid();
             let (commands, received) = mpsc::unbounded_channel();
             tokio::spawn(run(session, received, output));
-            Ok(EngineHandle { commands, pgid })
+            Ok(EngineHandle {
+                commands,
+                pgid,
+                stops_within: ClaudeSession::STOPS_WITHIN,
+            })
         })
     }
 }
@@ -145,9 +149,6 @@ async fn run(
     mut commands: mpsc::UnboundedReceiver<EngineCommand>,
     output: mpsc::UnboundedSender<EngineOutput>,
 ) {
-    let emit = |event: AgentEvent| {
-        let _ = output.send(EngineOutput::Event(event));
-    };
     // Answers come back off the loop, which has to keep reading while the host decides.
     let (answered, mut answers) = mpsc::unbounded_channel::<(String, PermissionDecision)>();
     let (replied, mut replies) = mpsc::unbounded_channel::<(String, Value)>();
@@ -172,7 +173,7 @@ async fn run(
                         }
                     }
                     if let Some(held) = gate.release() {
-                        emit(held);
+                        forward(&output, held, gate.queued());
                     }
                 }
                 Some(EngineCommand::SetModel(model)) => {
@@ -236,10 +237,14 @@ async fn run(
                 }
                 Err(error) => {
                     // Saved, so after a reload the thread still says why its turn ended.
-                    emit(AgentEvent::TurnEnd {
-                        stop_reason: StopReason::failed(None),
-                        error: Some(error.to_string()),
-                    });
+                    forward(
+                        &output,
+                        AgentEvent::TurnEnd {
+                            stop_reason: StopReason::failed(None),
+                            error: Some(error.to_string()),
+                        },
+                        false,
+                    );
                     session.shutdown().await;
                     break;
                 }
@@ -264,12 +269,16 @@ async fn run(
     }
 }
 
-/// A turn's end follows word that the CLI already has the next turn's prompt, if it has.
+/// A turn's end carries whether the CLI already has the next turn's prompt.
 fn forward(output: &mpsc::UnboundedSender<EngineOutput>, event: AgentEvent, queued: bool) {
-    if queued && matches!(event, AgentEvent::TurnEnd { .. }) {
-        let _ = output.send(EngineOutput::NextTurnQueued);
-    }
-    let _ = output.send(EngineOutput::Event(event));
+    let _ = output.send(match event {
+        AgentEvent::TurnEnd { stop_reason, error } => EngineOutput::TurnEnded {
+            stop_reason,
+            error,
+            next_queued: queued,
+        },
+        event => EngineOutput::Event(event),
+    });
 }
 
 /// Puts a permission request to the host and sends its answer back to the CLI. An answer that

@@ -9,6 +9,9 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
+/// How long the CLI gets to exit after SIGTERM before its process group is killed.
+const SIGTERM_GRACE: Duration = Duration::from_secs(5);
+
 #[cfg(test)]
 use super::protocol::user_message;
 use super::protocol::{
@@ -254,6 +257,9 @@ impl ClaudeSession {
         self.child.id()
     }
 
+    /// The longest `shutdown` takes: the CLI's grace after SIGTERM, then a moment to kill it.
+    pub const STOPS_WITHIN: Duration = Duration::from_secs(SIGTERM_GRACE.as_secs() + 1);
+
     /// Stops the CLI's whole process group. The group is the CLI's own (`process_group(0)`), so
     /// the shells and servers it started go with it rather than outliving the thread.
     pub async fn shutdown(&mut self) {
@@ -262,7 +268,7 @@ impl ClaudeSession {
         if let Some(pgid) = pgid {
             let _ = unsafe { libc::killpg(pgid, libc::SIGTERM) };
         }
-        let _ = timeout(Duration::from_secs(5), self.child.wait()).await;
+        let _ = timeout(SIGTERM_GRACE, self.child.wait()).await;
         // The CLI exiting on SIGTERM doesn't mean its children did; `kill_on_drop` only
         // reaches the CLI itself.
         if let Some(pgid) = pgid {

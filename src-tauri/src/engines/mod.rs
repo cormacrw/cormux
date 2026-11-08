@@ -56,6 +56,9 @@ pub struct HostToolsConfig {
 pub struct EngineHandle {
     pub commands: mpsc::UnboundedSender<EngineCommand>,
     pub pgid: Option<u32>,
+    /// The longest the engine takes to go down after `Shutdown`: it drops `commands`' receiver
+    /// once it has.
+    pub stops_within: std::time::Duration,
 }
 
 /// What an engine reports, in the order it happened.
@@ -72,9 +75,13 @@ pub enum EngineOutput {
     Permission(PermissionRequest),
     /// A message for one of the host's tool servers, waiting for its reply.
     HostTool(HostToolCall),
-    /// The turn end that follows leaves a prompt the engine has but hasn't started: it starts
-    /// the next turn on it by itself.
-    NextTurnQueued,
+    /// The turn is over. `next_queued`: the engine already has a prompt it hasn't started, and
+    /// starts the next turn on it by itself.
+    TurnEnded {
+        stop_reason: crate::model::StopReason,
+        error: Option<String>,
+        next_queued: bool,
+    },
     Exited,
 }
 

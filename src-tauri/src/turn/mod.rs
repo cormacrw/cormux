@@ -965,15 +965,13 @@ mod tests {
         ends: &mut tokio::sync::broadcast::Receiver<TurnEnd>,
         queued: bool,
     ) -> TurnEnd {
-        if queued {
-            fake.report(T, crate::engines::EngineOutput::NextTurnQueued);
-        }
         fake.report(
             T,
-            crate::engines::EngineOutput::Event(crate::engines::AgentEvent::TurnEnd {
+            crate::engines::EngineOutput::TurnEnded {
                 stop_reason: crate::model::StopReason::EndTurn,
                 error: None,
-            }),
+                next_queued: queued,
+            },
         );
         tokio::time::timeout(std::time::Duration::from_secs(5), ends.recv())
             .await

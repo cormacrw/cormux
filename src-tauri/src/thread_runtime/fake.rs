@@ -9,6 +9,9 @@ use tokio::sync::mpsc;
 use crate::engines::{EngineCommand, EngineHandle, EngineOutput, Engines, LaunchConfig, Launching};
 use crate::error::Error;
 
+/// How long a fake engine may take to go down after `Shutdown`.
+pub const STOPS_WITHIN: std::time::Duration = std::time::Duration::from_secs(6);
+
 #[derive(Clone, Default)]
 pub struct FakeEngines {
     state: Arc<Mutex<FakeState>>,
@@ -117,6 +120,7 @@ impl Engines for FakeEngines {
             Ok(EngineHandle {
                 commands,
                 pgid: None,
+                stops_within: STOPS_WITHIN,
             })
         })
     }

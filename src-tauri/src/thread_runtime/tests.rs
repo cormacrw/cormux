@@ -158,7 +158,10 @@ async fn stop_returns_as_soon_as_the_engine_is_down() {
         .stop_threads(&["t1".to_string()])
         .await
         .unwrap();
-    assert!(started.elapsed() < STOP_GRACE, "stop waited out its grace");
+    assert!(
+        started.elapsed() < super::fake::STOPS_WITHIN,
+        "stop waited out its grace"
+    );
     assert!(!setup.runtime.has_thread("t1"));
 }
 
