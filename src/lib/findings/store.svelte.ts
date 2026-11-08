@@ -2,7 +2,7 @@
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import { SvelteSet } from 'svelte/reactivity'
 import type { FindingRow } from '$lib/ipc/bindings'
-import { commands } from '$lib/ipc'
+import { commands, type CoreError } from '$lib/ipc'
 import {
   applyQuickSelect,
   defaultSelectedIds,
@@ -115,46 +115,44 @@ export class FindingsStore {
     this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
   }
 
-  async sendSelected(workspaceId: string, threadId: string) {
+  /** Sends the selected open findings to the thread; resolves why the core refused, or null. */
+  async sendSelected(
+    workspaceId: string,
+    threadId: string,
+  ): Promise<CoreError | null> {
     const open = new Set(
       openFindings(this.forWorkspace(workspaceId)).map((row) => row.id),
     )
     const ids = [...this.selectedIds(workspaceId)].filter((id) => open.has(id))
-    if (!ids.length) return
+    if (!ids.length) return null
     const result = await commands.sendWorkspaceFindings({
       workspaceId,
       threadId,
       findingIds: ids,
     })
-    if (result.status === 'error') {
-      const message =
-        typeof result.error.message === 'string'
-          ? result.error.message
-          : 'Send failed'
-      throw new Error(message)
-    }
+    if (result.status === 'error') return result.error
     this.quickSelect(workspaceId, 'none')
+    return null
   }
 
   /** Dismisses findings (or restores them to open) and drops them from the selection. */
-  async setDismissed(workspaceId: string, ids: string[], dismissed: boolean) {
-    if (!ids.length) return
+  async setDismissed(
+    workspaceId: string,
+    ids: string[],
+    dismissed: boolean,
+  ): Promise<CoreError | null> {
+    if (!ids.length) return null
     const result = await commands.dismissWorkspaceFindings({
       workspaceId,
       findingIds: ids,
       dismissed,
     })
-    if (result.status === 'error') {
-      throw new Error(
-        typeof result.error.message === 'string'
-          ? result.error.message
-          : 'Could not update the findings',
-      )
-    }
+    if (result.status === 'error') return result.error
     const next = new SvelteSet(this.selectedIds(workspaceId))
     for (const id of ids) next.delete(id)
     this.selection = { ...this.selection, [workspaceId]: next }
     this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
+    return null
   }
 
   seedDefaults(workspaceId: string) {

@@ -25,6 +25,7 @@
   } from '$lib/findings/types'
   import type { FindingRow } from '$lib/ipc/bindings'
   import { cn } from '$lib/utils'
+  import { coreErrorText } from '$lib/core/core-error'
 
   let {
     workspaceId,
@@ -85,11 +86,12 @@
     return 'bg-muted-foreground/60'
   }
 
-  async function preserveScroll(run: () => void | Promise<void>) {
+  async function preserveScroll<T>(run: () => T | Promise<T>): Promise<T> {
     const top = bodyEl?.scrollTop ?? 0
-    await run()
+    const result = await run()
     await tick()
     if (bodyEl) bodyEl.scrollTop = top
+    return result
   }
 
   function openLocation(row: FindingRow) {
@@ -99,14 +101,10 @@
 
   async function setDismissed(ids: string[], dismissed: boolean) {
     sendError = null
-    try {
-      await preserveScroll(() =>
-        findings.setDismissed(workspaceId, ids, dismissed),
-      )
-    } catch (error) {
-      sendError =
-        error instanceof Error ? error.message : 'Could not update the findings'
-    }
+    const error = await preserveScroll(() =>
+      findings.setDismissed(workspaceId, ids, dismissed),
+    )
+    if (error) sendError = coreErrorText(error, 'Could not update the findings')
   }
 
   const dismissedCount = $derived(
@@ -117,14 +115,9 @@
     if (!targetThread || sending) return
     sending = true
     sendError = null
-    try {
-      await findings.sendSelected(workspaceId, targetThread.id)
-    } catch (error) {
-      sendError =
-        error instanceof Error ? error.message : 'Could not send findings'
-    } finally {
-      sending = false
-    }
+    const error = await findings.sendSelected(workspaceId, targetThread.id)
+    sending = false
+    if (error) sendError = coreErrorText(error, 'Could not send findings')
   }
 
   function goToTargetThread() {
