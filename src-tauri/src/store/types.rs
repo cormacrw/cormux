@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::error::{Error, Result};
 use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -17,21 +16,6 @@ pub struct RepoRecord {
     pub run_command: Option<String>,
     /// Running the app in one workspace stops it in the repo's other workspaces.
     pub single_instance: bool,
-}
-
-impl RepoRecord {
-    /// The default branch stays in the repo checkout. Git lets a branch be checked out in one
-    /// worktree only, so no workspace takes it.
-    pub fn ensure_not_default_branch(&self, branch: &str) -> Result<()> {
-        let default = &self.default_branch;
-        if branch.trim() == default {
-            return Err(Error::Invalid(format!(
-                "Workspaces can't check out {default}, the default branch of {}. Use another branch.",
-                self.name
-            )));
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

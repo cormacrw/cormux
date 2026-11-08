@@ -13,6 +13,7 @@ use tokio::sync::RwLock;
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastTone};
 use crate::git::{BehindUpdate, GitConflictState, RepoFetchTarget, WorkspaceFetchTarget};
+use crate::repos::{BranchHold, BranchHolds};
 use crate::state::AppState;
 use crate::store::types::RepoRecord;
 use crate::timeline::{BranchChange, TimelineStep};
@@ -260,7 +261,7 @@ pub fn check_branch_name(repo: &RepoRecord, name: &str) -> Result<()> {
             "Add a branch name, e.g. feat/oauth-login.".into(),
         ));
     }
-    repo.ensure_not_default_branch(name)?;
+    BranchHolds::of_repo(repo.clone()).ensure_not_default(name)?;
     crate::git::validate_ref_name(name, "branch").map_err(|_| {
         Error::Invalid(
             "Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.".into(),
@@ -289,15 +290,14 @@ pub async fn check_new_branch(
             "{name} already exists. Pick a new branch name."
         )));
     }
-    let taken = state.store.live_workspaces()?.into_iter().any(|row| {
-        row.repo_id == workspace.repo_id && row.id != workspace.id && row.branch == name
-    });
-    if taken {
+    let holds = BranchHolds::recorded(state, state.store.repo(&workspace.repo_id)?)?
+        .seen_from(&workspace.id);
+    if let Some(BranchHold::CheckedOutBy { .. }) = holds.of(name) {
         return Err(Error::Invalid(
             "Another workspace already uses this branch.".into(),
         ));
     }
-    check_branch_name(&state.store.repo(&workspace.repo_id)?, name)
+    holds.ensure_not_default(name)
 }
 
 /// Every branch name a new workspace in the repo shouldn't draft: local and `origin`'s

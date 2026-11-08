@@ -70,10 +70,27 @@ impl BranchHolds {
             .await
             .unwrap_or_default();
         Ok(Self {
-            repo,
-            live: state.store.live_workspaces()?,
             head,
+            ..Self::recorded(state, repo)?
         })
+    }
+
+    /// Without the repo checkout's branch, which takes a git call: for checks that run before
+    /// any git call, or on names the checkout's branch can't hold.
+    pub fn recorded(state: &AppState, repo: RepoRecord) -> Result<Self> {
+        Ok(Self {
+            live: state.store.live_workspaces()?,
+            ..Self::of_repo(repo)
+        })
+    }
+
+    /// The repo's own hold alone, its default branch: for checks made without the store.
+    pub fn of_repo(repo: RepoRecord) -> Self {
+        Self {
+            repo,
+            live: Vec::new(),
+            head: String::new(),
+        }
     }
 
     /// As `workspace_id` sees them: its own branch doesn't hold it.
@@ -82,7 +99,9 @@ impl BranchHolds {
         self
     }
 
+    /// A name typed with spaces around it names the same branch.
     pub fn of(&self, branch: &str) -> Option<BranchHold> {
+        let branch = branch.trim();
         if branch == self.repo.default_branch {
             return Some(BranchHold::DefaultBranch);
         }
@@ -96,6 +115,18 @@ impl BranchHolds {
             return Some(BranchHold::CheckedOutBy { workspaces });
         }
         (!self.head.is_empty() && self.head == branch).then_some(BranchHold::RepoHead)
+    }
+
+    /// The default branch stays in the repo checkout. Git lets a branch be checked out in one
+    /// worktree only, so no workspace takes it.
+    pub fn ensure_not_default(&self, branch: &str) -> Result<()> {
+        if self.of(branch) == Some(BranchHold::DefaultBranch) {
+            return Err(Error::Invalid(format!(
+                "Workspaces can't check out {}, the default branch of {}. Use another branch.",
+                self.repo.default_branch, self.repo.name
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -216,15 +247,12 @@ pub fn set_default_branch(state: &AppState, input: SetRepoDefaultBranchInput) ->
     if branch.is_empty() {
         return Err(Error::Workspace("Pick a default branch".into()));
     }
-    if let Some(workspace) = state
-        .store
-        .live_workspaces()?
-        .iter()
-        .find(|row| row.repo_id == repo.id && row.branch == branch)
+    if let Some(BranchHold::CheckedOutBy { workspaces }) =
+        BranchHolds::recorded(state, repo.clone())?.of(&branch)
     {
         return Err(Error::Workspace(format!(
             "{} has {branch} checked out. Switch it to another branch first.",
-            workspace.name
+            workspaces.join(", ")
         )));
     }
     repo.default_branch = branch;
@@ -771,6 +799,29 @@ mod tests {
         let error = set_default_branch(&state, input("  ")).unwrap_err();
         assert!(error.to_string().contains("Pick a default branch"));
         assert!(recording.emitted().is_empty());
+    }
+
+    /// Bug: the default-branch refusal trimmed the name and the branch holds didn't, so a name
+    /// typed with a space was the default branch to one and free to the other. Every check
+    /// goes by the holds now, which trim.
+    #[test]
+    fn a_branch_is_held_by_one_rule_however_its_name_is_typed() {
+        let (state, _recording, dir) = fixture();
+        register(&state, "app", dir.path());
+        live_workspace(&state, "app", "feat/x");
+        let repo = state.store.repo("app").unwrap();
+        let holds = BranchHolds::recorded(&state, repo.clone()).unwrap();
+        let work = Some(BranchHold::CheckedOutBy {
+            workspaces: vec!["Work".into()],
+        });
+
+        assert_eq!(holds.of(" main "), Some(BranchHold::DefaultBranch));
+        assert_eq!(holds.of("feat/x "), work);
+        let error = BranchHolds::of_repo(repo)
+            .ensure_not_default("main ")
+            .unwrap_err();
+        assert!(error.to_string().contains("the default branch"), "{error}");
+        assert_eq!(holds.seen_from("w1").of("feat/x"), None);
     }
 
     #[tokio::test]
