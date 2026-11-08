@@ -2,6 +2,7 @@
 //! (what the card shows) and the engine's waiter change together, so a card never reads as
 //! answered while its agent still waits, or as waiting once its agent has stopped.
 
+pub mod commands;
 mod payload;
 mod store;
 

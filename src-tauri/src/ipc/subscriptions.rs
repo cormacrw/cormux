@@ -4,12 +4,74 @@ use std::sync::{Arc, Mutex};
 
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use tauri::State;
 use tauri::ipc::Channel;
 use tokio::sync::{broadcast, watch};
 
-use super::types::{DiffUpdate, PtyChunk};
+use crate::error::Result;
+use crate::git::WorktreeDiff;
 use crate::state::AppState;
 use crate::transcript::{StreamLagged, StreamedEvent, TranscriptEvent};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyChunk {
+    pub workspace_id: String,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffUpdate {
+    pub workspace_id: String,
+    pub diff: Option<WorktreeDiff>,
+}
+
+/// High-volume ordered stream of normalised agent events for one thread.
+#[tauri::command]
+#[specta::specta]
+pub fn subscribe_agent_events(
+    thread_id: String,
+    channel: Channel<StreamedEvent>,
+    state: State<'_, AppState>,
+    subs: State<'_, Subscriptions>,
+) -> Result<u32> {
+    Ok(stream_agent_events(&state, &subs, thread_id, channel))
+}
+
+/// High-volume ordered stream of PTY output for a workspace's run/setup log.
+#[tauri::command]
+#[specta::specta]
+pub fn subscribe_pty(
+    workspace_id: String,
+    channel: Channel<PtyChunk>,
+    state: State<'_, AppState>,
+    subs: State<'_, Subscriptions>,
+) -> Result<u32> {
+    Ok(stream_pty(&state, &subs, workspace_id, channel))
+}
+
+/// High-volume ordered stream of live diff updates for a worktree.
+#[tauri::command]
+#[specta::specta]
+pub async fn subscribe_diffs(
+    workspace_id: String,
+    channel: Channel<DiffUpdate>,
+    state: State<'_, AppState>,
+    subs: State<'_, Subscriptions>,
+) -> Result<u32> {
+    Ok(stream_diffs(&state, &subs, workspace_id, channel).await)
+}
+
+/// Stop the background task behind a `subscribe_*` channel.
+#[tauri::command]
+#[specta::specta]
+pub fn unsubscribe(id: u32, subs: State<'_, Subscriptions>) -> Result<()> {
+    subs.cancel(id);
+    Ok(())
+}
 
 /// Live channel subscriptions, so the webview can stop the task feeding a channel.
 #[derive(Clone, Default)]
@@ -73,7 +135,7 @@ impl Drop for SubscriptionHandle {
 
 /// Feeds `channel` everything the thread's transcript gets until cancelled. Returns the id to
 /// cancel by.
-pub fn stream_agent_events(
+fn stream_agent_events(
     state: &AppState,
     subs: &Subscriptions,
     thread_id: String,
@@ -107,7 +169,7 @@ pub fn stream_agent_events(
 }
 
 /// Feeds `channel` a workspace's run/setup log, from the start, until cancelled.
-pub fn stream_pty(
+fn stream_pty(
     state: &AppState,
     subs: &Subscriptions,
     workspace_id: String,
@@ -121,7 +183,7 @@ pub fn stream_pty(
         let mut lines = process.take_log_snapshot(&workspace_id);
         let activity = process.activity();
         let mut sub = sub;
-        while !sub.is_stopped() {
+        'feed: while !sub.is_stopped() {
             // Armed first, so a line landing just after the drain still wakes this loop.
             let woken = activity.notified();
             tokio::pin!(woken);
@@ -129,10 +191,14 @@ pub fn stream_pty(
             // Run and setup sessions are forwarded into the workspace log by their monitors.
             lines.extend(process.drain_pending(&workspace_id));
             for line in lines.drain(..) {
-                let _ = channel.send(PtyChunk {
+                let chunk = PtyChunk {
                     workspace_id: workspace_id.clone(),
                     line,
-                });
+                };
+                // The webview that asked is gone (a reload), so nothing will cancel this.
+                if channel.send(chunk).is_err() {
+                    break 'feed;
+                }
             }
             tokio::select! {
                 () = woken => {}
@@ -146,7 +212,7 @@ pub fn stream_pty(
 }
 
 /// Feeds `channel` a worktree's live diffs until cancelled.
-pub async fn stream_diffs(
+async fn stream_diffs(
     state: &AppState,
     subs: &Subscriptions,
     workspace_id: String,
@@ -167,10 +233,13 @@ pub async fn stream_diffs(
             if let Some(diff) = diffs.latest(&workspace_id)
                 && !last.as_ref().is_some_and(|sent| Arc::ptr_eq(sent, &diff))
             {
-                let _ = channel.send(DiffUpdate {
+                let update = DiffUpdate {
                     workspace_id: workspace_id.clone(),
                     diff: Some((*diff).clone()),
-                });
+                };
+                if channel.send(update).is_err() {
+                    break;
+                }
                 last = Some(diff);
             }
             tokio::select! {

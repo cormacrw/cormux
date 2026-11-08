@@ -1,5 +1,6 @@
 //! Registered repos: adding and removing them, their settings, and git in their main checkouts.
 
+pub mod commands;
 mod store;
 
 use std::path::Path;

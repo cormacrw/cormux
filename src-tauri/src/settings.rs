@@ -41,3 +41,25 @@ impl Settings {
             .unwrap();
     }
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSettingInput {
+    pub key: String,
+    pub value: String,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_setting(
+    input: SetSettingInput,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> crate::error::Result<()> {
+    let key = input.key.trim();
+    if key.is_empty() {
+        return Err(crate::error::Error::Invalid("setting key required".into()));
+    }
+    state.store.set_setting(key, &input.value)?;
+    state.out.changed(crate::feedback::Change::THREADS);
+    Ok(())
+}

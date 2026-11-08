@@ -174,7 +174,7 @@ pub fn resolve(
             .map_err(|error| crate::error::Error::Workspace(error.to_string()))?;
     }
     let preview_url = if kind == "image" {
-        crate::attachments::image_preview(&stored)
+        crate::attachments::image_preview_of(&stored)
     } else {
         None
     };
@@ -195,6 +195,23 @@ fn read_head(path: &Path, count: usize) -> Vec<u8> {
     let read = file.read(&mut buffer).unwrap_or(0);
     buffer.truncate(read);
     buffer
+}
+
+/// Copies a media file an agent referenced in its reply into the app's media folder,
+/// where the webview may load it. `None` when it isn't a showable image or recording.
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_thread_media(
+    source: String,
+    workdir: Option<String>,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<Option<ThreadMedia>> {
+    let media_dir = state.data_dir.media();
+    // Copies a file of up to hundreds of megabytes; not on an async worker.
+    tokio::task::spawn_blocking(move || {
+        resolve(&media_dir, &source, workdir.as_deref().map(Path::new))
+    })
+    .await?
 }
 
 #[cfg(test)]

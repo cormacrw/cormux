@@ -1,102 +1,125 @@
-pub mod commands;
+//! The Tauri adapter: which feature commands and events the webview gets, the event transport,
+//! and channel subscriptions.
+
 pub mod events;
 pub mod subscriptions;
-pub mod types;
 
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::Builder;
 
+use crate::{
+    app, approvals, attachments, changes, clickup, create_pr, environment, findings, git, github,
+    menu, metrics, repos, review, scratch, settings, skills, snapshot, stack, summaries, teardown,
+    terminal, thread_media, turn, workspace_git, workspace_start, workspaces,
+};
+
+/// The one list of commands: registers them with Tauri and names them for the allowlist test.
+/// Each command's wire name is its function's name, so names stay unique across features.
+macro_rules! commands {
+    ($($($segment:ident)::+),* $(,)?) => {
+        fn commands() -> tauri_specta::Commands<tauri::Wry> {
+            tauri_specta::collect_commands![$($($segment)::+),*]
+        }
+
+        #[cfg(test)]
+        const COMMAND_PATHS: &[&str] = &[$(stringify!($($segment)::+)),*];
+    };
+}
+
+commands![
+    snapshot::get_snapshot,
+    environment::reload_environment,
+    metrics::get_metrics,
+    turn::commands::get_thread_events,
+    subscriptions::subscribe_agent_events,
+    environment::detect_engines,
+    turn::commands::send_thread_prompt,
+    turn::commands::cancel_thread_turn,
+    turn::commands::pause_thread,
+    turn::commands::resume_thread,
+    turn::commands::new_thread_session,
+    turn::commands::resume_thread_session,
+    turn::commands::thread_models,
+    turn::commands::engine_models,
+    turn::commands::set_thread_model,
+    turn::commands::thread_efforts,
+    turn::commands::engine_efforts,
+    turn::commands::set_thread_effort,
+    approvals::commands::resolve_approval,
+    approvals::commands::answer_question,
+    approvals::commands::resolve_all_approvals,
+    subscriptions::subscribe_pty,
+    subscriptions::subscribe_diffs,
+    subscriptions::unsubscribe,
+    changes::commands::refresh_workspace_diff,
+    changes::commands::set_workspace_diff_target,
+    changes::commands::discard_workspace_changes,
+    summaries::commands::summarise_workspace,
+    github::sync::sync_pull_requests,
+    clickup::commands::set_clickup_api_key,
+    clickup::commands::clear_clickup_api_key,
+    clickup::commands::clickup_workspaces,
+    clickup::commands::clickup_spaces,
+    clickup::commands::clickup_folders,
+    clickup::commands::clickup_board,
+    clickup::commands::clickup_task,
+    clickup::commands::set_clickup_task_status,
+    clickup::commands::set_clickup_task_points,
+    repos::commands::list_repo_branches,
+    repos::commands::list_repo_local_branches,
+    repos::commands::delete_local_branch,
+    workspace_start::commands::create_workspace,
+    review::commands::create_review_workspace,
+    review::commands::submit_workspace_review,
+    review::commands::start_branch_review,
+    skills::commands::list_thread_skills,
+    skills::commands::list_repo_skills,
+    workspace_start::commands::retry_workspace_provisioning,
+    workspace_start::commands::skip_workspace_provisioning_setup,
+    workspaces::rename_workspace,
+    workspace_git::commands::switch_workspace_branch,
+    workspace_git::commands::pull_workspace,
+    workspace_git::commands::rebase_workspace,
+    workspace_git::commands::push_workspace_branch,
+    create_pr::commands::default_pr_prompt,
+    create_pr::commands::draft_pr_why,
+    create_pr::commands::create_workspace_pull_request,
+    workspace_git::commands::abort_workspace_git,
+    workspace_git::commands::create_workspace_branch,
+    stack::commands::get_workspace_stack,
+    stack::commands::add_stack_branch,
+    stack::commands::push_stack,
+    stack::commands::sync_stack,
+    teardown::commands::get_teardown_preview,
+    teardown::commands::teardown_workspace,
+    terminal::open_workspace_terminal,
+    app::commands::control_workspace_app,
+    repos::commands::set_repo_run_command,
+    repos::commands::set_repo_single_instance,
+    repos::commands::set_repo_setup_commands,
+    repos::commands::set_repo_default_branch,
+    repos::commands::pull_repo_default_branch,
+    repos::commands::get_repo_git,
+    repos::commands::add_repo,
+    repos::commands::remove_repo,
+    repos::commands::test_repo_setup,
+    git::validate_branch_name,
+    settings::set_setting,
+    findings::commands::send_workspace_findings,
+    findings::commands::dismiss_workspace_findings,
+    attachments::image_preview,
+    thread_media::resolve_thread_media,
+    scratch::end_scratch,
+];
+
 pub fn builder() -> Builder {
     Builder::<tauri::Wry>::new()
-        .commands(tauri_specta::collect_commands![
-            crate::snapshot::get_snapshot,
-            commands::reload_environment,
-            commands::get_metrics,
-            commands::get_thread_events,
-            commands::subscribe_agent_events,
-            commands::detect_engines,
-            commands::send_thread_prompt,
-            commands::cancel_thread_turn,
-            commands::pause_thread,
-            commands::resume_thread,
-            commands::new_thread_session,
-            commands::resume_thread_session,
-            commands::thread_models,
-            commands::engine_models,
-            commands::set_thread_model,
-            commands::thread_efforts,
-            commands::engine_efforts,
-            commands::set_thread_effort,
-            commands::resolve_approval,
-            commands::answer_question,
-            commands::resolve_all_approvals,
-            commands::subscribe_pty,
-            commands::subscribe_diffs,
-            commands::unsubscribe,
-            commands::refresh_workspace_diff,
-            commands::set_workspace_diff_target,
-            commands::discard_workspace_changes,
-            commands::summarise_workspace,
-            commands::sync_pull_requests,
-            commands::set_clickup_api_key,
-            commands::clear_clickup_api_key,
-            commands::clickup_workspaces,
-            commands::clickup_spaces,
-            commands::clickup_folders,
-            commands::clickup_board,
-            commands::clickup_task,
-            commands::set_clickup_task_status,
-            commands::set_clickup_task_points,
-            commands::list_repo_branches,
-            commands::list_repo_local_branches,
-            commands::delete_local_branch,
-            commands::create_workspace,
-            commands::create_review_workspace,
-            commands::submit_workspace_review,
-            commands::start_branch_review,
-            commands::list_thread_skills,
-            commands::list_repo_skills,
-            commands::retry_workspace_provisioning,
-            commands::skip_workspace_provisioning_setup,
-            commands::rename_workspace,
-            commands::switch_workspace_branch,
-            commands::pull_workspace,
-            commands::rebase_workspace,
-            commands::push_workspace_branch,
-            commands::default_pr_prompt,
-            commands::draft_pr_why,
-            commands::create_workspace_pull_request,
-            commands::abort_workspace_git,
-            commands::create_workspace_branch,
-            commands::get_workspace_stack,
-            commands::add_stack_branch,
-            commands::push_stack,
-            commands::sync_stack,
-            commands::get_teardown_preview,
-            commands::teardown_workspace,
-            commands::open_workspace_terminal,
-            commands::control_workspace_app,
-            commands::set_repo_run_command,
-            commands::set_repo_single_instance,
-            commands::set_repo_setup_commands,
-            commands::set_repo_default_branch,
-            commands::pull_repo_default_branch,
-            commands::get_repo_git,
-            commands::add_repo,
-            commands::remove_repo,
-            commands::test_repo_setup,
-            commands::validate_branch_name,
-            commands::set_setting,
-            commands::send_workspace_findings,
-            commands::dismiss_workspace_findings,
-            commands::image_preview,
-            commands::resolve_thread_media,
-            commands::end_scratch,
-        ])
+        .commands(commands())
         .events(tauri_specta::collect_events![
             events::StateChanged,
             events::MemorySampled,
-            events::ToastRaised
+            events::ToastRaised,
+            menu::MenuChosen,
         ])
 }
 
@@ -115,25 +138,20 @@ pub fn export_bindings(builder: &Builder) {
 mod tests {
     use std::collections::BTreeSet;
 
-    /// Tauri rejects any command missing from the allowlist, and the browser harness can't see it.
-    /// An entry with no command behind it is dead permission surface. Neither can be generated:
-    /// `tauri_build` would need the same list in `build.rs`, where `collect_commands!` can't reach.
+    /// Tauri rejects any command missing from the allowlist, and the browser harness can't see
+    /// it. An entry with no command behind it is dead permission surface.
     #[test]
     fn every_command_is_allowlisted() {
-        let registered: BTreeSet<_> = include_str!("mod.rs")
-            .split(".events(")
-            .next()
-            .unwrap()
-            .split("commands::")
-            .skip(1)
-            .map(|rest| {
-                rest.split(|c: char| !(c.is_alphanumeric() || c == '_'))
-                    .next()
-                    .unwrap()
-            })
-            .filter(|name| !name.is_empty())
+        let registered: BTreeSet<&str> = super::COMMAND_PATHS
+            .iter()
+            .map(|path| path.rsplit("::").next().unwrap().trim())
             .collect();
-        let allowlisted: BTreeSet<_> = include_str!("../../permissions/ipc.toml")
+        assert_eq!(
+            registered.len(),
+            super::COMMAND_PATHS.len(),
+            "two commands share a wire name"
+        );
+        let allowlisted: BTreeSet<&str> = include_str!("../../permissions/ipc.toml")
             .split("commands.allow = [")
             .nth(1)
             .expect("permissions/ipc.toml has a commands.allow list")
@@ -156,6 +174,7 @@ mod tests {
         );
     }
 
+    /// Writes `src/lib/ipc/bindings.ts`; CI fails when the committed file differs afterwards.
     #[test]
     fn export_typescript_bindings() {
         super::export_bindings(&super::builder());

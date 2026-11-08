@@ -1,5 +1,4 @@
-import { listen } from '@tauri-apps/api/event'
-import { commands } from '$lib/ipc'
+import { commands, events } from '$lib/ipc'
 import {
   toastCoreError,
   toastEnvironmentReloaded,
@@ -7,32 +6,30 @@ import {
 import { app } from '$lib/state'
 import { palette } from '$lib/state/palette.svelte'
 
-export async function bindNativeMenu() {
-  const unlisteners = await Promise.all([
-    listen('menu://open-settings', () => {
-      app.openSettings()
-    }),
-    listen('menu://command-palette', () => {
-      palette.toggle()
-    }),
-    listen('menu://new-workspace', () => {
-      app.openNewThread()
-    }),
-    listen('menu://reload-environment', () => {
-      void (async () => {
-        const result = await commands.reloadEnvironment()
-        if (result.status === 'ok') {
-          toastEnvironmentReloaded()
-          return
-        }
-        toastCoreError(result.error)
-      })()
-    }),
-  ])
-
-  return () => {
-    for (const unlisten of unlisteners) {
-      unlisten()
-    }
+async function reloadEnvironment() {
+  const result = await commands.reloadEnvironment()
+  if (result.status === 'ok') {
+    toastEnvironmentReloaded()
+    return
   }
+  toastCoreError(result.error)
+}
+
+export function bindNativeMenu() {
+  return events.menuChosen.listen(({ payload }) => {
+    switch (payload.command) {
+      case 'openSettings':
+        app.openSettings()
+        break
+      case 'commandPalette':
+        palette.toggle()
+        break
+      case 'newWorkspace':
+        app.openNewThread()
+        break
+      case 'reloadEnvironment':
+        void reloadEnvironment()
+        break
+    }
+  })
 }

@@ -1,3 +1,4 @@
+pub mod commands;
 mod store;
 
 use std::path::Path;

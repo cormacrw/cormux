@@ -265,6 +265,78 @@ fn spawn_auto_name(state: AppState, workspace_id: String, draft: String, prompt:
     });
 }
 
+pub mod commands {
+    use serde::{Deserialize, Serialize};
+    use specta::Type;
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::model::WorkspaceKind;
+    use crate::provisioning::ProvisionPlan;
+    use crate::state::AppState;
+
+    use super::CreateWorkspaceInput;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
+    pub struct CreateWorkspaceResult {
+        pub workspace_id: String,
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn create_workspace(
+        input: CreateWorkspaceInput,
+        state: State<'_, AppState>,
+    ) -> Result<CreateWorkspaceResult> {
+        let started = super::start_workspace(&state, input, None).await?;
+        Ok(CreateWorkspaceResult {
+            workspace_id: started.workspace_id,
+        })
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn retry_workspace_provisioning(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        let plan = resume_plan(&state, &workspace_id).await?;
+        let state = state.inner().clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = crate::provisioning::retry(&state, plan).await {
+                log::warn!("retrying setup of {workspace_id}: {error}");
+            }
+        });
+        Ok(())
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn skip_workspace_provisioning_setup(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        let plan = resume_plan(&state, &workspace_id).await?;
+        let state = state.inner().clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = crate::provisioning::skip_setup(&state, plan).await {
+                log::warn!("skipping setup of {workspace_id}: {error}");
+            }
+        });
+        Ok(())
+    }
+
+    /// How a workspace whose setup failed is brought up again, by whoever knows its kind.
+    async fn resume_plan(state: &AppState, workspace_id: &str) -> Result<ProvisionPlan> {
+        let workspace = state.workspaces.get(workspace_id).await?;
+        match workspace.kind {
+            WorkspaceKind::Lead => super::resume_plan(state, &workspace),
+            WorkspaceKind::PrReview => crate::review::resume_plan(state, &workspace),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};

@@ -1,5 +1,6 @@
 //! ClickUp sprint board. The API key lives in `~/.cormux/credentials.json` and never reaches the webview.
 
+pub mod commands;
 mod sprint;
 pub mod types;
 

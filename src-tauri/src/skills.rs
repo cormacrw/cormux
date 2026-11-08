@@ -268,6 +268,35 @@ fn parse_frontmatter(text: &str) -> (Option<String>, Option<String>) {
     (value("name"), value("description"))
 }
 
+pub mod commands {
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::state::AppState;
+
+    use super::Skill;
+
+    /// Skills the `/` picker offers on the new thread page.
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn list_repo_skills(
+        repo_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<Vec<Skill>> {
+        super::for_repo(&state, &repo_id).await
+    }
+
+    /// Skills the `/` picker offers for this thread's agent.
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn list_thread_skills(
+        thread_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<Vec<Skill>> {
+        super::for_thread(&state, &thread_id).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

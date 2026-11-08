@@ -34,7 +34,7 @@ pub fn image_media_type(name: &str) -> Option<&'static str> {
 
 /// A thumbnail for an image picked or dropped by path, as a data URL; None for anything that
 /// isn't a readable image of a size the model is shown.
-pub fn image_preview(path: &Path) -> Option<String> {
+pub fn image_preview_of(path: &Path) -> Option<String> {
     let media_type = image_media_type(path.to_str()?)?;
     if std::fs::metadata(path).ok()?.len() > IMAGE_LIMIT_BYTES {
         return None;
@@ -140,6 +140,14 @@ pub fn build_prompt(
     ))
 }
 
+/// A thumbnail for an image attached by path, for the composer.
+#[tauri::command]
+#[specta::specta]
+pub async fn image_preview(path: String) -> crate::error::Result<Option<String>> {
+    // Up to 5 MB read and base64-encoded: not on an async worker.
+    Ok(tokio::task::spawn_blocking(move || image_preview_of(Path::new(&path))).await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,11 +169,11 @@ mod tests {
         let notes = root.join("notes.txt");
         std::fs::write(&notes, b"hi").unwrap();
         assert_eq!(
-            image_preview(&image).as_deref(),
+            image_preview_of(&image).as_deref(),
             Some("data:image/png;base64,cG5n")
         );
-        assert_eq!(image_preview(&notes), None);
-        assert_eq!(image_preview(&root.join("gone.png")), None);
+        assert_eq!(image_preview_of(&notes), None);
+        assert_eq!(image_preview_of(&root.join("gone.png")), None);
         std::fs::remove_dir_all(root).unwrap();
     }
 

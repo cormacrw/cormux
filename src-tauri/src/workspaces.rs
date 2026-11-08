@@ -419,6 +419,20 @@ fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result
     }
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn rename_workspace(
+    state: tauri::State<'_, crate::state::AppState>,
+    input: RenameWorkspaceInput,
+) -> Result<()> {
+    state
+        .workspaces
+        .rename(&input.workspace_id, &input.name)
+        .await?;
+    state.out.changed(crate::feedback::Change::THREADS);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

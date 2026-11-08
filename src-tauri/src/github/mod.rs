@@ -6,7 +6,7 @@ mod r#match;
 mod rest;
 pub mod review;
 mod store;
-mod sync;
+pub mod sync;
 pub mod types;
 
 use std::sync::Arc;

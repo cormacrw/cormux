@@ -194,6 +194,25 @@ pub async fn summarise(state: &AppState, workspace_id: String) -> Result<Workspa
     stored(&updated).ok_or_else(|| Error::Store(format!("summary for {workspace_id} not saved")))
 }
 
+pub mod commands {
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::state::AppState;
+
+    use super::WorkspaceSummaryResult;
+
+    /// Generate or return a cached workspace card summary (debounced LLM + local fallback).
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn summarise_workspace(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<WorkspaceSummaryResult> {
+        super::summarise(&state, workspace_id).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

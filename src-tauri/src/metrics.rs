@@ -166,6 +166,15 @@ fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {
     trees.into_iter().collect()
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn get_metrics(state: tauri::State<'_, AppState>) -> Result<MemorySample> {
+    match state.metrics.latest() {
+        Some(sample) => Ok(sample),
+        None => sample_processes(&state).await,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

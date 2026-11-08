@@ -11,6 +11,8 @@
 //! sends the queue, or tells the agent to continue. Once a turn has settled, `TurnEnded` goes out
 //! on the bus for the features that react to it.
 
+pub mod commands;
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 

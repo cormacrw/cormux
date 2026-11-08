@@ -691,6 +691,45 @@ pub async fn submit_workspace_review(
     Ok(())
 }
 
+pub mod commands {
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::state::AppState;
+
+    use super::{
+        CreateReviewWorkspaceInput, CreateReviewWorkspaceResult, SubmitWorkspaceReviewInput,
+    };
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn create_review_workspace(
+        input: CreateReviewWorkspaceInput,
+        state: State<'_, AppState>,
+    ) -> Result<CreateReviewWorkspaceResult> {
+        super::create_review_workspace(&state, input).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn submit_workspace_review(
+        input: SubmitWorkspaceReviewInput,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        super::submit_workspace_review(&state, input).await
+    }
+
+    /// Start a Reviewer on a regular workspace's own branch. Returns its thread id.
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn start_branch_review(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<String> {
+        super::start_branch_review(&state, &workspace_id).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -8,6 +8,7 @@ mod create_pr;
 mod credentials;
 mod engines;
 mod entities;
+mod environment;
 mod error;
 mod feedback;
 mod findings;

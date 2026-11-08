@@ -40,8 +40,9 @@ pub struct WorkspaceAppRuntime {
     pub exit_code: Option<i32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkspaceAppAction {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkspaceAppControlAction {
     Run,
     Restart,
     Stop,
@@ -111,23 +112,23 @@ impl WorkspaceAppService {
         &self,
         state: &AppState,
         workspace_id: &str,
-        action: WorkspaceAppAction,
+        action: WorkspaceAppControlAction,
     ) -> Result<()> {
         match action {
-            WorkspaceAppAction::Clear => {
+            WorkspaceAppControlAction::Clear => {
                 state.process.clear_log(workspace_id);
                 state.out.changed(Change::SNAPSHOT);
                 Ok(())
             }
-            WorkspaceAppAction::Stop => {
+            WorkspaceAppControlAction::Stop => {
                 self.stop(state, workspace_id, false).await?;
                 Ok(())
             }
-            WorkspaceAppAction::Restart => {
+            WorkspaceAppControlAction::Restart => {
                 self.restart(state, workspace_id).await?;
                 Ok(())
             }
-            WorkspaceAppAction::Run => {
+            WorkspaceAppControlAction::Run => {
                 self.run(state, workspace_id).await?;
                 Ok(())
             }
@@ -462,6 +463,36 @@ async fn workspace_name(state: &AppState, workspace_id: &str) -> Result<String> 
         .unwrap_or_else(|_| workspace_id.to_string()))
 }
 
+pub mod commands {
+    use serde::{Deserialize, Serialize};
+    use specta::Type;
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::state::AppState;
+
+    use super::WorkspaceAppControlAction;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ControlWorkspaceAppInput {
+        pub workspace_id: String,
+        pub action: WorkspaceAppControlAction,
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn control_workspace_app(
+        input: ControlWorkspaceAppInput,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        state
+            .apps
+            .control(&state, &input.workspace_id, input.action)
+            .await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,7 +578,7 @@ mod tests {
 
         state
             .apps
-            .control(&state, id, WorkspaceAppAction::Run)
+            .control(&state, id, WorkspaceAppControlAction::Run)
             .await
             .unwrap();
         status_becomes(&state, id, WorkspaceAppStatus::Running).await;
@@ -561,7 +592,7 @@ mod tests {
 
         state
             .apps
-            .control(&state, id, WorkspaceAppAction::Stop)
+            .control(&state, id, WorkspaceAppControlAction::Stop)
             .await
             .unwrap();
         assert_eq!(state.apps.runtime(id).status, WorkspaceAppStatus::Stopped);
@@ -575,7 +606,7 @@ mod tests {
 
         state
             .apps
-            .control(&state, id, WorkspaceAppAction::Run)
+            .control(&state, id, WorkspaceAppControlAction::Run)
             .await
             .unwrap();
         status_becomes(&state, id, WorkspaceAppStatus::Crashed).await;

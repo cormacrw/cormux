@@ -1,11 +1,31 @@
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use tauri::AppHandle;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter};
+use tauri_specta::Event;
 
 pub const COMMAND_PALETTE: &str = "command-palette";
 pub const HIDE: &str = "hide";
 pub const NEW_WORKSPACE: &str = "new-workspace";
 pub const OPEN_SETTINGS: &str = "open-settings";
 pub const RELOAD_ENVIRONMENT: &str = "reload-environment";
+
+/// A menu item the webview acts on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum MenuCommand {
+    CommandPalette,
+    NewWorkspace,
+    OpenSettings,
+    ReloadEnvironment,
+}
+
+/// The user picked `command` from the app's menu.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuChosen {
+    pub command: MenuCommand,
+}
 
 /// Dev builds name themselves so they can't pass for the installed app.
 const APP_NAME: &str = if cfg!(debug_assertions) {
@@ -100,14 +120,14 @@ pub fn handle(app: &AppHandle, id: &str) {
         }
         return;
     }
-    let event = match id {
-        COMMAND_PALETTE => "menu://command-palette",
-        NEW_WORKSPACE => "menu://new-workspace",
-        OPEN_SETTINGS => "menu://open-settings",
-        RELOAD_ENVIRONMENT => "menu://reload-environment",
+    let command = match id {
+        COMMAND_PALETTE => MenuCommand::CommandPalette,
+        NEW_WORKSPACE => MenuCommand::NewWorkspace,
+        OPEN_SETTINGS => MenuCommand::OpenSettings,
+        RELOAD_ENVIRONMENT => MenuCommand::ReloadEnvironment,
         _ => return,
     };
-    if let Err(error) = app.emit(event, ()) {
-        log::warn!("failed to emit {event}: {error}");
+    if let Err(error) = (MenuChosen { command }).emit(app) {
+        log::warn!("failed to emit menu {command:?}: {error}");
     }
 }

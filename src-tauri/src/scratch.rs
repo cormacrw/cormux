@@ -11,16 +11,6 @@ use crate::model::ThreadStatus;
 use crate::state::AppState;
 use crate::store::{Store, query_all};
 
-/// Discards the conversation. The repo is never touched.
-pub async fn end(state: &AppState, scratch_id: &str) -> Result<()> {
-    if state.store.scratch_by_id(scratch_id)?.is_none() {
-        return Err(Error::Invalid(format!("unknown scratch {scratch_id}")));
-    }
-    state.store.delete_scratch(scratch_id)?;
-    state.out.changed(Change::THREADS);
-    Ok(())
-}
-
 /// A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -113,6 +103,18 @@ fn row_to_scratch(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScratchRow> {
         status: ThreadStatus::parse(&row.get::<_, String>(5)?),
         created_at: row.get(6)?,
     })
+}
+
+/// Discards the scratch's conversation. The repo is not changed.
+#[tauri::command]
+#[specta::specta]
+pub async fn end_scratch(scratch_id: String, state: tauri::State<'_, AppState>) -> Result<()> {
+    if state.store.scratch_by_id(&scratch_id)?.is_none() {
+        return Err(Error::Invalid(format!("unknown scratch {scratch_id}")));
+    }
+    state.store.delete_scratch(&scratch_id)?;
+    state.out.changed(Change::THREADS);
+    Ok(())
 }
 
 #[cfg(test)]

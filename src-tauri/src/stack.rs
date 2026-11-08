@@ -730,6 +730,46 @@ fn toast(state: &AppState, workspace_id: &str, text: &str) {
     });
 }
 
+pub mod commands {
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::state::AppState;
+    use crate::workspace_git::commands::CreateWorkspaceBranchInput;
+
+    use super::WorkspaceStack;
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn get_workspace_stack(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<WorkspaceStack> {
+        super::workspace_stack(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn add_stack_branch(
+        input: CreateWorkspaceBranchInput,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        super::add_branch(&state, &input.workspace_id, &input.branch).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn push_stack(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+        super::push(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn sync_stack(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+        super::sync(&state, &workspace_id).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

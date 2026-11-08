@@ -141,6 +141,9 @@ async engineModels() : Promise<Result<ModelOption[], Error>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * `None` goes back to the engine's default. A live engine switches before its next turn.
+ */
 async setThreadModel(threadId: string, model: string | null) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_thread_model", { threadId, model }) };
@@ -240,7 +243,7 @@ async unsubscribe(id: number) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Force-refresh the live diff snapshot for one workspace (branch switch, pull, etc.).
+ * Re-reads the workspace's changes now, after something outside the watcher moved them.
  */
 async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
     try {
@@ -769,10 +772,12 @@ async endScratch(scratchId: string) : Promise<Result<null, Error>> {
 
 export const events = __makeEvents__<{
 memorySampled: MemorySampled,
+menuChosen: MenuChosen,
 stateChanged: StateChanged,
 toastRaised: ToastRaised
 }>({
 memorySampled: "memory-sampled",
+menuChosen: "menu-chosen",
 stateChanged: "state-changed",
 toastRaised: "toast-raised"
 })
@@ -979,6 +984,14 @@ export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[]
  * A fresh memory reading. Carries its own data, so it needs no version or refetch.
  */
 export type MemorySampled = { sample: MemorySample }
+/**
+ * The user picked `command` from the app's menu.
+ */
+export type MenuChosen = { command: MenuCommand }
+/**
+ * A menu item the webview acts on.
+ */
+export type MenuCommand = "commandPalette" | "newWorkspace" | "openSettings" | "reloadEnvironment"
 export type MessageRole = "agent" | "thought"
 /**
  * One entry in the composer's model or effort picker.

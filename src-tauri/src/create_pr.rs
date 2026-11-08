@@ -276,3 +276,39 @@ fn diff_totals(diff: &crate::git::WorktreeDiff) -> (u32, u32, u32) {
     }
     (added, deleted, diff.files.len() as u32)
 }
+
+pub mod commands {
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::state::AppState;
+
+    use super::{
+        CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
+    };
+
+    /// The PR prompt Settings shows until the user writes their own.
+    #[tauri::command]
+    #[specta::specta]
+    pub fn default_pr_prompt() -> String {
+        crate::pr_draft::DEFAULT_PR_PROMPT.into()
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn draft_pr_why(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<DraftPrWhyResult> {
+        super::draft_pr_why(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn create_workspace_pull_request(
+        input: CreateWorkspacePullRequestInput,
+        state: State<'_, AppState>,
+    ) -> Result<CreateWorkspacePullRequestResult> {
+        super::create_workspace_pull_request(&state, input).await
+    }
+}

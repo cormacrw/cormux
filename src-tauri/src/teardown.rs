@@ -193,6 +193,33 @@ fn data_loss_warning(uncommitted_files: u32, unpushed_commits: u32) -> Option<St
     Some(format!("{} This can't be undone.", parts.join(" ")))
 }
 
+pub mod commands {
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::state::AppState;
+
+    use super::{TeardownInput, TeardownPreview};
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn get_teardown_preview(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<TeardownPreview> {
+        super::preview(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn teardown_workspace(
+        input: TeardownInput,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        super::execute(&state, &input).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

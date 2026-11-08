@@ -27,3 +27,13 @@ fn terminal_app(setting: Option<String>) -> String {
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "Terminal".to_string())
 }
+
+/// Open the worktree in the terminal app picked in Settings (Terminal by default).
+#[tauri::command]
+#[specta::specta]
+pub async fn open_workspace_terminal(
+    workspace_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<()> {
+    open(&state, &workspace_id).await
+}

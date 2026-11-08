@@ -543,6 +543,77 @@ fn code(value: &str) -> ToastPart {
     }
 }
 
+pub mod commands {
+    use serde::{Deserialize, Serialize};
+    use specta::Type;
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::state::AppState;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SwitchWorkspaceBranchInput {
+        pub workspace_id: String,
+        pub branch: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
+    pub struct CreateWorkspaceBranchInput {
+        pub workspace_id: String,
+        pub branch: String,
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn switch_workspace_branch(
+        input: SwitchWorkspaceBranchInput,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        super::switch_branch(&state, &input.workspace_id, &input.branch).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn pull_workspace(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+        super::pull(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn rebase_workspace(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
+        super::rebase(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn push_workspace_branch(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        super::push(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn abort_workspace_git(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        super::abort_conflict(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn create_workspace_branch(
+        input: CreateWorkspaceBranchInput,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        super::create_branch(&state, &input.workspace_id, &input.branch).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
