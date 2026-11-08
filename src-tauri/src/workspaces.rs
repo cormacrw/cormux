@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use crate::error::{Error, Result};
 use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle, status_from_threads};
 use crate::paths;
+use crate::process::HarnessEnv;
 use crate::store::Store;
 use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
 
@@ -62,14 +63,14 @@ impl WorkspaceRecord {
     }
 
     /// What a command run for the workspace (setup, the app) is told about it.
-    pub fn harness_env(&self) -> Vec<(String, String)> {
-        vec![
-            ("HARNESS_REPO_PATH".into(), self.repo_path.clone()),
-            ("HARNESS_WORKTREE_PATH".into(), self.worktree_path.clone()),
-            ("HARNESS_WORKSPACE".into(), self.name.clone()),
-            ("HARNESS_BRANCH".into(), self.branch.clone()),
-            ("HARNESS_BASE".into(), self.base.clone()),
-        ]
+    pub fn harness_env(&self) -> HarnessEnv {
+        HarnessEnv {
+            repo_path: self.repo_path.clone(),
+            worktree_path: self.worktree_path.clone(),
+            workspace: self.name.clone(),
+            branch: self.branch.clone(),
+            base: self.base.clone(),
+        }
     }
 }
 

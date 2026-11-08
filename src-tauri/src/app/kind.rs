@@ -11,7 +11,7 @@ impl AppKind {
         if lower.contains("storybook") {
             return Self::Storybook;
         }
-        if lower.contains("uv")
+        if lower.split_whitespace().any(|word| word == "uv")
             || lower.contains("uvicorn")
             || lower.contains("fastapi")
             || lower.contains("python")

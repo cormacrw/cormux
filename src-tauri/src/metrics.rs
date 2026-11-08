@@ -157,7 +157,11 @@ pub async fn sample_processes(state: &AppState) -> Result<MemorySample> {
 fn process_trees(state: &AppState) -> Vec<(String, Vec<u32>)> {
     let mut trees: HashMap<String, Vec<u32>> = HashMap::new();
     for (id, pid) in state.process.pids() {
-        trees.entry(id).or_default().push(pid);
+        let owner = id
+            .owner_workspace()
+            .map(str::to_string)
+            .unwrap_or_else(|| id.to_string());
+        trees.entry(owner).or_default().push(pid);
     }
     trees.into_iter().collect()
 }

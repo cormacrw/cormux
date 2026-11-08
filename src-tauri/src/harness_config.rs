@@ -1,8 +1,14 @@
+//! A repo's setup and run commands: what's saved in Settings, what the repo commits in
+//! `.cormux/config.json`, and what Cormux suggests for a repo it hasn't seen.
+
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use specta::Type;
 
 use crate::error::{Error, Result};
+use crate::store::Store;
+use crate::store::types::RepoRecord;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,52 +18,99 @@ pub struct CommittedRepoConfig {
     pub run_command: Option<String>,
 }
 
-pub fn read_committed_config(repo_path: &Path) -> Option<CommittedRepoConfig> {
+/// The repo's committed config; `None` when it has none. A file that's there but can't be
+/// read or parsed is an error, so a typo in it isn't mistaken for "no config".
+pub fn read_committed_config(repo_path: &Path) -> Result<Option<CommittedRepoConfig>> {
     let file = crate::paths::repo_config(repo_path);
-    let text = std::fs::read_to_string(&file).ok()?;
-    serde_json::from_str(&text).ok()
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(config_error(&file, error)),
+    };
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|error| config_error(&file, error))
 }
 
-pub fn effective_setup(stored: &str, repo_path: &Path) -> String {
+fn config_error(file: &Path, error: impl std::fmt::Display) -> Error {
+    Error::Workspace(format!(
+        "{} can't be used: {error}",
+        crate::paths::for_display(file)
+    ))
+}
+
+/// The setup commands a worktree gets: the repo's saved ones, else its committed ones.
+pub fn effective_setup(stored: &str, repo_path: &Path) -> Result<String> {
     if !stored.trim().is_empty() {
-        return stored.to_string();
+        return Ok(stored.to_string());
     }
-    read_committed_config(repo_path)
+    Ok(read_committed_config(repo_path)?
         .map(|config| config.setup_commands)
-        .unwrap_or_default()
+        .unwrap_or_default())
+}
+
+/// Where a run command comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum RunCommandSource {
+    /// The workspace's own, set in its Output tab.
+    Workspace,
+    /// The repo's, saved in Settings.
+    Repo,
+    /// The repo's committed `.cormux/config.json`.
+    Config,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunCommand {
+    pub command: String,
+    pub source: RunCommandSource,
+}
+
+fn non_blank(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn workspace_run_command_key(workspace_id: &str) -> String {
     format!("workspace:{workspace_id}/runCommand")
 }
 
-/// The command Run starts for a workspace: its own override from the Output tab when set,
-/// else the repo's (see `effective_run_command`).
-pub fn workspace_run_command(
-    store: &crate::store::Store,
-    workspace_id: &str,
-    stored: &Option<String>,
-    repo_path: &Path,
-) -> Option<String> {
-    store
-        .get_setting(&workspace_run_command_key(workspace_id))
-        .ok()
-        .flatten()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .or_else(|| effective_run_command(stored, repo_path))
+/// The command every workspace of the repo runs unless it sets its own: the saved one, else
+/// the committed one.
+pub fn repo_run_command(repo: &RepoRecord) -> Result<Option<RunCommand>> {
+    if let Some(command) = non_blank(repo.run_command.as_deref()) {
+        return Ok(Some(RunCommand {
+            command,
+            source: RunCommandSource::Repo,
+        }));
+    }
+    let committed = read_committed_config(&crate::paths::expand_tilde(&repo.path))?;
+    Ok(committed
+        .and_then(|config| non_blank(config.run_command.as_deref()))
+        .map(|command| RunCommand {
+            command,
+            source: RunCommandSource::Config,
+        }))
 }
 
-pub fn effective_run_command(stored: &Option<String>, repo_path: &Path) -> Option<String> {
-    if let Some(value) = stored.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        return Some(value.to_string());
+/// The command Run starts for a workspace: its own when set, else the repo's.
+pub fn workspace_run_command(
+    store: &Store,
+    workspace_id: &str,
+    repo: &RepoRecord,
+) -> Result<Option<RunCommand>> {
+    let own = store.get_setting(&workspace_run_command_key(workspace_id))?;
+    if let Some(command) = non_blank(own.as_deref()) {
+        return Ok(Some(RunCommand {
+            command,
+            source: RunCommandSource::Workspace,
+        }));
     }
-    read_committed_config(repo_path).and_then(|config| {
-        config
-            .run_command
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-    })
+    repo_run_command(repo)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -137,101 +190,94 @@ pub fn merge_initial_config(
     (setup, run)
 }
 
-pub fn validate_add_path(path: &str) -> Result<(String, String)> {
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return Err(Error::Workspace("Enter the path to a folder".into()));
-    }
-    let normalized = trimmed.trim_end_matches('/').to_string();
-    let segment = normalized.rsplit('/').next().unwrap_or("").trim();
-    if !normalized.starts_with("~/") && !normalized.starts_with('/') {
-        return Err(Error::Workspace(
-            "Use a full path, like ~/code/my-project".into(),
-        ));
-    }
-    if segment.is_empty() || segment == "~" {
-        return Err(Error::Workspace(
-            "Use a full path, like ~/code/my-project".into(),
-        ));
-    }
-    let id = segment.to_string();
-    Ok((normalized, id))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
 
+    fn repo(path: &Path, run_command: Option<&str>) -> RepoRecord {
+        RepoRecord {
+            id: "app".into(),
+            path: path.to_string_lossy().to_string(),
+            name: "app".into(),
+            default_branch: Some("main".into()),
+            setup_commands: String::new(),
+            run_command: run_command.map(str::to_string),
+            single_instance: false,
+        }
+    }
+
+    fn commit_config(dir: &Path, json: &str) {
+        fs::create_dir_all(dir.join(".cormux")).unwrap();
+        fs::write(dir.join(".cormux/config.json"), json).unwrap();
+    }
+
     #[test]
     fn a_workspace_override_wins_over_the_repo_command() {
-        let store = crate::store::Store::in_memory().unwrap();
-        let repo = std::env::temp_dir();
-        let stored = Some("pnpm dev".to_string());
-        assert_eq!(
-            workspace_run_command(&store, "w1", &stored, &repo).as_deref(),
-            Some("pnpm dev")
-        );
+        let store = Store::in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(dir.path(), Some("pnpm dev"));
+        let command = |id: &str| workspace_run_command(&store, id, &repo).unwrap().unwrap();
+        assert_eq!(command("w1").command, "pnpm dev");
+        assert_eq!(command("w1").source, RunCommandSource::Repo);
         store
             .set_setting("workspace:w1/runCommand", " pnpm dev --port 4000 ")
             .unwrap();
         assert_eq!(
-            workspace_run_command(&store, "w1", &stored, &repo).as_deref(),
-            Some("pnpm dev --port 4000")
+            command("w1"),
+            RunCommand {
+                command: "pnpm dev --port 4000".into(),
+                source: RunCommandSource::Workspace,
+            }
         );
-        assert_eq!(
-            workspace_run_command(&store, "w2", &stored, &repo).as_deref(),
-            Some("pnpm dev")
-        );
+        assert_eq!(command("w2").command, "pnpm dev");
         // Clearing it goes back to the repo's.
         store.set_setting("workspace:w1/runCommand", "").unwrap();
-        assert_eq!(
-            workspace_run_command(&store, "w1", &stored, &repo).as_deref(),
-            Some("pnpm dev")
-        );
+        assert_eq!(command("w1").command, "pnpm dev");
     }
 
     #[test]
-    fn validate_path_rules() {
-        assert!(validate_add_path("").is_err());
-        assert!(validate_add_path("relative/path").is_err());
-        let (path, id) = validate_add_path("~/code/my-app/").unwrap();
-        assert_eq!(path, "~/code/my-app");
-        assert_eq!(id, "my-app");
-    }
-
-    #[test]
-    fn reads_committed_config() {
+    fn the_committed_config_fills_in_what_settings_leave_blank() {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join(".cormux")).unwrap();
-        fs::write(
-            dir.path().join(".cormux/config.json"),
-            r#"{"setupCommands":"pnpm install","runCommand":"pnpm dev"}"#,
-        )
-        .unwrap();
-        let config = read_committed_config(dir.path()).expect("config");
-        assert_eq!(config.setup_commands, "pnpm install");
-        assert_eq!(config.run_command.as_deref(), Some("pnpm dev"));
-    }
-
-    #[test]
-    fn effective_prefers_local_override() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join(".cormux")).unwrap();
-        fs::write(
-            dir.path().join(".cormux/config.json"),
+        commit_config(
+            dir.path(),
             r#"{"setupCommands":"from file","runCommand":"file run"}"#,
-        )
-        .unwrap();
-        assert_eq!(effective_setup("local setup", dir.path()), "local setup");
-        assert_eq!(
-            effective_run_command(&Some("local run".into()), dir.path()).as_deref(),
-            Some("local run")
         );
-        assert_eq!(effective_setup("", dir.path()), "from file");
         assert_eq!(
-            effective_run_command(&None, dir.path()).as_deref(),
-            Some("file run")
+            effective_setup("local setup", dir.path()).unwrap(),
+            "local setup"
         );
+        assert_eq!(effective_setup("", dir.path()).unwrap(), "from file");
+        assert_eq!(
+            repo_run_command(&repo(dir.path(), Some("local run")))
+                .unwrap()
+                .unwrap()
+                .command,
+            "local run"
+        );
+        assert_eq!(
+            repo_run_command(&repo(dir.path(), None)).unwrap(),
+            Some(RunCommand {
+                command: "file run".into(),
+                source: RunCommandSource::Config,
+            })
+        );
+    }
+
+    #[test]
+    fn a_broken_committed_config_is_an_error_not_an_absent_one() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_committed_config(dir.path()).unwrap().is_none());
+        assert_eq!(repo_run_command(&repo(dir.path(), None)).unwrap(), None);
+
+        commit_config(dir.path(), r#"{"setupCommands": "pnpm install",}"#);
+        let error = read_committed_config(dir.path()).unwrap_err().to_string();
+        assert!(
+            error.contains(".cormux/config.json can't be used"),
+            "{error}"
+        );
+        assert!(effective_setup("", dir.path()).is_err());
+        // A saved command doesn't need the file.
+        assert_eq!(effective_setup("pnpm i", dir.path()).unwrap(), "pnpm i");
     }
 }

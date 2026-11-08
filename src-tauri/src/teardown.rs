@@ -129,7 +129,7 @@ async fn run_teardown_steps(
     thread_ids: &[String],
 ) -> Result<()> {
     state.engines.stop_threads(thread_ids).await?;
-    state.process.stop_workspace_sessions(&record.id).await?;
+    state.process.stop_workspace_sessions(&record.id).await;
 
     let repo = PathBuf::from(&record.repo_path);
     let worktree = PathBuf::from(&record.worktree_path);
