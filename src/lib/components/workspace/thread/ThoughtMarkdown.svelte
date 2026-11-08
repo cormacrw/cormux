@@ -8,14 +8,19 @@
 </script>
 
 <script lang="ts">
-  import { untrack } from 'svelte'
+  import { mount, unmount, untrack } from 'svelte'
   import {
     renderMarkdownBlocks,
     renderRichMarkdown,
     renderSanitizedMarkdown,
   } from '$lib/thread/sanitize-markdown'
   import { enhanceMarkdown } from '$lib/thread/enhance-markdown'
-  import { splitLocalMedia, type MediaSegment } from '$lib/thread/local-media'
+  import {
+    INLINE_MEDIA_ATTR,
+    mediaKindForSource,
+    splitLocalMedia,
+    type MediaSegment,
+  } from '$lib/thread/local-media'
   import {
     pairBeforeAfter,
     type CompareSegment,
@@ -124,11 +129,43 @@
     void html
     const container = root
     if (!container || cursor || !media) return
+    const mounted = mountInlineMedia(container)
     enhanceMarkdown(container, {
       workdir,
       prs: untrack(() => prs.items),
     })
+    return () => {
+      for (const component of mounted) void unmount(component)
+    }
   })
+
+  /**
+   * Media inside a table, list or quote stays in the prose (cutting it out would break the
+   * markdown around it), so it is mounted where the sanitiser left it.
+   */
+  function mountInlineMedia(container: HTMLElement) {
+    const targets = container.querySelectorAll<HTMLElement>(
+      `img[${INLINE_MEDIA_ATTR}], a[href]`,
+    )
+    return Array.from(targets).flatMap((element) => {
+      if (element.closest('.reply-inline-media, figure')) return []
+      const isImage = element instanceof HTMLImageElement
+      const source = isImage
+        ? element.getAttribute(INLINE_MEDIA_ATTR)
+        : element.getAttribute('href')
+      if (!source || !mediaKindForSource(source)) return []
+      const alt = isImage ? element.getAttribute('alt') : element.textContent
+      const host = document.createElement('span')
+      host.className = 'reply-inline-media'
+      element.replaceWith(host)
+      return [
+        mount(ThreadMedia, {
+          target: host,
+          props: { source, alt: alt?.trim() ?? '', workdir },
+        }),
+      ]
+    })
+  }
 
   // Plain buttons with one click handler below, since a long reply has many code blocks. They
   // wait until the reply is done: mid-typing the blocks are still being replaced.

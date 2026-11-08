@@ -3,7 +3,8 @@ import { findFileRefs, wholeFileRef, worktreePath } from './file-refs'
 import { renderMath } from './render-math'
 
 // Blocks mounted as components sit in the same root as the prose, but aren't prose.
-const COMPONENTS = '.reply-card, .reply-run-failures, .reply-math, figure'
+const COMPONENTS =
+  '.reply-card, .reply-run-failures, .reply-math, .reply-inline-media, figure'
 
 type Match = { index: number; length: number; make: () => Node }
 
