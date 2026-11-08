@@ -438,7 +438,7 @@ async fn on_approval_requested(
     approval_id: &str,
     tool: &str,
 ) -> Result<()> {
-    let Some(child) = continuing_thread(&state.store, thread_id) else {
+    let Some(child) = continuing_thread(&state.store, thread_id)? else {
         return Ok(());
     };
     let Some(parent_id) = child.parent_thread_id.clone() else {
@@ -476,16 +476,27 @@ async fn on_provisioning_failed(state: &AppState, workspace_id: &str, message: &
     Ok(())
 }
 
-fn continuing_thread(store: &Store, thread_id: &str) -> Option<ThreadRow> {
-    let thread = store.thread_by_id(thread_id).ok()??;
-    let workspace = store.workspace_by_id(&thread.workspace_id).ok()??;
-    (!thread.retired && workspace.archived_at.is_none()).then_some(thread)
+fn continuing_thread(store: &Store, thread_id: &str) -> Result<Option<ThreadRow>> {
+    let Some(thread) = store.thread_by_id(thread_id)? else {
+        return Ok(None);
+    };
+    let Some(workspace) = store.workspace_by_id(&thread.workspace_id)? else {
+        return Ok(None);
+    };
+    Ok((!thread.retired && workspace.archived_at.is_none()).then_some(thread))
 }
 
 /// The parent to report to, having dropped its reports if it can't continue. Teardown stops the
-/// engine well before it archives the workspace, and a report must not start a new one.
+/// engine well before it archives the workspace, and a report must not start a new one. A
+/// parent that can't be read keeps its reports for the next try.
 async fn reportable_parent(state: &AppState, parent_id: &str) -> Option<ThreadRow> {
-    let parent = continuing_thread(&state.store, parent_id);
+    let parent = match continuing_thread(&state.store, parent_id) {
+        Ok(parent) => parent,
+        Err(error) => {
+            log::warn!("reading thread {parent_id} to report to: {error}");
+            return None;
+        }
+    };
     let tearing_down = match &parent {
         Some(parent) => state
             .workspaces

@@ -3,7 +3,6 @@
 
 import json
 import sys
-import time
 
 
 def emit(obj):
@@ -72,7 +71,6 @@ for raw in sys.stdin:
                 "result": "launched",
             }
             emit(result)
-            time.sleep(0.6)
             emit({"type": "system", "subtype": "background_tasks_changed", "tasks": []})
             emit({"type": "system", "subtype": "init", "session_id": SESSION})
             emit(result)

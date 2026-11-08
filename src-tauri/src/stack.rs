@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
-use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
+use crate::feedback::{ToastPart, ToastTone};
 use crate::git::ShortStat;
 use crate::github::gh::{GhFailure, NOT_INSTALLED};
 use crate::state::AppState;
@@ -784,12 +784,11 @@ pub async fn pr_base(
 }
 
 fn toast(state: &AppState, workspace_id: &str, text: &str) {
-    state.out.toast(ToastRaisedPayload {
-        tone: ToastTone::Ok,
-        parts: vec![ToastPart::Text { value: text.into() }],
-        workspace_id: Some(workspace_id.to_string()),
-        thread_id: None,
-    });
+    state.out.toast_parts(
+        ToastTone::Ok,
+        vec![ToastPart::text(text)],
+        Some(workspace_id.to_string()),
+    );
 }
 
 pub mod commands {

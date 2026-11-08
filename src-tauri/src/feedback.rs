@@ -47,6 +47,20 @@ pub enum ToastPart {
     Code { value: String },
 }
 
+impl ToastPart {
+    pub fn text(value: impl Into<String>) -> Self {
+        Self::Text {
+            value: value.into(),
+        }
+    }
+
+    pub fn code(value: impl Into<String>) -> Self {
+        Self::Code {
+            value: value.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ToastRaisedPayload {

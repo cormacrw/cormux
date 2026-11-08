@@ -709,8 +709,8 @@ toastRaised: "toast-raised"
 /** user-defined constants **/
 
 export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
-export const MEDIA_EXTENSIONS = {"gif":"image","jpeg":"image","jpg":"image","m4v":"video","mov":"video","mp4":"video","png":"image","webm":"video","webp":"image"} as const;
 export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
+export const MEDIA_EXTENSIONS = {"gif":"image","jpeg":"image","jpg":"image","m4v":"video","mov":"video","mp4":"video","png":"image","webm":"video","webp":"image"} as const;
 
 /** user-defined types **/
 

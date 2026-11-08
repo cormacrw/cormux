@@ -11,7 +11,7 @@ use specta::Type;
 use tokio::sync::RwLock;
 
 use crate::error::{Error, Result};
-use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
+use crate::feedback::{ToastPart, ToastTone};
 use crate::git::{BehindUpdate, GitConflictState, RepoFetchTarget, WorkspaceFetchTarget};
 use crate::state::AppState;
 use crate::store::types::RepoRecord;
@@ -241,10 +241,10 @@ async fn on_branch_changed(
         state,
         &workspace.id,
         vec![
-            text("Switched "),
-            code(&workspace.name),
-            text(" to "),
-            code(branch),
+            ToastPart::text("Switched "),
+            ToastPart::code(&workspace.name),
+            ToastPart::text(" to "),
+            ToastPart::code(branch),
         ],
     );
     state.out.repo_git_moved();
@@ -459,13 +459,13 @@ pub async fn pull(state: &AppState, workspace_id: &str) -> Result<()> {
         state,
         workspace_id,
         vec![
-            text("Pulled "),
-            code(&behind.to_string()),
-            text(&format!(
+            ToastPart::text("Pulled "),
+            ToastPart::code(behind.to_string()),
+            ToastPart::text(format!(
                 " commit{} from ",
                 if behind == 1 { "" } else { "s" }
             )),
-            code(&base),
+            ToastPart::code(&base),
         ],
     );
     state.out.repo_git_moved();
@@ -519,24 +519,9 @@ pub fn record_in_own_thread(state: &AppState, workspace_id: &str, step: Timeline
 }
 
 fn toast(state: &AppState, workspace_id: &str, parts: Vec<ToastPart>) {
-    state.out.toast(ToastRaisedPayload {
-        tone: ToastTone::Ok,
-        parts,
-        workspace_id: Some(workspace_id.to_string()),
-        thread_id: None,
-    });
-}
-
-fn text(value: &str) -> ToastPart {
-    ToastPart::Text {
-        value: value.to_string(),
-    }
-}
-
-fn code(value: &str) -> ToastPart {
-    ToastPart::Code {
-        value: value.to_string(),
-    }
+    state
+        .out
+        .toast_parts(ToastTone::Ok, parts, Some(workspace_id.to_string()));
 }
 
 pub mod commands {

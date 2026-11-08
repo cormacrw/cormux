@@ -271,12 +271,8 @@ pub fn start(state: &AppState) {
     });
 }
 
-fn review_status(store: &Store, workspace_id: &str) -> Option<ReviewStatus> {
-    store
-        .review(workspace_id)
-        .ok()
-        .flatten()
-        .and_then(|review| review.status)
+fn review_status(store: &Store, workspace_id: &str) -> Result<Option<ReviewStatus>> {
+    Ok(store.review(workspace_id)?.and_then(|review| review.status))
 }
 
 /// Runs when any thread's turn ends. A missing or malformed findings block leaves the review
@@ -288,7 +284,7 @@ async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     let Some(workspace) = state.store.workspace_by_id(&thread.workspace_id)? else {
         return Ok(());
     };
-    let pending = review_status(&state.store, &workspace.id) == Some(ReviewStatus::Running);
+    let pending = review_status(&state.store, &workspace.id)? == Some(ReviewStatus::Running);
     if workspace.archived_at.is_some() || !pending {
         return Ok(());
     }
@@ -591,11 +587,11 @@ mod tests {
     use crate::thread_runtime::fake::FakeEngines;
 
     fn review_is_ready(store: &Store, workspace_id: &str) -> bool {
-        review_status(store, workspace_id) == Some(ReviewStatus::Ready)
+        review_status(store, workspace_id).unwrap() == Some(ReviewStatus::Ready)
     }
 
     fn branch_review_running(store: &Store, workspace_id: &str) -> bool {
-        review_status(store, workspace_id) == Some(ReviewStatus::Running)
+        review_status(store, workspace_id).unwrap() == Some(ReviewStatus::Running)
     }
 
     /// A Lead workspace whose thread is in `status`.
