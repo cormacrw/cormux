@@ -199,22 +199,9 @@
       return openFolds
     },
     trackRow,
-    get workdir() {
-      return source.workdir
-    },
-    diffFile: (path) => source.diffFile(path),
     findPr: (repoFullName, num) => source.findPr(repoFullName, num),
-    get revealFile() {
-      return source.revealFile
-    },
-    get workspaceId() {
-      return source.workspaceId
-    },
-    get openFindings() {
-      return source.openFindings
-    },
-    get scratch() {
-      return source.workspaceId === undefined
+    get workspace() {
+      return source.workspace
     },
   }
 

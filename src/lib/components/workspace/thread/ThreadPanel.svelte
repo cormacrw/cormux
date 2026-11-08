@@ -56,17 +56,19 @@
     ),
   )
   const source: ConversationSource = {
-    get workdir() {
-      return workspace.worktreePath
-    },
-    diffFile: (path) => diffFileByPath.get(path),
     findPr: (repoFullName, num) => prs.find(repoFullName, num),
-    revealFile: (path, line = null) =>
-      revealFileInWorkspace(workspace.id, threadId, path, line),
-    get workspaceId() {
-      return workspace.id
+    workspace: {
+      get id() {
+        return workspace.id
+      },
+      get workdir() {
+        return workspace.worktreePath
+      },
+      diffFile: (path) => diffFileByPath.get(path),
+      revealFile: (path, line = null) =>
+        revealFileInWorkspace(workspace.id, threadId, path, line),
+      openFindings: () => openWorkspaceFindings(workspace.id, threadId),
     },
-    openFindings: () => openWorkspaceFindings(workspace.id, threadId),
   }
   const view = $derived(threadTimeline.threadView(threadId))
   const live = $derived(view.live)
