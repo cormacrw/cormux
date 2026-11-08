@@ -8,10 +8,9 @@ use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::github::RepoSlug;
 use crate::github::auth;
 use crate::github::create::CreatePullRequestInput;
-use crate::github::types::{PrChecksState, PrReviewState, PullRequestPayload};
+use crate::github::types::{OpenedPullRequest, PullRequestPayload};
 use crate::pr_draft::{draft_why, pr_prompt};
 use crate::state::AppState;
-use crate::store::types::WorkspaceRow;
 use crate::timeline::TimelineStep;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -45,20 +44,15 @@ pub struct CreateWorkspacePullRequestResult {
     pub title: String,
 }
 
-fn live_workspace(state: &AppState, workspace_id: &str) -> Result<WorkspaceRow> {
-    state
-        .store
-        .workspace_by_id(workspace_id)?
-        .filter(|row| row.archived_at.is_none())
-        .ok_or_else(|| Error::unknown_workspace(workspace_id))
+async fn ensure_no_pr(state: &AppState, workspace_id: &str) -> Result<()> {
+    if state.workspaces.pr_number(workspace_id).await?.is_some() {
+        return Err(Error::Workspace("pull request already opened".into()));
+    }
+    Ok(())
 }
 
 pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftPrWhyResult> {
-    let workspace = live_workspace(state, workspace_id)?;
-    if workspace.pr_number.is_some() {
-        return Err(Error::Workspace("pull request already opened".into()));
-    }
-
+    ensure_no_pr(state, workspace_id).await?;
     let record = state.workspaces.get(workspace_id).await?;
     let worktree = Path::new(&record.worktree_path);
     let base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await?;
@@ -75,7 +69,7 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
     let (text, from_llm) = draft_why(
         &state.llm,
         &instructions,
-        &workspace,
+        &record,
         &base,
         &goal,
         &transcript,
@@ -106,12 +100,7 @@ pub async fn create_workspace_pull_request(
         ));
     }
 
-    let workspace = live_workspace(state, &input.workspace_id)?;
-
-    if workspace.pr_number.is_some() {
-        return Err(Error::Workspace("pull request already opened".into()));
-    }
-
+    ensure_no_pr(state, &input.workspace_id).await?;
     let record = state.workspaces.get(&input.workspace_id).await?;
     let worktree = Path::new(&record.worktree_path);
 
@@ -161,7 +150,7 @@ pub async fn create_workspace_pull_request(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(workspace.name.as_str())
+        .unwrap_or(record.name.as_str())
         .to_string();
 
     let created = state
@@ -188,23 +177,18 @@ pub async fn create_workspace_pull_request(
     )?;
 
     let (_, _, files) = diff_totals(&diff);
-    let payload = PullRequestPayload {
-        num: created.number,
-        title: title.clone(),
-        author: crate::github::types::VIEWER_AUTHOR.into(),
-        head: record.branch.clone(),
-        base: pr_base.clone(),
-        // GitHub's form, so the row made here sorts and ages like the synced ones.
-        updated_at: crate::time::iso_now(),
-        checks: PrChecksState::Running,
-        review: PrReviewState::Draft,
-        files: files as i64,
-        is_draft: true,
-        html_url: created.html_url.clone(),
-        repo_full_name: slug.full_name(),
-        repo_id: Some(workspace.repo_id.clone()),
-    };
-    state.store.upsert_pr(&payload)?;
+    state
+        .store
+        .upsert_pr(&PullRequestPayload::opened_by_viewer(OpenedPullRequest {
+            number: created.number,
+            title: title.clone(),
+            head: record.branch.clone(),
+            base: pr_base.clone(),
+            files: files as i64,
+            html_url: created.html_url.clone(),
+            repo_full_name: slug.full_name(),
+            repo_id: record.repo_id.clone(),
+        }))?;
 
     // The PR exists now, so nothing below may fail the command.
     crate::workspace_git::record_in_own_thread(

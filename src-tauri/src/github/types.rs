@@ -50,4 +50,36 @@ impl PullRequestPayload {
     pub fn authored_by_viewer(&self) -> bool {
         self.author == VIEWER_AUTHOR
     }
+
+    /// A draft the signed-in user just opened, cached before the next sync reads it from GitHub,
+    /// stamped in GitHub's form so it sorts and ages like the synced ones.
+    pub fn opened_by_viewer(opened: OpenedPullRequest) -> Self {
+        Self {
+            num: opened.number,
+            title: opened.title,
+            author: VIEWER_AUTHOR.into(),
+            head: opened.head,
+            base: opened.base,
+            updated_at: crate::time::iso_now(),
+            checks: PrChecksState::Running,
+            review: PrReviewState::Draft,
+            files: opened.files,
+            is_draft: true,
+            html_url: opened.html_url,
+            repo_full_name: opened.repo_full_name,
+            repo_id: Some(opened.repo_id),
+        }
+    }
+}
+
+/// What Cormux knows of a pull request the moment it opens one.
+pub struct OpenedPullRequest {
+    pub number: i64,
+    pub title: String,
+    pub head: String,
+    pub base: String,
+    pub files: i64,
+    pub html_url: String,
+    pub repo_full_name: String,
+    pub repo_id: String,
 }

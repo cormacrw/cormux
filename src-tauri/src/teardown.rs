@@ -36,10 +36,7 @@ pub struct TeardownInput {
 
 pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPreview> {
     let record = state.workspaces.get(workspace_id).await?;
-    let row = state
-        .store
-        .workspace_by_id(workspace_id)?
-        .ok_or_else(|| Error::unknown_workspace(workspace_id))?;
+    let pr_number = state.workspaces.pr_number(workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
 
     // A count git couldn't give is at risk: the warning says so and the branch is kept.
@@ -68,7 +65,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
         ),
         // A branch holding the only copy of its commits stays, so a later thread can pick it up.
         // One whose worktree was never made may not be this workspace's to delete.
-        delete_branch_default: row.pr_number.is_none() && unpushed == Some(0) && worktree.is_dir(),
+        delete_branch_default: pr_number.is_none() && unpushed == Some(0) && worktree.is_dir(),
         data_loss: TeardownDataLoss {
             ask_first: uncommitted != Some(0),
             warning: data_loss_warning(uncommitted, unpushed),

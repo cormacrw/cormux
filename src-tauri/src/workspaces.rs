@@ -324,6 +324,15 @@ impl Workspaces {
         .await
     }
 
+    /// The number of the pull request opened for the live workspace, if one was.
+    pub async fn pr_number(&self, id: &str) -> Result<Option<i64>> {
+        self.get(id).await?;
+        Ok(self
+            .store
+            .workspace_by_id(id)?
+            .and_then(|row| row.pr_number))
+    }
+
     pub fn set_pr(&self, id: &str, number: Option<i64>, html_url: Option<&str>) -> Result<()> {
         self.store.set_workspace_pr(id, number, html_url)
     }

@@ -1,11 +1,11 @@
 use crate::error::Result;
 use crate::git::WorktreeDiff;
 use crate::llm::LlmClient;
-use crate::store::types::WorkspaceRow;
+use crate::workspaces::WorkspaceRecord;
 
 /// A description built from what's known when the model can't be asked: the goal the thread
 /// was started with, or the workspace name.
-fn fallback_why(workspace: &WorkspaceRow, goal: &str) -> String {
+fn fallback_why(workspace: &WorkspaceRecord, goal: &str) -> String {
     let goal_trimmed = goal.trim().trim_end_matches('.').trim();
     let goal_source = if goal_trimmed.is_empty() {
         workspace.name.trim().trim_end_matches('.').trim()
@@ -34,7 +34,7 @@ pub fn pr_prompt(saved: &str) -> String {
 
 pub fn build_draft_prompt(
     instructions: &str,
-    workspace: &WorkspaceRow,
+    workspace: &WorkspaceRecord,
     base: &str,
     goal: &str,
     transcript: &str,
@@ -71,7 +71,7 @@ pub fn build_draft_prompt(
 pub async fn draft_why(
     llm: &LlmClient,
     instructions: &str,
-    workspace: &WorkspaceRow,
+    workspace: &WorkspaceRecord,
     base: &str,
     goal: &str,
     transcript: &str,
@@ -88,19 +88,18 @@ pub async fn draft_why(
 mod tests {
     use super::*;
 
-    fn workspace(name: &str) -> WorkspaceRow {
-        WorkspaceRow {
+    fn workspace(name: &str) -> WorkspaceRecord {
+        WorkspaceRecord {
+            id: "w1".into(),
+            repo_id: "r1".into(),
+            repo_path: "/tmp/r1".into(),
+            name: name.into(),
+            branch: "feat/x".into(),
+            base: "main".into(),
+            worktree_path: "/tmp/wt".into(),
             status: crate::model::WorkspaceLifecycle::Running,
-            summary: Some("Started “Auth” on a branch from main.".into()),
-            ..crate::store::types::WorkspaceRow::new(
-                crate::model::WorkspaceKind::Lead,
-                "w1",
-                "r1",
-                name,
-                "feat/x",
-                "main",
-                "/tmp/wt",
-            )
+            kind: crate::model::WorkspaceKind::Lead,
+            activity: Default::default(),
         }
     }
 
