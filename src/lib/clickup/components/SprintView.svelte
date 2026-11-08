@@ -81,8 +81,23 @@
   }
   let drag = $state<Drag | null>(null)
   let overLane = $state<string | null>(null)
-  /** The click that ends a drag must not also select the card. */
-  let swallowClick = false
+  /**
+   * The click that ends a drag must not also select the card. Any click before the next press
+   * is that one; if none comes, the press puts clicks back.
+   */
+  function swallowNextClick() {
+    const swallow = (event: MouseEvent) => {
+      event.stopPropagation()
+      event.preventDefault()
+      window.removeEventListener('pointerdown', restore, true)
+    }
+    const restore = () => window.removeEventListener('click', swallow, true)
+    window.addEventListener('click', swallow, { capture: true, once: true })
+    window.addEventListener('pointerdown', restore, {
+      capture: true,
+      once: true,
+    })
+  }
 
   function onCardPointerDown(event: PointerEvent, task: ClickupTask) {
     if (event.button !== 0) return
@@ -133,8 +148,7 @@
 
   function onPointerUp() {
     if (drag?.active) {
-      swallowClick = true
-      setTimeout(() => (swallowClick = false), 0)
+      swallowNextClick()
       if (overLane) void moveTask(drag.task.id, overLane)
     }
     endDrag()
@@ -144,8 +158,7 @@
     if (event.key !== 'Escape' || !drag?.active) return
     event.preventDefault()
     event.stopPropagation()
-    swallowClick = true
-    setTimeout(() => (swallowClick = false), 0)
+    swallowNextClick()
     endDrag()
   }
 
@@ -174,7 +187,6 @@
   }
 
   function selectTask(task: ClickupTask) {
-    if (swallowClick) return
     clickup.select(clickup.selectedTaskId === task.id ? null : task.id)
   }
 
