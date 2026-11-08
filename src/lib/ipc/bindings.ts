@@ -796,7 +796,27 @@ export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type
  * What the agent is waiting on right now, for the thread's live row.
  */
 { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
-export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
+/**
+ * One question an agent asks the user, in the shape Claude's question tool takes it.
+ */
+export type AgentQuestion = { question: string; header?: string; options?: QuestionOption[]; multiSelect?: boolean }
+/**
+ * What an approval card shows, and how it was answered. Stored as JSON in the approval's row.
+ */
+export type ApprovalPayload = { title: string; what?: string; why?: string; okLabel: string; noLabel: string; resolvedAtMs?: number | null; denyReason?: string | null; 
+/**
+ * What the agent asked; empty for an ordinary permission request.
+ */
+questions?: AgentQuestion[]; 
+/**
+ * The user's answers, keyed by question text.
+ */
+answers?: Partial<{ [key in string]: string }> }
+export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; 
+/**
+ * None when the stored card can't be read; the timeline falls back to the permission event.
+ */
+payload: ApprovalPayload | null }
 /**
  * How a workspace came to be on another branch.
  */
@@ -984,6 +1004,7 @@ path: string | null;
  */
 dataBase64: string | null }
 export type PtyChunk = { workspaceId: string; line: string }
+export type QuestionOption = { label: string; description?: string }
 export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
@@ -1064,9 +1085,9 @@ export type Snapshot = { version: number; persisted: PersistedSnapshot;
  */
 workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
 /**
- * In-memory broker queue (may exceed persisted pending rows).
+ * Approvals waiting on the user, which the dock badge also shows.
  */
-pendingLiveApprovals: number; 
+pendingApprovals: number; 
 /**
  * True when a PAT is stored or `gh auth token` succeeds.
  */

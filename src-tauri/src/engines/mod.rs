@@ -17,11 +17,12 @@ use std::pin::Pin;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
+pub use crate::model::AgentQuestion;
 pub use claude::ClaudeEngines;
 pub use claude::saved::{SavedCall, restore_call, restore_permission_tool};
 pub use command::EngineCommand;
 pub use detect::{EngineStatus, detect_engines};
-pub use events::{AgentEvent, AgentQuestion, MessageRole, ToolCallStatus, ToolRole};
+pub use events::{AgentEvent, MessageRole, ToolCallStatus, ToolRole};
 pub use models::{ModelOption, ThreadModels, static_efforts, static_models};
 
 use crate::error::Result;

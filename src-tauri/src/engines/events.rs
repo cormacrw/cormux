@@ -151,24 +151,3 @@ pub struct PlanStep {
     pub content: String,
     pub status: String,
 }
-
-/// One question an agent asks the user, in the shape Claude's question tool takes it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentQuestion {
-    pub question: String,
-    #[serde(default)]
-    pub header: String,
-    #[serde(default)]
-    pub options: Vec<QuestionOption>,
-    #[serde(default)]
-    pub multi_select: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QuestionOption {
-    pub label: String,
-    #[serde(default)]
-    pub description: String,
-}

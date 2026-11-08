@@ -61,7 +61,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         workspaces,
         workspace_git,
         memory,
-        pending_live_approvals: state.approvals.pending_count(),
+        pending_approvals: state.approvals.pending_count(),
         github_auth_configured,
         clickup_configured: state.clickup.is_configured(),
         workspace_apps: state.apps.snapshot(),
@@ -330,7 +330,16 @@ pub async fn resolve_approval(
     deny_reason: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::approvals::resolve_approval(&state, &id, approved, deny_reason).await
+    let answer = if approved {
+        crate::approvals::Answer::Approve
+    } else {
+        crate::approvals::Answer::Deny {
+            reason: deny_reason,
+        }
+    };
+    state.approvals.resolve(&id, answer)?;
+    state.out.changed(Change::THREADS);
+    Ok(())
 }
 #[tauri::command]
 #[specta::specta]
@@ -339,7 +348,11 @@ pub async fn answer_question(
     answers: BTreeMap<String, String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::approvals::answer_question(&state, &id, answers)
+    state
+        .approvals
+        .resolve(&id, crate::approvals::Answer::Answers(answers))?;
+    state.out.changed(Change::THREADS);
+    Ok(())
 }
 
 #[tauri::command]
@@ -350,7 +363,11 @@ pub async fn resolve_all_approvals(
     deny_reason: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::approvals::resolve_all_approvals(&state, &thread_id, approved, deny_reason).await
+    let resolved = state
+        .approvals
+        .resolve_all(&thread_id, approved, deny_reason);
+    state.out.changed(Change::THREADS);
+    resolved
 }
 
 /// High-volume ordered stream of PTY output for a workspace's run/setup log.
@@ -699,8 +716,7 @@ pub async fn send_thread_prompt(
 #[tauri::command]
 #[specta::specta]
 pub async fn cancel_thread_turn(thread_id: String, state: State<'_, AppState>) -> Result<()> {
-    crate::turn::stop(&state, &thread_id).await;
-    Ok(())
+    crate::turn::stop(&state, &thread_id).await
 }
 
 #[tauri::command]

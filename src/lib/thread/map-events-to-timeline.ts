@@ -1,5 +1,4 @@
 import type { ApprovalRow, TranscriptEvent } from '$lib/ipc/bindings'
-import { parseApprovalPayload } from '$lib/approvals/payload'
 import { deepEqual } from '$lib/deep-equal'
 import { memoByText } from './memo'
 import { summarizeRun } from './reply/blocks/run'
@@ -65,8 +64,7 @@ function approvalById(approvals: ApprovalRow[], id: string) {
   return index.get(id)
 }
 
-// A timeline rebuild re-reads every approval and run, and neither changes once written.
-const parsedApproval = memoByText(parseApprovalPayload)
+// A timeline rebuild re-reads every run, which doesn't change once written.
 const summarizedRun = memoByText(summarizeRun)
 
 function approvalFromPermission(
@@ -76,7 +74,7 @@ function approvalFromPermission(
   approvals: ApprovalRow[],
 ) {
   const row = approvalById(approvals, event.id)
-  const payload = row ? parsedApproval(row.payload) : null
+  const payload = row?.payload ?? null
   const state = approvalState(row)
   return {
     kind: 'approval' as const,

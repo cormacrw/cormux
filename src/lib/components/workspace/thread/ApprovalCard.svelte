@@ -38,18 +38,7 @@
   const resolvedChip = $derived(
     item.state === 'pending'
       ? null
-      : approvalResolvedChip(
-          {
-            title: item.title,
-            what: item.what,
-            why: item.why,
-            okLabel: item.okLabel,
-            noLabel: item.noLabel,
-            resolvedAtMs: item.doneAtMs ?? undefined,
-          },
-          item.state,
-          nowMs,
-        ),
+      : approvalResolvedChip({ ...item, state: item.state }, nowMs),
   )
 
   async function decide(approved: boolean, reason?: string) {

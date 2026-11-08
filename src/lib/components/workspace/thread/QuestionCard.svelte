@@ -47,19 +47,7 @@
   const resolvedChip = $derived(
     item.state === 'pending'
       ? null
-      : approvalResolvedChip(
-          {
-            title: item.title,
-            what: item.what,
-            why: item.why,
-            okLabel: item.okLabel,
-            noLabel: item.noLabel,
-            resolvedAtMs: item.doneAtMs ?? undefined,
-            questions: item.questions,
-          },
-          item.state,
-          nowMs,
-        ),
+      : approvalResolvedChip({ ...item, state: item.state }, nowMs),
   )
 
   function toggle(question: string, label: string, multiSelect: boolean) {
@@ -131,7 +119,7 @@
     </div>
   </Card.Header>
   <Card.Content class="space-y-4 pt-0">
-    {#each item.questions as { question, header, options, multiSelect } (question)}
+    {#each item.questions as { question, header, options = [], multiSelect = false } (question)}
       <div class="space-y-2">
         {#if header}
           <p class="text-xs font-medium text-muted-foreground">{header}</p>

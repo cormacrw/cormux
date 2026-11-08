@@ -102,7 +102,7 @@ export const fixtureSnapshot: Snapshot = {
   ],
   workspaceGit: [],
   memory: { totalBytes: 1_400_000_000, perWorkspace: [] },
-  pendingLiveApprovals: 0,
+  pendingApprovals: 0,
   githubAuthConfigured: false,
   clickupConfigured: false,
   workspaceApps: [],

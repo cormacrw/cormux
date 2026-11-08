@@ -3,7 +3,8 @@ use specta::Type;
 
 use crate::error::{Error, Result};
 use crate::model::{
-    SUMMARY_MODEL_LABEL, ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle,
+    ApprovalPayload, SUMMARY_MODEL_LABEL, ThreadRole, ThreadStatus, WorkspaceKind,
+    WorkspaceLifecycle,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -212,7 +213,8 @@ pub struct ApprovalRow {
     pub thread_id: String,
     pub status: String,
     pub tool: String,
-    pub payload: String,
+    /// None when the stored card can't be read; the timeline falls back to the permission event.
+    pub payload: Option<ApprovalPayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

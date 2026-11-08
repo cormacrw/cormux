@@ -18,8 +18,8 @@ pub struct Snapshot {
     pub workspaces: Vec<WorkspaceRecord>,
     pub workspace_git: Vec<WorkspaceGitRuntime>,
     pub memory: Option<MemorySample>,
-    /// In-memory broker queue (may exceed persisted pending rows).
-    pub pending_live_approvals: usize,
+    /// Approvals waiting on the user, which the dock badge also shows.
+    pub pending_approvals: usize,
     /// True when a PAT is stored or `gh auth token` succeeds.
     pub github_auth_configured: bool,
     /// True when a ClickUp API key is saved. Every ClickUp surface hides without one.

@@ -408,13 +408,13 @@ describe('mapEventsToTimeline', () => {
           threadId: 't1',
           status: 'pending',
           tool: 'execute',
-          payload: JSON.stringify({
+          payload: {
             title: 'Run command',
             what: 'pnpm test',
             why: 'Bash',
             okLabel: 'Approve',
             noLabel: 'Deny',
-          }),
+          },
         },
       ],
       findingsReady: false,
@@ -470,14 +470,14 @@ describe('mapEventsToTimeline', () => {
           threadId: 't1',
           status: 'pending',
           tool: 'question',
-          payload: JSON.stringify({
+          payload: {
             title: 'Question',
             what: 'Which colour?',
             why: '',
             okLabel: 'Send',
             noLabel: 'Skip',
             questions: [question],
-          }),
+          },
         },
       ],
       findingsReady: false,

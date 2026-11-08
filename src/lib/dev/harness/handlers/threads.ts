@@ -285,13 +285,9 @@ export function threadHandlers(runtime: HarnessRuntime) {
       const row = fixtureSnapshot.persisted.approvals.find(
         (entry) => entry.id === id,
       )
-      if (row) {
+      if (row?.payload) {
         row.status = 'approved'
-        row.payload = JSON.stringify({
-          ...JSON.parse(row.payload),
-          resolvedAtMs: Date.now(),
-          answers,
-        })
+        row.payload = { ...row.payload, resolvedAtMs: Date.now(), answers }
       }
       emitStateChanged()
       return null
@@ -314,11 +310,13 @@ export function threadHandlers(runtime: HarnessRuntime) {
         const thread = findThread(row.threadId)
         if (thread?.status === 'waiting') thread.status = 'running'
         row.status = approved ? 'approved' : 'denied'
-        row.payload = JSON.stringify({
-          ...JSON.parse(row.payload),
-          resolvedAtMs: Date.now(),
-          ...(reason ? { denyReason: reason } : {}),
-        })
+        if (row.payload) {
+          row.payload = {
+            ...row.payload,
+            resolvedAtMs: Date.now(),
+            ...(reason ? { denyReason: reason } : {}),
+          }
+        }
       }
       emitStateChanged()
       return null

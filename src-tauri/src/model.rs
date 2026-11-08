@@ -207,6 +207,69 @@ impl From<ApprovalStatus> for String {
     }
 }
 
+/// What an approval card shows, and how it was answered. Stored as JSON in the approval's row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalPayload {
+    pub title: String,
+    #[serde(default)]
+    pub what: String,
+    #[serde(default)]
+    pub why: String,
+    pub ok_label: String,
+    pub no_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub resolved_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub deny_reason: Option<String>,
+    /// What the agent asked; empty for an ordinary permission request.
+    #[serde(default)]
+    pub questions: Vec<AgentQuestion>,
+    /// The user's answers, keyed by question text.
+    #[serde(default)]
+    pub answers: std::collections::BTreeMap<String, String>,
+}
+
+#[cfg(test)]
+impl ApprovalPayload {
+    pub fn titled(title: &str) -> Self {
+        Self {
+            title: title.into(),
+            what: String::new(),
+            why: String::new(),
+            ok_label: "Approve".into(),
+            no_label: "Deny".into(),
+            resolved_at_ms: None,
+            deny_reason: None,
+            questions: Vec::new(),
+            answers: Default::default(),
+        }
+    }
+}
+
+/// One question an agent asks the user, in the shape Claude's question tool takes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentQuestion {
+    pub question: String,
+    #[serde(default)]
+    pub header: String,
+    #[serde(default)]
+    pub options: Vec<QuestionOption>,
+    #[serde(default)]
+    pub multi_select: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionOption {
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+}
+
 /// Why a turn ended. Stored and sent as a plain string: `end_turn` when it finished, otherwise
 /// the CLI's error subtype.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

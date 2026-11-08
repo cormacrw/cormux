@@ -1,152 +1,236 @@
+//! Approvals waiting on the user, from the agent asking to the user answering: the stored row
+//! (what the card shows) and the engine's waiter change together, so a card never reads as
+//! answered while its agent still waits, or as waiting once its agent has stopped.
+
 mod payload;
-mod record;
-mod resolve;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
-use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::oneshot;
 
 pub use payload::QUESTION_TOOL;
-pub use record::{
-    mark_answered, mark_resolved, record_pending_permission, record_pending_question,
-};
-pub use resolve::{answer_question, resolve_all_approvals, resolve_approval};
 
+use crate::bus::{Bus, DomainEvent};
+use crate::engines::{AgentEvent, PermissionRequest};
 use crate::error::{Error, Result};
+use crate::model::ApprovalStatus;
+use crate::settings::Settings;
+use crate::store::Store;
+use crate::transcript::Transcript;
 
-/// Pending permission requests keyed by approval id. Engine adapters block on the
-/// receiver until the user answers.
-#[derive(Debug, Default)]
-pub struct ApprovalBroker {
-    pending: Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>,
+/// Which requests wait for the user.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ApprovalPolicy {
+    run_everything: bool,
 }
 
+impl From<&Settings> for ApprovalPolicy {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            run_everything: settings.run_everything,
+        }
+    }
+}
+
+impl ApprovalPolicy {
+    /// Only the user can answer a question, so no setting lets one through.
+    fn asks_user(self, request: &PermissionRequest) -> bool {
+        !request.questions.is_empty() || !self.run_everything
+    }
+}
+
+/// What the engine is told.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalDecision {
     Approved,
     Denied {
         message: String,
     },
-    /// Answers to an `AskUserQuestion` call, keyed by question text.
+    /// Answers to the agent's questions, keyed by question text.
     Answered {
         answers: BTreeMap<String, String>,
     },
 }
 
+/// What the user said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Answer {
+    Approve,
+    Deny { reason: Option<String> },
+    Answers(BTreeMap<String, String>),
+}
+
+pub struct ApprovalBroker {
+    store: Store,
+    transcript: Transcript,
+    bus: Bus,
+    /// Keyed by approval id. Held while a row changes, so the two never disagree.
+    waiting: Mutex<HashMap<String, Waiter>>,
+}
+
+struct Waiter {
+    thread_id: String,
+    decided: oneshot::Sender<ApprovalDecision>,
+}
+
 impl ApprovalBroker {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(store: Store, transcript: Transcript, bus: Bus) -> Self {
+        Self {
+            store,
+            transcript,
+            bus,
+            waiting: Mutex::new(HashMap::new()),
+        }
     }
 
-    pub fn register(&self, id: impl Into<String>) -> oneshot::Receiver<ApprovalDecision> {
-        let (tx, rx) = oneshot::channel();
-        let mut pending = self.pending.lock().expect("approval broker mutex");
-        pending.insert(id.into(), tx);
-        rx
-    }
-
-    pub async fn resolve(
+    /// The decision for `request`: at once if `policy` lets it through, otherwise once the user
+    /// answers. The receiver closes unanswered if the thread's turn ends first.
+    pub fn request(
         &self,
-        id: &str,
-        approved: bool,
-        deny_message: Option<String>,
-    ) -> Result<()> {
-        let decision = if approved {
-            ApprovalDecision::Approved
-        } else {
-            ApprovalDecision::Denied {
-                message: deny_message
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or_else(|| "Denied by user".into()),
+        thread_id: &str,
+        request: &PermissionRequest,
+        policy: ApprovalPolicy,
+    ) -> oneshot::Receiver<ApprovalDecision> {
+        let (decided, decision) = oneshot::channel();
+        if !policy.asks_user(request) {
+            self.transcript.signal(thread_id, request.event(true));
+            let _ = decided.send(ApprovalDecision::Approved);
+            return decision;
+        }
+        let (card, tool) = payload::card(request);
+        {
+            let Ok(mut waiting) = self.waiting.lock() else {
+                log::warn!("approvals lock poisoned; {} goes unanswered", request.id);
+                return decision;
+            };
+            waiting.insert(
+                request.id.clone(),
+                Waiter {
+                    thread_id: thread_id.to_string(),
+                    decided,
+                },
+            );
+            let recorded = self
+                .store
+                .insert_pending_approval(&request.id, thread_id, tool, &card)
+                .and_then(|()| self.transcript.append(thread_id, request.event(false)));
+            if let Err(error) = recorded {
+                log::warn!("recording {thread_id}'s approval {}: {error}", request.id);
             }
-        };
-        self.complete(id, decision)
+        }
+        self.transcript.signal(
+            thread_id,
+            AgentEvent::CurrentTool {
+                id: request.tool_call_id.clone(),
+                title: request.tool.clone(),
+            },
+        );
+        self.bus.publish(DomainEvent::ApprovalRequested {
+            thread_id: thread_id.to_string(),
+            approval_id: request.id.clone(),
+            tool: tool.to_string(),
+        });
+        decision
     }
 
-    pub fn complete(&self, id: &str, decision: ApprovalDecision) -> Result<()> {
-        let mut pending = self
-            .pending
+    /// The thread's engine stopped waiting (its turn ended, or it exited), so its open requests
+    /// are denied and their waiters dropped.
+    pub fn cancel_for_thread(&self, thread_id: &str) {
+        let Ok(mut waiting) = self.waiting.lock() else {
+            return;
+        };
+        waiting.retain(|_, waiter| waiter.thread_id != thread_id);
+        if let Err(error) = self.store.deny_pending_approvals(thread_id) {
+            log::warn!("denying {thread_id}'s open approvals: {error}");
+        }
+    }
+
+    /// Records the user's answer and hands it to the waiting engine. An answer to a request
+    /// nothing waits on any more is refused, and the card stops asking.
+    pub fn resolve(&self, id: &str, answer: Answer) -> Result<()> {
+        let mut waiting = self
+            .waiting
             .lock()
             .map_err(|error| Error::Approval(error.to_string()))?;
-        let Some(tx) = pending.remove(id) else {
-            return Err(Error::Approval(format!("no pending approval {id}")));
+        let row = self
+            .store
+            .get_approval(id)?
+            .ok_or_else(|| Error::Approval(format!("unknown approval {id}")))?;
+        if row.status != ApprovalStatus::Pending.as_str() {
+            return Err(Error::Approval("approval already decided".into()));
+        }
+        let Some(waiter) = waiting.remove(id) else {
+            self.store
+                .decide_approval(id, ApprovalStatus::Denied, None)?;
+            return Err(Error::Approval(
+                "the agent is no longer waiting for this answer".into(),
+            ));
         };
-        tx.send(decision)
-            .map_err(|_| Error::Approval("engine is no longer waiting".into()))?;
+        let mut card = row.payload;
+        if let Some(card) = &mut card {
+            card.resolved_at_ms = Some(crate::time::unix_ms());
+        }
+        let (status, decision) = match answer {
+            Answer::Approve => (ApprovalStatus::Approved, ApprovalDecision::Approved),
+            Answer::Deny { reason } => {
+                let reason = reason.filter(|reason| !reason.trim().is_empty());
+                if let Some(card) = &mut card {
+                    card.deny_reason = reason.clone();
+                }
+                let message = reason.unwrap_or_else(|| "Denied by user".into());
+                (ApprovalStatus::Denied, ApprovalDecision::Denied { message })
+            }
+            Answer::Answers(answers) => {
+                if let Some(card) = &mut card {
+                    card.answers = answers.clone();
+                }
+                (
+                    ApprovalStatus::Approved,
+                    ApprovalDecision::Answered { answers },
+                )
+            }
+        };
+        // An unreadable card keeps what's stored rather than lose it to a rewrite.
+        if let Err(error) = self.store.decide_approval(id, status, card.as_ref()) {
+            waiting.insert(id.to_string(), waiter);
+            return Err(error);
+        }
+        if waiter.decided.send(decision).is_err() {
+            log::warn!("approval {id} was answered after its engine stopped reading");
+        }
         Ok(())
     }
 
-    /// Forgets a request nothing will answer any more: the engine's turn ended or it exited.
-    /// The waiter sees its channel close and the dock badge stops counting it.
-    pub fn cancel(&self, id: &str) -> bool {
-        self.pending
-            .lock()
-            .map(|mut pending| pending.remove(id).is_some())
-            .unwrap_or(false)
-    }
-
-    pub fn pending_count(&self) -> usize {
-        self.pending.lock().map(|map| map.len()).unwrap_or(0)
-    }
-}
-
-/// Approvals waiting on the user: the stored rows, or the broker's waiters if it has more.
-/// Refreshes the webview, and with it the badge, whenever an approval is asked for.
-pub fn start(state: &crate::state::AppState) {
-    let state = state.clone();
-    let mut requested = state.approval_notify.subscribe();
-    tauri::async_runtime::spawn(async move {
-        while let Ok(()) | Err(RecvError::Lagged(_)) = requested.recv().await {
-            state.out.changed(crate::feedback::Change::THREADS);
+    /// Answers every request the thread has open. Approving all leaves its questions, which
+    /// an approval can't answer, for the user.
+    pub fn resolve_all(
+        &self,
+        thread_id: &str,
+        approved: bool,
+        reason: Option<String>,
+    ) -> Result<()> {
+        for row in self.store.pending_approvals_for_thread(thread_id)? {
+            let answer = match approved {
+                true if row.tool == QUESTION_TOOL => continue,
+                true => Answer::Approve,
+                false => Answer::Deny {
+                    reason: reason.clone(),
+                },
+            };
+            self.resolve(&row.id, answer)?;
         }
-    });
-}
+        Ok(())
+    }
 
-pub fn pending_count(store: &crate::store::Store, broker: &ApprovalBroker) -> usize {
-    let stored = store.pending_approval_count().unwrap_or_else(|error| {
-        log::warn!("counting pending approvals: {error}");
-        0
-    });
-    stored.max(broker.pending_count())
-}
-
-pub fn run_everything_from_store(store: &crate::store::Store) -> bool {
-    store.get_setting("runEverything").ok().flatten().as_deref() == Some("true")
+    /// Approvals waiting on the user, which the dock badge shows.
+    pub fn pending_count(&self) -> usize {
+        self.store.pending_approval_count().unwrap_or_else(|error| {
+            log::warn!("counting pending approvals: {error}");
+            0
+        })
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn resolve_unblocks_waiter() {
-        let broker = ApprovalBroker::new();
-        let rx = broker.register("a1");
-        broker.resolve("a1", true, None).await.unwrap();
-        assert_eq!(rx.await.unwrap(), ApprovalDecision::Approved);
-        assert_eq!(broker.pending_count(), 0);
-    }
-
-    #[tokio::test]
-    async fn cancel_drops_the_request_and_wakes_its_waiter() {
-        let broker = ApprovalBroker::new();
-        let rx = broker.register("a1");
-        assert!(broker.cancel("a1"));
-        assert!(!broker.cancel("a1"));
-        assert!(rx.await.is_err());
-        assert_eq!(broker.pending_count(), 0);
-        assert!(broker.resolve("a1", true, None).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn re_register_replaces_waiter_for_engine_reissue() {
-        let broker = ApprovalBroker::new();
-        let first = broker.register("a1");
-        let second = broker.register("a1");
-        broker.resolve("a1", true, None).await.unwrap();
-        assert!(first.await.is_err());
-        assert_eq!(second.await.unwrap(), ApprovalDecision::Approved);
-    }
-}
+mod tests;

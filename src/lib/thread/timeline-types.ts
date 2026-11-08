@@ -96,7 +96,7 @@ export type TimelineItem =
       doneAtMs: number | null
       /** Set when the agent is asking something rather than seeking permission. */
       questions: AgentQuestion[]
-      answers: Record<string, string>
+      answers: Partial<Record<string, string>>
       seq: number
       atMs: number
     }

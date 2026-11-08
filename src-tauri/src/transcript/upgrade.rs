@@ -331,8 +331,9 @@ mod tests {
 
     use super::*;
     use crate::engines::ToolRole;
+    use crate::model::ApprovalPayload;
     use crate::model::ThreadRole;
-    use crate::store::types::{ApprovalRow, ThreadRow};
+    use crate::store::types::ThreadRow;
 
     fn store_with(rows: &[(&str, Value)]) -> Store {
         let store = Store::in_memory().unwrap();
@@ -508,16 +509,13 @@ mod tests {
             ("message", json!({ "role": "user", "text": "Review PR #4" })),
         ]);
         store
-            .upsert_approval(&ApprovalRow {
-                id: "p1".into(),
-                thread_id: "t1".into(),
-                status: "pending".into(),
-                tool: "other".into(),
-                payload: json!({ "title": "Use mcp__github__get_pr",
-                                 "what": "mcp__github__get_pr", "why": "mcp__github__get_pr",
-                                 "okLabel": "Approve", "noLabel": "Deny" })
-                .to_string(),
-            })
+            .insert_pending_approval("p1", "t1", "other", &ApprovalPayload::titled("Legacy"))
+            .unwrap();
+        let legacy = json!({ "title": "Use mcp__github__get_pr",
+                             "what": "mcp__github__get_pr", "why": "mcp__github__get_pr",
+                             "okLabel": "Approve", "noLabel": "Deny" });
+        store
+            .set_approval_payload_text("p1", &legacy.to_string())
             .unwrap();
         upgrade(&store).unwrap();
         let rows = events(&store);
@@ -544,10 +542,9 @@ mod tests {
         );
         assert_eq!(rows[4].1, TranscriptEvent::briefing("Review PR #4"));
 
-        let card: Value =
-            serde_json::from_str(&store.get_approval("p1").unwrap().unwrap().payload).unwrap();
-        assert_eq!(card["title"], "Use Github: Get pr");
-        assert_eq!(card["why"], "Github: Get pr");
+        let card = store.get_approval("p1").unwrap().unwrap().payload.unwrap();
+        assert_eq!(card.title, "Use Github: Get pr");
+        assert_eq!(card.why, "Github: Get pr");
     }
 
     #[test]

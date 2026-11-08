@@ -17,14 +17,6 @@ export type ToastPayload = {
   scratchId?: string
 }
 
-export function pendingApprovalCount(
-  approvals: { status: string }[],
-  livePending = 0,
-): number {
-  const stored = approvals.filter((row) => row.status === 'pending').length
-  return Math.max(stored, livePending)
-}
-
 export function formatToastPayload(payload: ToastPayload): string {
   return payload.parts.map((part) => part.value).join('')
 }

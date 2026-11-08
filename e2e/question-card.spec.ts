@@ -49,14 +49,14 @@ async function openQuestion(page: Page, questions = QUESTIONS) {
         threadId: 'th-lead',
         status: 'pending',
         tool: 'question',
-        payload: JSON.stringify({
+        payload: {
           title: 'Question',
           what: questions[0].question,
           why: '',
           okLabel: 'Send',
           noLabel: 'Skip',
           questions,
-        }),
+        },
       },
     ],
   })

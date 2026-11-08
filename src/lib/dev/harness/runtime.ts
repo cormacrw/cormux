@@ -67,13 +67,13 @@ export function createRuntime(scenario: HarnessScenario) {
         threadId,
         status: 'pending',
         tool: 'execute',
-        payload: JSON.stringify({
+        payload: {
           title: 'Run a command',
           what: 'pnpm test',
           why: 'Bash',
           okLabel: 'Approve',
           noLabel: 'Deny',
-        }),
+        },
       })
       emitStateChanged()
     },

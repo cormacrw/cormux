@@ -3,7 +3,6 @@ import { readBooleanSetting } from '$lib/new-workspace/settings-defaults'
 import { notifyHarness } from './os-notifications'
 import {
   approvalNeededNotificationBody,
-  pendingApprovalCount,
   reviewFinishedToast,
 } from './toast-payload'
 import { showToast } from './show-toast'
@@ -52,10 +51,7 @@ function newestApprovalTarget(snapshot: Snapshot): ToastTarget | undefined {
 }
 
 export async function onSnapshotSupervision(snapshot: Snapshot) {
-  const pending = pendingApprovalCount(
-    snapshot.persisted.approvals,
-    snapshot.pendingLiveApprovals,
-  )
+  const pending = snapshot.pendingApprovals
   const notifyApprovals = readBooleanSetting(
     snapshot.persisted.settings,
     'notifyApprovals',

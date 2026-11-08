@@ -25,6 +25,11 @@ export function coreHandlers({ scenario }: HarnessRuntime) {
   return {
     get_snapshot: () => {
       fixtureSnapshot.persisted.threadActivity = threadActivityRows()
+      // The core counts its pending approval rows.
+      fixtureSnapshot.pendingApprovals =
+        fixtureSnapshot.persisted.approvals.filter(
+          (row) => row.status === 'pending',
+        ).length
       // The harness's repos have no committed config, so only their own commands count.
       fixtureSnapshot.repoRunCommands = fixtureSnapshot.persisted.repos.flatMap(
         (repo) =>
