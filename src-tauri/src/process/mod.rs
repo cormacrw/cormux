@@ -399,6 +399,7 @@ impl ProcessSupervisor {
         ring.iter().skip(skip).cloned().collect()
     }
 
+    #[cfg(test)]
     pub fn log_snapshot(&self, workspace_id: &str) -> Vec<LogEntry> {
         self.log_since(workspace_id, &mut 0)
     }
