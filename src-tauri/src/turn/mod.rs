@@ -732,7 +732,7 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_drops_the_queue_and_a_thread_with_no_engine_still_stops() {
-        let (state, recording, _fake) = faked(ThreadStatus::Paused, WorkspaceLifecycle::Idle).await;
+        let (state, recording, fake) = faked(ThreadStatus::Paused, WorkspaceLifecycle::Idle).await;
         submit(&state, T, "while paused".into(), Vec::new())
             .await
             .unwrap();
@@ -740,8 +740,14 @@ mod tests {
         stop(&state, T).await.unwrap();
 
         assert_eq!(thread_status(&state, T), "idle");
-        assert!(state.paused.take(T).is_empty());
         assert!(workspace_notified(&recording));
+        let mut engine = fake.engine(T);
+        submit(&state, T, "next".into(), Vec::new()).await.unwrap();
+        assert_eq!(
+            prompts(&mut engine),
+            ["next"],
+            "the queue went with the stop"
+        );
     }
 
     #[tokio::test]

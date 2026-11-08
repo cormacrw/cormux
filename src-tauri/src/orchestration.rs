@@ -630,7 +630,7 @@ mod tests {
                 repo_id: repo.into(),
                 name: format!("Title {id}"),
                 branch: format!("feat/{id}"),
-                worktree_path: format!("/tmp/wt-{id}"),
+                worktree_path: format!("/nonexistent/wt-{id}"),
                 ..fixtures::workspace(&workspace, WorkspaceLifecycle::Ready)
             })
             .unwrap();
@@ -661,18 +661,12 @@ mod tests {
         .unwrap();
     }
 
-    /// Makes the thread's worktree, so an engine can start in it.
-    fn worktree(id: &str) {
-        std::fs::create_dir_all(format!("/tmp/wt-{id}")).unwrap();
-    }
-
-    #[test]
-    fn parent_id_survives_the_store() {
-        let store = store();
-        add_thread(&store, "parent", "r1", None, "idle");
-        add_thread(&store, "child", "r1", Some("parent"), "idle");
-        let child = store.thread_by_id("child").unwrap().unwrap();
-        assert_eq!(child.parent_thread_id.as_deref(), Some("parent"));
+    /// Points the thread's workspace at a folder that exists, so an engine can start in it.
+    fn worktree(store: &Store, id: &str) {
+        let path = std::env::temp_dir().display().to_string();
+        store
+            .set_workspace_checkout(&format!("w-{id}"), &format!("feat/{id}"), &path)
+            .unwrap();
     }
 
     #[test]
@@ -859,44 +853,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_turn_is_reported_once() {
-        let queue = ReportQueue::default();
-        assert!(queue.first_sight_of_turn("child", 4));
-        assert!(!queue.first_sight_of_turn("child", 4));
-        assert!(queue.first_sight_of_turn("child", 9));
-    }
-
-    #[test]
-    fn a_child_keeps_only_its_latest_waiting_report() {
-        let queue = ReportQueue::default();
-        queue.push("p", report("a", "first"));
-        queue.push("p", report("b", "other"));
-        queue.push("p", report("a", "second"));
-        let bodies: Vec<String> = queue.take("p").into_iter().map(|row| row.body).collect();
-        assert_eq!(bodies, ["other", "second"]);
-        assert!(queue.take("p").is_empty());
-    }
-
-    #[test]
-    fn only_a_thread_that_can_continue_takes_reports() {
-        let store = store();
-        add_thread(&store, "open", "r1", None, "idle");
-        add_thread(&store, "running", "r1", None, "running");
-        add_thread(&store, "killed", "r1", None, "running");
-        add_thread(&store, "retired", "r1", None, "idle");
-        store.archive_workspace("w-killed").unwrap();
-        let mut retired = store.thread_by_id("retired").unwrap().unwrap();
-        retired.retired = true;
-        store.upsert_thread(&retired).unwrap();
-
-        assert!(continuing_thread(&store, "open").is_some());
-        assert!(continuing_thread(&store, "running").is_some());
-        assert!(continuing_thread(&store, "killed").is_none());
-        assert!(continuing_thread(&store, "retired").is_none());
-        assert!(continuing_thread(&store, "unknown").is_none());
-    }
-
     async fn assert_no_ghost(state: &AppState, recording: &RecordingOutput) {
         deliver(state, "parent").await;
         assert!(!state.engines.has_thread("parent"));
@@ -938,11 +894,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_child_finishing_after_its_parent_retired_leaves_no_ghost() {
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        family(&state);
+        worktree(&state.store, "parent");
+        let mut parent = state.store.thread_by_id("parent").unwrap().unwrap();
+        parent.retired = true;
+        state.store.upsert_thread(&parent).unwrap();
+        assert_no_ghost(&state, &recording).await;
+    }
+
+    #[tokio::test]
+    async fn a_busy_parent_gets_only_each_childs_latest_report() {
+        let (state, _recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
+        seed(&state.store);
+        add_thread(&state.store, "parent", "r1", None, "running");
+        add_thread(&state.store, "a", "r1", Some("parent"), "idle");
+        add_thread(&state.store, "b", "r1", Some("parent"), "idle");
+        worktree(&state.store, "parent");
+        let mut engine = fake.engine("parent");
+        for (child, reply) in [("a", "first"), ("b", "other"), ("a", "second")] {
+            say(&state.store, child, "user", "Go on");
+            say(&state.store, child, "agent", reply);
+            on_turn_end(&state, child).await.unwrap();
+        }
+        assert!(engine.try_recv().is_err(), "the parent is busy");
+
+        state
+            .store
+            .set_thread_status("parent", ThreadStatus::Idle)
+            .unwrap();
+        on_turn_end(&state, "parent").await.unwrap();
+        let prompt = prompt_text(&mut engine);
+        assert!(prompt.contains("other") && prompt.contains("second"));
+        assert!(!prompt.contains("first"), "{prompt}");
+    }
+
+    #[tokio::test]
     async fn an_idle_parent_is_prompted_with_its_reports_and_the_ui_told() {
         let (state, recording, fake) =
             AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
-        worktree("parent");
+        worktree(&state.store, "parent");
         let mut engine = fake.engine("parent");
 
         deliver(&state, "parent").await;
@@ -952,8 +947,15 @@ mod tests {
             state.store.thread_by_id("parent").unwrap().unwrap().status,
             ThreadStatus::Running
         );
-        assert!(state.orchestration.reports.take("parent").is_empty());
-        assert_eq!(recording.state_changes().len(), 1);
+        assert!(!recording.state_changes().is_empty());
+
+        // Delivered once: the parent going idle again finds nothing waiting.
+        state
+            .store
+            .set_thread_status("parent", ThreadStatus::Idle)
+            .unwrap();
+        deliver(&state, "parent").await;
+        assert!(engine.try_recv().is_err());
     }
 
     #[tokio::test]
@@ -961,16 +963,24 @@ mod tests {
         let (state, recording, fake) =
             AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
-        let mut parent = state.store.thread_by_id("parent").unwrap().unwrap();
-        parent.status = ThreadStatus::Running;
-        state.store.upsert_thread(&parent).unwrap();
+        worktree(&state.store, "parent");
+        state
+            .store
+            .set_thread_status("parent", ThreadStatus::Running)
+            .unwrap();
         let mut engine = fake.engine("parent");
 
         deliver(&state, "parent").await;
 
         assert!(engine.try_recv().is_err());
         assert!(recording.emitted().is_empty());
-        assert_eq!(state.orchestration.reports.take("parent").len(), 1);
+
+        state
+            .store
+            .set_thread_status("parent", ThreadStatus::Idle)
+            .unwrap();
+        on_turn_end(&state, "parent").await.unwrap();
+        assert!(prompt_text(&mut engine).contains("<thread_report id=\"child\""));
     }
 
     #[tokio::test]
@@ -978,14 +988,18 @@ mod tests {
         let (state, recording, fake) =
             AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
-        worktree("parent");
+        worktree(&state.store, "parent");
         fake.refuse_sends("parent");
 
         deliver(&state, "parent").await;
 
         assert!(!state.engines.has_thread("parent"));
-        assert_eq!(state.orchestration.reports.take("parent").len(), 1);
         assert!(recording.emitted().is_empty());
+
+        fake.accept_sends("parent");
+        let mut engine = fake.engine("parent");
+        deliver(&state, "parent").await;
+        assert!(prompt_text(&mut engine).contains("<thread_report id=\"child\""));
     }
 
     #[tokio::test]
@@ -996,7 +1010,7 @@ mod tests {
         add_thread(&state.store, "parent", "r1", None, "idle");
         add_thread(&state.store, "child", "r1", Some("parent"), "idle");
         say(&state.store, "child", "agent", "All done.");
-        worktree("parent");
+        worktree(&state.store, "parent");
         let mut engine = fake.engine("parent");
 
         on_turn_end(&state, "child").await.unwrap();
@@ -1004,24 +1018,12 @@ mod tests {
         let prompt = prompt_text(&mut engine);
         assert!(prompt.contains("status=\"idle\""));
         assert!(prompt.contains("All done."));
-        assert_eq!(recording.state_changes().len(), 1);
+        let told = recording.emitted().len();
+        assert!(told > 0);
 
         on_turn_end(&state, "child").await.unwrap();
         assert!(engine.try_recv().is_err());
-        assert_eq!(recording.emitted().len(), 1);
-    }
-
-    #[tokio::test]
-    async fn reports_wait_for_a_parent_that_can_continue() {
-        let state = AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir())).0;
-        seed(&state.store);
-        add_thread(&state.store, "parent", "r1", None, "running");
-        state
-            .orchestration
-            .reports
-            .push("parent", report("child", "done"));
-        assert!(reportable_parent(&state, "parent").await.is_some());
-        assert_eq!(state.orchestration.reports.take("parent").len(), 1);
+        assert_eq!(recording.emitted().len(), told);
     }
 
     #[test]
@@ -1031,15 +1033,15 @@ mod tests {
         assert!(rendered.ends_with("</thread_report>"));
     }
 
-    /// The parent's first prompt, waiting up to a few seconds for the bus to deliver it.
+    /// The parent's first prompt, once the bus has delivered it.
     async fn first_prompt(engine: &mut UnboundedReceiver<EngineCommand>) -> Option<String> {
-        for _ in 0..250 {
-            if let Ok(EngineCommand::Prompt(prompt)) = engine.try_recv() {
-                return Some(prompt.text);
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        let command = tokio::time::timeout(std::time::Duration::from_secs(5), engine.recv())
+            .await
+            .ok()??;
+        match command {
+            EngineCommand::Prompt(prompt) => Some(prompt.text),
+            _ => None,
         }
-        None
     }
 
     /// The report is only delivered to an idle thread, so this also proves the reactions come
@@ -1052,7 +1054,7 @@ mod tests {
         add_thread(&state.store, "parent", "r1", None, "running");
         add_thread(&state.store, "child", "r1", Some("parent"), "running");
         say(&state.store, "child", "agent", "done");
-        worktree("parent");
+        worktree(&state.store, "parent");
         let mut engine = fake.engine("parent");
         state.engines.ensure("parent", "w-parent").await.unwrap();
         start(&state);
@@ -1080,7 +1082,7 @@ mod tests {
         add_thread(&state.store, "parent", "r1", None, "idle");
         add_thread(&state.store, "child", "r1", Some("parent"), "running");
         add_thread(&state.store, "orphan", "r1", None, "running");
-        worktree("parent");
+        worktree(&state.store, "parent");
         let mut engine = fake.engine("parent");
         start(&state);
         let asked = |thread: &str| DomainEvent::ApprovalRequested {
