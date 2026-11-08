@@ -2,6 +2,7 @@
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import type { EntityRow } from '$lib/ipc/bindings'
 import { reuseRows } from './reuse-rows'
+import { onSnapshot } from '$lib/core/sync'
 
 const NO_ENTITIES: EntityRow[] = []
 
@@ -30,3 +31,5 @@ export class EntitiesStore {
 }
 
 export const entities = new EntitiesStore()
+
+onSnapshot((snapshot) => entities.hydrate(snapshot.persisted.entities))

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { plural } from '$lib/format/plural'
   import { debouncedSaves } from '$lib/primitives/debounced-saves'
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { open } from '@tauri-apps/plugin-dialog'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import Folder from '@lucide/svelte/icons/folder'
@@ -13,7 +13,7 @@
   import { Textarea } from '$lib/components/ui/textarea'
   import RepoDefaultBranchField from '$lib/components/settings/RepoDefaultBranchField.svelte'
   import { commands } from '$lib/ipc'
-  import { coreErrorText } from '$lib/feedback/core-error'
+  import { coreErrorText } from '$lib/core/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { showToast } from '$lib/feedback/show-toast'
   import {
@@ -21,7 +21,10 @@
     repoDomKey,
     workspaceCountForRepo,
   } from '$lib/settings/repos-validation'
-  import { repos, settings, workspaceRecords } from '$lib/state'
+  import { repos, workspaces } from '$lib/state'
+  import { settings } from '$lib/settings/store.svelte'
+  import { nav } from '$lib/core/nav.svelte'
+  import type { RepoField } from '$lib/core/route'
   import { cn } from '$lib/utils'
 
   let pathDraft = $state('')
@@ -53,34 +56,25 @@
     return run?.source === 'config' ? run.command : ''
   }
 
-  $effect(() => {
-    const repoId = settings.expandRepoId
-    if (!repoId) return
+  /** Opens the repo's panel, and scrolls to and focuses one of its fields when given. */
+  function revealRepo(repoId: string, field?: RepoField) {
     setExpanded(repoId, true)
-    void tick().then(() => {
-      settings.expandRepoId = null
-    })
-  })
-
-  $effect(() => {
-    const repoId = settings.focusRepoSetup
-    if (!repoId) return
-    setExpanded(repoId, true)
+    if (!field) return
     void tick().then(async () => {
       await scrollRepoIntoView(repoId)
-      document.getElementById(`setup-${repoId}`)?.focus()
-      settings.focusRepoSetup = null
+      const id = field === 'setup' ? `setup-${repoId}` : `run-${repoId}`
+      document.getElementById(id)?.focus()
     })
-  })
+  }
 
+  // A link here (the Output panel's empty state) names a repo, and maybe a field of it.
   $effect(() => {
-    const repoId = settings.focusRepoRunCommand
-    if (!repoId) return
-    setExpanded(repoId, true)
-    void tick().then(async () => {
-      await scrollRepoIntoView(repoId)
-      document.getElementById(`run-${repoId}`)?.focus()
-      settings.focusRepoRunCommand = null
+    const route = nav.route
+    if (route.view !== 'settings' || !route.repoId) return
+    untrack(() => {
+      const repoId = nav.take('settings', 'repoId')
+      const field = nav.take('settings', 'field')
+      if (repoId) revealRepo(repoId, field)
     })
   })
 
@@ -204,8 +198,7 @@
     repos.hydrate([...repos.items, result.data])
     pathDraft = ''
     pathError = null
-    settings.expandRepoId = result.data.id
-    settings.focusRepoSetup = result.data.id
+    revealRepo(result.data.id, 'setup')
   }
 
   async function removeRepo(repoId: string) {
@@ -251,7 +244,7 @@
 >
   {#each repos.items as repo (repo.id)}
     {@const key = repoDomKey(repo.id)}
-    {@const used = workspaceCountForRepo(repo.id, workspaceRecords.records)}
+    {@const used = workspaceCountForRepo(repo.id, workspaces.items)}
     {@const block = removeRepoBlockReason(repo, repos.items.length, used)}
     <!-- Follows what's being typed, so the flag clears as you type, not when the save lands. -->
     {@const run =

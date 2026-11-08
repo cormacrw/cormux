@@ -1,6 +1,6 @@
 <script lang="ts">
   import { windowDrag } from '$lib/primitives/window-drag'
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
   import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
   import {
@@ -9,7 +9,8 @@
     type SettingsSectionId,
   } from '$lib/components/settings/sections'
   import { normalizeSettingsSection } from '$lib/settings/sections'
-  import { app, settings } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { settings } from '$lib/settings/store.svelte'
 
   const SCROLL_SPY_OFFSET = 120
 
@@ -28,14 +29,12 @@
     }
   }
 
+  // Arriving focuses the title, or the section the route asks for.
   $effect(() => {
-    if (app.focusTarget !== 'settings') return
-    void app.focusGeneration
+    void nav.arrivals
+    if (untrack(() => nav.view) !== 'settings') return
     settingsTitle?.focus()
-  })
-
-  $effect(() => {
-    const raw = settings.focusSection
+    const raw = untrack(() => nav.take('settings', 'section'))
     if (!raw) return
     const section = normalizeSettingsSection(
       raw,
@@ -43,7 +42,6 @@
       'agents',
     )
     void tick().then(() => jumpTo(section))
-    settings.focusSection = null
   })
 
   function jumpTo(section: SettingsSectionId) {

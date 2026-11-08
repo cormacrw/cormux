@@ -7,15 +7,13 @@
   import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import ThreadConversation from '$lib/components/workspace/thread/ThreadConversation.svelte'
-  import { app, repos, scratches, shellDialogs, threads } from '$lib/state'
+  import { repos, scratches, shellDialogs } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
   import type { Scratch } from '$lib/state/scratches.svelte'
   import { engineDisplayName } from '$lib/engine/engines'
 
   const scratch = $derived<Scratch | undefined>(
-    app.scratchId ? scratches.getById(app.scratchId) : undefined,
-  )
-  const thread = $derived(
-    scratch ? threads.getById(scratch.threadId) : undefined,
+    nav.scratchId ? scratches.getById(nav.scratchId) : undefined,
   )
   const repo = $derived(scratch ? repos.getById(scratch.repoId) : undefined)
   // A removed repo falls back to its id.
@@ -25,8 +23,8 @@
   let headingEl = $state<HTMLHeadingElement | null>(null)
 
   $effect(() => {
-    if (app.focusTarget !== 'scratch') return
-    void app.focusGeneration
+    if (nav.view !== 'scratch') return
+    void nav.arrivals
     void tick().then(() => headingEl?.focus())
   })
 
@@ -39,7 +37,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-{#if scratch && thread}
+{#if scratch}
   <section
     class="view flex min-h-0 flex-1 flex-col"
     id="view-session"
@@ -85,7 +83,7 @@
     </header>
 
     <ThreadConversation
-      threadId={thread.id}
+      threadId={scratch.threadId}
       role=""
       engine={engineName}
       workspaceId={null}

@@ -1,13 +1,15 @@
 <script lang="ts">
+  import { updateSettings } from '$lib/settings/actions'
   import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import * as Select from '$lib/components/ui/select'
-  import { coreErrorText } from '$lib/feedback/core-error'
+  import { coreErrorText } from '$lib/core/core-error'
   import { commands } from '$lib/ipc'
   import type { ClickupOption, Error as CoreError } from '$lib/ipc/bindings'
-  import { clickup, settings } from '$lib/state'
+  import { clickup } from '$lib/clickup/store.svelte'
+  import { settings } from '$lib/settings/store.svelte'
 
   let keyDraft = $state('')
   let saving = $state(false)
@@ -46,15 +48,15 @@
   /** Picking a parent clears its children, so the board never points at another space's folder. */
   async function choose(level: 'workspace' | 'space' | 'folder', id: string) {
     if (level === 'workspace') {
-      await settings.update({
+      await updateSettings({
         clickupWorkspaceId: id,
         clickupSpaceId: '',
         clickupFolderId: '',
       })
     } else if (level === 'space') {
-      await settings.update({ clickupSpaceId: id, clickupFolderId: '' })
+      await updateSettings({ clickupSpaceId: id, clickupFolderId: '' })
     } else {
-      await settings.update({ clickupFolderId: id })
+      await updateSettings({ clickupFolderId: id })
     }
   }
 

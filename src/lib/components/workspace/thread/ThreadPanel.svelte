@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { switchConversation } from '$lib/thread/actions'
   import { plural, pluralWord } from '$lib/format/plural'
   import { onDestroy } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-  import { app, entities, settings, threadTimeline, threads } from '$lib/state'
+  import { entities, threadTimeline } from '$lib/state'
+  import { settings } from '$lib/settings/store.svelte'
+  import { openWorkspace } from '$lib/workspace/open'
   import { appearance } from '$lib/state/appearance.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
@@ -100,7 +103,7 @@
         }}
         earlier={view.conversations.earlier}
         {nowMs}
-        onResume={(to) => threadTimeline.switchConversation(threadId, to)}
+        onResume={(to) => switchConversation(threadId, to)}
       />
     {/snippet}
     {#snippet intro(nowMs: number)}
@@ -191,8 +194,7 @@
         <Button
           variant="secondary"
           size="sm"
-          onclick={() =>
-            (app.threadId = threads.liveFor(workspace.id)?.id ?? null)}
+          onclick={() => openWorkspace(workspace.id)}
         >
           Go to the current thread
         </Button>

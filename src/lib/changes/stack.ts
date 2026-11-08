@@ -1,5 +1,4 @@
 import type { DiffTarget, StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
-import type { PullRequest } from '$lib/state/prs.svelte'
 import { plural } from '$lib/format/plural'
 
 /** Top of the stack first, the way it reads on screen with the trunk underneath. */
@@ -63,12 +62,4 @@ export function prStateLabel(state: string): string {
   if (state === 'MERGED') return 'merged'
   if (state === 'QUEUED') return 'queued'
   return 'open'
-}
-
-export function pullRequestForBranch(
-  items: PullRequest[],
-  repoId: string,
-  branch: string,
-): PullRequest | undefined {
-  return items.find((pr) => pr.repoId === repoId && pr.head === branch)
 }

@@ -17,7 +17,7 @@
   } from '$lib/thread/reply/media'
   import { parseProse, type ReplySegment } from '$lib/thread/reply/parse'
   import { renderSanitizedMarkdown } from '$lib/thread/sanitize-markdown'
-  import { openDiffForPath } from '../open-changes'
+  import { revealInChanges } from '$lib/workspace/open'
   import MediaCompare from './MediaCompare.svelte'
   import ReplyBlock from './ReplyBlock.svelte'
   import ThreadMedia from './ThreadMedia.svelte'
@@ -145,7 +145,7 @@
     if (file?.dataset.path) {
       event.preventDefault()
       const line = file.dataset.line ? Number(file.dataset.line) : null
-      openDiffForPath(file.dataset.path, line)
+      revealInChanges(file.dataset.path, line)
       return
     }
     openClickedLink(event)

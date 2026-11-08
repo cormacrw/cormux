@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { updateSettings } from '$lib/settings/actions'
   import { tick } from 'svelte'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import Plus from '@lucide/svelte/icons/plus'
@@ -8,7 +9,8 @@
   import { Textarea } from '$lib/components/ui/textarea'
   import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
   import { bangName, newBangId, type Bang } from '$lib/settings/bangs'
-  import { repos, settings } from '$lib/state'
+  import { repos } from '$lib/state'
+  import { settings } from '$lib/settings/store.svelte'
   import { cn } from '$lib/utils'
   import { debouncedSaves } from '$lib/primitives/debounced-saves'
 
@@ -59,7 +61,7 @@
   }
 
   function scheduleSave() {
-    saves.schedule('bangs', () => void settings.update({ bangs: withDrafts() }))
+    saves.schedule('bangs', () => void updateSettings({ bangs: withDrafts() }))
   }
 
   function toggleConfigure(bang: Bang) {
@@ -76,7 +78,7 @@
   async function removeBang(id: string) {
     flushSave()
     delete drafts[id]
-    await settings.update({
+    await updateSettings({
       bangs: settings.bangs.filter((bang) => bang.id !== id),
     })
     await tick()
@@ -98,7 +100,7 @@
     }
     flushSave()
     const bang: Bang = { id: newBangId(), name, prompt: '' }
-    await settings.update({ bangs: [...settings.bangs, bang] })
+    await updateSettings({ bangs: [...settings.bangs, bang] })
     nameDraft = ''
     nameError = null
     expand(bang)

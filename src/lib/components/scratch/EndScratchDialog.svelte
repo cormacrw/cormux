@@ -1,17 +1,14 @@
 <script lang="ts">
+  import { refreshSnapshot } from '$lib/core/sync'
+  import { navigate } from '$lib/core/nav.svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
-  import { commands, fetchSnapshot } from '$lib/ipc'
+  import { commands } from '$lib/ipc'
   import { showToast } from '$lib/feedback/show-toast'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { onModEnter } from '$lib/keyboard/mod-enter'
-  import {
-    app,
-    hydrateFromSnapshot,
-    repos,
-    scratches,
-    shellDialogs,
-  } from '$lib/state'
+  import { repos, scratches, shellDialogs } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import type { Scratch } from '$lib/state/scratches.svelte'
 
@@ -51,8 +48,8 @@
       parts: [{ type: 'text', value: `Deleted ${title}` }],
     })
     // Leave the page before refetching, so it never sits on a scratch that's gone.
-    if (app.scratchId === scratchId) app.openNewThread()
-    hydrateFromSnapshot(await fetchSnapshot())
+    if (nav.scratchId === scratchId) navigate({ view: 'newThread' })
+    await refreshSnapshot()
   }
 
   const onKeydown = onModEnter(() => void confirm())

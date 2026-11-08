@@ -12,17 +12,22 @@
   import { bindNativeMenu } from '$lib/components/shell/menu'
   import { handleGlobalKeydown } from '$lib/keyboard/global-shortcuts'
   import { installOverlayFailsafe } from '$lib/overlay-failsafe'
-  import { events, fetchSnapshot, listenForStateChanges } from '$lib/ipc'
+  import { events } from '$lib/ipc'
+  import { listenForStateChanges, refreshSnapshot } from '$lib/core/sync'
+  import { nav, navigate } from '$lib/core/nav.svelte'
+  import { NEW_THREAD, routeIsLive, windowTitle } from '$lib/core/route'
+  import { appName } from '$lib/build-mode'
   import {
-    app,
-    clickup,
-    hydrateFromSnapshot,
     memory,
-    patchFromEvent,
-    resyncAfterGap,
-    settings,
+    repos,
+    scratches,
     shellDialogs,
+    threadTimeline,
+    workspaces,
   } from '$lib/state'
+  import { clickup } from '$lib/clickup/store.svelte'
+  import { settings } from '$lib/settings/store.svelte'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
   import ToastsRegion from '$lib/components/feedback/ToastsRegion.svelte'
   import NewThreadView from '$lib/components/new-thread/NewThreadView.svelte'
   import WorkspaceView from '$lib/components/workspace/WorkspaceView.svelte'
@@ -51,7 +56,7 @@
 
     void (async () => {
       try {
-        hydrateFromSnapshot(await fetchSnapshot())
+        await refreshSnapshot()
       } catch (error) {
         console.warn('snapshot unavailable, using empty stores', error)
       }
@@ -91,11 +96,7 @@
         }
       })
       setHarnessWindowFocused(await win.isFocused())
-      const unlistenState = await listenForStateChanges({
-        lastVersion: () => app.version,
-        onEvent: patchFromEvent,
-        onGap: () => void resyncAfterGap(),
-      })
+      const unlistenState = await listenForStateChanges()
       const unlistenMemory = await events.memorySampled.listen(({ payload }) =>
         memory.hydrate(payload.sample),
       )
@@ -115,6 +116,24 @@
   })
 
   onMount(() => installOverlayFailsafe())
+
+  onMount(() =>
+    threadTimeline.onReadError((error) =>
+      toastCoreError(error, 'Could not read this thread'),
+    ),
+  )
+
+  // A workspace torn down, a scratch ended, a repo removed or ClickUp disconnected takes
+  // its page with it.
+  $effect(() => {
+    const live = routeIsLive(nav.route, {
+      workspace: (id) => !!workspaces.getById(id),
+      scratch: (id) => !!scratches.getById(id),
+      repo: (id) => !!repos.getById(id),
+      sprint: clickup.configured,
+    })
+    if (!live) untrack(() => navigate(NEW_THREAD))
+  })
 
   // Teammates move tasks in ClickUp too, so the sprint refreshes every couple of minutes.
   // Regaining focus refreshes it anyway, so a window in the background can skip its turns.
@@ -148,8 +167,8 @@
   })
 
   $effect(() => {
-    if (app.view === 'workspace' && app.workspaceId && app.threadId)
-      switcher.rememberThread(app.workspaceId, app.threadId)
+    if (nav.view === 'workspace' && nav.workspaceId && nav.threadId)
+      switcher.rememberThread(nav.workspaceId, nav.threadId)
   })
 
   $effect(() => {
@@ -159,8 +178,18 @@
     )
   })
 
+  const openName = $derived.by(() => {
+    const route = nav.route
+    if (route.view === 'workspace')
+      return workspaces.getById(route.workspaceId)?.name
+    if (route.view === 'scratch')
+      return scratches.getById(route.scratchId)?.title
+    if (route.view === 'repo') return repos.getById(route.repoId)?.name
+    return undefined
+  })
+
   $effect(() => {
-    const title = app.windowTitle
+    const title = windowTitle(nav.route, openName, appName)
     void getCurrentWindow()
       .setTitle(title)
       .catch(() => {
@@ -181,15 +210,15 @@
   {/each}
   <CommandPalette />
   <AppShell>
-    {#if app.view === 'settings'}
+    {#if nav.view === 'settings'}
       <LazyView load={loadSettings} />
-    {:else if app.view === 'workspace'}
+    {:else if nav.view === 'workspace'}
       <WorkspaceView />
-    {:else if app.view === 'scratch'}
+    {:else if nav.view === 'scratch'}
       <LazyView load={loadScratch} />
-    {:else if app.view === 'sprint'}
+    {:else if nav.view === 'sprint'}
       <LazyView load={loadSprint} />
-    {:else if app.view === 'repo'}
+    {:else if nav.view === 'repo'}
       <LazyView load={loadRepo} />
     {:else}
       <NewThreadView />

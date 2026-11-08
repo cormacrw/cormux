@@ -8,7 +8,8 @@
   import { Button } from '$lib/components/ui/button'
   import { Checkbox } from '$lib/components/ui/checkbox'
   import * as Select from '$lib/components/ui/select'
-  import { app, findings, threads, workspaceUi, workspaces } from '$lib/state'
+  import { findings, threads, workspaceUi, workspaces } from '$lib/state'
+  import { openWorkspaceThread, revealInChanges } from '$lib/workspace/open'
   import { engineDisplayName } from '$lib/engine/engines'
   import { selectionSummaryText } from '$lib/findings/format'
   import {
@@ -92,7 +93,7 @@
 
   function openLocation(row: FindingRow) {
     if (!row.file) return
-    workspaceUi.revealInChanges(row.file, row.line)
+    revealInChanges(row.file, row.line)
   }
 
   async function setDismissed(ids: string[], dismissed: boolean) {
@@ -127,8 +128,7 @@
 
   function goToTargetThread() {
     if (!targetThread) return
-    app.threadId = targetThread.id
-    workspaceUi.openTab('thread')
+    openWorkspaceThread(workspaceId, targetThread.id)
   }
 
   $effect(() => {

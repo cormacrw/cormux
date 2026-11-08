@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { refreshSnapshot } from '$lib/core/sync'
   import { tick, untrack } from 'svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import * as Dialog from '$lib/components/ui/dialog/index.js'
@@ -7,19 +8,13 @@
   import { Textarea } from '$lib/components/ui/textarea/index.js'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
-  import { fetchSnapshot } from '$lib/ipc'
   import { formatPrRouteLine } from '$lib/create-pr/route-line'
-  import { coreErrorText } from '$lib/feedback/core-error'
+  import { coreErrorText } from '$lib/core/core-error'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { SKELETON_WIDTHS } from '$lib/primitives/skeleton'
-  import {
-    hydrateFromSnapshot,
-    shellDialogs,
-    stacks,
-    workspaceDiff,
-    workspaceRecords,
-    workspaces,
-  } from '$lib/state'
+  import { shellDialogs, workspaces } from '$lib/state'
+  import { stacks } from '$lib/changes/stacks.svelte'
+  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
 
   const workspaceId = $derived(
     shellDialogs.args('createPr')?.workspaceId ?? null,
@@ -27,9 +22,6 @@
   const open = $derived(workspaceId != null)
   const workspace = $derived(
     workspaceId ? workspaces.getById(workspaceId) : undefined,
-  )
-  const record = $derived(
-    workspaceId ? workspaceRecords.getRecord(workspaceId) : undefined,
   )
 
   let why = $state('')
@@ -49,15 +41,12 @@
   const diffTotals = $derived(workspaceDiff.totals(workspaceId ?? ''))
   // A stacked branch's PR targets the nearest unmerged branch below it, and the
   // counts are against that branch, matching what the backend opens.
-  const stackBranch = $derived(
-    workspaceId && workspace
-      ? stacks
-          .get(workspaceId)
-          ?.branches.find((row) => row.name === workspace.branch && !row.merged)
-      : undefined,
-  )
+  const stackBranch = $derived.by(() => {
+    const level = workspace && stacks.branchFor(workspace.id, workspace.branch)
+    return level && !level.merged ? level : undefined
+  })
   const routeLine = $derived(
-    record && workspace
+    workspace
       ? formatPrRouteLine(
           stackBranch
             ? {
@@ -71,7 +60,7 @@
               }
             : {
                 branch: workspace.branch,
-                base: record.base,
+                base: workspace.base,
                 fileCount: diffFiles.length,
                 totals: diffTotals,
               },
@@ -155,7 +144,7 @@
       return
     }
     closeDialog()
-    hydrateFromSnapshot(await fetchSnapshot())
+    await refreshSnapshot()
   }
 
   const onFormKeydown = onModEnter(() => void submit())

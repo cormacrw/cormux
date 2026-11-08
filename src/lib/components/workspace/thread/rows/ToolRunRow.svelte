@@ -2,7 +2,7 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import { editedPaths, toolRunSummary } from '$lib/thread/tool-run-summary'
   import type { TimelineItem } from '$lib/thread/timeline-types'
-  import { openDiffForPath } from '../open-changes'
+  import { revealInChanges } from '$lib/workspace/open'
   import type { RowContext } from './context'
   import Fold from './Fold.svelte'
   import RowShell from './RowShell.svelte'
@@ -51,7 +51,7 @@
               class="file-ref"
               title={path}
               aria-label="View diff for {path}"
-              onclick={() => openDiffForPath(path)}
+              onclick={() => revealInChanges(path)}
             >
               {path.split('/').pop()}
               {#if file}

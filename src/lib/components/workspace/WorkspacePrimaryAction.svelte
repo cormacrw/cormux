@@ -9,7 +9,8 @@
     branchPullRequest,
     primaryPrActionLabel,
   } from '$lib/create-pr/pr-header'
-  import { prs, shellDialogs, stacks, workspaceRecords } from '$lib/state'
+  import { prs, shellDialogs } from '$lib/state'
+  import { stacks } from '$lib/changes/stacks.svelte'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
 
@@ -20,22 +21,15 @@
   } = $props()
 
   const reviewSubmitted = $derived(
-    workspace.kind === 'review' &&
-      (workspace.activityText.toLowerCase().includes('review submitted') ||
-        workspace.reviewSubmitted),
+    workspace.kind === 'review' && workspace.reviewSubmitted,
   )
 
-  const record = $derived(workspaceRecords.getRecord(workspace.id))
-  const stackPr = $derived(
-    stacks
-      .get(workspace.id)
-      ?.branches.find((branch) => branch.name === workspace.branch)?.pr,
-  )
+  const stackPr = $derived(stacks.branchFor(workspace.id, workspace.branch)?.pr)
   // Any PR for the checked-out branch, not just one this workspace opened.
   const branchPr = $derived(
     branchPullRequest({
       items: prs.items,
-      repoId: record?.repoId ?? '',
+      repoId: workspace.repoId,
       branch: workspace.branch,
       prNumber: workspace.prNumber,
       prHtmlUrl: workspace.prHtmlUrl,

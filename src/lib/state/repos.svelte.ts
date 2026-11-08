@@ -6,6 +6,7 @@ import type {
   RepoRunCommand,
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc'
+import { onChange, onSnapshot } from '$lib/core/sync'
 import { reuseRows } from './reuse-rows'
 
 export class ReposStore {
@@ -37,6 +38,11 @@ export class ReposStore {
     return this.byId.get(id)
   }
 
+  /** The repo's default branch, by the core's rule: the one set, else `main`. */
+  defaultBranch(id: string): string {
+    return this.byId.get(id)?.defaultBranch?.trim() || 'main'
+  }
+
   /** What Run starts in the repo's workspaces unless one sets its own; '' for nothing. */
   runCommand(id: string | undefined): string {
     return (id && this.runCommandById[id]?.command) || ''
@@ -56,3 +62,10 @@ const repoKey = (items: RepoRecord[]) =>
   items.map((repo) => `${repo.id}:${repo.defaultBranch ?? ''}`).join('\n')
 
 export const repos = new ReposStore()
+
+onSnapshot((snapshot) =>
+  repos.hydrate(snapshot.persisted.repos, snapshot.repoRunCommands),
+)
+onChange((change) => {
+  if (change === 'gap' || change.repoGit) void repos.refreshGit()
+})

@@ -1,0 +1,54 @@
+import { NO_USAGE } from '$lib/usage/usage'
+import type { Thread } from './threads.svelte'
+import { IDLE_RUNTIME, type Workspace } from './workspace-model'
+
+/** A plain idle workspace for tests, with `patch` on top. */
+export function workspaceFixture(patch: Partial<Workspace> = {}): Workspace {
+  return {
+    id: 'ws-1',
+    repoId: 'repo-1',
+    repoPath: '/tmp/repo',
+    worktreePath: '/tmp/wt',
+    name: 'Auth',
+    branch: 'feat/auth',
+    base: 'main',
+    kind: 'lead',
+    lifecycle: 'idle',
+    paused: false,
+    activityText: 'Idle',
+    pendingApprovals: 0,
+    createdAtMs: null,
+    summary: null,
+    summaryAtMs: null,
+    summarySource: 'Haiku 4.5',
+    prNumber: null,
+    prHtmlUrl: null,
+    provStep: 0,
+    setupFailedCommand: null,
+    setupFailedExitCode: null,
+    runCommand: null,
+    reviewStatus: null,
+    reviewSubmitted: false,
+    runtime: IDLE_RUNTIME,
+    ...patch,
+  }
+}
+
+/** A plain idle thread for tests, with `patch` on top. */
+export function threadFixture(patch: Partial<Thread> = {}): Thread {
+  return {
+    id: 'th-1',
+    workspaceId: 'ws-1',
+    role: 'Lead',
+    ownRole: 'lead',
+    engine: 'claude',
+    status: 'idle',
+    paused: false,
+    activity: 'Idle',
+    pendingApprovals: 0,
+    usage: NO_USAGE,
+    retired: false,
+    parentThreadId: null,
+    ...patch,
+  }
+}

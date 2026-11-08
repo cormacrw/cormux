@@ -4,10 +4,10 @@ import type {
   Settings,
 } from '$lib/ipc/bindings'
 import { commands, type CoreError } from '$lib/ipc'
-import { coreErrorText } from '$lib/feedback/core-error'
+import { onSnapshot } from '$lib/core/sync'
+import { coreErrorText } from '$lib/core/core-error'
 import { deepEqual } from '$lib/deep-equal'
-import { showToast } from '$lib/feedback/show-toast'
-import { settings } from './settings.svelte'
+import { settings } from '$lib/settings/store.svelte'
 import {
   assignedToMe,
   sprintLanes,
@@ -16,14 +16,10 @@ import {
   statusLabel,
   withTaskPoints,
   withTaskStatus,
-} from '$lib/clickup/board'
+} from './board'
 
-function failed(fallback: string, error: CoreError) {
-  showToast({
-    tone: 'bad',
-    parts: [{ type: 'text', value: coreErrorText(error, fallback) }],
-  })
-}
+/** A write ClickUp refused, and what was being tried. */
+export type ClickupWriteError = { error: CoreError; doing: string }
 
 /**
  * The current ClickUp sprint. Every ClickUp surface hides unless an API key is stored;
@@ -134,16 +130,16 @@ export class ClickupStore {
   setLaneHidden(statusName: string, hidden: boolean) {
     const key = statusKey(statusName)
     const rest = this.hiddenStatuses.filter((name) => name !== key)
-    this.persistHidden(hidden ? [...rest, key] : rest)
+    return this.persistHidden(hidden ? [...rest, key] : rest)
   }
 
   showAllLanes() {
-    this.persistHidden([])
+    return this.persistHidden([])
   }
 
-  private persistHidden(next: string[]) {
+  private persistHidden(next: string[]): Promise<CoreError | null> {
     this.hiddenStatuses = next
-    void settings.update({ clickupHiddenStatuses: next })
+    return settings.update({ clickupHiddenStatuses: next })
   }
 
   select(taskId: string | null) {
@@ -178,11 +174,14 @@ export class ClickupStore {
     }
   }
 
-  async moveTask(taskId: string, statusName: string) {
+  async moveTask(
+    taskId: string,
+    statusName: string,
+  ): Promise<ClickupWriteError | null> {
     const board = this.board
     const status = board?.statuses.find((row) => row.name === statusName)
     const task = board?.tasks.find((row) => row.id === taskId)
-    if (!board || !status || !task || task.status === status.name) return
+    if (!board || !status || !task || task.status === status.name) return null
     this.board = withTaskStatus(board, taskId, status)
     this.patchDetail(taskId, { status: status.name, statusColor: status.color })
     const result = await this.write(() =>
@@ -200,17 +199,21 @@ export class ClickupStore {
         status: task.status,
         statusColor: task.statusColor,
       })
-      failed(
-        `Could not move the task to ${statusLabel(status.name)}`,
-        result.error,
-      )
+      return {
+        error: result.error,
+        doing: `Could not move the task to ${statusLabel(status.name)}`,
+      }
     }
+    return null
   }
 
-  async setPoints(taskId: string, points: number) {
+  async setPoints(
+    taskId: string,
+    points: number,
+  ): Promise<ClickupWriteError | null> {
     const board = this.board
     const task = board?.tasks.find((row) => row.id === taskId)
-    if (!board || !task || task.points === points) return
+    if (!board || !task || task.points === points) return null
     this.board = withTaskPoints(board, taskId, points)
     this.patchDetail(taskId, { points })
     const result = await this.write(() =>
@@ -224,9 +227,14 @@ export class ClickupStore {
         ),
       }
       this.patchDetail(taskId, { points: task.points })
-      failed('Could not set sprint points', result.error)
+      return { error: result.error, doing: 'Could not set sprint points' }
     }
+    return null
   }
 }
 
 export const clickup = new ClickupStore()
+
+onSnapshot((snapshot) =>
+  clickup.hydrate(snapshot.clickupConfigured, snapshot.settings),
+)

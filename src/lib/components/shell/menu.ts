@@ -1,9 +1,10 @@
+import { openSettings } from '$lib/settings/open'
+import { navigate } from '$lib/core/nav.svelte'
 import { commands, events } from '$lib/ipc'
 import {
   toastCoreError,
   toastEnvironmentReloaded,
 } from '$lib/feedback/wire-feedback'
-import { app } from '$lib/state'
 import { palette } from '$lib/state/palette.svelte'
 
 async function reloadEnvironment() {
@@ -19,13 +20,13 @@ export function bindNativeMenu() {
   return events.menuChosen.listen(({ payload }) => {
     switch (payload.command) {
       case 'openSettings':
-        app.openSettings()
+        openSettings()
         break
       case 'commandPalette':
         palette.toggle()
         break
       case 'newWorkspace':
-        app.openNewThread()
+        navigate({ view: 'newThread' })
         break
       case 'reloadEnvironment':
         void reloadEnvironment()

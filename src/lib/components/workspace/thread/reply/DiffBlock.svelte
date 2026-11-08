@@ -1,7 +1,7 @@
 <script lang="ts">
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import type { DiffBlock } from '$lib/thread/reply/blocks/diff'
-  import { openDiffForPath } from '../open-changes'
+  import { revealInChanges } from '$lib/workspace/open'
 
   let { data: diff, workdir }: { data: DiffBlock; workdir?: string } = $props()
 </script>
@@ -17,7 +17,7 @@
       <button
         type="button"
         class="ml-auto inline-flex shrink-0 items-center gap-0.5 font-medium text-foreground/80 hover:text-foreground"
-        onclick={() => openDiffForPath(diff.path!)}
+        onclick={() => revealInChanges(diff.path!)}
       >
         Open in Changes
         <ArrowRight class="size-3" aria-hidden="true" />

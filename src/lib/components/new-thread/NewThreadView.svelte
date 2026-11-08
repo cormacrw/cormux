@@ -3,7 +3,8 @@
   sending the first message spawns one, in its own worktree, and opens it.
 -->
 <script lang="ts">
-  import { openSettingsSection } from '$lib/settings/open'
+  import { openWorkspace } from '$lib/workspace/open'
+  import { openSettings } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
   import { tick, untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
@@ -21,7 +22,9 @@
     releaseWorkspacePopover,
   } from '$lib/keyboard/popover-registry'
   import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
-  import { app, appearance, repos, settings } from '$lib/state'
+  import { appearance, repos } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { settings } from '$lib/settings/store.svelte'
   import {
     enterConversation,
     firstPromptTransition,
@@ -68,8 +71,8 @@
   })
 
   $effect(() => {
-    if (app.focusTarget !== 'newThread') return
-    void app.focusGeneration
+    if (nav.view !== 'newThread') return
+    void nav.arrivals
     if (repos.items.length) focusComposer?.()
     else titleEl?.focus()
   })
@@ -111,7 +114,7 @@
     if (stay) return true
     // The greeting falls away and the conversation rises in, as on a first prompt in a thread.
     firstPromptTransition(
-      () => app.openWorkspace(workspaceId),
+      () => openWorkspace(workspaceId),
       () => appearance.glideWordmark(),
     )
     void tick().then(enterConversation)
@@ -170,7 +173,7 @@
             <Button
               variant="secondary"
               onclick={() => {
-                openSettingsSection('repos')
+                openSettings({ section: 'repos' })
               }}
             >
               Add a repo

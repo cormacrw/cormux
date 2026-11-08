@@ -1,13 +1,9 @@
+import { openWorkspace } from '$lib/workspace/open'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
 import { commands } from '$lib/ipc'
-import { fetchSnapshot } from '$lib/ipc'
+import { refreshSnapshot } from '$lib/core/sync'
 import type { PullRequest } from '$lib/state/prs.svelte'
-import {
-  app,
-  hydrateFromSnapshot,
-  workspaceRecords,
-  workspaces,
-} from '$lib/state'
+import { workspaces } from '$lib/state'
 
 async function startReviewWorkspace(pr: PullRequest): Promise<boolean> {
   const result = await commands.createReviewWorkspace({
@@ -28,7 +24,7 @@ async function startReviewWorkspace(pr: PullRequest): Promise<boolean> {
   }
 
   // Stay where you are; the toasts link to the workspace once it's up.
-  hydrateFromSnapshot(await fetchSnapshot())
+  await refreshSnapshot()
   return true
 }
 
@@ -38,8 +34,8 @@ export function reviewPullRequest(pr: PullRequest) {
     (row) =>
       row.kind === 'review' &&
       row.prNumber === pr.num &&
-      (!pr.repoId || workspaceRecords.getRecord(row.id)?.repoId === pr.repoId),
+      (!pr.repoId || row.repoId === pr.repoId),
   )
-  if (existing) app.openWorkspace(existing.id)
+  if (existing) openWorkspace(existing.id)
   else void startReviewWorkspace(pr)
 }

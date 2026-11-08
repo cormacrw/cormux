@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { sendToThread } from '$lib/thread/actions'
   import { pluralWord } from '$lib/format/plural'
   import TrayControls from '../TrayControls.svelte'
   import { onMount, tick, untrack } from 'svelte'
@@ -12,13 +13,15 @@
 
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { app, threadTimeline, workspaceDiff, workspaceUi } from '$lib/state'
-  import { formatChangeCounts } from '$lib/workspace/diff-totals'
-  import { isDiffCollapsed } from '$lib/changes/file-status'
+  import { nav } from '$lib/core/nav.svelte'
+  import { changesUi } from '$lib/changes/changes-ui.svelte'
+  import { openWorkspaceThread } from '$lib/workspace/open'
+  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
+  import { formatChangeCounts } from '$lib/changes/diff-totals'
   import { revealDiffLine } from '$lib/changes/reveal-line'
   import { Button } from '$lib/components/ui/button'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
-  import { diffTargetLabel } from '$lib/stack/stack'
+  import { diffTargetLabel } from '$lib/changes/stack'
   import ChangesFileList from './ChangesFileList.svelte'
   import ChangesSkeleton from './ChangesSkeleton.svelte'
   import StackRail from './StackRail.svelte'
@@ -54,15 +57,10 @@
     !!pending && (pending.retarget || files.length === 0),
   )
   // While a retarget loads, the label shows where it is headed.
-  const shownTarget = $derived(
-    pending?.retarget ? pending.target : workspaceDiff.target(workspace.id),
-  )
+  const shownTarget = $derived(workspaceDiff.shownTarget(workspace.id))
 
   const allCollapsed = $derived(
-    files.length > 0 &&
-      files.every((file) =>
-        isDiffCollapsed(workspaceUi.collapsedDiffPaths, file),
-      ),
+    files.length > 0 && files.every((file) => changesUi.isCollapsed(file)),
   )
 
   let scrollEl: HTMLDivElement | undefined = $state()
@@ -97,18 +95,14 @@
 
   // A file link (conversation, findings) expands that file and scrolls to it, or to its line.
   $effect(() => {
-    const path = workspaceUi.revealDiffPath
-    const target = path && files.find((file) => file.path === path)
-    if (!path || !target) return
-    const line = workspaceUi.revealDiffLine
-    workspaceUi.revealDiffPath = null
-    workspaceUi.revealDiffLine = null
-    if (isDiffCollapsed(workspaceUi.collapsedDiffPaths, target)) {
-      workspaceUi.collapsedDiffPaths = {
-        ...workspaceUi.collapsedDiffPaths,
-        [path]: false,
-      }
-    }
+    const reveal = nav.route.view === 'workspace' ? nav.route.reveal : null
+    const target = reveal && files.find((file) => file.path === reveal.path)
+    if (!reveal || !target) return
+    const { path, line } = reveal
+    untrack(() => {
+      nav.take('workspace', 'reveal')
+      if (changesUi.isCollapsed(target)) changesUi.setCollapsed([target], false)
+    })
     void tick().then(() => {
       const fileEl = scrollEl?.querySelector(
         `[data-diff-path="${CSS.escape(path)}"]`,
@@ -119,14 +113,12 @@
   })
 
   function setAllCollapsed(collapsed: boolean) {
-    workspaceUi.collapsedDiffPaths = Object.fromEntries(
-      files.map((file) => [file.path, collapsed]),
-    )
+    changesUi.setCollapsed(files, collapsed)
   }
 
   function setDiffMode(mode: 'unified' | 'split') {
     const top = scrollEl?.scrollTop ?? 0
-    workspaceUi.diffMode = mode
+    changesUi.diffMode = mode
     queueMicrotask(() => {
       if (scrollEl) scrollEl.scrollTop = top
     })
@@ -148,10 +140,9 @@
     sending = true
     const sent = comments
     diffComments.clear(workspace.id, commentScope)
-    if (await threadTimeline.send(thread.id, formatCommentsForAgent(sent))) {
+    if (await sendToThread(thread.id, formatCommentsForAgent(sent))) {
       // Show the conversation so the agent's reply is in view.
-      app.threadId = thread.id
-      workspaceUi.openTab('thread')
+      openWorkspaceThread(workspace.id, thread.id)
     } else {
       for (const comment of sent) diffComments.add(workspace.id, comment)
     }
@@ -187,7 +178,7 @@
       {#if files.length}
         <ToggleGroup.Root
           type="single"
-          value={workspaceUi.diffMode}
+          value={changesUi.diffMode}
           onValueChange={(value) => {
             if (value === 'unified' || value === 'split') setDiffMode(value)
           }}
@@ -197,13 +188,13 @@
         >
           <ToggleGroup.Item
             value="unified"
-            aria-pressed={workspaceUi.diffMode === 'unified'}
+            aria-pressed={changesUi.diffMode === 'unified'}
           >
             Unified
           </ToggleGroup.Item>
           <ToggleGroup.Item
             value="split"
-            aria-pressed={workspaceUi.diffMode === 'split'}
+            aria-pressed={changesUi.diffMode === 'split'}
           >
             Split
           </ToggleGroup.Item>

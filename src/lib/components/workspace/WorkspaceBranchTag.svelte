@@ -8,10 +8,6 @@
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import Plus from '@lucide/svelte/icons/plus'
   import {
-    branchPickerLocked,
-    runningAgentCount,
-  } from '$lib/workspace/running-agents'
-  import {
     branchMetaLabel,
     buildBranchPickerList,
   } from '$lib/workspace/branch-picker'
@@ -25,20 +21,17 @@
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { repos, workspaceRecords } from '$lib/state'
-  import type { Thread } from '$lib/state/threads.svelte'
+  import { repos, threads, workspaces } from '$lib/state'
 
   let {
     workspaceId,
     repoId,
     branch,
-    threads,
     provisioning,
   }: {
     workspaceId: string
     repoId: string
     branch: string
-    threads: Thread[]
     provisioning: boolean
   } = $props()
 
@@ -49,17 +42,11 @@
   let triggerEl = $state<HTMLButtonElement | null>(null)
   let newBranchName = $state('')
 
-  const locked = $derived(provisioning || branchPickerLocked(threads))
+  const lock = $derived(threads.branchLock(workspaceId))
+  const locked = $derived(provisioning || lock.locked)
 
   const otherWorkspaceBranches = $derived(
-    workspaceRecords.records
-      .filter(
-        (record) =>
-          record.repoId === repoId &&
-          record.id !== workspaceId &&
-          record.branch,
-      )
-      .map((record) => record.branch),
+    workspaces.branchesInUse(repoId, workspaceId),
   )
 
   const pickerItems = $derived(
@@ -67,7 +54,7 @@
       current: branch,
       repoBranches,
       otherWorkspaceBranches,
-      defaultBranch: repos.getById(repoId)?.defaultBranch?.trim() || 'main',
+      defaultBranch: repos.defaultBranch(repoId),
     }),
   )
 
@@ -135,7 +122,7 @@
     <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
     <span class="sr-only">Branch</span>
     <span class="truncate">{branch}</span>
-    {#if runningAgentCount(threads) > 0}
+    {#if lock.running > 0}
       <span class="sr-only">, locked while agents are running</span>
     {/if}
   </Button>

@@ -1,14 +1,14 @@
 <script lang="ts">
+  import { refreshSnapshot } from '$lib/core/sync'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { SubmitReviewVerdict } from '$lib/ipc/bindings'
-  import { fetchSnapshot } from '$lib/ipc'
-  import { coreErrorText } from '$lib/feedback/core-error'
+  import { coreErrorText } from '$lib/core/core-error'
   import { onModEnter } from '$lib/keyboard/mod-enter'
-  import { hydrateFromSnapshot, shellDialogs, workspaces } from '$lib/state'
+  import { shellDialogs, workspaces } from '$lib/state'
 
   const workspaceId = $derived(
     shellDialogs.args('submitReview')?.workspaceId ?? null,
@@ -46,7 +46,7 @@
       submitError = coreErrorText(result.error, 'Could not submit review')
       return
     }
-    hydrateFromSnapshot(await fetchSnapshot())
+    await refreshSnapshot()
     closeDialog()
   }
 

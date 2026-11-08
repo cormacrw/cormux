@@ -2,17 +2,13 @@
   import ChangeCounts from '$lib/components/workspace/ChangeCounts.svelte'
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
-  import {
-    findings,
-    workspaceDiff,
-    workspaceRecords,
-    workspaceUi,
-  } from '$lib/state'
+  import { findings, workspaceUi } from '$lib/state'
+  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { cn } from '$lib/utils'
   import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
-  import { formatChangeCounts } from '$lib/workspace/diff-totals'
-  import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
+  import { formatChangeCounts } from '$lib/changes/diff-totals'
+  import { isWorkspaceProvisioning } from '$lib/state/activity'
   import {
     changesTabAriaLabel,
     findingsTabAriaLabel,
@@ -36,7 +32,7 @@
   )
   const openFindings = $derived(findings.openCount(workspace.id))
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
-  const runtime = $derived(workspaceRecords.runtime(workspace.id))
+  const runtime = $derived(workspace.runtime)
   const changeCountLabel = $derived(
     formatChangeCounts(workspaceDiff.uncommitted(workspace.id)),
   )

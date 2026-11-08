@@ -1,3 +1,4 @@
+import { nav } from '$lib/core/nav.svelte'
 import {
   nestThreadList,
   sortThreadList,
@@ -5,12 +6,10 @@ import {
   threadUrgency,
   type ThreadUrgency,
 } from '$lib/sidebar/thread-list'
-import { app } from './app.svelte'
 import { repos } from './repos.svelte'
 import { scratches } from './scratches.svelte'
 import { threadTimeline } from './thread-timeline.svelte'
 import { threads } from './threads.svelte'
-import { workspaceRecords } from './workspace-records.svelte'
 import { workspaces, type Workspace } from './workspaces.svelte'
 
 type ThreadListItem = {
@@ -40,7 +39,6 @@ class ThreadList {
     const activity = threadTimeline.activityByThread
     const rows = workspaces.liveItems.map((workspace) => {
       const thread = threads.liveFor(workspace.id)
-      const repoId = workspaceRecords.getRecord(workspace.id)?.repoId
       const parentThread = thread?.parentThreadId
         ? threads.getById(thread.parentThreadId)
         : undefined
@@ -49,7 +47,7 @@ class ThreadList {
       return {
         id: workspace.id,
         title: workspace.name,
-        repoName: (repoId && repos.getById(repoId)?.name) || null,
+        repoName: repos.getById(workspace.repoId)?.name || null,
         branch: workspace.branch,
         urgency: threadUrgency({
           lifecycle: workspace.lifecycle,
@@ -81,7 +79,7 @@ class ThreadList {
   readonly sections = $derived.by(() => {
     const { threads, working } = splitThreadList(
       this.items,
-      app.view === 'workspace' ? app.workspaceId : null,
+      nav.view === 'workspace' ? nav.workspaceId : null,
     )
     return {
       threads: nestThreadList(threads),

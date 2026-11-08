@@ -2,7 +2,9 @@
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import List from '@lucide/svelte/icons/list'
   import { severitySummary } from '$lib/findings/format'
-  import { findings, workspaceUi } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { findings } from '$lib/state'
+  import { openWorkspaceFindings } from '$lib/workspace/open'
   import type { TimelineItem } from '$lib/thread/timeline-types'
   import type { RowContext } from './context'
   import RowShell from './RowShell.svelte'
@@ -16,8 +18,7 @@
   const rows = $derived(findings.forWorkspace(item.workspaceId))
 
   function openFindings() {
-    workspaceUi.findingsFocusPending = true
-    workspaceUi.openTab('findings')
+    openWorkspaceFindings(item.workspaceId, nav.threadId ?? undefined)
   }
 </script>
 

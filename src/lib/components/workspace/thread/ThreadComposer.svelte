@@ -1,8 +1,13 @@
 <script lang="ts">
+  import {
+    sendToThread,
+    stopThread,
+    switchConversation,
+  } from '$lib/thread/actions'
   import type { Snippet } from 'svelte'
   import { onMount, tick } from 'svelte'
   import { composerMayTakeFocus, isEditable } from '$lib/keyboard/focus-home'
-  import { app } from '$lib/state/app.svelte'
+  import { nav } from '$lib/core/nav.svelte'
   import { getCurrentWebview } from '@tauri-apps/api/webview'
   import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
   import { Button } from '$lib/components/ui/button'
@@ -46,13 +51,13 @@
   } from '$lib/settings/bangs'
   import Zap from '@lucide/svelte/icons/zap'
   import { taskRef } from '$lib/clickup/board'
-  import { clickup } from '$lib/state/clickup.svelte'
+  import { clickup } from '$lib/clickup/store.svelte'
   import { repos } from '$lib/state/repos.svelte'
   import type { RepoRecord } from '$lib/ipc/bindings'
-  import { coreErrorText } from '$lib/feedback/core-error'
+  import { coreErrorText } from '$lib/core/core-error'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
-  import { settings } from '$lib/state/settings.svelte'
+  import { settings } from '$lib/settings/store.svelte'
   import { contextPercent, usageSummary } from '$lib/usage/usage'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
@@ -336,7 +341,7 @@
   // focus in the prompt, ready to type.
   $effect(() => {
     void draftId
-    void app.focusGeneration
+    void nav.arrivals
     void tick().then(takeFocus)
   })
 
@@ -413,7 +418,7 @@
     const sent = await (
       onSubmit
         ? onSubmit(outgoing, stay, attached)
-        : threadTimeline.send(threadId, outgoing, attached)
+        : sendToThread(threadId, outgoing, attached)
     ).finally(() => (sending = false))
     if (!sent) {
       composerDrafts.setFor(threadId, text)
@@ -507,7 +512,7 @@
   function stopTurn() {
     if (!thread) return
     void tick().then(takeFocus)
-    void threadTimeline.stop(thread.id)
+    void stopThread(thread.id)
   }
 
   async function togglePause() {
@@ -868,9 +873,7 @@
             data-od-id="composer-new-session"
             title="Start a new session; the agent forgets this conversation"
             disabled={!view?.canClearSession}
-            onclick={() =>
-              thread &&
-              void threadTimeline.switchConversation(thread.id, 'new')}
+            onclick={() => thread && void switchConversation(thread.id, 'new')}
           >
             New session
             <kbd

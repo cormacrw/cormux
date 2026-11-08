@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { updateSettings } from '$lib/settings/actions'
   import { onMount } from 'svelte'
   import { Switch } from '$lib/components/ui/switch'
   import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
@@ -7,7 +8,7 @@
   import type { EngineKind, EngineStatus } from '$lib/ipc/bindings'
   import { ENGINE_OPTIONS, engineInstallLabel } from '$lib/engine/engines'
   import { engineMark } from '$lib/engine/engines'
-  import { settings } from '$lib/state'
+  import { settings } from '$lib/settings/store.svelte'
   import { cn } from '$lib/utils'
 
   let engineStatuses = $state<EngineStatus[]>([])
@@ -33,7 +34,7 @@
   }
 
   async function chooseEngine(kind: EngineKind) {
-    await settings.update({ defaultEngine: kind })
+    await updateSettings({ defaultEngine: kind })
   }
 </script>
 
@@ -110,7 +111,7 @@
         <Switch
           checked={settings.runEverything}
           onCheckedChange={(next) =>
-            void settings.update({ runEverything: next })}
+            void updateSettings({ runEverything: next })}
           aria-label="Run everything"
         />
       {/snippet}

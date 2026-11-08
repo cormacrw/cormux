@@ -1,6 +1,6 @@
 import type { Settings, SettingsPatch } from '$lib/ipc/bindings'
-import { commands } from '$lib/ipc'
-import { toastCoreError } from '$lib/feedback/wire-feedback'
+import { commands, type CoreError } from '$lib/ipc'
+import { onSnapshot } from '$lib/core/sync'
 import { deepEqual } from '$lib/deep-equal'
 
 /** What shows for the moment before the first snapshot; the core's settings replace it. */
@@ -32,14 +32,6 @@ function applied(settings: Settings, patch: SettingsPatch): Settings {
 export class SettingsStore {
   // Raw and replaced whole: readers see a new object only when a setting changed.
   values = $state.raw<Settings>(BEFORE_FIRST_SNAPSHOT)
-  /** When set, Settings view scrolls/focuses this section (palette deep links). */
-  focusSection = $state<string | null>(null)
-  /** Expand this repo and focus its run command field (Output empty state). */
-  focusRepoRunCommand = $state<string | null>(null)
-  /** Expand this repo's config panel (add repo, deep links). */
-  expandRepoId = $state<string | null>(null)
-  /** Focus Worktree setup after expanding (add repo). */
-  focusRepoSetup = $state<string | null>(null)
 
   get reduceMotion() {
     return this.values.reduceMotion
@@ -84,16 +76,16 @@ export class SettingsStore {
     if (!deepEqual(settings, this.values)) this.values = settings
   }
 
-  /** Shows the change at once, then saves it; the core's answer is what stays. */
-  async update(patch: SettingsPatch) {
+  /** Shows the change at once, then saves it; the core's answer is what stays. Resolves why it didn't save. */
+  async update(patch: SettingsPatch): Promise<CoreError | null> {
     this.values = applied(this.values, patch)
     const result = await commands.updateSettings(patch)
-    if (result.status === 'error') {
-      toastCoreError(result.error)
-      return
-    }
+    if (result.status === 'error') return result.error
     this.hydrate(result.data)
+    return null
   }
 }
 
 export const settings = new SettingsStore()
+
+onSnapshot((snapshot) => settings.hydrate(snapshot.settings))

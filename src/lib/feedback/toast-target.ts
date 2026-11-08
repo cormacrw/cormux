@@ -1,5 +1,9 @@
-import { app } from '$lib/state/app.svelte'
-import { openWorkspaceFindings, openWorkspaceThread } from '$lib/workspace/open'
+import { navigate } from '$lib/core/nav.svelte'
+import {
+  openWorkspace,
+  openWorkspaceFindings,
+  openWorkspaceThread,
+} from '$lib/workspace/open'
 import type { ToastPayload } from './toast-payload'
 
 export type ToastTarget = Pick<
@@ -18,8 +22,8 @@ export function openToastTarget(target: ToastTarget) {
   if (workspaceId) {
     if (findings) openWorkspaceFindings(workspaceId, threadId)
     else if (threadId) openWorkspaceThread(workspaceId, threadId)
-    else app.openWorkspace(workspaceId)
+    else openWorkspace(workspaceId)
     return
   }
-  if (scratchId) app.openScratch(scratchId)
+  if (scratchId) navigate({ view: 'scratch', scratchId })
 }

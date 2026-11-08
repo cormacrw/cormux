@@ -1,9 +1,9 @@
 <script lang="ts">
   import { windowDrag } from '$lib/primitives/window-drag'
   import { Button } from '$lib/components/ui/button'
-  import { repos, shellDialogs, threads, workspaceRecords } from '$lib/state'
+  import { repos, shellDialogs, threads } from '$lib/state'
   import { appControls, controlApp } from '$lib/run-app/actions'
-  import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
+  import { isWorkspaceProvisioning } from '$lib/state/activity'
   import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import GitConflictBanner from './GitConflictBanner.svelte'
@@ -30,9 +30,8 @@
     onRename: () => void
   } = $props()
 
-  const record = $derived(workspaceRecords.getRecord(workspace.id))
-  const repo = $derived(record ? repos.getById(record.repoId) : undefined)
-  const runtime = $derived(workspaceRecords.runtime(workspace.id))
+  const repo = $derived(repos.getById(workspace.repoId))
+  const runtime = $derived(workspace.runtime)
   const wsThreads = $derived(threads.forWorkspace(workspace.id))
   // What this work has cost, the threads it started included.
   const cost = $derived(
@@ -104,9 +103,8 @@
       </Button>
       <WorkspaceBranchTag
         workspaceId={workspace.id}
-        repoId={record?.repoId ?? ''}
+        repoId={workspace.repoId}
         branch={workspace.branch}
-        threads={wsThreads}
         {provisioning}
       />
       {#if repo?.name}
@@ -142,7 +140,7 @@
     <GitConflictBanner
       workspaceId={workspace.id}
       branch={workspace.branch}
-      base={record?.base ?? 'main'}
+      base={workspace.base}
       conflict={runtime.conflict}
     />
   {/if}

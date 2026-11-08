@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { openSettings } from '$lib/settings/open'
+  import { navigate } from '$lib/core/nav.svelte'
   import { windowDrag } from '$lib/primitives/window-drag'
   import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -6,7 +8,9 @@
   import { Button } from '$lib/components/ui/button'
   import * as ScrollArea from '$lib/components/ui/scroll-area'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import { app, clickup, memory } from '$lib/state'
+  import { memory } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { clickup } from '$lib/clickup/store.svelte'
   import { palette } from '$lib/state/palette.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import { cubicOut } from 'svelte/easing'
@@ -126,9 +130,9 @@
     <Button
       variant="ghost"
       class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
-      aria-current={app.view === 'newThread' ? 'page' : undefined}
+      aria-current={nav.view === 'newThread' ? 'page' : undefined}
       data-od-id="nav-new-thread"
-      onclick={() => app.openNewThread()}
+      onclick={() => navigate({ view: 'newThread' })}
     >
       <MessageSquarePlus
         class="size-4 shrink-0 opacity-80"
@@ -145,8 +149,8 @@
       <Button
         variant="ghost"
         class="h-[30px] w-full justify-start gap-2 px-2 text-sm font-normal text-muted-foreground hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
-        aria-current={app.view === 'sprint' ? 'page' : undefined}
-        onclick={() => app.openSprint()}
+        aria-current={nav.view === 'sprint' ? 'page' : undefined}
+        onclick={() => navigate({ view: 'sprint' })}
       >
         <Kanban class="size-4 shrink-0 opacity-80" aria-hidden="true" />
         <span class="flex-1 text-left">Sprint</span>
@@ -244,8 +248,8 @@
       class="size-8 shrink-0 aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-foreground"
       aria-label="Settings"
       title="Settings"
-      aria-current={app.view === 'settings' ? 'page' : undefined}
-      onclick={() => app.openSettings()}
+      aria-current={nav.view === 'settings' ? 'page' : undefined}
+      onclick={() => openSettings()}
     >
       <SlidersHorizontal class="size-4" aria-hidden="true" />
     </Button>

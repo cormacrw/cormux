@@ -1,6 +1,7 @@
 import type { PullRequest } from '$lib/state/prs.svelte'
 import { describe, expect, it } from 'vitest'
-import { NO_USAGE } from '$lib/usage/usage'
+import { threadFixture, workspaceFixture } from '$lib/state/fixtures'
+import { IDLE_RUNTIME } from '$lib/state/workspace-model'
 import { appControlsFor } from '$lib/run-app/controls'
 import { buildPaletteCommandsFromState } from './build-registry'
 
@@ -13,29 +14,7 @@ describe('buildPaletteCommandsFromState', () => {
         reduceMotion: false,
         clickupConfigured: false,
         workspaces: [
-          {
-            id: 'ws-1',
-            name: 'Auth',
-            branch: 'feat/auth',
-            lifecycle: 'idle',
-            paused: false,
-            activityText: 'Idle',
-            pendingApprovals: 0,
-            cardStatus: 'idle',
-            createdAtMs: null,
-            summary: null,
-            summaryAtMs: null,
-            summarySource: 'Haiku 4.5',
-            kind: null,
-            prNumber: null,
-            prHtmlUrl: null,
-            provStep: 0,
-            setupFailedCommand: null,
-            setupFailedExitCode: null,
-            runCommand: null,
-            reviewStatus: null,
-            reviewSubmitted: false,
-          },
+          workspaceFixture({ runtime: { ...IDLE_RUNTIME, behind: 2 } }),
         ],
         scratches: [
           {
@@ -44,6 +23,7 @@ describe('buildPaletteCommandsFromState', () => {
             repoId: 'repo-1',
             threadId: 'th-s',
             engine: 'claude',
+            status: 'idle',
             createdAtMs: null,
           },
         ],
@@ -51,20 +31,7 @@ describe('buildPaletteCommandsFromState', () => {
           { id: 'bang-1', name: 'triage', prompt: 'Check CI' },
           { id: 'bang-2', name: 'empty', prompt: '' },
         ],
-        threads: [
-          {
-            id: 'th-1',
-            workspaceId: 'ws-1',
-            role: 'Lead',
-            engine: 'claude',
-            status: 'idle',
-            paused: false,
-            activity: 'Idle',
-            pendingApprovals: 0,
-            retired: false,
-            usage: NO_USAGE,
-          },
-        ],
+        threads: [threadFixture()],
         repos: [
           {
             id: 'repo-1',
@@ -79,32 +46,12 @@ describe('buildPaletteCommandsFromState', () => {
         pullRequests: [
           { id: 'acme/app#482', num: 482, title: 'Fix login' } as PullRequest,
         ],
-        runtimeFor: () => ({ port: null, behind: 2 }),
         appControlsFor: () =>
           appControlsFor({
             appStatus: 'stopped',
             lifecycle: 'idle',
             runCommand: 'pnpm dev',
           }),
-        recordFor: (id) =>
-          id === 'ws-1'
-            ? {
-                id: 'ws-1',
-                repoId: 'repo-1',
-                repoPath: '/tmp',
-                name: 'Auth',
-                branch: 'feat',
-                base: 'main',
-                worktreePath: '/tmp/wt',
-                status: 'idle',
-                kind: 'lead',
-                version: 1,
-                activity: 'Idle',
-                provStep: 0,
-                setupFailedCommand: null,
-                setupFailedExitCode: null,
-              }
-            : undefined,
       },
       {
         openNewThread: noop,

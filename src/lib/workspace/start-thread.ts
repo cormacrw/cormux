@@ -3,8 +3,10 @@ import {
   type ComposerAttachment,
 } from '$lib/composer/attachments'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
-import { commands, fetchSnapshot } from '$lib/ipc'
-import { hydrateFromSnapshot, repos, settings } from '$lib/state'
+import { commands } from '$lib/ipc'
+import { refreshSnapshot } from '$lib/core/sync'
+import { repos } from '$lib/state/repos.svelte'
+import { settings } from '$lib/settings/store.svelte'
 
 /**
  * Spawns a thread: a new worktree off the repo's default branch, with the prompt as its first
@@ -27,7 +29,7 @@ export async function startThread(input: {
     repoId,
     name: '',
     branch: '',
-    base: repos.getById(repoId)?.defaultBranch?.trim() || 'main',
+    base: repos.defaultBranch(repoId),
     engine: settings.defaultEngine,
     goal: prompt,
     model: input.model ?? null,
@@ -38,6 +40,6 @@ export async function startThread(input: {
     toastCoreError(result.error)
     return null
   }
-  hydrateFromSnapshot(await fetchSnapshot())
+  await refreshSnapshot()
   return result.data.workspaceId
 }

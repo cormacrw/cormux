@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { updateSettings } from '$lib/settings/actions'
   import { Switch } from '$lib/components/ui/switch'
   import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
-  import { settings } from '$lib/state'
+  import { settings } from '$lib/settings/store.svelte'
 </script>
 
 <SettingsPanel data-od-id="settings-experimental-group">
@@ -14,7 +15,7 @@
       <Switch
         checked={settings.experimentalReferences}
         onCheckedChange={(next) =>
-          void settings.update({ experimentalReferences: next })}
+          void updateSettings({ experimentalReferences: next })}
         aria-label="References"
         data-od-id="settings-experimental-references"
       />

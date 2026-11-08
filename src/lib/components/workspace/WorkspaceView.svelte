@@ -1,17 +1,11 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
-  import {
-    app,
-    findings,
-    stacks,
-    threads,
-    workspaceRecords,
-    workspaceUi,
-    workspaces,
-  } from '$lib/state'
-  import { bindWorkspaceDiffSubscription } from '$lib/state/workspace-diff.svelte'
+  import { findings, threads, workspaceUi, workspaces } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { loadStack } from '$lib/changes/actions'
+  import { bindWorkspaceDiffSubscription } from '$lib/changes/diff-store.svelte'
   import RenameWorkspaceDialog from './RenameWorkspaceDialog.svelte'
-  import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
+  import { isWorkspaceProvisioning } from '$lib/state/activity'
   import ProvisioningFailureBanner from './ProvisioningFailureBanner.svelte'
   import WorkspaceHeader from './WorkspaceHeader.svelte'
   import WorkspaceOutputPanel from './WorkspaceOutputPanel.svelte'
@@ -21,13 +15,13 @@
   import { escClosesSlideOut, resizeEdge } from '$lib/primitives/slide-out'
 
   const workspace = $derived(
-    app.workspaceId ? workspaces.getById(app.workspaceId) : undefined,
+    nav.workspaceId ? workspaces.getById(nav.workspaceId) : undefined,
   )
   const workspaceThreads = $derived(
-    app.workspaceId ? threads.forWorkspace(app.workspaceId) : [],
+    nav.workspaceId ? threads.forWorkspace(nav.workspaceId) : [],
   )
   const activeThread = $derived(
-    workspaceThreads.find((thread) => thread.id === app.threadId) ??
+    workspaceThreads.find((thread) => thread.id === nav.threadId) ??
       workspaceThreads.find((thread) => !thread.retired) ??
       workspaceThreads[0],
   )
@@ -39,8 +33,8 @@
   // Opening a workspace on a thread leaves focus to its composer, ready to type; other
   // panels focus the title.
   $effect(() => {
-    if (app.focusTarget !== 'workspace') return
-    void app.focusGeneration
+    if (nav.view !== 'workspace') return
+    void nav.arrivals
     if (untrack(() => workspaceUi.activeTab) !== 'thread')
       workspaceTitle?.focus()
   })
@@ -48,9 +42,7 @@
   const provisioning = $derived(
     workspace ? isWorkspaceProvisioning(workspace.lifecycle) : false,
   )
-  const workspaceRepoId = $derived(
-    workspace ? (workspaceRecords.getRecord(workspace.id)?.repoId ?? '') : '',
-  )
+  const workspaceRepoId = $derived(workspace?.repoId ?? '')
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
   // A pinned tray sits beside the conversation as a pane, and both stay usable.
   const pinnedTray = $derived(workspaceUi.pinnedTray)
@@ -142,22 +134,17 @@
     if (!workspaceId) return
     void workspaceBranch
     void gitVisible
-    untrack(() => void stacks.load(workspaceId))
+    untrack(() => void loadStack(workspaceId))
   })
 
+  // Opened on Findings (a toast, the palette, the card in the thread): focus their heading.
   $effect(() => {
-    void workspaceUi.activeTab
-    void workspaceUi.findingsFocusPending
-    queueMicrotask(() => {
-      if (
-        findingsTabActive &&
-        findingsHeading &&
-        workspaceUi.findingsFocusPending
-      ) {
-        findingsHeading.focus({ preventScroll: true })
-        workspaceUi.findingsFocusPending = false
-      }
-    })
+    const route = nav.route
+    if (route.view !== 'workspace' || route.panel !== 'findings') return
+    if (!findingsTabActive || !findingsHeading) return
+    const heading = findingsHeading
+    untrack(() => nav.take('workspace', 'panel'))
+    queueMicrotask(() => heading.focus({ preventScroll: true }))
   })
 
   $effect(() => {

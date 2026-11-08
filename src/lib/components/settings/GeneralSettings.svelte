@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { updateSettings } from '$lib/settings/actions'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
@@ -9,7 +10,9 @@
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
-  import { repos, settings, workspaceRecords } from '$lib/state'
+  import { repos } from '$lib/state'
+  import { settings } from '$lib/settings/store.svelte'
+  import { workspaces } from '$lib/state/workspaces.svelte'
   import { Alert, AlertDescription } from '$lib/components/ui/alert'
 
   let reloadingEnv = $state(false)
@@ -24,7 +27,7 @@
     repos.items.find((repo) => repo.id === defaultRepoId)?.name ?? '',
   )
 
-  const hasWorkspaces = $derived(workspaceRecords.records.length > 0)
+  const hasWorkspaces = $derived(workspaces.items.length > 0)
 
   async function reloadEnvironment() {
     reloadingEnv = true
@@ -35,7 +38,7 @@
 
   async function commitWorktreeRoot() {
     if (worktreeDraft.trim() === settings.worktreeRoot.trim()) return
-    await settings.update({ worktreeRoot: worktreeDraft })
+    await updateSettings({ worktreeRoot: worktreeDraft })
   }
 </script>
 
@@ -53,7 +56,7 @@
           type="single"
           value={defaultRepoId}
           onValueChange={(value) => {
-            if (value) void settings.update({ defaultRepo: value })
+            if (value) void updateSettings({ defaultRepo: value })
           }}
         >
           <Select.Trigger
@@ -115,7 +118,7 @@
         spellcheck={false}
         onchange={() => {
           if (terminalDraft.trim() !== settings.terminalApp)
-            void settings.update({ terminalApp: terminalDraft })
+            void updateSettings({ terminalApp: terminalDraft })
         }}
       />
     {/snippet}
@@ -128,7 +131,7 @@
     {#snippet control()}
       <Switch
         checked={settings.reduceMotion}
-        onCheckedChange={(next) => void settings.update({ reduceMotion: next })}
+        onCheckedChange={(next) => void updateSettings({ reduceMotion: next })}
         aria-label="Reduce motion"
       />
     {/snippet}

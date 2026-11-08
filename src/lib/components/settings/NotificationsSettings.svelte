@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { updateSettings } from '$lib/settings/actions'
   import { Switch } from '$lib/components/ui/switch'
   import SettingsPanel from '$lib/components/settings/SettingsPanel.svelte'
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
-  import { settings } from '$lib/state'
+  import { settings } from '$lib/settings/store.svelte'
 </script>
 
 <SettingsPanel data-od-id="settings-notifications">
@@ -14,7 +15,7 @@
       <Switch
         checked={settings.notifyApprovals}
         onCheckedChange={(next) =>
-          void settings.update({ notifyApprovals: next })}
+          void updateSettings({ notifyApprovals: next })}
         aria-label="Approval requests"
       />
     {/snippet}
@@ -28,7 +29,7 @@
       <Switch
         checked={settings.notifyReviewFinished}
         onCheckedChange={(next) =>
-          void settings.update({ notifyReviewFinished: next })}
+          void updateSettings({ notifyReviewFinished: next })}
         aria-label="Finished reviews"
       />
     {/snippet}

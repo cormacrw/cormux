@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { setTaskPoints } from '$lib/clickup/actions'
   import { onDestroy } from 'svelte'
   import { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
   import { Button } from '$lib/components/ui/button'
   import DocMarkdown from '$lib/components/markdown/DocMarkdown.svelte'
   import { POINT_PRESETS, statusLabel, taskRef } from '$lib/clickup/board'
-  import { clickup } from '$lib/state'
+  import { clickup } from '$lib/clickup/store.svelte'
   import { cn } from '$lib/utils'
   import Check from '@lucide/svelte/icons/check'
   import Copy from '@lucide/svelte/icons/copy'
@@ -125,7 +126,7 @@
                   )}
                   aria-pressed={task.points === value}
                   aria-label="{value} points"
-                  onclick={() => void clickup.setPoints(task.id, value)}
+                  onclick={() => void setTaskPoints(task.id, value)}
                 >
                   {value}
                 </button>

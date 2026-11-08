@@ -1,16 +1,5 @@
 import type { PullRequest } from '$lib/state/prs.svelte'
-
-function pullRequestForWorkspace(
-  items: PullRequest[],
-  repoId: string,
-  prNumber: number | null,
-): PullRequest | undefined {
-  if (prNumber == null) return undefined
-  return items.find(
-    (row) =>
-      row.num === prNumber && (row.repoId === repoId || row.repoId == null),
-  )
-}
+import { prByNumber, prForBranch } from '$lib/state/pr-lookup'
 
 export function primaryPrActionLabel(
   pr: PullRequest | undefined,
@@ -53,20 +42,17 @@ export function branchPullRequest(input: {
 }): BranchPr | null {
   const { items, repoId, branch, prNumber, prHtmlUrl, stackPr } = input
   if (prNumber != null) {
-    const synced = pullRequestForWorkspace(items, repoId, prNumber)
+    const synced = prByNumber(items, repoId, prNumber)
     return {
       number: prNumber,
       url: resolvePrHtmlUrl(synced, prHtmlUrl),
       synced,
     }
   }
-  const synced = items.find(
-    (row) =>
-      row.head === branch && (row.repoId === repoId || row.repoId == null),
-  )
+  const synced = prForBranch(items, repoId, branch)
   if (synced) return { number: synced.num, url: synced.htmlUrl, synced }
   if (stackPr) {
-    const known = pullRequestForWorkspace(items, repoId, stackPr.number)
+    const known = prByNumber(items, repoId, stackPr.number)
     return {
       number: stackPr.number,
       url: known?.htmlUrl ?? stackPr.url,

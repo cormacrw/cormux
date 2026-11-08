@@ -1,17 +1,13 @@
 <script lang="ts">
+  import { refreshSnapshot } from '$lib/core/sync'
+  import { navigate } from '$lib/core/nav.svelte'
   import { tick } from 'svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { TeardownPreview } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { fetchSnapshot } from '$lib/ipc'
-  import {
-    app,
-    hydrateFromSnapshot,
-    shellDialogs,
-    workspaces,
-  } from '$lib/state'
+  import { shellDialogs, workspaces } from '$lib/state'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
   import Trash2 from '@lucide/svelte/icons/trash-2'
@@ -66,7 +62,7 @@
     const tornId = workspaceId
     workspaces.markDeleting(tornId)
     shellDialogs.close('teardown')
-    app.openNewThread()
+    navigate({ view: 'newThread' })
     void commands
       .teardownWorkspace({ workspaceId: tornId, deleteBranch })
       .then(async (result) => {
@@ -74,7 +70,7 @@
           workspaces.clearDeleting(tornId)
           toastCoreError(result.error)
         }
-        hydrateFromSnapshot(await fetchSnapshot())
+        await refreshSnapshot()
       })
   }
 

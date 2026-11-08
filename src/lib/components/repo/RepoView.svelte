@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { openWorkspace } from '$lib/workspace/open'
+  import { nav, navigate } from '$lib/core/nav.svelte'
   import { windowDrag } from '$lib/primitives/window-drag'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import { Badge } from '$lib/components/ui/badge'
@@ -6,20 +8,14 @@
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
   import type { LocalBranchRow } from '$lib/ipc/bindings'
-  import { coreErrorText } from '$lib/feedback/core-error'
+  import { coreErrorText } from '$lib/core/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
-  import { branchHoldReason, pullRequestForBranch } from '$lib/repo/branch-hold'
+  import { branchHoldReason } from '$lib/repo/branch-hold'
   import { workspaceStatusWord } from '$lib/sidebar/status'
-  import {
-    app,
-    prs,
-    repos,
-    scratches,
-    workspaceRecords,
-    workspaces,
-  } from '$lib/state'
+  import { prs, repos, scratches, workspaces } from '$lib/state'
+  import type { Workspace } from '$lib/state/workspaces.svelte'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Trash2 from '@lucide/svelte/icons/trash-2'
@@ -40,31 +36,26 @@
     if (unpushed) unpushedShown = unpushed
   })
 
-  const repo = $derived(app.repoId ? repos.getById(app.repoId) : undefined)
-  const defaultBranch = $derived(repo?.defaultBranch?.trim() || 'main')
+  const repo = $derived(nav.repoId ? repos.getById(nav.repoId) : undefined)
+  const defaultBranch = $derived(repo ? repos.defaultBranch(repo.id) : 'main')
   const git = $derived(repo ? repos.gitById[repo.id] : undefined)
 
   const repoWorkspaces = $derived(
-    workspaceRecords.records.filter((row) => row.repoId === repo?.id),
+    workspaces.items.filter((row) => row.repoId === repo?.id),
   )
   const repoScratches = $derived(
     scratches.items.filter((row) => row.repoId === repo?.id),
   )
 
   $effect(() => {
-    if (app.focusTarget !== 'repo') return
-    void app.focusGeneration
+    if (nav.view !== 'repo') return
+    void nav.arrivals
     titleEl?.focus()
   })
 
   $effect(() => {
-    if (app.view !== 'repo' || !app.repoId) return
-    if (!repos.getById(app.repoId)) app.openNewThread()
-  })
-
-  $effect(() => {
-    const id = app.repoId
-    if (!id || app.view !== 'repo') return
+    const id = nav.repoId
+    if (!id || nav.view !== 'repo') return
     let cancelled = false
     loading = true
     loadError = null
@@ -91,9 +82,7 @@
       .map((row) => row.name)
   }
 
-  function statusWord(workspaceId: string) {
-    const workspace = workspaces.getById(workspaceId)
-    if (!workspace) return ''
+  function statusWord(workspace: Workspace) {
     return workspaceStatusWord({
       lifecycle: workspace.lifecycle,
       paused: workspace.paused,
@@ -102,7 +91,7 @@
   }
 
   async function removeBranch(name: string, force = false) {
-    const id = app.repoId
+    const id = nav.repoId
     if (!id || deleting) return
     deleting = name
     const result = await commands.deleteLocalBranch(id, name, force)
@@ -192,12 +181,12 @@
             class="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
           >
             {#each repoWorkspaces as row (row.id)}
-              {@const status = statusWord(row.id)}
+              {@const status = statusWord(row)}
               <li>
                 <button
                   type="button"
                   class="flex w-full items-start justify-between gap-4 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
-                  onclick={() => app.openWorkspace(row.id)}
+                  onclick={() => openWorkspace(row.id)}
                 >
                   <span class="min-w-0">
                     <span class="block truncate text-sm font-medium"
@@ -256,11 +245,7 @@
                 head,
                 checkedOutBy: checkedOutBy(branch.name),
               })}
-              {@const pr = pullRequestForBranch(
-                prs.items,
-                repo.id,
-                branch.name,
-              )}
+              {@const pr = prs.forBranch(repo.id, branch.name)}
               <li
                 class="flex items-start justify-between gap-4 px-4 py-3.5"
                 data-od-id="repo-branch-{branch.name}"
@@ -343,7 +328,8 @@
                 <button
                   type="button"
                   class="w-full px-4 py-3.5 text-left text-sm font-medium transition-colors hover:bg-muted/40"
-                  onclick={() => app.openScratch(scratch.id)}
+                  onclick={() =>
+                    navigate({ view: 'scratch', scratchId: scratch.id })}
                 >
                   {scratch.title}
                 </button>

@@ -16,13 +16,11 @@
   import { diffComments } from '$lib/changes/diff-comments.svelte'
   import type { DiffTarget } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import {
-    prs,
-    stacks,
-    threads,
-    workspaceDiff,
-    workspaceRecords,
-  } from '$lib/state'
+  import { prs, repos, threads, workspaces } from '$lib/state'
+  import { stacks } from '$lib/changes/stacks.svelte'
+  import { loadStack } from '$lib/changes/actions'
+  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
+  import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
     branchErrorMessage,
@@ -30,15 +28,13 @@
   } from '$lib/new-workspace/validation'
   import {
     canAddToStack,
-    pullRequestForBranch,
     commitsLabel,
     isDiffTargetOf,
     prStateLabel,
     sameDiffTarget,
     stackCardsTopFirst,
     stackSubtitle,
-  } from '$lib/stack/stack'
-  import { branchPickerLocked } from '$lib/workspace/running-agents'
+  } from '$lib/changes/stack'
   import {
     addStackBranch,
     pushStack,
@@ -55,13 +51,14 @@
 
   const stack = $derived(stacks.get(workspace.id))
   const cards = $derived(stackCardsTopFirst(stack))
-  const trunk = $derived(stack?.trunk ?? 'main')
+  const trunk = $derived(stack?.trunk ?? repos.defaultBranch(repoId))
   const stacked = $derived(stack?.status === 'stacked')
   const checking = $derived(stacks.loading[workspace.id] ?? false)
-  const locked = $derived(
-    provisioning || branchPickerLocked(threads.forWorkspace(workspace.id)),
+  const lock = $derived(threads.branchLock(workspace.id))
+  const locked = $derived(provisioning || lock.locked)
+  const lockReason = $derived(
+    lock.reason ?? 'Pause or stop the running agents to change branches.',
   )
-  const lockReason = 'Pause or stop the running agents to change branches.'
   const addable = $derived(canAddToStack(stack))
   // Backend messages end with " Run: <command>" when there's something to install.
   const unavailable = $derived.by(() => {
@@ -77,18 +74,11 @@
         : `Create a branch on top of ${workspace.branch}`,
   )
   const otherWorkspaceBranches = $derived(
-    workspaceRecords.records
-      .filter(
-        (record) => record.repoId === repoId && record.id !== workspace.id,
-      )
-      .map((record) => record.branch),
+    workspaces.branchesInUse(repoId, workspace.id),
   )
 
   // While a retarget loads, the highlight moves to where it is headed.
-  const pending = $derived(workspaceDiff.pending(workspace.id))
-  const shownTarget = $derived(
-    pending?.retarget ? pending.target : workspaceDiff.target(workspace.id),
-  )
+  const shownTarget = $derived(workspaceDiff.shownTarget(workspace.id))
   // Without a stack the checked-out branch still gets a level of its own.
   const soloBranch = $derived(!!stack && !stacked && workspace.branch !== trunk)
 
@@ -119,7 +109,7 @@
 
   /** A PR opened by hand shows up here before gh-stack learns of it on the next Sync. */
   function syncedPr(branch: string) {
-    const pr = pullRequestForBranch(prs.items, repoId, branch)
+    const pr = prs.forBranch(repoId, branch)
     return pr ? { number: pr.num, url: pr.htmlUrl, state: 'OPEN' } : null
   }
 
@@ -136,7 +126,7 @@
     const ok = await (action === 'push' ? pushStack : syncStack)(workspace.id)
     busy = null
     // A branch switch reloads the stack on its own; rebases and pushes don't.
-    if (ok) await stacks.load(workspace.id)
+    if (ok) await loadStack(workspace.id)
   }
 
   async function openAdd() {
@@ -262,7 +252,7 @@
             disabled={checking}
             title="Look for a stack on GitHub that has {workspace.branch}"
             data-od-id="stack-check"
-            onclick={() => void stacks.load(workspace.id)}
+            onclick={() => void loadStack(workspace.id)}
           >
             {#if checking}
               <LoaderCircle class="animate-spin" aria-hidden="true" />
@@ -442,7 +432,7 @@
                   {/if}
                   {#if stack?.currentNeedsRebase}
                     {@render needsRebase(
-                      `${trunk} moved on since ${workspace.branch} left it. Rebase branch from the ⋯ menu to catch up.`,
+                      `${trunk} moved on since ${workspace.branch} left it. Pull it in from the command palette (${shortcutLabel('palette')}) to catch up.`,
                     )}
                   {/if}
                 </span>

@@ -4,7 +4,8 @@
   import { Badge } from '$lib/components/ui/badge'
   import { subscribePty } from '$lib/ipc'
   import type { WorkspaceAppControlAction } from '$lib/ipc/bindings'
-  import { repos, workspaceRecords, workspaceUi } from '$lib/state'
+  import { repos, workspaceUi } from '$lib/state'
+  import { workspaces } from '$lib/state/workspaces.svelte'
   import { appControls, controlApp } from '$lib/run-app/actions'
   import { openRepoRunCommand } from '$lib/settings/open'
   import {
@@ -41,7 +42,7 @@
   let logEl: HTMLDivElement | undefined = $state()
   let stickToBottom = $state(true)
 
-  const runtime = $derived(workspaceRecords.runtime(workspaceId))
+  const runtime = $derived(workspaces.runtime(workspaceId))
   // A primitive, so status or git updates to `runtime` don't wipe the log.
   const logVersion = $derived(runtime.logVersion)
   const repo = $derived(repos.getById(repoId))

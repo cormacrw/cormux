@@ -1,39 +1,20 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
-import type { ReviewStatus, WorkspaceLifecycle } from '$lib/ipc/bindings'
+import type { WorkspaceAppStatus } from '$lib/ipc/bindings'
+import { onSnapshot } from '$lib/core/sync'
+import { deepEqual } from '$lib/deep-equal'
 import { reuseRows } from './reuse-rows'
+import {
+  IDLE_RUNTIME,
+  workspacesFromSnapshot,
+  type Workspace,
+  type WorkspaceRuntime,
+} from './workspace-model'
 
-/** A workspace at a glance; the sidebar reads the finer `lifecycle` instead. */
-export type WorkspaceCardStatus = 'idle' | 'working' | 'needsAttention'
-
-export type Workspace = {
-  id: string
-  name: string
-  branch: string
-  lifecycle: WorkspaceLifecycle
-  paused: boolean
-  activityText: string
-  pendingApprovals: number
-  cardStatus: WorkspaceCardStatus
-  createdAtMs: number | null
-  summary: string | null
-  summaryAtMs: number | null
-  summarySource: string
-  kind: 'review' | null
-  prNumber: number | null
-  prHtmlUrl: string | null
-  provStep: number
-  setupFailedCommand: string | null
-  setupFailedExitCode: number | null
-  /** The workspace's own run command, which Run starts instead of its repo's. */
-  runCommand: string | null
-  /** Where a review of this workspace stands; null before one starts. */
-  reviewStatus: ReviewStatus | null
-  /** The review was posted to GitHub. */
-  reviewSubmitted: boolean
-}
+export type { Workspace, WorkspaceRuntime }
 
 export class WorkspacesStore {
+  // Raw and reused: a snapshot that changed nothing here changes nothing downstream.
   items = $state.raw<Workspace[]>([])
   /** Teardowns confirmed here but not yet reflected in a snapshot. */
   deletingIds = $state.raw<string[]>([])
@@ -76,11 +57,71 @@ export class WorkspacesStore {
     return this.byId.get(id)
   }
 
+  runtime(id: string): WorkspaceRuntime {
+    return this.byId.get(id)?.runtime ?? IDLE_RUNTIME
+  }
+
+  /** Branches the repo's other workspaces have checked out, which this one can't take. */
+  branchesInUse(repoId: string, exceptId: string): string[] {
+    return this.items
+      .filter(
+        (workspace) =>
+          workspace.repoId === repoId &&
+          workspace.id !== exceptId &&
+          workspace.branch,
+      )
+      .map((workspace) => workspace.branch)
+  }
+
   patchName(id: string, name: string) {
-    this.items = this.items.map((item) =>
-      item.id === id ? { ...item, name } : item,
-    )
+    this.patch(id, (workspace) => ({ ...workspace, name }))
+  }
+
+  setAppStatus(
+    id: string,
+    appStatus: WorkspaceAppStatus,
+    port: number | null = null,
+    exitCode: number | null = null,
+  ) {
+    const current = this.runtime(id)
+    const nextPort =
+      appStatus === 'stopped' || appStatus === 'crashed'
+        ? null
+        : (port ?? current.port)
+    this.patchRuntime(id, {
+      appStatus,
+      port: nextPort,
+      https: nextPort === null ? false : current.https,
+      exitCode: appStatus === 'crashed' ? (exitCode ?? current.exitCode) : null,
+    })
+  }
+
+  clearLog(id: string) {
+    this.patchRuntime(id, { logVersion: this.runtime(id).logVersion + 1 })
+  }
+
+  private patchRuntime(id: string, patch: Partial<WorkspaceRuntime>) {
+    this.patch(id, (workspace) => {
+      const runtime = { ...workspace.runtime, ...patch }
+      return deepEqual(runtime, workspace.runtime)
+        ? workspace
+        : { ...workspace, runtime }
+    })
+  }
+
+  private patch(id: string, update: (workspace: Workspace) => Workspace) {
+    const current = this.byId.get(id)
+    if (!current) return
+    const next = update(current)
+    if (next === current) return
+    this.items = this.items.map((item) => (item.id === id ? next : item))
   }
 }
 
 export const workspaces = new WorkspacesStore()
+
+onSnapshot((snapshot) =>
+  workspaces.hydrate(
+    workspacesFromSnapshot(snapshot, (id) => workspaces.getById(id)?.runtime),
+  ),
+)

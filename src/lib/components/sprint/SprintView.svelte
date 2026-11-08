@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { openSettingsSection } from '$lib/settings/open'
+  import { moveTask, setLaneHidden, showAllLanes } from '$lib/clickup/actions'
+  import { openSettings } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
@@ -13,7 +14,8 @@
   } from '$lib/clickup/board'
   import type { ClickupTask } from '$lib/ipc/bindings'
   import { plural } from '$lib/format/plural'
-  import { app, clickup } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { clickup } from '$lib/clickup/store.svelte'
   import { cn } from '$lib/utils'
   import Columns3 from '@lucide/svelte/icons/columns-3'
   import EyeOff from '@lucide/svelte/icons/eye-off'
@@ -29,13 +31,13 @@
   let boardEl: HTMLDivElement | undefined = $state()
 
   $effect(() => {
-    if (app.focusTarget !== 'sprint') return
-    void app.focusGeneration
+    if (nav.view !== 'sprint') return
+    void nav.arrivals
     if (!clickup.selectedTaskId) title?.focus()
   })
 
   $effect(() => {
-    if (app.view === 'sprint' && !clickup.board) void clickup.refresh()
+    if (nav.view === 'sprint' && !clickup.board) void clickup.refresh()
   })
 
   const sprint = $derived(clickup.board?.sprint ?? null)
@@ -124,7 +126,7 @@
     if (drag?.active) {
       swallowClick = true
       setTimeout(() => (swallowClick = false), 0)
-      if (overLane) void clickup.moveTask(drag.task.id, overLane)
+      if (overLane) void moveTask(drag.task.id, overLane)
     }
     endDrag()
   }
@@ -155,7 +157,7 @@
   }
 
   function openClickupSettings() {
-    openSettingsSection('clickup')
+    openSettings({ section: 'clickup' })
   }
 </script>
 
@@ -259,7 +261,7 @@
                 closeOnSelect={false}
                 class="data-[state=unchecked]:text-muted-foreground"
                 onCheckedChange={(checked) =>
-                  clickup.setLaneHidden(lane.status.name, !checked)}
+                  setLaneHidden(lane.status.name, !checked)}
               >
                 <span
                   class="size-2 shrink-0 rounded-full"
@@ -274,7 +276,7 @@
             {/each}
             {#if clickup.hiddenLaneCount > 0}
               <DropdownMenu.Separator />
-              <DropdownMenu.Item onSelect={() => clickup.showAllLanes()}>
+              <DropdownMenu.Item onSelect={() => showAllLanes()}>
                 Show all lanes
               </DropdownMenu.Item>
             {/if}
@@ -397,7 +399,7 @@
                 )}
                 aria-label="Hide {statusLabel(lane.status.name)}"
                 title="Hide lane"
-                onclick={() => clickup.setLaneHidden(lane.status.name, true)}
+                onclick={() => setLaneHidden(lane.status.name, true)}
               >
                 <EyeOff class="size-3.5" aria-hidden="true" />
               </button>
@@ -426,7 +428,7 @@
                 variant="link"
                 size="sm"
                 class="h-auto p-0"
-                onclick={() => clickup.showAllLanes()}
+                onclick={() => showAllLanes()}
               >
                 Show all lanes
               </Button>

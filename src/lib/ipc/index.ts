@@ -1,6 +1,3 @@
-import { commands, events, type Snapshot, type StateChanged } from './bindings'
-import { hasVersionGap } from './version'
-
 export {
   commands,
   events,
@@ -23,36 +20,3 @@ export {
 } from './bindings'
 
 export { subscribeAgentEvents, subscribeDiffs, subscribePty } from './channels'
-
-function unwrapSnapshot(
-  result: Awaited<ReturnType<typeof commands.getSnapshot>>,
-): Snapshot {
-  if (result.status === 'error') {
-    throw new Error(`get_snapshot failed: ${JSON.stringify(result.error)}`)
-  }
-  return result.data
-}
-
-/** Fetch a full core snapshot. Call on boot, after a version gap, and after reload. */
-export async function fetchSnapshot(): Promise<Snapshot> {
-  return unwrapSnapshot(await commands.getSnapshot())
-}
-
-/**
- * Listen for low-volume state events. A version gap triggers a snapshot refetch
- * so a webview reload or a dropped event always recovers.
- */
-export function listenForStateChanges(options: {
-  lastVersion: () => number
-  onEvent: (payload: StateChanged) => void
-  onGap: () => void
-}) {
-  return events.stateChanged.listen((event) => {
-    const payload = event.payload
-    if (hasVersionGap(options.lastVersion(), payload.version)) {
-      options.onGap()
-      return
-    }
-    options.onEvent(payload)
-  })
-}

@@ -1,14 +1,16 @@
-import { app } from '$lib/state/app.svelte'
-import { settings } from '$lib/state/settings.svelte'
+import { nav, navigate } from '$lib/core/nav.svelte'
+import type { RepoField } from '$lib/core/route'
 
-export function openSettingsSection(section: string) {
-  settings.focusSection = section
-  app.openSettings()
+/** Opens Settings, at a section (and a repo's field in Repositories) when given. */
+export function openSettings(
+  at: { section?: string; repoId?: string; field?: RepoField } = {},
+) {
+  // Already there with nowhere in particular to go: leave focus where it is.
+  if (nav.view === 'settings' && !at.section && !at.repoId) return
+  navigate({ view: 'settings', ...at })
 }
 
 /** Settings › Repositories with this repo open and its run command field focused. */
 export function openRepoRunCommand(repoId: string) {
-  settings.expandRepoId = repoId
-  settings.focusRepoRunCommand = repoId
-  openSettingsSection('repos')
+  openSettings({ section: 'repos', repoId, field: 'runCommand' })
 }

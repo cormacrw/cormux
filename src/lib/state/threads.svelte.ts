@@ -1,7 +1,9 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
-import type { ThreadRole } from '$lib/ipc/bindings'
+import type { Snapshot, ThreadRole, ThreadStatus } from '$lib/ipc/bindings'
 import type { ThreadUsage } from '$lib/usage/usage'
+import { onSnapshot } from '$lib/core/sync'
+import { runningAgentCount, threadActivity } from './activity'
 import { reuseRows } from './reuse-rows'
 import { workspaces } from './workspaces.svelte'
 
@@ -13,17 +15,52 @@ export type Thread = {
   /** Set on the workspace's own Lead or Reviewer. */
   ownRole?: ThreadRole | null
   engine: string
-  status: string
+  status: ThreadStatus
   paused: boolean
   activity: string
   pendingApprovals: number
   usage: ThreadUsage
-  /** Readable but can't be continued: a workspace's older thread, or a scratch's. */
+  /** Readable but can't be continued: a workspace's older thread. */
   retired: boolean
   /** The thread that started this one, when an agent did. */
-  parentThreadId?: string | null
-  /** Set on a scratch's thread, which lives outside any workspace. */
-  scratchId?: string
+  parentThreadId: string | null
+}
+
+/** The snapshot's workspace threads, grouped in workspace order and created order within one. */
+export function threadsFromSnapshot(snapshot: Snapshot): Thread[] {
+  const { persisted } = snapshot
+  const pending = new Map<string, number>()
+  for (const row of persisted.approvals) {
+    if (row.status !== 'pending') continue
+    pending.set(row.threadId, (pending.get(row.threadId) ?? 0) + 1)
+  }
+  const records = new Map(
+    snapshot.workspaces.map((ws, index) => [ws.id, { ws, index }]),
+  )
+  const items = persisted.threads.map((thread): Thread => {
+    const ws = records.get(thread.workspaceId)?.ws
+    return {
+      id: thread.id,
+      workspaceId: thread.workspaceId,
+      role: thread.title,
+      ownRole: thread.role,
+      engine: thread.engine,
+      status: thread.status,
+      paused: thread.status === 'paused',
+      activity: threadActivity(thread.status, ws),
+      pendingApprovals: pending.get(thread.id) ?? 0,
+      retired: thread.retired,
+      parentThreadId: thread.parentThreadId,
+      usage: {
+        usedTokens: thread.usedTokens,
+        contextSize: thread.contextSize,
+        costUsd: thread.costUsd,
+      },
+    }
+  })
+  // The first tab is the workspace's own thread; ids are random, so sorting by id would shuffle.
+  const order = (thread: Thread) => records.get(thread.workspaceId)?.index ?? 0
+  return items.sort((a, b) => order(a) - order(b))
 }
 
 const NO_THREADS: Thread[] = []
@@ -59,12 +96,12 @@ export class ThreadsStore {
   })
 
   /**
-   * Live workspace threads only. Scratches and retired threads stay out of agent counts, and
-   * so do the agents of a workspace being deleted, like the workspace itself.
+   * Live threads only. Retired threads stay out of agent counts, and so do the agents of a
+   * workspace being deleted, like the workspace itself.
    */
   readonly agents = $derived(
     this.items.filter((thread) => {
-      if (thread.scratchId || thread.retired) return false
+      if (thread.retired) return false
       const workspace = workspaces.getById(thread.workspaceId)
       return !workspace || !workspaces.isDeleting(workspace)
     }),
@@ -97,6 +134,24 @@ export class ThreadsStore {
   getById(id: string) {
     return this.byId.get(id)
   }
+
+  /** Whether the workspace's branch can change: not while an agent in it works or starts. */
+  branchLock(workspaceId: string): {
+    locked: boolean
+    reason: string | null
+    running: number
+  } {
+    const running = runningAgentCount(this.forWorkspace(workspaceId))
+    return running > 0
+      ? {
+          locked: true,
+          reason: 'Pause or stop the running agents to change branches.',
+          running,
+        }
+      : { locked: false, reason: null, running }
+  }
 }
 
 export const threads = new ThreadsStore()
+
+onSnapshot((snapshot) => threads.hydrate(threadsFromSnapshot(snapshot)))

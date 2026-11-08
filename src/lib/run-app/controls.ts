@@ -3,7 +3,7 @@ import type {
   WorkspaceAppStatus,
   WorkspaceLifecycle,
 } from '$lib/ipc/bindings'
-import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
+import { isWorkspaceProvisioning } from '$lib/state/activity'
 
 export type AppControls = {
   /** Play and ⌘R: `run` when stopped, a fresh `restart` after a crash; null while the app is up. */

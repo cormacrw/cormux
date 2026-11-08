@@ -18,8 +18,7 @@ import {
   leaveConversation,
 } from '$lib/conversation-motion'
 import { deepEqual } from '$lib/deep-equal'
-import { coreErrorText } from '$lib/feedback/core-error'
-import { showToast } from '$lib/feedback/show-toast'
+import { onSnapshot } from '$lib/core/sync'
 import type { Conversation } from '$lib/thread/conversations'
 import { createEventBatcher } from '$lib/thread/event-batcher'
 import { threadsToEvict } from '$lib/thread/evict-threads'
@@ -34,8 +33,10 @@ import {
 } from '$lib/thread/timed-events'
 import { appearance } from './appearance.svelte'
 import { findings } from './findings.svelte'
+import { scratches } from './scratches.svelte'
 import { threads, type Thread } from './threads.svelte'
 import { workspaces } from './workspaces.svelte'
+import { threadActivity } from './activity'
 
 const PAGE = 2000
 // Threads kept in memory for an instant switch back, on top of the ones on screen.
@@ -59,13 +60,8 @@ function timedEvents(rows: ThreadEventRow[]): TimedEvent[] {
   })
 }
 
-function toastError(message: string) {
-  showToast({ tone: 'bad', parts: [{ type: 'text', value: message }] })
-}
-
-function readFailed(error: CoreError) {
-  toastError(coreErrorText(error, 'Could not read this thread'))
-}
+/** Why an action failed: the core's error, or what threw, with what was being tried. */
+export type ThreadActionError = { error: CoreError | unknown; doing: string }
 
 /** Owns every thread's loaded history, its stream, and the view and actions built on them. */
 export class ThreadTimelineStore {
@@ -91,6 +87,7 @@ export class ThreadTimelineStore {
   /** Oldest first. */
   private recent: string[] = []
   private userMessageWaiters = new Map<string, () => void>()
+  private readErrorListeners = new Set<(error: CoreError) => void>()
   private batcher = createEventBatcher<{
     threadId: string
     streamed: StreamedEvent
@@ -104,6 +101,16 @@ export class ThreadTimelineStore {
       )
     }
   })
+
+  /** Hears a background read of a thread fail; nothing else asked for it, so nothing else would. */
+  onReadError(listener: (error: CoreError) => void) {
+    this.readErrorListeners.add(listener)
+    return () => void this.readErrorListeners.delete(listener)
+  }
+
+  private readFailed(error: CoreError) {
+    for (const listener of this.readErrorListeners) listener(error)
+  }
 
   hydrate(input: {
     threadIds: string[]
@@ -145,7 +152,7 @@ export class ThreadTimelineStore {
 
   /** The workspace whose review findings the thread ends with, if they're ready. */
   private findingsFor(thread: Thread | undefined): string | null {
-    if (!thread || thread.scratchId) return null
+    if (!thread) return null
     const workspaceId = thread.workspaceId
     if (!findings.forWorkspace(workspaceId).length) return null
     return workspaces.getById(workspaceId)?.reviewStatus === 'ready'
@@ -161,17 +168,26 @@ export class ThreadTimelineStore {
       this.views.set(threadId, builder)
     }
     const thread = threads.getById(threadId)
+    const scratch = thread ? undefined : scratches.forThread(threadId)
     return builder.view({
       events: this.eventsByThread[threadId],
       approvals: this.approvalsByThread.get(threadId) ?? NO_APPROVALS,
       findingsFor: this.findingsFor(thread),
-      meta: thread && {
-        status: thread.status,
-        paused: thread.paused,
-        activity: thread.activity,
-        lead: thread.ownRole === 'lead',
-        scratch: Boolean(thread.scratchId),
-      },
+      meta: thread
+        ? {
+            status: thread.status,
+            paused: thread.paused,
+            activity: thread.activity,
+            lead: thread.ownRole === 'lead',
+            scratch: false,
+          }
+        : scratch && {
+            status: scratch.status,
+            paused: scratch.status === 'paused',
+            activity: threadActivity(scratch.status),
+            lead: false,
+            scratch: true,
+          },
       currentTool: this.currentToolByThread[threadId] ?? null,
       hasOlder: this.olderByThread[threadId] ?? false,
       generation: this.historyGeneration[threadId] ?? 0,
@@ -254,7 +270,7 @@ export class ThreadTimelineStore {
     const result = await commands.getThreadEvents(threadId, null, null, PAGE)
     if (this.history.get(threadId) !== history) return
     if (result.status === 'error') {
-      readFailed(result.error)
+      this.readFailed(result.error)
       return
     }
     const rows = result.data.events
@@ -284,7 +300,7 @@ export class ThreadTimelineStore {
       )
       if (this.history.get(threadId) !== history) return
       if (result.status === 'error') {
-        readFailed(result.error)
+        this.readFailed(result.error)
         return
       }
       fetched.push(...result.data.events)
@@ -310,7 +326,7 @@ export class ThreadTimelineStore {
     )
     if (this.history.get(threadId) !== history) return false
     if (result.status === 'error') {
-      readFailed(result.error)
+      this.readFailed(result.error)
       return false
     }
     const rows = result.data.events
@@ -335,45 +351,45 @@ export class ThreadTimelineStore {
 
   /**
    * Posts a message to the thread's agent. The core shows it in the thread and moves the
-   * thread's status; resolves false (after toasting) if it didn't send.
+   * thread's status; resolves why it didn't send, or null.
    */
   async send(
     threadId: string,
     text: string,
     attachments: ComposerAttachment[] = [],
-  ): Promise<boolean> {
+  ): Promise<ThreadActionError | null> {
     firstPromptTransition(
       () => this.userMessageShown(threadId),
       () => appearance.glideWordmark(),
     )
+    const doing = 'Could not reach the agent'
     try {
       const result = await commands.sendThreadPrompt(
         threadId,
         text,
         attachments.map(toPromptAttachment),
       )
-      if (result.status === 'ok') return true
-      toastError(coreErrorText(result.error, 'Could not reach the agent'))
+      return result.status === 'ok' ? null : { error: result.error, doing }
     } catch (error) {
-      toastError(
-        error instanceof Error ? error.message : 'Could not reach the agent',
-      )
+      return { error, doing }
     }
-    return false
   }
 
-  async stop(threadId: string) {
+  async stop(threadId: string): Promise<ThreadActionError | null> {
     const result = await commands.cancelThreadTurn(threadId)
-    if (result.status === 'error') {
-      toastError(coreErrorText(result.error, 'Could not stop the agent'))
-    }
+    return result.status === 'error'
+      ? { error: result.error, doing: 'Could not stop the agent' }
+      : null
   }
 
   /**
    * Swaps the conversation on screen for a fresh session, or back to an earlier one, whose
    * session the agent resumes. The one on screen fades out first and comes back if it fails.
    */
-  async switchConversation(threadId: string, to: Conversation | 'new') {
+  async switchConversation(
+    threadId: string,
+    to: Conversation | 'new',
+  ): Promise<ThreadActionError | null> {
     if (to === 'new') {
       // The wordmark starts rising back at once, not after the swap lands.
       appearance.glideWordmark()
@@ -388,17 +404,16 @@ export class ThreadTimelineStore {
             conversationId: to.id,
             sessionId: to.sessionId,
           })
-    if (result.status === 'ok') return
+    if (result.status === 'ok') return null
     restore()
     if (to === 'new') appearance.wordmarkAway = true
-    toastError(
-      coreErrorText(
-        result.error,
+    return {
+      error: result.error,
+      doing:
         to === 'new'
           ? 'Could not start a new session'
           : 'Could not resume that conversation',
-      ),
-    )
+    }
   }
 
   /** For streamed events: they land together, once per frame, except your own messages. */
@@ -459,3 +474,14 @@ function isUserMessage({ event }: StreamedEvent) {
 }
 
 export const threadTimeline = new ThreadTimelineStore()
+
+onSnapshot((snapshot) =>
+  threadTimeline.hydrate({
+    threadIds: [
+      ...snapshot.persisted.threads.map((thread) => thread.id),
+      ...snapshot.persisted.scratches.map((scratch) => scratch.threadId),
+    ],
+    approvals: snapshot.persisted.approvals,
+    activity: snapshot.persisted.threadActivity,
+  }),
+)

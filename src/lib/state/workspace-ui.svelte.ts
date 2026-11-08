@@ -1,7 +1,9 @@
 import { tick } from 'svelte'
+import { nav } from '$lib/core/nav.svelte'
+import type { WorkspacePanel } from '$lib/core/route'
 import { readPaneWidth, savePaneWidth } from '$lib/primitives/slide-out'
 
-type WorkspacePanelTab = 'thread' | 'findings' | 'changes' | 'output'
+type WorkspacePanelTab = WorkspacePanel
 
 /** Everything but the conversation slides out over it instead of replacing it. */
 type WorkspaceSlideOut = Exclude<WorkspacePanelTab, 'thread'>
@@ -89,15 +91,6 @@ export class WorkspaceUiStore {
   readonly outputVisible = $derived(
     this.activeTab === 'output' || this.pinnedTray === 'output',
   )
-  /** File to expand and scroll to in Changes (set by links in the conversation). */
-  revealDiffPath = $state<string | null>(null)
-  /** Line of the new file to scroll to once `revealDiffPath` is shown. */
-  revealDiffLine = $state<number | null>(null)
-  /** Files the user folded (true) or unfolded (false) in Changes; others use the default. */
-  collapsedDiffPaths = $state<Record<string, boolean>>({})
-  diffMode = $state<'unified' | 'split'>('unified')
-  /** When true, opening Findings focuses the panel heading (card entry). */
-  findingsFocusPending = $state(false)
 
   openTab(tab: WorkspacePanelTab) {
     // While a tray is pinned, the other tray takes its place as the pane,
@@ -110,13 +103,6 @@ export class WorkspaceUiStore {
       return
     }
     this.activeTab = tab
-  }
-
-  /** Opens Changes at a file, and at a line of it when given. */
-  revealInChanges(path: string, line: number | null = null) {
-    this.revealDiffPath = path
-    this.revealDiffLine = line
-    this.openTab('changes')
   }
 
   /** Slides whatever is out away, back to the conversation. */
@@ -177,10 +163,16 @@ export class WorkspaceUiStore {
 
   resetForWorkspace() {
     this.activeTab = 'thread'
-    this.revealDiffPath = null
-    this.revealDiffLine = null
-    this.collapsedDiffPaths = {}
   }
 }
 
 export const workspaceUi = new WorkspaceUiStore()
+
+// Another workspace opens on its conversation, unless the route names a panel.
+nav.onNavigate((to, from) => {
+  if (to.view !== 'workspace') return
+  if (from.view !== 'workspace' || from.workspaceId !== to.workspaceId) {
+    workspaceUi.resetForWorkspace()
+  }
+  if (to.panel) workspaceUi.openTab(to.panel)
+})

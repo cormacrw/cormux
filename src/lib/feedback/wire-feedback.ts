@@ -1,5 +1,5 @@
 import { events, type CoreError } from '$lib/ipc'
-import { coreErrorText } from './core-error'
+import { coreErrorText } from '$lib/core/core-error'
 import type { ToastRaised } from '$lib/ipc/bindings'
 import { coreErrorToast, environmentReloadToast } from './toast-payload'
 import { showToast } from './show-toast'
@@ -22,15 +22,19 @@ function showCoreToast(event: ToastRaised) {
   })
 }
 
-export function toastCoreError(error: unknown) {
+/** A bad toast for a failure: a core error, something thrown, or a message; `fallback` when it says nothing. */
+export function toastCoreError(
+  error: unknown,
+  fallback = 'Something went wrong',
+) {
   const message =
     error instanceof Error
       ? error.message
       : typeof error === 'string'
         ? error
         : isCoreError(error)
-          ? coreErrorText(error)
-          : 'Something went wrong'
+          ? coreErrorText(error, fallback)
+          : fallback
   showToast(coreErrorToast(message))
 }
 

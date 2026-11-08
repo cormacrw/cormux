@@ -1,11 +1,8 @@
 import type { DiffFile, DiffTarget, LineCounts } from '$lib/ipc/bindings'
 import { subscribeDiffs } from '$lib/ipc'
-import { sameDiffTarget } from '$lib/stack/stack'
-import { reuseUnchangedFiles } from '$lib/changes/reuse-files'
-import {
-  totalsFromDiffFiles,
-  type DiffLineTotals,
-} from '$lib/workspace/diff-totals'
+import { sameDiffTarget } from './stack'
+import { reuseUnchangedFiles } from './reuse-files'
+import { totalsFromDiffFiles, type DiffLineTotals } from './diff-totals'
 
 /** A diff fetch in flight. `target` is set when it changed, so the old files are stale. */
 type PendingDiff =
@@ -39,6 +36,12 @@ export class WorkspaceDiffStore {
 
   pending(workspaceId: string): PendingDiff | null {
     return this.pendingByWorkspace[workspaceId] ?? null
+  }
+
+  /** What the diff shows, or where it's headed while a retarget loads. */
+  shownTarget(workspaceId: string): DiffTarget | null {
+    const pending = this.pending(workspaceId)
+    return pending?.retarget ? pending.target : this.target(workspaceId)
   }
 
   /**

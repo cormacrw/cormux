@@ -1,4 +1,4 @@
-import type { WorkspaceAppStatus } from '$lib/ipc/bindings'
+import type { WorkspaceAppStatus, WorkspaceKind } from '$lib/ipc/bindings'
 import { plural } from '$lib/format/plural'
 
 export function findingsTabAriaLabel(openCount: number): string {
@@ -33,7 +33,7 @@ export function outputTabAriaLabel(input: {
 
 /** Review workspaces show it once the review is in; others once a branch review found something. */
 export function showFindingsTab(input: {
-  workspaceKind: 'review' | null
+  workspaceKind: WorkspaceKind
   reviewReady: boolean
   hasFindings: boolean
 }): boolean {

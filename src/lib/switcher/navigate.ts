@@ -1,5 +1,7 @@
-import { app } from '$lib/state/app.svelte'
-import { clickup } from '$lib/state/clickup.svelte'
+import { openWorkspace } from '$lib/workspace/open'
+import { navigate } from '$lib/core/nav.svelte'
+import { nav } from '$lib/core/nav.svelte'
+import { clickup } from '$lib/clickup/store.svelte'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 import { switcher } from '$lib/state/switcher.svelte'
 import { threads } from '$lib/state/threads.svelte'
@@ -8,10 +10,10 @@ import type { Place } from './places'
 
 /** Where the app is, as a place the switcher knows, or null (Settings, a scratch, a repo). */
 export function currentPlace(): Place | null {
-  if (app.view === 'workspace' && app.workspaceId)
-    return { kind: 'workspace', id: app.workspaceId }
-  if (app.view === 'newThread' || app.view === 'sprint')
-    return { kind: app.view }
+  if (nav.view === 'workspace' && nav.workspaceId)
+    return { kind: 'workspace', id: nav.workspaceId }
+  if (nav.view === 'newThread' || nav.view === 'sprint')
+    return { kind: nav.view }
   return null
 }
 
@@ -20,9 +22,9 @@ function openPlace(place: Place) {
     const thread = switcher.lastThread[place.id]
     const stillThere =
       thread && threads.getById(thread)?.workspaceId === place.id
-    app.openWorkspace(place.id, stillThere ? thread : undefined)
-  } else if (place.kind === 'newThread') app.openNewThread()
-  else app.openSprint()
+    openWorkspace(place.id, { threadId: stillThere ? thread : undefined })
+  } else if (place.kind === 'newThread') navigate({ view: 'newThread' })
+  else navigate({ view: 'sprint' })
 }
 
 function commit(index?: number) {

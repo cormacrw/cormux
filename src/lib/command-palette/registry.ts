@@ -1,14 +1,15 @@
+import { updateSettings } from '$lib/settings/actions'
+import { openWorkspace } from '$lib/workspace/open'
+import { navigate } from '$lib/core/nav.svelte'
 import { reviewPullRequest } from '$lib/review/start-review'
 import { appControls, controlApp } from '$lib/run-app/actions'
-import { openSettingsSection } from '$lib/settings/open'
-import { app } from '$lib/state/app.svelte'
-import { clickup } from '$lib/state/clickup.svelte'
+import { openSettings } from '$lib/settings/open'
+import { clickup } from '$lib/clickup/store.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches } from '$lib/state/scratches.svelte'
-import { settings } from '$lib/state/settings.svelte'
+import { settings } from '$lib/settings/store.svelte'
 import { prs } from '$lib/state/prs.svelte'
 import { threads } from '$lib/state/threads.svelte'
-import { workspaceRecords } from '$lib/state/workspace-records.svelte'
 import { workspaces } from '$lib/state/workspaces.svelte'
 import { pullWorkspace } from '$lib/workspace/git-actions'
 import { openWorkspaceFindings, openWorkspaceThread } from '$lib/workspace/open'
@@ -27,22 +28,20 @@ export function buildPaletteCommands(): PaletteCommand[] {
       threads: threads.agents,
       repos: repos.items,
       pullRequests: prs.items,
-      runtimeFor: (id) => workspaceRecords.runtime(id),
       appControlsFor: appControls,
-      recordFor: (id) => workspaceRecords.getRecord(id),
     },
     {
-      openNewThread: () => app.openNewThread(),
-      openScratch: (id) => app.openScratch(id),
+      openNewThread: () => navigate({ view: 'newThread' }),
+      openScratch: (id) => navigate({ view: 'scratch', scratchId: id }),
       runBang: (id, extra) => void runBang(id, extra),
-      openRepo: (id) => app.openRepo(id),
+      openRepo: (id) => navigate({ view: 'repo', repoId: id }),
       reviewPullRequest,
-      openSprint: () => app.openSprint(),
-      openSettings: () => app.openSettings(),
-      openWorkspace: (id, threadId) => app.openWorkspace(id, threadId),
+      openSprint: () => navigate({ view: 'sprint' }),
+      openSettings: () => openSettings(),
+      openWorkspace: (id, threadId) => openWorkspace(id, { threadId }),
       toggleReduceMotion: () =>
-        settings.update({ reduceMotion: !settings.reduceMotion }),
-      openSettingsSection,
+        updateSettings({ reduceMotion: !settings.reduceMotion }),
+      openSettingsSection: (section) => openSettings({ section }),
       openWorkspaceThread,
       openWorkspaceFindings,
       controlApp: (id, action) => void controlApp(id, action),

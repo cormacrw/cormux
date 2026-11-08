@@ -27,14 +27,10 @@
   import { createVirtualizer } from '@tanstack/svelte-virtual'
   import { Button } from '$lib/components/ui/button'
   import { enterConversation } from '$lib/conversation-motion'
-  import {
-    app,
-    prs,
-    threadTimeline,
-    workspaceDiff,
-    workspaceRecords,
-    workspaceUi,
-  } from '$lib/state'
+  import { prs, threadTimeline, workspaceUi } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
+  import { workspaces } from '$lib/state/workspaces.svelte'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import type { FindPullRequest } from '$lib/thread/enhance-markdown'
   import { createEntryScope } from '$lib/thread/entering'
@@ -144,7 +140,7 @@
     },
     get workdir() {
       return workspaceId
-        ? workspaceRecords.getRecord(workspaceId)?.worktreePath
+        ? workspaces.getById(workspaceId)?.worktreePath
         : undefined
     },
     diffFile: (path) => diffFileByPath.get(path),
@@ -232,7 +228,7 @@
 
   // Coming back to the thread, or to its tab, lands on the newest message.
   $effect(() => {
-    void app.threadId
+    void nav.threadId
     void workspaceUi.activeTab
     untrack(followEnd)
   })

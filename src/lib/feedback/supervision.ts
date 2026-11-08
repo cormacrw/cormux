@@ -1,4 +1,6 @@
 import type { Snapshot } from '$lib/ipc'
+import { onSnapshot } from '$lib/core/sync'
+import { plural } from '$lib/format/plural'
 import { notifyHarness } from './os-notifications'
 import {
   approvalNeededNotificationBody,
@@ -49,7 +51,7 @@ function newestApprovalTarget(snapshot: Snapshot): ToastTarget | undefined {
   return { workspaceId: thread.workspaceId, threadId: thread.id }
 }
 
-export async function onSnapshotSupervision(snapshot: Snapshot) {
+async function onSnapshotSupervision(snapshot: Snapshot) {
   const pending = snapshot.pendingApprovals
   if (
     pending > lastPending &&
@@ -76,13 +78,18 @@ export async function onSnapshotSupervision(snapshot: Snapshot) {
         ),
       )
       if (!windowFocused && snapshot.settings.notifyReviewFinished) {
-        const label =
-          prNumberForWorkspace(snapshot, workspaceId) != null
-            ? `Review of #${prNumberForWorkspace(snapshot, workspaceId)} finished · ${count} findings`
-            : `Review finished · ${count} findings`
+        const prNumber = prNumberForWorkspace(snapshot, workspaceId)
+        const head =
+          prNumber != null
+            ? `Review of #${prNumber} finished`
+            : 'Review finished'
+        const label = `${head} · ${plural(count, 'finding')}`
         await notifyHarness('Cormux', label, { workspaceId, findings: true })
       }
     }
   }
   lastOpenFindings = openFindings
 }
+
+// Toasts and notifications for what changed while you looked away.
+onSnapshot((snapshot) => void onSnapshotSupervision(snapshot))

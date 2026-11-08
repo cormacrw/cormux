@@ -5,7 +5,8 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
   import SprintTaskPanel from '$lib/components/sprint/SprintTaskPanel.svelte'
-  import { app, clickup } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { clickup } from '$lib/clickup/store.svelte'
   import {
     escClosesSlideOut,
     readPaneWidth,
@@ -19,15 +20,14 @@
 
   const ready = $derived(clickup.selectedTask != null)
 
-  // Leaving the page it was opened on closes it. A task opened along with the
-  // page (app.openSprint(taskId)) belongs to that page, so it stays.
+  // Leaving the page it was opened on closes it.
   let openedOn: string | null = null
   $effect(() => {
     void clickup.selectedTaskId
-    untrack(() => (openedOn = app.view))
+    untrack(() => (openedOn = nav.view))
   })
   $effect(() => {
-    const view = app.view
+    const view = nav.view
     untrack(() => {
       if (clickup.selectedTaskId && openedOn !== view) clickup.select(null)
     })

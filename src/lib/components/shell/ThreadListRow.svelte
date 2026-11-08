@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { openWorkspace } from '$lib/workspace/open'
+  import { navigate } from '$lib/core/nav.svelte'
   import { formatRelativeAge } from '$lib/format/relative-time'
   import { plural } from '$lib/format/plural'
   import {
@@ -6,7 +8,8 @@
     statusDotVariantForWorkspace,
     workspaceStatusWord,
   } from '$lib/sidebar/status'
-  import { app, workspaceRecords } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { workspaces } from '$lib/state/workspaces.svelte'
   import type { ThreadListRowItem } from '$lib/state/sidebar-workspaces.svelte'
   import { cn } from '$lib/utils'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -21,8 +24,8 @@
 
   const isCurrent = $derived(
     workspace
-      ? app.view === 'workspace' && app.workspaceId === item.id
-      : app.view === 'scratch' && app.scratchId === item.id,
+      ? nav.view === 'workspace' && nav.workspaceId === item.id
+      : nav.view === 'scratch' && nav.scratchId === item.id,
   )
 
   const statusInput = $derived(
@@ -56,7 +59,7 @@
   )
 
   // The workspace's dev app, shown so a running server is findable without opening it.
-  const appRuntime = $derived(workspace && workspaceRecords.runtime(item.id))
+  const appRuntime = $derived(workspace && workspaces.runtime(item.id))
   const appPort = $derived(
     appRuntime?.appStatus === 'running' ? appRuntime.port : null,
   )
@@ -79,8 +82,8 @@
   )
 
   function open() {
-    if (workspace) app.openWorkspace(item.id)
-    else app.openScratch(item.id)
+    if (workspace) openWorkspace(item.id)
+    else navigate({ view: 'scratch', scratchId: item.id })
   }
 </script>
 

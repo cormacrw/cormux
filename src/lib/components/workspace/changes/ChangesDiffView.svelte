@@ -9,7 +9,8 @@
   } from '$lib/changes/diff-comments.svelte'
   import { toDiffViewData } from '$lib/changes/diff-view-data'
   import { isLargeDiff } from '$lib/changes/file-status'
-  import { appearance, workspaceUi } from '$lib/state'
+  import { appearance } from '$lib/state'
+  import { changesUi } from '$lib/changes/changes-ui.svelte'
   import { isModEnter } from '$lib/keyboard/mod-enter'
   import { Button } from '$lib/components/ui/button'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -31,9 +32,7 @@
 
   const data = $derived(toDiffViewData(file))
   const mode = $derived(
-    workspaceUi.diffMode === 'split'
-      ? DiffModeEnum.Split
-      : DiffModeEnum.Unified,
+    changesUi.diffMode === 'split' ? DiffModeEnum.Split : DiffModeEnum.Unified,
   )
 
   const extendData = $derived.by(() => {

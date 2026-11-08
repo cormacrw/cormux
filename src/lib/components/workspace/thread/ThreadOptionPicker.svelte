@@ -15,7 +15,7 @@
     claimWorkspacePopover,
     releaseWorkspacePopover,
   } from '$lib/keyboard/popover-registry'
-  import { coreErrorText } from '$lib/feedback/core-error'
+  import { coreErrorText } from '$lib/core/core-error'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
 
   const KINDS = {

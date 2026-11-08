@@ -47,14 +47,14 @@ describe('findings', () => {
   it('shows findings tab on a regular workspace once a review found something', () => {
     expect(
       showFindingsTab({
-        workspaceKind: null,
+        workspaceKind: 'lead',
         reviewReady: true,
         hasFindings: false,
       }),
     ).toBe(false)
     expect(
       showFindingsTab({
-        workspaceKind: null,
+        workspaceKind: 'lead',
         reviewReady: false,
         hasFindings: true,
       }),

@@ -1,4 +1,4 @@
-import { settings } from '$lib/state/settings.svelte'
+import { settings } from '$lib/settings/store.svelte'
 
 /** True under the in-app reduce-motion switch or the OS setting. */
 export function prefersReducedMotion(): boolean {

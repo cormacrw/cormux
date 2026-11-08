@@ -4,11 +4,10 @@
   import { diffComments } from '$lib/changes/diff-comments.svelte'
   import {
     inferFileStatus,
-    isDiffCollapsed,
     splitPath,
     statusLabel,
   } from '$lib/changes/file-status'
-  import { workspaceUi } from '$lib/state'
+  import { changesUi } from '$lib/changes/changes-ui.svelte'
   import { cn } from '$lib/utils'
   import LazyDiff from './LazyDiff.svelte'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
@@ -29,10 +28,7 @@
   } = $props()
 
   function toggle(file: DiffFile) {
-    workspaceUi.collapsedDiffPaths = {
-      ...workspaceUi.collapsedDiffPaths,
-      [file.path]: !isDiffCollapsed(workspaceUi.collapsedDiffPaths, file),
-    }
+    changesUi.toggle(file)
   }
 </script>
 
@@ -40,7 +36,7 @@
   {#each files as file (file.path)}
     {@const status = inferFileStatus(file)}
     {@const parts = splitPath(file.path)}
-    {@const open = !isDiffCollapsed(workspaceUi.collapsedDiffPaths, file)}
+    {@const open = !changesUi.isCollapsed(file)}
     {@const commentCount = diffComments.forFile(
       workspaceId,
       branch,

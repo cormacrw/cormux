@@ -1,8 +1,4 @@
-import type {
-  RepoRecord,
-  WorkspaceAppControlAction,
-  WorkspaceRecord,
-} from '$lib/ipc/bindings'
+import type { RepoRecord, WorkspaceAppControlAction } from '$lib/ipc/bindings'
 import { workspaceCardMetaText } from './workspace-meta'
 import { plural } from '$lib/format/plural'
 import { shortcutLabel } from '$lib/keyboard/shortcuts'
@@ -41,9 +37,7 @@ type PaletteRegistryState = {
   threads: Thread[]
   repos: RepoRecord[]
   pullRequests: PullRequest[]
-  runtimeFor: (workspaceId: string) => { port: number | null; behind: number }
   appControlsFor: (workspaceId: string) => AppControls
-  recordFor: (workspaceId: string) => WorkspaceRecord | undefined
 }
 
 export function buildPaletteCommandsFromState(
@@ -129,7 +123,7 @@ export function buildPaletteCommandsFromState(
       id: `ws-open-${workspace.id}`,
       group: 'Workspaces',
       label: `Open ${workspace.name}`,
-      meta: workspaceCardMetaText(workspace, wsThreads),
+      meta: workspaceCardMetaText(wsThreads),
       icon: 'workspace',
       run: () => actions.openWorkspace(workspace.id),
     })
@@ -206,7 +200,7 @@ export function buildPaletteCommandsFromState(
       })
     }
     if (controls.canRestart) {
-      const { port } = state.runtimeFor(workspace.id)
+      const { port } = workspace.runtime
       cmds.push({
         id: `app-restart-${workspace.id}`,
         group: 'App',
@@ -231,14 +225,12 @@ export function buildPaletteCommandsFromState(
   }
 
   for (const workspace of state.workspaces) {
-    const record = state.recordFor(workspace.id)
-    if (!record) continue
-    const behind = state.runtimeFor(workspace.id).behind
+    const { behind } = workspace.runtime
     if (behind <= 0) continue
     cmds.push({
       id: `git-pull-${workspace.id}`,
       group: 'Git',
-      label: `Pull ${plural(behind, 'commit')} from ${record.base} into ${workspace.name}`,
+      label: `Pull ${plural(behind, 'commit')} from ${workspace.base} into ${workspace.name}`,
       icon: 'pull',
       run: () => actions.pullWorkspace(workspace.id),
     })

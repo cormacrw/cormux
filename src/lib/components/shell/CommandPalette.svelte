@@ -10,7 +10,7 @@
   import type { PaletteCommand, PaletteIcon } from '$lib/command-palette/types'
   import { bangPreview, paletteBang } from '$lib/settings/bangs'
   import { palette } from '$lib/state/palette.svelte'
-  import { settings } from '$lib/state/settings.svelte'
+  import { settings } from '$lib/settings/store.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import type { Component } from 'svelte'
   import Download from '@lucide/svelte/icons/download'

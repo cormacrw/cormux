@@ -1,5 +1,5 @@
-import { commands, fetchSnapshot, type CoreError } from '$lib/ipc'
-import { hydrateFromSnapshot } from '$lib/state'
+import { commands, type CoreError } from '$lib/ipc'
+import { refreshSnapshot } from '$lib/core/sync'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
 
 /** Runs a git command, toasting its error, then refreshes; resolves to whether it succeeded. */
@@ -10,7 +10,7 @@ async function runGit(
 ): Promise<boolean> {
   const result = await action()
   if (result.status === 'error') toastCoreError(result.error)
-  hydrateFromSnapshot(await fetchSnapshot())
+  await refreshSnapshot()
   return result.status === 'ok'
 }
 

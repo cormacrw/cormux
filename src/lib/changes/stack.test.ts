@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
-import type { PullRequest } from '$lib/state/prs.svelte'
 import {
   canAddToStack,
   commitsLabel,
-  pullRequestForBranch,
   stackCardsTopFirst,
   diffTargetLabel,
   isDiffTargetOf,
@@ -82,12 +80,5 @@ describe('stack helpers', () => {
     expect(isDiffTargetOf(review, 'pr-7', 'main', 'pr-7')).toBe(true)
     expect(diffTargetLabel(target)).toBe('b vs a')
     expect(diffTargetLabel(null)).toBe('Uncommitted changes')
-  })
-
-  it('matches synced pull requests by repo and head branch', () => {
-    const pr = { repoId: 'r1', head: 'b', num: 7 } as PullRequest
-    const other = { repoId: 'r2', head: 'b', num: 8 } as PullRequest
-    expect(pullRequestForBranch([other, pr], 'r1', 'b')?.num).toBe(7)
-    expect(pullRequestForBranch([other], 'r1', 'b')).toBeUndefined()
   })
 })

@@ -5,7 +5,7 @@
   import * as Card from '$lib/components/ui/card'
   import { Textarea } from '$lib/components/ui/textarea'
   import { commands, type CoreError } from '$lib/ipc'
-  import { coreErrorText } from '$lib/feedback/core-error'
+  import { coreErrorText } from '$lib/core/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { cn } from '$lib/utils'
   import type { TimelineItem } from '$lib/thread/timeline-types'

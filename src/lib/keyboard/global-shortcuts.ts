@@ -1,8 +1,12 @@
+import { openWorkspace } from '$lib/workspace/open'
+import { openSettings } from '$lib/settings/open'
+import { navigate } from '$lib/core/nav.svelte'
+import { switchConversation } from '$lib/thread/actions'
 import {
   closeActiveWorkspacePopover,
   dismissOpenPopover,
 } from '$lib/keyboard/popover-registry'
-import { app } from '$lib/state/app.svelte'
+import { nav } from '$lib/core/nav.svelte'
 import { palette } from '$lib/state/palette.svelte'
 import { threadFind } from '$lib/state/thread-find.svelte'
 import { handleSwitcherKeydown } from '$lib/switcher/navigate'
@@ -36,8 +40,8 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   // Find in the conversation on screen: a workspace thread or a scratch.
   if (isShortcut(event, 'find')) {
     const conversation =
-      (app.view === 'workspace' && workspaceUi.activeTab === 'thread') ||
-      app.view === 'scratch'
+      (nav.view === 'workspace' && workspaceUi.activeTab === 'thread') ||
+      nav.view === 'scratch'
     if (conversation && !shellDialogs.anyOpen()) {
       event.preventDefault()
       threadFind.request()
@@ -47,30 +51,30 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
 
   if (isShortcut(event, 'newThread')) {
     event.preventDefault()
-    if (!shellDialogs.anyOpen()) app.openNewThread()
+    if (!shellDialogs.anyOpen()) navigate({ view: 'newThread' })
     return
   }
 
   if (isShortcut(event, 'settings')) {
     event.preventDefault()
-    if (!shellDialogs.anyOpen()) app.openSettings()
+    if (!shellDialogs.anyOpen()) openSettings()
     return
   }
 
   if (mod && !event.shiftKey && !event.altKey && /^[1-9]$/.test(event.key)) {
     event.preventDefault()
     const workspace = sidebarWorkspaces.ordered[Number(event.key) - 1]
-    if (workspace && !shellDialogs.anyOpen()) app.openWorkspace(workspace.id)
+    if (workspace && !shellDialogs.anyOpen()) openWorkspace(workspace.id)
     return
   }
 
-  if (isShortcut(event, 'toggleGit') && app.view === 'workspace') {
+  if (isShortcut(event, 'toggleGit') && nav.view === 'workspace') {
     event.preventDefault()
     if (!shellDialogs.anyOpen()) workspaceUi.toggleGit()
     return
   }
 
-  if (isShortcut(event, 'toggleOutput') && app.view === 'workspace') {
+  if (isShortcut(event, 'toggleOutput') && nav.view === 'workspace') {
     event.preventDefault()
     if (!shellDialogs.anyOpen()) workspaceUi.toggleOutputTab()
     return
@@ -79,7 +83,7 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   if (
     event.ctrlKey &&
     event.key === '`' &&
-    app.view === 'workspace' &&
+    nav.view === 'workspace' &&
     !shellDialogs.anyOpen()
   ) {
     event.preventDefault()
@@ -89,15 +93,15 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
 
   if (
     isShortcut(event, 'newSession') &&
-    app.view === 'workspace' &&
+    nav.view === 'workspace' &&
     workspaceUi.activeTab === 'thread' &&
-    app.threadId &&
+    nav.threadId &&
     !shellDialogs.anyOpen()
   ) {
     event.preventDefault()
-    const threadId = app.threadId
+    const threadId = nav.threadId
     if (threadTimeline.threadView(threadId).canClearSession) {
-      void threadTimeline.switchConversation(threadId, 'new')
+      void switchConversation(threadId, 'new')
     }
     return
   }

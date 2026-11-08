@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { PullRequest } from '$lib/state/prs.svelte'
-import { branchHoldReason, pullRequestForBranch } from './branch-hold'
+import { branchHoldReason } from './branch-hold'
 
 describe('branchHoldReason', () => {
   const base = { defaultBranch: 'main', head: 'main', checkedOutBy: [] }
@@ -18,14 +17,5 @@ describe('branchHoldReason', () => {
       branchHoldReason({ ...base, name: 'feat/wip', head: 'feat/wip' }),
     ).toBe('Checked out in the repo')
     expect(branchHoldReason({ ...base, name: 'feat/colors' })).toBe(null)
-  })
-})
-
-describe('pullRequestForBranch', () => {
-  it('matches a pull request on this repo by head branch', () => {
-    const pr = { repoId: 'my-app', head: 'feat/colors', num: 12 } as PullRequest
-    expect(pullRequestForBranch([pr], 'my-app', 'feat/colors')).toBe(pr)
-    expect(pullRequestForBranch([pr], 'other', 'feat/colors')).toBe(null)
-    expect(pullRequestForBranch([pr], 'my-app', 'main')).toBe(null)
   })
 })

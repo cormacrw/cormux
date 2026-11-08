@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { updateSettings } from '$lib/settings/actions'
   import { onMount } from 'svelte'
   import { commands } from '$lib/ipc'
-  import { settings } from '$lib/state'
+  import { settings } from '$lib/settings/store.svelte'
   import PromptSetting from './PromptSetting.svelte'
 
   let defaultPrPrompt = $state('')
@@ -19,7 +20,7 @@
       hint="What the agent is asked when Create PR drafts a description. The thread, goal and changed files are added after it."
       saved={settings.prPrompt}
       defaultPrompt={defaultPrPrompt}
-      onSave={(next) => void settings.update({ prPrompt: next })}
+      onSave={(next) => void updateSettings({ prPrompt: next })}
     />
   {/if}
 </div>

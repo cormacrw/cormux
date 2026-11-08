@@ -13,6 +13,7 @@ import {
 } from '$lib/findings/selection'
 import { openFindings, type FindingSeverity } from '$lib/findings/types'
 import { reuseRows } from './reuse-rows'
+import { onSnapshot } from '$lib/core/sync'
 
 function sameSet(a: Set<string>, b: Set<string>) {
   if (a.size !== b.size) return false
@@ -167,3 +168,5 @@ export class FindingsStore {
 }
 
 export const findings = new FindingsStore()
+
+onSnapshot((snapshot) => findings.hydrate(snapshot.persisted.findings))

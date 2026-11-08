@@ -2,7 +2,7 @@
   import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus'
   import Kanban from '@lucide/svelte/icons/square-kanban'
   import StatusDot from './StatusDot.svelte'
-  import { repos, switcher, workspaceRecords, workspaces } from '$lib/state'
+  import { repos, switcher, workspaces } from '$lib/state'
   import { statusDotVariantForWorkspace } from '$lib/sidebar/status'
   import { commitPlace } from '$lib/switcher/navigate'
   import { placeKey, type Place } from '$lib/switcher/places'
@@ -28,7 +28,7 @@
 
   function workspaceDetail(id: string): string {
     const workspace = workspaces.getById(id)
-    const repoId = workspaceRecords.getRecord(id)?.repoId
+    const repoId = workspaces.getById(id)?.repoId
     const repo = repoId ? repos.getById(repoId)?.name : undefined
     return [workspace?.branch, repo].filter(Boolean).join(' · ')
   }
