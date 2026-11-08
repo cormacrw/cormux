@@ -140,7 +140,7 @@ pub fn usage_from_result(event: &Event) -> Option<(u64, u64, Option<f64>)> {
         used,
         // 0 is "not reported": an unknown window shouldn't read as a full context.
         context_size.unwrap_or(0),
-        cost_usd.as_ref().and_then(|value| value.parse().ok()),
+        *cost_usd,
     ))
 }
 
@@ -309,7 +309,7 @@ mod tests {
             result: None,
             used_tokens: Some(120),
             context_size: Some(200_000),
-            cost_usd: Some("0.02".into()),
+            cost_usd: Some(0.02),
         });
         assert_eq!(usage, Some((120, 200_000, Some(0.02))));
     }

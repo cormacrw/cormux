@@ -1,4 +1,4 @@
-//! Spike 1 (COR-42): Claude Code stream-JSON control protocol.
+//! The Claude Code adapter: one `claude -p` per thread, spoken to over its stream-JSON control protocol.
 //!
 //! Findings against Claude Code 2.1.x:
 //! - `-p` is required; `--input-format stream-json` is print-mode only.
@@ -182,7 +182,7 @@ async fn run(
                     }
                 }
                 Some(EngineCommand::Shutdown) | None => {
-                    let _ = session.shutdown().await;
+                    session.shutdown().await;
                     break;
                 }
             },
@@ -227,7 +227,7 @@ async fn run(
                     let _ = output.send(EngineOutput::Exited);
                     // The CLI's gone, but the shells and servers it started are in its
                     // process group and outlive it unless the group is killed too.
-                    let _ = session.shutdown().await;
+                    session.shutdown().await;
                     break;
                 }
                 Err(error) => {
@@ -236,7 +236,7 @@ async fn run(
                         stop_reason: StopReason::failed(None),
                         error: Some(error.to_string()),
                     });
-                    let _ = session.shutdown().await;
+                    session.shutdown().await;
                     break;
                 }
             },
@@ -308,16 +308,12 @@ fn permission_decision(answer: PermissionAnswer, input: Value) -> PermissionDeci
     match answer {
         PermissionAnswer::Allow => PermissionDecision::Allow {
             updated_input: input,
-            updated_permissions: None,
         },
         PermissionAnswer::Deny { message } => PermissionDecision::Deny { message },
         PermissionAnswer::Answer { answers } => {
             let mut updated_input = input;
             updated_input["answers"] = json!(answers);
-            PermissionDecision::Allow {
-                updated_input,
-                updated_permissions: None,
-            }
+            PermissionDecision::Allow { updated_input }
         }
     }
 }

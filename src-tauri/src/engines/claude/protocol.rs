@@ -8,11 +8,7 @@ use crate::error::{Error, Result};
 #[serde(tag = "type")]
 pub enum StdinMessage {
     #[serde(rename = "user")]
-    User {
-        message: UserPayload,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        parent_tool_use_id: Option<String>,
-    },
+    User { message: UserPayload },
     #[serde(rename = "control_request")]
     ControlRequest {
         request_id: String,
@@ -89,9 +85,6 @@ pub enum PermissionDecision {
     Allow {
         #[serde(rename = "updatedInput")]
         updated_input: Value,
-        /// Rule or mode changes that come with the allow, such as leaving plan mode.
-        #[serde(rename = "updatedPermissions", skip_serializing_if = "Option::is_none")]
-        updated_permissions: Option<Value>,
     },
     #[serde(rename = "deny")]
     Deny { message: String },
@@ -105,12 +98,10 @@ pub struct CanUseTool {
     pub tool_use_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Init {
         session_id: String,
-        /// The mode the session started in, such as `default`, `auto` or `plan`.
-        permission_mode: Option<String>,
     },
     /// One assistant message, its content blocks in order.
     Assistant {
@@ -138,7 +129,7 @@ pub enum Event {
         /// The model's context window.
         context_size: Option<u64>,
         /// What this CLI process has cost so far; it starts over when a session is resumed.
-        cost_usd: Option<String>,
+        cost_usd: Option<f64>,
     },
     ControlResponse {
         request_id: String,
@@ -205,7 +196,6 @@ pub fn user_prompt_message(prompt: &Prompt) -> StdinMessage {
             role: "user",
             content,
         },
-        parent_tool_use_id: None,
     }
 }
 
@@ -289,10 +279,6 @@ pub fn decode_event(line: &str) -> Result<Event> {
                 .ok_or_else(|| Error::Engine("system init missing session_id".into()))?;
             Ok(Event::Init {
                 session_id: session_id.to_string(),
-                permission_mode: value
-                    .get("permissionMode")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
             })
         }
         "system"
@@ -348,14 +334,8 @@ pub fn decode_event(line: &str) -> Result<Event> {
             context_size: context_window(&value),
             cost_usd: value
                 .pointer("/usage/cost_usd")
-                .and_then(Value::as_f64)
-                .map(|n| n.to_string())
-                .or_else(|| {
-                    value
-                        .pointer("/total_cost_usd")
-                        .and_then(Value::as_f64)
-                        .map(|n| n.to_string())
-                }),
+                .or_else(|| value.pointer("/total_cost_usd"))
+                .and_then(Value::as_f64),
         }),
         "control_request" => decode_control_request(&value),
         "control_response" => {
@@ -604,7 +584,6 @@ mod tests {
             "req_1",
             PermissionDecision::Allow {
                 updated_input: json!({"command": "echo ok"}),
-                updated_permissions: None,
             },
         ))
         .unwrap();
@@ -650,7 +629,7 @@ mod tests {
         };
         assert_eq!(used_tokens, Some(22_274));
         assert_eq!(context_size, Some(1_000_000));
-        assert_eq!(cost_usd.as_deref(), Some("0.0045"));
+        assert_eq!(cost_usd, Some(0.0045));
     }
 
     #[test]
@@ -725,7 +704,6 @@ mod tests {
             init,
             Event::Init {
                 session_id: "sess-9".into(),
-                permission_mode: None,
             }
         );
         let result = decode_event(

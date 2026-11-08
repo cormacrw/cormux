@@ -88,7 +88,6 @@ mod tests {
     fn init() -> Event {
         Event::Init {
             session_id: "s".into(),
-            permission_mode: None,
         }
     }
 

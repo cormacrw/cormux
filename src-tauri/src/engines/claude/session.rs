@@ -192,10 +192,9 @@ impl ClaudeSession {
             .await
     }
 
-    pub async fn interrupt(&mut self) -> Result<String> {
+    pub async fn interrupt(&mut self) -> Result<()> {
         let request_id = self.alloc_request_id("int");
-        self.write_message(&interrupt_request(&request_id)).await?;
-        Ok(request_id)
+        self.write_message(&interrupt_request(&request_id)).await
     }
 
     pub async fn stop_task(&mut self, task_id: String) -> Result<()> {
@@ -259,7 +258,7 @@ impl ClaudeSession {
     /// Closes stdin, asks the CLI's whole process group to stop, and kills whatever is left
     /// after a few seconds. The group is the CLI's own (`process_group(0)`), so the shells and
     /// servers it started go with it rather than outliving the thread.
-    pub async fn shutdown(&mut self) -> Result<()> {
+    pub async fn shutdown(&mut self) {
         let _ = self.stdin.shutdown().await;
         let pgid = self.child.id().map(|pid| pid as i32);
         if let Some(pgid) = pgid {
@@ -272,7 +271,6 @@ impl ClaudeSession {
             let _ = unsafe { libc::killpg(pgid, libc::SIGKILL) };
         }
         let _ = self.child.kill().await;
-        Ok(())
     }
 
     async fn write_message(&mut self, message: &StdinMessage) -> Result<()> {
@@ -338,94 +336,9 @@ fn decode_line(line: &str) -> Option<Event> {
 }
 
 #[cfg(test)]
-/// In-process NDJSON peer used by the spike tests (no real CLI).
-pub struct NdjsonPeer<R, W> {
-    writer: W,
-    stdout: BufReader<R>,
-    session_id: Option<String>,
-    next_request_id: u64,
-}
-
-#[cfg(test)]
-impl<R, W> NdjsonPeer<R, W>
-where
-    R: tokio::io::AsyncRead + Unpin,
-    W: tokio::io::AsyncWrite + Unpin,
-{
-    pub fn new(reader: R, writer: W) -> Self {
-        Self {
-            writer,
-            stdout: BufReader::new(reader),
-            session_id: None,
-            next_request_id: 1,
-        }
-    }
-
-    pub fn session_id(&self) -> Option<&str> {
-        self.session_id.as_deref()
-    }
-
-    pub async fn send_user(&mut self, text: impl Into<String>) -> Result<()> {
-        self.write_message(&user_message(text.into())).await
-    }
-
-    pub async fn answer_tool(
-        &mut self,
-        request_id: &str,
-        decision: PermissionDecision,
-    ) -> Result<()> {
-        self.write_message(&permission_response(request_id, decision))
-            .await
-    }
-
-    pub async fn interrupt(&mut self) -> Result<String> {
-        let request_id = format!("int-{}", self.next_request_id);
-        self.next_request_id += 1;
-        self.write_message(&interrupt_request(&request_id)).await?;
-        Ok(request_id)
-    }
-
-    pub async fn next_event(&mut self) -> Result<Option<Event>> {
-        let mut line = String::new();
-        loop {
-            line.clear();
-            let read = self
-                .stdout
-                .read_line(&mut line)
-                .await
-                .map_err(|error| Error::Engine(error.to_string()))?;
-            if read == 0 {
-                return Ok(None);
-            }
-            let Some(event) = decode_line(&line) else {
-                continue;
-            };
-            if let Event::Init { session_id, .. } = &event {
-                self.session_id = Some(session_id.clone());
-            }
-            return Ok(Some(event));
-        }
-    }
-
-    async fn write_message(&mut self, message: &StdinMessage) -> Result<()> {
-        let line = encode_line(message)?;
-        self.writer
-            .write_all(line.as_bytes())
-            .await
-            .map_err(|error| Error::Engine(error.to_string()))?;
-        self.writer
-            .flush()
-            .await
-            .map_err(|error| Error::Engine(error.to_string()))?;
-        Ok(())
-    }
-}
-
-#[cfg(test)]
 pub fn allow_input(input: Value) -> PermissionDecision {
     PermissionDecision::Allow {
         updated_input: input,
-        updated_permissions: None,
     }
 }
 
@@ -433,14 +346,7 @@ pub fn allow_input(input: Value) -> PermissionDecision {
 mod tests {
     use super::*;
     use std::time::Duration;
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex};
     use tokio::time::timeout;
-
-    async fn read_json_line(reader: &mut BufReader<impl tokio::io::AsyncRead + Unpin>) -> Value {
-        let mut line = String::new();
-        reader.read_line(&mut line).await.unwrap();
-        serde_json::from_str(line.trim_end()).unwrap()
-    }
 
     #[test]
     fn a_line_that_is_not_an_event_is_skipped_not_fatal() {
@@ -454,188 +360,36 @@ mod tests {
         ));
     }
 
+    /// A CLI that takes the handshake, prints a line that isn't an event, then ends a turn.
+    const NOISY_CLI: &str = r#"
+import json, sys
+init = json.loads(sys.stdin.readline())
+print(json.dumps({"type": "control_response", "response": {"subtype": "success", "request_id": init["request_id"]}}), flush=True)
+print("not json at all", flush=True)
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False}), flush=True)
+sys.stdin.readline()
+"#;
+
     #[tokio::test]
     async fn a_bad_line_mid_stream_does_not_end_the_session() {
-        let (_host_out, _mock_in) = duplex(4096);
-        let (mut mock_out, host_in) = duplex(4096);
-        let mut host = NdjsonPeer::new(host_in, _host_out);
-        mock_out
-            .write_all(b"not json at all\n{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}\n")
-            .await
-            .unwrap();
-        mock_out.flush().await.unwrap();
-        assert!(matches!(
-            host.next_event().await.unwrap(),
-            Some(Event::Result {
-                is_error: false,
-                ..
-            })
-        ));
-    }
-
-    #[tokio::test]
-    async fn spike_two_messages_can_use_tool_interrupt_resume() {
-        // Host writes to mock stdin; mock writes to host stdout.
-        let (host_out, mock_in) = duplex(64 * 1024);
-        let (mock_out, host_in) = duplex(64 * 1024);
-        let mut host = NdjsonPeer::new(host_in, host_out);
-        let mut mock_reader = BufReader::new(mock_in);
-        let mut mock_writer = mock_out;
-
-        mock_writer
-            .write_all(br#"{"type":"system","subtype":"init","session_id":"sess-1"}"#)
-            .await
-            .unwrap();
-        mock_writer.write_all(b"\n").await.unwrap();
-        mock_writer.flush().await.unwrap();
-
-        let init = host.next_event().await.unwrap().unwrap();
-        assert_eq!(
-            init,
-            Event::Init {
-                session_id: "sess-1".into(),
-                permission_mode: None,
-            }
-        );
-        assert_eq!(host.session_id(), Some("sess-1"));
-
-        host.send_user("first: run echo spike-ok").await.unwrap();
-        let first = read_json_line(&mut mock_reader).await;
-        assert_eq!(first["type"], "user");
-        assert_eq!(
-            first["message"]["content"][0]["text"],
-            "first: run echo spike-ok"
-        );
-
-        mock_writer
-            .write_all(br#"{"type":"control_request","request_id":"req_bash","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo spike-ok"},"tool_use_id":"toolu_1"}}"#)
-            .await
-            .unwrap();
-        mock_writer.write_all(b"\n").await.unwrap();
-        mock_writer.flush().await.unwrap();
-
-        let Event::CanUseTool(req) = host.next_event().await.unwrap().unwrap() else {
-            panic!("expected can_use_tool");
+        let options = SpawnOptions {
+            label: "noisy".into(),
+            binary: PathBuf::from("python3"),
+            args: vec!["-c".into(), NOISY_CLI.into()],
+            cwd: None,
+            env: None,
+            sdk_servers: Vec::new(),
         };
-        assert_eq!(req.tool_name, "Bash");
-        host.answer_tool(&req.request_id, allow_input(req.input.clone()))
-            .await
-            .unwrap();
+        let mut session = ClaudeSession::spawn(options, &host()).await.unwrap();
 
-        let allow = read_json_line(&mut mock_reader).await;
-        assert_eq!(allow["type"], "control_response");
-        assert_eq!(allow["response"]["request_id"], "req_bash");
-        assert_eq!(allow["response"]["response"]["behavior"], "allow");
-        assert_eq!(
-            allow["response"]["response"]["updatedInput"]["command"],
-            "echo spike-ok"
-        );
-
-        mock_writer
-            .write_all(br#"{"type":"result","subtype":"success","session_id":"sess-1","is_error":false,"result":"ok"}"#)
-            .await
-            .unwrap();
-        mock_writer.write_all(b"\n").await.unwrap();
-        mock_writer.flush().await.unwrap();
         assert!(matches!(
-            host.next_event().await.unwrap(),
+            session.next_event().await.unwrap(),
             Some(Event::Result {
                 is_error: false,
                 ..
             })
         ));
-
-        host.send_user("second: count to one thousand slowly")
-            .await
-            .unwrap();
-        let second = read_json_line(&mut mock_reader).await;
-        assert_eq!(
-            second["message"]["content"][0]["text"],
-            "second: count to one thousand slowly"
-        );
-
-        mock_writer
-            .write_all(
-                br#"{"type":"assistant","message":{"content":[{"type":"text","text":"1"}]}}"#,
-            )
-            .await
-            .unwrap();
-        mock_writer.write_all(b"\n").await.unwrap();
-        mock_writer.flush().await.unwrap();
-        assert!(matches!(
-            host.next_event().await.unwrap(),
-            Some(Event::Assistant { .. })
-        ));
-
-        let interrupt_id = host.interrupt().await.unwrap();
-        let interrupt = read_json_line(&mut mock_reader).await;
-        assert_eq!(interrupt["type"], "control_request");
-        assert_eq!(interrupt["request"]["subtype"], "interrupt");
-        assert_eq!(interrupt["request_id"], interrupt_id);
-
-        mock_writer
-            .write_all(
-                format!(
-                    r#"{{"type":"control_response","response":{{"subtype":"success","request_id":"{interrupt_id}"}}}}"#
-                )
-                .as_bytes(),
-            )
-            .await
-            .unwrap();
-        mock_writer.write_all(b"\n").await.unwrap();
-        mock_writer
-            .write_all(
-                br#"{"type":"result","subtype":"error","is_error":true,"session_id":"sess-1"}"#,
-            )
-            .await
-            .unwrap();
-        mock_writer.write_all(b"\n").await.unwrap();
-        mock_writer.flush().await.unwrap();
-
-        let mut saw_interrupt_ack = false;
-        let mut saw_error_result = false;
-        while let Some(event) = host.next_event().await.unwrap() {
-            match event {
-                Event::ControlResponse { request_id, ok } => {
-                    assert_eq!(request_id, interrupt_id);
-                    assert!(ok);
-                    saw_interrupt_ack = true;
-                }
-                Event::Result { is_error, .. } => {
-                    assert!(is_error);
-                    saw_error_result = true;
-                    break;
-                }
-                _ => {}
-            }
-        }
-        assert!(saw_interrupt_ack);
-        assert!(saw_error_result);
-
-        // Resume is a new process with --resume <id>; prove the argv and a second init.
-        let resume_args = super::super::argv(&crate::engines::LaunchConfig {
-            resume: host.session_id().map(str::to_string),
-            ..Default::default()
-        });
-        assert!(resume_args.windows(2).any(|w| w == ["--resume", "sess-1"]));
-
-        let (host2_out, _mock2_in) = duplex(4096);
-        let (mut mock2_out, host2_in) = duplex(4096);
-        let mut host2 = NdjsonPeer::new(host2_in, host2_out);
-        mock2_out
-            .write_all(br#"{"type":"system","subtype":"init","session_id":"sess-1"}"#)
-            .await
-            .unwrap();
-        mock2_out.write_all(b"\n").await.unwrap();
-        mock2_out.flush().await.unwrap();
-        let resumed = host2.next_event().await.unwrap().unwrap();
-        assert_eq!(
-            resumed,
-            Event::Init {
-                session_id: "sess-1".into(),
-                permission_mode: None,
-            }
-        );
+        session.shutdown().await;
     }
 
     fn mock_python() -> SpawnOptions {
@@ -663,7 +417,6 @@ mod tests {
             session.next_event().await.unwrap(),
             Some(Event::Init {
                 session_id: "sess-1".into(),
-                permission_mode: None,
             })
         );
 
@@ -688,12 +441,12 @@ mod tests {
             session.next_event().await.unwrap(),
             Some(Event::Assistant { .. })
         ));
-        let interrupt_id = session.interrupt().await.unwrap();
+        session.interrupt().await.unwrap();
         let mut saw_ack = false;
         loop {
             match session.next_event().await.unwrap() {
                 Some(Event::ControlResponse { request_id, ok }) => {
-                    assert_eq!(request_id, interrupt_id);
+                    assert!(request_id.starts_with("int-"), "{request_id}");
                     assert!(ok);
                     saw_ack = true;
                 }
@@ -706,7 +459,7 @@ mod tests {
             }
         }
         assert!(saw_ack);
-        session.shutdown().await.unwrap();
+        session.shutdown().await;
 
         // The mock answers a resumed session the same way.
         let mut resumed = ClaudeSession::spawn(mock_python(), &host()).await.unwrap();
@@ -714,7 +467,6 @@ mod tests {
             resumed.next_event().await.unwrap(),
             Some(Event::Init {
                 session_id: "sess-1".into(),
-                permission_mode: None,
             })
         );
         resumed.send_user("continue").await.unwrap();
@@ -725,13 +477,13 @@ mod tests {
                 ..
             } if text == "resumed"
         ));
-        resumed.shutdown().await.unwrap();
+        resumed.shutdown().await;
     }
 
     #[tokio::test]
     #[ignore = "talks to a real `claude` binary; cargo test -- --ignored --nocapture"]
     async fn live_claude_control_protocol() {
-        let cwd = std::env::temp_dir().join("cormux-cor-42-spike");
+        let cwd = std::env::temp_dir().join("cormux-live-claude");
         std::fs::create_dir_all(&cwd).unwrap();
 
         let live = |resume: Option<String>, extra: &[&str]| {
@@ -782,8 +534,7 @@ mod tests {
             .await
             .unwrap();
         let _ = timeout(Duration::from_secs(20), session.next_event()).await;
-        let interrupt_id = session.interrupt().await.unwrap();
-        eprintln!("sent interrupt {interrupt_id}");
+        session.interrupt().await.unwrap();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
         let mut session_id = None;
         loop {
@@ -814,7 +565,7 @@ mod tests {
         }
 
         let session_id = session_id.unwrap_or_else(|| "unknown".into());
-        session.shutdown().await.unwrap();
+        session.shutdown().await;
 
         let mut resumed = ClaudeSession::spawn(
             live(Some(session_id.clone()), &["--max-turns", "1"]),
@@ -848,6 +599,6 @@ mod tests {
         })
         .await;
         assert!(resumed_turn.is_ok(), "resume turn timed out");
-        resumed.shutdown().await.unwrap();
+        resumed.shutdown().await;
     }
 }
