@@ -12,7 +12,7 @@
   /** Only the first load shows the spinner; the list never blanks once it's up. */
   let loading = $state(true)
 
-  const current = $derived(repo.defaultBranch?.trim() || 'main')
+  const current = $derived(repos.defaultBranch(repo.id))
   // Every refresh hands down a new repo object; reload only for a different repo.
   const repoId = $derived(repo.id)
 

@@ -37,7 +37,7 @@
   })
 
   const repo = $derived(nav.repoId ? repos.getById(nav.repoId) : undefined)
-  const defaultBranch = $derived(repo ? repos.defaultBranch(repo.id) : 'main')
+  const defaultBranch = $derived(repo ? repos.defaultBranch(repo.id) : '')
   const git = $derived(repo ? repos.gitById[repo.id] : undefined)
 
   const repoWorkspaces = $derived(

@@ -268,15 +268,19 @@ The webview only subscribes to streams it's showing. A background thread keeps i
 src/
   lib/
     ipc/          generated bindings, channel helpers
-    state/        rune stores (*.svelte.ts): app, workspaces, threads, prs, settings
+    core/         sync (snapshot refresh, version guard, state events), nav (one Route and navigate)
+    state/        cross-cutting rune stores: workspaces, threads, repos, scratches, prs, workspace UI
+    <feature>/    a feature's logic, store, actions and components together:
+                  changes, run-app, clickup, settings, bangs, thread, composer, findings, …
     components/
       ui/         shadcn-svelte components (generated, owned by the repo)
-      shell/      sidebar, title bar, palette
-      workspace/  header, tabs, conversation, composer, approvals, changes, output, findings
-      settings/
+      shell/      sidebar, palette, switcher, lazy views
+      workspace/  header, conversation, composer, approvals, findings
 ```
 
-State lives in class-based rune stores (`$state` fields, `$derived` getters) hydrated from a core snapshot and patched by events. Derived values, like a card's "Needs Attention" badge or the sidebar's "N working", are `$derived` from thread state so they never go stale. Thread timelines are append-mostly arrays; fine-grained reactivity means a streaming chunk updates one text node, not the conversation.
+The core sync is the only code that fetches or applies a snapshot: one coalesced refresh that drops a snapshot older than the last one applied. Each store registers its own slice with `onSnapshot`; actions that change something await `refreshSnapshot()`. Stores hold data and return errors; actions and components decide whether to toast. Where the app is lives in one `Route` value; one-shot intents (a settings section, a diff line to reveal, focus on Findings) are route fields the target view takes once.
+
+State lives in class-based rune stores (`$state` fields, `$derived` getters). Derived values, like a card's "Needs Attention" badge or the sidebar's "N working", are `$derived` from thread state so they never go stale. Thread timelines are append-mostly arrays; fine-grained reactivity means a streaming chunk updates one text node, not the conversation.
 
 ### Components mapped to shadcn-svelte and bits-ui
 
