@@ -1,4 +1,4 @@
-import type { AgentEvent, WorkspaceLifecycle } from '$lib/ipc/bindings'
+import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 
 /**
  * Attention: nothing is happening, so the thread needs prompting or closing. Quiet: it's working,
@@ -6,23 +6,11 @@ import type { AgentEvent, WorkspaceLifecycle } from '$lib/ipc/bindings'
  */
 export type ThreadUrgency = 'attention' | 'quiet'
 
-/**
- * Whether an event moved the thread: a message from you or the end of a turn. Streamed output
- * doesn't count, so a working thread holds its place in the list instead of jumping on every chunk.
- */
-export function isThreadActivity(event: AgentEvent): boolean {
-  return (
-    event.type === 'turnEnd' ||
-    event.type === 'engineExited' ||
-    (event.type === 'messageChunk' && event.role === 'user')
-  )
-}
-
 export function threadUrgency(input: {
   lifecycle: WorkspaceLifecycle
   paused: boolean
   pendingApprovals: number
-  /** The thread itself: sending marks it at once, before the workspace hears. */
+  /** The thread's own status, which can be ahead of its workspace's. */
   threadStatus: string | undefined
 }): ThreadUrgency {
   const working =

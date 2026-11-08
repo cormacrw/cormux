@@ -91,6 +91,8 @@ pub async fn start(
     shown: &str,
     prompt: impl Into<Prompt>,
 ) -> Result<i64> {
+    // First, so the thread shows the message while an engine takes its time to start.
+    let seq = state.transcript.record_user_message(&thread.id, shown)?;
     let held = thread.has_status(ThreadStatus::Paused);
     if !held {
         state
@@ -98,7 +100,6 @@ pub async fn start(
             .ensure(&thread.id, &thread.workspace_id)
             .await?;
     }
-    let seq = state.transcript.record_user_message(&thread.id, shown)?;
     send(state, thread, prompt.into(), held).await?;
     state.out.changed(Change::THREADS);
     Ok(seq)

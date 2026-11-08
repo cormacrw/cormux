@@ -61,12 +61,12 @@
   import { hasSessionToClear } from '$lib/thread/new-session'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import { startNewSession } from '$lib/thread/start-new-session'
-  import { threads } from '$lib/state/threads.svelte'
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import ThreadOptionPicker from './ThreadOptionPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import FileText from '@lucide/svelte/icons/file-text'
   import Folder from '@lucide/svelte/icons/folder'
   import Kanban from '@lucide/svelte/icons/square-kanban'
@@ -135,8 +135,12 @@
     hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
   )
   const attachments = $derived(composerDrafts.attachmentsFor(thread.id))
+  // Between Send and the core taking the message, which can mean starting the agent first.
+  let sending = $state(false)
   const canSend = $derived(
-    !disabled && (draft.trim().length > 0 || attachments.length > 0),
+    !disabled &&
+      !sending &&
+      (draft.trim().length > 0 || attachments.length > 0),
   )
   let draggingFiles = $state(false)
 
@@ -389,9 +393,9 @@
     if (!canSend) return
     // The composer is reused across thread tabs, so pin the id before awaiting.
     const threadId = thread.id
-    const sending = attachments
+    const attached = attachments
     composerDrafts.setFor(threadId, '')
-    if (sending.length) composerDrafts.setAttachments(threadId, [])
+    if (attached.length) composerDrafts.setAttachments(threadId, [])
     historyIndex = null
     // Clearing the draft disables Send. A click focuses that button first, and
     // disabling a focused button drops focus, so put it back on the prompt.
@@ -400,13 +404,16 @@
       inputEl?.focus()
     })
     onSent?.()
+    sending = true
     const outgoing = await expandMessage(text)
-    const sent = onSubmit
-      ? await onSubmit(outgoing, stay, sending)
-      : await sendThreadMessage(threadId, outgoing, sending)
+    const sent = await (
+      onSubmit
+        ? onSubmit(outgoing, stay, attached)
+        : sendThreadMessage(threadId, outgoing, attached)
+    ).finally(() => (sending = false))
     if (!sent) {
       composerDrafts.setFor(threadId, text)
-      if (sending.length) composerDrafts.addAttachments(threadId, sending)
+      if (attached.length) composerDrafts.addAttachments(threadId, attached)
     }
   }
 
@@ -494,13 +501,7 @@
   })
 
   async function stopTurn() {
-    threads.setStatus(thread.id, 'idle')
     void tick().then(takeFocus)
-    threadTimeline.applyEvent(thread.id, {
-      type: 'turnEnd',
-      stop_reason: 'cancelled',
-      error: null,
-    })
     const result = await commands.cancelThreadTurn(thread.id)
     if (result.status === 'error') {
       showToast({
@@ -917,13 +918,18 @@
         class="composer-send size-8 shrink-0 rounded-lg"
         data-od-id="composer-send"
         aria-label={sendLabel}
+        aria-busy={sending}
         disabled={!canSend}
         onmousedown={(event) => {
           // Keep the prompt focused; the click still submits.
           event.preventDefault()
         }}
       >
-        <ArrowUp class="size-4" aria-hidden="true" />
+        {#if sending}
+          <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
+        {:else}
+          <ArrowUp class="size-4" aria-hidden="true" />
+        {/if}
       </Button>
     </div>
   </form>

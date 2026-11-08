@@ -1,6 +1,13 @@
-import type { AgentEvent } from '$lib/ipc/bindings'
+import type { TranscriptEvent } from '$lib/ipc/bindings'
 import { fixtureSnapshot, fixtureTimeline } from '../fixture-snapshot'
 import type { HarnessScenario } from './scenario'
+
+/** A sent message as the core saves it, with any attachments named after it. */
+export function shownMessage(text: string, names: string[]): string {
+  if (!names.length) return text
+  const line = `Attached: ${names.join(', ')}`
+  return text ? `${text}\n\n${line}` : line
+}
 
 /** The next `seq` in a thread: the store numbers rows at write time. */
 export function nextSeq(threadId: string) {
@@ -56,7 +63,7 @@ function seedLongThread(turns: number) {
         branch,
         change: { kind: 'checkedOut', previous },
       },
-    } satisfies AgentEvent)
+    } satisfies TranscriptEvent)
   })
 }
 

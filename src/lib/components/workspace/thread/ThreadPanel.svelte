@@ -157,7 +157,7 @@
   const entries = $derived.by(() => {
     void threadId
     void conversationId
-    // Rows read from the store were already there; older pages also renumber what's on screen.
+    // Rows read from the store, older pages included, were already there.
     void loaded
     void threadTimeline.historyGeneration[threadId]
     return untrack(() => createEntryScope(rows))

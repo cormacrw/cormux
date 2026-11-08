@@ -1,27 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentEvent } from '$lib/ipc/bindings'
 import {
   nestThreadList,
   sortThreadList,
   splitThreadList,
-  isThreadActivity,
   threadUrgency,
 } from './thread-list'
-
-const user: AgentEvent = { type: 'messageChunk', role: 'user', text: 'hi' }
-const chunk: AgentEvent = { type: 'messageChunk', role: 'agent', text: 'yo' }
-const end: AgentEvent = { type: 'turnEnd', stop_reason: 'end', error: null }
-
-describe('thread activity', () => {
-  it('ignores streamed output', () => {
-    expect(isThreadActivity(chunk)).toBe(false)
-  })
-
-  it('counts your messages and a finished turn', () => {
-    expect(isThreadActivity(user)).toBe(true)
-    expect(isThreadActivity(end)).toBe(true)
-  })
-})
 
 describe('thread urgency', () => {
   const working = {

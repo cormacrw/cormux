@@ -1,7 +1,6 @@
 // Bookkeeping that nothing renders; the reactive state is the $state fields.
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import type {
-  AgentEvent,
   ApprovalRow,
   SettingRow,
   StreamedEvent,
@@ -10,7 +9,6 @@ import type {
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc/bindings'
 import { deepEqual } from '$lib/deep-equal'
-import { isThreadActivity } from '$lib/sidebar/thread-list'
 import { createEventBatcher } from '$lib/thread/event-batcher'
 import { threadsToEvict } from '$lib/thread/evict-threads'
 import { eventCreatedAtMs } from '$lib/thread/thread-time'
@@ -21,12 +19,11 @@ import {
 } from '$lib/thread/map-events-to-timeline'
 import {
   appendStreamed,
-  mergeNewerRows,
+  mergeSaved,
   type TimedEvent,
-} from '$lib/thread/reconcile-events'
+} from '$lib/thread/timed-events'
 import type { TimelineItem } from '$lib/thread/timeline-types'
 import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
-import { threads } from './threads.svelte'
 import { reviewFindingsReady } from '$lib/thread/review-findings'
 import { splitConversations } from '$lib/thread/conversations'
 
@@ -45,7 +42,7 @@ const LOADED_THREADS = 8
 const NO_APPROVALS: ApprovalRow[] = []
 
 type ThreadHistory = {
-  /** The newest and oldest rows read from the store; events after `newestSeq` are local. */
+  /** The newest and oldest rows read from the store; streamed ones can be newer. */
   newestSeq: number
   oldestSeq: number
   refreshing: boolean
@@ -54,7 +51,7 @@ type ThreadHistory = {
 
 function timedEvents(rows: ThreadEventRow[]): TimedEvent[] {
   return rows.flatMap((row) => {
-    const event = parseAgentEventPayload(row.payload, row.seq)
+    const event = parseAgentEventPayload(row.payload)
     return event
       ? [{ seq: row.seq, atMs: eventCreatedAtMs(row.createdAt), event }]
       : []
@@ -71,7 +68,7 @@ export class ThreadTimelineStore {
   currentToolByThread = $state<Record<string, string>>({})
   /** Threads with earlier history in the store than is loaded. */
   olderByThread = $state.raw<Record<string, boolean>>({})
-  /** Bumped when older rows load, since that renumbers the rows on screen. */
+  /** Bumped when older rows load, so the rows they add don't enter as if new. */
   historyGeneration = $state.raw<Record<string, number>>({})
   private approvals = $state.raw<ApprovalRow[]>([])
   private settings = $state.raw<SettingRow[]>([])
@@ -81,6 +78,7 @@ export class ThreadTimelineStore {
   private watched = new Map<string, number>()
   /** Oldest first. */
   private recent: string[] = []
+  private userMessageWaiters = new Map<string, () => void>()
   private conversationsCache = new WeakMap<
     TimedEvent[],
     ReturnType<typeof splitConversations>
@@ -104,8 +102,6 @@ export class ThreadTimelineStore {
     approvals: ApprovalRow[]
     settings: SettingRow[]
     activity: ThreadActivityRow[]
-    /** Whether watched threads re-read the store; off for events that can't have written to it. */
-    refreshWatched?: boolean
   }) {
     const alive = new Set(input.threadIds)
     for (const threadId of Object.keys(this.eventsByThread)) {
@@ -118,10 +114,6 @@ export class ThreadTimelineStore {
       this.settings = input.settings
     }
     this.mergeActivity(input.activity)
-    // Steps the core writes itself (a pause, a pull, a new session) aren't streamed.
-    if (input.refreshWatched ?? true) {
-      for (const threadId of this.watched.keys()) void this.refresh(threadId)
-    }
   }
 
   // Grouped once per approvals list, so a timeline rebuild on every chunk doesn't scan them all.
@@ -240,7 +232,7 @@ export class ThreadTimelineStore {
     this.olderByThread = older
   }
 
-  /** Brings the thread up to the store's latest, keeping anything shown that isn't saved yet. */
+  /** Brings the thread up to the store's latest. */
   async refresh(threadId: string): Promise<void> {
     const known = this.history.get(threadId)
     if (known?.refreshing) {
@@ -278,15 +270,11 @@ export class ThreadTimelineStore {
     const newest = rows.at(-1)?.seq ?? 0
     history.newestSeq = newest
     history.oldestSeq = rows[0]?.seq ?? 0
-    // Nothing shown yet came from the store, so all of it is laid over this read.
     this.eventsByThread = {
       ...this.eventsByThread,
-      [threadId]: mergeNewerRows(
+      [threadId]: mergeSaved(
         this.eventsByThread[threadId] ?? [],
-        0,
         timedEvents(rows),
-        newest,
-        Date.now(),
       ),
     }
     if (result.data.hasOlder) {
@@ -309,16 +297,9 @@ export class ThreadTimelineStore {
       fetched.push(...result.data.events)
       if (result.data.events.length < PAGE) break
     }
-    const newest = fetched.at(-1)?.seq ?? history.newestSeq
+    history.newestSeq = fetched.at(-1)?.seq ?? history.newestSeq
     const shown = this.eventsByThread[threadId] ?? []
-    const merged = mergeNewerRows(
-      shown,
-      history.newestSeq,
-      timedEvents(fetched),
-      newest,
-      Date.now(),
-    )
-    history.newestSeq = newest
+    const merged = mergeSaved(shown, timedEvents(fetched))
     if (merged !== shown) {
       this.eventsByThread = { ...this.eventsByThread, [threadId]: merged }
     }
@@ -349,41 +330,43 @@ export class ThreadTimelineStore {
     }
     this.eventsByThread = {
       ...this.eventsByThread,
-      [threadId]: [
-        ...timedEvents(rows),
-        ...(this.eventsByThread[threadId] ?? []),
-      ],
+      [threadId]: mergeSaved(
+        this.eventsByThread[threadId] ?? [],
+        timedEvents(rows),
+      ),
     }
     return rows.length > 0
   }
 
-  /** For streamed events: they land together, once per frame. */
+  /** For streamed events: they land together, once per frame, except your own messages. */
   enqueueEvent(threadId: string, streamed: StreamedEvent) {
     this.batcher.push({ threadId, streamed })
+    if (isUserMessage(streamed)) this.batcher.flush()
   }
 
-  /** Shows an event now, after anything still queued. */
-  applyEvent(threadId: string, event: AgentEvent) {
-    this.batcher.flush()
-    this.applyEvents(threadId, [{ seq: null, event }])
+  /** Resolves once a message from you lands in the thread, or after `ms`. */
+  userMessageShown(threadId: string, ms = 1000): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        if (this.userMessageWaiters.get(threadId) === done) {
+          this.userMessageWaiters.delete(threadId)
+        }
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      this.userMessageWaiters.set(threadId, done)
+    })
   }
 
   private applyEvents(threadId: string, batch: StreamedEvent[]) {
     const prev = this.eventsByThread[threadId] ?? []
-    const atMs = Date.now()
-    const shown = appendStreamed(
-      prev,
-      this.history.get(threadId)?.newestSeq ?? 0,
-      batch,
-      atMs,
-    )
+    const shown = appendStreamed(prev, batch, Date.now())
     if (shown !== prev) {
       this.eventsByThread = { ...this.eventsByThread, [threadId]: shown }
     }
+    if (batch.some(isUserMessage)) this.userMessageWaiters.get(threadId)?.()
     const events = batch.map((streamed) => streamed.event)
-    if (events.some(isThreadActivity)) {
-      this.activityByThread = { ...this.activityByThread, [threadId]: atMs }
-    }
     let liveTool: string | null = null
     let ended = false
     for (const event of events) {
@@ -401,29 +384,16 @@ export class ThreadTimelineStore {
         [threadId]: liveTool,
       }
     }
-    if (ended) {
-      if (!liveTool) {
-        const next = { ...this.currentToolByThread }
-        delete next[threadId]
-        this.currentToolByThread = next
-      }
-      threads.setStatus(threadId, 'idle')
-      // Trades the local sequence numbers for the store's, and picks up what wasn't streamed.
-      if (this.watched.has(threadId)) void this.refresh(threadId)
+    if (ended && !liveTool) {
+      const next = { ...this.currentToolByThread }
+      delete next[threadId]
+      this.currentToolByThread = next
     }
   }
+}
 
-  appendStreamChunk(
-    threadId: string,
-    text: string,
-    role: 'user' | 'agent' | 'thought' = 'agent',
-  ) {
-    this.applyEvent(threadId, {
-      type: 'messageChunk',
-      role,
-      text,
-    })
-  }
+function isUserMessage({ event }: StreamedEvent) {
+  return event.type === 'messageChunk' && event.role === 'user'
 }
 
 export const threadTimeline = new ThreadTimelineStore()

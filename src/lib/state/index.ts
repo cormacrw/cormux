@@ -207,19 +207,7 @@ function modelsFromSnapshot(snapshot: Snapshot) {
   }
 }
 
-export type HydrateOptions = {
-  /**
-   * Whether threads on screen should re-read the store for steps the core wrote itself (a pause,
-   * a pull, a new session), which aren't streamed. On by default; a state event that can't have
-   * written any turns it off.
-   */
-  refreshThreads?: boolean
-}
-
-export function hydrateFromSnapshot(
-  snapshot: Snapshot,
-  options: HydrateOptions = {},
-) {
+export function hydrateFromSnapshot(snapshot: Snapshot) {
   void onSnapshotSupervision(snapshot)
   const models = modelsFromSnapshot(snapshot)
   settings.hydrate(snapshot.persisted.settings)
@@ -238,7 +226,6 @@ export function hydrateFromSnapshot(
     approvals: snapshot.persisted.approvals,
     settings: snapshot.persisted.settings,
     activity: snapshot.persisted.threadActivity,
-    refreshWatched: options.refreshThreads ?? true,
   })
   findings.hydrate(snapshot.persisted.findings)
   entities.hydrate(snapshot.persisted.entities)
@@ -258,27 +245,19 @@ export function hydrateFromSnapshot(
   if (app.view === 'sprint' && !clickup.configured) app.openNewThread()
 }
 
-// Set by events that may have written thread steps, consumed by the next snapshot applied.
-let threadRefreshDue = false
-
 /** Fetch and apply a snapshot. Calls that land during one share the next, not one each. */
 export const refreshSnapshot = coalesce(async () => {
-  const snapshot = await fetchSnapshot()
-  const refreshThreads = threadRefreshDue
-  threadRefreshDue = false
-  hydrateFromSnapshot(snapshot, { refreshThreads })
+  hydrateFromSnapshot(await fetchSnapshot())
 })
 
 export function patchFromEvent(event: StateChanged) {
   app.version = Math.max(app.version, event.version)
   if (event.change.repoGit) void repos.refreshGit()
-  if (event.change.threads) threadRefreshDue = true
   void refreshSnapshot()
 }
 
-/** After a missed event: anything may have happened, so threads on screen re-read the store too. */
+/** After a missed event: anything may have happened. */
 export function resyncAfterGap() {
-  threadRefreshDue = true
   void repos.refreshGit()
   return refreshSnapshot()
 }

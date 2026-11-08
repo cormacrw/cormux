@@ -44,9 +44,10 @@ export function enterConversation() {
 
 /**
  * The first prompt in an empty conversation: the greeting falls away as the
- * message pops in (styles in app.css). Plain update where unsupported.
+ * message pops in (styles in app.css). Plain update where unsupported. An update
+ * that returns a promise holds the old screen until it settles.
  */
-export function firstPromptTransition(update: () => void) {
+export function firstPromptTransition(update: () => void | Promise<void>) {
   const greeting = document.querySelector('[data-od-id="thread-hero"]')
   // The backdrop's wordmark falls away with the greeting.
   if (greeting) appearance.glideWordmark()
@@ -55,7 +56,7 @@ export function firstPromptTransition(update: () => void) {
     prefersReducedMotion() ||
     typeof document.startViewTransition !== 'function'
   ) {
-    update()
+    void update()
     return
   }
   // Only the greeting is snapshotted; the rest of the page stays live, so the
@@ -63,7 +64,7 @@ export function firstPromptTransition(update: () => void) {
   const root = document.documentElement
   root.classList.add('first-prompt')
   const transition = document.startViewTransition(async () => {
-    update()
+    await update()
     await tick()
   })
   // Cut short by another transition, the update still lands.

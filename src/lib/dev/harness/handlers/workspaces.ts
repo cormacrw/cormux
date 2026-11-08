@@ -1,6 +1,6 @@
-import { shownMessage } from '$lib/composer/attachments'
 import { fixtureSnapshot, fixtureTimeline } from '../../fixture-snapshot'
 import type { HarnessRuntime } from '../runtime'
+import { shownMessage } from '../seed'
 import type { HandlerSlice, Input } from '../types'
 
 type WorkspaceInput = Input<'create_workspace'>['input']

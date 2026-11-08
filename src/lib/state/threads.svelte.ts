@@ -93,19 +93,6 @@ export class ThreadsStore {
   getById(id: string) {
     return this.byId.get(id)
   }
-
-  setStatus(id: string, status: string) {
-    const thread = this.byId.get(id)
-    if (!thread) return
-    const activity =
-      status === 'running'
-        ? 'Working'
-        : status === 'idle'
-          ? 'Idle'
-          : thread.activity
-    const next = { ...thread, status, paused: status === 'paused', activity }
-    this.items = this.items.map((row) => (row === thread ? next : row))
-  }
 }
 
 export const threads = new ThreadsStore()

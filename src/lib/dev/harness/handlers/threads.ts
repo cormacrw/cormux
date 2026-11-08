@@ -1,7 +1,7 @@
-import type { AgentEvent, PromptAttachment } from '$lib/ipc/bindings'
+import type { PromptAttachment, TranscriptEvent } from '$lib/ipc/bindings'
 import { fixtureSnapshot, fixtureTimeline } from '../../fixture-snapshot'
 import type { HarnessRuntime } from '../runtime'
-import { nextSeq } from '../seed'
+import { nextSeq, shownMessage } from '../seed'
 import type { HandlerSlice, Input } from '../types'
 
 const MODELS = [
@@ -62,53 +62,41 @@ export function threadHandlers(runtime: HarnessRuntime) {
   // Stops the reply running in a thread, as interrupting the engine would.
   const stopReply = new Map<string, () => void>()
 
+  /** Saves the event like the core's transcript, then streams it with its `seq`. */
+  const append = (threadId: string, kind: string, event: TranscriptEvent) => {
+    const seq = nextSeq(threadId)
+    fixtureTimeline.push({
+      id: 900_000 + seq,
+      threadId,
+      seq,
+      kind,
+      payload: JSON.stringify(event),
+      createdAt: new Date().toISOString().replace('T', ' ').replace('Z', ''),
+    })
+    const channel = agentChannels.get(threadId)
+    if (channel) runtime.send(channel, { seq, event })
+    return seq
+  }
+
   // Stream a reply the way a real engine does: many small chunks, then a turn end that
   // the backend follows with a state-changed refetch.
   const streamReply = (threadId: string, text: string) => {
     let stopped = false
-    let seq = 0
-    const persist = (kind: string, event: object) => {
-      // Numbered at write time like the store: a stopped reply's timers keep writing here.
-      seq = nextSeq(threadId)
-      fixtureTimeline.push({
-        id: 900_000 + seq,
-        threadId,
-        seq,
-        kind,
-        payload: JSON.stringify(event),
-        createdAt: new Date().toISOString().replace('T', ' ').replace('Z', ''),
-      })
-    }
-    const send = (event: object) => {
-      const channel = agentChannels.get(threadId)
-      if (channel) runtime.send(channel, { seq, event })
-    }
     stopReply.set(threadId, () => {
       stopped = true
-      persist('turn_end', {
-        type: 'turnEnd',
-        stop_reason: 'cancelled',
-        error: null,
-      })
-      const row = findThread(threadId)
-      if (row) row.status = 'idle'
     })
-    persist('message', { type: 'messageChunk', role: 'user', text })
     // One tool call first, the way agents read before they answer.
     setTimeout(() => {
       if (stopped) return
-      const read = {
+      append(threadId, 'tool', {
         type: 'toolCall',
-        id: `harness-read-${seq}`,
+        id: `harness-read-${nextSeq(threadId)}`,
         title: 'Read',
-        name: null,
-        kind: 'read',
+        role: { kind: 'read' },
         status: 'completed',
         locations: ['src/lib/auth.ts'],
         detail: 'src/lib/auth.ts',
-      }
-      persist('tool', read)
-      send(read)
+      })
     }, 40)
     const slow = scenario.slowReply === true
     const wordMs = slow ? 40 : 10
@@ -123,13 +111,11 @@ export function threadHandlers(runtime: HarnessRuntime) {
       setTimeout(
         () => {
           if (stopped) return
-          const event = {
+          append(threadId, 'message', {
             type: 'messageChunk',
             role: 'agent',
             text: `${i ? ' ' : ''}${word}`,
-          }
-          persist('message', event)
-          send(event)
+          })
         },
         50 + i * wordMs,
       )
@@ -138,9 +124,11 @@ export function threadHandlers(runtime: HarnessRuntime) {
       () => {
         if (stopped) return
         stopReply.delete(threadId)
-        const end = { type: 'turnEnd', stop_reason: 'end_turn', error: null }
-        persist('turn_end', end)
-        send(end)
+        append(threadId, 'turn_end', {
+          type: 'turnEnd',
+          stop_reason: 'end_turn',
+          error: null,
+        })
         const lead = findThread(threadId)
         if (lead) lead.status = 'idle'
         emitStateChanged()
@@ -156,10 +144,9 @@ export function threadHandlers(runtime: HarnessRuntime) {
   ) => {
     const thread = findThread(threadId)
     const ended = thread?.sessionId ?? null
-    const seq = nextSeq(threadId)
-    const event = {
+    append(threadId, 'tool', {
       type: 'step',
-      id: `step-${seq}`,
+      id: `step-${nextSeq(threadId)}`,
       title: resume
         ? 'Resumed an earlier conversation'
         : 'Started a new session',
@@ -171,14 +158,6 @@ export function threadHandlers(runtime: HarnessRuntime) {
             ended_session: ended,
           }
         : { kind: 'sessionStarted', ended_session: ended },
-    } satisfies AgentEvent
-    fixtureTimeline.push({
-      id: 800_000 + seq,
-      threadId,
-      seq,
-      kind: 'tool',
-      payload: JSON.stringify(event),
-      createdAt: '2026-09-28 12:00:00',
     })
     if (thread) {
       thread.status = 'idle'
@@ -206,16 +185,40 @@ export function threadHandlers(runtime: HarnessRuntime) {
       attachments: PromptAttachment[]
     }) => {
       controls.prompts.push(args)
-      if (args.threadId === 'th-lead') {
-        const lead = findThread('th-lead')
-        if (lead) lead.status = 'running'
-        streamReply('th-lead', args.text)
-      }
-      return null
+      const text = shownMessage(
+        args.text.trim(),
+        args.attachments.map((attachment) => attachment.name),
+      )
+      if (!text) return null
+      const seq = append(args.threadId, 'message', {
+        type: 'messageChunk',
+        role: 'user',
+        text,
+      })
+      const thread = findThread(args.threadId)
+      if (thread) thread.status = 'running'
+      emitStateChanged()
+      if (args.threadId === 'th-lead') streamReply('th-lead', args.text)
+      return { seq, text }
     },
     cancel_thread_turn: ({ threadId }: { threadId: string }) => {
       stopReply.get(threadId)?.()
       stopReply.delete(threadId)
+      append(threadId, 'turn_end', {
+        type: 'turnEnd',
+        stop_reason: 'cancelled',
+        error: null,
+      })
+      append(threadId, 'tool', {
+        type: 'step',
+        id: `step-${nextSeq(threadId)}`,
+        title: 'You stopped the agent',
+        detail: null,
+        step: { kind: 'agentStopped' },
+      })
+      const thread = findThread(threadId)
+      if (thread) thread.status = 'idle'
+      emitStateChanged()
       return null
     },
     new_thread_session: ({ threadId }: { threadId: string }) =>

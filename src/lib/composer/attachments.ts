@@ -34,13 +34,6 @@ export function pastedName(name: string, type: string, now: Date): string {
   return `pasted-${stamp}.${extension}`
 }
 
-/** The message the conversation shows; the core saves the same text. */
-export function shownMessage(text: string, names: string[]): string {
-  if (!names.length) return text
-  const line = `Attached: ${names.join(', ')}`
-  return text ? `${text}\n\n${line}` : line
-}
-
 /** What the core needs to turn an attachment into a file the agent can open. */
 export function toPromptAttachment(
   attachment: ComposerAttachment,
