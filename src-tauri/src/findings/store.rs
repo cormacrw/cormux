@@ -22,26 +22,11 @@ pub struct FindingRow {
 }
 
 /// The findings a thread was last sent to fix, and the seq of the message that sent them.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FindingsBatch {
     pub ids: Vec<String>,
-    #[serde(default)]
-    pub message_seq: Option<i64>,
-}
-
-impl FindingsBatch {
-    /// Older builds saved the ids alone.
-    fn parse(raw: &str) -> Self {
-        serde_json::from_str(raw)
-            .or_else(|_| {
-                serde_json::from_str(raw).map(|ids| Self {
-                    ids,
-                    message_seq: None,
-                })
-            })
-            .unwrap_or_default()
-    }
+    pub message_seq: i64,
 }
 
 const FINDING_COLUMNS: &str = "SELECT id, workspace_id, severity, title, file, line, explanation,
@@ -159,8 +144,9 @@ impl Store {
         })
     }
 
-    /// The findings `thread_id` was last sent to fix, which it works through as one batch.
-    pub fn findings_batch(&self, thread_id: &str) -> Result<FindingsBatch> {
+    /// The findings `thread_id` was last sent to fix, which it works through as one batch; none
+    /// once it fixed them or never got them. A batch that can't be read is logged and reads as none.
+    pub fn findings_batch(&self, thread_id: &str) -> Result<Option<FindingsBatch>> {
         let raw: Option<String> = self.with_read(|conn| {
             Ok(conn
                 .query_row(
@@ -171,14 +157,18 @@ impl Store {
                 .optional()?
                 .flatten())
         })?;
-        Ok(raw
-            .map(|raw| FindingsBatch::parse(&raw))
-            .unwrap_or_default())
+        Ok(raw.and_then(|raw| {
+            serde_json::from_str(&raw)
+                .inspect_err(|error| log::warn!("reading {thread_id}'s findings batch: {error}"))
+                .ok()
+        }))
     }
 
-    pub fn set_findings_batch(&self, thread_id: &str, batch: &FindingsBatch) -> Result<()> {
-        let batch =
-            serde_json::to_string(batch).map_err(|error| Error::Store(error.to_string()))?;
+    pub fn set_findings_batch(&self, thread_id: &str, batch: Option<&FindingsBatch>) -> Result<()> {
+        let batch = batch
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| Error::Store(error.to_string()))?;
         self.with_conn(|conn| {
             conn.execute(
                 "UPDATE threads SET findings_batch = ?1 WHERE id = ?2",

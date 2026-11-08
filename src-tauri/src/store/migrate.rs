@@ -93,6 +93,7 @@ const MIGRATIONS: &[Migration] = migrations![
     "031_no_dismissed_approvals",
     "032_closed_threads_retired",
     "033_workspace_setup_message",
+    "035_findings_batch_message",
 ];
 
 fn create_ledger(conn: &Connection) -> Result<()> {
@@ -552,6 +553,44 @@ mod tests {
         assert_eq!(
             ids("SELECT id FROM visible_threads ORDER BY position"),
             ["open", "scratch"]
+        );
+    }
+
+    /// Older builds saved a findings batch as its ids alone, and every read decoded both forms.
+    #[test]
+    fn a_batch_saved_as_its_ids_alone_names_a_message() {
+        let conn = migrated_before(35);
+        conn.execute_batch(
+            r#"INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
+             INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status)
+                VALUES ('w', 'r', 'W', 'a', '/tmp/a', 'idle');
+             INSERT INTO threads (id, workspace_id, title, engine, status, findings_batch) VALUES
+                ('old', 'w', 'Lead', 'claude', 'idle', '["f1"]'),
+                ('new', 'w', 'Lead', 'claude', 'idle', '{"ids":["f2"],"messageSeq":4}');
+             INSERT INTO thread_events (thread_id, seq, kind, payload) VALUES
+                ('old', 1, 'message', '{}'), ('old', 2, 'message', '{}'), ('old', 3, 'tool', '{}');"#,
+        )
+        .unwrap();
+
+        run(&conn, &[]).unwrap();
+
+        let batch = |id: &str| -> serde_json::Value {
+            let raw: String = conn
+                .query_row(
+                    "SELECT findings_batch FROM threads WHERE id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            serde_json::from_str(&raw).unwrap()
+        };
+        assert_eq!(
+            batch("old"),
+            serde_json::json!({"ids": ["f1"], "messageSeq": 2})
+        );
+        assert_eq!(
+            batch("new"),
+            serde_json::json!({"ids": ["f2"], "messageSeq": 4})
         );
     }
 

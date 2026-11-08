@@ -85,7 +85,7 @@ pub async fn send_workspace_findings(
     // First, so findings that never reached the thread stay open to send again.
     let message_seq =
         crate::turn::start(state, &thread, &user_text, build_fix_prompt(&picked)).await?;
-    record_batch(state, thread_id, &finding_ids, Some(message_seq))?;
+    record_batch(state, thread_id, &finding_ids, message_seq)?;
 
     let titles = picked.iter().map(|row| row.title.clone()).collect();
     state.transcript.record_step(
@@ -136,15 +136,15 @@ pub fn record_batch(
     state: &AppState,
     thread_id: &str,
     finding_ids: &[String],
-    message_seq: Option<i64>,
+    message_seq: i64,
 ) -> Result<()> {
     state.store.mark_findings_sent(finding_ids, thread_id)?;
     state.store.set_findings_batch(
         thread_id,
-        &FindingsBatch {
+        Some(&FindingsBatch {
             ids: finding_ids.to_vec(),
             message_seq,
-        },
+        }),
     )
 }
 
@@ -171,17 +171,14 @@ pub fn start(state: &AppState) {
 }
 
 fn reopen_dropped(state: &AppState, thread_id: &str, message_seqs: &[i64]) -> Result<()> {
-    let batch = state.store.findings_batch(thread_id)?;
-    if !batch
-        .message_seq
-        .is_some_and(|seq| message_seqs.contains(&seq))
-    {
+    let Some(batch) = state.store.findings_batch(thread_id)? else {
+        return Ok(());
+    };
+    if !message_seqs.contains(&batch.message_seq) {
         return Ok(());
     }
     state.store.reopen_findings(&batch.ids, thread_id)?;
-    state
-        .store
-        .set_findings_batch(thread_id, &FindingsBatch::default())?;
+    state.store.set_findings_batch(thread_id, None)?;
     state.out.changed();
     Ok(())
 }
@@ -226,7 +223,11 @@ pub async fn mark_fixed(
         .store
         .finding_by_id(finding_id)?
         .is_some_and(|finding| finding.sent_to_thread_id.as_deref() == Some(thread_id));
-    let batch = state.store.findings_batch(thread_id)?.ids;
+    let batch = state
+        .store
+        .findings_batch(thread_id)?
+        .map(|batch| batch.ids)
+        .unwrap_or_default();
     if !sent_here || !batch.iter().any(|id| id == finding_id) {
         return Err(Error::Workspace(format!(
             "finding {finding_id} isn't one this thread was sent to fix"
@@ -272,9 +273,7 @@ fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[String]) ->
         },
     )?;
 
-    state
-        .store
-        .set_findings_batch(thread_id, &FindingsBatch::default())?;
+    state.store.set_findings_batch(thread_id, None)?;
 
     state.out.changed();
     Ok(())
@@ -455,7 +454,7 @@ mod tests {
 
         assert_eq!(finding_status(&state, "f1"), "open");
         assert_eq!(finding_status(&state, "f2"), "open");
-        assert!(state.store.findings_batch(T).unwrap().ids.is_empty());
+        assert!(state.store.findings_batch(T).unwrap().is_none());
         send_workspace_findings(&state, W, T, ids).await.unwrap();
         assert_eq!(finding_status(&state, "f1"), "sent");
     }
@@ -468,30 +467,6 @@ mod tests {
         reopen_dropped(&state, T, &[9_999]).unwrap();
 
         assert_eq!(finding_status(&state, "f1"), "sent");
-    }
-
-    #[test]
-    fn a_batch_saved_by_an_older_build_still_reads() {
-        let store = crate::store::Store::in_memory().unwrap();
-        store.seed_workspace(W, WorkspaceLifecycle::Idle);
-        store.seed_thread(T, W, ThreadStatus::Idle);
-        store
-            .with_conn(|conn| {
-                conn.execute(
-                    "UPDATE threads SET findings_batch = '[\"f1\"]' WHERE id = ?1",
-                    [T],
-                )?;
-                Ok(())
-            })
-            .unwrap();
-
-        assert_eq!(
-            store.findings_batch(T).unwrap(),
-            FindingsBatch {
-                ids: vec!["f1".into()],
-                message_seq: None
-            }
-        );
     }
 
     #[tokio::test]

@@ -649,7 +649,7 @@ mod tests {
             .store
             .set_thread_status("t1", ThreadStatus::Running)
             .unwrap();
-        crate::findings::record_batch(&state, "t1", &["f1".to_string()], None).unwrap();
+        crate::findings::record_batch(&state, "t1", &["f1".to_string()], 1).unwrap();
         let fixed = |caller| {
             let state = state.clone();
             async move {
@@ -672,7 +672,7 @@ mod tests {
         assert_eq!(finding.status, crate::model::FindingStatus::Fixed);
         assert_eq!(finding.commit_sha.as_deref(), Some("abc123"));
         assert!(
-            state.store.findings_batch("t1").unwrap().ids.is_empty(),
+            state.store.findings_batch("t1").unwrap().is_none(),
             "the last fix ends the batch"
         );
         assert_eq!(
