@@ -1195,7 +1195,11 @@ workspaceRunCommands: WorkspaceRunCommand[];
 /**
  * Repos Remove would refuse now, and why.
  */
-repoRemovalBlocks: RepoRemovalBlock[] }
+repoRemovalBlocks: RepoRemovalBlock[]; 
+/**
+ * Workspaces whose branch can't be switched now, and why.
+ */
+workspaceBranchLocks: WorkspaceBranchLock[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
@@ -1415,6 +1419,10 @@ export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppSta
  */
 https: boolean; exitCode: number | null }
 export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
+/**
+ * A workspace whose branch can't move now, and why, for the snapshot.
+ */
+export type WorkspaceBranchLock = { workspaceId: string; reason: string }
 export type WorkspaceGitRuntime = { workspaceId: string; behind: number; conflict: GitConflictState | null }
 /**
  * What a workspace is for. Stored as `lead` or `review`.

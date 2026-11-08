@@ -16,7 +16,7 @@
   import { diffComments } from '$lib/changes/diff-comments.svelte'
   import type { DiffTarget } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { prs, repos, threads, workspaces } from '$lib/state'
+  import { prs, repos, workspaces } from '$lib/state'
   import { stacks } from '$lib/changes/stacks.svelte'
   import { loadStack } from '$lib/changes/actions'
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
@@ -38,22 +38,15 @@
   } from '$lib/workspace/git-actions'
   import { cn } from '$lib/utils'
 
-  let {
-    workspace,
-    repoId,
-    provisioning,
-  }: { workspace: Workspace; repoId: string; provisioning: boolean } = $props()
+  let { workspace, repoId }: { workspace: Workspace; repoId: string } = $props()
 
   const stack = $derived(stacks.get(workspace.id))
   const cards = $derived(stackCardsTopFirst(stack))
   const trunk = $derived(stack?.trunk ?? repos.defaultBranch(repoId))
   const stacked = $derived(stack?.status === 'stacked')
   const checking = $derived(stacks.loading[workspace.id] ?? false)
-  const lock = $derived(threads.branchLock(workspace.id))
-  const locked = $derived(provisioning || lock.locked)
-  const lockReason = $derived(
-    lock.reason ?? 'Pause or stop the running agents to change branches.',
-  )
+  const lockReason = $derived(workspace.branchLock)
+  const locked = $derived(lockReason != null)
   const addable = $derived(canAddToStack(stack))
   const unavailable = $derived({
     reason: stack?.message ?? '',

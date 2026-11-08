@@ -3,7 +3,7 @@
 import type { Snapshot, ThreadRole, ThreadStatus } from '$lib/ipc/bindings'
 import type { ThreadUsage } from '$lib/usage/usage'
 import { onSnapshot } from '$lib/core/sync'
-import { runningAgentCount, threadActivity } from './activity'
+import { threadActivity } from './activity'
 import { reuseRows } from './reuse-rows'
 import { workspaces } from './workspaces.svelte'
 
@@ -129,22 +129,6 @@ export class ThreadsStore {
 
   getById(id: string) {
     return this.byId.get(id)
-  }
-
-  /** Whether the workspace's branch can change: not while an agent in it works or starts. */
-  branchLock(workspaceId: string): {
-    locked: boolean
-    reason: string | null
-    running: number
-  } {
-    const running = runningAgentCount(this.forWorkspace(workspaceId))
-    return running > 0
-      ? {
-          locked: true,
-          reason: 'Pause or stop the running agents to change branches.',
-          running,
-        }
-      : { locked: false, reason: null, running }
   }
 }
 

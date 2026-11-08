@@ -57,9 +57,8 @@ pub struct ProvisionPlan {
 /// anything is written: the repo, the refs and the worktree folder. Nothing is notified.
 pub async fn create(state: &AppState, spec: WorkspaceSpec) -> Result<Created> {
     let repo = state.store.repo(&spec.repo_id)?;
-    repo.ensure_not_default_branch(&spec.branch)?;
     // Before any git call: `base` can come from an agent's `create_thread` call.
-    crate::git::validate_ref_name(&spec.branch, "branch")?;
+    crate::workspace_git::check_branch_name(&repo, &spec.branch)?;
     crate::git::validate_ref_name(&spec.base, "base")?;
     let repo_path = expand_tilde(&repo.path);
     if !repo_path.is_dir() {

@@ -14,6 +14,7 @@ use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::git::{BehindUpdate, GitConflictState, RepoFetchTarget, WorkspaceFetchTarget};
 use crate::state::AppState;
+use crate::store::types::RepoRecord;
 use crate::timeline::{BranchChange, TimelineStep};
 use crate::workspaces::WorkspaceRecord;
 
@@ -250,14 +251,87 @@ async fn on_branch_changed(
     Ok(())
 }
 
+/// Whether a workspace can have `name` as its branch at all: not its repo's default, which
+/// stays in the repo checkout, and a name git takes. Refusals are `Error::Invalid`, worded for
+/// the field the name was typed in.
+pub fn check_branch_name(repo: &RepoRecord, name: &str) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(Error::Invalid(
+            "Add a branch name, e.g. feat/oauth-login.".into(),
+        ));
+    }
+    repo.ensure_not_default_branch(name)?;
+    crate::git::validate_ref_name(name, "branch").map_err(|_| {
+        Error::Invalid(
+            "Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.".into(),
+        )
+    })
+}
+
+/// Whether `name` can be made as a new branch in `workspace`: a name a workspace can have,
+/// that no branch in the repo has yet and no other live workspace uses.
+pub async fn check_new_branch(
+    state: &AppState,
+    workspace: &WorkspaceRecord,
+    name: &str,
+) -> Result<()> {
+    if name.trim().is_empty() {
+        return check_branch_name(&state.store.repo(&workspace.repo_id)?, name);
+    }
+    crate::git::validate_ref_name(name, "branch").map_err(|_| {
+        Error::Invalid(
+            "Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.".into(),
+        )
+    })?;
+    let local = state.git.list_local_branches(&workspace.worktree()).await?;
+    if name == workspace.base || local.iter().any(|branch| branch == name) {
+        return Err(Error::Invalid(format!(
+            "{name} already exists. Pick a new branch name."
+        )));
+    }
+    let taken = state.store.live_workspaces()?.into_iter().any(|row| {
+        row.repo_id == workspace.repo_id && row.id != workspace.id && row.branch == name
+    });
+    if taken {
+        return Err(Error::Invalid(
+            "Another workspace already uses this branch.".into(),
+        ));
+    }
+    check_branch_name(&state.store.repo(&workspace.repo_id)?, name)
+}
+
+/// Every branch name a new workspace in the repo shouldn't draft: local and `origin`'s
+/// branches, and those live workspaces (other than `except_workspace`) use.
+pub async fn taken_branches(
+    state: &AppState,
+    repo_id: &str,
+    repo_path: &Path,
+    except_workspace: Option<&str>,
+) -> Result<Vec<String>> {
+    let (local, remote) = tokio::try_join!(
+        state.git.list_local_branches(repo_path),
+        state.git.list_remote_branches(repo_path, "origin"),
+    )?;
+    let mut taken = local;
+    taken.extend(remote);
+    taken.extend(
+        state
+            .store
+            .live_workspaces()?
+            .into_iter()
+            .filter(|row| row.repo_id == repo_id && Some(row.id.as_str()) != except_workspace)
+            .map(|row| row.branch),
+    );
+    Ok(taken)
+}
+
 pub async fn switch_branch(state: &AppState, workspace_id: &str, branch: &str) -> Result<()> {
-    crate::git::validate_ref_name(branch, "branch")?;
     let workspace = state.workspaces.get(workspace_id).await?;
+    check_branch_name(&state.store.repo(&workspace.repo_id)?, branch)?;
     if workspace.branch == branch {
         return Ok(());
     }
     state.workspaces.can_switch_branch(workspace_id).await?;
-    ensure_not_default_branch(state, &workspace.repo_id, branch)?;
     state.git.switch(&workspace.worktree(), branch).await?;
     let change = BranchChange::CheckedOut {
         previous: workspace.branch.clone(),
@@ -267,12 +341,9 @@ pub async fn switch_branch(state: &AppState, workspace_id: &str, branch: &str) -
 
 pub async fn create_branch(state: &AppState, workspace_id: &str, branch: &str) -> Result<()> {
     let branch = branch.trim();
-    if branch.is_empty() {
-        return Err(Error::Git("branch name is required".into()));
-    }
     let workspace = state.workspaces.get(workspace_id).await?;
+    check_new_branch(state, &workspace, branch).await?;
     state.workspaces.can_switch_branch(workspace_id).await?;
-    ensure_not_default_branch(state, &workspace.repo_id, branch)?;
     state
         .git
         .switch_new_branch(&workspace.worktree(), branch, "HEAD")
@@ -421,13 +492,6 @@ pub async fn abort_conflict(state: &AppState, workspace_id: &str) -> Result<()> 
     refresh_diff(state, &workspace).await;
     state.out.repo_git_moved();
     Ok(())
-}
-
-fn ensure_not_default_branch(state: &AppState, repo_id: &str, branch: &str) -> Result<()> {
-    match state.store.repo_by_id(repo_id)? {
-        Some(repo) => repo.ensure_not_default_branch(branch),
-        None => Ok(()),
-    }
 }
 
 async fn refresh_diff(state: &AppState, workspace: &WorkspaceRecord) {
@@ -657,5 +721,55 @@ mod tests {
             "{}",
             events[0].payload
         );
+    }
+
+    /// Bugs: the header's new branch took a name another workspace uses, and the stack's took
+    /// the repo's default branch when the workspace was based on another. Both now share one
+    /// check, worded for the field.
+    #[tokio::test]
+    async fn a_new_branch_name_is_checked_the_same_way_everywhere() {
+        let (state, _recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "-q", "-b", "main"]);
+        git(repo, &["commit", "-q", "--allow-empty", "-m", "a"]);
+        git(repo, &["branch", "feat/old"]);
+        state
+            .store
+            .upsert_repo(&RepoRecord {
+                default_branch: "trunk".into(),
+                ..crate::store::fixtures::repo("r1")
+            })
+            .unwrap();
+        for (id, branch) in [("w1", "feat/a"), ("w2", "feat/b")] {
+            let row = WorkspaceRow {
+                branch: branch.into(),
+                base: "main".into(),
+                worktree_path: repo.to_string_lossy().into(),
+                ..crate::store::fixtures::workspace(id, crate::model::WorkspaceLifecycle::Idle)
+            };
+            state.store.insert_workspace(&row).unwrap();
+        }
+        let record = state.workspaces.get("w1").await.unwrap();
+
+        for (name, refusal) in [
+            ("", "Add a branch name"),
+            ("bad name", "Use letters, numbers, dashes and slashes only"),
+            ("main", "main already exists"),
+            ("feat/old", "feat/old already exists"),
+            ("feat/b", "Another workspace already uses this branch"),
+            ("trunk", "the default branch"),
+        ] {
+            let error = check_new_branch(&state, &record, name).await.unwrap_err();
+            assert!(
+                matches!(&error, Error::Invalid(text) if text.contains(refusal)),
+                "{name:?}: {error}"
+            );
+        }
+        check_new_branch(&state, &record, "feat/new").await.unwrap();
+
+        let error = create_branch(&state, "w1", "feat/b").await.unwrap_err();
+        assert!(matches!(error, Error::Invalid(_)), "{error}");
     }
 }

@@ -20,18 +20,16 @@
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import ShortcutKbd from '$lib/primitives/ShortcutKbd.svelte'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { repos, threads, workspaces } from '$lib/state'
+  import { repos, workspaces } from '$lib/state'
 
   let {
     workspaceId,
     repoId,
     branch,
-    provisioning,
   }: {
     workspaceId: string
     repoId: string
     branch: string
-    provisioning: boolean
   } = $props()
 
   let open = $state(false)
@@ -41,8 +39,10 @@
   let triggerEl = $state<HTMLButtonElement | null>(null)
   let newBranchName = $state('')
 
-  const lock = $derived(threads.branchLock(workspaceId))
-  const locked = $derived(provisioning || lock.locked)
+  const lockReason = $derived(
+    workspaces.getById(workspaceId)?.branchLock ?? null,
+  )
+  const locked = $derived(lockReason != null)
 
   const otherWorkspaceBranches = $derived(
     workspaces.branchesInUse(repoId, workspaceId),
@@ -121,9 +121,7 @@
     <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
     <span class="sr-only">Branch</span>
     <span class="truncate">{branch}</span>
-    {#if lock.running > 0}
-      <span class="sr-only">, locked while agents are running</span>
-    {/if}
+    <span class="sr-only">, locked. {lockReason}</span>
   </Button>
 {:else}
   <DropdownMenu.Root bind:open>

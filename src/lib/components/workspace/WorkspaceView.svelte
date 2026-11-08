@@ -234,7 +234,6 @@
               {workspace}
               thread={activeThread}
               repoId={workspaceRepoId}
-              {provisioning}
             />
           </div>
         {/if}

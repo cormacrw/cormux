@@ -223,17 +223,6 @@ pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) ->
     check_can_spawn(&state.store, &caller)?;
     let repo_id = caller_repo(&state.store, &caller)?;
     let repo = state.store.repo(&repo_id)?;
-    let repo_path = crate::paths::expand_tilde(&repo.path);
-    let mut taken = state.git.list_local_branches(&repo_path).await?;
-    taken.extend(state.git.list_remote_branches(&repo_path, "origin").await?);
-    taken.extend(
-        state
-            .store
-            .live_workspaces()?
-            .into_iter()
-            .filter(|row| row.repo_id == repo_id)
-            .map(|row| row.branch),
-    );
     let base = new
         .base
         .filter(|base| !base.trim().is_empty())
@@ -248,7 +237,7 @@ pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) ->
         CreateWorkspaceInput {
             repo_id,
             name: String::new(),
-            branch: crate::naming::draft_branch(&new.goal, &taken),
+            branch: String::new(),
             base,
             engine: caller.engine.clone(),
             goal: new.goal,

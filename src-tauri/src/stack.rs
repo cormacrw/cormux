@@ -662,7 +662,7 @@ pub async fn add_branch(state: &AppState, workspace_id: &str, branch: &str) -> R
     let name = branch.trim();
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
-    refuse_new_branch(state, &record, &worktree, name).await?;
+    crate::workspace_git::check_new_branch(state, &record, name).await?;
     state.workspaces.can_switch_branch(workspace_id).await?;
 
     match view(state, &worktree).await? {
@@ -704,38 +704,6 @@ pub async fn add_branch(state: &AppState, workspace_id: &str, branch: &str) -> R
         },
     )
     .await?;
-    Ok(())
-}
-
-/// Why `name` can't be a new branch in the workspace, in words for the field it was typed in
-/// (`Error::Invalid`).
-async fn refuse_new_branch(
-    state: &AppState,
-    record: &WorkspaceRecord,
-    worktree: &Path,
-    name: &str,
-) -> Result<()> {
-    let refuse = |message: String| Err(Error::Invalid(message));
-    if name.is_empty() {
-        return refuse("Add a branch name, e.g. feat/oauth-login.".into());
-    }
-    if crate::git::validate_ref_name(name, "branch").is_err() {
-        return refuse(
-            "Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.".into(),
-        );
-    }
-    let local = state.git.list_local_branches(worktree).await?;
-    if name == record.base || local.iter().any(|branch| branch == name) {
-        return refuse(format!("{name} already exists. Pick a new branch name."));
-    }
-    let taken = state
-        .store
-        .live_workspaces()?
-        .into_iter()
-        .any(|row| row.repo_id == record.repo_id && row.id != record.id && row.branch == name);
-    if taken {
-        return refuse("Another workspace already uses this branch.".into());
-    }
     Ok(())
 }
 
@@ -1122,69 +1090,6 @@ mod tests {
         assert!(!b.is_merged && b.is_queued && b.needs_rebase);
         assert!(b.pr.is_none());
         assert_eq!(json.parents(), ["main", "main"]);
-    }
-
-    #[tokio::test]
-    async fn a_new_stack_branch_name_is_checked_by_the_core() {
-        use crate::model::WorkspaceLifecycle;
-        use crate::store::types::WorkspaceRow;
-
-        let (state, _) = state_on(ShellEnv::new()).await;
-        let dir = tempfile::tempdir().unwrap();
-        let repo = dir.path();
-        let git = |args: &[&str]| {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(repo)
-                .status()
-                .unwrap();
-            assert!(status.success(), "git {args:?}");
-        };
-        git(&["init", "-q", "-b", "main"]);
-        git(&[
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@t",
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            "a",
-        ]);
-        git(&["branch", "feat/old"]);
-        state
-            .store
-            .upsert_repo(&crate::store::fixtures::repo("r1"))
-            .unwrap();
-        for (id, branch) in [("w1", "feat/a"), ("w2", "feat/b")] {
-            let row = WorkspaceRow {
-                branch: branch.into(),
-                worktree_path: repo.to_string_lossy().into(),
-                ..crate::store::fixtures::workspace(id, WorkspaceLifecycle::Idle)
-            };
-            state.store.insert_workspace(&row).unwrap();
-        }
-        let record = state.workspaces.get("w1").await.unwrap();
-
-        for (name, refusal) in [
-            ("", "Add a branch name"),
-            ("bad name", "Use letters, numbers, dashes and slashes only"),
-            ("main", "main already exists"),
-            ("feat/old", "feat/old already exists"),
-            ("feat/b", "Another workspace already uses this branch"),
-        ] {
-            let error = refuse_new_branch(&state, &record, repo, name)
-                .await
-                .unwrap_err();
-            assert!(
-                matches!(&error, Error::Invalid(text) if text.contains(refusal)),
-                "{name:?}: {error}"
-            );
-        }
-        refuse_new_branch(&state, &record, repo, "feat/new")
-            .await
-            .unwrap();
     }
 
     #[tokio::test]

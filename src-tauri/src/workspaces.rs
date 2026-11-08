@@ -350,22 +350,11 @@ impl Workspaces {
 
     pub async fn can_switch_branch(&self, id: &str) -> Result<()> {
         let record = self.get(id).await?;
-        if record.status == WorkspaceLifecycle::Provisioning {
-            return Err(Error::Workspace(
-                "branch switch refused while provisioning".into(),
-            ));
+        let threads = self.store.threads_for_workspace(id)?;
+        match branch_lock(record.status, threads.iter().map(|thread| thread.status)) {
+            Some(reason) => Err(Error::Workspace(reason.into())),
+            None => Ok(()),
         }
-        let blocked = self
-            .store
-            .threads_for_workspace(id)?
-            .iter()
-            .any(|thread| thread.status.is_working());
-        if blocked {
-            return Err(Error::Workspace(
-                "branch switch refused while a thread is running".into(),
-            ));
-        }
-        Ok(())
     }
 
     pub async fn archive(&self, id: &str) -> Result<()> {
@@ -385,6 +374,48 @@ impl Workspaces {
         change(&self.store, record)?;
         Ok(record.clone())
     }
+}
+
+/// Why a workspace's branch can't move now: setup is still making the worktree, or an agent
+/// is working in it. `None` when it can.
+pub fn branch_lock(
+    status: WorkspaceLifecycle,
+    threads: impl IntoIterator<Item = ThreadStatus>,
+) -> Option<&'static str> {
+    if status == WorkspaceLifecycle::Provisioning {
+        Some("Wait for setup to finish to change branches.")
+    } else if threads.into_iter().any(ThreadStatus::is_working) {
+        Some("Pause or stop the running agents to change branches.")
+    } else {
+        None
+    }
+}
+
+/// A workspace whose branch can't move now, and why, for the snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBranchLock {
+    pub workspace_id: String,
+    pub reason: String,
+}
+
+pub fn branch_locks(
+    workspaces: &[WorkspaceRecord],
+    threads: &[crate::store::types::ThreadRow],
+) -> Vec<WorkspaceBranchLock> {
+    workspaces
+        .iter()
+        .filter_map(|workspace| {
+            let statuses = threads
+                .iter()
+                .filter(|thread| thread.workspace_id == workspace.id)
+                .map(|thread| thread.status);
+            branch_lock(workspace.status, statuses).map(|reason| WorkspaceBranchLock {
+                workspace_id: workspace.id.clone(),
+                reason: reason.into(),
+            })
+        })
+        .collect()
 }
 
 fn load<'a>(store: &Store, inner: &'a mut Inner, id: &str) -> Result<&'a mut WorkspaceRecord> {
@@ -660,5 +691,18 @@ mod tests {
         assert!(workspaces.get("w").await.is_err());
         assert!(workspaces.get("nope").await.is_err());
         assert!(workspaces.live().await.unwrap().is_empty());
+    }
+
+    /// Bug: the Stack tab blamed running agents for a lock that was setup's.
+    #[test]
+    fn a_branch_lock_says_whether_setup_or_agents_hold_it() {
+        use ThreadStatus::{Idle, Paused, Running};
+        use WorkspaceLifecycle as Lifecycle;
+        let setup = branch_lock(Lifecycle::Provisioning, [Idle]).unwrap();
+        assert!(setup.contains("setup"), "{setup}");
+        let agents = branch_lock(Lifecycle::Running, [Idle, Running]).unwrap();
+        assert!(agents.contains("running agents"), "{agents}");
+        assert_eq!(branch_lock(Lifecycle::Paused, [Paused, Idle]), None);
+        assert_eq!(branch_lock(Lifecycle::ProvisioningFailed, [Idle]), None);
     }
 }

@@ -40,12 +40,10 @@
     workspace,
     thread,
     repoId,
-    provisioning,
   }: {
     workspace: Workspace
     thread: Thread
     repoId: string
-    provisioning: boolean
   } = $props()
 
   const files = $derived(workspaceDiff.filesByWorkspace[workspace.id] ?? [])
@@ -157,7 +155,7 @@
   data-od-id="changes-panel"
   class="flex min-h-0 flex-1"
 >
-  <StackRail {workspace} {repoId} {provisioning} />
+  <StackRail {workspace} {repoId} />
   <div class="flex min-h-0 min-w-0 flex-1 flex-col">
     <div
       class="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2"

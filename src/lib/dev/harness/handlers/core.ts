@@ -1,4 +1,4 @@
-import type { SettingsPatch } from '$lib/ipc/bindings'
+import { WORKING_THREAD_STATUSES, type SettingsPatch } from '$lib/ipc/bindings'
 import { threadActivity } from '../db'
 import { fixtureEngines } from '../fixtures'
 import { CHANGE, type HarnessRuntime } from '../runtime'
@@ -47,6 +47,23 @@ export function coreHandlers({ db, emitStateChanged }: HarnessRuntime) {
             ? 'Cormux needs at least one repo'
             : null
         return reason ? [{ repoId: repo.id, reason }] : []
+      })
+      // As the core's `workspaces::branch_lock`.
+      snapshot.workspaceBranchLocks = snapshot.workspaces.flatMap((record) => {
+        const working = snapshot.persisted.threads.some(
+          (thread) =>
+            thread.workspaceId === record.id &&
+            (WORKING_THREAD_STATUSES as readonly string[]).includes(
+              thread.status,
+            ),
+        )
+        const reason =
+          record.status === 'provisioning'
+            ? 'Wait for setup to finish to change branches.'
+            : working
+              ? 'Pause or stop the running agents to change branches.'
+              : null
+        return reason ? [{ workspaceId: record.id, reason }] : []
       })
       // A copy, as the real IPC deserialises one: the stores keep rows whose contents didn't
       // change, so handing them the harness's own objects would hide its edits.

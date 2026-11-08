@@ -25,7 +25,7 @@ impl RepoRecord {
     pub fn ensure_not_default_branch(&self, branch: &str) -> Result<()> {
         let default = &self.default_branch;
         if branch.trim() == default {
-            return Err(Error::Workspace(format!(
+            return Err(Error::Invalid(format!(
                 "Workspaces can't check out {default}, the default branch of {}. Use another branch.",
                 self.name
             )));

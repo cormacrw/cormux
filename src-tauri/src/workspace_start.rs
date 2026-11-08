@@ -82,7 +82,8 @@ pub async fn start_workspace(
         "" => {
             let repo = state.store.repo(&input.repo_id)?;
             let repo_path = crate::paths::expand_tilde(&repo.path);
-            let taken = taken_branches(state, &repo.id, &repo_path, None).await?;
+            let taken =
+                crate::workspace_git::taken_branches(state, &repo.id, &repo_path, None).await?;
             crate::naming::draft_branch(&goal, &taken)
         }
         given => given.to_string(),
@@ -226,7 +227,7 @@ async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Resu
         return Ok(());
     };
     let workspace = state.workspaces.get(workspace_id).await?;
-    let taken = taken_branches(
+    let taken = crate::workspace_git::taken_branches(
         state,
         &workspace.repo_id,
         Path::new(&workspace.repo_path),
@@ -238,29 +239,6 @@ async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Resu
     state.workspaces.retarget(workspace_id, &branch).await?;
     state.out.changed();
     Ok(())
-}
-
-async fn taken_branches(
-    state: &AppState,
-    repo_id: &str,
-    repo_path: &Path,
-    except_workspace: Option<&str>,
-) -> Result<Vec<String>> {
-    let (local, remote) = tokio::try_join!(
-        state.git.list_local_branches(repo_path),
-        state.git.list_remote_branches(repo_path, "origin"),
-    )?;
-    let mut taken = local;
-    taken.extend(remote);
-    taken.extend(
-        state
-            .store
-            .live_workspaces()?
-            .into_iter()
-            .filter(|row| row.repo_id == repo_id && Some(row.id.as_str()) != except_workspace)
-            .map(|row| row.branch),
-    );
-    Ok(taken)
 }
 
 /// Swaps the drafted name for Haiku's unless the workspace was renamed or deleted meanwhile.

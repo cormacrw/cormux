@@ -64,6 +64,8 @@ pub struct Snapshot {
     pub workspace_run_commands: Vec<WorkspaceRunCommand>,
     /// Repos Remove would refuse now, and why.
     pub repo_removal_blocks: Vec<crate::repos::RepoRemovalBlock>,
+    /// Workspaces whose branch can't be switched now, and why.
+    pub workspace_branch_locks: Vec<crate::workspaces::WorkspaceBranchLock>,
 }
 
 fn persisted(store: &crate::store::Store) -> Result<PersistedSnapshot> {
@@ -100,6 +102,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let repo_removal_blocks = crate::repos::removal_blocks(&persisted.repos, &persisted.workspaces);
     let workspace_run_commands =
         crate::harness_config::workspace_run_commands(&persisted.workspaces, &repo_run_commands);
+    let workspace_branch_locks = crate::workspaces::branch_locks(&workspaces, &persisted.threads);
 
     Ok(Snapshot {
         version: state.out.version(),
@@ -115,6 +118,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         repo_run_commands,
         workspace_run_commands,
         repo_removal_blocks,
+        workspace_branch_locks,
     })
 }
 

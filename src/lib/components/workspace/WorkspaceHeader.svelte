@@ -104,7 +104,6 @@
         workspaceId={workspace.id}
         repoId={workspace.repoId}
         branch={workspace.branch}
-        {provisioning}
       />
       {#if repo?.name}
         <p class="truncate text-xs text-muted-foreground">{repo.name}</p>
