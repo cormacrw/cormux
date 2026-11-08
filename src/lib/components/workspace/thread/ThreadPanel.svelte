@@ -71,6 +71,7 @@
     },
   }
   const view = $derived(threadTimeline.threadView(threadId))
+  const shown = $derived(workspaceUi.activeTab === 'thread')
   const live = $derived(view.live)
   const showHero = $derived(showsHero(view))
   let conversation: ThreadConversation | undefined = $state()
@@ -137,7 +138,7 @@
     role={thread.role}
     engine={engineDisplayName(thread.engine)}
     {source}
-    shown={workspaceUi.activeTab === 'thread'}
+    {shown}
     contentClass={['pt-3', live ? 'pb-14' : 'pb-4']}
     padBottom={live && liveStatusHeight
       ? `calc(${liveStatusHeight}px + 1.75rem)`
@@ -261,6 +262,7 @@
   {:else}
     <ThreadComposer
       target={composer}
+      {shown}
       status={live ? liveStatus : undefined}
       onSent={() => conversation?.followEnd()}
     />
