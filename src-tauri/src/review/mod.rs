@@ -470,9 +470,9 @@ async fn complete_review(
     state.store.finish_review(&workspace.id, found)?;
     let reviewed = match workspace.kind {
         WorkspaceKind::PrReview => workspace
-                .pr_number
-                .map(|num| format!("#{num}"))
-                .unwrap_or_else(|| "the PR".into()),
+            .pr_number
+            .map(|num| format!("#{num}"))
+            .unwrap_or_else(|| "the PR".into()),
         WorkspaceKind::Lead => workspace.branch.clone(),
     };
     if found > 0 {

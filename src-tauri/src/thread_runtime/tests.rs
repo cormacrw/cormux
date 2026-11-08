@@ -956,3 +956,34 @@ async fn a_denial_reaches_the_engine_as_its_answer_and_nothing_else() {
         );
     }
 }
+
+/// Bug: a crash mid-turn was only streamed, so after a reload the turn never ended.
+#[tokio::test]
+async fn an_engine_that_exits_mid_turn_saves_the_end_and_one_between_turns_does_not() {
+    let fake = FakeEngines::default();
+    let mut setup = setup(Arc::new(fake.clone()));
+    for thread in ["crashed", "quiet"] {
+        add_thread(&setup.store, thread, "running", None);
+        setup
+            .runtime
+            .ensure(&setup.runtime.operation(thread).await, W)
+            .await
+            .unwrap();
+    }
+    setup
+        .runtime
+        .prompt(&setup.runtime.operation("crashed").await, "go")
+        .unwrap();
+
+    fake.report("crashed", EngineOutput::Exited);
+    fake.report("quiet", EngineOutput::Exited);
+    let end = tokio::time::timeout(Duration::from_secs(5), setup.turn_ends.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(end.thread_id, "crashed");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    assert!(setup.store.last_seq_of_kind("crashed", "exit").unwrap() > 0);
+    assert_eq!(setup.store.last_seq_of_kind("quiet", "exit").unwrap(), 0);
+}

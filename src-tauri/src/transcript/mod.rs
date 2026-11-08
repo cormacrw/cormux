@@ -4,10 +4,11 @@
 //!
 //! What is saved and what is only streamed:
 //! - Saved ([`Transcript::append`]): the user's messages, what the engine said and did (messages,
-//!   tool calls and their results, plans, usage, session starts, turn ends), permission requests
-//!   waiting on the user, the core's own steps, and a findings batch's live title.
-//! - Streamed only ([`Transcript::signal`]): an engine exiting (an engine reaped for sitting idle
-//!   exits too, and that isn't the thread moving), a permission approved without asking (a chip on
+//!   tool calls and their results, plans, usage, session starts, turn ends), an engine exiting
+//!   mid-turn of its own accord (which ends the turn), permission requests waiting on the user,
+//!   the core's own steps, and a findings batch's live title.
+//! - Streamed only ([`Transcript::signal`]): any other engine exiting (an engine reaped for
+//!   sitting idle exits too, and that isn't the thread moving), a permission approved without asking (a chip on
 //!   the step that follows), the tool a permission is waiting on, and the stream falling behind.
 //!   A subscriber that lags can read back every saved event; the signals it missed are gone.
 

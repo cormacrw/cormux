@@ -590,8 +590,7 @@ impl Pump {
                 EngineOutput::Exited => {
                     exited = true;
                     if launch.succeeded().await {
-                        self.transcript
-                            .signal(&self.thread_id, HostEvent::EngineExited);
+                        self.exited();
                         self.gone();
                     }
                 }
@@ -630,6 +629,18 @@ impl Pump {
     fn opened(&self) {
         if let Ok(mut turn) = self.turn.lock() {
             turn.open = true;
+        }
+    }
+
+    /// An engine that exits mid-turn of its own accord ends the turn there, so it's saved and a
+    /// reload still ends the turn. Between turns, or shut down on purpose, it's only shown.
+    fn exited(&self) {
+        let open = self.turn.lock().is_ok_and(|turn| turn.open);
+        if open && is_current(&self.current, &self.thread_id, self.engine) {
+            self.save(HostEvent::EngineExited);
+        } else {
+            self.transcript
+                .signal(&self.thread_id, HostEvent::EngineExited);
         }
     }
 
