@@ -105,9 +105,8 @@ async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Picks an earlier conversation in the thread back up: the agent resumes its
- * session, and the thread shows that conversation again. `conversation_id`
- * is the UI's id for it, echoed back in the step so the timeline can follow.
+ * Picks an earlier conversation in the thread back up: the agent resumes the session it
+ * ended with, and the thread shows that conversation again.
  */
 async resumeThreadSession(input: ResumeThreadSessionInput) : Promise<Result<null, Error>> {
     try {
@@ -251,9 +250,6 @@ async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Point the Changes panel at uncommitted work (`None`) or a branch against its base.
- */
 async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_workspace_diff_target", { workspaceId, target }) };
@@ -262,10 +258,6 @@ async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : P
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Throw away the uncommitted change to one file (every one when `None`), then refresh
- * Changes.
- */
 async discardWorkspaceChanges(workspaceId: string, path: string | null) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("discard_workspace_changes", { workspaceId, path }) };

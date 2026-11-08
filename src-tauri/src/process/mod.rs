@@ -40,7 +40,6 @@ const LOG_FILE_PREFIX: &str = "cormux-pty-";
 pub struct ProcessSupervisor {
     env: Arc<RwLock<ShellEnv>>,
     sessions: Arc<Mutex<HashMap<SessionId, RunningApp>>>,
-    /// Workspace logs, by workspace id.
     logs: Arc<Mutex<HashMap<String, Arc<Lines>>>>,
     /// Woken on every new line of any session or log.
     activity: Arc<Notify>,
@@ -179,7 +178,6 @@ impl ProcessSupervisor {
         }
     }
 
-    /// Woken when any session or log gets a new line.
     pub fn activity(&self) -> Arc<Notify> {
         self.activity.clone()
     }

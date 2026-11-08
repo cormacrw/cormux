@@ -50,7 +50,6 @@
   const repo = $derived(repos.getById(repoId))
   const repoCommand = $derived(repos.runCommand(repoId))
   const controls = $derived(appControls(workspaceId))
-  // This workspace's own command from the field below, else the repo's.
   const runCommand = $derived(controls.runCommand)
   let commandField: RunCommandField | undefined = $state()
 

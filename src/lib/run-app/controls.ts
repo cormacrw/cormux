@@ -12,7 +12,7 @@ export type AppControls = {
   canStop: boolean
   /** Restart a running app; a starting one has nothing to restart yet. */
   canRestart: boolean
-  /** The command Run starts: the workspace's own, else the repo's ('' for none). */
+  /** What Run starts, as the core resolved it ('' for nothing). */
   runCommand: string
 }
 

@@ -55,7 +55,6 @@ pub async fn set_target(
     Ok(())
 }
 
-/// Throws away uncommitted changes to `paths` (all of them when empty).
 /// Throws away the uncommitted change to the file at `path`, or every one when `None`. A renamed
 /// file goes back to where it came from.
 pub async fn discard(state: &AppState, workspace_id: &str, path: Option<&str>) -> Result<()> {
@@ -94,7 +93,6 @@ pub mod commands {
         super::refresh(&state, &workspace_id).await
     }
 
-    /// Point the Changes panel at uncommitted work (`None`) or a branch against its base.
     #[tauri::command]
     #[specta::specta]
     pub async fn set_workspace_diff_target(
@@ -105,8 +103,6 @@ pub mod commands {
         super::set_target(&state, &workspace_id, target).await
     }
 
-    /// Throw away the uncommitted change to one file (every one when `None`), then refresh
-    /// Changes.
     #[tauri::command]
     #[specta::specta]
     pub async fn discard_workspace_changes(

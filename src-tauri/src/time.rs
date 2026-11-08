@@ -22,7 +22,6 @@ pub fn iso_now() -> String {
     format!("{date}T{time}Z")
 }
 
-/// `unix_secs` as a UTC date and time of day.
 fn utc(unix_secs: u64) -> (String, String) {
     let rem = unix_secs % 86_400;
     let (year, month, day) = civil_from_days((unix_secs / 86_400) as i64);

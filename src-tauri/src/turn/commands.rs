@@ -45,9 +45,8 @@ pub async fn new_thread_session(thread_id: String, state: State<'_, AppState>) -
     super::new_session(&state, &thread_id).await
 }
 
-/// Picks an earlier conversation in the thread back up: the agent resumes its
-/// session, and the thread shows that conversation again. `conversation_id`
-/// is the UI's id for it, echoed back in the step so the timeline can follow.
+/// Picks an earlier conversation in the thread back up: the agent resumes the session it
+/// ended with, and the thread shows that conversation again.
 #[tauri::command]
 #[specta::specta]
 pub async fn resume_thread_session(

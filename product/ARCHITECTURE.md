@@ -151,7 +151,7 @@ All git calls for one worktree go through a per-worktree queue so two operations
 
 ### Workspaces (`workspaces`, `workspace_start`, `provisioning`, `teardown`)
 
-`workspaces` keeps each live workspace's record (its row plus the setup activity only the running app knows); `workspace_start` names, records and provisions a Lead's workspace, `review` does the same for a PR review, and both hand `provisioning` a plan. Lifecycle (`model::WorkspaceLifecycle`):
+`workspaces` keeps each live workspace's record (its row plus `WorkspaceActivity`, how far setup got or what its review came to, which only the running app knows and the webview words); `workspace_start` names, records and provisions a Lead's workspace, `review` does the same for a PR review, and both hand `provisioning` a plan. Lifecycle (`model::WorkspaceLifecycle`):
 
 ```
 provisioning → ready ⇄ running / idle (from its threads' statuses) → tearingDown → archived
@@ -231,7 +231,7 @@ Review findings come from the reviewer's reply, not from a tool: the core parses
 
 Runs setup and run commands in a PTY (`portable-pty`) using the login-shell environment, each in its own process group so Stop, Restart and Teardown kill the whole tree.
 
-- **Output:** read on a background task, split into lines, kept in a ring buffer (500 lines on screen, full log on disk for the session), and streamed to the UI in batches of about 30ms.
+- **Output:** read on a background task, split into lines, kept in a ring buffer (500 lines on screen, full log on disk for the session), and streamed to the UI in batches of about 30ms. Each line is a `LogEntry` with a kind: what a command printed, or Cormux's own command, marker, interrupt, note or warning lines, which the UI styles by kind.
 - **Ports:** the port is read from the output (`localhost:<port>`, `127.0.0.1:<port>`), confirmed by checking the process tree's listening sockets. Cormux also sets `PORT` to a free port before spawning, which many frameworks respect. This replaces the prototype's prediction.
 - **Exit:** a non-zero exit while running becomes the **Crashed** state with the exit code and a Restart button.
 - **Input:** the PTY accepts keystrokes, so dev-server shortcuts (`r`, `o`) are possible later without changing the design.
@@ -262,7 +262,7 @@ Repo config can also be read from a committed file (`.cormux/config.json`) so a 
 
 **Migrations** run in version order inside `Store::open`: the SQL files in `src-tauri/migrations/`, plus Rust migrations their owning module supplies (024 is `transcript::MIGRATION`, which rewrites rows older builds saved). Each runs in its own transaction and is recorded in `schema_migrations`.
 
-**Settings** (`settings::Settings`) are one typed struct, stored one row per field; it is the only place their keys are named. Commands read and write it whole (`get_settings`, `update_settings` with a patch). The ClickUp API key is kept in `~/.cormux/credentials.json`, not in the database.
+**Settings** (`settings::Settings`) are one typed struct, stored one row per field under the field's wire name; it is the only place their keys and defaults are named (the webview gets the defaults as the generated `DEFAULT_SETTINGS`). Commands read and write it whole (`get_settings`, `update_settings` with a patch). The ClickUp API key is kept in `~/.cormux/credentials.json`, not in the database.
 
 **Snapshot** (`snapshot`): what the webview loads in one go — every feature's rows read in one read transaction, plus the state only memory holds (live workspace records, git counts, running apps, memory, pending approval count). Every state change the core announces (`feedback::Notifier::changed`) bumps a version the snapshot carries; the webview refetches on each, and `repoGit` marks a change that also moved `origin`.
 
