@@ -121,7 +121,7 @@ Features don't call each other to react to something: they publish on the **bus*
 
 ### Shell environment (`shell_env`)
 
-macOS GUI apps don't inherit the user's shell `PATH`, so `claude`, `pnpm`, `nvm` and `uv` won't be found from a plain spawn. At launch, the core runs the user's login shell once (`$SHELL -l -i -c 'env -0'`), caches the result, and uses it for every child process. A **Reload environment** action re-reads it. This single step is what makes provisioning, Run and engine detection work.
+macOS GUI apps don't inherit the user's shell `PATH`, so `claude`, `pnpm`, `nvm` and `uv` won't be found from a plain spawn. At launch, the core runs the user's login shell once (`$SHELL -l -i -c 'env -0'`), caches the result, and uses it for every child process. A **Reload environment** action re-reads it. This single step is what makes provisioning, Run and engine detection work. `SharedEnv` holds it: `git`, `gh`, the process supervisor and the LLM client read through it, and those reads wait until the first load has finished (or failed and fallen back to the app's own environment), so nothing shells out without the user's `PATH` and nothing has to start after the load. Engines take it as it is, since they only launch on the user's word.
 
 ### Repos and git (`git`)
 
@@ -138,6 +138,8 @@ Cormux shells out to the system `git` rather than using a library (`git2`, `gix`
 | Diff | Uncommitted work (untracked files included) against `HEAD` through a scratch index; committed work as `git diff <base>...HEAD` |
 | Switch branch | `git switch <branch>` (refused if `git status --porcelain` is not empty) |
 | Pull | `git merge <base ref>` (as for the behind count); unmerged paths from `git diff --name-only --diff-filter=U` |
+
+A yes/no check (`ref_exists`, `is_ancestor`, `remote_branch_exists`) takes git's "no" from exit code 1 only; any other failure is an error, never a "no". Where a caller carries on regardless, the fallback is chosen there and logged: a repo's ahead/behind reads 0 and 0, a stack branch git can't compare shows as needing a rebase, a behind count git can't make keeps the last one.
 | Push (Create PR) | `git push -u origin <branch>` |
 | Teardown | `git worktree remove [--force] <path>`, `git branch -D <branch>` |
 
@@ -233,7 +235,7 @@ Review findings come from the reviewer's reply, not from a tool: the core parses
 
 ### Process supervisor (`process`)
 
-Runs setup and run commands in a PTY (`portable-pty`) using the login-shell environment, each in its own process group so Stop, Restart and Teardown kill the whole tree.
+Runs setup and run commands in a PTY (`portable-pty`) using the login-shell environment, each in its own process group so Stop, Restart and Teardown kill the whole tree. It doesn't know what it runs: a `SessionId` is a name plus the workspace whose teardown stops it, if any. The env contract setup and run commands get (`HarnessEnv`) is `harness_config`'s, and reading the port is the app service's (`app::port`), which is built with the supervisor, workspaces, store and notifier it uses rather than all of `AppState`.
 
 - **Output:** read on a background task, split into lines, kept in a ring buffer (`OUTPUT_LINE_CAP`, 500 lines, which the Output tab keeps too; full log on disk for the session); each reader of the live stream has its own cursor, and streamed to the UI in batches of about 30ms. Each line is a `LogEntry` with a kind: what a command printed, or Cormux's own command, marker, interrupt, note or warning lines, which the UI styles by kind.
 - **Ports:** the port is read from the output (`localhost:<port>`, `127.0.0.1:<port>`, `0.0.0.0:<port>`). Cormux also sets `PORT` before spawning, which many frameworks respect: the app kind's usual port, moved past any other Cormux app's. This replaces the prototype's prediction.
