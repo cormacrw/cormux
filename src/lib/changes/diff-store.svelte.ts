@@ -19,6 +19,8 @@ class WorkspaceDiffStore {
   uncommittedByWorkspace = $state<Record<string, LineCounts>>({})
   // Raw so `fetch` can tell its own entry apart from a newer one by identity.
   pendingByWorkspace = $state.raw<Record<string, PendingDiff>>({})
+  /** Workspaces whose last fetch failed, until a diff arrives. */
+  private failedByWorkspace = $state<Record<string, boolean>>({})
 
   totals(workspaceId: string): DiffLineTotals {
     const files = this.filesByWorkspace[workspaceId]
@@ -36,6 +38,11 @@ class WorkspaceDiffStore {
 
   pending(workspaceId: string): PendingDiff | null {
     return this.pendingByWorkspace[workspaceId] ?? null
+  }
+
+  /** Whether the last fetch failed with nothing arriving since, so an empty diff isn't news. */
+  failed(workspaceId: string): boolean {
+    return this.failedByWorkspace[workspaceId] ?? false
   }
 
   /** What the diff shows, or where it's headed while a retarget loads. */
@@ -61,7 +68,9 @@ class WorkspaceDiffStore {
       ...this.pendingByWorkspace,
       [workspaceId]: pending,
     }
-    const ok = await run().catch(() => false)
+    this.failedByWorkspace[workspaceId] = false
+    const ok = await run()
+    if (!ok) this.failedByWorkspace[workspaceId] = true
     if (
       (!ok || !retarget) &&
       this.pendingByWorkspace[workspaceId] === pending
@@ -89,6 +98,7 @@ class WorkspaceDiffStore {
       (!pending.retarget || sameDiffTarget(pending.target, target))
     )
       this.clearPending(workspaceId)
+    this.failedByWorkspace[workspaceId] = false
     this.filesByWorkspace = {
       ...this.filesByWorkspace,
       [workspaceId]: reuseUnchangedFiles(

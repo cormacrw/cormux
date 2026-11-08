@@ -51,8 +51,13 @@ function createInvoke(runtime: HarnessRuntime) {
     ...pluginHandlers(runtime),
   } as unknown as Record<string, InvokeHandler | undefined>
   const slow: Partial<Record<string, number>> = runtime.scenario.slow ?? {}
+  const failing: Partial<Record<string, string>> =
+    runtime.scenario.failing ?? {}
 
   return async (cmd: string, args: InvokeArgs = {}) => {
+    const failure = failing[cmd]
+    // A rejection that isn't an `Error`, as Tauri delivers a command's `Err`.
+    if (failure !== undefined) throw { kind: 'Workspace', message: failure }
     const handler = handlers[cmd]
     if (handler) {
       const ms = slow[cmd]

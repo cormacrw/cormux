@@ -27,6 +27,8 @@ export type HarnessScenario = {
    * enough to see the Changes splash.
    */
   slow?: Partial<Record<WireCommand, number>>
+  /** Commands that answer with a core error carrying this message, for a test of the failure. */
+  failing?: Partial<Record<WireCommand, string>>
   /** URL `?bigDiff=N`: N long TypeScript files, to see how Changes copes with a big diff. */
   bigDiff?: number
   /**
