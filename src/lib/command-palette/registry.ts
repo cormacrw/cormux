@@ -1,53 +1,255 @@
-import { updateSettings } from '$lib/settings/actions'
-import { openWorkspace } from '$lib/nav/open'
-import { navigate } from '$lib/core/nav.svelte'
-import { reviewPullRequest } from '$lib/review/start-review'
+import type { RepoRecord } from '$lib/ipc/bindings'
+import { workspaceCardMetaText } from './workspace-meta'
+import { plural } from '$lib/format/plural'
+import { shortcutLabel } from '$lib/keyboard/shortcuts'
+import type { AppControls } from '$lib/run-app/controls'
 import { appControls, controlApp } from '$lib/run-app/actions'
+import { bangPreview, isUsableBang, type Bang } from '$lib/bangs/bangs'
+import { navigate } from '$lib/core/nav.svelte'
+import {
+  openWorkspace,
+  openWorkspaceFindings,
+  openWorkspaceThread,
+} from '$lib/nav/open'
+import { reviewPullRequest } from '$lib/review/start-review'
+import { updateSettings } from '$lib/settings/actions'
 import { openSettings } from '$lib/settings/open'
-import { clickup } from '$lib/clickup/store.svelte'
-import { repos } from '$lib/state/repos.svelte'
-import { scratches } from '$lib/state/scratches.svelte'
 import { settings } from '$lib/settings/store.svelte'
-import { prs } from '$lib/state/prs.svelte'
-import { threads } from '$lib/state/threads.svelte'
+import { clickup } from '$lib/clickup/store.svelte'
 import { findings } from '$lib/findings/store.svelte'
-import { workspaces } from '$lib/state/workspaces.svelte'
+import { prs, type PullRequest } from '$lib/state/prs.svelte'
+import { repos } from '$lib/state/repos.svelte'
+import { scratches, type Scratch } from '$lib/state/scratches.svelte'
+import { threads, type Thread } from '$lib/state/threads.svelte'
+import { workspaces, type Workspace } from '$lib/state/workspaces.svelte'
 import { pullWorkspace } from '$lib/workspace/git-actions'
-import { openWorkspaceFindings, openWorkspaceThread } from '$lib/nav/open'
 import type { PaletteCommand } from './types'
-import { buildPaletteCommandsFromState } from './build-registry'
 import { runBang } from './actions'
 
-export function buildPaletteCommands(): PaletteCommand[] {
-  return buildPaletteCommandsFromState(
+/** What the palette lists, read from the stores; tests hand in their own. */
+export type PaletteState = {
+  reduceMotion: boolean
+  /** The Sprint page only exists once a ClickUp API key is stored. */
+  clickupConfigured: boolean
+  workspaces: Workspace[]
+  scratches: Scratch[]
+  bangs: Bang[]
+  /** Retired threads too: the palette is one of the two ways back into them. */
+  threadsOf: (workspaceId: string) => Thread[]
+  repos: RepoRecord[]
+  pullRequests: PullRequest[]
+  appControlsFor: (workspaceId: string) => AppControls
+  findingsAvailable: (workspace: Workspace) => boolean
+}
+
+function storeState(): PaletteState {
+  return {
+    reduceMotion: settings.values.reduceMotion,
+    clickupConfigured: clickup.configured,
+    workspaces: workspaces.liveItems,
+    scratches: scratches.items,
+    bangs: settings.values.bangs,
+    threadsOf: (workspaceId) => threads.forWorkspace(workspaceId),
+    repos: repos.items,
+    pullRequests: prs.items,
+    appControlsFor: appControls,
+    findingsAvailable: (workspace) => findings.tabAvailable(workspace),
+  }
+}
+
+export function buildPaletteCommands(
+  state: PaletteState = storeState(),
+): PaletteCommand[] {
+  const cmds: PaletteCommand[] = [
     {
-      reduceMotion: settings.values.reduceMotion,
-      clickupConfigured: clickup.configured,
-      workspaces: workspaces.liveItems,
-      scratches: scratches.items,
-      bangs: settings.values.bangs,
-      threads: threads.items,
-      repos: repos.items,
-      pullRequests: prs.items,
-      appControlsFor: appControls,
-      findingsAvailable: (workspace) => findings.tabAvailable(workspace),
+      id: 'action-new-thread',
+      group: 'Actions',
+      label: 'New thread',
+      kbd: shortcutLabel('newThread'),
+      run: () => navigate({ view: 'newThread' }),
+    },
+    ...(state.clickupConfigured
+      ? ([
+          {
+            id: 'action-sprint',
+            group: 'Actions',
+            label: 'Go to sprint',
+            meta: 'clickup',
+            icon: 'sprint',
+            run: () => navigate({ view: 'sprint' }),
+          },
+        ] satisfies PaletteCommand[])
+      : []),
+    {
+      id: 'action-settings',
+      group: 'Actions',
+      label: 'Open settings',
+      icon: 'settings',
+      run: () => openSettings(),
     },
     {
-      openNewThread: () => navigate({ view: 'newThread' }),
-      openScratch: (id) => navigate({ view: 'scratch', scratchId: id }),
-      runBang: (id) => void runBang(id),
-      openRepo: (id) => navigate({ view: 'repo', repoId: id }),
-      reviewPullRequest,
-      openSprint: () => navigate({ view: 'sprint' }),
-      openSettings: () => openSettings(),
-      openWorkspace: (id, threadId) => openWorkspace(id, { threadId }),
-      toggleReduceMotion: () =>
+      id: 'action-reduce-motion',
+      group: 'Actions',
+      label: state.reduceMotion
+        ? 'Disable reduced motion'
+        : 'Enable reduced motion',
+      icon: 'settings',
+      run: () =>
         updateSettings({ reduceMotion: !settings.values.reduceMotion }),
-      openSettingsSection: (section) => openSettings({ section }),
-      openWorkspaceThread,
-      openWorkspaceFindings,
-      controlApp: (id, action) => void controlApp(id, action),
-      pullWorkspace: (id) => void pullWorkspace(id),
     },
-  )
+    {
+      id: 'action-settings-repos',
+      group: 'Actions',
+      label: 'Open Settings › Repositories',
+      icon: 'settings',
+      run: () => openSettings({ section: 'repos' }),
+    },
+    {
+      id: 'action-settings-engines',
+      group: 'Actions',
+      label: 'Open Settings › Agents',
+      icon: 'settings',
+      run: () => openSettings({ section: 'agents' }),
+    },
+  ]
+
+  for (const bang of state.bangs) {
+    if (!isUsableBang(bang)) continue
+    cmds.push({
+      id: `bang-run-${bang.id}`,
+      kind: 'bang',
+      group: 'Bangs',
+      icon: 'bang',
+      label: `!${bang.name}`,
+      subtitle: bangPreview(bang.prompt),
+      meta: 'Start a thread',
+      run: () => void runBang(bang.id),
+    })
+  }
+
+  for (const workspace of state.workspaces) {
+    const wsThreads = state.threadsOf(workspace.id)
+    cmds.push({
+      id: `ws-open-${workspace.id}`,
+      group: 'Workspaces',
+      label: `Open ${workspace.name}`,
+      meta: workspaceCardMetaText(
+        workspace,
+        wsThreads.filter((thread) => !thread.retired),
+      ),
+      icon: 'workspace',
+      run: () => openWorkspace(workspace.id),
+    })
+  }
+
+  for (const repo of state.repos) {
+    cmds.push({
+      id: `repo-open-${repo.id}`,
+      group: 'Actions',
+      label: `Open ${repo.name}`,
+      meta: 'repo',
+      run: () => navigate({ view: 'repo', repoId: repo.id }),
+    })
+  }
+
+  for (const pr of state.pullRequests) {
+    cmds.push({
+      id: `pr-review-${pr.id}`,
+      group: 'Actions',
+      label: `Review PR #${pr.num} ${pr.title}`,
+      meta: 'pull request',
+      run: () => reviewPullRequest(pr),
+    })
+  }
+
+  for (const scratch of state.scratches) {
+    cmds.push({
+      id: `scratch-open-${scratch.id}`,
+      group: 'Scratches',
+      label: `Open ${scratch.title}`,
+      meta: scratch.repoId,
+      icon: 'thread',
+      run: () => navigate({ view: 'scratch', scratchId: scratch.id }),
+    })
+  }
+
+  for (const workspace of state.workspaces) {
+    const wsThreads = state.threadsOf(workspace.id)
+    // The workspace's own row opens its one thread; older ones are only here and in its header.
+    for (const thread of wsThreads.filter((row) => row.retired)) {
+      cmds.push({
+        id: `thread-open-${thread.id}`,
+        group: 'Threads',
+        label: `Open ${thread.role} in ${workspace.name}`,
+        meta: thread.activity,
+        icon: 'thread',
+        run: () => openWorkspaceThread(workspace.id, thread.id),
+      })
+    }
+    if (state.findingsAvailable(workspace)) {
+      cmds.push({
+        id: `findings-${workspace.id}`,
+        group: 'Threads',
+        label: `Open Findings in ${workspace.name}`,
+        icon: 'findings',
+        run: () => openWorkspaceFindings(workspace.id),
+      })
+    }
+  }
+
+  for (const workspace of state.workspaces) {
+    const controls = state.appControlsFor(workspace.id)
+    const { start } = controls
+    if (start?.enabled) {
+      const restart = start.action === 'restart'
+      cmds.push({
+        id: `app-${start.action}-${workspace.id}`,
+        group: 'App',
+        label: `${restart ? 'Restart' : 'Run'} app in ${workspace.name}`,
+        meta: controls.runCommand || undefined,
+        icon: restart ? 'restart' : 'run',
+        run: () => {
+          openWorkspace(workspace.id)
+          void controlApp(workspace.id, start.action)
+        },
+      })
+    }
+    if (controls.canRestart) {
+      const { port } = workspace.runtime
+      cmds.push({
+        id: `app-restart-${workspace.id}`,
+        group: 'App',
+        label: `Restart app in ${workspace.name}`,
+        meta: port ? `localhost:${port}` : undefined,
+        icon: 'restart',
+        run: () => {
+          openWorkspace(workspace.id)
+          void controlApp(workspace.id, 'restart')
+        },
+      })
+    }
+    if (controls.canStop) {
+      cmds.push({
+        id: `app-stop-${workspace.id}`,
+        group: 'App',
+        label: `Stop app in ${workspace.name}`,
+        icon: 'stop',
+        run: () => void controlApp(workspace.id, 'stop'),
+      })
+    }
+  }
+
+  for (const workspace of state.workspaces) {
+    const { behind } = workspace.runtime
+    if (behind <= 0) continue
+    cmds.push({
+      id: `git-pull-${workspace.id}`,
+      group: 'Git',
+      label: `Pull ${plural(behind, 'commit')} from ${workspace.base} into ${workspace.name}`,
+      icon: 'pull',
+      run: () => void pullWorkspace(workspace.id),
+    })
+  }
+
+  return cmds
 }
