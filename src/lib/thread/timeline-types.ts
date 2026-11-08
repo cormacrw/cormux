@@ -1,4 +1,9 @@
-import type { TimelineStep, ToolCallStatus, ToolRole } from '$lib/ipc/bindings'
+import type {
+  PlanStepStatus,
+  TimelineStep,
+  ToolCallStatus,
+  ToolRole,
+} from '$lib/ipc/bindings'
 import type { AgentQuestion } from '$lib/approvals/payload'
 import type { RunSummary } from './reply/blocks/run'
 
@@ -54,8 +59,7 @@ export type TimelineItem =
       kind: 'plan'
       id: string
       steps: string[]
-      /** Each step's status, as the engine reports it: `pending`, `in_progress`, `completed`. */
-      statuses: string[]
+      statuses: PlanStepStatus[]
       seq: number
       atMs: number
     }

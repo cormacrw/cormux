@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use super::protocol::{AssistantBlock, Event};
 use super::tools::{TODO_TOOL, tool_use};
-use crate::engines::events::{AgentEvent, MessageRole, PlanStep, ToolCallStatus};
+use crate::engines::events::{AgentEvent, MessageRole, PlanStep, PlanStepStatus, ToolCallStatus};
 use crate::model::StopReason;
 
 /// Timeline events for one CLI event. An assistant message can hold thinking, text and
@@ -101,7 +101,11 @@ fn todo_plan(input: &Value) -> AgentEvent {
                 let field = |key: &str| todo.get(key).and_then(Value::as_str).unwrap_or_default();
                 PlanStep {
                     content: field("content").to_string(),
-                    status: field("status").to_string(),
+                    status: match field("status") {
+                        "in_progress" => PlanStepStatus::InProgress,
+                        "completed" => PlanStepStatus::Completed,
+                        _ => PlanStepStatus::Pending,
+                    },
                 }
             })
             .collect(),
@@ -169,9 +173,23 @@ mod tests {
             Some(AgentEvent::Plan {
                 entries: vec![PlanStep {
                     content: "Fix it".into(),
-                    status: "in_progress".into(),
+                    status: PlanStepStatus::InProgress,
                 }],
             })
+        );
+    }
+
+    #[test]
+    fn plan_steps_saved_before_the_status_was_typed_still_read() {
+        let saved: PlanStep =
+            serde_json::from_value(json!({ "content": "a", "status": "in_progress" })).unwrap();
+        assert_eq!(saved.status, PlanStepStatus::InProgress);
+        let unknown: PlanStep =
+            serde_json::from_value(json!({ "content": "a", "status": "blocked" })).unwrap();
+        assert_eq!(unknown.status, PlanStepStatus::Pending);
+        assert_eq!(
+            serde_json::to_value(PlanStepStatus::InProgress).unwrap(),
+            json!("inProgress")
         );
     }
 

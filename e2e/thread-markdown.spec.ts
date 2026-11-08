@@ -246,7 +246,7 @@ test('a long tool run folds, and plans and subagents show progress', async ({
       type: 'plan',
       entries: [
         { content: 'Read the code', status: 'completed' },
-        { content: 'Fix it', status: 'in_progress' },
+        { content: 'Fix it', status: 'inProgress' },
       ],
     },
     tool('r1', 'read', 'Read', { locations: ['a.ts'] }),

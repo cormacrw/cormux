@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { TranscriptEvent } from '$lib/ipc/bindings'
+import type { PlanStepStatus, TranscriptEvent } from '$lib/ipc/bindings'
 import { TimelineBuilder } from './builder'
 import { foldTimeline, type FoldInput } from './fold'
 
@@ -37,7 +37,7 @@ const end: TranscriptEvent = {
   stop_reason: 'end',
   error: null,
 }
-const plan = (status: string): TranscriptEvent =>
+const plan = (status: PlanStepStatus): TranscriptEvent =>
   ({
     type: 'plan',
     entries: [{ content: 'Step', status }],

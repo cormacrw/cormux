@@ -1,3 +1,4 @@
+import type { MediaKind } from '$lib/ipc/bindings'
 import { extensionOf, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/media'
 
 /**
@@ -6,14 +7,12 @@ import { extensionOf, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/media'
  * or a raw `<img>`/`<video>` tag. Remote sources are not media; the core copies
  * local ones into its own media folder before the webview may load them.
  */
-export type LocalMediaKind = 'image' | 'video'
-
 export type MediaReference = {
   /** The reference as written. */
   raw: string
   source: string
   alt: string
-  mediaKind: LocalMediaKind
+  mediaKind: MediaKind
 }
 
 /** Marks a local image the sanitiser let through; its `src` is never loaded directly. */
@@ -28,7 +27,7 @@ function isLocalSource(source: string): boolean {
   return true
 }
 
-export function mediaKindForSource(source: string): LocalMediaKind | null {
+export function mediaKindForSource(source: string): MediaKind | null {
   if (!isLocalSource(source)) return null
   const extension = extensionOf(source)
   if (IMAGE_EXTENSIONS.includes(extension)) return 'image'

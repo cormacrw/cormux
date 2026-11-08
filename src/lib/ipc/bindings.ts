@@ -719,7 +719,7 @@ async dismissWorkspaceFindings(input: DismissWorkspaceFindingsInput) : Promise<R
 }
 },
 /**
- * A thumbnail for an image attached by path, for the composer.
+ * A thumbnail for an image attached by path, for the composer: one the model is shown inline.
  */
 async imagePreview(path: string) : Promise<Result<string | null, Error>> {
     try {
@@ -995,6 +995,7 @@ export type LocalBranchesResult = {
  * Branch checked out in the repo itself. Empty when detached.
  */
 head: string; branches: LocalBranchRow[] }
+export type MediaKind = "image" | "video"
 export type MemorySample = { totalBytes: number }
 /**
  * A fresh memory reading. Carries its own data, so it needs no version or refetch.
@@ -1030,7 +1031,12 @@ threadActivity: ThreadActivityRow[]; approvals: ApprovalRow[]; findings: Finding
  * The open threads' attached entities, oldest first.
  */
 entities: EntityRow[]; pullRequests: PrRow[] }
-export type PlanStep = { content: string; status: string }
+export type PlanStep = { content: string; status: PlanStepStatus }
+/**
+ * Where a plan step stands. Rows saved before this was typed hold `in_progress`; a word this
+ * build doesn't know reads as not started.
+ */
+export type PlanStepStatus = "inProgress" | "completed" | "pending"
 export type PrChecksState = "pass" | "fail" | "running" | 
 /**
  * The PR has no status checks or check runs at all.
@@ -1292,11 +1298,7 @@ currentStartsAt: number | null;
  * Those with something you asked, newest first.
  */
 earlier: ConversationSummary[] }
-export type ThreadMedia = { 
-/**
- * `image` or `video`.
- */
-kind: string; name: string; 
+export type ThreadMedia = { kind: MediaKind; name: string; 
 /**
  * The copy inside the media folder, loaded through the asset protocol.
  */

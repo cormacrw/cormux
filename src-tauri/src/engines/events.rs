@@ -149,5 +149,17 @@ pub enum AgentEvent {
 #[serde(rename_all = "camelCase")]
 pub struct PlanStep {
     pub content: String,
-    pub status: String,
+    pub status: PlanStepStatus,
+}
+
+/// Where a plan step stands. Rows saved before this was typed hold `in_progress`; a word this
+/// build doesn't know reads as not started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlanStepStatus {
+    #[serde(alias = "in_progress")]
+    InProgress,
+    Completed,
+    #[serde(other)]
+    Pending,
 }

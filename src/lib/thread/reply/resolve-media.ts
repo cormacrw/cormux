@@ -1,9 +1,9 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { commands, type ThreadMedia } from '$lib/ipc'
-import type { LocalMediaKind } from './media'
+import type { MediaKind } from '$lib/ipc/bindings'
 
 export type ResolvedMedia = {
-  kind: LocalMediaKind
+  kind: MediaKind
   name: string
   /** A loadable URL: a data URL for small images, the asset protocol otherwise. */
   url: string
@@ -11,12 +11,9 @@ export type ResolvedMedia = {
 
 const resolvedCache = new Map<string, Promise<ResolvedMedia | null>>()
 
-function toResolved(media: ThreadMedia): ResolvedMedia | null {
-  const kind =
-    media.kind === 'image' || media.kind === 'video' ? media.kind : null
-  if (!kind) return null
+function toResolved(media: ThreadMedia): ResolvedMedia {
   return {
-    kind,
+    kind: media.kind,
     name: media.name,
     url: media.previewUrl ?? convertFileSrc(media.path),
   }

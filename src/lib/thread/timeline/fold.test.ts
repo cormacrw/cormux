@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { ApprovalRow, ToolRole, TranscriptEvent } from '$lib/ipc/bindings'
+import type {
+  PlanStepStatus,
+  ApprovalRow,
+  ToolRole,
+  TranscriptEvent,
+} from '$lib/ipc/bindings'
 import type { RunStep, TimelineItem } from '../timeline-types'
 import { TimelineBuilder } from './builder'
 import { stepText } from './step-text'
@@ -342,7 +347,7 @@ describe('the timeline fold', () => {
   })
 
   it('ticks a turn’s plan off rather than adding another', () => {
-    const plan = (status: string): TranscriptEvent =>
+    const plan = (status: PlanStepStatus): TranscriptEvent =>
       ({
         type: 'plan',
         entries: [{ content: 'Step', status }],

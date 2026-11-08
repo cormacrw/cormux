@@ -10,40 +10,17 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::Result;
-
-/// Images are shown inline in the thread, recordings in a player; both are capped so a
-/// stray reference can't copy the agent's whole disk into the app folder.
-const IMAGE_LIMIT_BYTES: u64 = 20 * 1024 * 1024;
-const VIDEO_LIMIT_BYTES: u64 = 200 * 1024 * 1024;
+use crate::media::{self, MediaKind};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadMedia {
-    /// `image` or `video`.
-    pub kind: String,
+    pub kind: MediaKind,
     pub name: String,
     /// The copy inside the media folder, loaded through the asset protocol.
     pub path: String,
     /// A data URL for images small enough to show directly; `None` otherwise.
     pub preview_url: Option<String>,
-}
-
-fn media_type(name: &str) -> Option<(&'static str, &'static str)> {
-    let format = crate::media::format_of(name)?;
-    Some((format.kind.as_str(), format.canonical))
-}
-
-/// The file's own bytes must agree with its extension, so a renamed text file is refused.
-fn sniff_matches(kind: &str, extension: &str, head: &[u8]) -> bool {
-    match (kind, extension) {
-        ("image", "png") => head.starts_with(&[0x89, 0x50, 0x4E, 0x47]),
-        ("image", "jpg") => head.starts_with(&[0xFF, 0xD8, 0xFF]),
-        ("image", "gif") => head.starts_with(b"GIF8"),
-        ("image", "webp") => head.len() >= 12 && &head[..4] == b"RIFF" && &head[8..12] == b"WEBP",
-        ("video", "webm") => head.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]),
-        ("video", _) => head.len() >= 8 && &head[4..8] == b"ftyp",
-        _ => false,
-    }
 }
 
 fn percent_decode(value: &str) -> String {
@@ -128,22 +105,13 @@ pub fn resolve(
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let Some((kind, extension)) = media_type(&name) else {
+    let Some(format) = media::format_of(&name) else {
         return Ok(None);
     };
     let Ok(metadata) = std::fs::metadata(&path) else {
         return Ok(None);
     };
-    let limit = if kind == "image" {
-        IMAGE_LIMIT_BYTES
-    } else {
-        VIDEO_LIMIT_BYTES
-    };
-    if metadata.len() > limit {
-        return Ok(None);
-    }
-    let head = read_head(&path, 12);
-    if !sniff_matches(kind, extension, &head) {
+    if metadata.len() > format.kind.shown_limit() || !(format.magic)(&read_head(&path, 12)) {
         return Ok(None);
     }
 
@@ -163,7 +131,7 @@ pub fn resolve(
         "{:016x}-{}.{}",
         hasher.finish(),
         safe_stem(&name),
-        extension
+        format.canonical
     );
     std::fs::create_dir_all(media_dir)
         .map_err(|error| crate::error::Error::Workspace(error.to_string()))?;
@@ -173,16 +141,11 @@ pub fn resolve(
         std::fs::copy(&path, &stored)
             .map_err(|error| crate::error::Error::Workspace(error.to_string()))?;
     }
-    let preview_url = if kind == "image" {
-        crate::attachments::image_preview_of(&stored)
-    } else {
-        None
-    };
     Ok(Some(ThreadMedia {
-        kind: kind.into(),
+        preview_url: media::image_data_url(&stored),
+        kind: format.kind,
         name,
         path: stored.display().to_string(),
-        preview_url,
     }))
 }
 
@@ -237,7 +200,7 @@ mod tests {
         let by_absolute = resolve(&media_dir, work.join("after.png").to_str().unwrap(), None)
             .unwrap()
             .unwrap();
-        assert_eq!(by_absolute.kind, "image");
+        assert_eq!(by_absolute.kind, MediaKind::Image);
         assert_eq!(by_absolute.name, "after.png");
         assert!(Path::new(&by_absolute.path).starts_with(&media_dir));
         assert!(
@@ -312,7 +275,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(media.kind, "video");
+        assert_eq!(media.kind, MediaKind::Video);
         assert!(media.preview_url.is_none());
         std::fs::remove_dir_all(root).unwrap();
     }

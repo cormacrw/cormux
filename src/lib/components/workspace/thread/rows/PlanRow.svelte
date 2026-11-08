@@ -55,7 +55,7 @@
                 class="mt-1 size-3.5 shrink-0 text-success"
                 aria-label="Done"
               />
-            {:else if status === 'in_progress'}
+            {:else if status === 'inProgress'}
               <span
                 class="mt-1.5 ml-1 size-2 shrink-0 animate-pulse rounded-full bg-primary"
                 role="img"

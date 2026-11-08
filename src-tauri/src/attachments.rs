@@ -12,9 +12,6 @@ use specta::Type;
 use crate::engines::prompt::{Prompt, PromptImage};
 use crate::error::{Error, Result};
 
-/// Images the model is shown directly; larger ones are only passed by path.
-const IMAGE_LIMIT_BYTES: u64 = 5 * 1024 * 1024;
-
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptAttachment {
@@ -30,20 +27,6 @@ pub fn image_media_type(name: &str) -> Option<&'static str> {
     crate::media::format_of(name)
         .filter(|format| format.kind == crate::media::MediaKind::Image)
         .map(|format| format.mime)
-}
-
-/// A thumbnail for an image picked or dropped by path, as a data URL; None for anything that
-/// isn't a readable image of a size the model is shown.
-pub fn image_preview_of(path: &Path) -> Option<String> {
-    let media_type = image_media_type(path.to_str()?)?;
-    if std::fs::metadata(path).ok()?.len() > IMAGE_LIMIT_BYTES {
-        return None;
-    }
-    let bytes = std::fs::read(path).ok()?;
-    Some(format!(
-        "data:{media_type};base64,{}",
-        STANDARD.encode(bytes)
-    ))
 }
 
 /// Keeps a pasted file's name readable but safe as one path segment.
@@ -106,7 +89,8 @@ pub fn build_prompt(
     for attachment in attachments {
         let path = file_for(dir, attachment)?;
         if let Some(media_type) = image_media_type(&attachment.name)
-            && std::fs::metadata(&path).is_ok_and(|meta| meta.len() <= IMAGE_LIMIT_BYTES)
+            && std::fs::metadata(&path)
+                .is_ok_and(|meta| meta.len() <= crate::media::INLINE_IMAGE_LIMIT)
         {
             let bytes =
                 std::fs::read(&path).map_err(|error| Error::Workspace(error.to_string()))?;
@@ -140,12 +124,12 @@ pub fn build_prompt(
     ))
 }
 
-/// A thumbnail for an image attached by path, for the composer.
+/// A thumbnail for an image attached by path, for the composer: one the model is shown inline.
 #[tauri::command]
 #[specta::specta]
 pub async fn image_preview(path: String) -> crate::error::Result<Option<String>> {
-    // Up to 5 MB read and base64-encoded: not on an async worker.
-    Ok(tokio::task::spawn_blocking(move || image_preview_of(Path::new(&path))).await?)
+    // Read and base64-encoded whole: not on an async worker.
+    Ok(tokio::task::spawn_blocking(move || crate::media::image_data_url(Path::new(&path))).await?)
 }
 
 #[cfg(test)]
@@ -169,11 +153,11 @@ mod tests {
         let notes = root.join("notes.txt");
         std::fs::write(&notes, b"hi").unwrap();
         assert_eq!(
-            image_preview_of(&image).as_deref(),
+            crate::media::image_data_url(&image).as_deref(),
             Some("data:image/png;base64,cG5n")
         );
-        assert_eq!(image_preview_of(&notes), None);
-        assert_eq!(image_preview_of(&root.join("gone.png")), None);
+        assert_eq!(crate::media::image_data_url(&notes), None);
+        assert_eq!(crate::media::image_data_url(&root.join("gone.png")), None);
         std::fs::remove_dir_all(root).unwrap();
     }
 
