@@ -12,6 +12,7 @@
 //!   A subscriber that lags can read back every saved event; the signals it missed are gone.
 
 mod read;
+mod upgrade;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -24,6 +25,8 @@ use crate::engines::AgentEvent;
 use crate::error::{Error, Result};
 use crate::store::Store;
 use crate::timeline::TimelineStep;
+
+pub use upgrade::upgrade;
 
 /// Events a subscriber can fall behind by before it's told to read the store instead.
 const STREAM_CAP: usize = 256;

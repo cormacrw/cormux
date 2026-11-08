@@ -1072,6 +1072,10 @@ export type StateChanged = { version: number; change: Change }
  */
 export type StepEvent = { type: "step"; id: string; title: string; detail: string | null; step: TimelineStep }
 /**
+ * The icons older builds drew their untyped steps with.
+ */
+export type StepIcon = "pause" | "play" | "stop" | "session" | "download" | "branch" | "pr" | "file" | "trash" | "database" | "check" | "list" | "tool"
+/**
  * Never saved: the subscriber fell behind the stream and dropped `missed` events, which it can
  * read back from the store.
  */
@@ -1155,7 +1159,12 @@ export type TimelineStep = { kind: "agentStopped" } | { kind: "agentPaused" } | 
 /**
  * `ended_session` is what the conversation before it can be resumed from.
  */
-{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | { kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] }
+{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | { kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] } | 
+/**
+ * A step an older build saved with only its English title, which drew it the way `icon`
+ * and `run` say: between turns, or among the agent's steps.
+ */
+{ kind: "legacy"; title: string; icon: StepIcon; run: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
 export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null; 

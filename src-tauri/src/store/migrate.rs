@@ -8,6 +8,8 @@ struct Migration {
     sql: &'static str,
 }
 
+/// Version 24 is taken by `transcript::upgrade`, which rewrites rows in Rust; the next SQL
+/// migration is 25.
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,

@@ -132,6 +132,32 @@ pub enum TimelineStep {
         count: u32,
         files: Vec<String>,
     },
+    /// A step an older build saved with only its English title, which drew it the way `icon`
+    /// and `run` say: between turns, or among the agent's steps.
+    Legacy {
+        title: String,
+        icon: StepIcon,
+        run: bool,
+    },
+}
+
+/// The icons older builds drew their untyped steps with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum StepIcon {
+    Pause,
+    Play,
+    Stop,
+    Session,
+    Download,
+    Branch,
+    Pr,
+    File,
+    Trash,
+    Database,
+    Check,
+    List,
+    Tool,
 }
 
 fn plural(count: u32) -> &'static str {
@@ -172,6 +198,7 @@ impl TimelineStep {
                 format!("Received {count} findings from the review")
             }
             Self::FindingsFixed { count, .. } => format!("Fixed {count} findings"),
+            Self::Legacy { title, .. } => title.clone(),
         }
     }
 
@@ -188,7 +215,8 @@ impl TimelineStep {
             | Self::ReportFromThread { .. }
             | Self::FileDeleted { .. }
             | Self::MigrationApplied
-            | Self::SuggestionsForwarded => None,
+            | Self::SuggestionsForwarded
+            | Self::Legacy { .. } => None,
             Self::SuggestionsSent { what, .. } => Some(what.clone()),
             Self::BranchSwitched { branch, change } => Some(change.detail(branch)),
             Self::CommitsPulled { branch, .. } => {

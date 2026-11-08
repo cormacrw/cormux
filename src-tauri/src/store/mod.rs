@@ -17,6 +17,13 @@ use types::{
 };
 
 const STATEMENT_CACHE: usize = 64;
+
+/// What a row-rewriting migration does with one transcript row.
+pub enum Rewrite {
+    Keep,
+    Replace { kind: String, payload: String },
+    Delete,
+}
 const THREAD_EVENT_PAGE: u32 = 2_000;
 const THREAD_EVENT_PAGE_MAX: u32 = 10_000;
 
@@ -904,6 +911,82 @@ impl Store {
                     })
                 },
             )
+        })
+    }
+
+    /// Runs a rewrite of every transcript row and approval payload once, recorded in
+    /// `schema_migrations` under `version` like a numbered migration. Rows come thread by thread
+    /// in order. Returns whether it ran.
+    pub fn rewrite_rows_once(
+        &self,
+        version: i64,
+        name: &str,
+        mut event: impl FnMut(&str, i64, &str, &str) -> Rewrite,
+        mut approval: impl FnMut(&str, &str) -> Option<String>,
+    ) -> Result<bool> {
+        self.with_tx(|conn| {
+            let done: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?1)",
+                [version],
+                |row| row.get(0),
+            )?;
+            if done {
+                return Ok(false);
+            }
+            let rows = {
+                let mut stmt = conn.prepare(
+                    "SELECT id, thread_id, seq, kind, payload FROM thread_events
+                     ORDER BY thread_id, seq",
+                )?;
+                stmt.query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            for (id, thread_id, seq, kind, payload) in rows {
+                match event(&thread_id, seq, &kind, &payload) {
+                    Rewrite::Keep => {}
+                    Rewrite::Replace { kind, payload } => {
+                        conn.execute(
+                            "UPDATE thread_events SET kind = ?1, payload = ?2 WHERE id = ?3",
+                            rusqlite::params![kind, payload, id],
+                        )?;
+                    }
+                    Rewrite::Delete => {
+                        conn.execute("DELETE FROM thread_events WHERE id = ?1", [id])?;
+                    }
+                }
+            }
+            let approvals = {
+                let mut stmt = conn.prepare("SELECT id, tool, payload FROM approvals")?;
+                stmt.query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            for (id, tool, payload) in approvals {
+                if let Some(payload) = approval(&tool, &payload) {
+                    conn.execute(
+                        "UPDATE approvals SET payload = ?1 WHERE id = ?2",
+                        rusqlite::params![payload, id],
+                    )?;
+                }
+            }
+            conn.execute(
+                "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
+                rusqlite::params![version, name],
+            )?;
+            Ok(true)
         })
     }
 

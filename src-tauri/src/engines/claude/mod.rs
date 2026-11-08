@@ -20,6 +20,7 @@
 
 mod map;
 mod protocol;
+pub mod saved;
 mod session;
 mod tools;
 mod turn_gate;
