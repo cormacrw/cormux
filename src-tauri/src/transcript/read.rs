@@ -162,6 +162,7 @@ impl Transcript {
     }
 
     /// The first message in the thread, which is what it was started to do.
+    #[cfg(test)]
     pub fn first_message(&self, thread_id: &str) -> Result<Option<String>> {
         let mut first = None;
         self.store

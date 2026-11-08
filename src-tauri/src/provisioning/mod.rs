@@ -9,7 +9,38 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use rusqlite::OptionalExtension;
 use tokio::sync::OwnedMutexGuard;
+
+use crate::error::Result;
+use crate::store::Store;
+
+/// The message a workspace was started with, kept with it at creation: a retried setup starts its
+/// first turn from it again.
+impl Store {
+    pub fn set_setup_message(&self, workspace_id: &str, message: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET setup_message = ?1 WHERE id = ?2",
+                [message, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn setup_message(&self, workspace_id: &str) -> Result<Option<String>> {
+        self.with_read(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT setup_message FROM workspaces WHERE id = ?1",
+                    [workspace_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()?
+                .flatten())
+        })
+    }
+}
 
 /// Each workspace's setup run, as teardown sees it. A run carries on only while it is the
 /// workspace's newest (Retry and Skip start another) and teardown hasn't cancelled it. Making the

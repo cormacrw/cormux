@@ -176,6 +176,9 @@ pub async fn create_review_workspace(
 
     let user_message = user_review_message(&pr);
     state
+        .store
+        .set_setup_message(&workspace_id, &user_message)?;
+    state
         .transcript
         .append(&thread_id, TranscriptEvent::briefing(&user_message))?;
     state.transcript.record_step(
@@ -273,8 +276,8 @@ pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<Prov
         .own_thread(&workspace.id)?
         .ok_or_else(|| Error::Workspace(format!("no Reviewer in workspace {}", workspace.id)))?;
     let message = state
-        .transcript
-        .first_message(&thread.id)?
+        .store
+        .setup_message(&workspace.id)?
         .unwrap_or_default();
     Ok(review_plan(workspace, &thread.id, &message, pr_number))
 }

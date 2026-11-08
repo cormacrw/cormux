@@ -91,6 +91,7 @@ const MIGRATIONS: &[Migration] = migrations![
     "028_no_model_summaries",
     "029_drop_pr_cache_synced_at",
     "031_no_dismissed_approvals",
+    "033_workspace_setup_message",
 ];
 
 fn create_ledger(conn: &Connection) -> Result<()> {
@@ -751,5 +752,39 @@ mod tests {
             })
             .unwrap();
         assert_eq!(title, "One");
+    }
+
+    #[test]
+    fn a_workspace_keeps_the_message_its_own_thread_was_started_with() {
+        let conn = migrated_before(33);
+        conn.execute_batch(
+            r#"INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
+             INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status)
+                VALUES ('w', 'r', 'W', 'b', '/tmp/w', 'provisioningFailed'),
+                       ('quiet', 'r', 'Q', 'q', '/tmp/q', 'idle');
+             INSERT INTO threads (id, workspace_id, title, engine, status, role)
+                VALUES ('lead', 'w', 'Lead', 'claude', 'idle', 'lead'),
+                       ('child', 'w', 'Helper', 'claude', 'idle', NULL),
+                       ('q', 'quiet', 'Lead', 'claude', 'idle', 'lead');
+             INSERT INTO thread_events (thread_id, seq, kind, payload) VALUES
+                ('child', 1, 'message', '{"type":"messageChunk","role":"user","text":"not this"}'),
+                ('lead', 1, 'session', '{"type":"sessionStarted"}'),
+                ('lead', 2, 'message', '{"type":"messageChunk","role":"user","text":"Fix login"}'),
+                ('lead', 3, 'message', '{"type":"messageChunk","role":"user","text":"later"}');"#,
+        )
+        .unwrap();
+
+        run(&conn, &[]).unwrap();
+
+        let message = |id: &str| -> Option<String> {
+            conn.query_row(
+                "SELECT setup_message FROM workspaces WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(message("w").as_deref(), Some("Fix login"));
+        assert_eq!(message("quiet"), None);
     }
 }

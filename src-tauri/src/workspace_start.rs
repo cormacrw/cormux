@@ -121,9 +121,19 @@ pub async fn start_workspace(
     .await?;
     let workspace_id = created.workspace.id.clone();
     let thread_id = created.thread_id.clone();
-    if !shown.is_empty()
-        && let Err(error) = state.transcript.record_user_message(&thread_id, &shown)
-    {
+    let recorded = state
+        .store
+        .set_setup_message(&workspace_id, &shown)
+        .and_then(|()| {
+            if shown.is_empty() {
+                return Ok(());
+            }
+            state
+                .transcript
+                .record_user_message(&thread_id, &shown)
+                .map(drop)
+        });
+    if let Err(error) = recorded {
         // Recorded already: failing its setup leaves it to retry or tear down.
         crate::provisioning::fail(state, &workspace_id, &error.to_string()).await;
         return Err(error);
@@ -240,8 +250,8 @@ pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<Prov
         .own_thread(&workspace.id)?
         .ok_or_else(|| Error::Workspace(format!("no Lead in workspace {}", workspace.id)))?;
     let goal = state
-        .transcript
-        .first_message(&thread.id)?
+        .store
+        .setup_message(&workspace.id)?
         .unwrap_or_default();
     Ok(lead_plan(&workspace.id, &thread.id, &goal, None))
 }
@@ -629,6 +639,20 @@ esac
         );
         let thread = store.thread_by_id(&started.thread_id).unwrap().unwrap();
         assert_eq!(thread.parent_thread_id.as_deref(), Some("parent"));
+
+        assert_eq!(
+            store
+                .setup_message(&started.workspace_id)
+                .unwrap()
+                .as_deref(),
+            Some("Fix the login page")
+        );
+        let record = f.state.workspaces.get(&started.workspace_id).await.unwrap();
+        let plan = super::resume_plan(&f.state, &record).unwrap();
+        assert_eq!(
+            plan.first_prompt.map(|prompt| prompt.text).as_deref(),
+            Some("Fix the login page")
+        );
     }
 
     #[tokio::test]
