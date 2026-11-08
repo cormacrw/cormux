@@ -138,8 +138,8 @@ impl ThreadRow {
         }
     }
 
-    /// Its workspace's own thread, the Lead or Reviewer it still talks to: a role, not retired.
-    /// The first one, in creation order, is the one.
+    /// Could be its workspace's own thread, the Lead or Reviewer it still talks to: a role, not
+    /// retired. Which one is [`own_threads`]'s to say.
     pub fn is_own(&self) -> bool {
         self.role.is_some() && !self.retired
     }
@@ -148,4 +148,14 @@ impl ThreadRow {
     pub fn with_status(self, status: ThreadStatus) -> Self {
         Self { status, ..self }
     }
+}
+
+/// Each workspace's own thread among `threads`, which come in creation order: the first that
+/// [`ThreadRow::is_own`].
+pub fn own_threads(threads: &[ThreadRow]) -> Vec<&ThreadRow> {
+    let mut seen = std::collections::HashSet::new();
+    threads
+        .iter()
+        .filter(|thread| thread.is_own() && seen.insert(thread.workspace_id.as_str()))
+        .collect()
 }

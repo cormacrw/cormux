@@ -409,16 +409,18 @@ pub struct WorkspaceReviewBlock {
     pub reason: String,
 }
 
+/// `own` is each workspace's own thread (`store::types::own_threads`).
 pub fn review_blocks(
     workspaces: &[WorkspaceRecord],
-    threads: &[ThreadRow],
+    own: &[&ThreadRow],
 ) -> Vec<WorkspaceReviewBlock> {
     workspaces
         .iter()
         .filter_map(|workspace| {
-            let own = threads
+            let own = own
                 .iter()
-                .find(|thread| thread.workspace_id == workspace.id && thread.is_own());
+                .find(|thread| thread.workspace_id == workspace.id)
+                .copied();
             review_block(workspace, own).map(|reason| WorkspaceReviewBlock {
                 workspace_id: workspace.id.clone(),
                 reason: reason.into(),
@@ -1081,7 +1083,8 @@ mod tests {
             .set_workspace_status("w1", WorkspaceLifecycle::ProvisioningFailed)
             .unwrap();
         let records = state.workspaces.live().await.unwrap();
-        let blocks = review_blocks(&records, &state.store.workspace_threads().unwrap());
+        let threads = state.store.workspace_threads().unwrap();
+        let blocks = review_blocks(&records, &crate::store::types::own_threads(&threads));
 
         let refused = start_branch_review(&state, "w1").await.unwrap_err();
 

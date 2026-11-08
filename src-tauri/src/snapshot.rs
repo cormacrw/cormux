@@ -83,12 +83,8 @@ pub struct WorkspaceOwnThread {
     pub thread_id: String,
 }
 
-/// `threads` in creation order, as the snapshot lists them, so each workspace's first own one wins.
-fn own_threads(threads: &[ThreadRow]) -> Vec<WorkspaceOwnThread> {
-    let mut seen = std::collections::HashSet::new();
-    threads
-        .iter()
-        .filter(|thread| thread.is_own() && seen.insert(thread.workspace_id.as_str()))
+fn own_threads(own: &[&ThreadRow]) -> Vec<WorkspaceOwnThread> {
+    own.iter()
         .map(|thread| WorkspaceOwnThread {
             workspace_id: thread.workspace_id.clone(),
             thread_id: thread.id.clone(),
@@ -132,8 +128,9 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let workspace_run_commands =
         crate::harness_config::workspace_run_commands(&persisted.workspaces, &repo_run_commands);
     let workspace_branch_locks = crate::workspaces::branch_locks(&workspaces, &persisted.threads);
-    let workspace_review_blocks = crate::review::review_blocks(&workspaces, &persisted.threads);
-    let workspace_own_threads = own_threads(&persisted.threads);
+    let own = crate::store::types::own_threads(&persisted.threads);
+    let workspace_review_blocks = crate::review::review_blocks(&workspaces, &own);
+    let workspace_own_threads = own_threads(&own);
     let workspace_run_blocks = crate::app::run_blocks(&workspaces, &workspace_run_commands);
 
     Ok(Snapshot {
@@ -188,7 +185,8 @@ mod tests {
         store.upsert_thread(&child).unwrap();
 
         let threads = read(&store).threads;
-        let own: Vec<_> = own_threads(&threads)
+        let own_rows = crate::store::types::own_threads(&threads);
+        let own: Vec<_> = own_threads(&own_rows)
             .into_iter()
             .map(|own| (own.workspace_id, own.thread_id))
             .collect();
@@ -198,7 +196,7 @@ mod tests {
             .live()
             .await
             .unwrap();
-        assert!(crate::review::review_blocks(&records, &threads).is_empty());
+        assert!(crate::review::review_blocks(&records, &own_rows).is_empty());
     }
 
     #[test]

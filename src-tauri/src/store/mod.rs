@@ -229,10 +229,8 @@ impl Store {
 
     /// The workspace's own thread (see [`ThreadRow::is_own`]): the one git steps are recorded in.
     pub fn own_thread(&self, workspace_id: &str) -> Result<Option<ThreadRow>> {
-        Ok(self
-            .threads_for_workspace(workspace_id)?
-            .into_iter()
-            .find(ThreadRow::is_own))
+        let threads = self.threads_for_workspace(workspace_id)?;
+        Ok(types::own_threads(&threads).first().copied().cloned())
     }
 
     pub fn set_thread_session(&self, thread_id: &str, session_id: &str) -> Result<()> {

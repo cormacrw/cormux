@@ -385,7 +385,7 @@ Closed under epic COR-31. Product-facing summary in [`PRODUCT.md` → Decisions 
 | COR-214 | **Skills:** `SkillsSettings` empty state only; no persistence or session injection. |
 | COR-215 | **No in-app editor/tree.** Conflicts: `abort_workspace_git` backs out a pull. Workspace header opens the worktree in the OS editor/Finder via the opener plugin. |
 | COR-216 | **UI stack:** `components.json` style `nova`; `@fontsource-variable/geist` fonts; Tailwind v4 + shadcn-svelte. |
-| COR-217 | **One thread per workspace:** a new thread is a new workspace (its own branch and worktree); agents start them with `create_thread`. The workspace's own thread is its first thread with a role that isn't retired (`ThreadRow::is_own`); `Store::own_thread`, the review block and the snapshot's `workspaceOwnThreads` (which the webview reads instead of choosing) all use it. Retired threads (older builds' extra threads, scratches', and since 032 the ones they closed) stay readable but take nothing. |
+| COR-217 | **One thread per workspace:** a new thread is a new workspace (its own branch and worktree); agents start them with `create_thread`. The workspace's own thread is its first thread with a role that isn't retired (`store::types::own_threads`); `Store::own_thread` and the snapshot use it, the snapshot once for both the review blocks and `workspaceOwnThreads` (which the webview reads instead of choosing). Retired threads (older builds' extra threads, scratches', and since 032 the ones they closed) stay readable but take nothing. |
 | COR-218 | **License:** `Cargo.toml` `license = "UNLICENSED"`; no payment or entitlement checks in app. |
 
 ### Pause semantics
