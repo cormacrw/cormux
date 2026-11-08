@@ -70,6 +70,8 @@ pub struct Snapshot {
     pub workspace_branch_locks: Vec<crate::workspaces::WorkspaceBranchLock>,
     /// Workspaces whose branch can't be reviewed now, and why.
     pub workspace_review_blocks: Vec<crate::review::WorkspaceReviewBlock>,
+    /// Workspaces whose app Run can't start now, and why.
+    pub workspace_run_blocks: Vec<crate::app::WorkspaceRunBlock>,
     /// Each live workspace's own thread, for those with one.
     pub workspace_own_threads: Vec<WorkspaceOwnThread>,
 }
@@ -132,6 +134,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let workspace_branch_locks = crate::workspaces::branch_locks(&workspaces, &persisted.threads);
     let workspace_review_blocks = crate::review::review_blocks(&workspaces, &persisted.threads);
     let workspace_own_threads = own_threads(&persisted.threads);
+    let workspace_run_blocks = crate::app::run_blocks(&workspaces, &workspace_run_commands);
 
     Ok(Snapshot {
         version: state.out.version(),
@@ -150,6 +153,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         repo_removal_blocks,
         workspace_branch_locks,
         workspace_review_blocks,
+        workspace_run_blocks,
         workspace_own_threads,
     })
 }

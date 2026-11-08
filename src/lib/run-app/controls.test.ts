@@ -1,33 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { appActionAllowed, appControlsFor, outputBody } from './controls'
 
-const ready = { lifecycle: 'idle' as const, runCommand: 'pnpm dev' }
+const ready = { runBlock: null, runCommand: 'pnpm dev' }
 
 describe('appControlsFor', () => {
-  it('runs a stopped app only once setup is done and there is a command', () => {
+  it("runs a stopped app unless the core says why it can't", () => {
     expect(appControlsFor({ ...ready, appStatus: 'stopped' }).start).toEqual({
       action: 'run',
       enabled: true,
     })
-    const noCommand = appControlsFor({
+    const blocked = appControlsFor({
       ...ready,
       appStatus: 'stopped',
-      runCommand: '',
+      runBlock: 'Wait for setup to finish to run the app.',
     })
-    expect(noCommand.start?.enabled).toBe(false)
-    expect(appActionAllowed(noCommand, 'run')).toBe(false)
-    for (const lifecycle of ['provisioning', 'provisioningFailed'] as const) {
-      expect(
-        appControlsFor({ ...ready, lifecycle, appStatus: 'stopped' }).start
-          ?.enabled,
-      ).toBe(false)
-    }
+    expect(blocked.start?.enabled).toBe(false)
+    expect(appActionAllowed(blocked, 'run')).toBe(false)
   })
 
   it('restarts a crashed app from Play, command or not', () => {
     const crashed = appControlsFor({
       ...ready,
       appStatus: 'crashed',
+      runBlock: 'No run command for this workspace.',
       runCommand: '',
     })
     expect(crashed.start).toEqual({ action: 'restart', enabled: true })

@@ -717,6 +717,7 @@ export const FIRST_CONVERSATION = "first" as const;
 export const MEDIA_EXTENSIONS = {"gif":"image","jpeg":"image","jpg":"image","m4v":"video","mov":"video","mp4":"video","png":"image","webm":"video","webp":"image"} as const;
 export const MID_TURN_THREAD_STATUSES = ["running","paused"] as const;
 export const OUTPUT_LINE_CAP = 500 as const;
+export const TURN_ENDING_EVENTS = ["turnEnd","engineExited"] as const;
 export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
 
 /** user-defined types **/
@@ -1281,6 +1282,10 @@ workspaceBranchLocks: WorkspaceBranchLock[];
  */
 workspaceReviewBlocks: WorkspaceReviewBlock[]; 
 /**
+ * Workspaces whose app Run can't start now, and why.
+ */
+workspaceRunBlocks: WorkspaceRunBlock[]; 
+/**
  * Each live workspace's own thread, for those with one.
  */
 workspaceOwnThreads: WorkspaceOwnThread[] }
@@ -1559,6 +1564,10 @@ summary: string | null; summaryAt: string | null; kind: WorkspaceKind; prNumber:
  * The workspace's own run command, which Run starts instead of the repo's.
  */
 runCommand: string | null }
+/**
+ * A workspace whose app Run can't start now, and why, for the snapshot.
+ */
+export type WorkspaceRunBlock = { workspaceId: string; reason: string }
 export type WorkspaceRunCommand = { workspaceId: string; command: string; source: RunCommandSource }
 export type WorkspaceStack = { workspaceId: string; status: StackStatus; 
 /**
@@ -1577,7 +1586,11 @@ currentNeedsRebase: boolean;
 /**
  * Bottom of the stack (closest to the trunk) first.
  */
-branches: StackBranch[] }
+branches: StackBranch[]; 
+/**
+ * Why Add branch can't add here now, by the stack's shape; `None` when it can.
+ */
+addBlock: string | null }
 export type WorktreeDiff = { workspaceId: string; 
 /**
  * What the diff shows; `None` means uncommitted changes vs `HEAD`.

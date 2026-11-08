@@ -3,6 +3,7 @@ import {
   runningAgentCount,
   threadActivity,
   workspaceActivity,
+  workspaceStatusLine,
 } from './activity'
 
 describe('threadActivity', () => {
@@ -80,6 +81,31 @@ describe('workspaceActivity', () => {
         activity: { kind: 'none' },
       }),
     ).toBe('Ready')
+  })
+})
+
+describe('workspaceStatusLine', () => {
+  it('puts a failed setup before approvals, and keeps it on show', () => {
+    const failed = {
+      lifecycle: 'provisioningFailed' as const,
+      pendingApprovals: 2,
+      activityText: workspaceActivity({
+        status: 'provisioningFailed',
+        kind: 'lead',
+        activity: { kind: 'settingUp' },
+      }),
+    }
+    expect(workspaceStatusLine(failed)).toEqual({
+      text: 'Setup failed',
+      failed: true,
+    })
+    expect(
+      workspaceStatusLine({
+        ...failed,
+        lifecycle: 'running',
+        activityText: 'Working',
+      }),
+    ).toEqual({ text: '2 approvals waiting', failed: false })
   })
 })
 

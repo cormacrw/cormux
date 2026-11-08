@@ -5,6 +5,7 @@ import {
   type WorkspaceLifecycle,
   type WorkspaceRecord,
 } from '$lib/ipc/bindings'
+import { plural } from '$lib/format/plural'
 
 /** What a thread is doing, in words; `setup` is its workspace's, for a thread still being set up. */
 export function threadActivity(
@@ -25,18 +26,24 @@ export function threadActivity(
   }
 }
 
+function setupWords(kind: WorkspaceRecord['kind']): string {
+  return kind === 'review' ? 'Checking out the PR…' : 'Running worktree setup…'
+}
+
 /**
- * What a workspace is doing, in the words every place that names it uses: paused if it is, else
- * what the core says it's at, else its lifecycle. The agent's first read only lasts its first turn.
+ * What a workspace is doing, in the words every place that names it uses: a failed setup first,
+ * then paused, else what the core says it's at, else its lifecycle. The agent's first read only
+ * lasts its first turn.
  */
 export function workspaceActivity(
   record: Pick<WorkspaceRecord, 'status' | 'kind' | 'activity'>,
 ): string {
   const review = record.kind === 'review'
+  if (record.status === 'provisioningFailed') return 'Setup failed'
   if (record.status === 'paused') return 'Paused'
   switch (record.activity.kind) {
     case 'settingUp':
-      return review ? 'Checking out the PR…' : 'Running worktree setup…'
+      return setupWords(record.kind)
     case 'startingAgent':
       return 'Starting agent…'
     case 'agentStarted':
@@ -52,12 +59,8 @@ export function workspaceActivity(
       break
   }
   switch (record.status) {
-    case 'provisioningFailed':
-      return 'Setup failed'
     case 'provisioning':
-      return record.kind === 'review'
-        ? 'Checking out the PR…'
-        : 'Running worktree setup…'
+      return setupWords(record.kind)
     case 'running':
       return 'Working'
     case 'ready':
@@ -65,6 +68,25 @@ export function workspaceActivity(
     default:
       return 'Idle'
   }
+}
+
+/**
+ * A workspace's line in the sidebar: a failed setup, which stays on show (`failed`), then
+ * approvals waiting, then what it's doing.
+ */
+export function workspaceStatusLine(workspace: {
+  lifecycle: WorkspaceLifecycle
+  pendingApprovals: number
+  activityText: string
+}): { text: string; failed: boolean } {
+  const failed = workspace.lifecycle === 'provisioningFailed'
+  if (!failed && workspace.pendingApprovals > 0) {
+    return {
+      text: `${plural(workspace.pendingApprovals, 'approval', 'approvals')} waiting`,
+      failed,
+    }
+  }
+  return { text: workspace.activityText, failed }
 }
 
 export function isWorkspaceProvisioning(

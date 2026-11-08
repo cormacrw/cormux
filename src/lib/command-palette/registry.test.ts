@@ -65,7 +65,7 @@ describe('buildPaletteCommandsFromState', () => {
         appControlsFor: () =>
           appControlsFor({
             appStatus: 'stopped',
-            lifecycle: 'idle',
+            runBlock: null,
             runCommand: 'pnpm dev',
           }),
         findingsAvailable: () => true,
@@ -104,7 +104,7 @@ describe('buildPaletteCommandsFromState', () => {
         appControlsFor: () =>
           appControlsFor({
             appStatus: 'stopped',
-            lifecycle: 'idle',
+            runBlock: 'No run command for this workspace.',
             runCommand: '',
           }),
         findingsAvailable: () => false,
@@ -133,7 +133,7 @@ describe('buildPaletteCommandsFromState', () => {
         appControlsFor: () =>
           appControlsFor({
             appStatus: 'stopped',
-            lifecycle: 'idle',
+            runBlock: 'No run command for this workspace.',
             runCommand: '',
           }),
         findingsAvailable: (workspace) => workspace.id === 'ws-2',

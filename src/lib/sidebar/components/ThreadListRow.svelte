@@ -2,7 +2,8 @@
   import { openWorkspace } from '$lib/nav/open'
   import { navigate } from '$lib/core/nav.svelte'
   import { formatRelativeAge } from '$lib/format/relative-time'
-  import { plural } from '$lib/format/plural'
+  import { workspaceStatusLine } from '$lib/state/activity'
+  import { appStatusView } from '$lib/run-app/status'
   import { statusDotFor } from '$lib/sidebar/status'
   import { nav } from '$lib/core/nav.svelte'
   import type { ThreadListRowItem } from '$lib/sidebar/thread-list-store.svelte'
@@ -23,28 +24,23 @@
       : nav.view === 'scratch' && nav.scratchId === item.id,
   )
 
-  const statusLine = $derived.by(() => {
-    if (!workspace) return 'Read-only'
-    if (workspace.lifecycle === 'provisioningFailed') return 'Setup failed'
-    if (workspace.pendingApprovals > 0) {
-      return `${plural(workspace.pendingApprovals, 'approval', 'approvals')} waiting`
-    }
-    return workspace.activityText
-  })
+  const status = $derived(
+    workspace
+      ? workspaceStatusLine(workspace)
+      : { text: 'Read-only', failed: false },
+  )
+  const statusLine = $derived(status.text)
 
   const dotVariant = $derived(
     workspace ? statusDotFor(workspace, attention) : 'idle',
   )
 
   // Only what the dot can't say: a setup that failed, or a leftover that can't be prompted.
-  const showStatus = $derived(
-    !workspace || workspace.lifecycle === 'provisioningFailed',
-  )
+  const showStatus = $derived(!workspace || status.failed)
 
   // The workspace's dev app, shown so a running server is findable without opening it.
-  const appRuntime = $derived(workspace?.runtime)
   const appPort = $derived(
-    appRuntime?.appStatus === 'running' ? appRuntime.port : null,
+    workspace ? appStatusView(workspace.runtime, false).port : null,
   )
 
   const age = $derived(

@@ -10,6 +10,7 @@
   import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
   import { formatChangeCounts } from '$lib/changes/diff-totals'
   import { isWorkspaceProvisioning } from '$lib/state/activity'
+  import { appStatusView } from '$lib/run-app/status'
   import {
     changesTabAriaLabel,
     findingsTabAriaLabel,
@@ -25,7 +26,7 @@
   const showFindings = $derived(findings.tabAvailable(workspace))
   const openFindings = $derived(findings.openCount(workspace.id))
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
-  const runtime = $derived(workspace.runtime)
+  const app = $derived(appStatusView(workspace.runtime, provisioning))
   const changeCountLabel = $derived(
     formatChangeCounts(workspaceDiff.uncommitted(workspace.id)),
   )
@@ -91,11 +92,7 @@
     size="sm"
     class={buttonClass(workspaceUi.outputVisible)}
     aria-pressed={workspaceUi.outputVisible}
-    aria-label={outputTabAriaLabel({
-      provisioning,
-      appStatus: runtime.appStatus,
-      port: runtime.port,
-    })}
+    aria-label={outputTabAriaLabel(app)}
     aria-keyshortcuts={shortcutAria('toggleOutput')}
     title="Output ({shortcutLabel('toggleOutput')})"
     id="tray-output"
@@ -104,13 +101,13 @@
   >
     <Terminal class="size-3.5 shrink-0" aria-hidden="true" />
     <span aria-hidden="true">Output</span>
-    {#if provisioning || runtime.appStatus === 'starting'}
+    {#if app.busy}
       <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />
-    {:else if runtime.appStatus === 'running' && runtime.port}
+    {:else if app.port}
       <span class="flex items-center gap-1" aria-hidden="true">
         <span class="size-2 rounded-full bg-emerald-500"></span>
         <span class="font-mono text-[10px] text-muted-foreground"
-          >:{runtime.port}</span
+          >:{app.port}</span
         >
       </span>
     {/if}

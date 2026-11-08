@@ -4,23 +4,24 @@ import {
   outputTabAriaLabel,
   showFindingsTab,
 } from './thread-tabs'
+import { appStatusView } from '$lib/run-app/status'
 
 describe('thread tab labels', () => {
   it('formats findings and output labels', () => {
     expect(findingsTabAriaLabel(3)).toBe('Review findings, 3 open findings')
+    const app = { appStatus: 'running' as const, port: 5173, exitCode: null }
+    expect(outputTabAriaLabel(appStatusView(app, false))).toBe(
+      'App output, running on localhost:5173',
+    )
     expect(
-      outputTabAriaLabel({
-        provisioning: false,
-        appStatus: 'running',
-        port: 5173,
-      }),
-    ).toBe('App output, running on localhost:5173')
+      outputTabAriaLabel(
+        appStatusView({ ...app, appStatus: 'crashed', exitCode: 1 }, false),
+      ),
+    ).toBe('App output, crashed')
     expect(
-      outputTabAriaLabel({
-        provisioning: true,
-        appStatus: 'stopped',
-        port: null,
-      }),
+      outputTabAriaLabel(
+        appStatusView({ ...app, appStatus: 'stopped', port: null }, true),
+      ),
     ).toBe('App output, setting up')
   })
 })

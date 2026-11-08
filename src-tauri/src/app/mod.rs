@@ -12,6 +12,8 @@ use tokio::sync::watch;
 
 use crate::error::{Error, Result};
 use crate::feedback::{Notifier, ToastPart, ToastTone};
+use crate::harness_config::WorkspaceRunCommand;
+use crate::model::WorkspaceLifecycle;
 use crate::process::{LogKind, ProcessSupervisor, SessionEvents, SessionId, ShellCommand};
 use crate::store::Store;
 use crate::workspaces::{WorkspaceRecord, Workspaces};
@@ -47,6 +49,45 @@ pub enum WorkspaceAppControlAction {
     Restart,
     Stop,
     Clear,
+}
+
+/// Why Run can't start a workspace's app now, or `None` when it can. The one rule: the snapshot
+/// carries it for Run, ⌘R and the palette, and `control` enforces it.
+pub fn run_block(status: WorkspaceLifecycle, has_run_command: bool) -> Option<&'static str> {
+    match status {
+        WorkspaceLifecycle::Provisioning => Some("Wait for setup to finish to run the app."),
+        WorkspaceLifecycle::ProvisioningFailed => {
+            Some("Setup failed. Retry or skip it to run the app.")
+        }
+        _ if !has_run_command => Some("No run command for this workspace."),
+        _ => None,
+    }
+}
+
+/// A workspace whose app Run can't start now, and why, for the snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRunBlock {
+    pub workspace_id: String,
+    pub reason: String,
+}
+
+pub fn run_blocks(
+    workspaces: &[WorkspaceRecord],
+    run_commands: &[WorkspaceRunCommand],
+) -> Vec<WorkspaceRunBlock> {
+    workspaces
+        .iter()
+        .filter_map(|workspace| {
+            let has_run_command = run_commands
+                .iter()
+                .any(|run| run.workspace_id == workspace.id);
+            run_block(workspace.status, has_run_command).map(|reason| WorkspaceRunBlock {
+                workspace_id: workspace.id.clone(),
+                reason: reason.into(),
+            })
+        })
+        .collect()
 }
 
 struct WorkspaceAppRecord {
@@ -134,13 +175,22 @@ impl WorkspaceAppService {
             }
             WorkspaceAppControlAction::Stop => self.stop(workspace_id).await,
             WorkspaceAppControlAction::Restart => self.restart(workspace_id).await,
-            WorkspaceAppControlAction::Run => self.run(workspace_id).await,
+            WorkspaceAppControlAction::Run => {
+                let workspace = self.workspaces.get(workspace_id).await?;
+                let has_run_command = self.run_command(&workspace)?.is_some();
+                if let Some(reason) = run_block(workspace.status, has_run_command) {
+                    return Err(Error::Workspace(reason.into()));
+                }
+                self.run(workspace_id).await
+            }
         }
     }
 
     async fn run(&self, workspace_id: &str) -> Result<()> {
         let workspace = self.workspaces.get(workspace_id).await?;
-        let run_command = self.run_command(&workspace)?;
+        let run_command = self
+            .run_command(&workspace)?
+            .ok_or_else(|| Error::Process("no run command configured".into()))?;
         let kind = AppKind::detect(&run_command);
         self.stop_other_instances(workspace_id).await?;
         let port = self.pick_port_with_log(workspace_id, kind);
@@ -217,15 +267,13 @@ impl WorkspaceAppService {
         self.set_status(workspace_id, WorkspaceAppStatus::Stopped, None, None);
     }
 
-    fn run_command(&self, workspace: &WorkspaceRecord) -> Result<String> {
+    fn run_command(&self, workspace: &WorkspaceRecord) -> Result<Option<String>> {
         let repo = self.store.repo(&workspace.repo_id)?;
         let own = self
             .store
             .workspace_by_id(&workspace.id)?
             .and_then(|row| row.run_command);
-        crate::harness_config::workspace_run_command(own.as_deref(), &repo)?
-            .map(|run| run.command)
-            .ok_or_else(|| Error::Process("no run command configured".into()))
+        Ok(crate::harness_config::workspace_run_command(own.as_deref(), &repo)?.map(|run| run.command))
     }
 
     async fn workspace_name(&self, workspace_id: &str) -> String {
@@ -556,7 +604,53 @@ mod tests {
         .await
         .unwrap();
         std::fs::create_dir_all(created.workspace.worktree()).unwrap();
-        (state, dir, created.workspace)
+        let workspace = state
+            .workspaces
+            .set_status(&created.workspace.id, WorkspaceLifecycle::Ready)
+            .await
+            .unwrap();
+        (state, dir, workspace)
+    }
+
+    /// Bug: only the webview kept Run from starting while setup ran or had failed; the palette
+    /// on a stale snapshot, or any other caller, started the app in a half-made worktree.
+    #[tokio::test]
+    async fn run_is_refused_with_the_reason_the_snapshot_gives() {
+        let (state, _dir, workspace) = workspace_with_run_command("sleep 30").await;
+        let id = workspace.id.as_str();
+        state
+            .workspaces
+            .set_status(id, WorkspaceLifecycle::TearingDown)
+            .await
+            .unwrap();
+        for status in [
+            WorkspaceLifecycle::ProvisioningFailed,
+            WorkspaceLifecycle::Provisioning,
+        ] {
+            state.workspaces.set_status(id, status).await.unwrap();
+            let records = state.workspaces.live().await.unwrap();
+            let runs = [WorkspaceRunCommand {
+                workspace_id: id.into(),
+                command: "sleep 30".into(),
+                source: crate::harness_config::RunCommandSource::Repo,
+            }];
+            let blocks = run_blocks(&records, &runs);
+
+            let refused = state
+                .apps
+                .control(id, WorkspaceAppControlAction::Run)
+                .await
+                .unwrap_err();
+
+            assert_eq!(blocks.len(), 1, "{status:?}");
+            assert!(refused.to_string().contains(&blocks[0].reason), "{refused}");
+            assert_eq!(state.apps.runtime(id).status, WorkspaceAppStatus::Stopped);
+        }
+        assert_eq!(
+            run_block(WorkspaceLifecycle::Idle, false),
+            Some("No run command for this workspace.")
+        );
+        assert_eq!(run_block(WorkspaceLifecycle::Idle, true), None);
     }
 
     async fn status_becomes(state: &AppState, id: &str, status: WorkspaceAppStatus) {

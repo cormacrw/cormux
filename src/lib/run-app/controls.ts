@@ -1,9 +1,8 @@
 import type {
   WorkspaceAppControlAction,
   WorkspaceAppStatus,
-  WorkspaceLifecycle,
 } from '$lib/ipc/bindings'
-import { isWorkspaceProvisioning } from '$lib/state/activity'
+import { isAppUp } from './status'
 
 export type AppControls = {
   /** Play and ⌘R: `run` when stopped, a fresh `restart` after a crash; null while the app is up. */
@@ -16,25 +15,20 @@ export type AppControls = {
   runCommand: string
 }
 
-/** What Run, Stop and Restart mean for an app in this state, and which of them apply. */
+/** What Run, Stop and Restart mean for an app in this state; whether Run may start is the core's `runBlock`. */
 export function appControlsFor(input: {
   appStatus: WorkspaceAppStatus
-  lifecycle: WorkspaceLifecycle | undefined
+  runBlock: string | null
   runCommand: string
 }): AppControls {
-  const { appStatus, lifecycle, runCommand } = input
-  const setupDone =
-    lifecycle != null &&
-    !isWorkspaceProvisioning(lifecycle) &&
-    lifecycle !== 'provisioningFailed'
-  const up = appStatus === 'starting' || appStatus === 'running'
+  const { appStatus, runBlock, runCommand } = input
   return {
-    start: up
+    start: isAppUp(appStatus)
       ? null
       : appStatus === 'crashed'
         ? { action: 'restart', enabled: true }
-        : { action: 'run', enabled: setupDone && !!runCommand },
-    canStop: up,
+        : { action: 'run', enabled: runBlock == null },
+    canStop: isAppUp(appStatus),
     canRestart: appStatus === 'running',
     runCommand,
   }
@@ -66,7 +60,7 @@ export function outputBody(input: {
   runCommand: string
   hasLines: boolean
 }): 'log' | 'noCommand' | 'idle' {
-  const up = input.appStatus === 'starting' || input.appStatus === 'running'
-  if (input.provisioning || input.hasLines || up) return 'log'
+  if (input.provisioning || input.hasLines || isAppUp(input.appStatus))
+    return 'log'
   return input.runCommand ? 'idle' : 'noCommand'
 }

@@ -22,6 +22,7 @@ export function workspaceFixture(patch: Partial<Workspace> = {}): Workspace {
     setupFailure: null,
     branchLock: null,
     reviewBlock: null,
+    runBlock: null,
     run: null,
     reviewStatus: null,
     reviewSubmitted: false,

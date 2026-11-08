@@ -9,6 +9,7 @@
   import { workspaces } from '$lib/state/workspaces.svelte'
   import { appControls, controlApp } from '$lib/run-app/actions'
   import { outputBody } from '$lib/run-app/controls'
+  import { appStatusView, isAppUp } from '$lib/run-app/status'
   import { openRepoRunCommand } from '$lib/settings/open'
   import {
     OUTPUT_LINE_CAP,
@@ -57,17 +58,7 @@
   const runCommand = $derived(controls.runCommand)
   let commandField: RunCommandField | undefined = $state()
 
-  const chipLabel = $derived(
-    provisioning
-      ? 'Setting up'
-      : runtime.appStatus === 'starting'
-        ? 'Starting'
-        : runtime.appStatus === 'running'
-          ? 'Running'
-          : runtime.appStatus === 'crashed'
-            ? `Crashed${runtime.exitCode != null ? ` (${runtime.exitCode})` : ''}`
-            : 'Stopped',
-  )
+  const app = $derived(appStatusView(runtime, provisioning))
 
   const body = $derived(
     outputBody({
@@ -165,31 +156,30 @@
     class="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2.5"
     data-od-id="output-head"
   >
-    <Badge variant={runtime.appStatus === 'running' ? 'default' : 'secondary'}>
-      {#if provisioning || runtime.appStatus === 'starting'}
+    <Badge variant={app.phase === 'running' ? 'default' : 'secondary'}>
+      {#if app.busy}
         <LoaderCircle class="mr-1 size-3 animate-spin" aria-hidden="true" />
-      {:else if runtime.appStatus === 'running'}
+      {:else if app.phase === 'running'}
         <span class="mr-1 size-2 rounded-full bg-emerald-500" aria-hidden="true"
         ></span>
       {/if}
-      {chipLabel}
+      {app.word}
     </Badge>
 
     <RunCommandField
       bind:this={commandField}
       {workspaceId}
       {repoCommand}
-      running={runtime.appStatus === 'running' ||
-        runtime.appStatus === 'starting'}
+      running={isAppUp(runtime.appStatus)}
     />
 
-    {#if runtime.appStatus === 'running' && runtime.port}
+    {#if app.port}
       <button
         type="button"
         class="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
         onclick={openAppUrl}
       >
-        localhost:{runtime.port}
+        localhost:{app.port}
         <ExternalLink class="size-3" aria-hidden="true" />
       </button>
     {/if}

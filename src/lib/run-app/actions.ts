@@ -8,7 +8,7 @@ export function appControls(workspaceId: string): AppControls {
   const workspace = workspaces.getById(workspaceId)
   return appControlsFor({
     appStatus: workspaces.runtime(workspaceId).appStatus,
-    lifecycle: workspace?.lifecycle,
+    runBlock: workspace ? workspace.runBlock : 'No such workspace.',
     runCommand: workspace?.run?.command ?? '',
   })
 }
