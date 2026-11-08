@@ -43,3 +43,14 @@ test('Git says the diff didn’t load rather than that it’s clean', async ({
   await expect(failed).toContainText('not a git repository')
   await expect(page.getByText('Clean diff!')).toHaveCount(0)
 })
+
+test('Settings › Agents says why it could not check, not "Not installed"', async ({
+  page,
+}) => {
+  await setScenario(page, { failing: { detect_engines: 'PATH unreadable' } })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const engines = page.locator('[data-od-id="settings-default-engine"]')
+  await expect(engines.getByText('PATH unreadable')).toBeVisible()
+  await expect(engines.getByText('Not installed')).toHaveCount(0)
+})

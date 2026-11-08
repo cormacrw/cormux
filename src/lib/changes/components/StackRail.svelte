@@ -1,7 +1,7 @@
 <script lang="ts">
   import { pluralWord } from '$lib/format/plural'
   import { tick } from 'svelte'
-  import { openUrl } from '@tauri-apps/plugin-opener'
+  import { openExternal } from '$lib/feedback/open-external'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Layers from '@lucide/svelte/icons/layers'
@@ -499,7 +499,7 @@
                   disabled={!pr.url}
                   title="Pull request #{pr.number}, {pr.state}"
                   aria-label="Open pull request #{pr.number} on GitHub, {pr.state}"
-                  onclick={() => pr.url && void openUrl(pr.url)}
+                  onclick={() => pr.url && void openExternal(pr.url)}
                 >
                   <GitPullRequest class="size-3" aria-hidden="true" />
                   #{pr.number}

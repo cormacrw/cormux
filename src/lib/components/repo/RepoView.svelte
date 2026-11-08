@@ -10,7 +10,9 @@
   import { commands } from '$lib/ipc'
   import type { LocalBranchRow } from '$lib/ipc/bindings'
   import { coreErrorText } from '$lib/core/core-error'
+  import { startsOver } from '$lib/core/owner-scoped'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { openExternal } from '$lib/feedback/open-external'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { branchHoldLabel } from '$lib/repo/branch-hold'
@@ -18,15 +20,15 @@
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Trash2 from '@lucide/svelte/icons/trash-2'
-  import { openUrl } from '@tauri-apps/plugin-opener'
 
   let titleEl = $state<HTMLHeadingElement | null>(null)
-  let branches = $state<LocalBranchRow[]>([])
-  let loading = $state(true)
-  let loadError = $state<string | null>(null)
-  let deleting = $state<string | null>(null)
+  // Each repo's list starts over, so a Delete never names another repo's branch.
+  let branches = $derived<LocalBranchRow[]>(startsOver(nav.repoId, []))
+  let loading = $derived(startsOver(nav.repoId, true))
+  let loadError = $derived<string | null>(startsOver(nav.repoId, null))
+  let deleting = $derived<string | null>(startsOver(nav.repoId, null))
   /** A branch origin doesn't have as it is locally, awaiting a confirmed delete. */
-  let unpushed = $state<string | null>(null)
+  let unpushed = $derived<string | null>(startsOver(nav.repoId, null))
   shellDialogs.hold(() => unpushed != null)
   // Held after close so the copy doesn't change while the dialog animates out.
   let unpushedShown = $state('')
@@ -83,6 +85,7 @@
     if (!id || deleting) return
     deleting = name
     const result = await commands.deleteLocalBranch(id, name, force)
+    if (id !== nav.repoId) return
     deleting = null
     unpushed = null
     if (result.status === 'error') {
@@ -256,7 +259,7 @@
                       type="button"
                       class="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-left text-xs transition-colors hover:bg-muted"
                       aria-label="Open pull request #{pr.num} on GitHub, {pr.title}"
-                      onclick={() => void openUrl(pr.htmlUrl)}
+                      onclick={() => void openExternal(pr.htmlUrl)}
                     >
                       <GitPullRequest
                         class="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"

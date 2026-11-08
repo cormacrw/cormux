@@ -230,11 +230,7 @@
             onkeydown={onSlideOutKeydown}
           >
             {#if pinnedTray === 'changes'}{@render paneEdge()}{/if}
-            <ChangesPanel
-              {workspace}
-              thread={activeThread}
-              repoId={workspaceRepoId}
-            />
+            <ChangesPanel {workspace} repoId={workspaceRepoId} />
           </div>
         {/if}
         {#if outputMounted}

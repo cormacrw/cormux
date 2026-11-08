@@ -57,16 +57,16 @@ export function createRuntime(scenario: HarnessScenario) {
     return seq
   }
 
+  const emit = (event: string, payload: unknown) => {
+    for (const handler of eventListeners.get(event)?.values() ?? []) {
+      callbacks.get(handler)?.({ event, id: newId(), payload })
+    }
+  }
+
   /** Like the core's notifier: numbered one after the snapshot's version, which it moves. */
   const emitStateChanged = (change: Change) => {
     db.snapshot.version += 1
-    for (const handler of eventListeners.get('state-changed')?.values() ?? []) {
-      callbacks.get(handler)?.({
-        event: 'state-changed',
-        id: newId(),
-        payload: { version: db.snapshot.version, change },
-      })
-    }
+    emit('state-changed', { version: db.snapshot.version, change })
   }
 
   const controls: HarnessControls = {
@@ -128,6 +128,9 @@ export function createRuntime(scenario: HarnessScenario) {
       for (const text of lines) {
         send(channel, { workspaceId, entry: { kind: 'output', text } })
       }
+    },
+    chooseMenu(command) {
+      emit('menu-chosen', { command })
     },
     commit() {
       if (!runtime.diffChannel) return

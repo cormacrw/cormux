@@ -13,7 +13,7 @@
   } from '$lib/changes/diff-comments.svelte'
   import { formatCommentsForAgent } from '$lib/changes/diff-comment-format'
 
-  import type { Thread } from '$lib/state/threads.svelte'
+  import { threads } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { nav } from '$lib/core/nav.svelte'
   import { changesUi } from '$lib/changes/changes-ui.svelte'
@@ -41,11 +41,9 @@
 
   let {
     workspace,
-    thread,
     repoId,
   }: {
     workspace: Workspace
-    thread: Thread
     repoId: string
   } = $props()
 
@@ -143,15 +141,17 @@
   )
   const comments = $derived(diffComments.forBranch(workspace.id, commentScope))
   let sending = $derived(startsOver(workspaceId, false))
+  // Whichever thread is on screen, only the workspace's live one can take the comments.
+  const liveThread = $derived(threads.liveFor(workspaceId))
   // The agent works on the checked-out branch, so comments on another level wait until it's checked out.
   const offBranch = $derived(
     commentScope !== null && commentScope !== workspace.branch,
   )
 
   async function sendComments() {
-    if (!comments.length || sending || offBranch) return
+    if (!comments.length || sending || offBranch || !liveThread) return
     const id = workspaceId
-    const threadId = thread.id
+    const threadId = liveThread.id
     sending = true
     const sent = comments
     diffComments.clear(id, commentScope)
@@ -263,18 +263,19 @@
         <span
           class="shrink-0"
           title={offBranch
-            ? `These comments are on ${commentScope}. Check it out to send them to ${thread.role}.`
+            ? `These comments are on ${commentScope}. Check it out to send them to ${liveThread?.role ?? 'the agent'}.`
             : undefined}
         >
           <Button
             size="sm"
             class="gap-1.5"
-            disabled={sending || offBranch}
+            disabled={sending || offBranch || !liveThread}
             onclick={() => void sendComments()}
           >
             <Send class="size-3.5" aria-hidden="true" />
             Send {comments.length}
-            {pluralWord(comments.length, 'comment')} to {thread.role}
+            {pluralWord(comments.length, 'comment')} to {liveThread?.role ??
+              'the agent'}
           </Button>
         </span>
       {/if}
