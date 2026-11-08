@@ -3,7 +3,7 @@
 //! `scratch-open-`, `review-` or `finding-` id, or a bare `{icon, title, detail}`) become typed
 //! steps; tool calls and permission requests get the role their Claude tool name meant; replayed
 //! tool calls are dropped; a review's untyped briefing gets its type (024); a permission request
-//! saved with a title gets its card (036). The rules are the ones the timeline drew these rows
+//! saved with a title gets its card (037). The rules are the ones the timeline drew these rows
 //! by, so they look the same afterwards.
 
 use std::collections::{HashMap, HashSet};
@@ -329,7 +329,7 @@ fn number_after(text: &str, before: &str, after: &str) -> Option<u32> {
 /// Permission requests saved with a title instead of their card get the card the timeline drew
 /// for them from the request's tool and detail.
 pub const PERMISSION_CARDS: RustMigration = RustMigration {
-    name: "036_permission_cards",
+    name: "037_permission_cards",
     run: |conn| {
         rewrite_rows(
             conn,

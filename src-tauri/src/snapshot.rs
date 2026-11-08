@@ -262,7 +262,7 @@ mod tests {
             .live()
             .await
             .unwrap();
-        let own = own_threads(&persisted.threads);
+        let own = own_threads(&crate::store::types::own_threads(&persisted.threads));
 
         assert_eq!(needing_attention(&records, &persisted, &own), ["asks"]);
     }

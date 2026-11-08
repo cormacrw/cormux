@@ -41,12 +41,12 @@ fn every_saved_event_type_is_filed_under_the_kind_the_harness_is_told() {
         json!({"type": "briefing", "role": "user", "text": "review"}),
         json!({"type": "sessionStarted", "session_id": "s"}),
         json!({"type": "plan", "entries": []}),
-        json!({"type": "permission", "id": "p", "tool_call_id": null, "title": "Use Bash", "tool": "Bash", "role": {"kind": "read"}, "detail": null, "auto_approved": false}),
+        json!({"type": "permission", "id": "p", "tool_call_id": null, "card": crate::model::ApprovalPayload::titled("Use Bash"), "tool": "Bash", "role": {"kind": "read"}, "detail": null, "auto_approved": false}),
         json!({"type": "toolCallUpdate", "id": "c", "title": null, "status": null, "locations": []}),
         json!({"type": "currentTool", "id": null, "title": "Read"}),
         json!({"type": "usage", "used_tokens": 1, "context_size": 2, "cost_usd": null}),
         json!({"type": "turnEnd", "stop_reason": "end_turn", "error": null}),
-        json!({"type": "engineExited", "code": null}),
+        json!({"type": "engineExited"}),
     ];
     let mut seen = std::collections::HashSet::new();
     for sample in samples {
