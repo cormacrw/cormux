@@ -35,7 +35,7 @@ Each feature spec checked against the stack. "Supported" means the stack handles
 | 03 | Toasts | Supported | shadcn-svelte `Sonner` (svelte-sonner) inside a polite live region. OS notifications, a gap in the spec, come from `tauri-plugin-notification`. |
 | 04 | Homebase and cards | Supported | Cards show what the core records (status, activity, PR, review); no model writes card text. |
 | 05 | Open pull requests | Supported | Listed through the `gh` CLI's GraphQL API with the user's own `gh` login. See [GitHub](#github). |
-| 06 | New workspace | Supported | `git worktree add` from the Rust git module; branch lists from `git for-each-ref`; name and branch drafting stay local in the UI. |
+| 06 | New workspace | Supported | `git worktree add` from the Rust git module; branch lists from `git for-each-ref`. The core drafts the name and branch from the goal (`naming`) and refines them with a small model call. |
 | 07 | Worktree provisioning | Supported | Setup commands run in a PTY in the user's login shell environment, stop on first failure. |
 | 08 | Teardown | Supported | Stop agents and the app by process group, then `git worktree remove` and `git branch -D`. |
 | 09 | Workspace header | Supported | "Open in editor" and "Reveal in Finder" (spec gaps) via `tauri-plugin-opener`. |
@@ -45,13 +45,13 @@ Each feature spec checked against the stack. "Supported" means the stack handles
 | 13 | Approvals | Supported | Claude Code's `can_use_tool` control request blocks the agent until Cormux answers. The one policy, "Run everything", is enforced by the core; questions always wait for the user. |
 | 14 | Changes panel | Supported | Filesystem watcher plus `git diff`; custom diff renderer with Shiki highlighting and jsdiff word ranges; `Resizable` panes. |
 | 15 | Run app and Output | Supported | PTY per app in its own process group; ANSI to styled spans; port read from output; exit code gives the missing Crashed state. |
-| 16 | Branch switching | Supported | `git switch`, refused with a clear message when the worktree is dirty. |
-| 17 | Pull and rebase | Supported | Shared `git fetch` per repo; conflicts detected from exit status and unmerged paths. |
-| 18 | Create PR | Supported | `git push` with the user's own credentials, then the GitHub API. The description is drafted by the small model call from the thread and the branch's diff against the PR's base. |
-| 19 | Review workspaces | Supported | `git fetch origin pull/<N>/head`, worktree on that ref, Reviewer thread. |
-| 20 | Review findings | Supported | The reviewer ends its reply with a JSON findings block that the core parses when its turn ends (and asks again for when it's missing or malformed). Submit review uses the GitHub reviews API. |
+| 16 | Branch switching | Supported | `git switch`, refused with a clear message when the worktree is dirty. One core check (`workspace_git::check_new_branch`) vets every new branch name. |
+| 17 | Pull and rebase | Supported (pull only) | Pull merges the base in; there is no rebase. Shared `git fetch` per repo; conflicts detected from exit status and unmerged paths. |
+| 18 | Create PR | Supported | `git push` with the user's own credentials, then the GitHub API. The description is drafted by the small model call from the thread and the branch's diff against the PR's base: the branch below it in a `gh stack`, else the workspace's base. A stack that can't be read stops the PR rather than targeting trunk. |
+| 19 | Review workspaces | Supported | `git fetch origin pull/<N>/head`, worktree on that ref, Reviewer thread. One per PR: the core reopens an existing one, moving its base if the PR was retargeted. |
+| 20 | Review findings | Supported | The reviewer ends its reply with a JSON findings block that the core parses when its turn ends. A missing or malformed block is noted in the thread and the review stays running, so the reviewer's next reply is read again. Submit review uses the GitHub reviews API. |
 | 21 | Settings | Supported | Persisted in SQLite; engine detection by resolving each CLI on the login-shell `PATH`. |
-| 22 | Repos | Supported | Native folder picker (`tauri-plugin-dialog`); `git rev-parse` validation; default branch from `origin/HEAD`. |
+| 22 | Repos | Supported | Native folder picker (`tauri-plugin-dialog`); `git rev-parse --show-toplevel` validation, so a subfolder adds its repo, named after the top folder; default branch from `origin/HEAD`. |
 
 Nothing in the specs needs a different stack. Former open decisions are recorded in [Decisions (MVP)](#decisions-mvp).
 
@@ -112,9 +112,9 @@ Modules under `src-tauri/src/`, one concern each. A feature keeps its commands (
 | Layer | Modules |
 | --- | --- |
 | Leaves | `error`, `model` (shared wire enums), `time`, `paths`, `shell_env`, `bus`, `media`, `timeline` (the core's step vocabulary) |
-| Infrastructure | `store` (connections, migrations, repo/workspace/thread rows; imports only `model` and `error`), `git`, `process`, `llm`, `credentials`, `engines` (imports `shell_env`, `model`, `error` only) |
+| Infrastructure | `store` (connections, migrations, repo/workspace/thread rows; imports only `model`, `error` and `time`), `git`, `process`, `llm`, `credentials`, `engines` (imports `shell_env`, `model`, `error` only), `workspaces` (the live workspace records over their rows) |
 | Thread core | `transcript` (event log), `approvals` (broker), `thread_runtime` (live engines), `settings` (typed preferences) |
-| Features | `turn`, `workspaces`, `workspace_start`, `provisioning`, `workspace_git`, `changes`, `teardown`, `repos`, `review`, `findings`, `orchestration`, `host_tools`, `github`, `create_pr`, `pr_draft`, `stack`, `app`, `clickup`, `skills`, `scratch`, `entities`, `metrics`, `window_activity`, `feedback`, `snapshot` |
+| Features | `turn`, `attachments`, `naming`, `workspace_start`, `provisioning`, `workspace_git`, `changes`, `teardown`, `repos`, `harness_config`, `review`, `findings`, `orchestration`, `host_tools`, `github`, `create_pr`, `pr_draft`, `stack`, `app`, `environment`, `terminal`, `thread_media`, `clickup`, `skills`, `scratch`, `entities`, `metrics`, `window_activity`, `feedback`, `snapshot` |
 | Shell | `state`, `ipc`, `menu`, `lib` (startup order) |
 
 Features don't call each other to react to something: they publish on the **bus** (`bus::DomainEvent`: `TurnEnded`, `ApprovalRequested`, `ProvisioningFailed`) and the features that care subscribe from their own `start` (orchestration, review, feedback). `turn` publishes `TurnEnded` once a turn has settled, `approvals` publishes `ApprovalRequested`, `provisioning` publishes `ProvisioningFailed`.
@@ -134,36 +134,36 @@ Cormux shells out to the system `git` rather than using a library (`git2`, `gix`
 | Branches | `git for-each-ref refs/heads refs/remotes` |
 | Create worktree | `git worktree add -b <branch> <path> <base>` |
 | Review checkout | `git fetch origin pull/<N>/head:<local>` then `git worktree add <path> <local>` |
-| Behind count | `git rev-list --count HEAD..origin/<base>` |
-| Diff | `git diff --numstat` and `git diff <merge-base>` including uncommitted work, plus untracked files |
+| Behind count | `git rev-list --count HEAD..<base ref>`, where the base ref is `origin/<base>` or the local base, whichever has everything the other has (`Git::freshest_ref`) |
+| Diff | Uncommitted work (untracked files included) against `HEAD` through a scratch index; committed work as `git diff <base>...HEAD` |
 | Switch branch | `git switch <branch>` (refused if `git status --porcelain` is not empty) |
-| Pull / rebase | `git merge origin/<base>` / `git rebase origin/<base>`; unmerged paths from `git diff --name-only --diff-filter=U` |
-| Push | `git push -u origin <branch>` |
+| Pull | `git merge <base ref>` (as for the behind count); unmerged paths from `git diff --name-only --diff-filter=U` |
+| Push (Create PR) | `git push -u origin <branch>` |
 | Teardown | `git worktree remove [--force] <path>`, `git branch -D <branch>` |
 
 **Worktree path:** `~/.harness/worktrees/<repo>/<branch-slug>`. Including the repo fixes the collision noted in [08](features/08-teardown.md).
 
 **Fetching:** worktrees share one object store, so the core runs one background `git fetch` per repo (every 5 minutes and on window focus), then recomputes "behind" for every workspace on that repo.
 
-**Live diffs:** a `notify` watcher on each worktree, debounced to about 300ms and filtered through `.gitignore` (the `ignore` crate), triggers a diff refresh. The core sends the file list and per-file hunks; the UI never runs git.
+**Live diffs:** a `notify` watcher on each worktree the webview subscribes to (and on one being set up), debounced to about 300ms and filtered through `.gitignore` (the `ignore` crate), triggers a diff refresh. The core sends the file list and per-file hunks; the UI never runs git.
 
-All git calls for one worktree go through a per-worktree queue so two operations can't race on the index.
+Git calls for one worktree go through a per-worktree queue so two operations can't race on the index. `fetch`, `fetch_base`, `worktree_remove` and `gh stack view` skip it on purpose: they don't touch the index, and a slow network shouldn't hold the queue.
 
 ### Workspaces (`workspaces`, `workspace_start`, `provisioning`, `teardown`)
 
 `workspaces` keeps each live workspace's record (its row plus `WorkspaceActivity`, how far setup got or what its review came to, which only the running app knows and the webview words); `workspace_start` names, records and provisions a Lead's workspace, `review` does the same for a PR review, and both hand `provisioning` a plan. Lifecycle (`model::WorkspaceLifecycle`):
 
 ```
-provisioning → ready ⇄ running / idle (from its threads' statuses) → tearingDown → archived
+provisioning → ready ⇄ running / paused / idle (from its threads' statuses) → tearingDown → archived
       ↓
 provisioningFailed (retry, or skip setup and continue)
 ```
 
-A workspace's status follows its threads': `store::set_thread_status` writes both in one transaction (`model::status_from_threads`).
+A workspace's status follows its threads': `store::set_thread_status` writes both in one transaction (`model::status_from_threads`). It is running while any thread works or starts (`ThreadStatus::is_working`), paused when its only unfinished threads are paused, and idle otherwise; the webview reads it and doesn't re-derive it. Setup ends through `Workspaces::finish_provisioning`, which writes the thread's status before the workspace's, so a workspace set up without a prompt ends ready.
 
-- **Branch switch lock:** refused while the workspace is provisioning or any of its stored threads is running or provisioning (checked at execution time, as in [16](features/16-branch-switching.md)).
-- **Provisioning:** the workspace and its thread (with the model and effort picked) are written in one transaction; then the worktree, setup commands in order, then the thread's first turn. Any error on the way marks setup failed, so it can be retried or skipped.
-- **Teardown order:** stop the thread's engine (a shutdown, then killed after `STOP_GRACE`, 6 s), stop the workspace's processes, remove the worktree, delete the branch if chosen, archive the row. A count git can't give (uncommitted files, unpushed commits) is treated as at risk in the preview.
+- **Branch switch lock:** `workspaces::branch_lock` refuses while the workspace is provisioning or any of its stored threads is working, and says which. It is checked at execution time, as in [16](features/16-branch-switching.md), and the snapshot carries each locked workspace's reason for the header and Stack tab.
+- **Provisioning:** the workspace and its thread (with the model and effort picked) are written in one transaction; then the worktree, setup commands in order, then the thread's first turn. Any error on the way marks setup failed, so it can be retried or skipped. Retry and Skip are refused unless setup failed, and Skip also when the worktree was never made.
+- **Teardown order:** stop the thread's engine (a shutdown; the runtime waits up to `STOP_GRACE`, 6 s, while the session kills the engine after its own 5 s), stop the workspace's processes, remove the worktree, delete the branch if chosen, archive the row. A count git can't give (uncommitted files, unpushed commits) is treated as at risk in the preview, which also says whether to ask before tearing down (`askFirst`: uncommitted files, or a count git couldn't give).
 - **Environment for setup and run:** `HARNESS_REPO_PATH` (the main checkout), `HARNESS_WORKTREE_PATH`, `HARNESS_WORKSPACE`, `HARNESS_BRANCH`, `HARNESS_BASE`. This replaces hard-coded paths like `cp ~/code/my-app/.env.local`.
 
 ### Engine adapters (`engines`)
@@ -197,11 +197,11 @@ Claude Code gets a native Rust translator so Cormux doesn't have to bundle or re
 
 **Sessions and restarts:** each thread stores its engine session id. After Cormux restarts, the thread resumes with `claude --resume <id>`.
 
-**Engine detection** (Settings, [21](features/21-settings.md)): resolve each binary on the login-shell `PATH`, run `--version`, and check sign-in status. Missing engines are shown as not installed rather than failing at workspace creation.
+**Engine detection** (Settings, [21](features/21-settings.md)): resolve each binary on the login-shell `PATH`, run `--version`, and check sign-in status (the `loggedIn` field of `claude auth status`'s JSON). Missing engines are shown as not installed rather than failing at workspace creation.
 
 ### Approval broker (`approvals`)
 
-Owns each pending approval from request to answer: the stored row the card shows and the engine's waiter change together. `request` records the row and the waiter (or answers at once when the policy lets it through), `resolve` hands the answer to the engine and the row in one step, and `cancel_for_thread` drops a thread's open requests when its turn ends or its engine exits.
+Owns each pending approval from request to answer: the stored row the card shows and the engine's waiter change together. `request` records the row and the waiter (or answers at once when the policy lets it through, and denies at once when the row can't be saved, since no card would show), `resolve` hands the answer to the engine and the row in one step, and `cancel_for_thread` drops a thread's open requests when its turn ends or its engine exits.
 
 - **Policy:** "Run everything" approves every tool request without a card; questions always wait for the user. A session reads it when it starts.
 - **Denials:** the user's reason goes back to the agent as the tool's answer, once.
@@ -232,7 +232,7 @@ Review findings come from the reviewer's reply, not from a tool: the core parses
 Runs setup and run commands in a PTY (`portable-pty`) using the login-shell environment, each in its own process group so Stop, Restart and Teardown kill the whole tree.
 
 - **Output:** read on a background task, split into lines, kept in a ring buffer (500 lines on screen, full log on disk for the session), and streamed to the UI in batches of about 30ms. Each line is a `LogEntry` with a kind: what a command printed, or Cormux's own command, marker, interrupt, note or warning lines, which the UI styles by kind.
-- **Ports:** the port is read from the output (`localhost:<port>`, `127.0.0.1:<port>`), confirmed by checking the process tree's listening sockets. Cormux also sets `PORT` to a free port before spawning, which many frameworks respect. This replaces the prototype's prediction.
+- **Ports:** the port is read from the output (`localhost:<port>`, `127.0.0.1:<port>`, `0.0.0.0:<port>`). Cormux also sets `PORT` before spawning, which many frameworks respect: the app kind's usual port, moved past any other Cormux app's. This replaces the prototype's prediction.
 - **Exit:** a non-zero exit while running becomes the **Crashed** state with the exit code and a Restart button.
 - **Input:** the PTY accepts keystrokes, so dev-server shortcuts (`r`, `o`) are possible later without changing the design.
 - **Quit:** on app exit, the core signals every engine's process group (`thread_runtime::kill_all`) and the supervisor stops every process it runs.
@@ -262,7 +262,7 @@ Repo config can also be read from a committed file (`.cormux/config.json`) so a 
 
 **Migrations** run in version order inside `Store::open`: the SQL files in `src-tauri/migrations/`, plus Rust migrations their owning module supplies (024 is `transcript::MIGRATION`, which rewrites rows older builds saved). Each runs in its own transaction and is recorded in `schema_migrations`.
 
-**Settings** (`settings::Settings`) are one typed struct, stored one row per field under the field's wire name; it is the only place their keys and defaults are named (the webview gets the defaults as the generated `DEFAULT_SETTINGS`). Commands read and write it whole (`get_settings`, `update_settings` with a patch). The ClickUp API key is kept in `~/.cormux/credentials.json`, not in the database.
+**Settings** (`settings::Settings`) are one typed struct, stored one row per field under the field's wire name; it names their keys and defaults (the webview gets the defaults as the generated `DEFAULT_SETTINGS`), except the PR sync's `githubPrSyncedAt` marker row and the terminal app's default (`terminal`). The webview reads them with the snapshot and writes them with `update_settings` and a patch, which returns them as stored. The ClickUp API key is kept in `~/.cormux/credentials.json`, not in the database.
 
 **Snapshot** (`snapshot`): what the webview loads in one go — every feature's rows read in one read transaction, plus the state only memory holds (live workspace records, git counts, running apps, memory, pending approval count). Every state change the core announces (`feedback::Notifier::changed`) bumps a version the snapshot carries; the webview refetches on each, and `repoGit` marks a change that also moved `origin`.
 
@@ -278,7 +278,7 @@ Repo config can also be read from a committed file (`.cormux/config.json`) so a 
 | **Channels** (`tauri::ipc::Channel`) | core → UI | High-volume ordered streams: agent message chunks, PTY output, diff updates. One per subscribed thread or log. |
 | **Events** | core → UI | `StateChanged { version, change: { repoGit } }` after anything the snapshot shows changed, toasts, memory samples and menu choices. |
 
-TypeScript types for commands and payloads are generated from the Rust definitions (`tauri-specta`) so the two sides can't drift. Every state event carries a version number; if the UI sees a gap, it re-fetches a snapshot.
+TypeScript types for commands and payloads are generated from the Rust definitions (`tauri-specta`) so the two sides can't drift, and so are the constants the webview shares with the core: `DEFAULT_SETTINGS`, `MEDIA_EXTENSIONS` (what a thread shows as an image or video) and `WORKING_THREAD_STATUSES`. Every state event carries a version number; if the UI sees a gap, it re-fetches a snapshot.
 
 The webview only subscribes to streams it's showing. A background thread keeps its state in the core; switching to it loads recent items and then subscribes.
 
@@ -376,7 +376,7 @@ Closed under epic COR-31. Product-facing summary in [`PRODUCT.md` → Decisions 
 | COR-212 | **Changes review:** no per-file approve step; Discard (`discard_workspace_changes`) is the one write from the Changes panel. |
 | COR-213 | **Approvals:** one policy, "Run everything" (`ApprovalPolicy` from Settings): every tool request is approved without a card; questions always wait. Without it every request shows a card. |
 | COR-214 | **Skills:** `SkillsSettings` empty state only; no persistence or session injection. |
-| COR-215 | **No in-app editor/tree.** Conflicts: `abort_workspace_git` backs out a pull or rebase. Workspace header opens the worktree in the OS editor/Finder via the opener plugin. |
+| COR-215 | **No in-app editor/tree.** Conflicts: `abort_workspace_git` backs out a pull. Workspace header opens the worktree in the OS editor/Finder via the opener plugin. |
 | COR-216 | **UI stack:** `components.json` style `nova`; `@fontsource-variable/geist` fonts; Tailwind v4 + shadcn-svelte. |
 | COR-217 | **One thread per workspace:** a new thread is a new workspace (its own branch and worktree); agents start them with `create_thread`. |
 | COR-218 | **License:** `Cargo.toml` `license = "UNLICENSED"`; no payment or entitlement checks in app. |
