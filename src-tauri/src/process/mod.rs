@@ -93,8 +93,9 @@ struct SessionState {
 /// A buffer of output lines: a session's, or a workspace log.
 struct Lines {
     ring: Mutex<VecDeque<LogEntry>>,
-    /// Lines not yet streamed to the Output tab; only workspace logs keep them.
-    pending: Option<Mutex<Vec<LogEntry>>>,
+    /// Lines ever pushed into `ring`, so a reader's cursor still means the same line after the
+    /// ring drops its oldest. Only changed with `ring` locked.
+    pushed: AtomicU64,
     fragment: Mutex<String>,
     /// The tail of the last read that was only part of a character; the next read finishes it.
     partial: Mutex<Vec<u8>>,
@@ -206,7 +207,7 @@ impl ProcessSupervisor {
             log::warn!("{error}; writing it nowhere");
             File::create("/dev/null").expect("/dev/null opens")
         });
-        let lines = Arc::new(Lines::new(file, true, None, self.activity.clone()));
+        let lines = Arc::new(Lines::new(file, None, self.activity.clone()));
         logs.insert(workspace_id.to_string(), lines.clone());
         lines
     }
@@ -302,7 +303,6 @@ impl ProcessSupervisor {
         let forward = forward_to.map(|workspace_id| self.workspace_log(workspace_id));
         let lines = Arc::new(Lines::new(
             open_log(&id.to_string())?,
-            false,
             forward,
             self.activity.clone(),
         ));
@@ -380,33 +380,32 @@ impl ProcessSupervisor {
             .unwrap_or_default()
     }
 
-    /// A workspace log's lines added since the last call.
-    pub fn drain_pending(&self, workspace_id: &str) -> Vec<LogEntry> {
-        self.logs
-            .lock()
-            .unwrap()
-            .get(workspace_id)
-            .and_then(|lines| lines.pending.as_ref())
-            .map(|pending| std::mem::take(&mut *pending.lock().unwrap()))
-            .unwrap_or_default()
-    }
-
-    /// The buffered lines of a workspace log, marking them all as delivered.
-    pub fn take_log_snapshot(&self, workspace_id: &str) -> Vec<LogEntry> {
-        let logs = self.logs.lock().unwrap();
-        let Some(lines) = logs.get(workspace_id) else {
+    /// A workspace log's lines after `cursor`, which moves past them; start it at 0 for every
+    /// buffered line. Each reader keeps its own cursor, so two readers both get every line. One
+    /// that fell further behind than the ring holds resumes at the ring's oldest line.
+    pub fn log_since(&self, workspace_id: &str, cursor: &mut u64) -> Vec<LogEntry> {
+        let Some(lines) = self.logs.lock().unwrap().get(workspace_id).cloned() else {
             return Vec::new();
         };
         let ring = lines.ring.lock().unwrap();
-        if let Some(pending) = &lines.pending {
-            pending.lock().unwrap().clear();
+        let end = lines.pushed.load(Ordering::Relaxed);
+        let start = end - ring.len() as u64;
+        // Past the end means the log was forgotten and started again.
+        if *cursor < start || *cursor > end {
+            *cursor = start;
         }
-        ring.iter().cloned().collect()
+        let skip = usize::try_from(*cursor - start).unwrap_or(usize::MAX);
+        *cursor = end;
+        ring.iter().skip(skip).cloned().collect()
+    }
+
+    pub fn log_snapshot(&self, workspace_id: &str) -> Vec<LogEntry> {
+        self.log_since(workspace_id, &mut 0)
     }
 
     #[cfg(test)]
     pub fn log_texts(&self, workspace_id: &str) -> Vec<String> {
-        self.take_log_snapshot(workspace_id)
+        self.log_snapshot(workspace_id)
             .into_iter()
             .map(|entry| entry.text)
             .collect()
@@ -423,9 +422,6 @@ impl ProcessSupervisor {
     pub fn clear_log(&self, workspace_id: &str) {
         if let Some(lines) = self.logs.lock().unwrap().get(workspace_id) {
             lines.ring.lock().unwrap().clear();
-            if let Some(pending) = &lines.pending {
-                pending.lock().unwrap().clear();
-            }
             lines.fragment.lock().unwrap().clear();
         }
     }
@@ -554,15 +550,10 @@ impl ProcessSupervisor {
 }
 
 impl Lines {
-    fn new(
-        log: File,
-        keeps_pending: bool,
-        forward: Option<Arc<Lines>>,
-        activity: Arc<Notify>,
-    ) -> Self {
+    fn new(log: File, forward: Option<Arc<Lines>>, activity: Arc<Notify>) -> Self {
         Self {
             ring: Mutex::new(VecDeque::new()),
-            pending: keeps_pending.then(|| Mutex::new(Vec::new())),
+            pushed: AtomicU64::new(0),
             fragment: Mutex::new(String::new()),
             partial: Mutex::new(Vec::new()),
             log: Mutex::new(log),
@@ -632,17 +623,10 @@ impl Lines {
                 ring.pop_front();
             }
             ring.push_back(line.clone());
+            self.pushed.fetch_add(1, Ordering::Relaxed);
         }
         if let Some(forward) = &self.forward {
-            forward.push_entry(line.clone());
-        }
-        if let Some(pending) = &self.pending {
-            // Nobody drains this until the Output tab opens, and the ring is all it replays.
-            let mut pending = pending.lock().unwrap();
-            if pending.len() >= RING_CAP * 2 {
-                pending.drain(..RING_CAP);
-            }
-            pending.push(line);
+            forward.push_entry(line);
         }
         self.state.send_modify(|state| state.lines += 1);
         self.activity.notify_waiters();
@@ -855,8 +839,10 @@ mod tests {
         for line in 0..RING_CAP * 3 {
             proc.log("capped", LogKind::Output, line.to_string());
         }
-        assert!(proc.drain_pending("capped").len() <= RING_CAP * 2);
-        assert_eq!(proc.take_log_snapshot("capped").len(), RING_CAP);
+        assert_eq!(proc.log_snapshot("capped").len(), RING_CAP);
+        let mut behind = 0;
+        assert_eq!(proc.log_since("capped", &mut behind).len(), RING_CAP);
+        assert_eq!(behind, (RING_CAP * 3) as u64);
 
         let mut fragment = "é".repeat(100);
         keep_tail(&mut fragment, 11);
@@ -948,7 +934,7 @@ mod tests {
 
         proc.forget_workspace(&ws);
         assert!(proc.workspace_session_ids(&ws).is_empty());
-        assert!(proc.take_log_snapshot(&ws).is_empty());
+        assert!(proc.log_snapshot(&ws).is_empty());
         assert!(!log_path(&ws).exists());
         assert!(!log_path(&setup(&ws, 1).to_string()).exists());
     }
@@ -983,7 +969,42 @@ mod tests {
             proc.log("blank-runs", LogKind::Output, line);
         }
         assert_eq!(proc.log_texts("blank-runs"), vec!["a", "", "b"]);
-        assert!(proc.drain_pending("blank-runs").is_empty());
+    }
+
+    /// Bug: readers drained one shared buffer, so a second Output stream (one a webview reload
+    /// left behind) took about half the lines from the live one.
+    #[test]
+    fn every_reader_of_a_log_gets_every_line() {
+        let proc = supervisor();
+        proc.log("shared", LogKind::Output, "before");
+        let (mut first, mut second) = (0, 0);
+        assert_eq!(proc.log_since("shared", &mut first).len(), 1);
+        proc.log("shared", LogKind::Output, "one");
+        let texts = |entries: Vec<LogEntry>| -> Vec<String> {
+            entries.into_iter().map(|entry| entry.text).collect()
+        };
+        assert_eq!(
+            texts(proc.log_since("shared", &mut second)),
+            ["before", "one"]
+        );
+        proc.log("shared", LogKind::Output, "two");
+        assert_eq!(texts(proc.log_since("shared", &mut first)), ["one", "two"]);
+        assert_eq!(texts(proc.log_since("shared", &mut second)), ["two"]);
+        assert!(proc.log_since("shared", &mut first).is_empty());
+
+        proc.clear_log("shared");
+        proc.log("shared", LogKind::Output, "after clearing");
+        assert_eq!(
+            texts(proc.log_since("shared", &mut first)),
+            ["after clearing"]
+        );
+
+        proc.forget_workspace("shared");
+        proc.log("shared", LogKind::Output, "started again");
+        assert_eq!(
+            texts(proc.log_since("shared", &mut second)),
+            ["started again"]
+        );
     }
 
     #[tokio::test]

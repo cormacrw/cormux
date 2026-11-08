@@ -57,6 +57,7 @@ use std::time::Duration;
 use ipc::events::{MemorySampled, TauriOutput};
 use ipc::subscriptions::Subscriptions;
 use state::AppState;
+use tauri::webview::PageLoadEvent;
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_specta::Event;
 use window_activity::WindowActivity;
@@ -72,6 +73,14 @@ pub fn run() {
         .invoke_handler(ipc.invoke_handler())
         .on_menu_event(|app, event| {
             menu::handle(app, event.id().as_ref());
+        })
+        .on_page_load(|webview, payload| {
+            // The first load can come before `setup` has managed it, with nothing to cancel.
+            if payload.event() == PageLoadEvent::Started
+                && let Some(subs) = webview.try_state::<Subscriptions>()
+            {
+                subs.cancel_all();
+            }
         })
         .on_window_event(|window, event| {
             if let WindowEvent::Focused(focused) = event {

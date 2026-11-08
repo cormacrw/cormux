@@ -104,6 +104,14 @@ impl Subscriptions {
         }
     }
 
+    /// For a webview (re)loading: its old page can't unsubscribe, and sending to its channels
+    /// still succeeds, so nothing else would stop their tasks.
+    pub fn cancel_all(&self) {
+        for (_, tx) in self.live.lock().unwrap().drain() {
+            let _ = tx.send(true);
+        }
+    }
+
     #[cfg(test)]
     fn live_count(&self) -> usize {
         self.live.lock().unwrap().len()
@@ -157,7 +165,6 @@ fn stream_agent_events(
                 }
                 Err(broadcast::error::RecvError::Closed) => return,
             };
-            // The webview that asked is gone (a reload), so nothing will cancel this.
             if sent.is_err() {
                 return;
             }
@@ -176,23 +183,21 @@ fn stream_pty(
     let sub = subs.register();
     let id = sub.id;
     tauri::async_runtime::spawn(async move {
-        // Replay the log so reopening the Output tab shows what already ran.
-        let mut lines = process.take_log_snapshot(&workspace_id);
+        // From the start, so reopening the Output tab shows what already ran.
+        let mut cursor = 0;
         let activity = process.activity();
         let mut sub = sub;
         'feed: while !sub.is_stopped() {
-            // Armed first, so a line landing just after the drain still wakes this loop.
+            // Armed first, so a line landing just after the read still wakes this loop.
             let woken = activity.notified();
             tokio::pin!(woken);
             woken.as_mut().enable();
             // Run and setup sessions are forwarded into the workspace log by their monitors.
-            lines.extend(process.drain_pending(&workspace_id));
-            for line in lines.drain(..) {
+            for line in process.log_since(&workspace_id, &mut cursor) {
                 let chunk = PtyChunk {
                     workspace_id: workspace_id.clone(),
                     entry: line,
                 };
-                // The webview that asked is gone (a reload), so nothing will cancel this.
                 if channel.send(chunk).is_err() {
                     break 'feed;
                 }
@@ -262,6 +267,21 @@ mod tests {
         handle.stopped().await;
         drop(handle);
         assert_eq!(subs.live_count(), 0);
+    }
+
+    /// Bug: a webview reload left every stream task running, since sending to the old page's
+    /// channels still succeeds.
+    #[tokio::test]
+    async fn a_page_load_stops_every_subscription() {
+        let subs = Subscriptions::new();
+        let mut handles = [subs.register(), subs.register()];
+        subs.cancel_all();
+        assert_eq!(subs.live_count(), 0);
+        for handle in &mut handles {
+            assert!(handle.is_stopped());
+            handle.stopped().await;
+        }
+        assert!(!subs.register().is_stopped());
     }
 
     #[test]

@@ -635,7 +635,7 @@ mod tests {
         status_becomes(&state, id, WorkspaceAppStatus::Crashed).await;
 
         assert_eq!(state.apps.runtime(id).exit_code, Some(3));
-        let log = state.process.take_log_snapshot(id);
+        let log = state.process.log_snapshot(id);
         assert_eq!(
             log[log.len() - 3..],
             [
@@ -657,7 +657,7 @@ mod tests {
             8001
         );
         assert_eq!(
-            process.take_log_snapshot("b"),
+            process.log_snapshot("b"),
             [LogEntry::new(
                 LogKind::Warning,
                 "Port 8000 is taken by another workspace's app; using 8001"
