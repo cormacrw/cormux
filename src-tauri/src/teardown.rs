@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::app::WorkspaceAppStatus;
 use crate::error::{Error, Result};
-use crate::model::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
+use crate::model::WorkspaceLifecycle;
 use crate::state::AppState;
 use crate::workspaces::WorkspaceRecord;
 
@@ -101,7 +101,7 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
         let restored = match restored {
             Ok(()) => state
                 .workspaces
-                .set_status(&input.workspace_id, after_failed_teardown(record.status))
+                .hand_back(&input.workspace_id, record.status)
                 .await
                 .map(drop),
             Err(error) => Err(error),
@@ -158,45 +158,6 @@ async fn run_teardown_steps(
     }
 
     Ok(())
-}
-
-/// A teardown that was running when the app closed goes back to what the workspace's threads
-/// say, or failed setup if setup was what it stopped: finishing it unasked would delete the
-/// worktree and maybe the branch without the user seeing what's in them now, so they tear it
-/// down again from there.
-pub fn on_restart(store: &crate::store::Store) -> Result<()> {
-    store.with_tx(|conn| {
-        let torn: Vec<String> = conn
-            .prepare("SELECT id FROM workspaces WHERE status = ?1 AND archived_at IS NULL")?
-            .query_map([WorkspaceLifecycle::TearingDown.as_str()], |row| row.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
-        for id in torn {
-            let threads: Vec<ThreadStatus> = conn
-                .prepare("SELECT status FROM threads WHERE workspace_id = ?1 AND retired = 0")?
-                .query_map([&id], |row| row.get::<_, String>(0))?
-                .map(|raw| raw.map(|raw| ThreadStatus::parse(&raw)))
-                .collect::<rusqlite::Result<_>>()?;
-            let status = if threads.contains(&ThreadStatus::Provisioning) {
-                WorkspaceLifecycle::ProvisioningFailed
-            } else {
-                status_from_threads(WorkspaceLifecycle::Idle, threads.into_iter())
-            };
-            conn.execute(
-                "UPDATE workspaces SET status = ?1 WHERE id = ?2",
-                [status.as_str(), id.as_str()],
-            )?;
-        }
-        Ok(())
-    })
-}
-
-/// What a workspace is once a teardown that stopped its agents and setup gives up.
-fn after_failed_teardown(before: WorkspaceLifecycle) -> WorkspaceLifecycle {
-    match before {
-        WorkspaceLifecycle::Running | WorkspaceLifecycle::Paused => WorkspaceLifecycle::Idle,
-        WorkspaceLifecycle::Provisioning => WorkspaceLifecycle::ProvisioningFailed,
-        other => other,
-    }
 }
 
 async fn count_uncommitted_files(state: &AppState, worktree: &Path) -> Option<u32> {
@@ -464,22 +425,6 @@ mod tests {
         assert!(torn.is_err(), "not a git worktree, so it can't be removed");
         let thread = state.store.thread_by_id("t").unwrap().unwrap();
         assert_eq!(thread.status, ThreadStatus::Idle);
-    }
-
-    #[test]
-    fn a_failed_teardown_hands_back_what_it_stopped() {
-        assert_eq!(
-            after_failed_teardown(WorkspaceLifecycle::Provisioning),
-            WorkspaceLifecycle::ProvisioningFailed
-        );
-        assert_eq!(
-            after_failed_teardown(WorkspaceLifecycle::Running),
-            WorkspaceLifecycle::Idle
-        );
-        assert_eq!(
-            after_failed_teardown(WorkspaceLifecycle::Ready),
-            WorkspaceLifecycle::Ready
-        );
     }
 
     #[test]

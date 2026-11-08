@@ -62,15 +62,8 @@ use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_specta::Event;
 use window_activity::WindowActivity;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-/// What each owner puts back after a quit, in order: teardown reads the thread statuses turn and
-/// provisioning leave.
-const ON_RESTART: &[state::OnRestart] = &[
-    approvals::on_restart,
-    turn::on_restart,
-    provisioning::on_restart,
-    teardown::on_restart,
-];
+/// What each owner puts back after a quit.
+const ON_RESTART: &[state::OnRestart] = &[approvals::on_restart, workspaces::restore_after_quit];
 
 /// The features that react to what happens in the core; the bus hands each event to them in
 /// `bus::Listener` order.

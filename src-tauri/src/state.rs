@@ -72,8 +72,8 @@ pub struct Core {
 }
 
 impl AppState {
-    /// Nothing running survives the app closing: each of `on_restart`, in order, puts back what
-    /// its owner left mid-way.
+    /// Nothing running survives the app closing: each of `on_restart` puts back what its owner
+    /// left mid-way.
     pub fn new(
         data_dir: DataDir,
         output: Arc<dyn UserOutput>,

@@ -13,23 +13,7 @@ use rusqlite::OptionalExtension;
 use tokio::sync::OwnedMutexGuard;
 
 use crate::error::Result;
-use crate::model::WorkspaceLifecycle;
 use crate::store::Store;
-
-/// No setup survives the app closing: one that was running reads as failed, so Retry and Skip
-/// take it.
-pub fn on_restart(store: &Store) -> Result<()> {
-    store.with_conn(|conn| {
-        conn.execute(
-            "UPDATE workspaces SET status = ?1 WHERE status = ?2 AND archived_at IS NULL",
-            [
-                WorkspaceLifecycle::ProvisioningFailed.as_str(),
-                WorkspaceLifecycle::Provisioning.as_str(),
-            ],
-        )?;
-        Ok(())
-    })
-}
 
 /// The message a workspace was started with, kept with it at creation: a retried setup starts its
 /// first turn from it again.

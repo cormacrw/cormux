@@ -1,12 +1,16 @@
 //! The workspace repository: each live workspace's record in memory (its row, plus the setup
 //! activity only the running app knows) over its row in SQLite. A setter for a field the record
-//! holds writes both; the PR, summary and run command live only in the row. A thread's status
-//! reaches the workspace row inside `Store::set_thread_status`, and the record follows the row.
+//! holds writes both; the PR, summary and run command live only in the row. The lifecycle has
+//! this one owner: a thread's status reaches the workspace row inside `Store::set_thread_status`
+//! (the record follows the row), a stopped teardown hands the workspace back through
+//! [`Workspaces::hand_back`], and a quit is put right by [`restore_after_quit`], all by
+//! [`once_stopped`] and `status_from_threads`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::RwLock;
@@ -368,19 +372,21 @@ impl Workspaces {
         status: ThreadStatus,
     ) -> Result<()> {
         let mut inner = self.inner.write().await;
-        self.store.set_thread_status(thread_id, status)?;
-        let Some(record) = inner.records.get_mut(workspace_id) else {
-            return Ok(());
-        };
-        let derived = match self.store.workspace_by_id(workspace_id)? {
-            Some(row) => row.status,
-            None => status_from_threads(record.status, std::iter::once(status)),
-        };
-        if derived != record.status {
+        let derived = self.store.set_thread_status(thread_id, status)?;
+        if let (Some(record), Some(derived)) = (inner.records.get_mut(workspace_id), derived)
+            && derived != record.status
+        {
             assert_transition(record.status, derived)?;
             record.status = derived;
         }
         Ok(())
+    }
+
+    /// A teardown that stopped the workspace's agents and setup gave up: the workspace goes back
+    /// to what it is with them stopped (see [`once_stopped`]).
+    pub async fn hand_back(&self, id: &str, before: WorkspaceLifecycle) -> Result<WorkspaceRecord> {
+        let threads = self.thread_statuses(id)?;
+        self.set_status(id, once_stopped(before, &threads)).await
     }
 
     pub async fn can_switch_branch(&self, id: &str) -> Result<()> {
@@ -393,11 +399,7 @@ impl Workspaces {
     /// Why the workspace's branch can't move now; see [`branch_lock`].
     pub async fn branch_lock(&self, id: &str) -> Result<Option<&'static str>> {
         let record = self.get(id).await?;
-        let threads = self.store.threads_for_workspace(id)?;
-        Ok(branch_lock(
-            record.status,
-            threads.iter().map(|thread| thread.status),
-        ))
+        Ok(branch_lock(record.status, self.thread_statuses(id)?))
     }
 
     pub async fn archive(&self, id: &str) -> Result<()> {
@@ -405,6 +407,15 @@ impl Workspaces {
         self.store.archive_workspace(id)?;
         inner.records.remove(id);
         Ok(())
+    }
+
+    fn thread_statuses(&self, id: &str) -> Result<Vec<ThreadStatus>> {
+        Ok(self
+            .store
+            .threads_for_workspace(id)?
+            .into_iter()
+            .map(|thread| thread.status)
+            .collect())
     }
 
     async fn update(
@@ -480,6 +491,72 @@ fn load<'a>(store: &Store, inner: &'a mut Inner, id: &str) -> Result<&'a mut Wor
         .ok_or_else(|| Error::unknown_workspace(id))
 }
 
+/// What a workspace is once everything that was running in it has stopped: setup that was
+/// running has failed, a workspace whose agents were mid-turn is idle, and one whose teardown
+/// stopped follows its threads, or failed setup if setup was what it stopped. `threads` are its
+/// live threads' statuses, with none mid-turn any more.
+fn once_stopped(before: WorkspaceLifecycle, threads: &[ThreadStatus]) -> WorkspaceLifecycle {
+    use WorkspaceLifecycle::{
+        Idle, Paused, Provisioning, ProvisioningFailed, Ready, Running, TearingDown,
+    };
+    match before {
+        Provisioning | ProvisioningFailed => ProvisioningFailed,
+        Running | Paused => Idle,
+        Ready | Idle => before,
+        TearingDown if threads.contains(&ThreadStatus::Provisioning) => ProvisioningFailed,
+        TearingDown => status_from_threads(Idle, threads.iter().copied()),
+    }
+}
+
+/// No engine, setup or teardown survives the app closing. A turn in flight then is over, so its
+/// thread is idle, and each workspace is what it is with everything stopped (see
+/// [`once_stopped`]). A teardown isn't finished unasked: that would delete the worktree and
+/// maybe the branch without the user seeing what's in them now, so they tear it down again.
+pub fn restore_after_quit(store: &Store) -> Result<()> {
+    store.with_tx(|conn| {
+        for status in ThreadStatus::MID_TURN {
+            conn.execute(
+                "UPDATE threads SET status = ?1 WHERE status = ?2",
+                [ThreadStatus::Idle.as_str(), status.as_str()],
+            )?;
+        }
+        let workspaces: Vec<(String, String)> = conn
+            .prepare("SELECT id, status FROM workspaces WHERE archived_at IS NULL")?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, raw) in workspaces {
+            let before = WorkspaceLifecycle::parse(&raw);
+            let after = once_stopped(before, &live_thread_statuses(conn, &id)?);
+            if after != before {
+                assert_transition(before, after)?;
+                write_status(conn, &id, after)?;
+            }
+        }
+        Ok(())
+    })
+}
+
+fn live_thread_statuses(
+    conn: &rusqlite::Connection,
+    workspace_id: &str,
+) -> Result<Vec<ThreadStatus>> {
+    Ok(conn
+        .prepare_cached("SELECT status FROM threads WHERE workspace_id = ?1 AND retired = 0")?
+        .query_map([workspace_id], |row| row.get::<_, String>(0))?
+        .map(|raw| raw.map(|raw| ThreadStatus::parse(&raw)))
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+fn write_status(
+    conn: &rusqlite::Connection,
+    workspace_id: &str,
+    status: WorkspaceLifecycle,
+) -> Result<()> {
+    conn.prepare_cached("UPDATE workspaces SET status = ?1 WHERE id = ?2")?
+        .execute(rusqlite::params![status.as_str(), workspace_id])?;
+    Ok(())
+}
+
 fn ensure_worktree_free(
     records: &HashMap<String, WorkspaceRecord>,
     workspace_id: &str,
@@ -530,6 +607,50 @@ fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result
 
 /// The workspace row's columns that change after it's made; only `Workspaces` writes them.
 impl Store {
+    pub fn set_workspace_status(
+        &self,
+        workspace_id: &str,
+        status: WorkspaceLifecycle,
+    ) -> Result<()> {
+        self.with_conn(|conn| write_status(conn, workspace_id, status))
+    }
+
+    /// Writes the status and re-derives the workspace's from its threads (see
+    /// `status_from_threads`), so the two can't disagree, and returns the workspace's. A thread
+    /// with no workspace, or whose workspace is archived, moves alone.
+    pub fn set_thread_status(
+        &self,
+        thread_id: &str,
+        status: ThreadStatus,
+    ) -> Result<Option<WorkspaceLifecycle>> {
+        self.with_tx(|conn| {
+            conn.prepare_cached("UPDATE threads SET status = ?1 WHERE id = ?2")?
+                .execute(rusqlite::params![status.as_str(), thread_id])?;
+            let workspace = conn
+                .prepare_cached(
+                    "SELECT w.id, w.status FROM workspaces w
+                     JOIN threads t ON t.workspace_id = w.id
+                     WHERE t.id = ?1 AND w.archived_at IS NULL",
+                )?
+                .query_row([thread_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .optional()?;
+            let Some((workspace_id, current)) = workspace else {
+                return Ok(None);
+            };
+            let current = WorkspaceLifecycle::parse(&current);
+            let derived = status_from_threads(
+                current,
+                live_thread_statuses(conn, &workspace_id)?.into_iter(),
+            );
+            if derived != current {
+                write_status(conn, &workspace_id, derived)?;
+            }
+            Ok(Some(derived))
+        })
+    }
+
     pub fn set_workspace_name(&self, workspace_id: &str, name: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -630,6 +751,58 @@ impl Store {
 mod tests {
     use super::*;
     use crate::model::ThreadRole;
+
+    #[test]
+    fn a_workspace_hands_back_what_was_stopped_in_it() {
+        use ThreadStatus::{Idle, Provisioning};
+        use WorkspaceLifecycle as L;
+        let cases = [
+            (L::Provisioning, vec![Provisioning], L::ProvisioningFailed),
+            (
+                L::ProvisioningFailed,
+                vec![Provisioning],
+                L::ProvisioningFailed,
+            ),
+            (L::Running, vec![Idle], L::Idle),
+            (L::Paused, vec![Idle], L::Idle),
+            (L::Ready, vec![Idle], L::Ready),
+            (L::Idle, vec![Idle], L::Idle),
+            (
+                L::TearingDown,
+                vec![Idle, Provisioning],
+                L::ProvisioningFailed,
+            ),
+            (L::TearingDown, vec![Idle], L::Idle),
+            (L::TearingDown, vec![], L::Ready),
+        ];
+        for (before, threads, after) in cases {
+            assert_eq!(
+                once_stopped(before, &threads),
+                after,
+                "{before:?} {threads:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn whatever_was_stopped_the_workspace_moves_legally() {
+        use WorkspaceLifecycle as L;
+        let stopped = [ThreadStatus::Idle, ThreadStatus::Provisioning];
+        let thread_sets = [vec![], vec![stopped[0]], vec![stopped[1]], stopped.to_vec()];
+        for before in [
+            L::Provisioning,
+            L::Ready,
+            L::Running,
+            L::Paused,
+            L::Idle,
+            L::TearingDown,
+            L::ProvisioningFailed,
+        ] {
+            for threads in &thread_sets {
+                assert_transition(before, once_stopped(before, threads)).unwrap();
+            }
+        }
+    }
 
     fn store_with_repo(default_branch: &str) -> Store {
         let store = Store::in_memory().unwrap();

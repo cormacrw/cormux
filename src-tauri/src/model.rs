@@ -175,8 +175,6 @@ impl ThreadStatus {
     pub fn is_unfinished(self) -> bool {
         self.is_working() || self.is_mid_turn()
     }
-
-    pub const ALL: [Self; 4] = [Self::Provisioning, Self::Running, Self::Paused, Self::Idle];
 }
 
 /// A workspace's status given its threads: the one derivation, for the live record and the

@@ -9,9 +9,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
-use crate::model::{
-    ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle, status_from_threads,
-};
+use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
 pub use migrate::RustMigration;
 use types::{RepoRecord, ThreadPicks, ThreadRow, WorkspaceRow};
 
@@ -230,58 +228,6 @@ impl Store {
             .threads_for_workspace(workspace_id)?
             .into_iter()
             .find(ThreadRow::is_own))
-    }
-
-    pub fn set_workspace_status(
-        &self,
-        workspace_id: &str,
-        status: WorkspaceLifecycle,
-    ) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET status = ?1 WHERE id = ?2",
-                rusqlite::params![status.as_str(), workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    /// Writes the status and re-derives the workspace's from its threads (see
-    /// `status_from_threads`), so the two can't disagree. An archived workspace stays as it is.
-    pub fn set_thread_status(&self, thread_id: &str, status: ThreadStatus) -> Result<()> {
-        self.with_tx(|conn| {
-            conn.prepare_cached("UPDATE threads SET status = ?1 WHERE id = ?2")?
-                .execute(rusqlite::params![status.as_str(), thread_id])?;
-            let workspace = conn
-                .prepare_cached(
-                    "SELECT w.id, w.status FROM workspaces w
-                     JOIN threads t ON t.workspace_id = w.id
-                     WHERE t.id = ?1 AND w.archived_at IS NULL",
-                )?
-                .query_map([thread_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?
-                .next()
-                .transpose()?;
-            let Some((workspace_id, current)) = workspace else {
-                return Ok(());
-            };
-            let threads = conn
-                .prepare_cached(
-                    "SELECT status FROM threads WHERE workspace_id = ?1 AND retired = 0",
-                )?
-                .query_map([&workspace_id], |row| row.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            let derived = status_from_threads(
-                WorkspaceLifecycle::parse(&current),
-                threads.iter().map(|raw| ThreadStatus::parse(raw)),
-            );
-            if derived.as_str() != current {
-                conn.prepare_cached("UPDATE workspaces SET status = ?1 WHERE id = ?2")?
-                    .execute(rusqlite::params![derived.as_str(), workspace_id])?;
-            }
-            Ok(())
-        })
     }
 
     pub fn set_thread_session(&self, thread_id: &str, session_id: &str) -> Result<()> {
