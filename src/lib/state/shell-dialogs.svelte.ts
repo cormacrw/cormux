@@ -1,5 +1,6 @@
 import { untrack } from 'svelte'
 import { dismissOpenPopover } from '$lib/keyboard/popover-registry'
+import { isShortcut, type MatchedShortcutId } from '$lib/keyboard/shortcuts'
 import { workspaces } from './workspaces.svelte'
 
 /** The app's shell dialogs (mounted from `lazy-views.ts`), each with what it opens on. */
@@ -33,7 +34,7 @@ export class ShellDialogsStore {
   private openArgs = $state<{ [K in ShellDialogId]?: ShellDialogArgs[K] }>({})
   private holds = $state(0)
 
-  /** Opens a dialog unless its guard says no; resolves to whether it opened. */
+  /** Opens a dialog unless its guard says no; returns whether it opened. */
   open<K extends ShellDialogId>(id: K, args: ShellDialogArgs[K]): boolean {
     const guard = guards[id] as
       ((args: ShellDialogArgs[K]) => boolean) | undefined
@@ -61,6 +62,11 @@ export class ShellDialogsStore {
 
   anyOpen() {
     return this.holds > 0 || Object.keys(this.openArgs).length > 0
+  }
+
+  /** A shortcut for a button on screen: pressed, not held down, and no dialog open. */
+  allows(event: KeyboardEvent, id: MatchedShortcutId) {
+    return isShortcut(event, id) && !event.repeat && !this.anyOpen()
   }
 
   /** Holds the gate while `isOpen()` is true. Call while a component initialises. */

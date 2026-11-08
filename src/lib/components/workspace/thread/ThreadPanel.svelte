@@ -33,7 +33,6 @@
   const live = $derived(view.live)
   // An empty conversation shows a greeting instead of the last one's messages.
   const showHero = $derived(view.loaded && view.items.length === 0)
-  let focusComposer = $state<(() => void) | null>(null)
   let conversation: ThreadConversation | undefined = $state()
 
   // Experimental: empty unless References is on in Settings.
@@ -84,7 +83,6 @@
     padBottom={live && !showHero && liveStatusHeight
       ? `calc(${liveStatusHeight}px + 1.75rem)`
       : undefined}
-    onFocusComposer={() => focusComposer?.()}
   >
     {#snippet aside()}
       {#if threadEntities.length}
@@ -206,7 +204,6 @@
       {thread}
       newSession
       status={live ? liveStatus : undefined}
-      bind:focusComposer
       onSent={() => conversation?.followEnd()}
     />
   {/if}

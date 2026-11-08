@@ -3,18 +3,16 @@ import { nav } from '$lib/core/nav.svelte'
 import type { WorkspacePanel } from '$lib/core/route'
 import { readPaneWidth, savePaneWidth } from '$lib/primitives/slide-out'
 
-type WorkspacePanelTab = WorkspacePanel
-
 /** Everything but the conversation slides out over it instead of replacing it. */
-type WorkspaceSlideOut = Exclude<WorkspacePanelTab, 'thread'>
+type WorkspaceSlideOut = Exclude<WorkspacePanel, 'thread'>
 /** Git and Output can also be pinned beside the conversation. */
 export type PinnableTray = 'changes' | 'output'
 
-function isSlideOut(tab: WorkspacePanelTab): tab is WorkspaceSlideOut {
+function isSlideOut(tab: WorkspacePanel): tab is WorkspaceSlideOut {
   return tab !== 'thread'
 }
 
-function isPinnable(tab: WorkspacePanelTab): tab is PinnableTray {
+function isPinnable(tab: WorkspacePanel): tab is PinnableTray {
   return tab === 'changes' || tab === 'output'
 }
 
@@ -73,7 +71,7 @@ function layoutTransition(update: () => void) {
 let latestTransition: ViewTransition | null = null
 
 export class WorkspaceUiStore {
-  activeTab = $state<WorkspacePanelTab>('thread')
+  activeTab = $state<WorkspacePanel>('thread')
   readonly slideOut = $derived<WorkspaceSlideOut | null>(
     isSlideOut(this.activeTab) ? this.activeTab : null,
   )
@@ -84,15 +82,10 @@ export class WorkspaceUiStore {
   pinnedTray = $state<PinnableTray | null>(readPinnedTray())
   /** Width of the pinned pane in px; dragging its edge changes it. */
   trayWidth = $state(readPaneWidth(TRAY_WIDTH_KEY, 320, 640))
-  /** Git is on screen, as a slide-out or as the pinned pane. */
-  readonly gitVisible = $derived(
-    this.activeTab === 'changes' || this.pinnedTray === 'changes',
-  )
-  readonly outputVisible = $derived(
-    this.activeTab === 'output' || this.pinnedTray === 'output',
-  )
+  readonly gitVisible = $derived(this.visible('changes'))
+  readonly outputVisible = $derived(this.visible('output'))
 
-  openTab(tab: WorkspacePanelTab) {
+  openTab(tab: WorkspacePanel) {
     // While a tray is pinned, the other tray takes its place as the pane,
     // and the panel underneath keeps focus.
     if (isPinnable(tab) && this.pinnedTray) {
@@ -110,22 +103,13 @@ export class WorkspaceUiStore {
     this.activeTab = 'thread'
   }
 
-  toggleGit() {
-    this.toggleTray('changes')
-  }
-
-  toggleOutputTab() {
-    this.toggleTray('output')
+  /** The tray is on screen, as a slide-out or as the pinned pane. */
+  visible(tray: WorkspaceSlideOut) {
+    return this.activeTab === tray || this.pinnedTray === tray
   }
 
   toggleTray(tray: WorkspaceSlideOut) {
-    const showing =
-      tray === 'changes'
-        ? this.gitVisible
-        : tray === 'output'
-          ? this.outputVisible
-          : this.activeTab === tray
-    if (showing) this.closeTray(tray)
+    if (this.visible(tray)) this.closeTray(tray)
     else this.openTab(tray)
   }
 

@@ -13,7 +13,9 @@
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
   import ChangesPanel from '../../changes/components/ChangesPanel.svelte'
-  import { escClosesSlideOut, resizeEdge } from '$lib/primitives/slide-out'
+  import { resizeEdge } from '$lib/primitives/slide-out'
+  import { focusPrompt } from '$lib/keyboard/focus-home'
+  import { onEscape } from '$lib/keyboard/escape'
 
   const workspace = $derived(
     nav.workspaceId ? workspaces.getById(nav.workspaceId) : undefined,
@@ -102,15 +104,17 @@
   // Esc is a keyboard move, so the composer won't reclaim focus by itself; send it back.
   function dismissSlideOut() {
     workspaceUi.closeSlideOut()
-    void tick().then(() => document.getElementById('composer-input')?.focus())
+    void tick().then(focusPrompt)
   }
 
-  // Esc slides Git or Output away from anywhere in the workspace.
-  function onWindowKeydown(event: KeyboardEvent) {
-    if (!slideOut || !escClosesSlideOut(event)) return
-    event.preventDefault()
-    dismissSlideOut()
-  }
+  // Esc slides Git, Output or Findings away from anywhere in the workspace.
+  $effect(() =>
+    onEscape('slideOut', () => {
+      if (!slideOut) return false
+      dismissSlideOut()
+      return true
+    }),
+  )
 
   let paneRow: HTMLDivElement | undefined = $state()
 
@@ -158,8 +162,6 @@
     }
   })
 </script>
-
-<svelte:window onkeydown={onWindowKeydown} />
 
 <section class="relative flex min-h-0 flex-1 flex-col" data-media-lightbox-host>
   {#if workspace}

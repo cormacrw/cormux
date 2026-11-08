@@ -9,7 +9,7 @@
   import { commands } from '$lib/ipc'
   import type { ModelOption, ThreadModels } from '$lib/ipc/bindings'
   import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import {
     claimWorkspacePopover,
@@ -135,7 +135,7 @@
   }
 
   function onWindowKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, config.shortcut)) return
+    if (!shellDialogs.allows(event, config.shortcut)) return
     // Git and Output slide over the conversation and leave the composer inert.
     if (!trigger || trigger.closest('[inert]')) return
     event.preventDefault()

@@ -54,7 +54,6 @@
     hero,
     intro,
     aside,
-    onFocusComposer,
   }: {
     threadId: string
     /** Who the agent is in this thread, named over its turns; empty to name it by its engine. */
@@ -74,7 +73,6 @@
     intro?: Snippet<[nowMs: number]>
     /** Beside the scrolling conversation. */
     aside?: Snippet
-    onFocusComposer?: () => void
   } = $props()
 
   const view = $derived(threadTimeline.threadView(threadId))
@@ -148,9 +146,6 @@
     findPr,
     get scratch() {
       return scratch
-    },
-    get onFocusComposer() {
-      return onFocusComposer
     },
   }
 

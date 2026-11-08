@@ -4,7 +4,6 @@
   import { repos, shellDialogs, threads } from '$lib/state'
   import { appControls, controlApp } from '$lib/run-app/actions'
   import { isWorkspaceProvisioning } from '$lib/state/activity'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import GitConflictBanner from './GitConflictBanner.svelte'
   import WorkspaceBranchTag from './WorkspaceBranchTag.svelte'
@@ -53,22 +52,22 @@
 
   // Handled here rather than on the buttons, since most actions live in ⋯.
   function onKeydown(event: KeyboardEvent) {
-    if (isHeaderShortcut(event, 'runApp')) {
+    if (shellDialogs.allows(event, 'runApp')) {
       event.preventDefault()
       const { start } = appControls(workspace.id)
       if (start) void controlApp(workspace.id, start.action)
-    } else if (isHeaderShortcut(event, 'reviewBranch')) {
+    } else if (shellDialogs.allows(event, 'reviewBranch')) {
       event.preventDefault()
       if (workspace.kind !== 'review' && !setupUnfinished && !reviewing) {
         void startBranchReview(workspace.id)
       }
-    } else if (isHeaderShortcut(event, 'stopApp')) {
+    } else if (shellDialogs.allows(event, 'stopApp')) {
       event.preventDefault()
       void controlApp(workspace.id, 'stop')
-    } else if (isHeaderShortcut(event, 'openTerminal')) {
+    } else if (shellDialogs.allows(event, 'openTerminal')) {
       event.preventDefault()
       void openWorkspaceTerminal(workspace.id)
-    } else if (isHeaderShortcut(event, 'deleteWorkspace')) {
+    } else if (shellDialogs.allows(event, 'deleteWorkspace')) {
       event.preventDefault()
       shellDialogs.open('teardown', { workspaceId: workspace.id })
     }

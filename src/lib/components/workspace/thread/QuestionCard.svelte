@@ -7,6 +7,7 @@
   import { commands, type CoreError } from '$lib/ipc'
   import { coreErrorText } from '$lib/core/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { focusPrompt } from '$lib/keyboard/focus-home'
   import { cn } from '$lib/utils'
   import type { TimelineItem } from '$lib/thread/timeline-types'
   import Check from '@lucide/svelte/icons/check'
@@ -20,13 +21,11 @@
     nowMs,
     timeLabel,
     timeTitle,
-    onFocusComposer,
   }: {
     item: ApprovalItem
     nowMs: number
     timeLabel: string
     timeTitle: string
-    onFocusComposer?: () => void
   } = $props()
 
   // Both keyed by question text, the way the agent wants its answers back.
@@ -71,7 +70,7 @@
       if (result.status === 'error') {
         toastCoreError(coreErrorText(result.error, 'Could not send the answer'))
       } else {
-        onFocusComposer?.()
+        focusPrompt()
       }
     } catch (error) {
       toastCoreError(error)

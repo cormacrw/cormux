@@ -6,7 +6,12 @@
   } from '$lib/thread/actions'
   import type { Snippet } from 'svelte'
   import { onMount, tick } from 'svelte'
-  import { composerMayTakeFocus, isEditable } from '$lib/keyboard/focus-home'
+  import {
+    composerMayTakeFocus,
+    isEditable,
+    PROMPT_ID,
+  } from '$lib/keyboard/focus-home'
+  import { onEscape } from '$lib/keyboard/escape'
   import { nav } from '$lib/core/nav.svelte'
   import { getCurrentWebview } from '@tauri-apps/api/webview'
   import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
@@ -82,8 +87,6 @@
     draftKey = '',
     onSent,
     status,
-    // eslint-disable-next-line no-useless-assignment -- bindable, set by the effect below
-    focusComposer = $bindable(),
     inputLabel = 'Message the agent',
     placeholder,
     sendLabel = 'Send to agent',
@@ -100,7 +103,6 @@
     onSent?: () => void
     /** What the agent is doing, floated just above the prompt bar. */
     status?: Snippet
-    focusComposer?: (() => void) | null
     inputLabel?: string
     placeholder?: string
     sendLabel?: string
@@ -323,13 +325,20 @@
     return true
   }
 
+  // Fits the box to text put in the draft from outside too (a picked task).
   $effect(() => {
-    // Fits the box too, for text put in the draft from outside (a picked task).
-    focusComposer = () => {
-      fitHeight()
-      inputEl?.focus()
-    }
+    void draft
+    fitHeight()
   })
+
+  // Esc stops the agent once nothing in front of it (a popover, a slide-out) wanted the key.
+  $effect(() =>
+    onEscape('agent', () => {
+      if (threadStatus !== 'running') return false
+      stopTurn()
+      return true
+    }),
+  )
 
   /** Puts focus back in the prompt, unless the user is busy somewhere else. */
   function takeFocus() {
@@ -582,38 +591,6 @@
     })
   }
 
-  // ⌘↵ anywhere jumps to the composer; dialogs and the diff comment box handle it first.
-  function onWindowKeydown(event: KeyboardEvent) {
-    typeToFocus(event)
-    // Esc stops the agent, unless a dialog, popover or inline editor took it first.
-    if (
-      event.key === 'Escape' &&
-      threadStatus === 'running' &&
-      !event.defaultPrevented &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.altKey &&
-      !event.shiftKey &&
-      !shellDialogs.anyOpen()
-    ) {
-      event.preventDefault()
-      void stopTurn()
-      return
-    }
-    if (
-      event.key !== 'Enter' ||
-      !(event.metaKey || event.ctrlKey) ||
-      event.shiftKey ||
-      event.altKey ||
-      event.defaultPrevented ||
-      shellDialogs.anyOpen()
-    ) {
-      return
-    }
-    event.preventDefault()
-    inputEl?.focus()
-  }
-
   function onCompositionStart() {
     composing = true
   }
@@ -623,7 +600,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} onfocus={onWindowFocus} />
+<svelte:window onkeydown={typeToFocus} onfocus={onWindowFocus} />
 
 <div
   class="composer-wrap sticky bottom-0 z-10 px-1 pt-2 pb-4"
@@ -786,10 +763,10 @@
         {/each}
       </ul>
     {/if}
-    <label class="sr-only" for="composer-input">{inputLabel}</label>
+    <label class="sr-only" for={PROMPT_ID}>{inputLabel}</label>
     <Textarea
       bind:ref={inputEl}
-      id="composer-input"
+      id={PROMPT_ID}
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
@@ -908,7 +885,7 @@
           data-od-id="composer-stop"
           title="Stop (Esc)"
           aria-label="Stop"
-          onclick={() => void stopTurn()}
+          onclick={stopTurn}
         >
           <Square class="size-3 fill-current" aria-hidden="true" />
         </Button>

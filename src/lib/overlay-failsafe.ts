@@ -1,3 +1,5 @@
+import { overlaySelector } from '$lib/keyboard/focus-home'
+
 /**
  * Safety net for bits-ui layers that leave the app ignoring the mouse.
  *
@@ -15,9 +17,7 @@ const STUCK_MS = 1000
 const SETTLE_MS = 300
 const ENDING = 'data-ending-style'
 // Every bits-ui layer that locks the body renders one of these while it's open.
-const OPEN_LAYER = ['dialog', 'alertdialog', 'menu', 'listbox']
-  .map((role) => `[role="${role}"][data-state="open"]`)
-  .join(', ')
+const OPEN_LAYER = overlaySelector('[data-state="open"]')
 
 export function installOverlayFailsafe(
   root: HTMLElement = document.body,

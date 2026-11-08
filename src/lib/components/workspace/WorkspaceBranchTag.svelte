@@ -16,7 +16,7 @@
     createWorkspaceBranch,
   } from '$lib/workspace/git-actions'
   import { commands } from '$lib/ipc'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
@@ -102,7 +102,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'switchBranch')) return
+    if (!shellDialogs.allows(event, 'switchBranch')) return
     event.preventDefault()
     if (!locked) open = !open
   }

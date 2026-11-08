@@ -6,12 +6,13 @@
   import { tick } from 'svelte'
   import SprintTaskPanel from '$lib/clickup/components/SprintTaskPanel.svelte'
   import { clickup } from '$lib/clickup/store.svelte'
+  import { overlaySelector } from '$lib/keyboard/focus-home'
   import {
-    escClosesSlideOut,
     readPaneWidth,
     resizeEdge,
     savePaneWidth,
   } from '$lib/primitives/slide-out'
+  import { onEscape } from '$lib/keyboard/escape'
 
   const WIDTH_KEY = 'cormux-task-flyout-width'
 
@@ -27,11 +28,13 @@
     document.querySelector<HTMLElement>(`[data-task-id="${id}"]`)?.focus()
   }
 
-  function onWindowKeydown(event: KeyboardEvent) {
-    if (!ready || !escClosesSlideOut(event)) return
-    event.preventDefault()
-    void close()
-  }
+  $effect(() =>
+    onEscape('slideOut', () => {
+      if (!ready) return false
+      void close()
+      return true
+    }),
+  )
 
   let flyoutEl: HTMLDivElement | undefined = $state()
 
@@ -45,7 +48,7 @@
     if (!(target instanceof Element) || flyoutEl?.contains(target)) return
     if (
       target.closest(
-        '[data-task-id], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-bits-floating-content-wrapper]',
+        `[data-task-id], ${overlaySelector()}, [data-bits-floating-content-wrapper]`,
       )
     )
       return
@@ -53,10 +56,7 @@
   }
 </script>
 
-<svelte:window
-  onkeydown={onWindowKeydown}
-  onpointerdown={onWindowPointerDown}
-/>
+<svelte:window onpointerdown={onWindowPointerDown} />
 
 <div
   bind:this={flyoutEl}

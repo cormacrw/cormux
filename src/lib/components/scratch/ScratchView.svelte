@@ -4,7 +4,6 @@
   import { Button } from '$lib/components/ui/button'
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import ThreadConversation from '$lib/components/workspace/thread/ThreadConversation.svelte'
   import { repos, scratches, shellDialogs } from '$lib/state'
@@ -29,7 +28,7 @@
   })
 
   function onKeydown(event: KeyboardEvent) {
-    if (!scratch || !isHeaderShortcut(event, 'deleteScratch')) return
+    if (!scratch || !shellDialogs.allows(event, 'deleteScratch')) return
     event.preventDefault()
     shellDialogs.open('endScratch', { scratchId: scratch.id })
   }

@@ -22,5 +22,4 @@ export type RowContext = {
   readonly findPr: FindPullRequest
   /** A scratch's reads are marked read-only, with no worktree. */
   readonly scratch: boolean
-  readonly onFocusComposer: (() => void) | undefined
 }

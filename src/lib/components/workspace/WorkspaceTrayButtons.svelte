@@ -85,7 +85,7 @@
     title="Git ({shortcutLabel('toggleGit')})"
     id="tray-changes"
     data-od-id="tray-changes"
-    onclick={() => workspaceUi.toggleGit()}
+    onclick={() => workspaceUi.toggleTray('changes')}
   >
     <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
     <span aria-hidden="true">Git</span>
@@ -108,7 +108,7 @@
     title="Output ({shortcutLabel('toggleOutput')})"
     id="tray-output"
     data-od-id="tray-output"
-    onclick={() => workspaceUi.toggleOutputTab()}
+    onclick={() => workspaceUi.toggleTray('output')}
   >
     <Terminal class="size-3.5 shrink-0" aria-hidden="true" />
     <span aria-hidden="true">Output</span>

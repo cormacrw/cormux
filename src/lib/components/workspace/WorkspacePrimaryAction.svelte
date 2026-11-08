@@ -2,7 +2,6 @@
   import { Button } from '$lib/components/ui/button'
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
@@ -46,7 +45,7 @@
   )
 
   function onKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'primaryAction')) return
+    if (!shellDialogs.allows(event, 'primaryAction')) return
     event.preventDefault()
     if (!primaryDisabled) onPrimaryClick()
   }

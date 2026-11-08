@@ -3,11 +3,14 @@ export type Shortcut = {
   description: string
   /** How it's written on buttons, menus and in Settings. */
   label: string
-  /** Another way to press it, listed beside `label` in Settings. */
-  also?: string
-  /** ⌘ (Ctrl off the Mac) with this key, matched by `isShortcut`. Unset for ones handled by hand. */
-  key?: string
-  shift?: boolean
+  /** ⌘ (Ctrl off the Mac) with this key, or any of these keys, matched by `isShortcut`. */
+  key?: string | readonly string[]
+  /** Shift exactly as given; `'either'` takes both (Ctrl+Tab goes back with ⇧). */
+  shift?: boolean | 'either'
+  /** Ctrl (never ⌘) with this key: a second way to press it, or the only one without `key`. */
+  ctrlKey?: string
+  /** Matched, but not listed in Settings. */
+  hidden?: boolean
 }
 
 /** Every keyboard shortcut, in the order Settings lists them. */
@@ -16,10 +19,13 @@ export const SHORTCUTS = {
   newThread: { label: '⌘N', key: 'n', description: 'New thread' },
   openThread: {
     label: '⌘1–⌘9',
+    key: ['1', '2', '3', '4', '5', '6', '7', '8', '9'],
     description: 'Open a thread, in sidebar order',
   },
   switcher: {
     label: 'Ctrl+Tab',
+    ctrlKey: 'Tab',
+    shift: 'either',
     description:
       'Switch between threads and pages, most recent first (hold Ctrl to pick)',
   },
@@ -96,8 +102,8 @@ export const SHORTCUTS = {
   },
   toggleOutput: {
     label: '⌘O',
-    also: 'Ctrl+`',
     key: 'o',
+    ctrlKey: '`',
     description: 'Show or hide Output (workspace)',
   },
   escape: {
@@ -105,13 +111,27 @@ export const SHORTCUTS = {
     description:
       'Close popovers, changes panel, or palette; otherwise stop a working agent',
   },
-  composer: { label: '⌘↵', description: 'Jump to the composer (thread)' },
+  composer: {
+    label: '⌘↵',
+    key: 'Enter',
+    description: 'Jump to the composer (thread)',
+  },
+  // ⌘S would open the webview's save dialog.
+  save: { label: '⌘S', key: 's', description: 'Nothing', hidden: true },
 } satisfies Record<string, Shortcut>
 
 export type ShortcutId = keyof typeof SHORTCUTS
 
 /** The shortcuts `isShortcut` can match: the ones with a key. */
 export type MatchedShortcutId = {
+  [K in ShortcutId]: (typeof SHORTCUTS)[K] extends
+    { key: unknown } | { ctrlKey: string }
+    ? K
+    : never
+}[ShortcutId]
+
+/** Buttons, tooltips and aria labels only ever show these: one key each. */
+type SingleKeyShortcutId = {
   [K in ShortcutId]: (typeof SHORTCUTS)[K] extends { key: string } ? K : never
 }[ShortcutId]
 
@@ -119,26 +139,43 @@ export function shortcutLabel(id: ShortcutId): string {
   return SHORTCUTS[id].label
 }
 
-/** For `aria-keyshortcuts`: `Meta+Shift+R`. */
-export function shortcutAria(id: MatchedShortcutId): string {
+/** Every way to press it, as Settings lists them: `['⌘O', 'Ctrl+`']`. */
+export function shortcutLabels(id: ShortcutId): string[] {
   const shortcut: Shortcut = SHORTCUTS[id]
-  const key = shortcut.key!.toUpperCase()
+  return shortcut.key && shortcut.ctrlKey
+    ? [shortcut.label, `Ctrl+${shortcut.ctrlKey}`]
+    : [shortcut.label]
+}
+
+/** For `aria-keyshortcuts`: `Meta+Shift+R`. */
+export function shortcutAria(id: SingleKeyShortcutId): string {
+  const shortcut: Shortcut = SHORTCUTS[id]
+  const key = (shortcut.key as string).toUpperCase()
   return shortcut.shift ? `Meta+Shift+${key}` : `Meta+${key}`
 }
 
-/** ⌘ plus the shortcut's key, Shift exactly as it says, and no Option. */
-export function isShortcut(
-  event: Pick<
-    KeyboardEvent,
-    'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'
-  >,
-  id: MatchedShortcutId,
-): boolean {
+type KeyEvent = Pick<
+  KeyboardEvent,
+  'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'
+>
+
+/** ⌘ plus the shortcut's key (or Ctrl plus its `ctrlKey`), Shift as it says, and no Option. */
+export function isShortcut(event: KeyEvent, id: MatchedShortcutId): boolean {
   const shortcut: Shortcut = SHORTCUTS[id]
-  return (
+  if (event.altKey) return false
+  const shift = shortcut.shift ?? false
+  if (shift !== 'either' && event.shiftKey !== shift) return false
+  const key = event.key.toLowerCase()
+  const keys = shortcut.key == null ? [] : [shortcut.key].flat()
+  if (
     (event.metaKey || event.ctrlKey) &&
-    !event.altKey &&
-    event.shiftKey === (shortcut.shift ?? false) &&
-    event.key.toLowerCase() === shortcut.key
+    keys.some((k) => k.toLowerCase() === key)
+  )
+    return true
+  return (
+    event.ctrlKey &&
+    !event.metaKey &&
+    shortcut.ctrlKey != null &&
+    shortcut.ctrlKey.toLowerCase() === key
   )
 }

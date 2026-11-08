@@ -14,8 +14,8 @@
   import ThreadOptionPicker from '$lib/components/workspace/thread/ThreadOptionPicker.svelte'
   import type { ComposerAttachment } from '$lib/composer/attachments'
   import { commands } from '$lib/ipc'
-  import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import { focusPrompt, focusPromptAfterPicker } from '$lib/keyboard/focus-home'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import {
     claimWorkspacePopover,
@@ -55,7 +55,6 @@
   let repoTrigger = $state<HTMLButtonElement | null>(null)
   let model = $state<string | null>(null)
   let effort = $state<string | null>(null)
-  let focusComposer = $state<(() => void) | null>(null)
   let titleEl: HTMLHeadingElement | undefined = $state()
 
   const repo = $derived(repos.getById(repoId))
@@ -73,7 +72,7 @@
   $effect(() => {
     if (nav.view !== 'newThread') return
     void nav.arrivals
-    if (repos.items.length) focusComposer?.()
+    if (repos.items.length) focusPrompt()
     else titleEl?.focus()
   })
 
@@ -89,7 +88,7 @@
   })
 
   function onWindowKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'pickRepo') || !repos.items.length) return
+    if (!shellDialogs.allows(event, 'pickRepo') || !repos.items.length) return
     event.preventDefault()
     // The list takes its arrow keys and ↵ through the focused trigger.
     repoTrigger?.focus()
@@ -185,7 +184,6 @@
 
     <ThreadComposer
       draftKey="new-thread"
-      bind:focusComposer
       inputLabel="Start a new thread"
       placeholder={repo
         ? `What should we do in ${repo.name}?`

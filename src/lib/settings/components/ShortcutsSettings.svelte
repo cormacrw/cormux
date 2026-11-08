@@ -3,19 +3,22 @@
   import { Kbd, KbdGroup } from '$lib/components/ui/kbd'
   import {
     SHORTCUTS,
+    shortcutLabels,
     type Shortcut,
     type ShortcutId,
   } from '$lib/keyboard/shortcuts'
 
-  const rows = (Object.keys(SHORTCUTS) as ShortcutId[]).map((id) => {
+  const rows = (Object.keys(SHORTCUTS) as ShortcutId[]).flatMap((id) => {
     const shortcut: Shortcut = SHORTCUTS[id]
-    return {
-      id,
-      keys: shortcut.also
-        ? `${shortcut.label} or ${shortcut.also}`
-        : shortcut.label,
-      description: shortcut.description,
-    }
+    if (shortcut.hidden) return []
+    return [
+      {
+        id,
+        // Each way to press it, as its keys: `Ctrl+Tab` is Ctrl and Tab.
+        ways: shortcutLabels(id).map((label) => label.split('+')),
+        description: shortcut.description,
+      },
+    ]
   })
 </script>
 
@@ -26,11 +29,16 @@
     >
       <span class="text-sm text-muted-foreground">{row.description}</span>
       <KbdGroup>
-        {#each row.keys.split('+') as part, index (part + index)}
-          {#if index > 0}
-            <span class="text-xs text-muted-foreground">+</span>
+        {#each row.ways as keys, way (way)}
+          {#if way > 0}
+            <span class="text-xs text-muted-foreground">or</span>
           {/if}
-          <Kbd>{part}</Kbd>
+          {#each keys as part, index (part + index)}
+            {#if index > 0}
+              <span class="text-xs text-muted-foreground">+</span>
+            {/if}
+            <Kbd>{part}</Kbd>
+          {/each}
         {/each}
       </KbdGroup>
     </div>
