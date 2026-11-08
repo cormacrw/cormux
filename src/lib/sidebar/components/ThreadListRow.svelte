@@ -39,9 +39,7 @@
   const showStatus = $derived(!workspace || status.failed)
 
   // The workspace's dev app, shown so a running server is findable without opening it.
-  const appPort = $derived(
-    workspace ? appStatusView(workspace.runtime, false).port : null,
-  )
+  const appPort = $derived(workspace ? appStatusView(workspace).port : null)
 
   const age = $derived(
     item.activityAtMs ? formatRelativeAge(item.activityAtMs, nowMs) : null,

@@ -1,4 +1,6 @@
 import type { WorkspaceAppStatus } from '$lib/ipc/bindings'
+import { isWorkspaceProvisioning } from '$lib/state/activity'
+import type { Workspace } from '$lib/state/workspace-model'
 
 /** An app starting or running: Stop applies, and its log is live. */
 export function isAppUp(status: WorkspaceAppStatus): boolean {
@@ -20,14 +22,12 @@ export type AppStatusView = {
 }
 
 export function appStatusView(
-  runtime: {
-    appStatus: WorkspaceAppStatus
-    port: number | null
-    exitCode: number | null
-  },
-  provisioning: boolean,
+  workspace: Pick<Workspace, 'lifecycle' | 'runtime'>,
 ): AppStatusView {
-  const phase: AppPhase = provisioning ? 'settingUp' : runtime.appStatus
+  const { runtime } = workspace
+  const phase: AppPhase = isWorkspaceProvisioning(workspace.lifecycle)
+    ? 'settingUp'
+    : runtime.appStatus
   const crashed = `Crashed${runtime.exitCode != null ? ` (${runtime.exitCode})` : ''}`
   const words: Record<AppPhase, string> = {
     settingUp: 'Setting up',

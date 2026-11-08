@@ -6,7 +6,6 @@
   import { loadStack } from '$lib/changes/actions'
   import { bindWorkspaceDiffSubscription } from '$lib/changes/diff-store.svelte'
   import RenameWorkspaceDialog from './RenameWorkspaceDialog.svelte'
-  import { isWorkspaceProvisioning } from '$lib/state/activity'
   import ProvisioningFailureBanner from './ProvisioningFailureBanner.svelte'
   import WorkspaceHeader from './WorkspaceHeader.svelte'
   import WorkspaceOutputPanel from '$lib/run-app/components/WorkspaceOutputPanel.svelte'
@@ -44,10 +43,6 @@
     }),
   )
 
-  const provisioning = $derived(
-    workspace ? isWorkspaceProvisioning(workspace.lifecycle) : false,
-  )
-  const workspaceRepoId = $derived(workspace?.repoId ?? '')
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
   // A pinned tray sits beside the conversation as a pane, and both stay usable.
   const pinnedTray = $derived(workspaceUi.pinnedTray)
@@ -200,7 +195,7 @@
             inert={!gitVisible}
           >
             {#if pinnedTray === 'changes'}{@render paneEdge()}{/if}
-            <ChangesPanel {workspace} repoId={workspaceRepoId} />
+            <ChangesPanel {workspace} />
           </div>
         {/if}
         {#if output.mounted}
@@ -222,11 +217,7 @@
             inert={!outputVisible}
           >
             {#if pinnedTray === 'output'}{@render paneEdge()}{/if}
-            <WorkspaceOutputPanel
-              workspaceId={workspace.id}
-              repoId={workspaceRepoId}
-              {provisioning}
-            />
+            <WorkspaceOutputPanel {workspace} />
           </div>
         {/if}
         {#if findingsTray.mounted}

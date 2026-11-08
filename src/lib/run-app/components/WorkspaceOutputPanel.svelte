@@ -6,7 +6,7 @@
   import { subscribePty } from '$lib/ipc'
   import type { WorkspaceAppControlAction } from '$lib/ipc/bindings'
   import { repos, workspaceUi } from '$lib/state'
-  import { workspaces } from '$lib/state/workspaces.svelte'
+  import type { Workspace } from '$lib/state/workspaces.svelte'
   import { appControls, controlApp, onLogCleared } from '$lib/run-app/actions'
   import { outputBody } from '$lib/run-app/controls'
   import { appStatusView, isAppUp } from '$lib/run-app/status'
@@ -27,15 +27,7 @@
   import WorkspaceOutputLog from './WorkspaceOutputLog.svelte'
   import RunCommandField from './RunCommandField.svelte'
 
-  let {
-    workspaceId,
-    repoId,
-    provisioning,
-  }: {
-    workspaceId: string
-    repoId: string
-    provisioning: boolean
-  } = $props()
+  let { workspace }: { workspace: Workspace } = $props()
 
   let narrow = $state(false)
   let lines = $state.raw<OutputLine[]>([])
@@ -48,18 +40,20 @@
   let sectionEl: HTMLElement | undefined = $state()
   let stickToBottom = $state(true)
 
-  const runtime = $derived(workspaces.runtime(workspaceId))
+  const workspaceId = $derived(workspace.id)
+  const repoId = $derived(workspace.repoId)
+  const runtime = $derived(workspace.runtime)
   const repo = $derived(repos.getById(repoId))
   const repoCommand = $derived(repos.runCommand(repoId))
   const controls = $derived(appControls(workspaceId))
   const runCommand = $derived(controls.runCommand)
   let commandField: RunCommandField | undefined = $state()
 
-  const app = $derived(appStatusView(runtime, provisioning))
+  const app = $derived(appStatusView(workspace))
 
   const body = $derived(
     outputBody({
-      provisioning,
+      provisioning: app.phase === 'settingUp',
       appStatus: runtime.appStatus,
       runCommand,
       hasLines: lines.length > 0,

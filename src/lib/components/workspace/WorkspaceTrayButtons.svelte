@@ -9,7 +9,6 @@
   import { cn } from '$lib/utils'
   import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
   import { formatChangeCounts } from '$lib/changes/diff-totals'
-  import { isWorkspaceProvisioning } from '$lib/state/activity'
   import { appStatusView } from '$lib/run-app/status'
   import {
     changesTabAriaLabel,
@@ -25,8 +24,7 @@
 
   const showFindings = $derived(findings.tabAvailable(workspace))
   const openFindings = $derived(findings.openCount(workspace.id))
-  const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
-  const app = $derived(appStatusView(workspace.runtime, provisioning))
+  const app = $derived(appStatusView(workspace))
   const changeCountLabel = $derived(
     formatChangeCounts(workspaceDiff.uncommitted(workspace.id)),
   )
