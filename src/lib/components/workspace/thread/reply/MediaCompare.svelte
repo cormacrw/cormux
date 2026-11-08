@@ -28,11 +28,7 @@
 </script>
 
 {#if images}
-  <figure
-    class="reply-card reply-compare"
-    data-od-id="reply-compare"
-    data-reply-block
-  >
+  <figure class="reply-card reply-compare" data-od-id="reply-compare">
     <div class="relative overflow-hidden">
       <img src={images[1].url} alt="After" class="block w-full" />
       <img

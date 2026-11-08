@@ -144,11 +144,7 @@
 {/snippet}
 
 {#if drafts.length}
-  <div
-    class="mt-5 max-w-[42rem] px-1 pt-2 pb-10"
-    data-od-id="task-draft-cards"
-    data-reply-block
-  >
+  <div class="mt-5 max-w-[42rem] px-1 pt-2 pb-10" data-od-id="task-draft-cards">
     <div class="border-b border-border pb-4">
       <p
         class="flex items-center gap-2.5 text-lg font-semibold text-foreground"

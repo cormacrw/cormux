@@ -369,8 +369,18 @@
   overflow-wrap: anywhere;
 }
 
-.agent-markdown > * + * {
+.agent-markdown > * + *,
+.agent-markdown > * + .reply-block > :first-child,
+.agent-markdown > .reply-block > * + * {
   margin-top: 0.75em;
+}
+
+/*
+ * Wraps each rich block or media in a reply, marking it as not prose (enhance-markdown.ts
+ * leaves it alone). No box of its own: the block lays out as the reply's own child.
+ */
+.reply-block {
+  display: contents;
 }
 
 .agent-markdown :is(ul, ol) {
@@ -752,8 +762,14 @@
   font-size: 0.925em;
 }
 
-.agent-markdown > * + .reply-card,
-.agent-markdown > .reply-card + * {
+.agent-markdown > * + .reply-block > .reply-card:first-child,
+.agent-markdown > .reply-block > * + .reply-card,
+.agent-markdown > .reply-block > .reply-card + *,
+.agent-markdown > .reply-block:has(> .reply-card:last-child) + *,
+.agent-markdown
+  > .reply-block:has(> .reply-card:last-child)
+  + .reply-block
+  > :first-child {
   margin-top: 1.1em;
 }
 

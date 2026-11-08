@@ -161,12 +161,16 @@
   {#each parts as part, index (index)}
     {#if part.kind === 'html'}
       {@html part.html}
-    {:else if part.kind === 'media'}
-      <ThreadMedia source={part.source} alt={part.alt} {workdir} />
-    {:else if part.kind === 'compare'}
-      <MediaCompare before={part.before} after={part.after} {workdir} />
     {:else}
-      <ReplyBlock block={part.block} {workdir} />
+      <div class="reply-block" data-reply-block>
+        {#if part.kind === 'media'}
+          <ThreadMedia source={part.source} alt={part.alt} {workdir} />
+        {:else if part.kind === 'compare'}
+          <MediaCompare before={part.before} after={part.after} {workdir} />
+        {:else}
+          <ReplyBlock block={part.block} {workdir} />
+        {/if}
+      </div>
     {/if}
   {/each}
 </div>

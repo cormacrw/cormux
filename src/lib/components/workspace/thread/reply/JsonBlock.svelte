@@ -4,6 +4,6 @@
   let { data }: { data: { value: unknown } } = $props()
 </script>
 
-<div class="reply-card reply-json" data-od-id="reply-json" data-reply-block>
+<div class="reply-card reply-json" data-od-id="reply-json">
   <JsonTree value={data.value} />
 </div>

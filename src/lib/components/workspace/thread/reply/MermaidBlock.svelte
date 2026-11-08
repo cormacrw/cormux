@@ -69,13 +69,9 @@
 </script>
 
 {#if failed || svg === null}
-  <pre class="reply-mermaid-source" data-reply-block><code>{code}</code></pre>
+  <pre class="reply-mermaid-source"><code>{code}</code></pre>
 {:else}
-  <figure
-    class="reply-card reply-mermaid"
-    data-od-id="reply-mermaid"
-    data-reply-block
-  >
+  <figure class="reply-card reply-mermaid" data-od-id="reply-mermaid">
     {@html svg}
   </figure>
 {/if}

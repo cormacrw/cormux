@@ -53,11 +53,7 @@
   }
 </script>
 
-<figure
-  class="reply-card reply-chart"
-  data-od-id="reply-chart"
-  data-reply-block
->
+<figure class="reply-card reply-chart" data-od-id="reply-chart">
   <figcaption class="reply-card-head">
     {#if spec.title}
       <span class="truncate font-medium text-foreground">{spec.title}</span>

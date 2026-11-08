@@ -17,7 +17,7 @@
   })
 </script>
 
-<div class="reply-math" data-od-id="reply-math" data-reply-block>
+<div class="reply-math" data-od-id="reply-math">
   {#if html === null}
     <code>{tex}</code>
   {:else}
