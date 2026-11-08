@@ -9,7 +9,6 @@ use serde_json::{Value, json};
 
 use crate::engines::HostToolsConfig;
 use crate::error::{Error, Result};
-use crate::feedback::Change;
 use crate::orchestration;
 use crate::settings::Settings;
 use crate::state::AppState;
@@ -240,7 +239,7 @@ const TOOLS: &[HostTool] = &[
                 let name = call.required("name")?;
                 let url = web_url(&call.required("url")?)?;
                 let entity = state.store.attach_entity(call.caller, &name, &url)?;
-                state.out.changed(Change::THREADS);
+                state.out.changed();
                 Ok(json!({ "attached": true, "name": entity.name, "url": entity.url }))
             })
         },

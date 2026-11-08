@@ -94,7 +94,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
         })
         const thread = findThread(threadId)
         if (thread) thread.status = 'idle'
-        emitStateChanged(CHANGE.threads)
+        emitStateChanged(CHANGE.state)
       },
       80 + words.length * wordMs,
     )
@@ -126,7 +126,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
       thread.status = 'idle'
       thread.sessionId = resume ? resume.sessionId : null
     }
-    emitStateChanged(CHANGE.threads)
+    emitStateChanged(CHANGE.state)
     return null
   }
 
@@ -161,7 +161,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
       })
       const thread = findThread(args.threadId)
       if (thread) thread.status = 'running'
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       streamReply(args.threadId, args.text)
       return { seq, text }
     },
@@ -182,7 +182,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
       })
       const thread = findThread(threadId)
       if (thread) thread.status = 'idle'
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
     new_thread_session: ({ threadId }: { threadId: string }) =>
@@ -253,7 +253,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
         row.status = 'approved'
         row.payload = { ...row.payload, resolvedAtMs: Date.now(), answers }
       }
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
     resolve_approval: ({
@@ -280,7 +280,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
           }
         }
       }
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
     resolve_thread_media: ({ source }: { source: string }) => {

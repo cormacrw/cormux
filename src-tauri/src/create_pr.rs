@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
-use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
+use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::github::RepoSlug;
 use crate::github::auth;
 use crate::github::create::CreatePullRequestInput;
@@ -232,7 +232,7 @@ pub async fn create_workspace_pull_request(
     });
 
     // One refetch covers the new PR row and the workspace's PR number.
-    state.out.changed(Change::SNAPSHOT);
+    state.out.changed();
 
     Ok(CreateWorkspacePullRequestResult {
         workspace_id: input.workspace_id,

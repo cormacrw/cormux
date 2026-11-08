@@ -272,3 +272,26 @@ async fn approving_all_leaves_questions_for_the_user_and_denying_all_denies_them
     setup.broker.resolve_all("t1", false, None).unwrap();
     assert_eq!(status(&setup.store, "q1"), "denied");
 }
+
+#[tokio::test]
+async fn answering_all_goes_on_past_one_nothing_waits_for() {
+    let setup = setup();
+    setup
+        .store
+        .insert_pending_approval(
+            "stale",
+            "t1",
+            "execute",
+            &crate::model::ApprovalPayload::titled("Use Bash"),
+        )
+        .unwrap();
+    let decided = setup
+        .broker
+        .request("t1", &command("live"), ApprovalPolicy::default());
+
+    assert!(setup.broker.resolve_all("t1", true, None).is_err());
+
+    assert_eq!(status(&setup.store, "stale"), "denied");
+    assert_eq!(status(&setup.store, "live"), "approved");
+    assert_eq!(decided.await.unwrap(), ApprovalDecision::Approved);
+}

@@ -4,7 +4,6 @@ use crate::bus::DomainEvent;
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
-use crate::feedback::Change;
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::findings::FindingRow;
 use crate::github::RepoSlug;
@@ -200,7 +199,7 @@ pub async fn create_review_workspace(
         .store
         .set_review_author(&workspace_id, &author_label)?;
 
-    state.out.changed(Change::THREADS);
+    state.out.changed();
 
     state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
@@ -357,7 +356,7 @@ pub async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<(
                 thread_id,
                 TimelineStep::ReviewFindingsUnreadable { reason: detail },
             )?;
-            state.out.changed(Change::THREADS);
+            state.out.changed();
             return Ok(());
         }
     };
@@ -421,7 +420,7 @@ pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result
     state
         .store
         .set_review_status(workspace_id, ReviewStatus::Running)?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(thread.id)
 }
 
@@ -457,7 +456,7 @@ fn complete_branch_review(
             thread_id: Some(thread_id.to_string()),
         });
     }
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -504,7 +503,7 @@ async fn complete_review(
             thread_id: Some(thread_id.to_string()),
         });
     }
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -662,7 +661,7 @@ pub async fn submit_workspace_review(
         thread_id: None,
     });
 
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -776,7 +775,7 @@ mod tests {
         );
         assert!(matches!(
             recording.emitted().as_slice(),
-            [Emitted::Toast(_), Emitted::State(Change::THREADS)]
+            [Emitted::Toast(_), Emitted::State(_)]
         ));
         assert!(review_is_ready(&state.store, "w1"));
     }
@@ -852,7 +851,7 @@ mod tests {
         on_reviewer_turn_end(&state, "t1").await.unwrap();
 
         assert!(recording.toasts().is_empty());
-        assert_eq!(recording.state_changes(), [Change::THREADS]);
+        assert_eq!(recording.state_changes().len(), 1);
         assert!(branch_review_running(&state.store, "w1"));
     }
 
@@ -884,7 +883,7 @@ mod tests {
         let thread = state.store.thread_by_id("t1").unwrap().unwrap();
         assert_eq!(thread.status, ThreadStatus::Paused);
         assert!(prompts(&mut engine).is_empty());
-        assert!(recording.state_changes().contains(&Change::THREADS));
+        assert!(!recording.state_changes().is_empty());
 
         crate::turn::resume(&state, "t1").await.unwrap();
         assert!(prompts(&mut engine)[0].contains("<cormux-findings>"));

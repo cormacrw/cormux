@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
-use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
+use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::paths::expand_tilde;
 use crate::process::{Exit, HarnessEnv, SessionId, ShellCommand};
 use crate::state::AppState;
@@ -117,7 +117,7 @@ fn repo_paths_match(left: &str, right: &Path) -> bool {
 
 fn upsert_repo_record(state: &AppState, repo: RepoRecord) -> Result<()> {
     state.store.upsert_repo(&repo)?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -168,7 +168,9 @@ pub fn set_default_branch(state: &AppState, input: SetRepoDefaultBranchInput) ->
         )));
     }
     repo.default_branch = Some(branch);
-    upsert_repo_record(state, repo)
+    state.store.upsert_repo(&repo)?;
+    state.out.repo_git_moved();
+    Ok(())
 }
 
 /// Commits each repo's default branch is behind and ahead of `origin`, against the last
@@ -303,7 +305,8 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
         run_command,
         single_instance: false,
     };
-    upsert_repo_record(state, record.clone())?;
+    state.store.upsert_repo(&record)?;
+    state.out.repo_git_moved();
 
     state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
@@ -338,7 +341,7 @@ pub async fn remove(state: &AppState, input: RemoveRepoInput) -> Result<()> {
     }
 
     state.store.delete_repo(&repo.id)?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
 
     state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
@@ -606,7 +609,7 @@ mod tests {
         assert!(matches!(
             recording.emitted().as_slice(),
             [
-                crate::feedback::Emitted::State(Change::THREADS),
+                crate::feedback::Emitted::State(_),
                 crate::feedback::Emitted::Toast(_)
             ]
         ));
@@ -669,7 +672,7 @@ mod tests {
 
         assert!(state.store.repo_by_id("app").unwrap().is_none());
         assert!(repo.is_dir());
-        assert_eq!(recording.state_changes(), [Change::THREADS]);
+        assert_eq!(recording.state_changes().len(), 1);
         assert_eq!(
             recording.toasts(),
             ["Removed app. The folder on disk wasn't touched."]

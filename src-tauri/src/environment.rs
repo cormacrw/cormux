@@ -4,14 +4,13 @@ use tauri::State;
 
 use crate::engines::EngineStatus;
 use crate::error::Result;
-use crate::feedback::Change;
 use crate::state::AppState;
 
 #[tauri::command]
 #[specta::specta]
 pub async fn reload_environment(state: State<'_, AppState>) -> Result<()> {
     state.shell_env.write().await.load().await?;
-    state.out.changed(Change::SNAPSHOT);
+    state.out.changed();
     Ok(())
 }
 

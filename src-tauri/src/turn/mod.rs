@@ -24,7 +24,6 @@ use crate::attachments::PromptAttachment;
 use crate::bus::DomainEvent;
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
-use crate::feedback::Change;
 use crate::model::ThreadStatus;
 use crate::state::AppState;
 use crate::store::types::ThreadRow;
@@ -135,7 +134,7 @@ pub async fn start(
     } else {
         send(state, thread, prompt.into()).await?;
     }
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(seq)
 }
 
@@ -180,7 +179,7 @@ pub async fn stop(state: &AppState, thread_id: &str) -> Result<()> {
         .transcript
         .record_step(thread_id, TimelineStep::AgentStopped)?;
     record(state, &thread, ThreadStatus::Idle).await?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -198,7 +197,7 @@ pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
         .transcript
         .record_step(thread_id, TimelineStep::AgentPaused)?;
     record(state, &thread, ThreadStatus::Paused).await?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -222,7 +221,7 @@ pub async fn resume(state: &AppState, thread_id: &str) -> Result<()> {
     state
         .transcript
         .record_step(thread_id, TimelineStep::AgentResumed)?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -241,7 +240,7 @@ pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
         },
     )?;
     record(state, &thread, ThreadStatus::Idle).await?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -265,7 +264,7 @@ pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -
         },
     )?;
     record(state, &thread, ThreadStatus::Idle).await?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -282,7 +281,7 @@ pub async fn ended(state: &AppState, thread_id: &str) {
         Ok(_) => {}
         Err(error) => log::warn!("reading thread {thread_id}: {error}"),
     }
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     state.bus.publish(DomainEvent::TurnEnded {
         thread_id: thread_id.to_string(),
     });
@@ -429,7 +428,7 @@ mod tests {
     }
 
     fn workspace_notified(recording: &RecordingOutput) -> bool {
-        recording.state_changes().contains(&Change::THREADS)
+        !recording.state_changes().is_empty()
     }
 
     #[tokio::test]

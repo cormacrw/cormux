@@ -4,6 +4,7 @@
   import { commands } from '$lib/ipc'
   import type { RepoRecord } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { refreshSnapshot } from '$lib/core/sync'
   import { repos } from '$lib/state'
 
   let { repo, hintId }: { repo: RepoRecord; hintId: string } = $props()
@@ -37,11 +38,7 @@
       toastCoreError(result.error)
       return
     }
-    repos.hydrate(
-      repos.items.map((row) =>
-        row.id === repo.id ? { ...row, defaultBranch: branch } : row,
-      ),
-    )
+    await refreshSnapshot()
   }
 </script>
 

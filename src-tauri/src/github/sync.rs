@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use crate::error::Result;
-use crate::feedback::Change;
 use crate::state::AppState;
 
 use super::client::{self, FetchError};
@@ -80,7 +79,7 @@ impl PrSyncScheduler {
         if !self.tick(state).await? {
             return Ok(());
         }
-        state.out.changed(Change::SNAPSHOT);
+        state.out.changed();
         Ok(())
     }
 }

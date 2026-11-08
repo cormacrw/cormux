@@ -15,13 +15,13 @@ export function repoHandlers({ db, emitStateChanged }: HarnessRuntime) {
     set_repo_run_command: ({ input }: Input<'set_repo_run_command'>) => {
       const repo = findRepo(input.repoId)
       if (repo) repo.runCommand = input.runCommand?.trim() || null
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
     set_repo_setup_commands: ({ input }: Input<'set_repo_setup_commands'>) => {
       const repo = findRepo(input.repoId)
       if (repo) repo.setupCommands = input.setupCommands ?? ''
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
     set_repo_single_instance: ({
@@ -29,13 +29,13 @@ export function repoHandlers({ db, emitStateChanged }: HarnessRuntime) {
     }: Input<'set_repo_single_instance'>) => {
       const repo = findRepo(input.repoId)
       if (repo) repo.singleInstance = input.singleInstance ?? false
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
     set_repo_default_branch: ({ input }: Input<'set_repo_default_branch'>) => {
       const repo = findRepo(input.repoId)
       if (repo) repo.defaultBranch = input.defaultBranch
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.repoGit)
       return null
     },
     list_repo_skills: () => [

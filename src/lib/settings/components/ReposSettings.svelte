@@ -24,6 +24,7 @@
   import { repos, workspaces } from '$lib/state'
   import { settings } from '$lib/settings/store.svelte'
   import { nav } from '$lib/core/nav.svelte'
+  import { refreshSnapshot } from '$lib/core/sync'
   import type { RepoField } from '$lib/core/route'
   import { cn } from '$lib/utils'
 
@@ -87,17 +88,6 @@
     })
   }
 
-  function patchRepo(
-    repoId: string,
-    patch: Partial<(typeof repos.items)[number]>,
-  ) {
-    repos.hydrate(
-      repos.items.map((repo) =>
-        repo.id === repoId ? { ...repo, ...patch } : repo,
-      ),
-    )
-  }
-
   async function persistRunCommand(repoId: string, value: string) {
     const trimmed = value.trim()
     const result = await commands.setRepoRunCommand({
@@ -120,15 +110,11 @@
   }
 
   async function saveSingleInstance(repoId: string, singleInstance: boolean) {
-    patchRepo(repoId, { singleInstance })
     const result = await commands.setRepoSingleInstance({
       repoId,
       singleInstance,
     })
-    if (result.status === 'error') {
-      patchRepo(repoId, { singleInstance: !singleInstance })
-      toastCoreError(result.error)
-    }
+    if (result.status === 'error') toastCoreError(result.error)
   }
 
   /**
@@ -167,12 +153,7 @@
         ? persistRunCommand(repoId, value)
         : persistSetupCommands(repoId, value))
     }
-    patchRepo(
-      repoId,
-      draftKey.startsWith('run-')
-        ? { runCommand: value.trim() || null }
-        : { setupCommands: value },
-    )
+    await refreshSnapshot()
     delete drafts[draftKey]
   }
 
@@ -195,7 +176,7 @@
       document.getElementById('settings-repo-path')?.focus()
       return
     }
-    repos.hydrate([...repos.items, result.data])
+    await refreshSnapshot()
     pathDraft = ''
     pathError = null
     revealRepo(result.data.id, 'setup')
@@ -207,7 +188,6 @@
       toastCoreError(result.error)
       return
     }
-    repos.hydrate(repos.items.filter((repo) => repo.id !== repoId))
     await tick()
     document.getElementById('settings-repo-path')?.focus()
   }

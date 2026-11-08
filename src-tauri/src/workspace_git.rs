@@ -11,7 +11,7 @@ use specta::Type;
 use tokio::sync::RwLock;
 
 use crate::error::{Error, Result};
-use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
+use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::git::{BehindUpdate, GitConflictState, RepoFetchTarget, WorkspaceFetchTarget};
 use crate::model::{GitConflictOperation, WorkspaceLifecycle};
 use crate::state::AppState;
@@ -135,7 +135,7 @@ pub async fn fetch_all(state: &AppState) {
     };
     let updates = state.fetch.tick(targets).await;
     state.workspace_git.apply(&updates).await;
-    state.out.changed(Change::REPO_GIT);
+    state.out.repo_git_moved();
 }
 
 async fn fetch_targets(state: &AppState) -> Result<Vec<RepoFetchTarget>> {
@@ -271,10 +271,7 @@ async fn on_branch_changed(
             code(branch),
         ],
     );
-    state.out.changed(Change {
-        threads: true,
-        repo_git: true,
-    });
+    state.out.repo_git_moved();
     Ok(())
 }
 
@@ -327,10 +324,7 @@ pub async fn adopt_checked_out_branch(
     }
     refresh_stats(state, &workspace).await;
     refresh_diff(state, &workspace).await;
-    state.out.changed(Change {
-        threads: true,
-        repo_git: true,
-    });
+    state.out.repo_git_moved();
     Ok(workspace.branch)
 }
 
@@ -409,7 +403,7 @@ async fn integrate_base(
                     stats.conflict = Some(GitConflictState { operation, paths });
                 })
                 .await;
-            state.out.changed(Change::REPO_GIT);
+            state.out.repo_git_moved();
             return Err(Error::Git(format!(
                 "{operation} stopped with conflicts — resolve or abort from the workspace header"
             )));
@@ -451,7 +445,7 @@ async fn integrate_base(
     };
     record_in_own_thread(state, workspace_id, step);
     toast(state, workspace_id, parts);
-    state.out.changed(Change::REPO_GIT);
+    state.out.repo_git_moved();
     Ok(())
 }
 
@@ -467,7 +461,7 @@ pub async fn push(state: &AppState, workspace_id: &str) -> Result<()> {
         workspace_id,
         vec![text("Pushed "), code(&workspace.branch)],
     );
-    state.out.changed(Change::REPO_GIT);
+    state.out.repo_git_moved();
     Ok(())
 }
 
@@ -487,7 +481,7 @@ pub async fn abort_conflict(state: &AppState, workspace_id: &str) -> Result<()> 
         .await;
     refresh_stats(state, &workspace).await;
     refresh_diff(state, &workspace).await;
-    state.out.changed(Change::REPO_GIT);
+    state.out.repo_git_moved();
     Ok(())
 }
 

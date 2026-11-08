@@ -1,7 +1,6 @@
 use tauri::State;
 
 use crate::error::Result;
-use crate::feedback::Change;
 use crate::state::AppState;
 
 use super::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
@@ -11,7 +10,7 @@ use super::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
 #[specta::specta]
 pub async fn set_clickup_api_key(key: String, state: State<'_, AppState>) -> Result<()> {
     state.clickup.save_key(&key).await?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -19,7 +18,7 @@ pub async fn set_clickup_api_key(key: String, state: State<'_, AppState>) -> Res
 #[specta::specta]
 pub async fn clear_clickup_api_key(state: State<'_, AppState>) -> Result<()> {
     state.clickup.clear_key()?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 

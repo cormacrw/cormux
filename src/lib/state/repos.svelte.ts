@@ -22,16 +22,21 @@ export class ReposStore {
   /** Each repo's run command as the core resolves it (its own, else its committed config's). */
   runCommandById = $state.raw<Record<string, RepoRunCommand>>({})
 
+  private gitRead = false
+
   /** `runCommands` replaces the known run commands; without it they stay as they are. */
   hydrate(items: RepoRecord[], runCommands?: RepoRunCommand[]) {
-    const changed = repoKey(items) !== repoKey(this.items)
     this.items = reuseRows(this.items, items)
     if (runCommands) {
       this.runCommandById = Object.fromEntries(
         runCommands.map((row) => [row.repoId, row]),
       )
     }
-    if (changed) void this.refreshGit()
+    // After the first, the core says when the counts move (`repoGit`).
+    if (!this.gitRead) {
+      this.gitRead = true
+      void this.refreshGit()
+    }
   }
 
   getById(id: string) {
@@ -57,9 +62,6 @@ export class ReposStore {
     )
   }
 }
-
-const repoKey = (items: RepoRecord[]) =>
-  items.map((repo) => `${repo.id}:${repo.defaultBranch ?? ''}`).join('\n')
 
 export const repos = new ReposStore()
 

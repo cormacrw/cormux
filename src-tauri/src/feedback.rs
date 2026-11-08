@@ -20,32 +20,14 @@ const CHANGE_WINDOW: Duration = Duration::from_millis(50);
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Change {
-    /// A step may have been written into a thread (a pause, a pull, a new session), which only
-    /// a re-read of the store brings on screen.
-    pub threads: bool,
     /// `origin` moved, so the repo rows' behind and ahead counts are stale.
     pub repo_git: bool,
 }
 
 impl Change {
-    /// Only what the snapshot carries: a PR sync, the shell environment, the dev app.
-    pub const SNAPSHOT: Self = Self {
-        threads: false,
-        repo_git: false,
-    };
-    pub const THREADS: Self = Self {
-        threads: true,
-        repo_git: false,
-    };
-    pub const REPO_GIT: Self = Self {
-        threads: false,
-        repo_git: true,
-    };
-
     /// One change that makes the webview do everything either would have.
     fn merge(self, other: Self) -> Self {
         Self {
-            threads: self.threads || other.threads,
             repo_git: self.repo_git || other.repo_git,
         }
     }
@@ -88,7 +70,7 @@ pub fn start(bus: &crate::bus::Bus, out: &Notifier) {
     let out = out.clone();
     bus.listen(move |event| {
         if let crate::bus::DomainEvent::ApprovalRequested { .. } = event {
-            out.changed(Change::THREADS);
+            out.changed();
         }
         std::future::ready(())
     });
@@ -135,7 +117,16 @@ impl Notifier {
     /// The version only moves when an event goes out, so consecutive events are numbered
     /// consecutively: the webview treats a jump as a dropped event and does a full resync,
     /// which a merged burst must not look like.
-    pub fn changed(&self, change: Change) {
+    pub fn changed(&self) {
+        self.notify(Change::default());
+    }
+
+    /// Like `changed`, when `origin` moved too, so the webview re-reads the repos' git state.
+    pub fn repo_git_moved(&self) {
+        self.notify(Change { repo_git: true });
+    }
+
+    fn notify(&self, change: Change) {
         let decision = match self.0.changes.lock() {
             Ok(mut changes) => changes.record(change, Instant::now()),
             Err(_) => Decision::EmitNow(change),
@@ -148,7 +139,7 @@ impl Notifier {
                     tokio::time::sleep(delay).await;
                     let change = match notifier.0.changes.lock() {
                         Ok(mut changes) => changes.flush(Instant::now()),
-                        Err(_) => Some(Change::THREADS),
+                        Err(_) => Some(change),
                     };
                     if let Some(change) = change {
                         notifier.emit(change);
@@ -325,24 +316,18 @@ mod tests {
         (notifier, recording)
     }
 
+    const PLAIN: Change = Change { repo_git: false };
+    const REPO_GIT: Change = Change { repo_git: true };
+
     #[tokio::test]
     async fn a_burst_reaches_the_output_as_one_trailing_event_numbered_in_sequence() {
         let (notifier, recording) = recorded(Arc::default());
-        notifier.changed(Change::SNAPSHOT);
-        notifier.changed(Change::THREADS);
-        notifier.changed(Change::REPO_GIT);
+        notifier.changed();
+        notifier.changed();
+        notifier.repo_git_moved();
 
         tokio::time::sleep(CHANGE_WINDOW * 3).await;
-        assert_eq!(
-            recording.state_changes(),
-            [
-                Change::SNAPSHOT,
-                Change {
-                    threads: true,
-                    repo_git: true
-                }
-            ]
-        );
+        assert_eq!(recording.state_changes(), [PLAIN, REPO_GIT]);
         assert_eq!(recording.versions(), [1, 2]);
         assert_eq!(notifier.version(), 2);
     }
@@ -351,12 +336,12 @@ mod tests {
     fn the_badge_follows_the_pending_count_and_is_only_sent_when_it_moves() {
         let pending = Arc::new(AtomicUsize::new(0));
         let (notifier, recording) = recorded(pending.clone());
-        notifier.emit(Change::THREADS);
+        notifier.emit(PLAIN);
         pending.store(2, Ordering::SeqCst);
-        notifier.emit(Change::THREADS);
-        notifier.emit(Change::THREADS);
+        notifier.emit(PLAIN);
+        notifier.emit(PLAIN);
         pending.store(0, Ordering::SeqCst);
-        notifier.emit(Change::THREADS);
+        notifier.emit(PLAIN);
 
         let badges: Vec<_> = recording
             .emitted()
@@ -373,37 +358,31 @@ mod tests {
     fn a_lone_change_goes_out_at_once_and_a_burst_becomes_one_trailing_event() {
         let mut changes = ChangeCoalescer::default();
         let start = Instant::now();
-        assert_eq!(
-            changes.record(Change::THREADS, start),
-            Decision::EmitNow(Change::THREADS)
-        );
+        assert_eq!(changes.record(PLAIN, start), Decision::EmitNow(PLAIN));
         let later = start + Duration::from_millis(10);
         assert_eq!(
-            changes.record(Change::SNAPSHOT, later),
+            changes.record(PLAIN, later),
             Decision::Schedule(CHANGE_WINDOW - Duration::from_millis(10))
         );
-        assert_eq!(changes.record(Change::REPO_GIT, later), Decision::Merged);
-        assert_eq!(changes.record(Change::THREADS, later), Decision::Merged);
+        assert_eq!(changes.record(REPO_GIT, later), Decision::Merged);
+        assert_eq!(changes.record(PLAIN, later), Decision::Merged);
         let flushed = start + CHANGE_WINDOW;
         assert_eq!(
             changes.flush(flushed),
-            Some(Change {
-                threads: true,
-                repo_git: true
-            }),
+            Some(REPO_GIT),
             "the merged event does everything each change asked for"
         );
         assert_eq!(changes.flush(flushed), None);
         // The flush counts as the last emit, so the next change waits again.
         assert!(matches!(
-            changes.record(Change::THREADS, flushed),
+            changes.record(PLAIN, flushed),
             Decision::Schedule(_)
         ));
         let mut quiet = ChangeCoalescer::default();
-        quiet.record(Change::THREADS, start);
+        quiet.record(PLAIN, start);
         assert_eq!(
-            quiet.record(Change::SNAPSHOT, start + CHANGE_WINDOW),
-            Decision::EmitNow(Change::SNAPSHOT)
+            quiet.record(PLAIN, start + CHANGE_WINDOW),
+            Decision::EmitNow(PLAIN)
         );
     }
 }

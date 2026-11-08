@@ -888,11 +888,6 @@ export type Briefing = { type: "briefing"; role: UserRole; text: string }
  */
 export type Change = { 
 /**
- * A step may have been written into a thread (a pause, a pull, a new session), which only
- * a re-read of the store brings on screen.
- */
-threads: boolean; 
-/**
  * `origin` moved, so the repo rows' behind and ahead counts are stale.
  */
 repoGit: boolean }

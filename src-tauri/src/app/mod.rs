@@ -10,7 +10,7 @@ use specta::Type;
 use tokio::sync::watch;
 
 use crate::error::{Error, Result};
-use crate::feedback::{Change, ToastPart, ToastTone};
+use crate::feedback::{ToastPart, ToastTone};
 use crate::process::{
     ProcessSupervisor, SessionEvents, SessionId, ShellCommand, detect_port, serves_https,
 };
@@ -117,7 +117,7 @@ impl WorkspaceAppService {
         match action {
             WorkspaceAppControlAction::Clear => {
                 state.process.clear_log(workspace_id);
-                state.out.changed(Change::SNAPSHOT);
+                state.out.changed();
                 Ok(())
             }
             WorkspaceAppControlAction::Stop => {
@@ -168,7 +168,7 @@ impl WorkspaceAppService {
                 .await;
         });
 
-        state.out.changed(Change::SNAPSHOT);
+        state.out.changed();
         Ok(())
     }
 
@@ -216,7 +216,7 @@ impl WorkspaceAppService {
             );
         }
         self.set_status(workspace_id, WorkspaceAppStatus::Stopped, None, None);
-        state.out.changed(Change::SNAPSHOT);
+        state.out.changed();
         Ok(())
     }
 
@@ -346,7 +346,7 @@ impl WorkspaceAppService {
                     process
                         .append_log_line(workspace_id, format!("──── Crashed (exit {code}) ────"));
                 }
-                state.out.changed(Change::SNAPSHOT);
+                state.out.changed();
                 return;
             }
 
@@ -373,7 +373,7 @@ impl WorkspaceAppService {
                         ],
                         Some(workspace_id.to_string()),
                     );
-                    state.out.changed(Change::SNAPSHOT);
+                    state.out.changed();
                     continue;
                 }
             }
@@ -387,7 +387,7 @@ impl WorkspaceAppService {
                     if let Err(error) = process.stop_session(&session) {
                         log::warn!("stopping the app in {workspace_id}: {error}");
                     }
-                    state.out.changed(Change::SNAPSHOT);
+                    state.out.changed();
                     return;
                 }
             }
@@ -494,7 +494,7 @@ pub mod commands {
     ) -> Result<()> {
         state.workspaces.get(&workspace_id).await?;
         state.workspaces.set_run_command(&workspace_id, &command)?;
-        state.out.changed(crate::feedback::Change::SNAPSHOT);
+        state.out.changed();
         Ok(())
     }
 

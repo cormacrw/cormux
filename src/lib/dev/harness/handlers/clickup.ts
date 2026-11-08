@@ -17,12 +17,12 @@ export function clickupHandlers({
         throw { kind: 'Clickup', message: 'ClickUp rejected the API key' }
       }
       db.snapshot.clickupConfigured = true
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
     clear_clickup_api_key: () => {
       db.snapshot.clickupConfigured = false
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
     clickup_workspaces: () => [{ id: 'team-1', name: 'Acme' }],

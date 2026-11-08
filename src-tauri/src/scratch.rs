@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
-use crate::feedback::Change;
 use crate::model::ThreadStatus;
 use crate::state::AppState;
 use crate::store::{Store, query_all};
@@ -104,7 +103,7 @@ pub async fn end_scratch(scratch_id: String, state: tauri::State<'_, AppState>) 
         return Err(Error::Invalid(format!("unknown scratch {scratch_id}")));
     }
     state.store.delete_scratch(&scratch_id)?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 

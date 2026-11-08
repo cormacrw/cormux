@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { refreshSnapshot } from '$lib/core/sync'
   import { navigate } from '$lib/core/nav.svelte'
   import { tick } from 'svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
@@ -65,12 +64,11 @@
     navigate({ view: 'newThread' })
     void commands
       .teardownWorkspace({ workspaceId: tornId, deleteBranch })
-      .then(async (result) => {
+      .then((result) => {
         if (result.status === 'error') {
           workspaces.clearDeleting(tornId)
           toastCoreError(result.error)
         }
-        await refreshSnapshot()
       })
   }
 

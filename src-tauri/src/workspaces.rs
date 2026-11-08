@@ -415,7 +415,7 @@ pub async fn rename_workspace(
         .workspaces
         .rename(&input.workspace_id, &input.name)
         .await?;
-    state.out.changed(crate::feedback::Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 

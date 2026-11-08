@@ -55,7 +55,7 @@ export function gitHandlers({
     const { row, record } = findWorkspace(workspaceId)
     if (row) row.branch = branch
     if (record) record.branch = branch
-    emitStateChanged(CHANGE.branch)
+    emitStateChanged(CHANGE.repoGit)
   }
 
   const currentBranch = (workspaceId: string) =>

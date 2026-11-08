@@ -10,11 +10,10 @@ export type HarnessChannel = { id: number; index: number }
 
 /** The `Change` flags the core sends, by what moved. */
 export const CHANGE = {
-  /** Only what the snapshot carries. */
-  snapshot: { threads: false, repoGit: false },
-  threads: { threads: true, repoGit: false },
-  /** A branch switch: a step in the thread, and the repo's branches. */
-  branch: { threads: true, repoGit: true },
+  /** Anything the snapshot carries. */
+  state: { repoGit: false },
+  /** `origin` moved too, so the repos' behind and ahead counts are stale. */
+  repoGit: { repoGit: true },
 } satisfies Record<string, Change>
 
 /**
@@ -72,12 +71,12 @@ export function createRuntime(scenario: HarnessScenario) {
       for (const record of db.snapshot.workspaces) {
         if (record.name === name) record.status = status as typeof record.status
       }
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
     },
     setThreadStatus(threadId, status) {
       const thread = findThread(db, threadId)
       if (thread) thread.status = status as typeof thread.status
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
     },
     requestApproval(threadId) {
       const approvals = db.snapshot.persisted.approvals
@@ -94,7 +93,7 @@ export function createRuntime(scenario: HarnessScenario) {
           noLabel: 'Deny',
         },
       })
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
     },
     agentEvents(events) {
       for (const event of events) {

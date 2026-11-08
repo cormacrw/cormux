@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::bus::DomainEvent;
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
-use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
+use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
 use crate::paths::{expand_tilde, worktrees_root};
 use crate::process::{Exit, SessionId, ShellCommand};
@@ -119,10 +119,17 @@ pub fn start(state: &AppState, plan: ProvisionPlan) {
     tauri::async_runtime::spawn(async move { run(&state, plan).await });
 }
 
-/// Makes the worktree, runs the repo's setup commands and hands the thread its first turn.
+/// Makes the worktree, runs the repo's setup commands and hands the thread its first turn. Any
+/// error on the way fails the setup, so the workspace can be retried or skipped past.
 pub async fn run(state: &AppState, plan: ProvisionPlan) {
-    if let Err(error) = run_plan(state, &plan).await {
-        log::warn!("provisioning {} failed: {error}", plan.workspace_id);
+    let ran = run_plan(state, &plan).await;
+    fail_on_error(state, &plan.workspace_id, ran).await;
+}
+
+async fn fail_on_error(state: &AppState, workspace_id: &str, ran: Result<()>) {
+    if let Err(error) = ran {
+        log::warn!("provisioning {workspace_id} failed: {error}");
+        mark_failed(state, workspace_id, None, &error.to_string()).await;
     }
 }
 
@@ -154,9 +161,8 @@ pub async fn skip_setup(state: &AppState, plan: ProvisionPlan) -> Result<()> {
         &plan.workspace_id,
         "──── Skipped remaining setup — continuing ────",
     );
-    if let Err(error) = finish_after_setup(state, &plan, 0).await {
-        mark_failed(state, &plan.workspace_id, None, &error.to_string()).await;
-    }
+    let finished = finish_after_setup(state, &plan, 0).await;
+    fail_on_error(state, &plan.workspace_id, finished).await;
     Ok(())
 }
 
@@ -185,7 +191,7 @@ async fn run_plan(state: &AppState, plan: &ProvisionPlan) -> Result<()> {
         .workspaces
         .set_activity(&plan.workspace_id, &plan.setup_activity, 1, None)
         .await?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
 
     if !workspace.worktree().exists() {
         let added = crate::workspace_git::add_worktree(state, &workspace, plan.checkout).await;
@@ -309,7 +315,7 @@ async fn finish_after_setup(
             .workspaces
             .set_activity(id, "Starting agent…", 2, None)
             .await?;
-        state.out.changed(Change::THREADS);
+        state.out.changed();
         crate::turn::begin(state, &plan.thread_id, id, prompt.clone()).await?;
     }
 
@@ -345,7 +351,7 @@ async fn finish_after_setup(
             .workspaces
             .set_activity(id, &plan.running_activity, 0, None)
             .await?;
-        state.out.changed(Change::THREADS);
+        state.out.changed();
         if let Some(parts) = &plan.started_toast {
             state.out.toast(ToastRaisedPayload {
                 tone: ToastTone::Ok,
@@ -365,7 +371,7 @@ async fn finish_after_setup(
             .await?;
         state.workspaces.set_activity(id, "", 0, None).await?;
     }
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -408,7 +414,7 @@ async fn mark_failed(
     if let Err(error) = updated.and(failed) {
         log::warn!("marking {workspace_id} failed: {error}");
     }
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Bad,
         parts: vec![ToastPart::Text {
@@ -443,11 +449,22 @@ mod tests {
         tempfile::TempDir,
         String,
     ) {
+        let (state, recording, _fake, dir, id) = provisioning_workspace_faked().await;
+        (state, recording, dir, id)
+    }
+
+    async fn provisioning_workspace_faked() -> (
+        AppState,
+        std::sync::Arc<crate::feedback::RecordingOutput>,
+        crate::thread_runtime::fake::FakeEngines,
+        tempfile::TempDir,
+        String,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("app");
         std::fs::create_dir(&repo).unwrap();
-        let (state, recording) =
-            AppState::recorded(crate::paths::DataDir::new(dir.path().join("data")));
+        let (state, recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(dir.path().join("data")));
         state
             .store
             .upsert_repo(&RepoRecord {
@@ -479,7 +496,7 @@ mod tests {
         )
         .await
         .unwrap();
-        (state, recording, dir, created.workspace.id)
+        (state, recording, fake, dir, created.workspace.id)
     }
 
     #[tokio::test]
@@ -503,7 +520,7 @@ mod tests {
         assert_eq!(recording.toasts(), ["Setup broke"]);
         assert!(matches!(
             recording.emitted().as_slice(),
-            [Emitted::State(Change::THREADS), Emitted::Toast(_)]
+            [Emitted::State(_), Emitted::Toast(_)]
         ));
         assert_eq!(
             state.workspaces.get(&id).await.unwrap().status,
@@ -527,5 +544,35 @@ mod tests {
             state.workspaces.get(&id).await.unwrap().status,
             WorkspaceLifecycle::TearingDown
         );
+    }
+
+    #[tokio::test]
+    async fn a_first_turn_that_cant_start_fails_the_setup() {
+        let (state, recording, fake, _dir, id) = provisioning_workspace_faked().await;
+        let workspace = state.workspaces.get(&id).await.unwrap();
+        std::fs::create_dir_all(workspace.worktree()).unwrap();
+        let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
+        fake.refuse_sends(&thread_id);
+
+        run(
+            &state,
+            ProvisionPlan {
+                workspace_id: id.clone(),
+                thread_id,
+                checkout: Checkout::NewBranch,
+                setup_activity: SETUP_ACTIVITY.into(),
+                first_prompt: Some("Go".into()),
+                running_activity: "Working".into(),
+                seed_summary: None,
+                started_toast: None,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().status,
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+        assert_eq!(recording.toasts().len(), 1);
     }
 }

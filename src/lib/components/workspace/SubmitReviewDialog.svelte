@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { refreshSnapshot } from '$lib/core/sync'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
@@ -46,7 +45,6 @@
       submitError = coreErrorText(result.error, 'Could not submit review')
       return
     }
-    await refreshSnapshot()
     closeDialog()
   }
 

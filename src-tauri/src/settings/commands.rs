@@ -1,7 +1,6 @@
 use tauri::State;
 
 use crate::error::Result;
-use crate::feedback::Change;
 use crate::state::AppState;
 
 use super::{Settings, SettingsPatch};
@@ -17,6 +16,6 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Settings> {
 #[specta::specta]
 pub async fn update_settings(patch: SettingsPatch, state: State<'_, AppState>) -> Result<Settings> {
     Settings::update(&state.store, patch)?;
-    state.out.changed(Change::SNAPSHOT);
+    state.out.changed();
     Ok(Settings::load(&state.store))
 }

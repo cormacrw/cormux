@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { refreshSnapshot } from '$lib/core/sync'
   import { tick, untrack } from 'svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import * as Dialog from '$lib/components/ui/dialog/index.js'
@@ -144,7 +143,6 @@
       return
     }
     closeDialog()
-    await refreshSnapshot()
   }
 
   const onFormKeydown = onModEnter(() => void submit())

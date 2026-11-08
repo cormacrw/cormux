@@ -50,7 +50,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       },
       createdAt,
     )
-    emitStateChanged(CHANGE.threads)
+    emitStateChanged(CHANGE.state)
     return { workspaceId, threadId }
   }
 
@@ -64,7 +64,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
     }) => {
       const { row } = runtime.findWorkspace(workspaceId)
       if (row) row.runCommand = command.trim() || null
-      emitStateChanged(CHANGE.snapshot)
+      emitStateChanged(CHANGE.state)
       return null
     },
     create_workspace: ({ input }: Input<'create_workspace'>) => {
@@ -133,7 +133,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
           row.status = to
         }
       }
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
   } satisfies HandlerSlice

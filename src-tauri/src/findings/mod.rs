@@ -8,7 +8,7 @@ use specta::Type;
 
 use crate::engines::AgentEvent;
 use crate::error::{Error, Result};
-use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
+use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
 use crate::timeline::TimelineStep;
 
@@ -124,7 +124,7 @@ pub async fn send_workspace_findings(
         thread_id: Some(thread_id.to_string()),
     });
 
-    state.out.changed(Change::THREADS);
+    state.out.changed();
 
     Ok(())
 }
@@ -140,7 +140,7 @@ pub fn dismiss_findings(state: &AppState, input: DismissWorkspaceFindingsInput) 
     state
         .store
         .set_findings_dismissed(&input.workspace_id, &input.finding_ids, input.dismissed)?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -224,7 +224,7 @@ fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[String]) ->
 
     state.store.set_findings_batch(thread_id, &[])?;
 
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 

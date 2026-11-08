@@ -207,13 +207,15 @@ impl ApprovalBroker {
     }
 
     /// Answers every request the thread has open. Approving all leaves its questions, which
-    /// an approval can't answer, for the user.
+    /// an approval can't answer, for the user. One that can't be answered doesn't stop the
+    /// rest; the first error comes back once they're done.
     pub fn resolve_all(
         &self,
         thread_id: &str,
         approved: bool,
         reason: Option<String>,
     ) -> Result<()> {
+        let mut first_error = None;
         for row in self.store.pending_approvals_for_thread(thread_id)? {
             let answer = match approved {
                 true if row.tool == QUESTION_TOOL => continue,
@@ -222,9 +224,11 @@ impl ApprovalBroker {
                     reason: reason.clone(),
                 },
             };
-            self.resolve(&row.id, answer)?;
+            if let Err(error) = self.resolve(&row.id, answer) {
+                first_error.get_or_insert(error);
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     /// Approvals waiting on the user, which the dock badge shows.

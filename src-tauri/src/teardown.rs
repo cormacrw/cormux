@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
-use crate::feedback::Change;
 use crate::model::WorkspaceLifecycle;
 use crate::state::AppState;
 use crate::workspaces::WorkspaceRecord;
@@ -91,7 +90,7 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
         .workspaces
         .set_status(&input.workspace_id, WorkspaceLifecycle::TearingDown)
         .await?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
 
     let thread_ids: Vec<String> = state
         .store
@@ -108,7 +107,7 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
         if let Err(restore) = restored {
             log::warn!("restoring {} after teardown: {restore}", input.workspace_id);
         }
-        state.out.changed(Change::THREADS);
+        state.out.changed();
         return Err(error);
     }
 
@@ -117,7 +116,7 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
     state.process.forget_workspace(&input.workspace_id);
     state.workspace_git.forget(&input.workspace_id).await;
 
-    state.out.changed(Change::THREADS);
+    state.out.changed();
 
     Ok(())
 }

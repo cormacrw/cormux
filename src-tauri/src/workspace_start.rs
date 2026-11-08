@@ -7,7 +7,6 @@ use specta::Type;
 
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
-use crate::feedback::Change;
 use crate::model::WorkspaceKind;
 use crate::provisioning::{ProvisionPlan, SETUP_ACTIVITY, WorkspaceSpec};
 use crate::state::AppState;
@@ -119,7 +118,7 @@ pub async fn start_workspace(
         state.transcript.record_user_message(&thread_id, &shown)?;
     }
 
-    state.out.changed(Change::THREADS);
+    state.out.changed();
 
     if auto_named {
         spawn_auto_name(state.clone(), workspace_id.clone(), name, goal.clone());
@@ -239,7 +238,7 @@ async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Resu
     let branch = crate::naming::unique_branch(&branch, &taken);
     crate::git::validate_ref_name(&branch, "branch")?;
     state.workspaces.retarget(workspace_id, &branch).await?;
-    state.out.changed(Change::THREADS);
+    state.out.changed();
     Ok(())
 }
 
@@ -286,7 +285,7 @@ fn spawn_auto_name(state: AppState, workspace_id: String, draft: String, prompt:
             .rename_from(&workspace_id, &draft, &name)
             .await
         {
-            Ok(true) => state.out.changed(Change::THREADS),
+            Ok(true) => state.out.changed(),
             Ok(false) => {}
             Err(error) => log::warn!("naming workspace {workspace_id}: {error}"),
         }
@@ -578,7 +577,7 @@ esac
         );
         assert!(matches!(
             f.recording.emitted().first(),
-            Some(Emitted::State(Change::THREADS))
+            Some(Emitted::State(_))
         ));
     }
 

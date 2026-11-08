@@ -13,7 +13,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-const NO_CHANGE = { threads: false, repoGit: false }
+const NO_CHANGE = { repoGit: false }
 
 describe('sync', () => {
   it('drops a snapshot older than the one already applied', async () => {
@@ -75,9 +75,9 @@ describe('sync', () => {
     const changes: unknown[] = []
     sync.onChange((change) => changes.push(change))
 
-    sync.receive({ version: 4, change: { threads: false, repoGit: true } })
+    sync.receive({ version: 4, change: { repoGit: true } })
     sync.receive({ version: 6, change: NO_CHANGE })
 
-    expect(changes).toEqual([{ threads: false, repoGit: true }, 'gap'])
+    expect(changes).toEqual([{ repoGit: true }, 'gap'])
   })
 })

@@ -42,7 +42,7 @@ export function coreHandlers({
         Object.entries(patch).filter(([, value]) => value != null),
       )
       db.snapshot.settings = { ...db.snapshot.settings, ...changes }
-      emitStateChanged(CHANGE.snapshot)
+      emitStateChanged(CHANGE.state)
       return db.snapshot.settings
     },
     end_scratch: ({ scratchId }: { scratchId: string }) => {
@@ -50,7 +50,7 @@ export function coreHandlers({
       persisted.scratches = persisted.scratches.filter(
         (row) => row.id !== scratchId,
       )
-      emitStateChanged(CHANGE.threads)
+      emitStateChanged(CHANGE.state)
       return null
     },
     // Nothing behind a subscription needs stopping: its channel just goes quiet.
