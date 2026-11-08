@@ -162,6 +162,7 @@ function modelsFromSnapshot(snapshot: Snapshot) {
       id: thread.id,
       workspaceId: thread.workspaceId,
       role: thread.title,
+      ownRole: thread.role,
       engine: thread.engine,
       status: thread.status,
       paused: thread.status === 'paused',
@@ -190,6 +191,7 @@ function modelsFromSnapshot(snapshot: Snapshot) {
     id: row.threadId,
     workspaceId: row.id,
     role: '',
+    ownRole: null,
     engine: row.engine,
     status: row.status,
     paused: row.status === 'paused',
@@ -224,7 +226,6 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   threadTimeline.hydrate({
     threadIds: models.threads.map((thread) => thread.id),
     approvals: snapshot.persisted.approvals,
-    settings: snapshot.persisted.settings,
     activity: snapshot.persisted.threadActivity,
   })
   findings.hydrate(snapshot.persisted.findings)

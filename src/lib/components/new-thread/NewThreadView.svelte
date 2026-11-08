@@ -21,13 +21,11 @@
     releaseWorkspacePopover,
   } from '$lib/keyboard/popover-registry'
   import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
-  import { app, repos, settings } from '$lib/state'
-  import type { Thread } from '$lib/state/threads.svelte'
-  import { NO_USAGE } from '$lib/usage/usage'
+  import { app, appearance, repos, settings } from '$lib/state'
   import {
     enterConversation,
     firstPromptTransition,
-  } from '$lib/thread/conversation-motion'
+  } from '$lib/conversation-motion'
   import { startThread } from '$lib/workspace/start-thread'
   import Folder from '@lucide/svelte/icons/folder'
 
@@ -48,20 +46,6 @@
       // Optional: the next thread just starts on the default repo.
     }
   }
-
-  // A stand-in the composer and greeting can draw until there's a real thread.
-  const draftThread = $derived<Thread>({
-    id: 'new-thread',
-    workspaceId: '',
-    role: 'Lead',
-    engine: settings.defaultEngine,
-    status: 'idle',
-    paused: false,
-    activity: '',
-    pendingApprovals: 0,
-    usage: NO_USAGE,
-    retired: false,
-  })
 
   let repoId = $state('')
   let repoOpen = $state(false)
@@ -126,7 +110,10 @@
     rememberRepo(id)
     if (stay) return true
     // The greeting falls away and the conversation rises in, as on a first prompt in a thread.
-    firstPromptTransition(() => app.openWorkspace(workspaceId))
+    firstPromptTransition(
+      () => app.openWorkspace(workspaceId),
+      () => appearance.glideWordmark(),
+    )
     void tick().then(enterConversation)
     return true
   }
@@ -168,13 +155,7 @@
         class="mx-auto flex min-h-full w-full max-w-[760px] flex-col overflow-clip px-4 pt-3 select-text"
       >
         {#if repos.items.length}
-          <ThreadHero
-            thread={draftThread}
-            workspace={null}
-            conversationId="new"
-            earlier={[]}
-            nowMs={0}
-          />
+          <ThreadHero greeting="new-thread:new" />
         {:else}
           <div
             class="mt-auto flex flex-col items-start gap-3 pb-10"
@@ -200,7 +181,7 @@
     </div>
 
     <ThreadComposer
-      thread={draftThread}
+      draftKey="new-thread"
       bind:focusComposer
       inputLabel="Start a new thread"
       placeholder={repo
@@ -249,14 +230,12 @@
           </Select.Root>
           <ThreadOptionPicker
             kind="model"
-            thread={draftThread}
-            draft
+            threadId={null}
             bind:draftValue={model}
           />
           <ThreadOptionPicker
             kind="effort"
-            thread={draftThread}
-            draft
+            threadId={null}
             bind:draftValue={effort}
           />
         {/if}

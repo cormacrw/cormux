@@ -1,5 +1,6 @@
 import { parseReply, replySearchText } from './reply/parse'
 import type { TimelineRow } from './timeline-types'
+import { stepText, workedForLabel } from './timeline/step-text'
 
 /** One match: the row it's in, and which occurrence in that row's text it is. */
 type FindMatch = { row: number; occurrence: number }
@@ -21,16 +22,17 @@ export function rowSearchText(row: TimelineRow): string {
     case 'user':
       return item.text
     case 'thought':
-      return item.role === 'thought'
-        ? item.text
-        : replySearchText(parseReply(item.text, { streaming: false }))
+      return item.text
+    case 'reply':
+      return replySearchText(parseReply(item.text, { streaming: false }))
     case 'toolRun':
       return item.steps
-        .flatMap((step) =>
-          step.kind === 'edit'
-            ? [step.verb, step.path]
-            : [step.title, step.detail ?? '', step.rawDetail ?? ''],
-        )
+        .flatMap((step) => {
+          const { title, detail = '', full = '' } = stepText(step)
+          return step.kind === 'tool' && step.role.kind === 'edit'
+            ? [title, detail]
+            : [title, detail, full]
+        })
         .join('\n')
     case 'plan':
       return item.steps.join('\n')
@@ -38,7 +40,9 @@ export function rowSearchText(row: TimelineRow): string {
       return [item.title, item.what, item.why].join('\n')
     case 'event':
       return [item.title, item.detail ?? ''].join('\n')
-    default:
+    case 'worked':
+      return workedForLabel(item.startedAtMs, item.atMs)
+    case 'findings':
       return ''
   }
 }

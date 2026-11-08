@@ -15,7 +15,7 @@
     claimWorkspacePopover,
     releaseWorkspacePopover,
   } from '$lib/keyboard/popover-registry'
-  import type { Thread } from '$lib/state/threads.svelte'
+  import { coreErrorText } from '$lib/feedback/core-error'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
 
   const KINDS = {
@@ -41,14 +41,12 @@
 
   let {
     kind,
-    thread,
-    draft = false,
+    threadId,
     draftValue = $bindable(null),
   }: {
     kind: keyof typeof KINDS
-    thread: Thread
-    /** A thread that doesn't exist yet: the pick stays in `draftValue` until it's created. */
-    draft?: boolean
+    /** Null for a thread that doesn't exist yet: the pick stays in `draftValue` until it's created. */
+    threadId: string | null
     draftValue?: string | null
   } = $props()
 
@@ -81,11 +79,11 @@
   )
 
   $effect(() => {
-    void load(thread.id)
+    void load(threadId)
   })
 
   $effect(() => {
-    if (open) void load(thread.id)
+    if (open) void load(threadId)
   })
 
   // Opening one picker from the keyboard closes the other.
@@ -99,44 +97,38 @@
     return () => releaseWorkspacePopover(handle)
   })
 
-  async function load(threadId: string) {
-    if (draft) {
+  async function load(forThread: string | null) {
+    if (forThread === null) {
       const listed = await config.listEngine()
       if (listed.status === 'ok') {
         models = { current: draftValue, options: listed.data }
       }
       return
     }
-    const result = await config.listThread(threadId)
-    if (result.status === 'ok' && threadId === thread.id) models = result.data
+    const result = await config.listThread(forThread)
+    if (result.status === 'ok' && forThread === threadId) models = result.data
   }
 
   async function pick(value: string) {
     if (!models) return
-    const threadId = thread.id
+    const forThread = threadId
     const previous = models.current
     const next = value === DEFAULT ? null : value
     if (next === previous) return
     models = { ...models, current: next }
-    if (draft) {
+    if (forThread === null) {
       draftValue = next
       return
     }
-    const result = await config.setThread(threadId, next)
+    const result = await config.setThread(forThread, next)
     if (result.status === 'error') {
-      if (threadId === thread.id && models) {
+      if (forThread === threadId && models) {
         models = { ...models, current: previous }
       }
       showToast({
         tone: 'bad',
         parts: [
-          {
-            type: 'text',
-            value:
-              typeof result.error.message === 'string'
-                ? result.error.message
-                : config.failure,
-          },
+          { type: 'text', value: coreErrorText(result.error, config.failure) },
         ],
       })
     }

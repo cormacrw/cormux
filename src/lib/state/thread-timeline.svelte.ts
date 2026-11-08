@@ -2,39 +2,40 @@
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import type {
   ApprovalRow,
-  SettingRow,
   StreamedEvent,
   ThreadActivityRow,
   ThreadEventRow,
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc/bindings'
+import type { CoreError } from '$lib/ipc'
+import { subscribeAgentEvents } from '$lib/ipc/channels'
+import {
+  toPromptAttachment,
+  type ComposerAttachment,
+} from '$lib/composer/attachments'
+import {
+  firstPromptTransition,
+  leaveConversation,
+} from '$lib/conversation-motion'
 import { deepEqual } from '$lib/deep-equal'
+import { coreErrorText } from '$lib/feedback/core-error'
+import { showToast } from '$lib/feedback/show-toast'
+import type { Conversation } from '$lib/thread/conversations'
 import { createEventBatcher } from '$lib/thread/event-batcher'
 import { threadsToEvict } from '$lib/thread/evict-threads'
-import { eventCreatedAtMs } from '$lib/thread/thread-time'
 import { parseAgentEventPayload } from '$lib/thread/parse-agent-event'
-import {
-  TimelineBuilder,
-  shouldShowLiveRow,
-} from '$lib/thread/map-events-to-timeline'
+import { SharedSubscriptions } from '$lib/thread/shared-subscriptions'
+import { eventCreatedAtMs } from '$lib/thread/thread-time'
+import { ThreadViewBuilder, type ThreadView } from '$lib/thread/thread-view'
 import {
   appendStreamed,
   mergeSaved,
   type TimedEvent,
 } from '$lib/thread/timed-events'
-import type { TimelineItem } from '$lib/thread/timeline-types'
-import { bindVisibleThreadEvents } from '$lib/workspace/visible-thread-events'
-import { reviewFindingsReady } from '$lib/thread/review-findings'
-import { splitConversations } from '$lib/thread/conversations'
-
-type ThreadMeta = {
-  status: string
-  paused: boolean
-  role: string
-  workspaceId: string
-  /** Scratch threads mark their reads `Read-only, no worktree`. */
-  scratch?: boolean
-}
+import { appearance } from './appearance.svelte'
+import { findings } from './findings.svelte'
+import { settings } from './settings.svelte'
+import { threads, type Thread } from './threads.svelte'
 
 const PAGE = 2000
 // Threads kept in memory for an instant switch back, on top of the ones on screen.
@@ -58,31 +59,38 @@ function timedEvents(rows: ThreadEventRow[]): TimedEvent[] {
   })
 }
 
+function toastError(message: string) {
+  showToast({ tone: 'bad', parts: [{ type: 'text', value: message }] })
+}
+
+function readFailed(error: CoreError) {
+  toastError(coreErrorText(error, 'Could not read this thread'))
+}
+
+/** Owns every thread's loaded history, its stream, and the view and actions built on them. */
 export class ThreadTimelineStore {
   // Raw, not deep: a long thread holds thousands of events, and reading each through a
   // reactive proxy made every rebuild of the timeline ~30x slower. Always replaced, never mutated.
   // Only the threads you've opened recently are here; see `watch`.
-  eventsByThread = $state.raw<Record<string, TimedEvent[]>>({})
+  private eventsByThread = $state.raw<Record<string, TimedEvent[]>>({})
   /** When each thread last moved, for the sidebar; streamed output doesn't count. */
   activityByThread = $state.raw<Record<string, number>>({})
-  currentToolByThread = $state<Record<string, string>>({})
-  /** Threads with earlier history in the store than is loaded. */
-  olderByThread = $state.raw<Record<string, boolean>>({})
-  /** Bumped when older rows load, so the rows they add don't enter as if new. */
-  historyGeneration = $state.raw<Record<string, number>>({})
+  private currentToolByThread = $state.raw<Record<string, string>>({})
+  private olderByThread = $state.raw<Record<string, boolean>>({})
+  private historyGeneration = $state.raw<Record<string, number>>({})
   private approvals = $state.raw<ApprovalRow[]>([])
-  private settings = $state.raw<SettingRow[]>([])
 
   private history = new Map<string, ThreadHistory>()
-  private builders = new Map<string, TimelineBuilder>()
-  private watched = new Map<string, number>()
+  private views = new Map<string, ThreadViewBuilder>()
+  private streams = new SharedSubscriptions((threadId) =>
+    subscribeAgentEvents(threadId, (streamed) => {
+      if (streamed.event.type === 'streamLagged') void this.refresh(threadId)
+      else this.enqueueEvent(threadId, streamed)
+    }),
+  )
   /** Oldest first. */
   private recent: string[] = []
   private userMessageWaiters = new Map<string, () => void>()
-  private conversationsCache = new WeakMap<
-    TimedEvent[],
-    ReturnType<typeof splitConversations>
-  >()
   private batcher = createEventBatcher<{
     threadId: string
     streamed: StreamedEvent
@@ -100,7 +108,6 @@ export class ThreadTimelineStore {
   hydrate(input: {
     threadIds: string[]
     approvals: ApprovalRow[]
-    settings: SettingRow[]
     activity: ThreadActivityRow[]
   }) {
     const alive = new Set(input.threadIds)
@@ -109,9 +116,6 @@ export class ThreadTimelineStore {
     }
     if (!deepEqual(input.approvals, this.approvals)) {
       this.approvals = input.approvals
-    }
-    if (!deepEqual(input.settings, this.settings)) {
-      this.settings = input.settings
     }
     this.mergeActivity(input.activity)
   }
@@ -139,46 +143,37 @@ export class ThreadTimelineStore {
     if (next) this.activityByThread = next
   }
 
-  /** True once the thread's history has been read, so an empty thread can be told from a loading one. */
-  isLoaded(threadId: string) {
-    return this.eventsByThread[threadId] !== undefined
+  /** The workspace whose review findings the thread ends with, if they're ready. */
+  private findingsFor(thread: Thread | undefined): string | null {
+    if (!thread || thread.scratchId) return null
+    const workspaceId = thread.workspaceId
+    if (!findings.forWorkspace(workspaceId).length) return null
+    return settings.reviewReady(workspaceId) ? workspaceId : null
   }
 
-  itemsForThread(
-    threadId: string,
-    meta: ThreadMeta,
-    findingCount: number,
-  ): TimelineItem[] {
-    // Only the conversation showing now; earlier ones can be resumed.
-    const events = this.conversations(threadId).current.events
-    const threadApprovals = this.approvalsByThread.get(threadId) ?? NO_APPROVALS
-    let builder = this.builders.get(threadId)
+  /** Everything the thread's conversation shows; the same object until something in it changes. */
+  threadView(threadId: string): ThreadView {
+    let builder = this.views.get(threadId)
     if (!builder) {
-      builder = new TimelineBuilder()
-      this.builders.set(threadId, builder)
+      builder = new ThreadViewBuilder()
+      this.views.set(threadId, builder)
     }
-    return builder.build({
-      events,
-      approvals: threadApprovals,
-      findingsReady: reviewFindingsReady(
-        this.settings,
-        meta.workspaceId,
-        findingCount,
-      ),
-      showLive: shouldShowLiveRow(meta.status, meta.paused),
-      scratch: meta.scratch,
+    const thread = threads.getById(threadId)
+    return builder.view({
+      events: this.eventsByThread[threadId],
+      approvals: this.approvalsByThread.get(threadId) ?? NO_APPROVALS,
+      findingsFor: this.findingsFor(thread),
+      meta: thread && {
+        status: thread.status,
+        paused: thread.paused,
+        activity: thread.activity,
+        lead: thread.ownRole === 'lead',
+        scratch: Boolean(thread.scratchId),
+      },
+      currentTool: this.currentToolByThread[threadId] ?? null,
+      hasOlder: this.olderByThread[threadId] ?? false,
+      generation: this.historyGeneration[threadId] ?? 0,
     })
-  }
-
-  /** The thread's current conversation and the earlier ones (see conversations.ts). */
-  conversations(threadId: string) {
-    const events = this.eventsByThread[threadId] ?? []
-    let split = this.conversationsCache.get(events)
-    if (!split) {
-      split = splitConversations(events)
-      this.conversationsCache.set(events, split)
-    }
-    return split
   }
 
   /**
@@ -186,20 +181,13 @@ export class ThreadTimelineStore {
    * off screen, and holds it in memory until the returned function is called.
    */
   watch(threadId: string): () => void {
-    this.watched.set(threadId, (this.watched.get(threadId) ?? 0) + 1)
+    const stop = this.streams.watch(threadId)
     this.markRecent(threadId)
-    const stop = bindVisibleThreadEvents(threadId, (streamed) => {
-      if (streamed.event.type === 'streamLagged') void this.refresh(threadId)
-      else this.enqueueEvent(threadId, streamed)
-    })
     // After subscribing, so nothing lands between the read and the stream.
     void this.refresh(threadId)
     return () => {
       stop()
       this.batcher.flush()
-      const count = (this.watched.get(threadId) ?? 1) - 1
-      if (count > 0) this.watched.set(threadId, count)
-      else this.watched.delete(threadId)
       this.evict()
     }
   }
@@ -210,10 +198,9 @@ export class ThreadTimelineStore {
   }
 
   private evict() {
-    const watched = new Set(this.watched.keys())
     for (const threadId of threadsToEvict(
       this.recent,
-      watched,
+      this.streams.watched(),
       LOADED_THREADS,
     )) {
       this.forget(threadId)
@@ -223,7 +210,7 @@ export class ThreadTimelineStore {
   private forget(threadId: string) {
     this.recent = this.recent.filter((id) => id !== threadId)
     this.history.delete(threadId)
-    this.builders.delete(threadId)
+    this.views.delete(threadId)
     const events = { ...this.eventsByThread }
     delete events[threadId]
     this.eventsByThread = events
@@ -263,7 +250,9 @@ export class ThreadTimelineStore {
 
   private async loadNewest(threadId: string, history: ThreadHistory) {
     const result = await commands.getThreadEvents(threadId, null, null, PAGE)
-    if (result.status === 'error' || this.history.get(threadId) !== history) {
+    if (this.history.get(threadId) !== history) return
+    if (result.status === 'error') {
+      readFailed(result.error)
       return
     }
     const rows = result.data.events
@@ -291,7 +280,9 @@ export class ThreadTimelineStore {
         null,
         PAGE,
       )
-      if (result.status === 'error' || this.history.get(threadId) !== history) {
+      if (this.history.get(threadId) !== history) return
+      if (result.status === 'error') {
+        readFailed(result.error)
         return
       }
       fetched.push(...result.data.events)
@@ -315,7 +306,9 @@ export class ThreadTimelineStore {
       history.oldestSeq,
       PAGE,
     )
-    if (result.status === 'error' || this.history.get(threadId) !== history) {
+    if (this.history.get(threadId) !== history) return false
+    if (result.status === 'error') {
+      readFailed(result.error)
       return false
     }
     const rows = result.data.events
@@ -338,14 +331,82 @@ export class ThreadTimelineStore {
     return rows.length > 0
   }
 
+  /**
+   * Posts a message to the thread's agent. The core shows it in the thread and moves the
+   * thread's status; resolves false (after toasting) if it didn't send.
+   */
+  async send(
+    threadId: string,
+    text: string,
+    attachments: ComposerAttachment[] = [],
+  ): Promise<boolean> {
+    firstPromptTransition(
+      () => this.userMessageShown(threadId),
+      () => appearance.glideWordmark(),
+    )
+    try {
+      const result = await commands.sendThreadPrompt(
+        threadId,
+        text,
+        attachments.map(toPromptAttachment),
+      )
+      if (result.status === 'ok') return true
+      toastError(coreErrorText(result.error, 'Could not reach the agent'))
+    } catch (error) {
+      toastError(
+        error instanceof Error ? error.message : 'Could not reach the agent',
+      )
+    }
+    return false
+  }
+
+  async stop(threadId: string) {
+    const result = await commands.cancelThreadTurn(threadId)
+    if (result.status === 'error') {
+      toastError(coreErrorText(result.error, 'Could not stop the agent'))
+    }
+  }
+
+  /**
+   * Swaps the conversation on screen for a fresh session, or back to an earlier one, whose
+   * session the agent resumes. The one on screen fades out first and comes back if it fails.
+   */
+  async switchConversation(threadId: string, to: Conversation | 'new') {
+    if (to === 'new') {
+      // The wordmark starts rising back at once, not after the swap lands.
+      appearance.glideWordmark()
+      appearance.wordmarkAway = false
+    }
+    const restore = await leaveConversation()
+    const result =
+      to === 'new'
+        ? await commands.newThreadSession(threadId)
+        : await commands.resumeThreadSession({
+            threadId,
+            conversationId: to.id,
+            sessionId: to.sessionId,
+          })
+    if (result.status === 'ok') return
+    restore()
+    if (to === 'new') appearance.wordmarkAway = true
+    toastError(
+      coreErrorText(
+        result.error,
+        to === 'new'
+          ? 'Could not start a new session'
+          : 'Could not resume that conversation',
+      ),
+    )
+  }
+
   /** For streamed events: they land together, once per frame, except your own messages. */
-  enqueueEvent(threadId: string, streamed: StreamedEvent) {
+  private enqueueEvent(threadId: string, streamed: StreamedEvent) {
     this.batcher.push({ threadId, streamed })
     if (isUserMessage(streamed)) this.batcher.flush()
   }
 
   /** Resolves once a message from you lands in the thread, or after `ms`. */
-  userMessageShown(threadId: string, ms = 1000): Promise<void> {
+  private userMessageShown(threadId: string, ms = 1000): Promise<void> {
     return new Promise((resolve) => {
       const done = () => {
         clearTimeout(timer)
@@ -366,10 +427,9 @@ export class ThreadTimelineStore {
       this.eventsByThread = { ...this.eventsByThread, [threadId]: shown }
     }
     if (batch.some(isUserMessage)) this.userMessageWaiters.get(threadId)?.()
-    const events = batch.map((streamed) => streamed.event)
     let liveTool: string | null = null
     let ended = false
-    for (const event of events) {
+    for (const { event } of batch) {
       if (event.type === 'currentTool' || event.type === 'toolCallUpdate') {
         liveTool = event.title ?? liveTool
       }

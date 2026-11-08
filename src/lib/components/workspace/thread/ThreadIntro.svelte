@@ -13,7 +13,7 @@
     nowMs: number
   } = $props()
 
-  const isLead = $derived(thread.role === 'Lead')
+  const isLead = $derived(thread.ownRole === 'lead')
   const engineName = $derived(engineDisplayName(thread.engine))
 
   const summaryAge = $derived.by(() => {

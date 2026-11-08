@@ -12,29 +12,27 @@
   import * as Select from '$lib/components/ui/select'
   import { formatRelativeAge } from '$lib/format/relative-time'
   import { heroLine, type Conversation } from '$lib/thread/conversations'
-  import { resumeConversation } from '$lib/thread/resume-conversation'
-  import type { Thread } from '$lib/state/threads.svelte'
-  import type { Workspace } from '$lib/state/workspaces.svelte'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import History from '@lucide/svelte/icons/history'
 
   let {
-    thread,
-    workspace,
-    conversationId,
-    earlier,
-    nowMs,
+    greeting,
+    who,
+    earlier = [],
+    nowMs = 0,
+    onResume,
   }: {
-    thread: Thread
-    /** Null on the new thread page: there's nothing to show until it's sent. */
-    workspace: Workspace | null
-    conversationId: string
-    earlier: Conversation[]
-    nowMs: number
+    /** Picks the greeting; the same one for as long as the conversation stays empty. */
+    greeting: string
+    /** The agent and where it works; none on the new thread page, until it's sent. */
+    who?: { role: string; branch: string; workspace: string }
+    /** Earlier conversations to resume. */
+    earlier?: Conversation[]
+    nowMs?: number
+    onResume?: (conversation: Conversation) => Promise<void>
   } = $props()
 
-  const threadId = $derived(thread.id)
-  const line = $derived(heroLine(`${threadId}:${conversationId}`))
+  const line = $derived(heroLine(greeting))
 
   let resuming = $state(false)
 
@@ -50,10 +48,10 @@
   // Picking one resumes it straight away, like picking a task types its prompt.
   async function resume(id: string) {
     const conversation = earlier.find((row) => row.id === id)
-    if (!conversation || resuming) return
+    if (!conversation || resuming || !onResume) return
     resuming = true
     try {
-      await resumeConversation(threadId, conversation)
+      await onResume(conversation)
     } finally {
       resuming = false
     }
@@ -71,20 +69,20 @@
     {line}
   </h2>
 
-  {#if workspace}
+  {#if who}
     <!-- Who you're talking to, and where they'll work. -->
     <p
       class="hero-who -mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground"
       data-od-id="thread-hero-who"
     >
-      <span class="font-medium text-foreground">{thread.role}</span>
+      <span class="font-medium text-foreground">{who.role}</span>
       <span aria-hidden="true">·</span>
       <span class="flex min-w-0 items-center gap-1 font-mono text-xs">
         <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
-        <span class="truncate">{workspace.branch}</span>
+        <span class="truncate">{who.branch}</span>
       </span>
       <span aria-hidden="true">·</span>
-      <span class="truncate">{workspace.name}</span>
+      <span class="truncate">{who.workspace}</span>
     </p>
   {/if}
 

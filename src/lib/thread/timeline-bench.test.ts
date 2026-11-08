@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EditVerb, TranscriptEvent } from '$lib/ipc/bindings'
-import { TimelineBuilder } from './map-events-to-timeline'
+import { TimelineBuilder } from './timeline/builder'
 import { buildTimelineRows } from './timeline-rows'
 import { splitConversations } from './conversations'
 import { reuseRows } from '$lib/state/reuse-rows'
@@ -76,8 +76,7 @@ describe('timeline pipeline at scale', () => {
     const input = (list: Timed[]) => ({
       events: list,
       approvals: [],
-      findingsReady: false,
-      showLive: true,
+      findingsFor: null,
     })
     const first = time('first build (5k events)', () =>
       new TimelineBuilder().build(input(events)),
@@ -96,7 +95,7 @@ describe('timeline pipeline at scale', () => {
             event: { type: 'messageChunk', role: 'agent', text: `chunk ${i} ` },
           },
         ]
-        const items = builder.build(input(streamed))
+        const { items } = builder.build(input(streamed))
         buildTimelineRows(items, 'Lead', 'Claude Code')
       }
     })

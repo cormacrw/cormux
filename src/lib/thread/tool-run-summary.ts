@@ -1,26 +1,28 @@
-import type { ToolRunStep } from './timeline-types'
+import type { RunStep } from './timeline-types'
+import { editPath } from './timeline/step-text'
 import { plural } from '$lib/format/plural'
 
-/** A run this long folds down to its summary once the agent has moved on. */
-export const COLLAPSE_RUN_AT = 6
+function isRole(step: RunStep, kind: string) {
+  return step.kind === 'tool' && step.role.kind === kind
+}
 
 /** `Read 12 files, edited 3, ran 4 commands`. */
-export function toolRunSummary(steps: ToolRunStep[]): string {
-  const of = (test: (step: ToolRunStep) => boolean) => steps.filter(test).length
-  const reads = of((step) => step.kind === 'tool' && step.icon === 'file')
-  const searches = of((step) => step.kind === 'tool' && step.icon === 'search')
-  const edits = editedPaths(steps).length
-  const commands = of(
-    (step) => step.kind === 'tool' && step.title.startsWith('Ran'),
+export function toolRunSummary(steps: RunStep[]): string {
+  const of = (test: (step: RunStep) => boolean) => steps.filter(test).length
+  const reads = of((step) => isRole(step, 'read'))
+  const searches = of(
+    (step) => isRole(step, 'search') || isRole(step, 'toolLookup'),
   )
-  const agents = of((step) => step.kind === 'tool' && Boolean(step.agent))
+  const edits = editedPaths(steps).length
+  const commands = of((step) => isRole(step, 'command'))
+  const agents = of((step) => isRole(step, 'subagent'))
   const other =
     steps.length -
     reads -
     searches -
     commands -
     agents -
-    of((step) => step.kind === 'edit')
+    of((step) => isRole(step, 'edit'))
   const parts = [
     reads ? `read ${plural(reads, 'file')}` : '',
     searches ? `ran ${plural(searches, 'search', 'searches')}` : '',
@@ -33,10 +35,11 @@ export function toolRunSummary(steps: ToolRunStep[]): string {
   return line.charAt(0).toUpperCase() + line.slice(1)
 }
 
-/** Each file the run changed, once. */
-export function editedPaths(steps: ToolRunStep[]): string[] {
+export function editedPaths(steps: RunStep[]): string[] {
   const paths = steps.flatMap((step) =>
-    step.kind === 'edit' && step.path ? [step.path] : [],
+    step.kind === 'tool' && step.role.kind === 'edit' && editPath(step)
+      ? [editPath(step)]
+      : [],
   )
   return [...new Set(paths)]
 }

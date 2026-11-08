@@ -53,6 +53,21 @@ export class SettingsStore {
   /** Focus Worktree setup after expanding (add repo). */
   focusRepoSetup = $state<string | null>(null)
 
+  /** The review in this workspace has finished and its findings are in. */
+  reviewReady(workspaceId: string): boolean {
+    return this.reviewSetting(workspaceId, 'status') === 'ready'
+  }
+
+  /** The review in this workspace has been posted to its PR. */
+  reviewSubmitted(workspaceId: string): boolean {
+    return this.reviewSetting(workspaceId, 'submitted') === 'true'
+  }
+
+  private reviewSetting(workspaceId: string, name: string) {
+    const key = `review:${workspaceId}/${name}`
+    return this.rows.find((row) => row.key === key)?.value
+  }
+
   hydrate(rows: SettingRow[]) {
     const previous = this.rows
     this.rows = reuseRows(previous, rows, (row) => row.key)

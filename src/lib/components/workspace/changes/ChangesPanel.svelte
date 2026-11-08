@@ -9,10 +9,10 @@
     diffComments,
   } from '$lib/changes/diff-comments.svelte'
   import { formatCommentsForAgent } from '$lib/changes/diff-comment-format'
-  import { sendThreadMessage } from '$lib/thread/send-message'
+
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { app, workspaceDiff, workspaceUi } from '$lib/state'
+  import { app, threadTimeline, workspaceDiff, workspaceUi } from '$lib/state'
   import { formatChangeCounts } from '$lib/workspace/diff-totals'
   import { isDiffCollapsed } from '$lib/changes/file-status'
   import { revealDiffLine } from '$lib/changes/reveal-line'
@@ -148,7 +148,7 @@
     sending = true
     const sent = comments
     diffComments.clear(workspace.id, commentScope)
-    if (await sendThreadMessage(thread.id, formatCommentsForAgent(sent))) {
+    if (await threadTimeline.send(thread.id, formatCommentsForAgent(sent))) {
       // Show the conversation so the agent's reply is in view.
       app.threadId = thread.id
       workspaceUi.openTab('thread')

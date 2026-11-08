@@ -37,18 +37,26 @@ const rows: TimelineRow[] = [
         {
           kind: 'tool',
           id: 't1',
-          icon: 'terminal',
-          title: 'Ran',
-          detail: 'pnpm test login',
-          rawDetail: 'pnpm test login --run',
+          role: {
+            kind: 'command',
+            command: 'pnpm test login --run',
+            description: null,
+          },
+          title: 'Bash',
+          detail: null,
+          locations: [],
+          status: 'completed',
           seq: 3,
           atMs: 0,
         },
         {
-          kind: 'edit',
+          kind: 'tool',
           id: 'e1',
-          path: 'src/login.ts',
-          verb: 'Edited',
+          role: { kind: 'edit', verb: 'Edited' },
+          title: 'Edit',
+          detail: null,
+          locations: ['src/login.ts'],
+          status: 'completed',
           seq: 4,
           atMs: 0,
         },
@@ -58,12 +66,11 @@ const rows: TimelineRow[] = [
   {
     kind: 'item',
     item: {
-      kind: 'thought',
+      kind: 'reply',
       id: 'a1',
       text: 'The login form never awaits the request.',
       seq: 5,
       atMs: 0,
-      role: 'agent',
     },
   },
 ]
@@ -90,12 +97,11 @@ describe('findMatches', () => {
     const reply: TimelineRow = {
       kind: 'item',
       item: {
-        kind: 'thought',
+        kind: 'reply',
         id: 'a2',
         text: 'One issue.\n<cormux-findings>[{"title":"Login expiry"}]</cormux-findings>',
         seq: 6,
         atMs: 0,
-        role: 'agent',
       },
     }
     expect(findMatches([reply], 'issue')).toHaveLength(1)

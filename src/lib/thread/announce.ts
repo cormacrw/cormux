@@ -1,17 +1,23 @@
 import type { TimelineItem } from './timeline-types'
+import { stepText, workedForLabel } from './timeline/step-text'
 
 function announcementForItem(item: TimelineItem, role: string): string | null {
   switch (item.kind) {
     case 'user':
       return null
+    case 'reply':
     case 'thought':
       return `${role}: ${item.text.slice(0, 240)}`
     case 'toolRun': {
-      const step = item.steps[item.steps.length - 1]
+      const step = item.steps.at(-1)
       if (!step) return null
-      if (step.kind === 'edit') return `${role} edited ${step.path}`
-      return `${role}: ${step.title}`
+      if (step.kind === 'tool' && step.role.kind === 'edit') {
+        return `${role} edited ${step.locations[0] ?? ''}`
+      }
+      return `${role}: ${stepText(step).title}`
     }
+    case 'worked':
+      return `${role}: ${workedForLabel(item.startedAtMs, item.atMs)}`
     case 'event':
       return item.title.replaceAll('`', '')
     case 'approval':
@@ -20,8 +26,6 @@ function announcementForItem(item: TimelineItem, role: string): string | null {
       return 'Review findings are ready'
     case 'plan':
       return `${role} proposed a plan`
-    case 'live':
-      return null
   }
 }
 
@@ -30,9 +34,7 @@ export function newestAgentAnnouncement(
   role: string,
 ): string | null {
   for (let i = items.length - 1; i >= 0; i -= 1) {
-    const item = items[i]
-    if (!item || item.kind === 'live') continue
-    const text = announcementForItem(item, role)
+    const text = announcementForItem(items[i]!, role)
     if (text) return text
   }
   return null
