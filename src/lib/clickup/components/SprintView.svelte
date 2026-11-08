@@ -8,6 +8,7 @@
   import {
     daysLeft,
     formatPoints,
+    sameStatus,
     sprintRange,
     sprintTotals,
     statusLabel,
@@ -360,7 +361,7 @@
           {@const isTarget =
             drag?.active &&
             overLane === lane.status.name &&
-            drag.task.status.toLowerCase() !== lane.status.name.toLowerCase()}
+            !sameStatus(drag.task.status, lane.status.name)}
           <section
             class={cn(
               'group/lane flex max-h-full w-[272px] shrink-0 flex-col rounded-xl border border-transparent bg-muted/40 transition-colors',

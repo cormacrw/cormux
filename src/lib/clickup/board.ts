@@ -9,8 +9,13 @@ type SprintLane = { status: ClickupStatus; tasks: ClickupTask[] }
 /** The Fibonacci values most teams estimate in, offered as one-click choices. */
 export const POINT_PRESETS = [0.5, 1, 2, 3, 5, 8] as const
 
-function sameStatus(a: string, b: string) {
-  return a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0
+/** ClickUp compares status names without case: `In Progress` is `in progress`. */
+export function statusKey(name: string) {
+  return name.toLowerCase()
+}
+
+export function sameStatus(a: string, b: string) {
+  return statusKey(a) === statusKey(b)
 }
 
 /** One lane per status, in ClickUp's order. Tasks keep the API's order within a lane. */
@@ -22,10 +27,6 @@ export function sprintLanes(
     status,
     tasks: tasks.filter((task) => sameStatus(task.status, status.name)),
   }))
-}
-
-export function statusKey(name: string) {
-  return name.toLowerCase()
 }
 
 export function formatPoints(points: number) {
@@ -105,7 +106,7 @@ export function withTaskStatus(
 export function withTaskPoints(
   board: ClickupBoard,
   taskId: string,
-  points: number,
+  points: number | null,
 ): ClickupBoard {
   return {
     ...board,
