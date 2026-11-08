@@ -15,12 +15,14 @@ function createWorkspace(input: WorkspaceInput) {
   const persisted = fixtureSnapshot.persisted
   const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ')
   const name = input.goal.slice(0, 48)
+  // The core drafts a branch from the goal when none is given; any `feat/` name stands in.
+  const branch = input.branch || `feat/harness-${n}`
   persisted.workspaces.push({
     ...persisted.workspaces[0]!,
     id: workspaceId,
     repoId: input.repoId,
     name,
-    branch: input.branch,
+    branch,
     status: 'idle',
     createdAt,
   })
@@ -29,7 +31,7 @@ function createWorkspace(input: WorkspaceInput) {
     id: workspaceId,
     repoId: input.repoId,
     name,
-    branch: input.branch,
+    branch,
     base: input.base,
   })
   persisted.threads.push({

@@ -3,6 +3,7 @@ use specta::Type;
 
 use crate::app::WorkspaceAppRuntime;
 use crate::git::WorktreeDiff;
+use crate::harness_config::RepoRunCommand;
 use crate::metrics::MemorySample;
 use crate::store::types::PersistedSnapshot;
 use crate::workspace_git::WorkspaceGitRuntime;
@@ -24,6 +25,8 @@ pub struct Snapshot {
     /// True when a ClickUp API key is saved. Every ClickUp surface hides without one.
     pub clickup_configured: bool,
     pub workspace_apps: Vec<WorkspaceAppRuntime>,
+    /// Each repo's run command (its own, else its committed config's), for repos with one.
+    pub repo_run_commands: Vec<RepoRunCommand>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

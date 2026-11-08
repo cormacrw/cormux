@@ -4,19 +4,13 @@ import {
 } from '$lib/composer/attachments'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
 import { commands, fetchSnapshot } from '$lib/ipc'
-import { draftBranchName, uniqueBranchName } from '$lib/new-workspace/draft'
-import {
-  hydrateFromSnapshot,
-  repos,
-  settings,
-  workspaceRecords,
-} from '$lib/state'
+import { hydrateFromSnapshot, repos, settings } from '$lib/state'
 
 /**
  * Spawns a thread: a new worktree off the repo's default branch, with the prompt as its first
- * message. If the prompt asks for other work to start from, the agent brings it in. The branch
- * drafted here is a stand-in: the core names the workspace and its branch and sets it up in the
- * background. Resolves the new workspace's id, or null (after toasting) if it couldn't start.
+ * message. If the prompt asks for other work to start from, the agent brings it in. The core
+ * names the workspace and its branch and sets it up in the background. Resolves the new
+ * workspace's id, or null (after toasting) if it couldn't start.
  */
 export async function startThread(input: {
   repoId: string
@@ -29,17 +23,10 @@ export async function startThread(input: {
   attachments?: ComposerAttachment[]
 }): Promise<string | null> {
   const { repoId, prompt } = input
-  const listed = await commands.listRepoBranches(repoId)
-  const taken = [
-    ...(listed.status === 'ok' ? listed.data.branches : []),
-    ...workspaceRecords.records
-      .filter((row) => row.repoId === repoId)
-      .map((row) => row.branch),
-  ]
   const result = await commands.createWorkspace({
     repoId,
     name: '',
-    branch: uniqueBranchName(draftBranchName(prompt), taken),
+    branch: '',
     base: repos.getById(repoId)?.defaultBranch?.trim() || 'main',
     engine: settings.defaultEngine,
     goal: prompt,

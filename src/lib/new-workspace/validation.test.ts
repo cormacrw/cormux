@@ -5,16 +5,21 @@ describe('validateBranchName', () => {
   const ctx = {
     existingBranches: ['main', 'develop'],
     workspaceBranches: ['feat/active'],
+    validRef: true,
   }
 
   it('requires a value', () => {
     expect(validateBranchName('', ctx)).toBe('required')
+    expect(validateBranchName('  ', { ...ctx, validRef: false })).toBe(
+      'required',
+    )
   })
 
-  it('rejects invalid characters and paths', () => {
-    expect(validateBranchName('feat//login', ctx)).toBe('format')
-    expect(validateBranchName('/feat', ctx)).toBe('format')
-    expect(validateBranchName('feat..x', ctx)).toBe('format')
+  it('takes the core’s word on what git accepts', () => {
+    expect(validateBranchName('feat//login', { ...ctx, validRef: false })).toBe(
+      'format',
+    )
+    expect(validateBranchName('feat/é', ctx)).toBeNull()
   })
 
   it('detects existing branches in the selected repo', () => {

@@ -3,12 +3,12 @@ type BranchValidationContext = {
   workspaceBranches: string[]
   /** The repo's default branch, which stays in its own checkout. */
   defaultBranch?: string
+  /** Whether the core's `validateBranchName` took it as a ref name: git's rules live there. */
+  validRef: boolean
 }
 
 type BranchFieldError =
   'required' | 'format' | 'default' | 'exists' | 'workspaceConflict'
-
-const BRANCH_FORMAT = /^[A-Za-z0-9._/-]+$/
 
 export function validateBranchName(
   branch: string,
@@ -16,15 +16,7 @@ export function validateBranchName(
 ): BranchFieldError | null {
   const value = branch.trim()
   if (!value) return 'required'
-  if (
-    !BRANCH_FORMAT.test(value) ||
-    value.includes('//') ||
-    value.startsWith('/') ||
-    value.endsWith('/') ||
-    value.includes('..')
-  ) {
-    return 'format'
-  }
+  if (!ctx.validRef) return 'format'
   if (value === ctx.defaultBranch) return 'default'
   if (ctx.existingBranches.includes(value)) return 'exists'
   if (ctx.workspaceBranches.includes(value)) return 'workspaceConflict'

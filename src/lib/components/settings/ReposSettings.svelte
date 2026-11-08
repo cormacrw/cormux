@@ -17,10 +17,8 @@
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { showToast } from '$lib/feedback/show-toast'
   import {
-    addRepoErrorMessage,
     removeRepoBlockReason,
     repoDomKey,
-    validateAddRepoPath,
     workspaceCountForRepo,
   } from '$lib/settings/repos-validation'
   import { repos, settings, workspaceRecords } from '$lib/state'
@@ -49,8 +47,10 @@
 
   const saves = debouncedSaves()
 
-  function effectiveRun(repo: { runCommand: string | null }) {
-    return (repo.runCommand ?? '').trim()
+  /** The run command the repo commits in `.cormux/config.json`, used when this field is blank. */
+  function committedRun(repoId: string) {
+    const run = repos.runCommandById[repoId]
+    return run?.source === 'config' ? run.command : ''
   }
 
   $effect(() => {
@@ -190,26 +190,11 @@
     }
   }
 
-  function validatePathClient() {
-    const code = validateAddRepoPath(pathDraft, repos.items)
-    if (!code) {
-      pathError = null
-      return true
-    }
-    const segment = pathDraft.trim().replace(/\/+$/, '').split('/').pop()
-    pathError = addRepoErrorMessage(code, segment)
-    return false
-  }
-
+  // The core checks the path (form, folder, repo, duplicates) and says what's wrong.
   async function submitAdd(event: Event) {
     event.preventDefault()
-    if (!validatePathClient()) {
-      document.getElementById('settings-repo-path')?.focus()
-      return
-    }
     adding = true
-    const normalized = pathDraft.trim().replace(/\/+$/, '')
-    const result = await commands.addRepo({ path: normalized })
+    const result = await commands.addRepo({ path: pathDraft })
     adding = false
     if (result.status === 'error') {
       pathError = coreErrorText(result.error)
@@ -269,9 +254,9 @@
     {@const used = workspaceCountForRepo(repo.id, workspaceRecords.records)}
     {@const block = removeRepoBlockReason(repo, repos.items.length, used)}
     <!-- Follows what's being typed, so the flag clears as you type, not when the save lands. -->
-    {@const run = effectiveRun({
-      runCommand: fieldValue(`run-${repo.id}`, repo.runCommand ?? ''),
-    })}
+    {@const run =
+      fieldValue(`run-${repo.id}`, repo.runCommand ?? '').trim() ||
+      committedRun(repo.id)}
     {@const panelOpen = isExpanded(repo.id)}
     <li
       class="repo-item glass-card overflow-hidden rounded-2xl"
@@ -378,7 +363,7 @@
             <Input
               id="run-{repo.id}"
               value={fieldValue(`run-${repo.id}`, repo.runCommand ?? '')}
-              placeholder="pnpm dev"
+              placeholder={committedRun(repo.id) || 'pnpm dev'}
               spellcheck={false}
               autocomplete="off"
               class="font-mono text-xs"

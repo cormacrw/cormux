@@ -85,6 +85,7 @@ pub fn builder() -> Builder {
             commands::add_repo,
             commands::remove_repo,
             commands::test_repo_setup,
+            commands::validate_branch_name,
             commands::set_setting,
             commands::send_workspace_findings,
             commands::dismiss_workspace_findings,

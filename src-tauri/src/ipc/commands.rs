@@ -44,6 +44,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         .await;
     let workspace_ids: Vec<String> = workspaces.iter().map(|row| row.id.clone()).collect();
     let workspace_git = state.workspace_git.snapshot(&workspace_ids).await;
+    let repo_run_commands = crate::harness_config::repo_run_commands(&persisted.repos);
 
     Ok(Snapshot {
         version: state.out.version(),
@@ -55,7 +56,15 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         github_auth_configured,
         clickup_configured: state.clickup.is_configured(),
         workspace_apps: state.apps.snapshot(),
+        repo_run_commands,
     })
+}
+
+/// Whether git would take `name` as a branch name; the error says why not.
+#[tauri::command]
+#[specta::specta]
+pub fn validate_branch_name(name: String) -> Result<()> {
+    crate::git::validate_ref_name(name.trim(), "branch")
 }
 
 #[tauri::command]

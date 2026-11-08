@@ -97,6 +97,35 @@ pub fn repo_run_command(repo: &RepoRecord) -> Result<Option<RunCommand>> {
         }))
 }
 
+/// A repo's run command, for the webview: what Run starts in its workspaces unless they set
+/// their own.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRunCommand {
+    pub repo_id: String,
+    pub command: String,
+    pub source: RunCommandSource,
+}
+
+/// Each repo's run command, for those that have one. A committed config that can't be read
+/// counts as none here; adding the repo and running its app report it.
+pub fn repo_run_commands(repos: &[RepoRecord]) -> Vec<RepoRunCommand> {
+    repos
+        .iter()
+        .filter_map(|repo| match repo_run_command(repo) {
+            Ok(run) => run.map(|run| RepoRunCommand {
+                repo_id: repo.id.clone(),
+                command: run.command,
+                source: run.source,
+            }),
+            Err(error) => {
+                log::warn!("run command for {}: {error}", repo.id);
+                None
+            }
+        })
+        .collect()
+}
+
 /// The command Run starts for a workspace: its own when set, else the repo's.
 pub fn workspace_run_command(
     store: &Store,
