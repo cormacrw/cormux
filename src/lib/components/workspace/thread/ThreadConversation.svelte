@@ -39,6 +39,7 @@
   import type { ConversationSource, RowContext } from './rows/context'
   import { runCollapses } from './rows/tool-run'
   import ThreadFind from './ThreadFind.svelte'
+  import { HERO_COLUMN, showsHero } from './ThreadHero.svelte'
   import TimelineMessages from './TimelineMessages.svelte'
 
   let {
@@ -63,6 +64,7 @@
     /** On screen rather than under a slide-out; coming back lands on the newest message. */
     shown?: boolean
     odId?: string
+    /** Around the timeline; the greeting has its own column. */
     contentClass?: ClassValue
     padBottom?: string
     /** Shown instead of the timeline while the conversation is empty. */
@@ -79,7 +81,7 @@
   const conversationId = $derived(view.conversation.id)
   const loaded = $derived(view.loaded)
   const generation = $derived(view.generation)
-  const showHero = $derived(Boolean(hero) && view.loaded && !view.items.length)
+  const showHero = $derived(Boolean(hero) && showsHero(view))
   const rows = $derived(buildTimelineRows(view.items, role, engine))
   const useVirtual = $derived(rows.length > 150)
 
@@ -442,11 +444,13 @@
   >
     <div
       bind:this={contentEl}
-      class={[
-        'mx-auto w-full max-w-(--thread-column) px-4 select-text',
-        contentClass,
-      ]}
-      style:padding-bottom={padBottom}
+      class={showHero
+        ? HERO_COLUMN
+        : [
+            'mx-auto w-full max-w-(--thread-column) px-4 select-text',
+            contentClass,
+          ]}
+      style:padding-bottom={showHero ? undefined : padBottom}
     >
       {#if !view.loaded}
         <!-- Reads in a moment; a greeting here would flash before the conversation. -->

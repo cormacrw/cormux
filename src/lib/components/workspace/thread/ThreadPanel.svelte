@@ -31,7 +31,7 @@
     threadOptions,
   } from './ThreadOptionPicker.svelte'
   import ThreadConversation from './ThreadConversation.svelte'
-  import ThreadHero from './ThreadHero.svelte'
+  import ThreadHero, { showsHero } from './ThreadHero.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
   import ThreadReferences from './ThreadReferences.svelte'
   import type { ConversationSource } from './rows/context'
@@ -70,7 +70,7 @@
   }
   const view = $derived(threadTimeline.threadView(threadId))
   const live = $derived(view.live)
-  const showHero = $derived(view.loaded && view.items.length === 0)
+  const showHero = $derived(showsHero(view))
   let conversation: ThreadConversation | undefined = $state()
 
   const threadEntities = $derived(
@@ -136,17 +136,8 @@
     engine={engineDisplayName(thread.engine)}
     {source}
     shown={workspaceUi.activeTab === 'thread'}
-    contentClass={[
-      'pt-3',
-      // The greeting sits at the bottom, its box reaching down to the prompt
-      // bar so it can fall away behind it (see ThreadHero).
-      showHero
-        ? 'flex min-h-full flex-col overflow-clip'
-        : live
-          ? 'pb-14'
-          : 'pb-4',
-    ]}
-    padBottom={live && !showHero && liveStatusHeight
+    contentClass={['pt-3', live ? 'pb-14' : 'pb-4']}
+    padBottom={live && liveStatusHeight
       ? `calc(${liveStatusHeight}px + 1.75rem)`
       : undefined}
   >

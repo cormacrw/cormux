@@ -6,6 +6,19 @@
   the bar's top edge, so sending the first prompt drops it out of view right
   behind the bar.
 -->
+<script lang="ts" module>
+  import type { ThreadView } from '$lib/thread/thread-view'
+
+  /** The column a greeting stands in, from the top of the page down to the prompt bar. */
+  export const HERO_COLUMN =
+    'mx-auto flex min-h-full w-full max-w-(--thread-column) flex-col overflow-clip px-4 pt-3 select-text'
+
+  /** A loaded conversation with nothing in it shows the greeting instead. */
+  export function showsHero(view: ThreadView) {
+    return view.loaded && view.items.length === 0
+  }
+</script>
+
 <script lang="ts">
   import { plural } from '$lib/format/plural'
   import * as Select from '$lib/components/ui/select'
