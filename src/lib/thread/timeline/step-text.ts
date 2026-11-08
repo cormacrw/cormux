@@ -79,10 +79,15 @@ export function stepText(step: RunStep): StepText {
   }
 }
 
+/** The last part of a path: `src/lib/a.ts` is `a.ts`. */
+export function basename(path: string): string {
+  return path.split('/').pop() ?? path
+}
+
 /** One line for a step, as a subagent's latest move reads: `Read src/a.ts`, `Edited a.ts`. */
 export function stepLine(step: RunStep): string {
   if (step.kind === 'tool' && step.role.kind === 'edit') {
-    return `${step.role.verb} ${editPath(step).split('/').pop()}`
+    return `${step.role.verb} ${basename(editPath(step))}`
   }
   const { title, detail } = stepText(step)
   return [title, detail].filter(Boolean).join(' ')
