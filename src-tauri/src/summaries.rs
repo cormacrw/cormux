@@ -267,13 +267,9 @@ mod tests {
         state
             .store
             .upsert_repo(&crate::store::types::RepoRecord {
-                id: "r1".into(),
                 path: "/tmp/app".into(),
                 name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
+                ..crate::store::fixtures::repo("r1")
             })
             .unwrap();
         state.store.insert_workspace(&workspace()).unwrap();

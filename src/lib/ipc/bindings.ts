@@ -987,7 +987,19 @@ export type Error =
  * The request itself was wrong: a missing value, an unknown id, a finding in the wrong state.
  */
 { kind: "Invalid"; message: string } | { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: GitConflictOperation; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
-export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null; sentToThreadId: string | null }
+export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: FindingStatus; commitSha: string | null; sentToThreadId: string | null }
+/**
+ * Where a review finding stands.
+ */
+export type FindingStatus = "open" | 
+/**
+ * Sent to a thread to fix.
+ */
+"sent" | "fixed" | 
+/**
+ * Kept in the list, but not sent or posted.
+ */
+"dismissed"
 /**
  * The git operation a conflict stopped.
  */

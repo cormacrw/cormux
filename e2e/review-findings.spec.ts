@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import type { FindingRow } from '../src/lib/ipc/bindings'
 import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
@@ -9,7 +10,7 @@ const finding = (
   file: string | null,
   line: number | null,
   explanation: string,
-) => ({
+): FindingRow => ({
   id,
   workspaceId: 'ws-auth',
   severity,

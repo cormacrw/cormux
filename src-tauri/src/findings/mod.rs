@@ -48,9 +48,9 @@ pub async fn send_workspace_findings(
     let thread = state
         .store
         .thread_by_id(thread_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown thread {thread_id}")))?;
+        .ok_or_else(|| Error::Invalid(format!("unknown thread {thread_id}")))?;
     if thread.workspace_id != workspace_id {
-        return Err(Error::Workspace(
+        return Err(Error::Invalid(
             "thread does not belong to this workspace".into(),
         ));
     }
@@ -65,7 +65,7 @@ pub async fn send_workspace_findings(
                 "finding {id} is in another workspace"
             )));
         }
-        if row.status != "open" {
+        if row.status != crate::model::FindingStatus::Open {
             return Err(Error::Invalid(format!("finding {id} is not open")));
         }
         picked.push(row);
@@ -193,7 +193,10 @@ async fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[Strin
             batch_rows.push(row);
         }
     }
-    if !batch_rows.iter().all(|row| row.status == "fixed") {
+    if !batch_rows
+        .iter()
+        .all(|row| row.status == crate::model::FindingStatus::Fixed)
+    {
         return Ok(());
     }
 
@@ -250,13 +253,9 @@ mod tests {
         state
             .store
             .upsert_repo(&RepoRecord {
-                id: "r1".into(),
                 path: "/tmp/app".into(),
                 name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
+                ..crate::store::fixtures::repo("r1")
             })
             .unwrap();
         state
@@ -290,7 +289,7 @@ mod tests {
                     file: None,
                     line: None,
                     explanation: "wrong".into(),
-                    status: "open".into(),
+                    status: crate::model::FindingStatus::Open,
                     commit_sha: None,
                     sent_to_thread_id: None,
                 })
@@ -299,8 +298,14 @@ mod tests {
         (state, fake, ids, recording)
     }
 
-    fn finding_status(state: &AppState, id: &str) -> String {
-        state.store.finding_by_id(id).unwrap().unwrap().status
+    fn finding_status(state: &AppState, id: &str) -> &'static str {
+        state
+            .store
+            .finding_by_id(id)
+            .unwrap()
+            .unwrap()
+            .status
+            .as_str()
     }
 
     fn thread_status(state: &AppState) -> &'static str {

@@ -83,7 +83,7 @@ pub fn thread_row(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
     state
         .store
         .thread_by_id(thread_id)?
-        .ok_or_else(|| Error::Store(format!("unknown thread {thread_id}")))
+        .ok_or_else(|| Error::Invalid(format!("unknown thread {thread_id}")))
 }
 
 /// A message as the thread shows it, where the transcript saved it.

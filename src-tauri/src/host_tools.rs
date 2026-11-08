@@ -402,13 +402,10 @@ mod tests {
         state
             .store
             .upsert_repo(&RepoRecord {
-                id: "r1".into(),
                 path: "/tmp/app".into(),
                 name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
                 run_command: Some("echo hi".into()),
-                single_instance: false,
+                ..crate::store::fixtures::repo("r1")
             })
             .unwrap();
         state
@@ -593,7 +590,7 @@ mod tests {
                 file: None,
                 line: None,
                 explanation: "wrong".into(),
-                status: "open".into(),
+                status: crate::model::FindingStatus::Open,
                 commit_sha: None,
                 sent_to_thread_id: None,
             })
@@ -617,12 +614,12 @@ mod tests {
         assert_eq!(fixed("t2").await["result"]["isError"], true);
         assert_eq!(
             state.store.finding_by_id("f1").unwrap().unwrap().status,
-            "sent"
+            crate::model::FindingStatus::Sent
         );
 
         assert!(fixed("t1").await["result"].get("isError").is_none());
         let finding = state.store.finding_by_id("f1").unwrap().unwrap();
-        assert_eq!(finding.status, "fixed");
+        assert_eq!(finding.status, crate::model::FindingStatus::Fixed);
         assert_eq!(finding.commit_sha.as_deref(), Some("abc123"));
         assert!(
             state.store.thread_by_id("t1").unwrap().unwrap().status == ThreadStatus::Idle,

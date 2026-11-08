@@ -398,13 +398,9 @@ esac
         state
             .store
             .upsert_repo(&RepoRecord {
-                id: "r1".into(),
                 path: repo.to_string_lossy().to_string(),
                 name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
+                ..crate::store::fixtures::repo("r1")
             })
             .unwrap();
         let worktrees = dir.path().join("worktrees");

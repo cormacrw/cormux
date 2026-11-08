@@ -1,4 +1,5 @@
 import { fixtureSnapshot, fixtureTimeline } from '../../fixture-snapshot'
+import type { FindingStatus } from '$lib/ipc/bindings'
 import type { HarnessRuntime } from '../runtime'
 import { shownMessage } from '../seed'
 import type { HandlerSlice, Input } from '../types'
@@ -130,7 +131,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
     dismiss_workspace_findings: ({
       input,
     }: Input<'dismiss_workspace_findings'>) => {
-      const [from, to] = input.dismissed
+      const [from, to]: [FindingStatus, FindingStatus] = input.dismissed
         ? ['open', 'dismissed']
         : ['dismissed', 'open']
       for (const row of fixtureSnapshot.persisted.findings) {

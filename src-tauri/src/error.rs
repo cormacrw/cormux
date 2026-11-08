@@ -72,11 +72,11 @@ impl From<tokio::task::JoinError> for Error {
 
 impl Error {
     pub fn unknown_workspace(workspace_id: &str) -> Self {
-        Self::Workspace(format!("unknown workspace {workspace_id}"))
+        Self::Invalid(format!("unknown workspace {workspace_id}"))
     }
 
     pub fn unknown_repo(repo_id: &str) -> Self {
-        Self::Workspace(format!("unknown repo {repo_id}"))
+        Self::Invalid(format!("unknown repo {repo_id}"))
     }
 }
 

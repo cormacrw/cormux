@@ -372,7 +372,7 @@ pub async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<(
             file: finding.file,
             line: finding.line,
             explanation: finding.explanation,
-            status: "open".into(),
+            status: crate::model::FindingStatus::Open,
             commit_sha: None,
             sent_to_thread_id: None,
         })
@@ -438,7 +438,7 @@ fn complete_branch_review(
         .store
         .findings_for_workspace(&workspace.id)?
         .iter()
-        .any(|row| row.status == "open");
+        .any(|row| row.status == crate::model::FindingStatus::Open);
     if !found {
         state.out.toast(ToastRaisedPayload {
             tone: ToastTone::Ok,
@@ -568,7 +568,7 @@ pub async fn submit_workspace_review(
         .store
         .findings_for_workspace(&input.workspace_id)?
         .into_iter()
-        .filter(|row| row.status == "open")
+        .filter(|row| row.status == crate::model::FindingStatus::Open)
         .collect();
 
     let mut body_lines = Vec::new();
@@ -728,13 +728,9 @@ mod tests {
         state
             .store
             .upsert_repo(&RepoRecord {
-                id: "r1".into(),
                 path: "/tmp/app".into(),
                 name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
+                ..crate::store::fixtures::repo("r1")
             })
             .unwrap();
         state

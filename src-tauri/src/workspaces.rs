@@ -449,13 +449,10 @@ mod tests {
         let store = Store::in_memory().unwrap();
         store
             .upsert_repo(&RepoRecord {
-                id: "r1".into(),
                 path: "/tmp/app".into(),
                 name: "app".into(),
                 default_branch: Some(default_branch.into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
+                ..crate::store::fixtures::repo("r1")
             })
             .unwrap();
         store

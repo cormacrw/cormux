@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
+use crate::model::FindingStatus;
 use crate::store::{Store, query_all};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -17,7 +18,7 @@ pub struct FindingRow {
     pub file: Option<String>,
     pub line: Option<i64>,
     pub explanation: String,
-    pub status: String,
+    pub status: FindingStatus,
     pub commit_sha: Option<String>,
     pub sent_to_thread_id: Option<String>,
 }
@@ -41,8 +42,8 @@ impl Store {
     pub fn mark_finding_fixed(&self, finding_id: &str, commit_sha: &str) -> Result<()> {
         self.with_conn(|conn| {
             let changed = conn.execute(
-                "UPDATE findings SET status = 'fixed', commit_sha = ?1 WHERE id = ?2",
-                rusqlite::params![commit_sha, finding_id],
+                "UPDATE findings SET status = ?1, commit_sha = ?2 WHERE id = ?3",
+                rusqlite::params![FindingStatus::Fixed.as_str(), commit_sha, finding_id],
             )?;
             if changed == 0 {
                 return Err(Error::Invalid(format!("unknown finding {finding_id}")));
@@ -55,11 +56,13 @@ impl Store {
     pub fn mark_findings_sent(&self, finding_ids: &[String], thread_id: &str) -> Result<()> {
         self.with_tx(|conn| {
             let mut stmt = conn.prepare_cached(
-                "UPDATE findings SET status = 'sent', sent_to_thread_id = ?1
-                 WHERE id = ?2 AND status = 'open'",
+                "UPDATE findings SET status = ?1, sent_to_thread_id = ?2
+                 WHERE id = ?3 AND status = ?4",
             )?;
             for id in finding_ids {
-                if stmt.execute(rusqlite::params![thread_id, id])? == 0 {
+                let sent = FindingStatus::Sent.as_str();
+                let open = FindingStatus::Open.as_str();
+                if stmt.execute(rusqlite::params![sent, thread_id, id, open])? == 0 {
                     return Err(Error::Invalid(format!(
                         "finding {id} is not open or does not exist"
                     )));
@@ -78,9 +81,9 @@ impl Store {
         dismissed: bool,
     ) -> Result<usize> {
         let (from, to) = if dismissed {
-            ("open", "dismissed")
+            (FindingStatus::Open, FindingStatus::Dismissed)
         } else {
-            ("dismissed", "open")
+            (FindingStatus::Dismissed, FindingStatus::Open)
         };
         self.with_tx(|conn| {
             let mut stmt = conn.prepare_cached(
@@ -89,7 +92,12 @@ impl Store {
             )?;
             let mut changed = 0;
             for id in finding_ids {
-                changed += stmt.execute(rusqlite::params![to, id, workspace_id, from])?;
+                changed += stmt.execute(rusqlite::params![
+                    to.as_str(),
+                    id,
+                    workspace_id,
+                    from.as_str()
+                ])?;
             }
             Ok(changed)
         })
@@ -183,7 +191,7 @@ fn write_finding(conn: &Connection, finding: &FindingRow) -> Result<()> {
             finding.file,
             finding.line,
             finding.explanation,
-            finding.status,
+            finding.status.as_str(),
             finding.commit_sha,
             finding.sent_to_thread_id
         ],
@@ -200,7 +208,7 @@ fn row_to_finding(row: &rusqlite::Row<'_>) -> rusqlite::Result<FindingRow> {
         file: row.get(4)?,
         line: row.get(5)?,
         explanation: row.get(6)?,
-        status: row.get(7)?,
+        status: FindingStatus::parse(&row.get::<_, String>(7)?),
         commit_sha: row.get(8)?,
         sent_to_thread_id: row.get(9)?,
     })

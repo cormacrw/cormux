@@ -176,7 +176,7 @@ mod tests {
                 file: Some("a.ts".into()),
                 line: Some(10),
                 explanation: "secret".into(),
-                status: "open".into(),
+                status: crate::model::FindingStatus::Open,
                 commit_sha: None,
                 sent_to_thread_id: None,
             })

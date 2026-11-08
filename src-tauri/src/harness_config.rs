@@ -216,13 +216,9 @@ mod tests {
 
     fn repo(path: &Path, run_command: Option<&str>) -> RepoRecord {
         RepoRecord {
-            id: "app".into(),
             path: path.to_string_lossy().to_string(),
-            name: "app".into(),
-            default_branch: Some("main".into()),
-            setup_commands: String::new(),
             run_command: run_command.map(str::to_string),
-            single_instance: false,
+            ..crate::store::fixtures::repo("app")
         }
     }
 
