@@ -150,7 +150,6 @@ pub async fn create_review_workspace(
         });
     }
 
-    let engine = crate::settings::Settings::load(&state.store).default_engine_name();
     let branch = review_branch(state, &input.repo_id, pr.num).await?;
     let user_message = user_review_message(&pr);
     let created = crate::provisioning::create(
@@ -162,7 +161,6 @@ pub async fn create_review_workspace(
             branch,
             base: pr.base.clone(),
             pr: Some((pr.num, Some(pr.html_url.clone()))),
-            engine: engine.clone(),
             parent_thread_id: None,
             picks: Default::default(),
             setup_message: user_message.clone(),

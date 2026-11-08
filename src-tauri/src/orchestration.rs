@@ -236,7 +236,6 @@ pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) ->
             name: String::new(),
             branch: String::new(),
             base: new.base,
-            engine: Some(caller.engine.clone()),
             goal: new.goal,
             model,
             effort,

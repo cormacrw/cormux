@@ -28,7 +28,6 @@ export async function startThread(input: {
     name: '',
     branch: '',
     base: null,
-    engine: null,
     goal: prompt,
     model: input.model ?? null,
     effort: input.effort ?? null,

@@ -845,11 +845,7 @@ branch: string;
 /**
  * `None` or blank starts from the repo's default branch.
  */
-base: string | null; 
-/**
- * `None` or blank uses the default engine in Settings.
- */
-engine: string | null; goal: string; 
+base: string | null; goal: string; 
 /**
  * The model to start on; `None` leaves the engine's default.
  */

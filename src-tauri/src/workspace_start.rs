@@ -25,8 +25,6 @@ pub struct CreateWorkspaceInput {
     pub branch: String,
     /// `None` or blank starts from the repo's default branch.
     pub base: Option<String>,
-    /// `None` or blank uses the default engine in Settings.
-    pub engine: Option<String>,
     pub goal: String,
     /// The model to start on; `None` leaves the engine's default.
     pub model: Option<String>,
@@ -70,10 +68,6 @@ pub async fn start_workspace(
         Some(base) => base.to_string(),
         None => state.store.repo(&input.repo_id)?.default_branch,
     };
-    let engine = match given(input.engine.as_deref()) {
-        Some(engine) => engine.to_string(),
-        None => crate::settings::Settings::load(&state.store).default_engine_name(),
-    };
 
     // Read before anything is recorded, so an attachment that can't be read starts nothing.
     let (prompt, shown) = if input.attachments.is_empty() {
@@ -109,7 +103,6 @@ pub async fn start_workspace(
             branch: branch.clone(),
             base: base.clone(),
             pr: None,
-            engine,
             parent_thread_id,
             picks: ThreadPicks {
                 model: input.model.clone(),
@@ -483,7 +476,6 @@ esac
             name: name.into(),
             branch: branch.into(),
             base: Some("main".into()),
-            engine: Some("claude".into()),
             goal: goal.into(),
             model: None,
             effort: None,
@@ -644,11 +636,10 @@ esac
     }
 
     #[tokio::test]
-    async fn with_no_base_or_engine_the_repos_default_branch_and_the_default_engine_are_used() {
+    async fn with_no_base_the_repos_default_branch_and_the_default_engine_are_used() {
         let f = fixture().await;
         let request = CreateWorkspaceInput {
             base: Some("  ".into()),
-            engine: None,
             ..input("Work", "feat/y", "")
         };
 

@@ -605,7 +605,6 @@ mod tests {
                 branch: "feat/x".into(),
                 base: "develop".into(),
                 pr: None,
-                engine: "claude".into(),
                 parent_thread_id: None,
                 picks: Default::default(),
                 setup_message: String::new(),

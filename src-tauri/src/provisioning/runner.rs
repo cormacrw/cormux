@@ -27,7 +27,6 @@ pub struct WorkspaceSpec {
     pub base: String,
     /// The pull request it's for, with its page.
     pub pr: Option<(i64, Option<String>)>,
-    pub engine: String,
     /// The thread that asked for the workspace, when an agent did.
     pub parent_thread_id: Option<String>,
     /// What its thread starts on, stored with it, since the engine reads it when it launches.
@@ -99,7 +98,7 @@ pub async fn create(
             &thread_id,
             &workspace_id,
             spec.kind.own_role(),
-            &spec.engine,
+            crate::settings::Settings::load(&state.store).default_engine_name(),
         )
     };
     state
@@ -606,7 +605,6 @@ mod tests {
                 branch: "feat/x".into(),
                 base: "develop".into(),
                 pr: None,
-                engine: "claude".into(),
                 parent_thread_id: None,
                 picks: Default::default(),
                 setup_message: setup_message.into(),
