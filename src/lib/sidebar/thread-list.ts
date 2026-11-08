@@ -1,24 +1,15 @@
-import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
+import { needsAttention } from '$lib/state/activity'
 
 /**
- * Attention: nothing is happening, so the thread needs prompting or closing. Quiet: it's working,
- * or it's a read-only leftover there's nothing to do with.
+ * Attention: the workspace needs you (`needsAttention`). Quiet: it's working, or it's a read-only
+ * leftover there's nothing to do with.
  */
 export type ThreadUrgency = 'attention' | 'quiet'
 
-export function threadUrgency(input: {
-  lifecycle: WorkspaceLifecycle
-  paused: boolean
-  pendingApprovals: number
-  /** The thread's own status, which can be ahead of its workspace's. */
-  threadStatus: string | undefined
-}): ThreadUrgency {
-  const working =
-    input.threadStatus === 'running' ||
-    input.threadStatus === 'provisioning' ||
-    input.lifecycle === 'provisioning' ||
-    (input.lifecycle === 'running' && !input.paused)
-  return working && input.pendingApprovals === 0 ? 'quiet' : 'attention'
+export function threadUrgency(
+  ...args: Parameters<typeof needsAttention>
+): ThreadUrgency {
+  return needsAttention(...args) ? 'attention' : 'quiet'
 }
 
 /**

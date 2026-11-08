@@ -49,12 +49,7 @@ class ThreadList {
         title: workspace.name,
         repoName: repos.getById(workspace.repoId)?.name || null,
         branch: workspace.branch,
-        urgency: threadUrgency({
-          lifecycle: workspace.lifecycle,
-          paused: workspace.paused,
-          pendingApprovals: workspace.pendingApprovals,
-          threadStatus: thread?.status,
-        }),
+        urgency: threadUrgency(workspace, thread?.status),
         activityAtMs:
           (thread && activity[thread.id]) || (workspace.createdAtMs ?? 0),
         workspace,
