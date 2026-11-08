@@ -153,7 +153,7 @@ Git calls for one worktree go through a per-worktree queue so two operations can
 
 ### Workspaces (`workspaces`, `workspace_start`, `provisioning`, `teardown`)
 
-`workspaces` keeps each live workspace's record (its row plus `WorkspaceActivity`, how far setup got or what its review came to, which only the running app knows and the webview words); `workspace_start` names, records and provisions a Lead's workspace, `review` does the same for a PR review, and both hand `provisioning` a plan. Lifecycle (`model::WorkspaceLifecycle`):
+`workspaces` keeps each live workspace's record (its row plus `WorkspaceActivity`, how far setup got, which only the running app knows and the webview words; what a review came to is the stored `review_state`, which the snapshot sends and the sidebar words too); `workspace_start` names, records and provisions a Lead's workspace, `review` does the same for a PR review, and both hand `provisioning` a plan. Lifecycle (`model::WorkspaceLifecycle`):
 
 ```
 provisioning → ready ⇄ running / paused / idle (from its threads' statuses) → tearingDown → archived

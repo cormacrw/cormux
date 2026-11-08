@@ -20,7 +20,7 @@ use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::timeline::TimelineStep;
 use crate::transcript::TranscriptEvent;
 use crate::workspace_git::Checkout;
-use crate::workspaces::{WorkspaceActivity, WorkspaceRecord};
+use crate::workspaces::WorkspaceRecord;
 
 pub use findings_block::TAG as FINDINGS_BLOCK_TAG;
 pub(crate) use store::live as live_in;
@@ -469,16 +469,10 @@ async fn complete_review(
 ) -> Result<()> {
     state.store.finish_review(&workspace.id, found)?;
     let reviewed = match workspace.kind {
-        WorkspaceKind::PrReview => {
-            state
-                .workspaces
-                .set_activity(&workspace.id, WorkspaceActivity::ReviewReady)
-                .await?;
-            workspace
+        WorkspaceKind::PrReview => workspace
                 .pr_number
                 .map(|num| format!("#{num}"))
-                .unwrap_or_else(|| "the PR".into())
-        }
+                .unwrap_or_else(|| "the PR".into()),
         WorkspaceKind::Lead => workspace.branch.clone(),
     };
     if found > 0 {
@@ -625,11 +619,6 @@ pub async fn submit_workspace_review(
         &reviewer_thread.id,
         TimelineStep::ReviewSubmitted { number: pr_number },
     )?;
-
-    state
-        .workspaces
-        .set_activity(&input.workspace_id, WorkspaceActivity::ReviewSubmitted)
-        .await?;
 
     state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
@@ -922,8 +911,8 @@ mod tests {
         let row = state.store.workspace_by_id("pr").unwrap().unwrap();
         assert_eq!(row.name, "Renamed");
         assert_eq!(
-            state.workspaces.get("pr").await.unwrap().activity,
-            WorkspaceActivity::ReviewReady
+            state.store.review("pr").unwrap().unwrap().status,
+            Some(ReviewStatus::Ready)
         );
     }
 

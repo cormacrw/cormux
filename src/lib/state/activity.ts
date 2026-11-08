@@ -1,5 +1,6 @@
 import {
   WORKING_THREAD_STATUSES,
+  type ReviewRow,
   type ThreadStatus,
   type WorkspaceActivity,
   type WorkspaceLifecycle,
@@ -33,12 +34,13 @@ function setupWords(kind: WorkspaceRecord['kind']): string {
 /**
  * What a workspace is doing, in the words every place that names it uses: a failed setup first,
  * then paused, else what the core says it's at, else its lifecycle. The agent's first read only
- * lasts its first turn.
+ * lasts its first turn. A PR review that isn't working says what its stored `review` came to.
  */
 export function workspaceActivity(
   record: Pick<WorkspaceRecord, 'status' | 'kind' | 'activity'>,
+  review?: Pick<ReviewRow, 'status' | 'submitted'> | null,
 ): string {
-  const review = record.kind === 'review'
+  const prReview = record.kind === 'review'
   if (record.status === 'provisioningFailed') return 'Setup failed'
   if (record.status === 'paused') return 'Paused'
   switch (record.activity.kind) {
@@ -48,26 +50,19 @@ export function workspaceActivity(
       return 'Starting agent…'
     case 'agentStarted':
       if (record.status !== 'running') break
-      return review ? 'Reading the diff…' : 'Reading repo…'
+      return prReview ? 'Reading the diff…' : 'Reading repo…'
     case 'setupFailed':
       return 'Setup failed'
-    case 'reviewReady':
-      return 'Review ready'
-    case 'reviewSubmitted':
-      return 'Review submitted'
     case 'none':
       break
   }
-  switch (record.status) {
-    case 'provisioning':
-      return setupWords(record.kind)
-    case 'running':
-      return 'Working'
-    case 'ready':
-      return 'Ready'
-    default:
-      return 'Idle'
+  if (record.status === 'provisioning') return setupWords(record.kind)
+  if (record.status === 'running') return 'Working'
+  if (prReview && review) {
+    if (review.submitted) return 'Review submitted'
+    if (review.status === 'ready') return 'Review ready'
   }
+  return record.status === 'ready' ? 'Ready' : 'Idle'
 }
 
 /**

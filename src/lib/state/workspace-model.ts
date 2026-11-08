@@ -142,7 +142,7 @@ export function workspacesFromSnapshot(snapshot: Snapshot): Workspace[] {
       base: record.base,
       kind: record.kind,
       lifecycle: record.status,
-      activityText: workspaceActivity(record),
+      activityText: workspaceActivity(record, review),
       pendingApprovals: pending.get(record.id) ?? 0,
       createdAtMs: row?.createdAtMs ?? null,
       summary: row?.summary ?? null,

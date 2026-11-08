@@ -1517,8 +1517,8 @@ export type TranscriptPage = { events: SavedEvent[]; oldestSeq: number | null; n
 export type UserMessage = { type: "messageChunk"; role: UserRole; text: string }
 export type UserRole = "user"
 /**
- * What a workspace is doing that only the running app knows: how far its setup got, or what
- * its review came to. The webview words it, by the workspace's kind.
+ * What a workspace is doing that only the running app knows: how far its setup got. The webview
+ * words it, by the workspace's kind; what a review came to is the stored `review_state`.
  */
 export type WorkspaceActivity = 
 /**
@@ -1540,7 +1540,7 @@ export type WorkspaceActivity =
 /**
  * `command` and its exit code when a setup command failed, else setup failed before one ran.
  */
-{ kind: "setupFailed"; command: string | null; exitCode: number | null } | { kind: "reviewReady" } | { kind: "reviewSubmitted" }
+{ kind: "setupFailed"; command: string | null; exitCode: number | null }
 export type WorkspaceAppControlAction = "run" | "restart" | "stop" | "clear"
 export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; 
 /**

@@ -66,6 +66,24 @@ describe('workspaceActivity', () => {
     ).toBe('Working')
   })
 
+  // Bug: the words were a copy of the review kept in memory, so a restart lost them and a
+  // follow-up turn went on reading "Review ready" while the agent worked.
+  it("words a PR review from its stored review unless it's working", () => {
+    const pr = { kind: 'review' as const, activity: { kind: 'none' as const } }
+    const ready = { status: 'ready' as const, submitted: false }
+    const submitted = { status: 'ready' as const, submitted: true }
+    expect(workspaceActivity({ ...pr, status: 'idle' }, ready)).toBe(
+      'Review ready',
+    )
+    expect(workspaceActivity({ ...pr, status: 'idle' }, submitted)).toBe(
+      'Review submitted',
+    )
+    expect(workspaceActivity({ ...pr, status: 'running' }, ready)).toBe(
+      'Working',
+    )
+    expect(workspaceActivity({ ...pr, status: 'idle' }, null)).toBe('Idle')
+  })
+
   it('falls back to the lifecycle, by kind while setting up', () => {
     expect(
       workspaceActivity({

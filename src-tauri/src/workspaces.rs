@@ -38,8 +38,8 @@ pub struct WorkspaceRecord {
     pub activity: WorkspaceActivity,
 }
 
-/// What a workspace is doing that only the running app knows: how far its setup got, or what
-/// its review came to. The webview words it, by the workspace's kind.
+/// What a workspace is doing that only the running app knows: how far its setup got. The webview
+/// words it, by the workspace's kind; what a review came to is the stored `review_state`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(
     tag = "kind",
@@ -62,8 +62,6 @@ pub enum WorkspaceActivity {
         #[serde(rename = "exitCode")]
         exit_code: Option<i32>,
     },
-    ReviewReady,
-    ReviewSubmitted,
 }
 
 impl WorkspaceRecord {
