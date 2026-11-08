@@ -20,8 +20,3 @@ export function workspacePr(
     stackPr: stacks.branchFor(workspace.id, branch)?.pr,
   })
 }
-
-/** A PR comes from a workspace's branch once; review workspaces submit a review instead. */
-export function canCreatePr(workspace: Workspace): boolean {
-  return workspace.kind !== 'review' && workspacePr(workspace) == null
-}

@@ -53,6 +53,8 @@ export type Workspace = {
   reviewBlock: string | null
   /** Why Run can't start the app now; null when it can. */
   runBlock: string | null
+  /** Why the core won't open a PR from this workspace's branch, if it won't. */
+  createPrBlock: string | null
   /** What Run starts here (the workspace's own command, else its repo's), as the core resolved it. */
   run: Omit<WorkspaceRunCommand, 'workspaceId'> | null
   /** Where a review of this workspace stands; null before one starts. */
@@ -60,15 +62,6 @@ export type Workspace = {
   /** The review was posted to GitHub. */
   reviewSubmitted: boolean
   runtime: WorkspaceRuntime
-}
-
-function countBy<T>(rows: T[], key: (row: T) => string | null) {
-  const counts = new Map<string, number>()
-  for (const row of rows) {
-    const k = key(row)
-    if (k !== null) counts.set(k, (counts.get(k) ?? 0) + 1)
-  }
-  return counts
 }
 
 /** The snapshot's live workspaces, each with its row, review, pending approvals and runtime. */
@@ -108,11 +101,17 @@ export function workspacesFromSnapshot(snapshot: Snapshot): Workspace[] {
       block.reason,
     ]),
   )
-  const workspaceOf = new Map(
-    persisted.threads.map((thread) => [thread.id, thread.workspaceId]),
+  const createPrBlocks = new Map(
+    snapshot.workspaceCreatePrBlocks.map((block) => [
+      block.workspaceId,
+      block.reason,
+    ]),
   )
-  const pending = countBy(persisted.approvals, (row) =>
-    row.status === 'pending' ? (workspaceOf.get(row.threadId) ?? null) : null,
+  const pending = new Map(
+    snapshot.workspacePendingApprovals.map((row) => [
+      row.workspaceId,
+      row.count,
+    ]),
   )
 
   return snapshot.workspaces.map((record) => {
@@ -158,6 +157,7 @@ export function workspacesFromSnapshot(snapshot: Snapshot): Workspace[] {
       branchLock: branchLocks.get(record.id) ?? null,
       reviewBlock: reviewBlocks.get(record.id) ?? null,
       runBlock: runBlocks.get(record.id) ?? null,
+      createPrBlock: createPrBlocks.get(record.id) ?? null,
       run: runs.get(record.id) ?? null,
       reviewStatus: review?.status ?? null,
       reviewSubmitted: review?.submitted ?? false,

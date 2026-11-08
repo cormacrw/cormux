@@ -4,7 +4,7 @@
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { primaryPrActionLabel } from '$lib/changes/branch-pr'
-  import { canCreatePr, workspacePr } from '$lib/changes/workspace-pr'
+  import { workspacePr } from '$lib/changes/workspace-pr'
   import { shellDialogs } from '$lib/state'
   import { openExternal } from '$lib/feedback/open-external'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
@@ -44,7 +44,7 @@
       void openExternal(prUrl)
       return
     }
-    if (canCreatePr(workspace)) {
+    if (workspace.createPrBlock == null) {
       shellDialogs.open('createPr', { workspaceId: workspace.id })
     }
   }
