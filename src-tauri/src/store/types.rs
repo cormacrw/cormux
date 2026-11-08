@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
+use crate::model::{
+    SUMMARY_MODEL_LABEL, ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -49,17 +52,71 @@ pub struct WorkspaceRow {
     pub repo_id: String,
     pub name: String,
     pub branch: String,
+    /// The branch the workspace is compared with and pulls from.
+    pub base: String,
     pub worktree_path: String,
     pub status: String,
     pub created_at: String,
     pub summary: Option<String>,
     pub summary_at: Option<String>,
     pub summary_source: String,
-    pub kind: Option<String>,
+    pub kind: WorkspaceKind,
     pub pr_number: Option<i64>,
     pub pr_html_url: Option<String>,
     pub modified_files: i64,
     pub archived_at: Option<String>,
+}
+
+impl WorkspaceRow {
+    /// A workspace about to be provisioned.
+    pub fn new(
+        kind: WorkspaceKind,
+        id: impl Into<String>,
+        repo_id: impl Into<String>,
+        name: impl Into<String>,
+        branch: impl Into<String>,
+        base: impl Into<String>,
+        worktree_path: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            repo_id: repo_id.into(),
+            name: name.into(),
+            branch: branch.into(),
+            base: base.into(),
+            worktree_path: worktree_path.into(),
+            status: WorkspaceLifecycle::Provisioning.as_str().into(),
+            created_at: String::new(),
+            summary: None,
+            summary_at: None,
+            summary_source: SUMMARY_MODEL_LABEL.into(),
+            kind,
+            pr_number: None,
+            pr_html_url: None,
+            modified_files: 0,
+            archived_at: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_status(self, status: WorkspaceLifecycle) -> Self {
+        Self {
+            status: status.as_str().into(),
+            ..self
+        }
+    }
+
+    pub fn with_pr(self, number: i64, html_url: Option<String>) -> Self {
+        Self {
+            pr_number: Some(number),
+            pr_html_url: html_url,
+            ..self
+        }
+    }
+
+    pub fn lifecycle(&self) -> WorkspaceLifecycle {
+        WorkspaceLifecycle::parse(&self.status)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -67,7 +124,10 @@ pub struct WorkspaceRow {
 pub struct ThreadRow {
     pub id: String,
     pub workspace_id: String,
+    /// Display text. What the thread does is its `role`.
     pub title: String,
+    /// The workspace's own Lead or Reviewer; none for any other thread.
+    pub role: Option<ThreadRole>,
     pub engine: String,
     pub session_id: Option<String>,
     pub status: String,
@@ -82,7 +142,39 @@ pub struct ThreadRow {
 }
 
 impl ThreadRow {
-    pub fn has_status(&self, status: crate::model::ThreadStatus) -> bool {
+    /// A workspace's own thread, waiting for its workspace to be provisioned.
+    pub fn new(
+        id: impl Into<String>,
+        workspace_id: impl Into<String>,
+        role: ThreadRole,
+        engine: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            workspace_id: workspace_id.into(),
+            title: role.title().into(),
+            role: Some(role),
+            engine: engine.into(),
+            session_id: None,
+            status: ThreadStatus::Provisioning.into(),
+            used_tokens: None,
+            context_size: None,
+            cost_usd: None,
+            transcript_readonly: false,
+            retired: false,
+            parent_thread_id: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_status(self, status: ThreadStatus) -> Self {
+        Self {
+            status: status.into(),
+            ..self
+        }
+    }
+
+    pub fn has_status(&self, status: ThreadStatus) -> bool {
         self.status == status.as_str()
     }
 }

@@ -3,16 +3,17 @@ use specta::Type;
 
 use crate::app::WorkspaceAppRuntime;
 use crate::git::WorktreeDiff;
-use crate::git_workspace::WorkspaceGitRuntime;
 use crate::metrics::MemorySample;
 use crate::store::types::PersistedSnapshot;
-use crate::workspace::WorkspaceRecord;
+use crate::workspace_git::WorkspaceGitRuntime;
+use crate::workspaces::WorkspaceRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub version: u64,
     pub persisted: PersistedSnapshot,
+    /// Every live workspace, in the order they were created.
     pub workspaces: Vec<WorkspaceRecord>,
     pub workspace_git: Vec<WorkspaceGitRuntime>,
     pub memory: Option<MemorySample>,

@@ -310,8 +310,7 @@ mod tests {
     use crate::store::types::{RepoRecord, WorkspaceRow};
 
     fn mcp() -> (CormuxMcp, Store) {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store
             .upsert_repo(&RepoRecord {
                 id: "r1".into(),
@@ -324,22 +323,17 @@ mod tests {
             })
             .unwrap();
         store
-            .upsert_workspace(&WorkspaceRow {
-                id: "w1".into(),
-                repo_id: "r1".into(),
-                name: "Login".into(),
-                branch: "feat".into(),
-                worktree_path: "/tmp/app-login".into(),
+            .insert_workspace(&WorkspaceRow {
                 status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
+                ..crate::store::types::WorkspaceRow::new(
+                    crate::model::WorkspaceKind::Lead,
+                    "w1",
+                    "r1",
+                    "Login",
+                    "feat",
+                    "main",
+                    "/tmp/app-login",
+                )
             })
             .unwrap();
         (CormuxMcp::new(store.clone()), store)
@@ -351,6 +345,7 @@ mod tests {
                 id: "t1".into(),
                 workspace_id: "w1".into(),
                 title: "Lead".into(),
+                role: Some(crate::model::ThreadRole::Lead),
                 engine: "claude".into(),
                 session_id: None,
                 status: "idle".into(),

@@ -95,6 +95,7 @@ describe('buildPaletteCommandsFromState', () => {
                 base: 'main',
                 worktreePath: '/tmp/wt',
                 status: 'idle',
+                kind: 'lead',
                 version: 1,
                 activity: 'Idle',
                 provStep: 0,

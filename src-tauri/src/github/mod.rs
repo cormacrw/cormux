@@ -9,4 +9,4 @@ pub mod types;
 
 pub use r#match::{parse_origin_url, redact_origin_url};
 pub use rest::RestGithubClient;
-pub use sync::PrSyncScheduler;
+pub use sync::{PrSyncScheduler, start};

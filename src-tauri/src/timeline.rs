@@ -262,13 +262,13 @@ mod tests {
     use crate::store::types::ThreadRow;
 
     fn store() -> Store {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store
             .upsert_thread(&ThreadRow {
                 id: "t1".into(),
                 workspace_id: "w1".into(),
                 title: "Lead".into(),
+                role: Some(crate::model::ThreadRole::Lead),
                 engine: "claude".into(),
                 session_id: None,
                 status: "idle".into(),

@@ -1013,7 +1013,11 @@ export type Skill = { name: string; description: string;
  * those from Claude Code plugins, `builtin` for those that ship with Claude Code.
  */
 source: string }
-export type Snapshot = { version: number; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
+export type Snapshot = { version: number; persisted: PersistedSnapshot; 
+/**
+ * Every live workspace, in the order they were created.
+ */
+workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
 /**
  * In-memory broker queue (may exceed persisted pending rows).
  */
@@ -1103,7 +1107,20 @@ previewUrl: string | null }
  * engine's default).
  */
 export type ThreadModels = { current: string | null; options: ModelOption[] }
-export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean; 
+/**
+ * What a workspace's own thread does there. Threads without one (a scratch's, or helpers from
+ * older builds) are stored with no role.
+ */
+export type ThreadRole = "lead" | "reviewer"
+export type ThreadRow = { id: string; workspaceId: string; 
+/**
+ * Display text. What the thread does is its `role`.
+ */
+title: string; 
+/**
+ * The workspace's own Lead or Reviewer; none for any other thread.
+ */
+role: ThreadRole | null; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean; 
 /**
  * Kept to read but can't be continued: a workspace's older thread, or a scratch's.
  */
@@ -1143,13 +1160,32 @@ https: boolean; exitCode: number | null }
 export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
 export type WorkspaceGitRuntime = { workspaceId: string; behind: number; ahead: number; conflict: GitConflictState | null }
 /**
+ * What a workspace is for. Stored as `lead` or `review`.
+ */
+export type WorkspaceKind = 
+/**
+ * A Lead works on its own branch.
+ */
+"lead" | 
+/**
+ * A Reviewer reads somebody's pull request.
+ */
+"review"
+/**
  * A workspace's lifecycle. `ready` is idle with no threads; running/idle describe activity
  * after provisioning.
  */
 export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "idle" | "tearingDown" | "provisioningFailed"
 export type WorkspaceMemory = { workspaceId: string; bytes: number }
-export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
-export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; prHtmlUrl: string | null; modifiedFiles: number; archivedAt: string | null }
+/**
+ * A workspace as the webview shows it: its row, plus what only the running app knows.
+ */
+export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; kind: WorkspaceKind; version: number; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
+export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; 
+/**
+ * The branch the workspace is compared with and pulls from.
+ */
+base: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: WorkspaceKind; prNumber: number | null; prHtmlUrl: string | null; modifiedFiles: number; archivedAt: string | null }
 export type WorkspaceStack = { workspaceId: string; status: StackStatus; 
 /**
  * Why the stack is unavailable, for the panel to show.

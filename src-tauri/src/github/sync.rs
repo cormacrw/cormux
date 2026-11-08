@@ -104,21 +104,6 @@ impl PrSyncScheduler {
         Ok(changed)
     }
 
-    pub fn spawn_loop(self, state: AppState) {
-        tauri::async_runtime::spawn(async move {
-            let mut interval = tokio::time::interval(SYNC_INTERVAL);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            // The first tick fires immediately; the caller runs the initial sync itself.
-            interval.tick().await;
-            loop {
-                interval.tick().await;
-                if let Err(error) = self.sync_app(&state).await {
-                    log::warn!("background PR sync failed: {error}");
-                }
-            }
-        });
-    }
-
     pub async fn sync_app(&self, state: &AppState) -> Result<()> {
         if !self.tick(state).await? {
             return Ok(());
@@ -126,4 +111,20 @@ impl PrSyncScheduler {
         state.out.changed(Change::SNAPSHOT);
         Ok(())
     }
+}
+
+/// Syncs pull requests now and every couple of minutes, for the life of the app. `gh` and `git`
+/// need the login-shell PATH, so this waits for it to load.
+pub fn start(state: &AppState) {
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(SYNC_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            if let Err(error) = state.pr_sync.sync_app(&state).await {
+                log::warn!("PR sync failed: {error}");
+            }
+        }
+    });
 }

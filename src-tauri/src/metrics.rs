@@ -115,6 +115,36 @@ impl Default for Metrics {
     }
 }
 
+const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(4);
+/// Nobody reads the sidebar label while the window is in the background, so only every 60s.
+const BACKGROUND_TICKS: u32 = 15;
+
+/// Samples memory for the life of the app, handing each sample to `publish`; less often while
+/// the window isn't `focused`.
+pub fn start(
+    state: &AppState,
+    focused: impl Fn() -> bool + Send + 'static,
+    publish: impl Fn(MemorySample) + Send + 'static,
+) {
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(SAMPLE_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut ticks = 0u32;
+        loop {
+            interval.tick().await;
+            ticks = ticks.wrapping_add(1);
+            if !focused() && !ticks.is_multiple_of(BACKGROUND_TICKS) {
+                continue;
+            }
+            match sample_processes(&state).await {
+                Ok(sample) => publish(sample),
+                Err(error) => log::warn!("memory sample failed: {error}"),
+            }
+        }
+    });
+}
+
 /// Walks every process on the machine, so it stays off the main thread and the async workers.
 pub async fn sample_processes(state: &AppState) -> Result<MemorySample> {
     let metrics = state.metrics.clone();

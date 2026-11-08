@@ -1,6 +1,7 @@
 mod app;
 mod approvals;
 mod attachments;
+mod changes;
 mod clickup;
 mod composer;
 mod create_pr;
@@ -11,7 +12,6 @@ mod feedback;
 mod findings;
 mod findings_block;
 mod git;
-mod git_workspace;
 mod github;
 mod harness_config;
 mod ipc;
@@ -36,29 +36,25 @@ mod state;
 mod store;
 mod summaries;
 mod teardown;
+mod terminal;
 mod thread_media;
 mod time;
 mod timeline;
 mod turn;
 mod window_activity;
-mod workspace;
+mod workspace_git;
 mod workspace_start;
-
-use std::time::Duration;
+mod workspaces;
 
 use std::sync::Arc;
+use std::time::Duration;
 
-use feedback::Change;
 use ipc::events::{MemorySampled, TauriOutput};
 use ipc::subscriptions::Subscriptions;
 use state::AppState;
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_specta::Event;
 use window_activity::WindowActivity;
-
-const METRICS_INTERVAL: Duration = Duration::from_secs(4);
-/// Nobody reads the sidebar label while the window is in the background, so only every 60s.
-const METRICS_BACKGROUND_TICKS: u32 = 15;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -87,10 +83,7 @@ pub fn run() {
                 }
                 tauri::async_runtime::spawn(async move {
                     let state = app.state::<AppState>();
-                    let updates = state.fetch.tick().await;
-                    crate::git_workspace::apply_behind_updates(&state, &updates).await;
-                    state.out.changed(Change::REPO_GIT);
-                    let state = app.state::<AppState>();
+                    workspace_git::fetch_all(&state).await;
                     if let Err(error) = state.pr_sync.sync_app(&state).await {
                         log::warn!("focus PR sync failed: {error}");
                     }
@@ -119,36 +112,35 @@ pub fn run() {
             let state = AppState::new(
                 paths::DataDir::for_app(app.path().app_data_dir()?),
                 Arc::new(TauriOutput(app.handle().clone())),
-            );
+            )?;
             state.diffs.start();
-            state.fetch.spawn_loop();
-
-            // PR sync shells out to `gh` and `git`, so it waits for the login-shell PATH.
-            let env = state.shell_env.clone();
-            let pr_sync = state.pr_sync.clone();
-            state.store.open(&state.data_dir.db())?;
-            state.store.reset_interrupted_turns()?;
-            let approval_notify = state.approval_notify.clone();
             state.engines.spawn_idle_reaper();
             app.manage(state.clone());
-            crate::git_workspace::spawn_branch_watch(state.clone());
+            state.mcp.attach(state.clone());
 
+            approvals::start(&state);
+            orchestration::start(&state);
+            turn::listen(&state);
+            review::start(&state);
+            let focus = app.handle().clone();
+            let events = app.handle().clone();
+            metrics::start(
+                &state,
+                move || focus.state::<WindowActivity>().is_focused(),
+                move |sample| {
+                    let _ = MemorySampled { sample }.emit(&events);
+                },
+            );
+            // Git and `gh` need the login-shell PATH, so what shells out waits for it.
             let startup = state.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = env.write().await.load_or_inherit().await {
+                if let Err(error) = startup.shell_env.write().await.load_or_inherit().await {
                     log::warn!("shell env load failed: {error}");
                 }
                 startup.process.remove_stale_logs();
-                if let Err(error) = crate::git_workspace::restore_fetch_targets(&startup).await {
-                    log::warn!("restoring fetch targets failed: {error}");
-                }
-                if let Err(error) = pr_sync.sync_app(&startup).await {
-                    log::warn!("initial PR sync failed: {error}");
-                }
-                pr_sync.spawn_loop(startup);
+                workspace_git::start(&startup);
+                github::start(&startup);
             });
-
-            state.mcp.attach(state.clone());
 
             // The window starts hidden and the app shows it once it has painted. If
             // that never happens (a startup error), show it anyway rather than
@@ -161,43 +153,6 @@ pub fn run() {
                 {
                     let _ = window.show();
                     let _ = window.set_focus();
-                }
-            });
-
-            let approval_state = state.clone();
-            tauri::async_runtime::spawn(async move {
-                let mut rx = approval_notify.subscribe();
-                loop {
-                    if rx.recv().await.is_err() {
-                        break;
-                    }
-                    approval_state.out.changed(Change::THREADS);
-                    if let Err(error) =
-                        crate::orchestration::on_approval_requested(&approval_state).await
-                    {
-                        log::warn!("reporting a blocked thread failed: {error}");
-                    }
-                }
-            });
-
-            tauri::async_runtime::spawn(turn::listen(state));
-
-            let metrics_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(METRICS_INTERVAL);
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                let mut ticks = 0u32;
-                loop {
-                    interval.tick().await;
-                    ticks = ticks.wrapping_add(1);
-                    let focused = metrics_handle.state::<WindowActivity>().is_focused();
-                    if !focused && !ticks.is_multiple_of(METRICS_BACKGROUND_TICKS) {
-                        continue;
-                    }
-                    let state = metrics_handle.state::<AppState>();
-                    if let Ok(sample) = metrics::sample_processes(&state).await {
-                        let _ = MemorySampled { sample }.emit(&metrics_handle);
-                    }
                 }
             });
 

@@ -5,6 +5,7 @@ mod resolve;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::oneshot;
 
 pub use payload::{QUESTION_TOOL, questions_from_input};
@@ -92,6 +93,17 @@ impl ApprovalBroker {
 }
 
 /// Approvals waiting on the user: the stored rows, or the broker's waiters if it has more.
+/// Refreshes the webview, and with it the badge, whenever an approval is asked for.
+pub fn start(state: &crate::state::AppState) {
+    let state = state.clone();
+    let mut requested = state.approval_notify.subscribe();
+    tauri::async_runtime::spawn(async move {
+        while let Ok(()) | Err(RecvError::Lagged(_)) = requested.recv().await {
+            state.out.changed(crate::feedback::Change::THREADS);
+        }
+    });
+}
+
 pub fn pending_count(store: &crate::store::Store, broker: &ApprovalBroker) -> usize {
     let stored = store.pending_approval_count().unwrap_or_else(|error| {
         log::warn!("counting pending approvals: {error}");

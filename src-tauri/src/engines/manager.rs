@@ -59,7 +59,6 @@ pub struct EngineRegistry {
 struct ThreadSlot {
     commands: mpsc::UnboundedSender<EngineCommand>,
     events: broadcast::Sender<StreamedEvent>,
-    session_id: Arc<Mutex<Option<String>>>,
     /// When anything last went to or came from the engine.
     last_active: Arc<Mutex<Instant>>,
     /// The CLI's process group, so quitting the app can take it down synchronously.
@@ -139,7 +138,6 @@ impl EngineRegistry {
             ThreadSlot {
                 commands,
                 events: broadcast::channel(4).0,
-                session_id: Arc::new(Mutex::new(None)),
                 last_active: Arc::new(Mutex::new(Instant::now())),
                 pgid: None,
             },
@@ -174,16 +172,6 @@ impl EngineRegistry {
         }
     }
 
-    pub fn session_id(&self, thread_id: &str) -> Result<Option<String>> {
-        let threads = self
-            .threads
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?;
-        Ok(threads
-            .get(thread_id)
-            .and_then(|slot| slot.session_id.lock().ok()?.clone()))
-    }
-
     pub async fn spawn(&self, spec: SpawnSpec) -> Result<()> {
         let _ = self.stop(&spec.thread_id).await;
         let (events, _) = broadcast::channel(EVENT_CAP);
@@ -195,14 +183,7 @@ impl EngineRegistry {
         let effort = self.store.thread_effort(&spec.thread_id).ok().flatten();
         let env = self.env.read().await.clone();
         let (commands, pgid) = self
-            .spawn_claude(
-                &spec,
-                model,
-                effort,
-                env,
-                events.clone(),
-                session_id.clone(),
-            )
+            .spawn_claude(&spec, model, effort, env, events.clone(), session_id)
             .await?;
 
         self.threads
@@ -213,7 +194,6 @@ impl EngineRegistry {
                 ThreadSlot {
                     commands,
                     events,
-                    session_id,
                     last_active,
                     pgid,
                 },
@@ -940,8 +920,7 @@ mod tests {
     fn registry() -> EngineRegistry {
         let env = Arc::new(RwLock::new(ShellEnv::new()));
         let approvals = Arc::new(ApprovalBroker::new());
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         let (approval_notify, _) = tokio::sync::broadcast::channel(4);
         EngineRegistry::new(
             env,
@@ -964,6 +943,7 @@ mod tests {
                 id: thread_id.into(),
                 workspace_id: "w1".into(),
                 title: "Lead".into(),
+                role: Some(crate::model::ThreadRole::Lead),
                 engine: "claude".into(),
                 session_id: Some("session".into()),
                 status: status.into(),
@@ -1033,13 +1013,13 @@ mod tests {
     async fn live_background_agent(
         thread_id: &str,
     ) -> (EngineRegistry, broadcast::Receiver<StreamedEvent>) {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store
             .upsert_thread(&crate::store::types::ThreadRow {
                 id: thread_id.into(),
                 workspace_id: "live-workspace".into(),
                 title: "Lead".into(),
+                role: Some(crate::model::ThreadRole::Lead),
                 engine: "claude".into(),
                 session_id: None,
                 status: "idle".into(),
@@ -1157,13 +1137,13 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn live_claude_reaches_the_cormux_tools() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store
             .upsert_thread(&crate::store::types::ThreadRow {
                 id: "live".into(),
                 workspace_id: "live-workspace".into(),
                 title: "Lead".into(),
+                role: Some(crate::model::ThreadRole::Lead),
                 engine: "claude".into(),
                 session_id: None,
                 status: "idle".into(),
@@ -1228,13 +1208,13 @@ mod tests {
 
     #[tokio::test]
     async fn questions_wait_for_answers_even_with_auto_approve_on() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store
             .upsert_thread(&crate::store::types::ThreadRow {
                 id: "t-ask".into(),
                 workspace_id: "w1".into(),
                 title: "Lead".into(),
+                role: Some(crate::model::ThreadRole::Lead),
                 engine: "claude".into(),
                 session_id: None,
                 status: "idle".into(),
@@ -1320,8 +1300,7 @@ mod tests {
     #[tokio::test]
     async fn turn_end_is_forwarded_with_the_thread_id() {
         let env = Arc::new(RwLock::new(ShellEnv::new()));
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         let (turn_end_notify, mut turn_ends) = broadcast::channel(8);
         let engines = EngineRegistry::new(
             env,
@@ -1354,8 +1333,7 @@ mod tests {
     #[tokio::test]
     async fn a_turn_ends_only_after_its_background_agents_do() {
         let env = Arc::new(RwLock::new(ShellEnv::new()));
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         let (turn_end_notify, mut turn_ends) = broadcast::channel(8);
         let engines = EngineRegistry::new(
             env,

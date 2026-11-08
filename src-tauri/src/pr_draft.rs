@@ -105,21 +105,18 @@ mod tests {
 
     fn workspace(name: &str) -> WorkspaceRow {
         WorkspaceRow {
-            id: "w1".into(),
-            repo_id: "r1".into(),
-            name: name.into(),
-            branch: "feat/x".into(),
-            worktree_path: "/tmp/wt".into(),
             status: "running".into(),
-            created_at: String::new(),
             summary: Some("Adds idle timeout. Sessions are rejected after 30 minutes.".into()),
-            summary_at: None,
-            summary_source: "Haiku 4.5".into(),
-            kind: None,
-            pr_number: None,
-            pr_html_url: None,
             modified_files: 2,
-            archived_at: None,
+            ..crate::store::types::WorkspaceRow::new(
+                crate::model::WorkspaceKind::Lead,
+                "w1",
+                "r1",
+                name,
+                "feat/x",
+                "main",
+                "/tmp/wt",
+            )
         }
     }
 

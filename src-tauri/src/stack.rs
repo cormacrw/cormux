@@ -18,10 +18,10 @@ use specta::Type;
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::git::ShortStat;
-use crate::git_workspace::{adopt_checked_out_branch, resolve_record};
 use crate::state::AppState;
 use crate::timeline::BranchChange;
-use crate::workspace::WorkspaceRecord;
+use crate::workspace_git::adopt_checked_out_branch;
+use crate::workspaces::WorkspaceRecord;
 
 /// How long GitHub's "no stack has this branch" stands before asking again.
 const REMOTE_STACK_TTL: Duration = Duration::from_secs(120);
@@ -239,11 +239,7 @@ async fn view(state: &AppState, worktree: &Path) -> Result<View> {
 }
 
 async fn workspace_record(state: &AppState, workspace_id: &str) -> Result<WorkspaceRecord> {
-    let row = state
-        .store
-        .workspace_by_id(workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    resolve_record(state, workspace_id, &row).await
+    state.workspaces.get(workspace_id).await
 }
 
 /// Each unmerged branch's pull request targets the nearest unmerged branch below it.
@@ -581,8 +577,7 @@ pub async fn add_branch(state: &AppState, workspace_id: &str, branch: &str) -> R
         return Err(Error::Git("branch name is required".into()));
     }
     let record = workspace_record(state, workspace_id).await?;
-    state.workspace.remember(record.clone()).await;
-    state.workspace.can_switch_branch(workspace_id).await?;
+    state.workspaces.can_switch_branch(workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
 
     match view(state, &worktree).await? {
@@ -644,8 +639,7 @@ pub async fn push(state: &AppState, workspace_id: &str) -> Result<()> {
 /// Fetch, rebase onto the trunk, push, and refresh pull request state.
 pub async fn sync(state: &AppState, workspace_id: &str) -> Result<()> {
     let record = workspace_record(state, workspace_id).await?;
-    state.workspace.remember(record.clone()).await;
-    state.workspace.can_switch_branch(workspace_id).await?;
+    state.workspaces.can_switch_branch(workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
     let output = gh_stack(state, &worktree, &["sync", "--remote", "origin"]).await?;
     let result = if !output.status.success() {

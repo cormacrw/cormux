@@ -165,8 +165,7 @@ mod tests {
 
     #[test]
     fn a_workspace_override_wins_over_the_repo_command() {
-        let store = crate::store::Store::new();
-        store.open_in_memory().unwrap();
+        let store = crate::store::Store::in_memory().unwrap();
         let repo = std::env::temp_dir();
         let stored = Some("pnpm dev".to_string());
         assert_eq!(

@@ -13,7 +13,6 @@ use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastTone};
 use crate::process::{ProcessSupervisor, detect_port, serves_https};
 use crate::state::AppState;
-use crate::workspace::WorkspaceManager;
 
 const RUN_SESSION_SUFFIX: &str = "-app";
 
@@ -212,7 +211,7 @@ impl WorkspaceAppService {
 
     /// With the repo's "one instance at a time" on, stops its app in every other workspace.
     async fn stop_other_instances(&self, state: &AppState, workspace_id: &str) -> Result<()> {
-        let Some(workspace) = state.workspace.get(workspace_id).await else {
+        let Ok(workspace) = state.workspaces.get(workspace_id).await else {
             return Ok(());
         };
         let single_instance = state
@@ -238,10 +237,10 @@ impl WorkspaceAppService {
             .collect();
         for other_id in active {
             let same_repo = state
-                .workspace
+                .workspaces
                 .get(&other_id)
                 .await
-                .is_some_and(|other| other.repo_id == workspace.repo_id);
+                .is_ok_and(|other| other.repo_id == workspace.repo_id);
             if same_repo {
                 self.stop(state, &other_id, false).await?;
             }
@@ -463,15 +462,11 @@ async fn run_context(
     state: &AppState,
     workspace_id: &str,
 ) -> Result<(String, String, AppKind, String)> {
-    let workspace = state
-        .workspace
-        .get(workspace_id)
-        .await
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+    let workspace = state.workspaces.get(workspace_id).await?;
     let repo = state
         .store
         .repo_by_id(&workspace.repo_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown repo {}", workspace.repo_id)))?;
+        .ok_or_else(|| Error::unknown_repo(&workspace.repo_id))?;
     let repo_path = crate::paths::expand_tilde(&repo.path);
     let run_command = crate::harness_config::workspace_run_command(
         &state.store,
@@ -485,23 +480,18 @@ async fn run_context(
 }
 
 async fn run_env(state: &AppState, workspace_id: &str, port: u16) -> Result<Vec<(String, String)>> {
-    let workspace = state
-        .workspace
-        .get(workspace_id)
-        .await
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    let mut env = WorkspaceManager::harness_env(&workspace);
+    let mut env = state.workspaces.get(workspace_id).await?.harness_env();
     env.push(("PORT".into(), port.to_string()));
     Ok(env)
 }
 
 async fn workspace_name(state: &AppState, workspace_id: &str) -> Result<String> {
     Ok(state
-        .workspace
+        .workspaces
         .get(workspace_id)
         .await
         .map(|row| row.name)
-        .unwrap_or_else(|| workspace_id.to_string()))
+        .unwrap_or_else(|_| workspace_id.to_string()))
 }
 
 #[cfg(test)]

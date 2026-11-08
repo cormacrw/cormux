@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use serde_json::{Value, json};
+use tokio::sync::broadcast::error::RecvError;
 
 use crate::error::{Error, Result};
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
@@ -21,7 +22,7 @@ const READ_PAGE_CHARS: usize = 20_000;
 
 const CLOSED_THREADS_LIMIT: i64 = 50;
 
-const FAILED: &str = "provisioningFailed";
+const FAILED: &str = WorkspaceLifecycle::ProvisioningFailed.as_str();
 
 /// The target of a tool call: any thread in the caller's repo. Anything else reads as unknown.
 fn visible_thread(
@@ -462,6 +463,37 @@ pub async fn on_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Reports blocked and failed children to their parents, for the life of the app.
+pub fn start(state: &AppState) {
+    let approvals = state.clone();
+    let mut requested = state.approval_notify.subscribe();
+    tauri::async_runtime::spawn(async move {
+        while let Ok(()) | Err(RecvError::Lagged(_)) = requested.recv().await {
+            if let Err(error) = on_approval_requested(&approvals).await {
+                log::warn!("reporting a blocked thread failed: {error}");
+            }
+        }
+    });
+    let failures = state.clone();
+    let mut failed = state.setup_failed.subscribe();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match failed.recv().await {
+                Ok(failure) => {
+                    let reported =
+                        on_provisioning_failed(&failures, &failure.workspace_id, &failure.message)
+                            .await;
+                    if let Err(error) = reported {
+                        log::warn!("reporting failed setup: {error}");
+                    }
+                }
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
 /// A child waiting on an approval can't go on, and only the user can answer it.
 pub async fn on_approval_requested(state: &AppState) -> Result<()> {
     for child in state.store.blocked_child_threads()? {
@@ -485,11 +517,7 @@ pub async fn on_approval_requested(state: &AppState) -> Result<()> {
 }
 
 /// Setup failing never reaches a turn end, so it reports itself.
-pub async fn on_provisioning_failed(
-    state: &AppState,
-    workspace_id: &str,
-    message: &str,
-) -> Result<()> {
+async fn on_provisioning_failed(state: &AppState, workspace_id: &str, message: &str) -> Result<()> {
     let child = state
         .store
         .threads_for_workspace(workspace_id)?
@@ -518,10 +546,10 @@ async fn reportable_parent(state: &AppState, parent_id: &str) -> Option<ThreadRo
     let parent = continuing_thread(&state.store, parent_id);
     let tearing_down = match &parent {
         Some(parent) => state
-            .workspace
+            .workspaces
             .get(&parent.workspace_id)
             .await
-            .is_some_and(|row| row.status == WorkspaceLifecycle::TearingDown),
+            .is_ok_and(|row| row.status == WorkspaceLifecycle::TearingDown),
         None => false,
     };
     if parent.is_none() || tearing_down {
@@ -579,13 +607,12 @@ mod tests {
     }
 
     fn store() -> Store {
-        let store = Store::new();
+        let store = Store::in_memory().unwrap();
         seed(&store);
         store
     }
 
     fn seed(store: &Store) {
-        store.open_in_memory().unwrap();
         for repo in ["r1", "r2"] {
             store
                 .upsert_repo(&RepoRecord {
@@ -604,22 +631,17 @@ mod tests {
     fn add_thread(store: &Store, id: &str, repo: &str, parent: Option<&str>, status: &str) {
         let workspace = format!("w-{id}");
         store
-            .upsert_workspace(&WorkspaceRow {
-                id: workspace.clone(),
-                repo_id: repo.into(),
-                name: format!("Title {id}"),
-                branch: format!("feat/{id}"),
-                worktree_path: format!("/tmp/wt-{id}"),
+            .insert_workspace(&WorkspaceRow {
                 status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
+                ..crate::store::types::WorkspaceRow::new(
+                    crate::model::WorkspaceKind::Lead,
+                    workspace.clone(),
+                    repo,
+                    format!("Title {id}"),
+                    format!("feat/{id}"),
+                    "main",
+                    format!("/tmp/wt-{id}"),
+                )
             })
             .unwrap();
         store
@@ -627,6 +649,7 @@ mod tests {
                 id: id.into(),
                 workspace_id: workspace,
                 title: "Lead".into(),
+                role: Some(crate::model::ThreadRole::Lead),
                 engine: "claude".into(),
                 session_id: None,
                 status: status.into(),
@@ -692,7 +715,9 @@ mod tests {
         add_thread(&store, "child", "r1", Some("parent"), "provisioning");
         say(&store, "child", "agent", "All ");
         say(&store, "child", "agent", "done.");
-        store.set_workspace_status("w-child", FAILED).unwrap();
+        store
+            .set_workspace_status("w-child", WorkspaceLifecycle::ProvisioningFailed)
+            .unwrap();
         let thread = get_thread(&store, "parent", "child").unwrap();
         assert_eq!(thread["lastReply"], "All done.");
         assert_eq!(thread["status"], FAILED);
@@ -785,7 +810,9 @@ mod tests {
         }
         add_thread(&store, "finished", "r1", Some("parent"), "idle");
         add_thread(&store, "failed", "r1", Some("parent"), "provisioning");
-        store.set_workspace_status("w-failed", FAILED).unwrap();
+        store
+            .set_workspace_status("w-failed", WorkspaceLifecycle::ProvisioningFailed)
+            .unwrap();
         assert!(check_can_spawn(&store, &parent).is_ok());
         add_thread(&store, "last", "r1", Some("parent"), "provisioning");
         assert!(check_can_spawn(&store, &parent).is_err());
@@ -886,7 +913,7 @@ mod tests {
         family(&state);
         state.store.archive_workspace("w-parent").unwrap();
         assert_no_ghost(&state, &recording).await;
-        assert!(state.workspace.list().await.is_empty());
+        assert!(state.workspaces.get("w-parent").await.is_err());
     }
 
     #[tokio::test]
@@ -894,12 +921,11 @@ mod tests {
         let (state, recording) =
             AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
-        let row = state.store.workspace_by_id("w-parent").unwrap().unwrap();
-        let mut record = crate::git_workspace::resolve_record(&state, "w-parent", &row)
+        state
+            .workspaces
+            .set_status("w-parent", WorkspaceLifecycle::TearingDown)
             .await
             .unwrap();
-        record.status = WorkspaceLifecycle::TearingDown;
-        state.workspace.remember(record).await;
         assert_no_ghost(&state, &recording).await;
     }
 

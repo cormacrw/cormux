@@ -2,7 +2,7 @@ use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::model::ThreadStatus;
+use crate::model::{SUMMARY_MODEL_LABEL, ThreadStatus, WorkspaceKind};
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 
@@ -15,8 +15,6 @@ pub struct WorkspaceSummaryResult {
     pub summary_source: String,
     pub from_llm: bool,
 }
-
-pub const SUMMARY_MODEL_LABEL: &str = "Haiku 4.5";
 
 pub fn build_summary_prompt(workspace: &WorkspaceRow, threads: &[ThreadRow]) -> String {
     let thread_lines: Vec<String> = threads
@@ -48,7 +46,7 @@ pub fn fallback_summary(workspace: &WorkspaceRow, threads: &[ThreadRow]) -> Stri
             workspace.name, workspace.branch
         );
     }
-    if workspace.kind.as_deref() == Some("review") {
+    if workspace.kind == WorkspaceKind::PrReview {
         let pr = workspace
             .pr_number
             .map(|n| format!("#{n}"))
@@ -89,7 +87,7 @@ pub async fn summarise(state: &AppState, workspace_id: String) -> Result<Workspa
         .store
         .workspace_by_id(&workspace_id)?
         .filter(|row| row.archived_at.is_none())
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        .ok_or_else(|| Error::unknown_workspace(&workspace_id))?;
 
     if let (Some(summary), Some(at)) = (&workspace.summary, &workspace.summary_at)
         && !summary.is_empty()
@@ -112,13 +110,13 @@ pub async fn summarise(state: &AppState, workspace_id: String) -> Result<Workspa
     };
 
     state
-        .store
-        .set_workspace_summary(&workspace_id, &summary, SUMMARY_MODEL_LABEL)?;
+        .workspaces
+        .set_summary(&workspace_id, &summary, SUMMARY_MODEL_LABEL)?;
 
     let updated = state
         .store
         .workspace_by_id(&workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
+        .ok_or_else(|| Error::unknown_workspace(&workspace_id))?;
 
     Ok(WorkspaceSummaryResult {
         workspace_id,
@@ -133,23 +131,21 @@ pub async fn summarise(state: &AppState, workspace_id: String) -> Result<Workspa
 mod tests {
     use super::*;
 
+    use crate::model::{ThreadRole, WorkspaceLifecycle};
+
     fn workspace() -> WorkspaceRow {
         WorkspaceRow {
-            id: "w1".into(),
-            repo_id: "r1".into(),
-            name: "Auth session timeout".into(),
-            branch: "feat/auth".into(),
-            worktree_path: "/tmp/wt".into(),
-            status: "running".into(),
-            created_at: "2026-01-01T00:00:00Z".into(),
-            summary: None,
-            summary_at: None,
-            summary_source: SUMMARY_MODEL_LABEL.into(),
-            kind: None,
-            pr_number: None,
-            pr_html_url: None,
             modified_files: 3,
-            archived_at: None,
+            ..WorkspaceRow::new(
+                WorkspaceKind::Lead,
+                "w1",
+                "r1",
+                "Auth session timeout",
+                "feat/auth",
+                "main",
+                "/tmp/wt",
+            )
+            .with_status(WorkspaceLifecycle::Running)
         }
     }
 
@@ -162,26 +158,13 @@ mod tests {
 
     #[test]
     fn review_fallback_mentions_pr() {
-        let mut ws = workspace();
-        ws.kind = Some("review".into());
-        ws.pr_number = Some(482);
-        let text = fallback_summary(
-            &ws,
-            &[ThreadRow {
-                id: "t1".into(),
-                workspace_id: "w1".into(),
-                title: "Reviewer".into(),
-                engine: "claude".into(),
-                session_id: None,
-                status: "running".into(),
-                used_tokens: None,
-                context_size: None,
-                cost_usd: None,
-                transcript_readonly: false,
-                retired: false,
-                parent_thread_id: None,
-            }],
-        );
+        let ws = WorkspaceRow {
+            kind: WorkspaceKind::PrReview,
+            ..workspace().with_pr(482, None)
+        };
+        let reviewer = ThreadRow::new("t1", "w1", ThreadRole::Reviewer, "claude")
+            .with_status(ThreadStatus::Running);
+        let text = fallback_summary(&ws, &[reviewer]);
         assert!(text.contains("#482"));
     }
 }

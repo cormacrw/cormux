@@ -4,7 +4,7 @@ use crate::error::{Error, Result};
 use crate::feedback::Change;
 use crate::model::WorkspaceLifecycle;
 use crate::state::AppState;
-use crate::workspace::WorkspaceRecord;
+use crate::workspaces::WorkspaceRecord;
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -36,17 +36,11 @@ pub struct TeardownInput {
 }
 
 pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPreview> {
+    let record = state.workspaces.get(workspace_id).await?;
     let row = state
         .store
         .workspace_by_id(workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    if row.archived_at.is_some() {
-        return Err(Error::Workspace(format!(
-            "workspace {workspace_id} is archived"
-        )));
-    }
-
-    let record = resolve_record(state, workspace_id, &row).await?;
+        .ok_or_else(|| Error::unknown_workspace(workspace_id))?;
     let worktree = PathBuf::from(&record.worktree_path);
 
     let uncommitted_files = count_uncommitted_files(state, &worktree, row.modified_files).await;
@@ -66,7 +60,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     let branch = record.branch.clone();
     Ok(TeardownPreview {
         workspace_id: workspace_id.to_string(),
-        workspace_name: row.name,
+        workspace_name: record.name.clone(),
         engine_label: "Claude Code".into(),
         branch: branch.clone(),
         worktree_path: record.worktree_path.clone(),
@@ -82,31 +76,21 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     })
 }
 
+/// Stops everything running in the workspace, removes its worktree (and branch, if asked) and
+/// archives it. Setup still running stops too: it checks the workspace is alive between steps,
+/// and its command's process is stopped with the rest.
 pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
-    let row = state
-        .store
-        .workspace_by_id(&input.workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", input.workspace_id)))?;
-    if row.archived_at.is_some() {
-        return Err(Error::Workspace(format!(
-            "workspace {} is archived",
-            input.workspace_id
-        )));
-    }
-
-    let record = resolve_record(state, &input.workspace_id, &row).await?;
+    let record = state.workspaces.get(&input.workspace_id).await?;
     if record.status == WorkspaceLifecycle::TearingDown {
         return Err(Error::Workspace(format!(
             "workspace {} is already being torn down",
             input.workspace_id
         )));
     }
-    state.workspace.remember(record.clone()).await;
-    let previous_status = record.status;
-    let _ = state
-        .workspace
+    state
+        .workspaces
         .set_status(&input.workspace_id, WorkspaceLifecycle::TearingDown)
-        .await;
+        .await?;
     state.out.changed(Change::THREADS);
 
     let thread_ids: Vec<String> = state
@@ -117,19 +101,21 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
         .collect();
 
     if let Err(error) = run_teardown_steps(state, &record, input.delete_branch, &thread_ids).await {
-        let _ = state
-            .workspace
-            .set_status(&input.workspace_id, previous_status)
+        let restored = state
+            .workspaces
+            .set_status(&input.workspace_id, after_failed_teardown(record.status))
             .await;
+        if let Err(restore) = restored {
+            log::warn!("restoring {} after teardown: {restore}", input.workspace_id);
+        }
         state.out.changed(Change::THREADS);
         return Err(error);
     }
 
-    state.store.archive_workspace(&input.workspace_id)?;
+    state.workspaces.archive(&input.workspace_id).await?;
     state.diffs.unwatch(&input.workspace_id);
     state.process.forget_workspace(&input.workspace_id);
-    state.workspace.remove(&input.workspace_id).await;
-    state.workspace.sync_fetch_targets().await;
+    state.workspace_git.forget(&input.workspace_id).await;
 
     state.out.changed(Change::THREADS);
 
@@ -164,38 +150,13 @@ async fn run_teardown_steps(
     Ok(())
 }
 
-async fn resolve_record(
-    state: &AppState,
-    workspace_id: &str,
-    row: &crate::store::types::WorkspaceRow,
-) -> Result<WorkspaceRecord> {
-    if let Some(record) = state.workspace.get(workspace_id).await {
-        return Ok(record);
+/// What a workspace is once a teardown that stopped its agents and setup gives up.
+fn after_failed_teardown(before: WorkspaceLifecycle) -> WorkspaceLifecycle {
+    match before {
+        WorkspaceLifecycle::Running => WorkspaceLifecycle::Idle,
+        WorkspaceLifecycle::Provisioning => WorkspaceLifecycle::ProvisioningFailed,
+        other => other,
     }
-
-    let repo = state
-        .store
-        .repo_by_id(&row.repo_id)?
-        .ok_or_else(|| Error::Git(format!("unknown repo {}", row.repo_id)))?;
-    let repo_path = crate::paths::expand_tilde(&repo.path);
-    let base = repo.default_branch.unwrap_or_else(|| "main".into());
-    let status = WorkspaceLifecycle::parse(&row.status);
-
-    Ok(WorkspaceRecord {
-        id: row.id.clone(),
-        repo_id: row.repo_id.clone(),
-        repo_path: repo_path.to_string_lossy().to_string(),
-        name: row.name.clone(),
-        branch: row.branch.clone(),
-        base,
-        worktree_path: row.worktree_path.clone(),
-        status,
-        version: 0,
-        activity: String::new(),
-        prov_step: 0,
-        setup_failed_command: None,
-        setup_failed_exit_code: None,
-    })
 }
 
 async fn count_uncommitted_files(state: &AppState, worktree: &Path, fallback: i64) -> u32 {
@@ -235,6 +196,78 @@ fn data_loss_warning(uncommitted_files: u32, unpushed_commits: u32) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{ThreadRole, WorkspaceKind};
+    use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
+
+    /// Teardown used to leave a workspace mid-setup marked as provisioning, so setup carried on
+    /// into the folder being deleted.
+    #[tokio::test]
+    async fn a_workspace_mid_setup_is_torn_down_and_its_setup_told() {
+        let (state, _recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        state
+            .store
+            .upsert_repo(&RepoRecord {
+                id: "r1".into(),
+                path: "/tmp/app".into(),
+                name: "app".into(),
+                default_branch: Some("main".into()),
+                setup_commands: String::new(),
+                run_command: None,
+                single_instance: false,
+            })
+            .unwrap();
+        let row = WorkspaceRow::new(
+            WorkspaceKind::Lead,
+            "w",
+            "r1",
+            "Work",
+            "feat/x",
+            "main",
+            "/tmp/cormux-no-such-worktree",
+        );
+        let repo = state.store.repo_by_id("r1").unwrap().unwrap();
+        state
+            .workspaces
+            .register(
+                row,
+                &ThreadRow::new("t", "w", ThreadRole::Lead, "claude"),
+                &repo,
+            )
+            .await
+            .unwrap();
+
+        execute(
+            &state,
+            &TeardownInput {
+                workspace_id: "w".into(),
+                delete_branch: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(state.workspaces.get("w").await.is_err());
+        let archived = state.store.workspace_by_id("w").unwrap().unwrap();
+        assert!(archived.archived_at.is_some());
+        assert_eq!(archived.lifecycle(), WorkspaceLifecycle::TearingDown);
+    }
+
+    #[test]
+    fn a_failed_teardown_hands_back_what_it_stopped() {
+        assert_eq!(
+            after_failed_teardown(WorkspaceLifecycle::Provisioning),
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+        assert_eq!(
+            after_failed_teardown(WorkspaceLifecycle::Running),
+            WorkspaceLifecycle::Idle
+        );
+        assert_eq!(
+            after_failed_teardown(WorkspaceLifecycle::Ready),
+            WorkspaceLifecycle::Ready
+        );
+    }
 
     #[test]
     fn data_loss_message_covers_uncommitted_and_unpushed() {

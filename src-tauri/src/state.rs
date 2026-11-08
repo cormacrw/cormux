@@ -5,6 +5,7 @@ use tokio::sync::{RwLock, broadcast};
 
 use crate::app::WorkspaceAppService;
 use crate::clickup::ClickupClient;
+use crate::error::Result;
 use crate::feedback::{Notifier, UserOutput};
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::orchestration::ReportQueue;
@@ -12,7 +13,7 @@ use crate::paths::DataDir;
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::PrSyncScheduler,
     llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
-    shell_env::ShellEnv, store::Store, workspace::WorkspaceManager,
+    shell_env::ShellEnv, store::Store, workspace_git::WorkspaceGit, workspaces::Workspaces,
 };
 
 /// Process-wide core state. The webview never holds this; IPC commands borrow it. A handle to
@@ -34,7 +35,8 @@ pub struct Core {
     pub out: Notifier,
     pub shell_env: Arc<RwLock<ShellEnv>>,
     pub git: Git,
-    pub workspace: WorkspaceManager,
+    pub workspaces: Workspaces,
+    pub workspace_git: WorkspaceGit,
     pub engines: EngineRegistry,
     pub approvals: Arc<ApprovalBroker>,
     pub mcp: CormuxMcp,
@@ -49,11 +51,20 @@ pub struct Core {
     pub pr_sync: PrSyncScheduler,
     pub approval_notify: broadcast::Sender<()>,
     pub turn_end_notify: broadcast::Sender<String>,
+    pub setup_failed: broadcast::Sender<crate::provisioning::SetupFailed>,
     pub reports: ReportQueue,
 }
 
 impl AppState {
-    pub fn new(data_dir: DataDir, output: Arc<dyn UserOutput>) -> Self {
+    /// The app's state over the database in `data_dir`. Turns that were running when the app
+    /// last closed are over: no agent survives it.
+    pub fn new(data_dir: DataDir, output: Arc<dyn UserOutput>) -> Result<Self> {
+        let store = Store::open(&data_dir.db())?;
+        store.reset_interrupted_turns()?;
+        Ok(Self::with_store(data_dir, store, output))
+    }
+
+    fn with_store(data_dir: DataDir, store: Store, output: Arc<dyn UserOutput>) -> Self {
         let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
         let git = Git::new(shell_env.clone());
         let diffs = LiveDiffEngine::new(git.clone());
@@ -61,8 +72,7 @@ impl AppState {
         let pr_sync = PrSyncScheduler::new(git.clone(), shell_env.clone());
         let process = ProcessSupervisor::new(shell_env.clone());
         let apps = WorkspaceAppService::new();
-        let workspace = WorkspaceManager::new(git.clone(), diffs.clone(), fetch.clone());
-        let store = Store::new();
+        let workspaces = Workspaces::new(store.clone());
         let approvals = Arc::new(ApprovalBroker::new());
         let out = {
             let (store, approvals) = (store.clone(), approvals.clone());
@@ -72,6 +82,7 @@ impl AppState {
         };
         let (approval_notify, _) = broadcast::channel(32);
         let (turn_end_notify, _) = broadcast::channel(64);
+        let (setup_failed, _) = broadcast::channel(16);
         let mcp = CormuxMcp::new(store.clone());
         let engines = EngineRegistry::new(
             shell_env.clone(),
@@ -86,7 +97,8 @@ impl AppState {
             out,
             shell_env: shell_env.clone(),
             git,
-            workspace,
+            workspaces,
+            workspace_git: WorkspaceGit::default(),
             engines,
             approvals,
             mcp,
@@ -101,6 +113,7 @@ impl AppState {
             pr_sync,
             approval_notify,
             turn_end_notify,
+            setup_failed,
             reports: ReportQueue::default(),
         }))
     }
@@ -109,7 +122,11 @@ impl AppState {
     #[cfg(test)]
     pub fn recorded(data_dir: DataDir) -> (Self, Arc<crate::feedback::RecordingOutput>) {
         let recording = Arc::new(crate::feedback::RecordingOutput::default());
-        (Self::new(data_dir, recording.clone()), recording)
+        let store = Store::in_memory().expect("in-memory store");
+        (
+            Self::with_store(data_dir, store, recording.clone()),
+            recording,
+        )
     }
 }
 

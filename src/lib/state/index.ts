@@ -2,11 +2,7 @@ import type { Snapshot, StateChanged } from '$lib/ipc'
 import { onSnapshotSupervision } from '$lib/feedback/supervision'
 import { parseTimestampMs } from '$lib/format/relative-time'
 import { pullRequestFromRow } from '$lib/state/pr-from-payload'
-import type {
-  WorkspaceLifecycle,
-  WorkspaceRecord,
-  WorkspaceRow,
-} from '$lib/ipc/bindings'
+import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 import { fetchSnapshot } from '$lib/ipc'
 import { app } from './app.svelte'
 import { coalesce } from './coalesce'
@@ -68,48 +64,6 @@ function pendingByThread(approvals: Snapshot['persisted']['approvals']) {
   return map
 }
 
-const LIFECYCLE_VALUES = new Set<WorkspaceLifecycle>([
-  'provisioning',
-  'ready',
-  'running',
-  'idle',
-  'tearingDown',
-  'provisioningFailed',
-])
-
-function parseLifecycle(raw: string): WorkspaceLifecycle {
-  return LIFECYCLE_VALUES.has(raw as WorkspaceLifecycle)
-    ? (raw as WorkspaceLifecycle)
-    : 'ready'
-}
-
-function persistedWorkspaceRecord(row: WorkspaceRow): WorkspaceRecord {
-  return {
-    id: row.id,
-    repoId: row.repoId,
-    repoPath: '',
-    name: row.name,
-    branch: row.branch,
-    base: 'main',
-    worktreePath: row.worktreePath,
-    status: parseLifecycle(row.status),
-    version: 0,
-    activity: '',
-    provStep: 0,
-    setupFailedCommand: null,
-    setupFailedExitCode: null,
-  }
-}
-
-/** Runtime rows win. Saved workspaces missing from memory still show up so they can be opened. */
-function workspaceRecordsFromSnapshot(snapshot: Snapshot): WorkspaceRecord[] {
-  const runtimeIds = new Set(snapshot.workspaces.map((row) => row.id))
-  const saved = snapshot.persisted.workspaces
-    .filter((row) => !row.archivedAt && !runtimeIds.has(row.id))
-    .map(persistedWorkspaceRecord)
-  return [...snapshot.workspaces, ...saved]
-}
-
 function threadActivityLine(status: string): string {
   switch (status) {
     case 'running':
@@ -146,7 +100,7 @@ function modelsFromSnapshot(snapshot: Snapshot) {
   }
 
   const rows = new Map(persisted.workspaces.map((row) => [row.id, row]))
-  const records = workspaceRecordsFromSnapshot(snapshot)
+  const records = snapshot.workspaces
   const recordById = new Map(records.map((record) => [record.id, record]))
 
   const workspaceModels: Workspace[] = records.map((workspace) => {
@@ -163,7 +117,7 @@ function modelsFromSnapshot(snapshot: Snapshot) {
       runningLike.length > 0 &&
       runningLike.every((t) => t.status === 'paused')
 
-    const kind = row?.kind === 'review' ? ('review' as const) : null
+    const kind = workspace.kind === 'review' ? ('review' as const) : null
 
     const activityText = workspaceActivityFromRecord(
       workspace.status,

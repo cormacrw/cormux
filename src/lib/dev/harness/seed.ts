@@ -67,8 +67,13 @@ function seedReviewFindings(findings: HarnessScenario['reviewFindings']) {
   )!
   row.kind = 'review'
   row.prNumber = 2
-  persisted.threads.find((thread) => thread.id === 'th-lead')!.title =
-    'Reviewer'
+  fixtureSnapshot.workspaces.find(
+    (workspace) => workspace.id === 'ws-auth',
+  )!.kind = 'review'
+  Object.assign(
+    persisted.threads.find((thread) => thread.id === 'th-lead')!,
+    { title: 'Reviewer', role: 'reviewer' },
+  )
   persisted.findings = findings!
   persisted.settings = [
     ...persisted.settings,

@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
@@ -8,14 +7,14 @@ use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::github::RestGithubClient;
 use crate::github::auth;
 use crate::github::review::{ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput};
-use crate::model::{ThreadStatus, WorkspaceLifecycle};
-use crate::paths::{WORKTREE_ROOT_SETTING, expand_tilde, worktrees_root};
-use crate::provisioning::LeadProvisionJob;
+use crate::model::{SUMMARY_MODEL_LABEL, ThreadStatus, WorkspaceKind};
+use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
 use crate::store::Store;
-use crate::store::types::{FindingRow, ThreadRow, WorkspaceRow};
+use crate::store::types::{FindingRow, WorkspaceRow};
 use crate::timeline::{TimelineStep, record_step};
-use crate::workspace::WorkspaceRecord;
+use crate::workspace_git::Checkout;
+use crate::workspaces::WorkspaceRecord;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -137,13 +136,11 @@ pub fn find_existing_review_workspace(
     pr_number: i64,
 ) -> Option<WorkspaceRow> {
     store.live_workspaces().ok()?.into_iter().find(|row| {
-        row.kind.as_deref() == Some("review")
+        row.kind == WorkspaceKind::PrReview
             && row.repo_id == repo_id
             && row.pr_number == Some(pr_number)
     })
 }
-
-pub const REVIEWER_TITLE: &str = "Reviewer";
 
 fn default_engine(store: &Store) -> String {
     store
@@ -154,12 +151,6 @@ fn default_engine(store: &Store) -> String {
         .unwrap_or_else(|| "claude".into())
 }
 
-/// Unique per review: PR numbers repeat across repos, and archived rows keep their ids.
-fn workspace_id_for_pr(pr_number: i64) -> String {
-    let suffix = Uuid::new_v4().simple().to_string();
-    format!("pr{pr_number}-{}", &suffix[..8])
-}
-
 pub async fn create_review_workspace(
     state: &AppState,
     input: CreateReviewWorkspaceInput,
@@ -167,85 +158,33 @@ pub async fn create_review_workspace(
     if let Some(existing) =
         find_existing_review_workspace(&state.store, &input.repo_id, input.pr_number)
     {
-        remember_workspace_from_row(state, &existing, &input.base).await?;
+        // The PR may have been retargeted since.
+        if existing.base != input.base {
+            state.workspaces.set_base(&existing.id, &input.base).await?;
+        }
         return Ok(CreateReviewWorkspaceResult {
             workspace_id: existing.id,
             created: false,
         });
     }
 
-    let repo = state
-        .store
-        .repo_by_id(&input.repo_id)?
-        .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
-    repo.ensure_not_default_branch(&input.head)?;
-    let repo_path = expand_tilde(&repo.path);
-    if !repo_path.is_dir() {
-        return Err(Error::Git(format!(
-            "repo path does not exist: {}",
-            repo_path.display()
-        )));
-    }
-
-    let workspace_id = workspace_id_for_pr(input.pr_number);
-    if state.store.workspace_by_id(&workspace_id)?.is_some() {
-        return Err(Error::Workspace(format!(
-            "workspace id {workspace_id} is already in use"
-        )));
-    }
-
-    let thread_id = Uuid::new_v4().to_string();
     let engine = default_engine(&state.store);
-    let worktrees_root = worktrees_root(state.store.get_setting(WORKTREE_ROOT_SETTING)?.as_deref());
-
-    let workspace_name = format!("PR #{} Review", input.pr_number);
-    let record = state
-        .workspace
-        .register_provisioning(
-            &workspace_id,
-            &input.repo_id,
-            &repo_path,
-            &workspace_name,
-            &input.head,
-            &input.base,
-            &worktrees_root,
-        )
-        .await?;
-    let worktree_path = PathBuf::from(&record.worktree_path);
-
-    state.store.upsert_workspace(&WorkspaceRow {
-        id: workspace_id.clone(),
-        repo_id: input.repo_id.clone(),
-        name: workspace_name,
-        branch: input.head.clone(),
-        worktree_path: worktree_path.to_string_lossy().to_string(),
-        status: "provisioning".into(),
-        created_at: String::new(),
-        summary: None,
-        summary_at: None,
-        summary_source: "Haiku 4.5".into(),
-        kind: Some("review".into()),
-        pr_number: Some(input.pr_number),
-        pr_html_url: input.pr_html_url.clone(),
-        modified_files: 0,
-        archived_at: None,
-    })?;
-
-    // Events reference the thread by foreign key, so the thread row has to exist first.
-    state.store.upsert_thread(&ThreadRow {
-        id: thread_id.clone(),
-        workspace_id: workspace_id.clone(),
-        title: REVIEWER_TITLE.into(),
-        engine: engine.clone(),
-        session_id: None,
-        status: ThreadStatus::Provisioning.into(),
-        used_tokens: None,
-        context_size: None,
-        cost_usd: None,
-        transcript_readonly: false,
-        retired: false,
-        parent_thread_id: None,
-    })?;
+    let created = crate::provisioning::create(
+        state,
+        WorkspaceSpec {
+            kind: WorkspaceKind::PrReview,
+            repo_id: input.repo_id.clone(),
+            name: format!("PR #{} Review", input.pr_number),
+            branch: input.head.clone(),
+            base: input.base.clone(),
+            pr: Some((input.pr_number, input.pr_html_url.clone())),
+            engine: engine.clone(),
+            parent_thread_id: None,
+        },
+    )
+    .await?;
+    let workspace_id = created.workspace.id.clone();
+    let thread_id = created.thread_id.clone();
 
     let user_message = user_review_message(
         input.pr_number,
@@ -277,9 +216,9 @@ pub async fn create_review_workspace(
     } else {
         format!("@{}", input.author)
     };
-    let _ = state
+    state
         .store
-        .set_setting(&review_author_key(&workspace_id), &author_label);
+        .set_setting(&review_author_key(&workspace_id), &author_label)?;
 
     state.out.changed(Change::THREADS);
 
@@ -297,48 +236,15 @@ pub async fn create_review_workspace(
         thread_id: Some(thread_id.clone()),
     });
 
-    let state_bg = state.clone();
-    let goal = user_message;
-    let pr_number = input.pr_number as u64;
-    let base_branch = input.base.clone();
-    let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
-    let worktree_path_bg = worktree_path.clone();
-    let workspace_id_bg = workspace_id.clone();
-
-    tauri::async_runtime::spawn(async move {
-        let state = state_bg;
-        if let Err(error) = state
-            .workspace
-            .add_review_worktree(&workspace_id_bg, pr_number)
-            .await
-        {
-            log::warn!("review worktree failed: {error}");
-            return;
-        }
-        state.diffs.set_diff_target(
-            &workspace_id_bg,
-            Some(crate::git::DiffTarget::head_against(base_branch.clone())),
-        );
-        let _ = state
-            .diffs
-            .compute(&workspace_id_bg, &worktree_path_bg)
-            .await;
-
-        crate::provisioning::run_workspace_provisioning(
-            state.clone(),
-            LeadProvisionJob {
-                workspace_id: workspace_id_bg.clone(),
-                thread_id: thread_id.clone(),
-                repo_name: crate::paths::repo_dir_name(&repo_path).to_string(),
-                setup_commands_raw: setup_commands,
-                engine,
-                goal,
-                prompt: None,
-                review: true,
-            },
-        )
-        .await;
-    });
+    let plan = review_plan(
+        &created.workspace,
+        &thread_id,
+        &engine,
+        &user_message,
+        input.pr_number,
+        author_label,
+    );
+    crate::provisioning::start(state, plan);
 
     Ok(CreateReviewWorkspaceResult {
         workspace_id,
@@ -346,38 +252,88 @@ pub async fn create_review_workspace(
     })
 }
 
-async fn remember_workspace_from_row(
-    state: &AppState,
-    row: &WorkspaceRow,
-    base: &str,
-) -> Result<()> {
-    let repo = state
+/// How a PR review comes up: the PR's head checked out, then the Reviewer reading it.
+fn review_plan(
+    workspace: &WorkspaceRecord,
+    thread_id: &str,
+    engine: &str,
+    user_message: &str,
+    pr_number: i64,
+    author: String,
+) -> ProvisionPlan {
+    let pr_label = format!("#{pr_number}");
+    let summary_label = pr_label.clone();
+    ProvisionPlan {
+        workspace_id: workspace.id.clone(),
+        thread_id: thread_id.to_string(),
+        engine: engine.to_string(),
+        checkout: Checkout::PullRef(pr_number as u64),
+        setup_activity: "Checking out the PR…".into(),
+        first_prompt: Some(reviewer_engine_prompt(user_message).into()),
+        running_activity: "Reading the diff…".into(),
+        seed_summary: Some(Box::new(move |workspace: &WorkspaceRecord| {
+            format!(
+                "Reviewing {summary_label} from {author} against {}. Claude Code is reading the diff and will draft comments for your approval; nothing has been posted to GitHub yet.",
+                workspace.base
+            )
+        })),
+        started_toast: Some(vec![
+            ToastPart::Text {
+                value: "Reviewer started on ".into(),
+            },
+            ToastPart::Code { value: pr_label },
+        ]),
+    }
+}
+
+/// The plan again for a review whose setup failed.
+pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<ProvisionPlan> {
+    let row = state
         .store
-        .repo_by_id(&row.repo_id)?
-        .ok_or_else(|| Error::Git(format!("unknown repo {}", row.repo_id)))?;
-    let repo_path = expand_tilde(&repo.path);
-    state
-        .workspace
-        .remember(WorkspaceRecord {
-            id: row.id.clone(),
-            repo_id: row.repo_id.clone(),
-            repo_path: repo_path.to_string_lossy().to_string(),
-            name: row.name.clone(),
-            branch: row.branch.clone(),
-            base: base.to_string(),
-            worktree_path: row.worktree_path.clone(),
-            status: WorkspaceLifecycle::parse(&row.status),
-            version: 1,
-            activity: String::new(),
-            prov_step: 0,
-            setup_failed_command: None,
-            setup_failed_exit_code: None,
-        })
-        .await;
-    state
-        .diffs
-        .default_diff_target(&row.id, crate::git::DiffTarget::head_against(base));
-    Ok(())
+        .workspace_by_id(&workspace.id)?
+        .ok_or_else(|| Error::unknown_workspace(&workspace.id))?;
+    let pr_number = row
+        .pr_number
+        .ok_or_else(|| Error::Workspace("Review workspace has no PR number".into()))?;
+    let thread = state
+        .store
+        .own_thread(&workspace.id)?
+        .ok_or_else(|| Error::Workspace(format!("no Reviewer in workspace {}", workspace.id)))?;
+    let message = state
+        .store
+        .first_message_text(&thread.id)?
+        .unwrap_or_default();
+    let author = state
+        .store
+        .get_setting(&review_author_key(&workspace.id))?
+        .unwrap_or_else(|| "the author".into());
+    Ok(review_plan(
+        workspace,
+        &thread.id,
+        &thread.engine,
+        &message,
+        pr_number,
+        author,
+    ))
+}
+
+/// Reads each Reviewer's findings when its turn ends, for the life of the app.
+pub fn start(state: &AppState) {
+    let state = state.clone();
+    let mut rx = state.turn_end_notify.subscribe();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(thread_id) => {
+                    if let Err(error) = on_reviewer_turn_end(&state, &thread_id).await {
+                        log::warn!("reading review findings failed: {error}");
+                    }
+                }
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 pub fn review_is_ready(store: &Store, workspace_id: &str) -> bool {
@@ -399,7 +355,7 @@ pub async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<(
     let Some(workspace) = state.store.workspace_by_id(&thread.workspace_id)? else {
         return Ok(());
     };
-    let branch_review = workspace.kind.as_deref() != Some("review");
+    let branch_review = workspace.kind != WorkspaceKind::PrReview;
     let pending = if branch_review {
         branch_review_running(&state.store, &workspace.id)
     } else {
@@ -471,16 +427,12 @@ fn branch_review_running(store: &Store, workspace_id: &str) -> bool {
 /// the base, and its findings fill the Findings panel, from where they can be sent back to
 /// the same thread to fix. Returns the thread's id.
 pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result<String> {
-    let workspace = state
-        .store
-        .workspace_by_id(workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    if workspace.kind.as_deref() == Some("review") {
+    let record = state.workspaces.get(workspace_id).await?;
+    if record.kind == WorkspaceKind::PrReview {
         return Err(Error::Workspace(
             "this is a review workspace; its Reviewer already reviews the PR".into(),
         ));
     }
-    let record = crate::git_workspace::resolve_record(state, workspace_id, &workspace).await?;
 
     let thread = state
         .store
@@ -570,15 +522,13 @@ async fn complete_review(
             count_findings(&findings)
         )
     };
-    state.store.upsert_workspace(&WorkspaceRow {
-        summary: Some(card_summary),
-        summary_at: Some(crate::time::sqlite_now()),
-        ..workspace.clone()
-    })?;
-    let _ = state
-        .workspace
-        .set_provisioning_detail(&workspace.id, "Review ready", 0, None, None)
-        .await;
+    state
+        .workspaces
+        .set_summary(&workspace.id, &card_summary, SUMMARY_MODEL_LABEL)?;
+    state
+        .workspaces
+        .set_activity(&workspace.id, "Review ready", 0, None)
+        .await?;
 
     // With findings, the frontend toasts (and notifies) when they first appear.
     if findings.is_empty() {
@@ -638,8 +588,8 @@ pub async fn submit_workspace_review(
     let workspace = state
         .store
         .workspace_by_id(&input.workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", input.workspace_id)))?;
-    if workspace.kind.as_deref() != Some("review") {
+        .ok_or_else(|| Error::unknown_workspace(&input.workspace_id))?;
+    if workspace.kind != WorkspaceKind::PrReview {
         return Err(Error::Workspace("Not a review workspace".into()));
     }
     let pr_number = workspace
@@ -649,7 +599,7 @@ pub async fn submit_workspace_review(
     let repo = state
         .store
         .repo_by_id(&workspace.repo_id)?
-        .ok_or_else(|| Error::Git(format!("unknown repo {}", workspace.repo_id)))?;
+        .ok_or_else(|| Error::unknown_repo(&workspace.repo_id))?;
     let (owner, repo_name) =
         parse_repo_slug(state, &repo.path, workspace.pr_html_url.as_deref()).await?;
 
@@ -727,10 +677,9 @@ pub async fn submit_workspace_review(
         .set_setting(&review_submitted_key(&input.workspace_id), "true")?;
 
     let workspace_threads = state.store.threads_for_workspace(&input.workspace_id)?;
-    let reviewer_thread = workspace_threads
-        .iter()
-        .find(|row| row.title == "Reviewer")
-        .cloned()
+    let reviewer_thread = state
+        .store
+        .own_thread(&input.workspace_id)?
         .ok_or_else(|| Error::Store("Reviewer thread missing".into()))?;
 
     for thread in &workspace_threads {
@@ -744,8 +693,8 @@ pub async fn submit_workspace_review(
     )?;
 
     state
-        .workspace
-        .set_provisioning_detail(&input.workspace_id, "Review submitted", 0, None, None)
+        .workspaces
+        .set_activity(&input.workspace_id, "Review submitted", 0, None)
         .await?;
 
     state.out.toast(ToastRaisedPayload {
@@ -805,14 +754,15 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    use crate::engines::EngineCommand;
     use crate::feedback::{Emitted, RecordingOutput};
+    use crate::model::{ThreadRole, WorkspaceLifecycle};
     use crate::store::types::{RepoRecord, ThreadRow};
 
-    /// A branch review in flight, its thread having just said `reply`.
-    fn reviewing(reply: &str) -> (AppState, Arc<RecordingOutput>) {
+    /// A Lead workspace whose thread is in `status`.
+    fn workspace(status: ThreadStatus) -> (AppState, Arc<RecordingOutput>) {
         let (state, recording) =
             AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
-        state.store.open_in_memory().unwrap();
         state
             .store
             .upsert_repo(&RepoRecord {
@@ -827,41 +777,31 @@ mod tests {
             .unwrap();
         state
             .store
-            .upsert_workspace(&WorkspaceRow {
-                id: "w1".into(),
-                repo_id: "r1".into(),
-                name: "Work".into(),
-                branch: "feat/x".into(),
-                worktree_path: "/tmp/wt".into(),
-                status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
-            })
+            .insert_workspace(
+                &WorkspaceRow::new(
+                    WorkspaceKind::Lead,
+                    "w1",
+                    "r1",
+                    "Work",
+                    "feat/x",
+                    "main",
+                    "/tmp/wt",
+                )
+                .with_status(WorkspaceLifecycle::Ready),
+            )
             .unwrap();
         state
             .store
-            .upsert_thread(&ThreadRow {
-                id: "t1".into(),
-                workspace_id: "w1".into(),
-                title: "Lead".into(),
-                engine: "claude".into(),
-                session_id: None,
-                status: "idle".into(),
-                used_tokens: None,
-                context_size: None,
-                cost_usd: None,
-                transcript_readonly: false,
-                retired: false,
-                parent_thread_id: None,
-            })
+            .upsert_thread(
+                &ThreadRow::new("t1", "w1", ThreadRole::Lead, "claude").with_status(status),
+            )
             .unwrap();
+        (state, recording)
+    }
+
+    /// A branch review in flight, its thread having just said `reply`.
+    fn reviewing(reply: &str) -> (AppState, Arc<RecordingOutput>) {
+        let (state, recording) = workspace(ThreadStatus::Idle);
         state
             .store
             .set_setting(&review_status_key("w1"), "running")
@@ -893,6 +833,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_branch_review_finishes_when_its_turn_ends() {
+        let (state, recording) = reviewing("Fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
+        start(&state);
+
+        state.turn_end_notify.send("t1".into()).unwrap();
+
+        for _ in 0..250 {
+            if review_is_ready(&state.store, "w1") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(review_is_ready(&state.store, "w1"));
+        assert_eq!(recording.toasts().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_finished_pr_review_saves_its_card_summary() {
+        let (state, _recording) = workspace(ThreadStatus::Idle);
+        state
+            .store
+            .insert_workspace(
+                &WorkspaceRow::new(
+                    WorkspaceKind::PrReview,
+                    "pr",
+                    "r1",
+                    "PR #7 Review",
+                    "fix/x",
+                    "main",
+                    "/tmp/pr",
+                )
+                .with_status(WorkspaceLifecycle::Running)
+                .with_pr(7, None),
+            )
+            .unwrap();
+        state
+            .store
+            .upsert_thread(
+                &ThreadRow::new("rt", "pr", ThreadRole::Reviewer, "claude")
+                    .with_status(ThreadStatus::Running),
+            )
+            .unwrap();
+        state
+            .store
+            .set_setting(&review_author_key("pr"), "@ana")
+            .unwrap();
+        let said = serde_json::json!({
+            "type": "messageChunk",
+            "role": "agent",
+            "text": "Fine.\n\n<cormux-findings>\n[]\n</cormux-findings>",
+        });
+        state
+            .store
+            .append_event("rt", "message", &said.to_string())
+            .unwrap();
+        state.workspaces.rename("pr", "Renamed").await.unwrap();
+
+        on_reviewer_turn_end(&state, "rt").await.unwrap();
+
+        let row = state.store.workspace_by_id("pr").unwrap().unwrap();
+        assert_eq!(
+            row.summary.as_deref(),
+            Some("Reviewed #7 from @ana: no findings.")
+        );
+        assert_eq!(row.name, "Renamed");
+        assert_eq!(
+            state.workspaces.get("pr").await.unwrap().activity,
+            "Review ready"
+        );
+    }
+
+    #[tokio::test]
     async fn a_reply_with_no_findings_block_leaves_the_review_running() {
         let (state, recording) = reviewing("I got distracted.");
 
@@ -901,6 +913,57 @@ mod tests {
         assert!(recording.toasts().is_empty());
         assert_eq!(recording.state_changes(), [Change::THREADS]);
         assert!(branch_review_running(&state.store, "w1"));
+    }
+
+    fn prompts(engine: &mut tokio::sync::mpsc::UnboundedReceiver<EngineCommand>) -> Vec<String> {
+        std::iter::from_fn(|| engine.try_recv().ok())
+            .filter_map(|command| match command {
+                EngineCommand::Prompt(prompt) => Some(prompt.text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_branch_review_of_a_paused_thread_waits_for_its_resume() {
+        let (state, recording) = workspace(ThreadStatus::Paused);
+        let mut engine = state.engines.fake_thread("t1");
+
+        let thread_id = start_branch_review(&state, "w1").await.unwrap();
+
+        assert_eq!(thread_id, "t1");
+        let thread = state.store.thread_by_id("t1").unwrap().unwrap();
+        assert!(thread.has_status(ThreadStatus::Paused));
+        assert!(prompts(&mut engine).is_empty());
+        assert!(recording.state_changes().contains(&Change::THREADS));
+
+        crate::turn::resume(&state, "t1").await.unwrap();
+        assert!(prompts(&mut engine)[0].contains("<cormux-findings>"));
+    }
+
+    #[tokio::test]
+    async fn a_branch_review_the_engine_refuses_never_starts() {
+        let (state, _recording) = workspace(ThreadStatus::Idle);
+        let _engine = state.engines.fake_thread("t1");
+        state.engines.refuse_sends("t1");
+
+        assert!(start_branch_review(&state, "w1").await.is_err());
+        let thread = state.store.thread_by_id("t1").unwrap().unwrap();
+        assert!(thread.has_status(ThreadStatus::Idle));
+        assert!(!review_is_ready(&state.store, "w1"));
+        assert_eq!(
+            state.store.get_setting(&review_status_key("w1")).unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn a_branch_review_is_refused_while_the_thread_is_running() {
+        let (state, _recording) = workspace(ThreadStatus::Running);
+        let mut engine = state.engines.fake_thread("t1");
+
+        assert!(start_branch_review(&state, "w1").await.is_err());
+        assert!(prompts(&mut engine).is_empty());
     }
 
     #[test]

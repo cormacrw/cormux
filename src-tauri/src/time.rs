@@ -22,12 +22,6 @@ pub fn iso_now() -> String {
     format!("{date}T{time}Z")
 }
 
-/// Now as `YYYY-MM-DD HH:MM:SS` UTC, the form SQLite's `datetime('now')` writes.
-pub fn sqlite_now() -> String {
-    let (date, time) = utc(unix_secs());
-    format!("{date} {time}")
-}
-
 /// `unix_secs` as a UTC date and time of day.
 fn utc(unix_secs: u64) -> (String, String) {
     let rem = unix_secs % 86_400;

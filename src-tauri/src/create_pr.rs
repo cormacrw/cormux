@@ -5,7 +5,6 @@ use specta::Type;
 
 use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
-use crate::git_workspace::{lead_thread_id, refresh_git_stats, resolve_record};
 use crate::github::RestGithubClient;
 use crate::github::auth;
 use crate::github::create::CreatePullRequestInput;
@@ -13,7 +12,7 @@ use crate::github::types::{PrChecksState, PrRelationship, PrReviewState, PullReq
 use crate::pr_draft::{PR_PROMPT_KEY, draft_why, pr_prompt};
 use crate::state::AppState;
 use crate::store::types::{PrRow, WorkspaceRow};
-use crate::timeline::{TimelineStep, record_step};
+use crate::timeline::TimelineStep;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -46,7 +45,7 @@ fn live_workspace(state: &AppState, workspace_id: &str) -> Result<WorkspaceRow> 
         .store
         .workspace_by_id(workspace_id)?
         .filter(|row| row.archived_at.is_none())
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))
+        .ok_or_else(|| Error::unknown_workspace(workspace_id))
 }
 
 pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftPrWhyResult> {
@@ -55,14 +54,17 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
         return Err(Error::Workspace("pull request already opened".into()));
     }
 
-    let record = resolve_record(state, workspace_id, &workspace).await?;
+    let record = state.workspaces.get(workspace_id).await?;
     let worktree = Path::new(&record.worktree_path);
     let base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await;
     let diff = pr_diff(state, workspace_id, worktree, &base, &record.base).await;
 
-    let lead_id = lead_thread_id(state, workspace_id)?;
-    let goal = state.store.first_user_goal(&lead_id)?;
-    let transcript = state.store.transcript_summary(&lead_id, 24)?;
+    let thread = state
+        .store
+        .own_thread(workspace_id)?
+        .ok_or_else(|| Error::Workspace(format!("no thread in workspace {workspace_id}")))?;
+    let goal = state.store.first_user_goal(&thread.id)?;
+    let transcript = state.store.transcript_summary(&thread.id, 24)?;
     let instructions = pr_prompt(state.store.get_setting(PR_PROMPT_KEY)?);
 
     let (text, from_llm) = draft_why(
@@ -100,7 +102,7 @@ pub async fn create_workspace_pull_request(
         return Err(Error::Workspace("pull request already opened".into()));
     }
 
-    let record = resolve_record(state, &input.workspace_id, &workspace).await?;
+    let record = state.workspaces.get(&input.workspace_id).await?;
     let worktree = Path::new(&record.worktree_path);
 
     let porcelain = state.git.status_porcelain(worktree).await?;
@@ -138,14 +140,7 @@ pub async fn create_workspace_pull_request(
             other => other,
         })?;
 
-    refresh_git_stats(
-        state,
-        &input.workspace_id,
-        worktree,
-        &record.base,
-        &record.branch,
-    )
-    .await;
+    crate::workspace_git::refresh_stats(state, &record).await;
 
     let origin = state
         .git
@@ -188,7 +183,7 @@ pub async fn create_workspace_pull_request(
         )
         .await?;
 
-    state.store.set_workspace_pr(
+    state.workspaces.set_pr(
         &input.workspace_id,
         Some(created.number),
         Some(&created.html_url),
@@ -225,14 +220,22 @@ pub async fn create_workspace_pull_request(
         payload: payload_json,
     })?;
 
-    let lead_id = lead_thread_id(state, &input.workspace_id)?;
-    append_opened_pr_step(
-        &state.store,
-        &lead_id,
-        created.number,
-        &record.branch,
-        &pr_base,
-    )?;
+    // The PR exists now, so nothing below may fail the command.
+    crate::workspace_git::record_in_own_thread(
+        state,
+        &input.workspace_id,
+        TimelineStep::PrOpened {
+            number: created.number,
+            branch: record.branch.clone(),
+            base: pr_base.clone(),
+        },
+    );
+    let own_thread = state
+        .store
+        .own_thread(&input.workspace_id)
+        .ok()
+        .flatten()
+        .map(|thread| thread.id);
 
     state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
@@ -245,7 +248,7 @@ pub async fn create_workspace_pull_request(
             },
         ],
         workspace_id: Some(input.workspace_id.clone()),
-        thread_id: Some(lead_id),
+        thread_id: own_thread,
     });
 
     // One refetch covers the new PR row and the workspace's PR number.
@@ -292,22 +295,4 @@ fn diff_totals(diff: &crate::git::WorktreeDiff) -> (u32, u32, u32) {
         deleted += file.deleted;
     }
     (added, deleted, diff.files.len() as u32)
-}
-
-fn append_opened_pr_step(
-    store: &crate::store::Store,
-    thread_id: &str,
-    number: i64,
-    branch: &str,
-    base: &str,
-) -> Result<()> {
-    record_step(
-        store,
-        thread_id,
-        TimelineStep::PrOpened {
-            number,
-            branch: branch.to_string(),
-            base: base.to_string(),
-        },
-    )
 }

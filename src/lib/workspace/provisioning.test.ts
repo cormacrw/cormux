@@ -37,6 +37,7 @@ describe('provisioning copy', () => {
           base: 'main',
           worktreePath: '/tmp',
           status: 'provisioning',
+          kind: 'lead',
           version: 1,
           activity: 'Joining worktree…',
           provStep: 1,

@@ -1,15 +1,10 @@
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 use crate::git::Git;
-
-const FETCH_INTERVAL: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -35,25 +30,16 @@ pub struct RepoFetchTarget {
 #[derive(Clone)]
 pub struct FetchScheduler {
     git: Git,
-    repos: Arc<RwLock<Vec<RepoFetchTarget>>>,
 }
 
 impl FetchScheduler {
     pub fn new(git: Git) -> Self {
-        Self {
-            git,
-            repos: Arc::new(RwLock::new(Vec::new())),
-        }
-    }
-
-    pub async fn set_repos(&self, repos: Vec<RepoFetchTarget>) {
-        *self.repos.write().await = repos;
+        Self { git }
     }
 
     /// Fetches every repo and recounts its workspaces. Repos fetch side by side: each has its
     /// own git queue, and one slow remote shouldn't hold the others' counts back.
-    pub async fn tick(&self) -> Vec<BehindUpdate> {
-        let repos = self.repos.read().await.clone();
+    pub async fn tick(&self, repos: Vec<RepoFetchTarget>) -> Vec<BehindUpdate> {
         let mut tasks = JoinSet::new();
         for repo in repos {
             let git = self.git.clone();
@@ -67,18 +53,6 @@ impl FetchScheduler {
             }
         }
         updates
-    }
-
-    pub fn spawn_loop(&self) {
-        let scheduler = self.clone();
-        tauri::async_runtime::spawn(async move {
-            let mut interval = tokio::time::interval(FETCH_INTERVAL);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            loop {
-                interval.tick().await;
-                scheduler.tick().await;
-            }
-        });
     }
 }
 
@@ -111,6 +85,7 @@ mod tests {
     use super::*;
     use crate::git::Git;
     use crate::shell_env::ShellEnv;
+    use std::sync::Arc;
     use tokio::sync::RwLock;
 
     #[tokio::test]
@@ -119,7 +94,7 @@ mod tests {
         env.load_or_inherit().await.unwrap();
         let git = Git::new(Arc::new(RwLock::new(env)));
         let scheduler = FetchScheduler::new(git);
-        let updates = scheduler.tick().await;
+        let updates = scheduler.tick(Vec::new()).await;
         assert!(updates.is_empty());
     }
 }

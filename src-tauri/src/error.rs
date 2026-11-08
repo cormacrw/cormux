@@ -60,6 +60,16 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl Error {
+    pub fn unknown_workspace(workspace_id: &str) -> Self {
+        Self::Workspace(format!("unknown workspace {workspace_id}"))
+    }
+
+    pub fn unknown_repo(repo_id: &str) -> Self {
+        Self::Workspace(format!("unknown repo {repo_id}"))
+    }
+}
+
 impl From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Self {
         Self::Store(error.to_string())

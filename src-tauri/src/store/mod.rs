@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex};
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
-use crate::model::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
+use crate::model::{
+    ApprovalStatus, ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle,
+    status_from_threads,
+};
 use types::{
     ApprovalRow, EntityRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow,
     SettingRow, ThreadActivityRow, ThreadEventPage, ThreadEventRow, ThreadRow, WorkspaceRow,
@@ -20,62 +23,43 @@ const THREAD_EVENT_PAGE_MAX: u32 = 10_000;
 /// SQLite persistence in the app data directory.
 #[derive(Clone)]
 pub struct Store {
-    conn: Arc<Mutex<Option<Connection>>>,
+    conn: Arc<Mutex<Connection>>,
     /// WAL lets reads run beside the writer, so a long read can't hold up the engine pumps.
     /// In-memory stores have no second connection and read through `conn`.
-    reader: Arc<Mutex<Option<Connection>>>,
+    reader: Option<Arc<Mutex<Connection>>>,
 }
 
 impl Store {
-    pub fn new() -> Self {
-        Self {
-            conn: Arc::new(Mutex::new(None)),
-            reader: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    pub fn open(&self, path: &Path) -> Result<()> {
+    /// Opens the database at `path`, creating and migrating it as needed.
+    pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        self.configure(Connection::open(path)?)?;
+        let conn = configure(Connection::open(path)?)?;
         // After the migrations, which it mustn't race.
         let reader = Connection::open(path)?;
         tune(&reader)?;
         reader.pragma_update(None, "query_only", true)?;
-        *self
-            .reader
-            .lock()
-            .map_err(|error| Error::Store(error.to_string()))? = Some(reader);
-        Ok(())
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+            reader: Some(Arc::new(Mutex::new(reader))),
+        })
     }
 
     #[cfg(test)]
-    pub fn open_in_memory(&self) -> Result<()> {
-        self.configure(Connection::open_in_memory()?)
-    }
-
-    fn configure(&self, conn: Connection) -> Result<()> {
-        conn.pragma_update(None, "foreign_keys", true)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        tune(&conn)?;
-        migrate::run(&conn)?;
-        *self
-            .conn
-            .lock()
-            .map_err(|error| Error::Store(error.to_string()))? = Some(conn);
-        Ok(())
+    pub fn in_memory() -> Result<Self> {
+        Ok(Self {
+            conn: Arc::new(Mutex::new(configure(Connection::open_in_memory()?)?)),
+            reader: None,
+        })
     }
 
     fn with_conn<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
-        let guard = self
+        let conn = self
             .conn
             .lock()
             .map_err(|error| Error::Store(error.to_string()))?;
-        let conn = guard
-            .as_ref()
-            .ok_or_else(|| Error::Store("store is not open".into()))?;
-        f(conn)
+        f(&conn)
     }
 
     /// Like `with_conn`, inside a transaction that commits only if `f` succeeds, so a write
@@ -90,16 +74,14 @@ impl Store {
     }
 
     fn with_read<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
-        let guard = self
-            .reader
-            .lock()
-            .map_err(|error| Error::Store(error.to_string()))?;
-        match guard.as_ref() {
-            Some(conn) => f(conn),
-            None => {
-                drop(guard);
-                self.with_conn(f)
+        match &self.reader {
+            Some(reader) => {
+                let conn = reader
+                    .lock()
+                    .map_err(|error| Error::Store(error.to_string()))?;
+                f(&conn)
             }
+            None => self.with_conn(f),
         }
     }
 
@@ -214,32 +196,20 @@ impl Store {
         })
     }
 
-    pub fn upsert_workspace(&self, workspace: &WorkspaceRow) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO workspaces (
-                    id, repo_id, name, branch, worktree_path, status,
-                    summary, summary_at, summary_source, kind, pr_number, modified_files
-                 )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-                 ON CONFLICT(id) DO UPDATE SET name = excluded.name, branch = excluded.branch,
-                    worktree_path = excluded.worktree_path, status = excluded.status",
-                rusqlite::params![
-                    workspace.id,
-                    workspace.repo_id,
-                    workspace.name,
-                    workspace.branch,
-                    workspace.worktree_path,
-                    workspace.status,
-                    workspace.summary,
-                    workspace.summary_at,
-                    workspace.summary_source,
-                    workspace.kind,
-                    workspace.pr_number,
-                    workspace.modified_files,
-                ],
-            )?;
-            Ok(())
+    #[cfg(test)]
+    pub fn insert_workspace(&self, workspace: &WorkspaceRow) -> Result<()> {
+        self.with_conn(|conn| write_workspace(conn, workspace))
+    }
+
+    /// A new workspace and its own thread, both or neither.
+    pub fn insert_workspace_with_thread(
+        &self,
+        workspace: &WorkspaceRow,
+        thread: &ThreadRow,
+    ) -> Result<()> {
+        self.with_tx(|conn| {
+            write_workspace(conn, workspace)?;
+            write_thread(conn, thread)
         })
     }
 
@@ -258,6 +228,16 @@ impl Store {
             conn.execute(
                 "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
                 rusqlite::params![branch, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_workspace_base(&self, workspace_id: &str, base: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET base = ?1 WHERE id = ?2",
+                rusqlite::params![base, workspace_id],
             )?;
             Ok(())
         })
@@ -312,8 +292,7 @@ impl Store {
     pub fn archive_workspace(&self, workspace_id: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "UPDATE workspaces
-                 SET archived_at = datetime('now'), status = 'archived', worktree_path = ''
+                "UPDATE workspaces SET archived_at = datetime('now'), worktree_path = ''
                  WHERE id = ?1",
                 rusqlite::params![workspace_id],
             )?;
@@ -331,12 +310,12 @@ impl Store {
             // One query: the most recently archived workspaces of the repo, each joined to its
             // threads, instead of a thread query per workspace.
             let mut stmt = conn.prepare_cached(
-                "SELECT t.id, t.workspace_id, t.title, t.engine, t.session_id, t.status,
+                "SELECT t.id, t.workspace_id, t.title, t.role, t.engine, t.session_id, t.status,
                         t.used_tokens, t.context_size, t.cost_usd, t.transcript_readonly,
                         t.retired, t.parent_thread_id,
-                        w.id, w.repo_id, w.name, w.branch, w.worktree_path, w.status, w.created_at,
-                        w.summary, w.summary_at, w.summary_source, w.kind, w.pr_number,
-                        w.pr_html_url, w.modified_files, w.archived_at
+                        w.id, w.repo_id, w.name, w.branch, w.base, w.worktree_path, w.status,
+                        w.created_at, w.summary, w.summary_at, w.summary_source, w.kind,
+                        w.pr_number, w.pr_html_url, w.modified_files, w.archived_at
                  FROM (
                     SELECT rowid AS position, * FROM workspaces
                     WHERE repo_id = ?1 AND archived_at IS NOT NULL
@@ -345,25 +324,7 @@ impl Store {
                  ORDER BY w.archived_at DESC, w.position DESC, t.rowid",
             )?;
             let rows = stmt.query_map(rusqlite::params![repo_id, limit], |row| {
-                let thread = row_to_thread(row)?;
-                let workspace = WorkspaceRow {
-                    id: row.get(12)?,
-                    repo_id: row.get(13)?,
-                    name: row.get(14)?,
-                    branch: row.get(15)?,
-                    worktree_path: row.get(16)?,
-                    status: row.get(17)?,
-                    created_at: row.get(18)?,
-                    summary: row.get(19)?,
-                    summary_at: row.get(20)?,
-                    summary_source: row.get(21)?,
-                    kind: row.get(22)?,
-                    pr_number: row.get(23)?,
-                    pr_html_url: row.get(24)?,
-                    modified_files: row.get(25)?,
-                    archived_at: row.get(26)?,
-                };
-                Ok((thread, workspace))
+                Ok((row_to_thread(row)?, workspace_at(row, THREAD_FIELDS)?))
             })?;
             Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
         })
@@ -412,34 +373,46 @@ impl Store {
                  JOIN workspaces w ON w.id = t.workspace_id
                  WHERE t.parent_thread_id = ?1 AND t.closed_at IS NULL
                    AND w.archived_at IS NULL
-                   AND t.status IN ('provisioning', 'running', 'waiting', 'paused')",
+                   AND t.status IN (?2, ?3, ?4)",
             )?;
-            let rows = stmt.query_map([parent_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            let rows = stmt.query_map(
+                rusqlite::params![
+                    parent_id,
+                    ThreadStatus::Provisioning.as_str(),
+                    ThreadStatus::Running.as_str(),
+                    ThreadStatus::Paused.as_str(),
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
             Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
         })
     }
 
-    /// The id of the workspace's `Lead` thread, the one git steps are recorded in.
-    pub fn lead_thread_id(&self, workspace_id: &str) -> Result<Option<String>> {
+    /// The workspace's own thread, its Lead or Reviewer: the one git steps are recorded in.
+    pub fn own_thread(&self, workspace_id: &str) -> Result<Option<ThreadRow>> {
         self.with_read(|conn| {
-            let mut stmt = conn.prepare_cached(
-                "SELECT id FROM threads
-                 WHERE workspace_id = ?1 AND title = 'Lead' AND closed_at IS NULL
-                 ORDER BY created_at, rowid LIMIT 1",
-            )?;
+            let mut stmt = conn.prepare_cached(&format!(
+                "{THREAD_COLUMNS}
+                 WHERE workspace_id = ?1 AND role IS NOT NULL AND closed_at IS NULL
+                 ORDER BY created_at, rowid LIMIT 1"
+            ))?;
             let mut rows = stmt.query([workspace_id])?;
             match rows.next()? {
-                Some(row) => Ok(Some(row.get(0)?)),
+                Some(row) => Ok(Some(row_to_thread(row)?)),
                 None => Ok(None),
             }
         })
     }
 
-    pub fn set_workspace_status(&self, workspace_id: &str, status: &str) -> Result<()> {
+    pub fn set_workspace_status(
+        &self,
+        workspace_id: &str,
+        status: WorkspaceLifecycle,
+    ) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
                 "UPDATE workspaces SET status = ?1 WHERE id = ?2",
-                rusqlite::params![status, workspace_id],
+                rusqlite::params![status.as_str(), workspace_id],
             )?;
             Ok(())
         })
@@ -450,9 +423,12 @@ impl Store {
     pub fn deny_stale_approvals(&self, thread_id: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "UPDATE approvals SET status = 'denied'
-                 WHERE status = 'pending' AND thread_id = ?1",
-                [thread_id],
+                "UPDATE approvals SET status = ?1 WHERE status = ?2 AND thread_id = ?3",
+                rusqlite::params![
+                    ApprovalStatus::Denied.as_str(),
+                    ApprovalStatus::Pending.as_str(),
+                    thread_id
+                ],
             )?;
             Ok(())
         })
@@ -462,8 +438,12 @@ impl Store {
     pub fn deny_pending_approval(&self, id: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "UPDATE approvals SET status = 'denied' WHERE status = 'pending' AND id = ?1",
-                [id],
+                "UPDATE approvals SET status = ?1 WHERE status = ?2 AND id = ?3",
+                rusqlite::params![
+                    ApprovalStatus::Denied.as_str(),
+                    ApprovalStatus::Pending.as_str(),
+                    id
+                ],
             )?;
             Ok(())
         })
@@ -473,12 +453,27 @@ impl Store {
     /// left alone: it has its own retry.
     pub fn reset_interrupted_turns(&self) -> Result<()> {
         self.with_tx(|conn| {
-            conn.execute_batch(
-                "UPDATE approvals SET status = 'denied' WHERE status = 'pending';
-                 UPDATE threads SET status = 'idle'
-                 WHERE status IN ('running', 'waiting', 'paused');
-                 UPDATE workspaces SET status = 'idle'
-                 WHERE status IN ('running', 'waiting');",
+            conn.execute(
+                "UPDATE approvals SET status = ?1 WHERE status = ?2",
+                [
+                    ApprovalStatus::Denied.as_str(),
+                    ApprovalStatus::Pending.as_str(),
+                ],
+            )?;
+            conn.execute(
+                "UPDATE threads SET status = ?1 WHERE status IN (?2, ?3)",
+                [
+                    ThreadStatus::Idle.as_str(),
+                    ThreadStatus::Running.as_str(),
+                    ThreadStatus::Paused.as_str(),
+                ],
+            )?;
+            conn.execute(
+                "UPDATE workspaces SET status = ?1 WHERE status = ?2",
+                [
+                    WorkspaceLifecycle::Idle.as_str(),
+                    WorkspaceLifecycle::Running.as_str(),
+                ],
             )?;
             Ok(())
         })
@@ -738,35 +733,9 @@ impl Store {
         })
     }
 
+    #[cfg(test)]
     pub fn upsert_thread(&self, thread: &ThreadRow) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO threads (id, workspace_id, title, engine, session_id, status,
-                    used_tokens, context_size, cost_usd, transcript_readonly, retired,
-                    parent_thread_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-                 ON CONFLICT(id) DO UPDATE SET title = excluded.title, engine = excluded.engine,
-                    session_id = excluded.session_id, status = excluded.status,
-                    used_tokens = excluded.used_tokens, context_size = excluded.context_size,
-                    cost_usd = excluded.cost_usd, transcript_readonly = excluded.transcript_readonly,
-                    retired = excluded.retired",
-                rusqlite::params![
-                    thread.id,
-                    thread.workspace_id,
-                    thread.title,
-                    thread.engine,
-                    thread.session_id,
-                    thread.status,
-                    thread.used_tokens,
-                    thread.context_size,
-                    thread.cost_usd,
-                    thread.transcript_readonly as i64,
-                    thread.retired as i64,
-                    thread.parent_thread_id,
-                ],
-            )?;
-            Ok(())
-        })
+        self.with_conn(|conn| write_thread(conn, thread))
     }
 
     /// Any thread, including a scratch's. `snapshot().threads` only lists workspace threads.
@@ -1305,6 +1274,72 @@ impl Store {
 
 /// Trades a power cut losing the newest commits (never corruption, under WAL) for no sync per
 /// commit, and keeps pages and temp tables in memory.
+fn write_workspace(conn: &Connection, workspace: &WorkspaceRow) -> Result<()> {
+    conn.execute(
+        "INSERT INTO workspaces (
+                    id, repo_id, name, branch, base, worktree_path, status,
+                    summary, summary_at, summary_source, kind, pr_number, pr_html_url,
+                    modified_files
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        rusqlite::params![
+            workspace.id,
+            workspace.repo_id,
+            workspace.name,
+            workspace.branch,
+            workspace.base,
+            workspace.worktree_path,
+            workspace.status,
+            workspace.summary,
+            workspace.summary_at,
+            workspace.summary_source,
+            workspace.kind.as_str(),
+            workspace.pr_number,
+            workspace.pr_html_url,
+            workspace.modified_files,
+        ],
+    )?;
+    Ok(())
+}
+
+fn write_thread(conn: &Connection, thread: &ThreadRow) -> Result<()> {
+    conn.execute(
+                "INSERT INTO threads (id, workspace_id, title, engine, session_id, status,
+                    used_tokens, context_size, cost_usd, transcript_readonly, retired,
+                    parent_thread_id, role)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                 ON CONFLICT(id) DO UPDATE SET title = excluded.title, engine = excluded.engine,
+                    session_id = excluded.session_id, status = excluded.status,
+                    used_tokens = excluded.used_tokens, context_size = excluded.context_size,
+                    cost_usd = excluded.cost_usd, transcript_readonly = excluded.transcript_readonly,
+                    retired = excluded.retired",
+                rusqlite::params![
+                    thread.id,
+                    thread.workspace_id,
+                    thread.title,
+                    thread.engine,
+                    thread.session_id,
+                    thread.status,
+                    thread.used_tokens,
+                    thread.context_size,
+                    thread.cost_usd,
+                    thread.transcript_readonly as i64,
+                    thread.retired as i64,
+                    thread.parent_thread_id,
+                    thread.role.map(ThreadRole::as_str),
+                ],
+            )?;
+    Ok(())
+}
+
+fn configure(conn: Connection) -> Result<Connection> {
+    conn.pragma_update(None, "foreign_keys", true)?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    tune(&conn)?;
+    migrate::run(&conn)?;
+    Ok(conn)
+}
+
 fn tune(conn: &Connection) -> Result<()> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "cache_size", -16_000)?;
@@ -1363,7 +1398,7 @@ fn row_to_repo(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
 }
 
 const WORKSPACE_COLUMNS: &str =
-    "SELECT id, repo_id, name, branch, worktree_path, status, created_at,
+    "SELECT id, repo_id, name, branch, base, worktree_path, status, created_at,
         summary, summary_at, summary_source, kind, pr_number, pr_html_url, modified_files,
         archived_at
      FROM workspaces";
@@ -1389,24 +1424,27 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadEventRow> {
     })
 }
 
-const THREAD_COLUMNS: &str = "SELECT id, workspace_id, title, engine, session_id, status,
+const THREAD_COLUMNS: &str = "SELECT id, workspace_id, title, role, engine, session_id, status,
         used_tokens, context_size, cost_usd, transcript_readonly, retired, parent_thread_id
      FROM threads";
+/// How many columns `THREAD_COLUMNS` selects.
+const THREAD_FIELDS: usize = 13;
 
 fn row_to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
     Ok(ThreadRow {
         id: row.get(0)?,
         workspace_id: row.get(1)?,
         title: row.get(2)?,
-        engine: row.get(3)?,
-        session_id: row.get(4)?,
-        status: row.get(5)?,
-        used_tokens: row.get(6)?,
-        context_size: row.get(7)?,
-        cost_usd: row.get(8)?,
-        transcript_readonly: row.get::<_, i64>(9)? != 0,
-        retired: row.get::<_, i64>(10)? != 0,
-        parent_thread_id: row.get(11)?,
+        role: ThreadRole::parse(row.get::<_, Option<String>>(3)?.as_deref()),
+        engine: row.get(4)?,
+        session_id: row.get(5)?,
+        status: row.get(6)?,
+        used_tokens: row.get(7)?,
+        context_size: row.get(8)?,
+        cost_usd: row.get(9)?,
+        transcript_readonly: row.get::<_, i64>(10)? != 0,
+        retired: row.get::<_, i64>(11)? != 0,
+        parent_thread_id: row.get(12)?,
     })
 }
 
@@ -1427,22 +1465,28 @@ fn row_to_scratch(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScratchRow> {
 }
 
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
+    workspace_at(row, 0)
+}
+
+/// The workspace columns in `WORKSPACE_COLUMNS` order, starting at column `at`.
+fn workspace_at(row: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<WorkspaceRow> {
     Ok(WorkspaceRow {
-        id: row.get(0)?,
-        repo_id: row.get(1)?,
-        name: row.get(2)?,
-        branch: row.get(3)?,
-        worktree_path: row.get(4)?,
-        status: row.get(5)?,
-        created_at: row.get(6)?,
-        summary: row.get(7)?,
-        summary_at: row.get(8)?,
-        summary_source: row.get(9)?,
-        kind: row.get(10)?,
-        pr_number: row.get(11)?,
-        pr_html_url: row.get(12)?,
-        modified_files: row.get(13)?,
-        archived_at: row.get(14)?,
+        id: row.get(at)?,
+        repo_id: row.get(at + 1)?,
+        name: row.get(at + 2)?,
+        branch: row.get(at + 3)?,
+        base: row.get(at + 4)?,
+        worktree_path: row.get(at + 5)?,
+        status: row.get(at + 6)?,
+        created_at: row.get(at + 7)?,
+        summary: row.get(at + 8)?,
+        summary_at: row.get(at + 9)?,
+        summary_source: row.get(at + 10)?,
+        kind: WorkspaceKind::parse(row.get::<_, Option<String>>(at + 11)?.as_deref()),
+        pr_number: row.get(at + 12)?,
+        pr_html_url: row.get(at + 13)?,
+        modified_files: row.get(at + 14)?,
+        archived_at: row.get(at + 15)?,
     })
 }
 
@@ -1460,12 +1504,6 @@ fn query_all<T>(
     Ok(items)
 }
 
-impl Default for Store {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1475,6 +1513,7 @@ mod tests {
             id: id.into(),
             workspace_id: workspace_id.into(),
             title: "Lead".into(),
+            role: Some(crate::model::ThreadRole::Lead),
             engine: "claude".into(),
             session_id: None,
             status: status.into(),
@@ -1500,22 +1539,17 @@ mod tests {
             })
             .unwrap();
         store
-            .upsert_workspace(&WorkspaceRow {
-                id: id.into(),
-                repo_id: "r1".into(),
-                name: id.into(),
-                branch: id.into(),
-                worktree_path: format!("/tmp/{id}"),
+            .insert_workspace(&WorkspaceRow {
                 status: status.into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: String::new(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
+                ..crate::store::types::WorkspaceRow::new(
+                    crate::model::WorkspaceKind::Lead,
+                    id,
+                    "r1",
+                    id,
+                    id,
+                    "main",
+                    format!("/tmp/{id}"),
+                )
             })
             .unwrap();
     }
@@ -1523,8 +1557,7 @@ mod tests {
     #[test]
     fn reads_go_to_their_own_connection_and_see_committed_writes() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::new();
-        store.open(&dir.path().join("cormux.db")).unwrap();
+        let store = Store::open(&dir.path().join("cormux.db")).unwrap();
         store.set_setting("k", "v").unwrap();
         assert_eq!(store.get_setting("k").unwrap().as_deref(), Some("v"));
         let refused = store.with_read(|conn| Ok(conn.execute("DELETE FROM settings", [])?));
@@ -1537,8 +1570,7 @@ mod tests {
 
     #[test]
     fn transcripts_page_from_the_newest_rows() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store.upsert_thread(&thread("t1", "w1", "idle")).unwrap();
         for index in 0..5 {
             store
@@ -1567,8 +1599,7 @@ mod tests {
 
     #[test]
     fn activity_is_the_last_user_message_or_turn_end() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         workspace(&store, "w1", "idle");
         for id in ["quiet", "moved"] {
             store.upsert_thread(&thread(id, "w1", "idle")).unwrap();
@@ -1588,8 +1619,7 @@ mod tests {
 
     #[test]
     fn idling_a_thread_settles_its_workspace_from_the_siblings() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         workspace(&store, "w1", "running");
         store.upsert_thread(&thread("a", "w1", "running")).unwrap();
         store.upsert_thread(&thread("b", "w1", "running")).unwrap();
@@ -1604,16 +1634,18 @@ mod tests {
 
         store.archive_workspace("w1").unwrap();
         store.set_thread_status("a", ThreadStatus::Idle).unwrap();
-        assert_eq!(status(&store), "archived");
+        assert_eq!(status(&store), "running");
     }
 
     #[test]
     fn a_thread_moving_leaves_a_workspace_in_setup_or_teardown_alone() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store.upsert_thread(&thread("a", "w1", "running")).unwrap();
+        workspace(&store, "w1", "provisioning");
         for held in ["provisioning", "provisioningFailed", "tearingDown"] {
-            workspace(&store, "w1", held);
+            store
+                .set_workspace_status("w1", WorkspaceLifecycle::parse(held))
+                .unwrap();
             store.set_thread_status("a", ThreadStatus::Idle).unwrap();
             store.set_thread_status("a", ThreadStatus::Running).unwrap();
             assert_eq!(store.workspace_by_id("w1").unwrap().unwrap().status, held);
@@ -1622,8 +1654,7 @@ mod tests {
 
     #[test]
     fn the_last_reply_joins_chunks_since_the_user_spoke() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store.upsert_thread(&thread("t1", "w1", "idle")).unwrap();
         for (role, text) in [
             ("agent", "old"),
@@ -1644,8 +1675,7 @@ mod tests {
 
     #[test]
     fn an_unchanged_pr_list_reports_no_change() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         let row = |title: &str| PrRow {
             id: "p1".into(),
             repo_id: None,
@@ -1660,13 +1690,13 @@ mod tests {
 
     #[test]
     fn scratch_keeps_its_thread_out_of_workspace_lists() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store
             .upsert_thread(&ThreadRow {
                 id: "t1".into(),
                 workspace_id: "scratch-1".into(),
                 title: "Scratch".into(),
+                role: None,
                 engine: "claude".into(),
                 session_id: None,
                 status: "running".into(),
@@ -1712,8 +1742,7 @@ mod tests {
 
     #[test]
     fn deleting_a_repo_clears_its_archived_workspaces_and_prs() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         for id in ["r1", "r2"] {
             store
                 .upsert_repo(&RepoRecord {
@@ -1728,22 +1757,17 @@ mod tests {
                 .unwrap();
         }
         store
-            .upsert_workspace(&WorkspaceRow {
-                id: "w1".into(),
-                repo_id: "r1".into(),
-                name: "Old".into(),
-                branch: "feat".into(),
-                worktree_path: "/tmp/wt".into(),
+            .insert_workspace(&WorkspaceRow {
                 status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: String::new(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
+                ..crate::store::types::WorkspaceRow::new(
+                    crate::model::WorkspaceKind::Lead,
+                    "w1",
+                    "r1",
+                    "Old",
+                    "feat",
+                    "main",
+                    "/tmp/wt",
+                )
             })
             .unwrap();
         store
@@ -1751,6 +1775,7 @@ mod tests {
                 id: "t1".into(),
                 workspace_id: "w1".into(),
                 title: "Lead".into(),
+                role: Some(crate::model::ThreadRole::Lead),
                 engine: "claude".into(),
                 session_id: None,
                 status: "idle".into(),
@@ -1793,8 +1818,7 @@ mod tests {
 
     #[test]
     fn last_agent_reply_joins_chunks_since_the_last_user_message() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store
             .upsert_repo(&RepoRecord {
                 id: "r1".into(),
@@ -1807,22 +1831,18 @@ mod tests {
             })
             .unwrap();
         store
-            .upsert_workspace(&WorkspaceRow {
-                id: "w1".into(),
-                repo_id: "r1".into(),
-                name: "Review".into(),
-                branch: "feat".into(),
-                worktree_path: "/tmp/wt".into(),
+            .insert_workspace(&WorkspaceRow {
                 status: "running".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: Some("review".into()),
                 pr_number: Some(2),
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
+                ..crate::store::types::WorkspaceRow::new(
+                    crate::model::WorkspaceKind::PrReview,
+                    "w1",
+                    "r1",
+                    "Review",
+                    "feat",
+                    "main",
+                    "/tmp/wt",
+                )
             })
             .unwrap();
         store
@@ -1830,6 +1850,7 @@ mod tests {
                 id: "t1".into(),
                 workspace_id: "w1".into(),
                 title: "Reviewer".into(),
+                role: Some(crate::model::ThreadRole::Reviewer),
                 engine: "claude".into(),
                 session_id: None,
                 status: "running".into(),
@@ -1873,8 +1894,7 @@ mod tests {
 
     #[test]
     fn thread_session_and_model_survive_an_upsert() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store
             .upsert_repo(&RepoRecord {
                 id: "r1".into(),
@@ -1887,22 +1907,17 @@ mod tests {
             })
             .unwrap();
         store
-            .upsert_workspace(&WorkspaceRow {
-                id: "w1".into(),
-                repo_id: "r1".into(),
-                name: "Login".into(),
-                branch: "feat".into(),
-                worktree_path: "/tmp/wt".into(),
+            .insert_workspace(&WorkspaceRow {
                 status: "idle".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
+                ..crate::store::types::WorkspaceRow::new(
+                    crate::model::WorkspaceKind::Lead,
+                    "w1",
+                    "r1",
+                    "Login",
+                    "feat",
+                    "main",
+                    "/tmp/wt",
+                )
             })
             .unwrap();
         for (id, title) in std::iter::once(("lead", "Lead")) {
@@ -1911,6 +1926,7 @@ mod tests {
                     id: id.into(),
                     workspace_id: "w1".into(),
                     title: title.into(),
+                    role: None,
                     engine: "claude".into(),
                     session_id: None,
                     status: "running".into(),
@@ -1961,8 +1977,7 @@ mod tests {
 
     #[test]
     fn a_restart_ends_the_turns_that_were_running() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store
             .with_conn(|conn| {
                 conn.execute_batch(
@@ -1989,8 +2004,7 @@ mod tests {
 
     #[test]
     fn persists_and_restores_snapshot() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         store.set_setting("reduceMotion", "true").unwrap();
         store
             .upsert_repo(&RepoRecord {
@@ -2004,22 +2018,17 @@ mod tests {
             })
             .unwrap();
         store
-            .upsert_workspace(&WorkspaceRow {
-                id: "w1".into(),
-                repo_id: "r1".into(),
-                name: "Login".into(),
-                branch: "feat".into(),
-                worktree_path: "/tmp/wt".into(),
+            .insert_workspace(&WorkspaceRow {
                 status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
+                ..crate::store::types::WorkspaceRow::new(
+                    crate::model::WorkspaceKind::Lead,
+                    "w1",
+                    "r1",
+                    "Login",
+                    "feat",
+                    "main",
+                    "/tmp/wt",
+                )
             })
             .unwrap();
         store
@@ -2027,6 +2036,7 @@ mod tests {
                 id: "t1".into(),
                 workspace_id: "w1".into(),
                 title: "Lead".into(),
+                role: Some(crate::model::ThreadRole::Lead),
                 engine: "claude".into(),
                 session_id: None,
                 status: "idle".into(),
@@ -2105,8 +2115,8 @@ mod tests {
         assert_eq!(store.repos().unwrap().len(), 1);
         assert_eq!(store.repo_by_id("r1").unwrap().unwrap().name, "app");
         assert!(store.repo_by_id("nope").unwrap().is_none());
-        assert_eq!(store.lead_thread_id("w1").unwrap().as_deref(), Some("t1"));
-        assert_eq!(store.lead_thread_id("w2").unwrap(), None);
+        assert_eq!(store.own_thread("w1").unwrap().unwrap().id, "t1");
+        assert!(store.own_thread("w2").unwrap().is_none());
         let threads = store.threads_for_workspace("w1").unwrap();
         assert_eq!(threads.len(), 1);
         assert!(store.threads_for_workspace("w2").unwrap().is_empty());
@@ -2114,8 +2124,7 @@ mod tests {
 
     #[test]
     fn appended_events_number_from_one_per_thread() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         for id in ["a", "b"] {
             store.upsert_thread(&thread(id, "w1", "idle")).unwrap();
         }
@@ -2128,8 +2137,7 @@ mod tests {
 
     #[test]
     fn closed_threads_come_with_their_workspace_newest_first() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         for id in ["w1", "w2", "w3"] {
             workspace(&store, id, "idle");
             store
@@ -2160,8 +2168,7 @@ mod tests {
     /// word, or every snapshot walks back through a working thread's streamed chunks.
     #[test]
     fn thread_activity_lookup_uses_its_partial_index() {
-        let store = Store::new();
-        store.open_in_memory().unwrap();
+        let store = Store::in_memory().unwrap();
         let plan = store
             .with_read(|conn| {
                 let mut stmt = conn.prepare(
@@ -2190,8 +2197,7 @@ mod tests {
     fn snapshot_timing() {
         use std::time::Instant;
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::new();
-        store.open(&dir.path().join("bench.db")).unwrap();
+        let store = Store::open(&dir.path().join("bench.db")).unwrap();
         store
             .with_conn(|conn| {
                 conn.execute_batch("PRAGMA foreign_keys = OFF;")?;

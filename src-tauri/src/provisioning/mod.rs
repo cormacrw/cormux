@@ -1,8 +1,11 @@
+//! Bringing a workspace into being: its records, then in the background its worktree, setup
+//! commands and first turn, as the caller's `ProvisionPlan` says.
+
 mod runner;
 
 pub use runner::{
-    LeadProvisionJob, ensure_thread_engine, retry_provisioning, run_workspace_provisioning,
-    skip_provisioning_setup,
+    ProvisionPlan, SETUP_ACTIVITY, SetupFailed, WorkspaceSpec, create, retry, run, skip_setup,
+    start,
 };
 
 use std::time::Duration;

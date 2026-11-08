@@ -17,7 +17,8 @@ use crate::engines::{EngineKind, StreamedEvent, ThreadModels};
 use crate::error::{Error, Result};
 use crate::feedback::Change;
 use crate::findings::{DismissWorkspaceFindingsInput, SendWorkspaceFindingsInput};
-use crate::git_workspace::RenameWorkspaceInput;
+use crate::model::WorkspaceKind;
+use crate::provisioning::ProvisionPlan;
 use crate::repos::{
     AddRepoInput, BranchDeletion, LocalBranchesResult, RemoveRepoInput, RepoBranchesResult,
     RepoGitRuntime, SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput,
@@ -28,6 +29,7 @@ use crate::store::types::RepoRecord;
 use crate::summaries::WorkspaceSummaryResult;
 use crate::turn::{ResumeThreadSessionInput, thread_row};
 use crate::workspace_start::CreateWorkspaceInput;
+use crate::workspaces::RenameWorkspaceInput;
 
 #[tauri::command]
 #[specta::specta]
@@ -36,18 +38,12 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let github_auth_configured = state.pr_sync.auth_configured(&state);
 
     let persisted = state.store.blocking(|store| store.snapshot()).await?;
-    let workspaces = state.workspace.list().await;
-    let workspace_ids: Vec<String> = if workspaces.is_empty() {
-        persisted
-            .workspaces
-            .iter()
-            .filter(|row| row.archived_at.is_none())
-            .map(|row| row.id.clone())
-            .collect()
-    } else {
-        workspaces.iter().map(|row| row.id.clone()).collect()
-    };
-    let workspace_git = crate::git_workspace::git_runtime_snapshot(&state, &workspace_ids).await;
+    let workspaces = state
+        .workspaces
+        .records_for(&persisted.workspaces, &persisted.repos)
+        .await;
+    let workspace_ids: Vec<String> = workspaces.iter().map(|row| row.id.clone()).collect();
+    let workspace_git = state.workspace_git.snapshot(&workspace_ids).await;
 
     Ok(Snapshot {
         version: state.out.version(),
@@ -369,7 +365,7 @@ pub async fn refresh_workspace_diff(
     workspace_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::refresh_diff(&state, &workspace_id).await
+    crate::changes::refresh(&state, &workspace_id).await
 }
 
 /// Point the Changes panel at uncommitted work (`None`) or a branch against its base.
@@ -380,7 +376,7 @@ pub async fn set_workspace_diff_target(
     target: Option<crate::git::DiffTarget>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::set_diff_target(&state, &workspace_id, target).await
+    crate::changes::set_target(&state, &workspace_id, target).await
 }
 
 /// Throw away uncommitted changes to `paths` (all of them when empty), then refresh Changes.
@@ -391,7 +387,7 @@ pub async fn discard_workspace_changes(
     paths: Vec<String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::discard_changes(&state, &workspace_id, &paths).await
+    crate::changes::discard(&state, &workspace_id, &paths).await
 }
 
 #[tauri::command]
@@ -480,9 +476,12 @@ pub async fn retry_workspace_provisioning(
     workspace_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
+    let plan = resume_plan(&state, &workspace_id).await?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn(async move {
-        crate::provisioning::retry_provisioning(state, workspace_id).await;
+        if let Err(error) = crate::provisioning::retry(&state, plan).await {
+            log::warn!("retrying setup of {workspace_id}: {error}");
+        }
     });
     Ok(())
 }
@@ -493,11 +492,23 @@ pub async fn skip_workspace_provisioning_setup(
     workspace_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
+    let plan = resume_plan(&state, &workspace_id).await?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn(async move {
-        crate::provisioning::skip_provisioning_setup(state, workspace_id).await;
+        if let Err(error) = crate::provisioning::skip_setup(&state, plan).await {
+            log::warn!("skipping setup of {workspace_id}: {error}");
+        }
     });
     Ok(())
+}
+
+/// How a workspace whose setup failed is brought up again, by whoever knows its kind.
+async fn resume_plan(state: &AppState, workspace_id: &str) -> Result<ProvisionPlan> {
+    let workspace = state.workspaces.get(workspace_id).await?;
+    match workspace.kind {
+        WorkspaceKind::Lead => crate::workspace_start::resume_plan(state, &workspace),
+        WorkspaceKind::PrReview => crate::review::resume_plan(state, &workspace),
+    }
 }
 
 #[tauri::command]
@@ -506,7 +517,12 @@ pub async fn rename_workspace(
     state: State<'_, AppState>,
     input: RenameWorkspaceInput,
 ) -> Result<()> {
-    crate::git_workspace::rename_workspace(&state, input).await
+    state
+        .workspaces
+        .rename(&input.workspace_id, &input.name)
+        .await?;
+    state.out.changed(Change::THREADS);
+    Ok(())
 }
 
 #[tauri::command]
@@ -515,25 +531,25 @@ pub async fn switch_workspace_branch(
     input: SwitchWorkspaceBranchInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::switch_workspace_branch(&state, &input.workspace_id, &input.branch).await
+    crate::workspace_git::switch_branch(&state, &input.workspace_id, &input.branch).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn pull_workspace(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
-    crate::git_workspace::pull_workspace(&state, &workspace_id).await
+    crate::workspace_git::pull(&state, &workspace_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn rebase_workspace(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
-    crate::git_workspace::rebase_workspace(&state, &workspace_id).await
+    crate::workspace_git::rebase(&state, &workspace_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn push_workspace_branch(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
-    crate::git_workspace::push_workspace_branch(&state, &workspace_id).await
+    crate::workspace_git::push(&state, &workspace_id).await
 }
 
 /// The PR prompt Settings shows until the user writes their own.
@@ -564,7 +580,7 @@ pub async fn create_workspace_pull_request(
 #[tauri::command]
 #[specta::specta]
 pub async fn abort_workspace_git(workspace_id: String, state: State<'_, AppState>) -> Result<()> {
-    crate::git_workspace::abort_workspace_git_conflict(&state, &workspace_id).await
+    crate::workspace_git::abort_conflict(&state, &workspace_id).await
 }
 
 #[tauri::command]
@@ -573,7 +589,7 @@ pub async fn create_workspace_branch(
     input: CreateWorkspaceBranchInput,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::create_workspace_branch(&state, &input.workspace_id, &input.branch).await
+    crate::workspace_git::create_branch(&state, &input.workspace_id, &input.branch).await
 }
 
 #[tauri::command]
@@ -622,7 +638,7 @@ pub async fn open_workspace_terminal(
     workspace_id: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    crate::git_workspace::open_terminal(&state, &workspace_id).await
+    crate::terminal::open(&state, &workspace_id).await
 }
 #[tauri::command]
 #[specta::specta]

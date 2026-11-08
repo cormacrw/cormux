@@ -199,9 +199,7 @@ pub async fn pull_default_branch(state: &AppState, repo_id: &str) -> Result<()> 
         .await?;
 
     // Workspaces count how far behind origin/<base> they are, which the pull just moved.
-    let updates = state.fetch.tick().await;
-    crate::git_workspace::apply_behind_updates(state, &updates).await;
-    state.out.changed(Change::REPO_GIT);
+    crate::workspace_git::fetch_all(state).await;
 
     let summary = match pulled {
         0 => " is up to date".to_string(),
@@ -503,7 +501,6 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (state, recording) =
             AppState::recorded(crate::paths::DataDir::new(dir.path().join("data")));
-        state.store.open_in_memory().unwrap();
         (state, recording, dir)
     }
 
@@ -525,22 +522,17 @@ mod tests {
     fn live_workspace(state: &AppState, repo_id: &str, branch: &str) {
         state
             .store
-            .upsert_workspace(&WorkspaceRow {
-                id: "w1".into(),
-                repo_id: repo_id.into(),
-                name: "Work".into(),
-                branch: branch.into(),
-                worktree_path: "/tmp/wt".into(),
+            .insert_workspace(&WorkspaceRow {
                 status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
+                ..crate::store::types::WorkspaceRow::new(
+                    crate::model::WorkspaceKind::Lead,
+                    "w1",
+                    repo_id,
+                    "Work",
+                    branch,
+                    "main",
+                    "/tmp/wt",
+                )
             })
             .unwrap();
     }

@@ -2,19 +2,19 @@
 
 use std::path::PathBuf;
 
-use uuid::Uuid;
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::composer::persist_user_message;
+use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::feedback::Change;
-use crate::model::{ThreadStatus, WorkspaceLifecycle};
-use crate::paths::{WORKTREE_ROOT_SETTING, expand_tilde, worktrees_root};
+use crate::model::WorkspaceKind;
+use crate::provisioning::{ProvisionPlan, SETUP_ACTIVITY, WorkspaceSpec};
 use crate::state::AppState;
-use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::timeline::{TimelineStep, record_step};
+use crate::workspace_git::Checkout;
+use crate::workspaces::WorkspaceRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -40,48 +40,30 @@ pub struct StartedWorkspace {
     pub base: String,
 }
 
-/// A new worktree and its thread, provisioned in the background. `parent_thread_id` is the
+/// A new worktree and its Lead, provisioned in the background. `parent_thread_id` is the
 /// thread that asked for it, when an agent did.
 pub async fn start_workspace(
     state: &AppState,
     input: CreateWorkspaceInput,
     parent_thread_id: Option<String>,
 ) -> Result<StartedWorkspace> {
-    let repo = state
-        .store
-        .repo_by_id(&input.repo_id)?
-        .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
-    repo.ensure_not_default_branch(&input.branch)?;
-    // Before any git call: `base` can come from an agent's `create_thread` call.
-    crate::git::validate_ref_name(&input.branch, "branch")?;
-    crate::git::validate_ref_name(&input.base, "base")?;
-    let repo_path = expand_tilde(&repo.path);
-    if !repo_path.is_dir() {
-        return Err(Error::Git(format!(
-            "repo path does not exist: {}",
-            repo_path.display()
-        )));
-    }
-
     // With no name given, the prompt drafts one and Haiku improves it below, along with the
     // drafted branch. A workspace started without a prompt is numbered.
-    let goal_text = input.goal.trim();
-    let auto_named = input.name.trim().is_empty() && !goal_text.is_empty();
-    let name = match input.name.trim() {
-        "" if goal_text.is_empty() => {
+    let goal = input.goal.trim().to_string();
+    let auto_named = input.name.trim().is_empty() && !goal.is_empty();
+    let name: String = match input.name.trim() {
+        "" if goal.is_empty() => {
             let live = state.store.live_workspaces()?;
             crate::naming::next_workspace_name(live.iter().map(|row| row.name.as_str()))
         }
-        "" => crate::naming::draft_title(goal_text, crate::naming::WORKSPACE_NAME_MAX),
+        "" => crate::naming::draft_title(&goal, crate::naming::WORKSPACE_NAME_MAX),
         given => given
             .chars()
             .take(crate::naming::WORKSPACE_NAME_MAX)
             .collect(),
     };
-    let input = CreateWorkspaceInput { name, ..input };
 
     // Read before anything is recorded, so an attachment that can't be read starts nothing.
-    let goal = input.goal.trim().to_string();
     let (prompt, shown) = if input.attachments.is_empty() {
         (None, goal.clone())
     } else {
@@ -95,53 +77,22 @@ pub async fn start_workspace(
         (Some(prompt), shown)
     };
 
-    let workspace_id = new_workspace_id();
-    let thread_id = Uuid::new_v4().to_string();
-    let worktrees_root = worktrees_root(state.store.get_setting(WORKTREE_ROOT_SETTING)?.as_deref());
-    let record = state
-        .workspace
-        .register_provisioning(
-            &workspace_id,
-            &input.repo_id,
-            &repo_path,
-            &input.name,
-            &input.branch,
-            &input.base,
-            &worktrees_root,
-        )
-        .await?;
-
-    state.store.upsert_workspace(&WorkspaceRow {
-        id: workspace_id.clone(),
-        repo_id: input.repo_id.clone(),
-        name: input.name.clone(),
-        branch: input.branch.clone(),
-        worktree_path: record.worktree_path.clone(),
-        status: WorkspaceLifecycle::Provisioning.as_str().into(),
-        created_at: String::new(),
-        summary: None,
-        summary_at: None,
-        summary_source: "Haiku 4.5".into(),
-        kind: None,
-        pr_number: None,
-        pr_html_url: None,
-        modified_files: 0,
-        archived_at: None,
-    })?;
-    state.store.upsert_thread(&ThreadRow {
-        id: thread_id.clone(),
-        workspace_id: workspace_id.clone(),
-        title: "Lead".into(),
-        engine: input.engine.clone(),
-        session_id: None,
-        status: ThreadStatus::Provisioning.into(),
-        used_tokens: None,
-        context_size: None,
-        cost_usd: None,
-        transcript_readonly: false,
-        retired: false,
-        parent_thread_id,
-    })?;
+    let created = crate::provisioning::create(
+        state,
+        WorkspaceSpec {
+            kind: WorkspaceKind::Lead,
+            repo_id: input.repo_id.clone(),
+            name: name.clone(),
+            branch: input.branch.clone(),
+            base: input.base.clone(),
+            pr: None,
+            engine: input.engine.clone(),
+            parent_thread_id,
+        },
+    )
+    .await?;
+    let workspace_id = created.workspace.id.clone();
+    let thread_id = created.thread_id.clone();
     // Stored before provisioning starts, since the engine reads it when it spawns.
     if let Some(model) = input.model.as_deref() {
         state.store.set_thread_model(&thread_id, Some(model))?;
@@ -156,62 +107,83 @@ pub async fn start_workspace(
     state.out.changed(Change::THREADS);
 
     if auto_named {
-        spawn_auto_name(
-            state.clone(),
-            workspace_id.clone(),
-            input.name.clone(),
-            goal.clone(),
-        );
+        spawn_auto_name(state.clone(), workspace_id.clone(), name, goal.clone());
     }
 
+    let plan = lead_plan(&workspace_id, &thread_id, &input.engine, &goal, prompt);
     let state_bg = state.clone();
-    let workspace_id_bg = workspace_id.clone();
-    let thread_id_bg = thread_id.clone();
-    let engine = input.engine.clone();
-    let repo_name = repo.name.clone();
-    let started = StartedWorkspace {
-        workspace_id: workspace_id.clone(),
-        thread_id: thread_id.clone(),
-        base: input.base.clone(),
-    };
-    let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
-
     let draft_branch = input.branch.clone();
-    let base = input.base.clone();
-
     tauri::async_runtime::spawn(async move {
         let state = state_bg;
-        if auto_named && let Err(error) = name_branch(&state, &workspace_id_bg, &goal).await {
+        if auto_named && let Err(error) = name_branch(&state, &plan.workspace_id, &goal).await {
             log::warn!("keeping the drafted branch {draft_branch}: {error}");
         }
-        let branch = match state.workspace.get(&workspace_id_bg).await {
-            Some(record) => record.branch,
-            None => draft_branch,
-        };
-        let worktree_step = TimelineStep::WorktreeCreated {
-            branch,
-            base: base.clone(),
-        };
-        if let Err(error) = record_step(&state.store, &thread_id_bg, worktree_step) {
-            log::warn!("could not record the worktree step: {error}");
+        if let Ok(workspace) = state.workspaces.get(&plan.workspace_id).await {
+            let step = TimelineStep::WorktreeCreated {
+                branch: workspace.branch,
+                base: workspace.base,
+            };
+            if let Err(error) = record_step(&state.store, &plan.thread_id, step) {
+                log::warn!("could not record the worktree step: {error}");
+            }
         }
-        crate::provisioning::run_workspace_provisioning(
-            state,
-            crate::provisioning::LeadProvisionJob {
-                workspace_id: workspace_id_bg,
-                thread_id: thread_id_bg,
-                repo_name,
-                setup_commands_raw: setup_commands,
-                engine,
-                goal,
-                prompt,
-                review: false,
-            },
-        )
-        .await;
+        crate::provisioning::run(&state, plan).await;
     });
 
-    Ok(started)
+    Ok(StartedWorkspace {
+        workspace_id,
+        thread_id,
+        base: input.base,
+    })
+}
+
+/// How a Lead's workspace comes up: its branch from the base, then the goal as its first turn.
+/// `prompt` is the goal with its attachments, when there were any.
+fn lead_plan(
+    workspace_id: &str,
+    thread_id: &str,
+    engine: &str,
+    goal: &str,
+    prompt: Option<Prompt>,
+) -> ProvisionPlan {
+    let goal = goal.trim();
+    let first_prompt = prompt.or_else(|| (!goal.is_empty()).then(|| goal.into()));
+    ProvisionPlan {
+        workspace_id: workspace_id.to_string(),
+        thread_id: thread_id.to_string(),
+        engine: engine.to_string(),
+        checkout: Checkout::NewBranch,
+        setup_activity: SETUP_ACTIVITY.into(),
+        first_prompt,
+        running_activity: "Reading repo…".into(),
+        seed_summary: Some(Box::new(|workspace: &WorkspaceRecord| {
+            format!(
+                "Just started on “{}”, branched from {}. Claude Code is reading the repo to find where the change belongs; no files have been touched yet.",
+                workspace.name, workspace.base
+            )
+        })),
+        started_toast: None,
+    }
+}
+
+/// The plan again for a Lead whose setup failed. Attachments sent with the goal are lost: the
+/// goal goes as the thread shows it.
+pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<ProvisionPlan> {
+    let thread = state
+        .store
+        .own_thread(&workspace.id)?
+        .ok_or_else(|| Error::Workspace(format!("no Lead in workspace {}", workspace.id)))?;
+    let goal = state
+        .store
+        .first_message_text(&thread.id)?
+        .unwrap_or_default();
+    Ok(lead_plan(
+        &workspace.id,
+        &thread.id,
+        &thread.engine,
+        &goal,
+        None,
+    ))
 }
 
 /// Swaps the drafted branch for Haiku's while nothing on disk uses it yet. The draft stands if
@@ -225,10 +197,8 @@ async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Resu
     let Ok(Some(branch)) = generated else {
         return Ok(());
     };
-    let Some(record) = state.workspace.get(workspace_id).await else {
-        return Ok(());
-    };
-    let repo_path = PathBuf::from(&record.repo_path);
+    let workspace = state.workspaces.get(workspace_id).await?;
+    let repo_path = PathBuf::from(&workspace.repo_path);
     let (local, remote) = tokio::try_join!(
         state.git.list_local_branches(&repo_path),
         state.git.list_remote_branches(&repo_path, "origin"),
@@ -240,17 +210,12 @@ async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Resu
             .store
             .live_workspaces()?
             .into_iter()
-            .filter(|row| row.repo_id == record.repo_id && row.id != workspace_id)
+            .filter(|row| row.repo_id == workspace.repo_id && row.id != workspace_id)
             .map(|row| row.branch),
     );
     let branch = crate::naming::unique_branch(&branch, &taken);
-    let record = state
-        .workspace
-        .retarget_provisioning(workspace_id, &branch)
-        .await?;
-    state
-        .store
-        .set_workspace_checkout(workspace_id, &record.branch, &record.worktree_path)?;
+    crate::git::validate_ref_name(&branch, "branch")?;
+    state.workspaces.retarget(workspace_id, &branch).await?;
     state.out.changed(Change::THREADS);
     Ok(())
 }
@@ -268,24 +233,16 @@ fn spawn_auto_name(state: AppState, workspace_id: String, draft: String, prompt:
         else {
             return;
         };
-        match state.store.workspace_by_id(&workspace_id) {
-            Ok(Some(row)) if row.name == draft => {}
-            _ => return,
-        }
-        if state
-            .store
-            .set_workspace_name(&workspace_id, &name)
-            .is_err()
-            || state.workspace.rename(&workspace_id, &name).await.is_err()
+        match state
+            .workspaces
+            .rename_from(&workspace_id, &draft, &name)
+            .await
         {
-            return;
+            Ok(true) => state.out.changed(Change::THREADS),
+            Ok(false) => {}
+            Err(error) => log::warn!("naming workspace {workspace_id}: {error}"),
         }
-        state.out.changed(Change::THREADS);
     });
-}
-
-fn new_workspace_id() -> String {
-    format!("ws{:x}", crate::time::unix_ms())
 }
 
 #[cfg(test)]
@@ -298,8 +255,9 @@ mod tests {
 
     use super::*;
     use crate::feedback::{Emitted, RecordingOutput};
+    use crate::model::{ThreadStatus, WorkspaceLifecycle};
     use crate::shell_env::ShellEnv;
-    use crate::store::types::RepoRecord;
+    use crate::store::types::{RepoRecord, WorkspaceRow};
 
     /// Stands in for the `claude` CLI: answers one-shot naming calls and refuses to be an engine.
     const FAKE_CLAUDE: &str = r#"#!/bin/sh
@@ -345,7 +303,6 @@ esac
 
         let (state, recording) =
             AppState::recorded(crate::paths::DataDir::new(dir.path().join("data")));
-        state.store.open_in_memory().unwrap();
         state
             .store
             .upsert_repo(&RepoRecord {
@@ -442,23 +399,18 @@ esac
         let f = fixture().await;
         f.state
             .store
-            .upsert_workspace(&WorkspaceRow {
-                id: "earlier".into(),
-                repo_id: "r1".into(),
-                name: "Workspace 3".into(),
-                branch: "feat/earlier".into(),
-                worktree_path: "/tmp/earlier".into(),
-                status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
-            })
+            .insert_workspace(
+                &WorkspaceRow::new(
+                    WorkspaceKind::Lead,
+                    "earlier",
+                    "r1",
+                    "Workspace 3",
+                    "feat/earlier",
+                    "main",
+                    "/tmp/earlier",
+                )
+                .with_status(WorkspaceLifecycle::Ready),
+            )
             .unwrap();
 
         let started = start_workspace(&f.state, input("", "feat/x", ""), None)
@@ -648,7 +600,7 @@ esac
             workspace(&f.state, &started.workspace_id).worktree_path,
             worktree.to_string_lossy()
         );
-        let record = f.state.workspace.get(&started.workspace_id).await.unwrap();
+        let record = f.state.workspaces.get(&started.workspace_id).await.unwrap();
         assert_eq!(record.name, "OAuth login");
         assert_eq!(record.branch, "feat/oauth-login-2");
     }

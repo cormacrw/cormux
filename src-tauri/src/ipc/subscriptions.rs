@@ -174,7 +174,7 @@ pub async fn stream_diffs(
     workspace_id: String,
     channel: Channel<DiffUpdate>,
 ) -> u32 {
-    if let Err(error) = crate::git_workspace::load_workspace(state, &workspace_id).await {
+    if let Err(error) = crate::changes::load(state, &workspace_id).await {
         log::warn!("diff watch for {workspace_id} failed: {error}");
     }
     let diffs = state.diffs.clone();

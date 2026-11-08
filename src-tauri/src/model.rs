@@ -21,7 +21,7 @@ pub enum WorkspaceLifecycle {
 
 impl WorkspaceLifecycle {
     /// What the store and the webview call it, the same word serde writes.
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Provisioning => "provisioning",
             Self::Ready => "ready",
@@ -44,6 +44,78 @@ impl WorkspaceLifecycle {
         }
     }
 }
+
+/// What a workspace is for. Stored as `lead` or `review`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub enum WorkspaceKind {
+    /// A Lead works on its own branch.
+    #[serde(rename = "lead")]
+    Lead,
+    /// A Reviewer reads somebody's pull request.
+    #[serde(rename = "review")]
+    PrReview,
+}
+
+impl WorkspaceKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Lead => "lead",
+            Self::PrReview => "review",
+        }
+    }
+
+    pub fn parse(raw: Option<&str>) -> Self {
+        match raw {
+            Some("review") => Self::PrReview,
+            _ => Self::Lead,
+        }
+    }
+
+    /// The role of the thread the workspace starts with.
+    pub fn own_role(self) -> ThreadRole {
+        match self {
+            Self::Lead => ThreadRole::Lead,
+            Self::PrReview => ThreadRole::Reviewer,
+        }
+    }
+}
+
+/// What a workspace's own thread does there. Threads without one (a scratch's, or helpers from
+/// older builds) are stored with no role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ThreadRole {
+    Lead,
+    Reviewer,
+}
+
+impl ThreadRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Lead => "lead",
+            Self::Reviewer => "reviewer",
+        }
+    }
+
+    pub fn parse(raw: Option<&str>) -> Option<Self> {
+        match raw {
+            Some("lead") => Some(Self::Lead),
+            Some("reviewer") => Some(Self::Reviewer),
+            _ => None,
+        }
+    }
+
+    /// The thread's title when it's created; only ever shown.
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Lead => "Lead",
+            Self::Reviewer => "Reviewer",
+        }
+    }
+}
+
+/// Who writes workspace summaries, shown under each one.
+pub const SUMMARY_MODEL_LABEL: &str = "Haiku 4.5";
 
 /// What a thread is doing. `ThreadRow::status` stays a string, since that's what the webview
 /// is sent; these are the only values Rust writes to it.
@@ -264,6 +336,20 @@ mod tests {
                 current
             );
         }
+    }
+
+    #[test]
+    fn kinds_and_roles_keep_their_stored_words() {
+        for kind in [WorkspaceKind::Lead, WorkspaceKind::PrReview] {
+            assert_eq!(WorkspaceKind::parse(Some(kind.as_str())), kind);
+            assert_eq!(serde_json::to_value(kind).unwrap(), kind.as_str());
+        }
+        assert_eq!(WorkspaceKind::parse(None), WorkspaceKind::Lead);
+        for role in [ThreadRole::Lead, ThreadRole::Reviewer] {
+            assert_eq!(ThreadRole::parse(Some(role.as_str())), Some(role));
+            assert_eq!(serde_json::to_value(role).unwrap(), role.as_str());
+        }
+        assert_eq!(ThreadRole::parse(Some("Lead")), None);
     }
 
     #[test]
