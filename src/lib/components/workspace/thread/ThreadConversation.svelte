@@ -112,8 +112,10 @@
   // Drawn rows by key; a long thread only draws the rows near the screen.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const rowEls = new Map<string, HTMLElement>()
-  let awaitedRow: { key: string; done: (row: HTMLElement | null) => void } | null =
-    null
+  let awaitedRow: {
+    key: string
+    done: (row: HTMLElement | null) => void
+  } | null = null
 
   function trackRow(node: HTMLElement, key: string) {
     const track = (next: string) => {

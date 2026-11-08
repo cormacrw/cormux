@@ -121,10 +121,7 @@
   data-od-id="findings"
   class="flex min-h-0 flex-1 flex-col"
 >
-  <div
-    bind:this={bodyEl}
-    class="min-h-0 flex-1 overflow-y-auto"
-  >
+  <div bind:this={bodyEl} class="min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto w-full max-w-3xl px-8 pt-8 pb-12 select-text">
       <header class="space-y-5" data-od-id="findings-intro">
         <div class="space-y-1">

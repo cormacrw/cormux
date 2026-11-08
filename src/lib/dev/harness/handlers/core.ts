@@ -4,11 +4,7 @@ import { fixtureEngines } from '../fixtures'
 import { CHANGE, type HarnessRuntime } from '../runtime'
 import type { HandlerSlice } from '../types'
 
-export function coreHandlers({
-  db,
-  scenario,
-  emitStateChanged,
-}: HarnessRuntime) {
+export function coreHandlers({ db, emitStateChanged }: HarnessRuntime) {
   return {
     get_snapshot: () => {
       const { snapshot } = db

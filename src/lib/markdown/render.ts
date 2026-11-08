@@ -148,8 +148,7 @@ export function markdownRenderer(images?: KeptImages): MarkdownRenderer {
   })
 
   purify.addHook('uponSanitizeElement', (node) => {
-    if (!images || !(node instanceof Element) || node.nodeName !== 'IMG')
-      return
+    if (!images || !(node instanceof Element) || node.nodeName !== 'IMG') return
     const source = node.getAttribute('src') ?? ''
     node.removeAttribute(images.attr)
     if (images.keep(source)) node.setAttribute(images.attr, source)

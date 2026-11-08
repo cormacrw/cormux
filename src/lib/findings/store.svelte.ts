@@ -62,17 +62,13 @@ export class FindingsStore {
 
   /** The threads findings can be sent to: the workspace's live ones. */
   targetThreads(workspaceId: string): Thread[] {
-    return threads
-      .forWorkspace(workspaceId)
-      .filter((thread) => !thread.retired)
+    return threads.forWorkspace(workspaceId).filter((thread) => !thread.retired)
   }
 
   targetThread(workspaceId: string): Thread | undefined {
     const candidates = this.targetThreads(workspaceId)
     const picked = this.pickedThread[workspaceId]
-    return (
-      candidates.find((thread) => thread.id === picked) ?? candidates[0]
-    )
+    return candidates.find((thread) => thread.id === picked) ?? candidates[0]
   }
 
   setTargetThread(workspaceId: string, threadId: string) {
