@@ -109,6 +109,7 @@ pub fn builder() -> Builder {
     Builder::<tauri::Wry>::new()
         .commands(commands())
         .constant("DEFAULT_SETTINGS", settings::Settings::default())
+        .constant("MEDIA_EXTENSIONS", crate::media::extension_kinds())
         .constant(
             "WORKING_THREAD_STATUSES",
             crate::model::ThreadStatus::WORKING,

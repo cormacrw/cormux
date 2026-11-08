@@ -1,5 +1,5 @@
 import type { PromptAttachment } from '$lib/ipc/bindings'
-import { IMAGE_EXTENSIONS } from '$lib/media'
+import { mediaKindOf } from '$lib/media'
 
 /** An image or file waiting in the composer until the message is sent. */
 export type ComposerAttachment = {
@@ -17,8 +17,7 @@ export type ComposerAttachment = {
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 export function isImageName(name: string): boolean {
-  const extension = name.split('.').pop()?.toLowerCase() ?? ''
-  return name.includes('.') && IMAGE_EXTENSIONS.includes(extension)
+  return mediaKindOf(name) === 'image'
 }
 
 function fileNameOf(path: string): string {

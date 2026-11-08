@@ -1,5 +1,5 @@
-//! The image and video files a thread shows, by extension, and how big they may be.
-//! `src/lib/media.ts` lists the same extensions for the UI; a test keeps the two equal.
+//! The image and video files a thread shows, by extension, and how big they may be. The
+//! webview gets the extensions as `MEDIA_EXTENSIONS`.
 
 use std::path::Path;
 
@@ -135,6 +135,14 @@ pub fn format_of(name: &str) -> Option<MediaFormat> {
         .map(|(_, format)| *format)
 }
 
+/// Each extension a thread shows, and as what.
+pub fn extension_kinds() -> std::collections::BTreeMap<&'static str, MediaKind> {
+    FORMATS
+        .iter()
+        .map(|(extension, format)| (*extension, format.kind))
+        .collect()
+}
+
 fn extensions(kind: MediaKind) -> Vec<&'static str> {
     FORMATS
         .iter()
@@ -157,26 +165,6 @@ pub fn instruction() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The quoted items of `const <name> = [...]` in `src/lib/media.ts`.
-    fn ui_list(name: &str) -> Vec<String> {
-        let source = include_str!("../../src/lib/media.ts");
-        let start = source
-            .find(&format!("const {name} = ["))
-            .unwrap_or_else(|| panic!("{name} is gone from media.ts"));
-        let list = &source[start..];
-        let list = &list[list.find('[').unwrap() + 1..list.find(']').unwrap()];
-        list.split(',')
-            .map(|item| item.trim().trim_matches('\'').to_string())
-            .filter(|item| !item.is_empty())
-            .collect()
-    }
-
-    #[test]
-    fn the_ui_shows_the_same_files() {
-        assert_eq!(ui_list("IMAGE_EXTENSIONS"), extensions(MediaKind::Image));
-        assert_eq!(ui_list("VIDEO_EXTENSIONS"), extensions(MediaKind::Video));
-    }
 
     #[test]
     fn formats_go_by_extension_in_any_case() {

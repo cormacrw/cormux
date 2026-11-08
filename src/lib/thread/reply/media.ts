@@ -1,5 +1,5 @@
 import type { MediaKind } from '$lib/ipc/bindings'
-import { extensionOf, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/media'
+import { mediaKindOf } from '$lib/media'
 
 /**
  * Media an agent shares by referencing a local file in its reply, the way a
@@ -29,10 +29,7 @@ function isLocalSource(source: string): boolean {
 
 export function mediaKindForSource(source: string): MediaKind | null {
   if (!isLocalSource(source)) return null
-  const extension = extensionOf(source)
-  if (IMAGE_EXTENSIONS.includes(extension)) return 'image'
-  if (VIDEO_EXTENSIONS.includes(extension)) return 'video'
-  return null
+  return mediaKindOf(source)
 }
 
 // One pass over the text: markdown images, markdown links, and raw media tags.
