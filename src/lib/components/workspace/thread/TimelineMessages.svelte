@@ -16,15 +16,16 @@
 </script>
 
 <script lang="ts">
-  import { replyParts } from '$lib/thread/reply-parts'
-  import TaskDraftCards from './TaskDraftCards.svelte'
+  import { parseReply, replyProse } from '$lib/thread/reply/parse'
+  import type { FindPullRequest } from '$lib/thread/enhance-markdown'
+  import ReplyBlock from './reply/ReplyBlock.svelte'
   import * as Card from '$lib/components/ui/card'
   import type { FindingRow } from '$lib/ipc/bindings'
   import { severitySummary } from '$lib/findings/format'
   import { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
   import { plural } from '$lib/format/plural'
   import { onDestroy } from 'svelte'
-  import ThoughtMarkdown from './ThoughtMarkdown.svelte'
+  import ReplyMarkdown from './reply/ReplyMarkdown.svelte'
   import {
     formatThreadTime,
     formatThreadTimeTitle,
@@ -38,6 +39,7 @@
   import { agentIsRunning } from '$lib/thread/timeline-types'
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
   import { workspaceRecords } from '$lib/state/workspace-records.svelte'
+  import { prs } from '$lib/state/prs.svelte'
   import { popIn, type EntryScope } from '$lib/thread/entering'
   import {
     COLLAPSE_RUN_AT,
@@ -46,7 +48,7 @@
   } from '$lib/thread/tool-run-summary'
   import { cn } from '$lib/utils'
   import AgentSpinner from './AgentSpinner.svelte'
-  import RunSummaryCard from './RunSummaryCard.svelte'
+  import RunSummaryCard from './reply/RunSummaryCard.svelte'
   import StreamingText from './StreamingText.svelte'
   import { openDiffForPath } from './open-changes'
   import ApprovalCard from './ApprovalCard.svelte'
@@ -241,6 +243,9 @@
     return [detail, timeTitle(atMs)].filter(Boolean).join('\n')
   }
 
+  const findPr: FindPullRequest = (repoFullName, num) =>
+    prs.items.find((pr) => pr.repoFullName === repoFullName && pr.num === num)
+
   const clipboard = new CopyFeedback()
   onDestroy(() => clipboard.dispose())
 </script>
@@ -248,7 +253,7 @@
 {#snippet stepExtras(step: ToolRunStep)}
   {#if step.kind === 'tool' && step.run && step.output}
     <li class="ml-[1.125rem] max-w-[42rem] text-sm">
-      <RunSummaryCard summary={step.run} output={step.output} />
+      <RunSummaryCard data={{ summary: step.run, output: step.output }} />
     </li>
   {/if}
   {#if step.kind === 'tool' && step.children?.length}
@@ -506,15 +511,17 @@
             <div
               class="mt-1 border-l-2 border-border pl-3 text-sm text-muted-foreground"
             >
-              <ThoughtMarkdown text={item.text} media {workdir} />
+              <ReplyMarkdown text={item.text} {workdir} {findPr} />
             </div>
           {/if}
         </details>
       {:else if item.kind === 'thought'}
-        {@const taskSplit = replyParts(item.text)}
-        {@const replyText = taskSplit?.text ?? ''}
+        {@const reply = parseReply(item.text, {
+          streaming: item.id === liveReplyId,
+        })}
+        {@const replyText = replyProse(reply)}
         <!-- A reply that was only a findings block has nothing to show. -->
-        <div class={['group max-w-[42rem]', !taskSplit && 'hidden']}>
+        <div class={['group max-w-[42rem]', !reply.length && 'hidden']}>
           {#if replyText}
             <div class="text-sm text-foreground">
               <StreamingText
@@ -523,12 +530,15 @@
                 key={item.id}
                 live={item.id === liveReplyId}
                 {workdir}
+                {findPr}
               />
             </div>
           {/if}
-          {#if taskSplit?.drafts.length}
-            <TaskDraftCards drafts={taskSplit.drafts} />
-          {/if}
+          {#each reply as segment, index (index)}
+            {#if segment.kind === 'tagBlock'}
+              <ReplyBlock block={segment.block} {workdir} />
+            {/if}
+          {/each}
           <!-- Under the reply, not over it, so it never covers the last words of a line. -->
           <div class="mt-1 flex h-5 items-center">
             <button

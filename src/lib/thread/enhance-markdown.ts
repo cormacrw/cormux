@@ -1,10 +1,18 @@
-import type { PullRequest } from '$lib/state/prs.svelte'
 import { findFileRefs, wholeFileRef, worktreePath } from './file-refs'
 import { renderMath } from './render-math'
 
 // Blocks mounted as components sit in the same root as the prose, but aren't prose.
-const COMPONENTS =
-  '.reply-card, .reply-run-failures, .reply-math, .reply-inline-media, figure'
+const BLOCK = '[data-reply-block]'
+
+type Checks = 'pass' | 'fail' | 'running' | 'none'
+
+/** What a PR card shows of a pull request Cormux knows. */
+export type PullRequestCard = { title: string; checks: Checks; review: string }
+
+export type FindPullRequest = (
+  repoFullName: string,
+  num: number,
+) => PullRequestCard | undefined
 
 type Match = { index: number; length: number; make: () => Node }
 
@@ -14,7 +22,7 @@ const INLINE_MATH = /(?<![\w$\\])\$(?=\S)([^$\n]+?)(?<=\S)\$(?![\w$])/g
 const GITHUB_LINK =
   /^https:\/\/github\.com\/([^/]+\/[^/]+)\/(pull|commit)\/([0-9a-f]+)\/?$/i
 
-const CHECKS: Record<PullRequest['checks'], string> = {
+const CHECKS: Record<Checks, string> = {
   pass: 'Checks passing',
   fail: 'Checks failing',
   running: 'Checks running',
@@ -69,16 +77,13 @@ function textMatches(text: string, workdir?: string): Match[] {
   ]
 }
 
-function githubCard(link: HTMLAnchorElement, prs: PullRequest[]) {
+function githubCard(link: HTMLAnchorElement, findPr?: FindPullRequest) {
   const match = GITHUB_LINK.exec(link.href)
   if (!match) return
   const [, repo, type, ref] = match
   const label =
     type === 'pull' ? `${repo}#${ref}` : `${repo}@${ref!.slice(0, 7)}`
-  const pr =
-    type === 'pull'
-      ? prs.find((row) => row.repoFullName === repo && String(row.num) === ref)
-      : undefined
+  const pr = type === 'pull' ? findPr?.(repo!, Number(ref)) : undefined
   link.className = 'ref-card'
   link.textContent = ''
   const add = (text: string, className: string) => {
@@ -103,11 +108,11 @@ function githubCard(link: HTMLAnchorElement, prs: PullRequest[]) {
  */
 export function enhanceMarkdown(
   root: HTMLElement,
-  options: { workdir?: string; prs: PullRequest[] },
+  options: { workdir?: string; findPr?: FindPullRequest },
 ) {
-  const { workdir, prs } = options
+  const { workdir, findPr } = options
   for (const code of root.querySelectorAll('code:not(pre code)')) {
-    if (code.closest(`a, .file-ref, ${COMPONENTS}`)) continue
+    if (code.closest(`a, .file-ref, ${BLOCK}`)) continue
     const ref = wholeFileRef(code.textContent ?? '')
     if (!ref) continue
     const button = fileRefButton(ref.path, ref.line, workdir)
@@ -115,8 +120,9 @@ export function enhanceMarkdown(
     button.append(code)
   }
   for (const link of root.querySelectorAll<HTMLAnchorElement>('a')) {
+    if (link.closest(BLOCK)) continue
     const href = link.getAttribute('href') ?? ''
-    if (/^[a-z][a-z0-9+.-]*:|^#/i.test(href)) githubCard(link, prs)
+    if (/^[a-z][a-z0-9+.-]*:|^#/i.test(href)) githubCard(link, findPr)
     else if (wholeFileRef(href)) {
       const ref = wholeFileRef(href)!
       link.dataset.path = worktreePath(ref.path, workdir)
@@ -129,7 +135,7 @@ export function enhanceMarkdown(
     acceptNode: (node) =>
       // {@html} tracks its top-level nodes, so those are left in place.
       node.parentElement === root ||
-      node.parentElement?.closest(`pre, code, a, button, .katex, ${COMPONENTS}`)
+      node.parentElement?.closest(`pre, code, a, button, .katex, ${BLOCK}`)
         ? NodeFilter.FILTER_REJECT
         : NodeFilter.FILTER_ACCEPT,
   })

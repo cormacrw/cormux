@@ -86,6 +86,23 @@ describe('findMatches', () => {
     expect(findMatches(rows, 'Lead')).toEqual([])
   })
 
+  it('searches what a reply shows, not the findings JSON it hides', () => {
+    const reply: TimelineRow = {
+      kind: 'item',
+      item: {
+        kind: 'thought',
+        id: 'a2',
+        text: 'One issue.\n<cormux-findings>[{"title":"Login expiry"}]</cormux-findings>',
+        seq: 6,
+        atMs: 0,
+        role: 'agent',
+      },
+    }
+    expect(findMatches([reply], 'issue')).toHaveLength(1)
+    expect(findMatches([reply], 'login')).toEqual([])
+    expect(findMatches([reply], 'cormux-findings')).toEqual([])
+  })
+
   it('keys rows the way the timeline renders them', () => {
     expect(rows.map(rowKey)).toEqual(['speaker-1', 'u1', 'run-1', 'a1'])
   })

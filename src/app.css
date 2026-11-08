@@ -588,7 +588,7 @@
   white-space: nowrap;
 }
 
-/* Media mounted in place inside a table, list or quote (see ThoughtMarkdown). In a cell it's a
+/* Media mounted in place inside a table, list or quote (see ReplyMarkdown). In a cell it's a
    thumbnail that holds its column open; a click still opens the full viewer. */
 .reply-inline-media {
   display: block;

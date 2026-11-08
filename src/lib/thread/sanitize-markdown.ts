@@ -17,7 +17,7 @@ import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import { Marked } from 'marked'
 import { markedHighlight } from 'marked-highlight'
-import { INLINE_MEDIA_ATTR, mediaKindForSource } from './local-media'
+import { INLINE_MEDIA_ATTR, mediaKindForSource } from './reply/media'
 import { memoByText } from './memo'
 
 // Only the languages agents usually write, so the bundle doesn't carry all ~190 of them.
@@ -133,19 +133,17 @@ function renderSafe(source: string): string {
   return markCallouts(purify.sanitize(raw, ALLOWED))
 }
 
-export const renderSanitizedMarkdown = memoByText(renderSafe, 300)
+const renderCached = memoByText(renderSafe, 300)
 
 /**
- * A reply being written, one sanitised piece per top-level block. Every block but the last is
- * finished, so it's rendered once; only the block still growing costs anything per frame.
+ * Chat markdown as sanitised HTML. Pass `growing` for text still being written, so a string
+ * that changes every frame doesn't crowd the cache.
  */
-export function renderMarkdownBlocks(source: string): string[] {
-  const blocks = marked.lexer(source).filter((token) => token.type !== 'space')
-  return blocks.map((token, index) =>
-    index === blocks.length - 1
-      ? renderSafe(token.raw)
-      : renderSanitizedMarkdown(token.raw),
-  )
+export function renderSanitizedMarkdown(
+  source: string,
+  growing = false,
+): string {
+  return growing ? renderSafe(source) : renderCached(source)
 }
 
 /** ClickUp task descriptions are written as documents, so they also get headings and checklists. */

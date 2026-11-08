@@ -1,4 +1,5 @@
 import type { PromptAttachment } from '$lib/ipc/bindings'
+import { IMAGE_EXTENSIONS } from '$lib/media'
 
 /** An image or file waiting in the composer until the message is sent. */
 export type ComposerAttachment = {
@@ -14,8 +15,6 @@ export type ComposerAttachment = {
 
 /** Pasted and dropped files travel to the core whole, so very large ones are refused. */
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
-
-const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp']
 
 export function isImageName(name: string): boolean {
   const extension = name.split('.').pop()?.toLowerCase() ?? ''

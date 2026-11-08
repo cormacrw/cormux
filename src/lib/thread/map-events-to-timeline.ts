@@ -2,7 +2,7 @@ import type { AgentEvent, ApprovalRow, ToolKind } from '$lib/ipc/bindings'
 import { parseApprovalPayload } from '$lib/approvals/payload'
 import { deepEqual } from '$lib/deep-equal'
 import { memoByText } from './memo'
-import { summarizeRun } from './run-summary'
+import { summarizeRun } from './reply/blocks/run'
 import type {
   RunningAgent,
   TimelineChip,

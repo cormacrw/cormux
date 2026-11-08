@@ -60,8 +60,9 @@
   import { onDestroy, untrack } from 'svelte'
   import { prefersReducedMotion } from '$lib/motion'
   import type { EntryScope } from '$lib/thread/entering'
+  import type { FindPullRequest } from '$lib/thread/enhance-markdown'
   import { revealEnd, revealRate, stableMarkdown } from '$lib/thread/typing'
-  import ThoughtMarkdown from './ThoughtMarkdown.svelte'
+  import ReplyMarkdown from './reply/ReplyMarkdown.svelte'
 
   let {
     text,
@@ -69,6 +70,7 @@
     key,
     live = false,
     workdir,
+    findPr,
   }: {
     text: string
     entries: EntryScope | undefined
@@ -77,6 +79,7 @@
     live?: boolean
     /** The thread's worktree, so media the reply references can resolve and render. */
     workdir?: string
+    findPr?: FindPullRequest
   } = $props()
 
   const order = takeOrder()
@@ -158,4 +161,9 @@
   })
 </script>
 
-<ThoughtMarkdown text={markdown} cursor={isTyping || live} media {workdir} />
+<ReplyMarkdown
+  text={markdown}
+  streaming={isTyping || live}
+  {workdir}
+  {findPr}
+/>
