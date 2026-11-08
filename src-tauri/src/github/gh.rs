@@ -44,7 +44,7 @@ impl Gh {
         args: &[&str],
         extra_env: &[(&str, &str)],
     ) -> std::result::Result<Output, GhFailure> {
-        let mut command = self.env.read().await.command("gh");
+        let mut command = self.env.command("gh").await;
         command.args(args);
         command.envs(QUIET);
         command.envs(extra_env.iter().copied());

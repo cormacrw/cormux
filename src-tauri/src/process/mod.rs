@@ -251,7 +251,7 @@ impl ProcessSupervisor {
         command: &ShellCommand,
         forward_to: Option<&str>,
     ) -> Result<SessionEvents> {
-        let env = self.env.read().await.clone();
+        let env = self.env.current().await;
         let mut builder = CommandBuilder::new(env.shell());
         builder.args(["-l", "-c", command.cmd.as_str()]);
         builder.cwd(&command.cwd);

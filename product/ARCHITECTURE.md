@@ -121,7 +121,7 @@ Features don't call each other to react to something: they publish on the **bus*
 
 ### Shell environment (`shell_env`)
 
-macOS GUI apps don't inherit the user's shell `PATH`, so `claude`, `pnpm`, `nvm` and `uv` won't be found from a plain spawn. At launch, the core runs the user's login shell once (`$SHELL -l -i -c 'env -0'`), caches the result, and uses it for every child process. A **Reload environment** action re-reads it. This single step is what makes provisioning, Run and engine detection work. `SharedEnv` holds it: `git`, `gh`, the process supervisor and the LLM client read through it, and those reads wait until the first load has finished (or failed and fallen back to the app's own environment), so nothing shells out without the user's `PATH` and nothing has to start after the load. Engines take it as it is, since they only launch on the user's word.
+macOS GUI apps don't inherit the user's shell `PATH`, so `claude`, `pnpm`, `nvm` and `uv` won't be found from a plain spawn. At launch, the core runs the user's login shell once (`$SHELL -l -i -c 'env -0'`), caches the result, and uses it for every child process. A **Reload environment** action re-reads it. This single step is what makes provisioning, Run and engine detection work. `SharedEnv` holds it: `git`, `gh`, the process supervisor and the LLM client read through it, only ever as a copy or a ready-made `Command` (`current`, `command`), so no run holds the lock a reload waits on, and those reads wait until the first load has finished (or failed and fallen back to the app's own environment), so nothing shells out without the user's `PATH` and nothing has to start after the load. Engines take it as it is, since they only launch on the user's word.
 
 ### Repos and git (`git`)
 

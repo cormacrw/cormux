@@ -22,9 +22,7 @@ impl LlmClient {
     }
 
     pub async fn complete(&self, prompt: &str) -> Result<String> {
-        // Snapshot the env and release the lock: holding a read guard for the whole
-        // CLI run would stall `reload` (write-preferring) and every git call behind it.
-        let env = self.env.read().await.clone();
+        let env = self.env.current().await;
         let call = env.run_with_stdin(
             "claude",
             &["-p", "--model", "haiku", "--output-format", "json"],

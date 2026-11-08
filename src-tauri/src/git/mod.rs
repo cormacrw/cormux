@@ -8,7 +8,6 @@ use std::process::Output;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::process::Command;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::error::{Error, Result};
@@ -153,10 +152,8 @@ impl Git {
         args: &[&str],
         extra_env: &[(&str, &str)],
     ) -> Result<Output> {
-        let env = self.inner.env.read().await;
-        let mut command = Command::new("git");
+        let mut command = self.inner.env.command("git").await;
         command.args(args);
-        env.apply(&mut command);
         command.envs(extra_env.iter().copied());
         if let Some(cwd) = cwd {
             command.current_dir(cwd);

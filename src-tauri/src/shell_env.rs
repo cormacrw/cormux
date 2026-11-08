@@ -206,7 +206,7 @@ impl SharedEnv {
         let _ = loaded.wait_for(|loaded| *loaded).await;
     }
 
-    pub async fn read(&self) -> RwLockReadGuard<'_, ShellEnv> {
+    async fn read(&self) -> RwLockReadGuard<'_, ShellEnv> {
         self.ready().await;
         self.env.read().await
     }
@@ -215,6 +215,11 @@ impl SharedEnv {
     /// read behind it.
     pub async fn current(&self) -> ShellEnv {
         self.read().await.clone()
+    }
+
+    /// `program` with the env applied; the lock is let go before it runs.
+    pub async fn command(&self, program: &str) -> Command {
+        self.read().await.command(program)
     }
 
     /// The first load, at startup. Whatever it finds, reads go ahead after it: with neither the
