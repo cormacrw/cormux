@@ -29,10 +29,9 @@ const SETTLE_MS = 800
  */
 export class ClickupStore {
   configured = $state(false)
-  readonly folderId = $derived(settings.values.clickupFolderId)
+  /** The sprint folder picked in Settings; picking another starts the board over. */
+  folderId = $state('')
   readonly hiddenStatuses = $derived(settings.values.clickupHiddenStatuses)
-  /** The folder the board was loaded for; picking another starts the board over. */
-  private boardFolderId = ''
   board = $state<ClickupBoard | null>(null)
   loading = $state(false)
   error = $state<string | null>(null)
@@ -64,11 +63,10 @@ export class ClickupStore {
     this.mine?.tasks.find((task) => task.id === this.selectedTaskId) ?? null,
   )
 
-  hydrate(configured: boolean) {
-    const changed =
-      configured !== this.configured || this.folderId !== this.boardFolderId
+  hydrate(configured: boolean, folderId: string) {
+    const changed = configured !== this.configured || folderId !== this.folderId
     this.configured = configured
-    this.boardFolderId = this.folderId
+    this.folderId = folderId
     if (!changed) return
     this.board = null
     this.details = {}
@@ -236,4 +234,9 @@ export class ClickupStore {
 
 export const clickup = new ClickupStore()
 
-onSnapshot((snapshot) => clickup.hydrate(snapshot.clickupConfigured))
+onSnapshot((snapshot) =>
+  clickup.hydrate(
+    snapshot.clickupConfigured,
+    snapshot.settings.clickupFolderId,
+  ),
+)
