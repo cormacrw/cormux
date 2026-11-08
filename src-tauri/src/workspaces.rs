@@ -12,9 +12,9 @@ use specta::Type;
 use tokio::sync::RwLock;
 
 use crate::error::{Error, Result};
+use crate::harness_config::HarnessEnv;
 use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle, status_from_threads};
 use crate::paths;
-use crate::process::HarnessEnv;
 use crate::store::Store;
 use crate::store::types::{RepoRecord, ThreadPicks, ThreadRow, WorkspaceRow};
 

@@ -1,4 +1,5 @@
 mod kind;
+mod port;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -10,12 +11,11 @@ use specta::Type;
 use tokio::sync::watch;
 
 use crate::error::{Error, Result};
-use crate::feedback::{ToastPart, ToastTone};
-use crate::process::{
-    LogKind, ProcessSupervisor, SessionEvents, SessionId, ShellCommand, detect_port, serves_https,
-};
-use crate::state::AppState;
-use crate::workspaces::WorkspaceRecord;
+use crate::feedback::{Notifier, ToastPart, ToastTone};
+use crate::process::{LogKind, ProcessSupervisor, SessionEvents, SessionId, ShellCommand};
+use crate::store::Store;
+use crate::workspaces::{WorkspaceRecord, Workspaces};
+use port::{detect_port, serves_https};
 
 /// An app that hasn't printed its port by now counts as crashed.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
@@ -60,14 +60,27 @@ struct WorkspaceAppRecord {
 
 #[derive(Clone)]
 pub struct WorkspaceAppService {
+    process: ProcessSupervisor,
+    workspaces: Workspaces,
+    store: Store,
+    out: Notifier,
     inner: Arc<Mutex<HashMap<String, WorkspaceAppRecord>>>,
     /// Bumped with any workspace's generation, so monitors notice they've been replaced.
     runs: Arc<watch::Sender<u64>>,
 }
 
 impl WorkspaceAppService {
-    pub fn new() -> Self {
+    pub fn new(
+        process: ProcessSupervisor,
+        workspaces: Workspaces,
+        store: Store,
+        out: Notifier,
+    ) -> Self {
         Self {
+            process,
+            workspaces,
+            store,
+            out,
             inner: Arc::new(Mutex::new(HashMap::new())),
             runs: Arc::new(watch::Sender::new(0)),
         }
@@ -110,44 +123,33 @@ impl WorkspaceAppService {
 
     pub async fn control(
         &self,
-        state: &AppState,
         workspace_id: &str,
         action: WorkspaceAppControlAction,
     ) -> Result<()> {
         match action {
             WorkspaceAppControlAction::Clear => {
-                state.process.clear_log(workspace_id);
-                state.out.changed();
+                self.process.clear_log(workspace_id);
+                self.out.changed();
                 Ok(())
             }
-            WorkspaceAppControlAction::Stop => {
-                self.stop(state, workspace_id, false).await?;
-                Ok(())
-            }
-            WorkspaceAppControlAction::Restart => {
-                self.restart(state, workspace_id).await?;
-                Ok(())
-            }
-            WorkspaceAppControlAction::Run => {
-                self.run(state, workspace_id).await?;
-                Ok(())
-            }
+            WorkspaceAppControlAction::Stop => self.stop(workspace_id).await,
+            WorkspaceAppControlAction::Restart => self.restart(workspace_id).await,
+            WorkspaceAppControlAction::Run => self.run(workspace_id).await,
         }
     }
 
-    async fn run(&self, state: &AppState, workspace_id: &str) -> Result<()> {
-        let workspace = state.workspaces.get(workspace_id).await?;
-        let run_command = run_command(state, &workspace)?;
+    async fn run(&self, workspace_id: &str) -> Result<()> {
+        let workspace = self.workspaces.get(workspace_id).await?;
+        let run_command = self.run_command(&workspace)?;
         let kind = AppKind::detect(&run_command);
-        self.stop_other_instances(state, workspace_id).await?;
-        let port = self.pick_port_with_log(&state.process, workspace_id, kind);
+        self.stop_other_instances(workspace_id).await?;
+        let port = self.pick_port_with_log(workspace_id, kind);
         let mut env = workspace.harness_env().vars();
         env.push(("PORT".into(), port.to_string()));
 
         let generation = self.next_generation(workspace_id);
         self.set_status(workspace_id, WorkspaceAppStatus::Starting, Some(port), None);
-        state
-            .process
+        self.process
             .log(workspace_id, LogKind::Command, run_command.as_str());
 
         let command = ShellCommand {
@@ -155,76 +157,90 @@ impl WorkspaceAppService {
             cwd: workspace.worktree(),
             env,
         };
-        let events = state
+        let events = self
             .process
             .spawn_shell(run_session(workspace_id), &command, Some(workspace_id))
             .await?;
 
-        let state_bg = state.clone();
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
-            service
-                .monitor(state_bg, workspace, events, generation)
-                .await;
+            service.monitor(workspace, events, generation).await;
         });
 
-        state.out.changed();
+        self.out.changed();
         Ok(())
     }
 
-    async fn restart(&self, state: &AppState, workspace_id: &str) -> Result<()> {
-        let name = workspace_name(state, workspace_id).await?;
-        state.out.toast_parts(
+    async fn restart(&self, workspace_id: &str) -> Result<()> {
+        let name = self.workspace_name(workspace_id).await;
+        self.out.toast_parts(
             ToastTone::Default,
             vec![
                 ToastPart::Text {
                     value: "Restarting the app in ".into(),
                 },
-                ToastPart::Code {
-                    value: name.clone(),
-                },
+                ToastPart::Code { value: name },
             ],
             Some(workspace_id.to_string()),
         );
-        self.stop(state, workspace_id, true).await?;
-        state
-            .process
+        self.halt(workspace_id);
+        self.process
             .log(workspace_id, LogKind::Marker, "Restarting");
-        self.run(state, workspace_id).await?;
+        self.run(workspace_id).await
+    }
+
+    async fn stop(&self, workspace_id: &str) -> Result<()> {
+        self.halt(workspace_id);
+        self.process
+            .log(workspace_id, LogKind::Marker, "App stopped");
+        let name = self.workspace_name(workspace_id).await;
+        self.out.toast_parts(
+            ToastTone::Default,
+            vec![
+                ToastPart::Text {
+                    value: "Stopped the app in ".into(),
+                },
+                ToastPart::Code { value: name },
+            ],
+            Some(workspace_id.to_string()),
+        );
+        self.out.changed();
         Ok(())
     }
 
-    async fn stop(&self, state: &AppState, workspace_id: &str, quiet: bool) -> Result<()> {
-        if let Err(error) = state.process.stop_session(&run_session(workspace_id)) {
+    /// Ends the app's session and marks it stopped, without telling the user.
+    fn halt(&self, workspace_id: &str) {
+        if let Err(error) = self.process.stop_session(&run_session(workspace_id)) {
             log::warn!("stopping the app in {workspace_id}: {error}");
         }
-        state.process.log(workspace_id, LogKind::Interrupt, "^C");
-        if !quiet {
-            state
-                .process
-                .log(workspace_id, LogKind::Marker, "App stopped");
-            let name = workspace_name(state, workspace_id).await?;
-            state.out.toast_parts(
-                ToastTone::Default,
-                vec![
-                    ToastPart::Text {
-                        value: "Stopped the app in ".into(),
-                    },
-                    ToastPart::Code { value: name },
-                ],
-                Some(workspace_id.to_string()),
-            );
-        }
+        self.process.log(workspace_id, LogKind::Interrupt, "^C");
         self.set_status(workspace_id, WorkspaceAppStatus::Stopped, None, None);
-        state.out.changed();
-        Ok(())
     }
 
-    async fn stop_other_instances(&self, state: &AppState, workspace_id: &str) -> Result<()> {
-        let Ok(workspace) = state.workspaces.get(workspace_id).await else {
+    fn run_command(&self, workspace: &WorkspaceRecord) -> Result<String> {
+        let repo = self.store.repo(&workspace.repo_id)?;
+        let own = self
+            .store
+            .workspace_by_id(&workspace.id)?
+            .and_then(|row| row.run_command);
+        crate::harness_config::workspace_run_command(own.as_deref(), &repo)?
+            .map(|run| run.command)
+            .ok_or_else(|| Error::Process("no run command configured".into()))
+    }
+
+    async fn workspace_name(&self, workspace_id: &str) -> String {
+        self.workspaces
+            .get(workspace_id)
+            .await
+            .map(|row| row.name)
+            .unwrap_or_else(|_| workspace_id.to_string())
+    }
+
+    async fn stop_other_instances(&self, workspace_id: &str) -> Result<()> {
+        let Ok(workspace) = self.workspaces.get(workspace_id).await else {
             return Ok(());
         };
-        let single_instance = state
+        let single_instance = self
             .store
             .repo_by_id(&workspace.repo_id)?
             .is_some_and(|repo| repo.single_instance);
@@ -246,29 +262,24 @@ impl WorkspaceAppService {
             .map(|(id, _)| id.clone())
             .collect();
         for other_id in active {
-            let same_repo = state
+            let same_repo = self
                 .workspaces
                 .get(&other_id)
                 .await
                 .is_ok_and(|other| other.repo_id == workspace.repo_id);
             if same_repo {
-                self.stop(state, &other_id, false).await?;
+                self.stop(&other_id).await?;
             }
         }
         Ok(())
     }
 
-    fn pick_port_with_log(
-        &self,
-        process: &ProcessSupervisor,
-        workspace_id: &str,
-        kind: AppKind,
-    ) -> u16 {
+    fn pick_port_with_log(&self, workspace_id: &str, kind: AppKind) -> u16 {
         let used = self.used_ports(workspace_id);
         let mut port = kind.base_port();
         while used.contains(&port) {
             let next = port.saturating_add(1);
-            process.log(
+            self.process.log(
                 workspace_id,
                 LogKind::Warning,
                 format!("Port {port} is taken by another workspace's app; using {next}"),
@@ -324,14 +335,13 @@ impl WorkspaceAppService {
 
     async fn monitor(
         &self,
-        state: AppState,
         workspace: WorkspaceRecord,
         mut events: SessionEvents,
         generation: u64,
     ) {
         let workspace_id = workspace.id.as_str();
         let session = run_session(workspace_id);
-        let process = &state.process;
+        let process = &self.process;
         let startup_deadline = tokio::time::Instant::now() + STARTUP_TIMEOUT;
         let mut runs = self.runs.subscribe();
 
@@ -350,7 +360,7 @@ impl WorkspaceAppService {
                         format!("Crashed (exit {code})"),
                     );
                 }
-                state.out.changed();
+                self.out.changed();
                 return;
             }
 
@@ -362,7 +372,7 @@ impl WorkspaceAppService {
                 if let Some(port) = detect_port(&output) {
                     self.set_status(workspace_id, WorkspaceAppStatus::Running, Some(port), None);
                     self.set_https(workspace_id, serves_https(&output, port));
-                    state.out.toast_parts(
+                    self.out.toast_parts(
                         ToastTone::Ok,
                         vec![
                             ToastPart::Code {
@@ -377,7 +387,7 @@ impl WorkspaceAppService {
                         ],
                         Some(workspace_id.to_string()),
                     );
-                    state.out.changed();
+                    self.out.changed();
                     continue;
                 }
             }
@@ -386,12 +396,12 @@ impl WorkspaceAppService {
                 () = events.changed() => {}
                 _ = runs.changed() => {}
                 () = tokio::time::sleep_until(startup_deadline), if starting => {
-                    self.set_status(workspace_id, WorkspaceAppStatus::Crashed, None, Some(-1));
+                    self.set_status(workspace_id, WorkspaceAppStatus::Crashed, None, None);
                     process.log(workspace_id, LogKind::Marker, "Crashed (startup timed out)");
                     if let Err(error) = process.stop_session(&session) {
                         log::warn!("stopping the app in {workspace_id}: {error}");
                     }
-                    state.out.changed();
+                    self.out.changed();
                     return;
                 }
             }
@@ -436,36 +446,8 @@ impl WorkspaceAppService {
     }
 }
 
-impl Default for WorkspaceAppService {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 fn run_session(workspace_id: &str) -> SessionId {
-    SessionId::Run {
-        workspace: workspace_id.to_string(),
-    }
-}
-
-fn run_command(state: &AppState, workspace: &WorkspaceRecord) -> Result<String> {
-    let repo = state.store.repo(&workspace.repo_id)?;
-    let own = state
-        .store
-        .workspace_by_id(&workspace.id)?
-        .and_then(|row| row.run_command);
-    crate::harness_config::workspace_run_command(own.as_deref(), &repo)?
-        .map(|run| run.command)
-        .ok_or_else(|| Error::Process("no run command configured".into()))
-}
-
-async fn workspace_name(state: &AppState, workspace_id: &str) -> Result<String> {
-    Ok(state
-        .workspaces
-        .get(workspace_id)
-        .await
-        .map(|row| row.name)
-        .unwrap_or_else(|_| workspace_id.to_string()))
+    SessionId::of_workspace(workspace_id, "app")
 }
 
 pub mod commands {
@@ -509,10 +491,7 @@ pub mod commands {
         input: ControlWorkspaceAppInput,
         state: State<'_, AppState>,
     ) -> Result<()> {
-        state
-            .apps
-            .control(&state, &input.workspace_id, input.action)
-            .await
+        state.apps.control(&input.workspace_id, input.action).await
     }
 }
 
@@ -520,6 +499,7 @@ pub mod commands {
 mod tests {
     use super::*;
     use crate::process::LogEntry;
+    use crate::state::AppState;
     use kind::AppKind;
 
     #[test]
@@ -601,7 +581,7 @@ mod tests {
 
         state
             .apps
-            .control(&state, id, WorkspaceAppControlAction::Run)
+            .control(id, WorkspaceAppControlAction::Run)
             .await
             .unwrap();
         status_becomes(&state, id, WorkspaceAppStatus::Running).await;
@@ -615,7 +595,7 @@ mod tests {
 
         state
             .apps
-            .control(&state, id, WorkspaceAppControlAction::Stop)
+            .control(id, WorkspaceAppControlAction::Stop)
             .await
             .unwrap();
         assert_eq!(state.apps.runtime(id).status, WorkspaceAppStatus::Stopped);
@@ -629,7 +609,7 @@ mod tests {
 
         state
             .apps
-            .control(&state, id, WorkspaceAppControlAction::Run)
+            .control(id, WorkspaceAppControlAction::Run)
             .await
             .unwrap();
         status_becomes(&state, id, WorkspaceAppStatus::Crashed).await;
@@ -649,16 +629,13 @@ mod tests {
     /// The log used to print a uvicorn/Storybook-style error that no tool had printed.
     #[test]
     fn a_taken_port_is_noted_in_cormuxs_own_words() {
-        let service = WorkspaceAppService::new();
+        let (state, _recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        let service = &state.apps;
         service.set_status("a", WorkspaceAppStatus::Running, Some(8000), None);
-        let process =
-            ProcessSupervisor::new(crate::shell_env::SharedEnv::loaded(Default::default()));
+        assert_eq!(service.pick_port_with_log("b", AppKind::Python), 8001);
         assert_eq!(
-            service.pick_port_with_log(&process, "b", AppKind::Python),
-            8001
-        );
-        assert_eq!(
-            process.log_snapshot("b"),
+            state.process.log_snapshot("b"),
             [LogEntry::new(
                 LogKind::Warning,
                 "Port 8000 is taken by another workspace's app; using 8001"

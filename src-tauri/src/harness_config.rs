@@ -22,6 +22,28 @@ pub struct CommittedRepoConfig {
     pub run_command: Option<String>,
 }
 
+/// What a setup or run command is told about the checkout it runs in.
+#[derive(Debug, Clone)]
+pub struct HarnessEnv {
+    pub repo_path: String,
+    pub worktree_path: String,
+    pub workspace: String,
+    pub branch: String,
+    pub base: String,
+}
+
+impl HarnessEnv {
+    pub fn vars(&self) -> Vec<(String, String)> {
+        vec![
+            ("HARNESS_REPO_PATH".into(), self.repo_path.clone()),
+            ("HARNESS_WORKTREE_PATH".into(), self.worktree_path.clone()),
+            ("HARNESS_WORKSPACE".into(), self.workspace.clone()),
+            ("HARNESS_BRANCH".into(), self.branch.clone()),
+            ("HARNESS_BASE".into(), self.base.clone()),
+        ]
+    }
+}
+
 /// The repo's committed config; `None` when it has none. A file that's there but can't be
 /// read or parsed is an error, so a typo in it isn't mistaken for "no config".
 pub fn read_committed_config(repo_path: &Path) -> Result<Option<CommittedRepoConfig>> {

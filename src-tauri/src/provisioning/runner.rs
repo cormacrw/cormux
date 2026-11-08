@@ -283,10 +283,7 @@ async fn run_setup_commands(
             format!("── Command {} of {} ──", index + 1, setup.len()),
         );
 
-        let session = SessionId::Setup {
-            workspace: workspace.id.clone(),
-            index,
-        };
+        let session = SessionId::of_workspace(&workspace.id, format!("setup-{index}"));
         let shell = ShellCommand {
             cmd: command.clone(),
             cwd: workspace.worktree(),

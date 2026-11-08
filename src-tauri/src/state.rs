@@ -92,7 +92,6 @@ impl AppState {
         let fetch = FetchScheduler::new(git.clone());
         let github = Github::new(shell_env.clone());
         let process = ProcessSupervisor::new(shell_env.clone());
-        let apps = WorkspaceAppService::new();
         let workspaces = Workspaces::new(store.clone());
         let bus = Bus::default();
         let transcript = Transcript::new(store.clone());
@@ -105,6 +104,12 @@ impl AppState {
             let approvals = approvals.clone();
             Notifier::new(output, move || approvals.pending_count())
         };
+        let apps = WorkspaceAppService::new(
+            process.clone(),
+            workspaces.clone(),
+            store.clone(),
+            out.clone(),
+        );
         let engines = ThreadRuntime::new(RuntimeParts {
             engines,
             approvals: approvals.clone(),

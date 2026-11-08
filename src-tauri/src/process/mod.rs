@@ -21,7 +21,7 @@ use tokio::sync::{Notify, watch};
 use crate::error::{Error, Result};
 use crate::shell_env::SharedEnv;
 
-pub use session::{HarnessEnv, SessionId, ShellCommand};
+pub use session::{SessionId, ShellCommand};
 
 /// The lines of a workspace's output kept for a reader that comes late; the Output tab keeps as
 /// many (the bindings' `OUTPUT_LINE_CAP`).
@@ -141,11 +141,13 @@ impl SessionEvents {
         }
     }
 
-    pub async fn exited(&mut self) -> i32 {
-        match self.state.wait_for(|state| state.exit.is_some()).await {
-            Ok(state) => state.exit.unwrap_or(-1),
-            Err(_) => -1,
-        }
+    /// The exit code, or `None` if the session was dropped without one.
+    pub async fn exited(&mut self) -> Option<i32> {
+        self.state
+            .wait_for(|state| state.exit.is_some())
+            .await
+            .ok()
+            .and_then(|state| state.exit)
     }
 }
 
@@ -231,14 +233,15 @@ impl ProcessSupervisor {
     ) -> Result<Exit> {
         let mut events = self.spawn_shell(id.clone(), command, forward_to).await?;
         let exit = match tokio::time::timeout(timeout, events.exited()).await {
-            Ok(code) => Exit::Code(code),
-            Err(_) => Exit::TimedOut,
+            Ok(Some(code)) => Ok(Exit::Code(code)),
+            Ok(None) => Err(Error::Process(format!("{id} ended without an exit status"))),
+            Err(_) => Ok(Exit::TimedOut),
         };
         // Whatever it left running in its group goes with it.
         if let Err(error) = self.stop_session(&id) {
             log::warn!("stopping {id}: {error}");
         }
-        Ok(exit)
+        exit
     }
 
     /// Starts `command` in the user's login shell, replacing any session under `id`.
@@ -669,30 +672,6 @@ fn keep_tail(text: &mut String, cap: usize) {
     text.drain(..start);
 }
 
-pub fn detect_port(output: &str) -> Option<u16> {
-    let output = strip_ansi(output);
-    for marker in ["localhost:", "127.0.0.1:", "0.0.0.0:"] {
-        for (index, _) in output.match_indices(marker) {
-            let digits: String = output[index + marker.len()..]
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-            if let Ok(port) = digits.parse() {
-                return Some(port);
-            }
-        }
-    }
-    None
-}
-
-/// Whether the server announced `port` with an `https://` URL, so links to it should too.
-pub fn serves_https(output: &str, port: u16) -> bool {
-    let output = strip_ansi(output);
-    ["localhost", "127.0.0.1", "0.0.0.0"]
-        .iter()
-        .any(|host| output.contains(&format!("https://{host}:{port}")))
-}
-
 /// Removes ANSI escape sequences (CSI like `\x1b[1m`, and OSC like hyperlinks).
 pub fn strip_ansi(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -787,16 +766,11 @@ mod tests {
     }
 
     fn setup(workspace: &str, index: usize) -> SessionId {
-        SessionId::Setup {
-            workspace: workspace.into(),
-            index,
-        }
+        SessionId::of_workspace(workspace, format!("setup-{index}"))
     }
 
     fn run(workspace: &str) -> SessionId {
-        SessionId::Run {
-            workspace: workspace.into(),
-        }
+        SessionId::of_workspace(workspace, "app")
     }
 
     fn python(proc: &ProcessSupervisor, id: SessionId, script: &Path) -> SessionEvents {
@@ -807,35 +781,6 @@ mod tests {
 
     fn pid_of(proc: &ProcessSupervisor, id: &SessionId) -> u32 {
         proc.sessions.lock().unwrap()[id].pid
-    }
-
-    #[test]
-    fn spots_an_https_banner() {
-        assert!(serves_https(
-            "  \x1b[32m➜\x1b[39m  Local:   \x1b[36mhttps://localhost:\x1b[1m5173\x1b[22m/",
-            5173
-        ));
-        assert!(!serves_https("Local: http://localhost:5173/", 5173));
-        assert!(!serves_https(
-            "https://localhost:4000/ and localhost:5173",
-            5173
-        ));
-    }
-
-    #[test]
-    fn reads_port_from_dev_server_banner() {
-        assert_eq!(detect_port("Local:   http://127.0.0.1:5173/\n"), Some(5173));
-        assert_eq!(detect_port("ready on localhost:3000"), Some(3000));
-        assert_eq!(
-            detect_port(
-                "  \x1b[32m➜\x1b[39m  \x1b[1mLocal\x1b[22m:   \x1b[36mhttp://localhost:\x1b[1m5173\x1b[22m/\x1b[39m"
-            ),
-            Some(5173)
-        );
-        assert_eq!(
-            detect_port("see localhost: docs\nhttp://localhost:4000/"),
-            Some(4000)
-        );
     }
 
     #[test]
@@ -1015,12 +960,11 @@ mod tests {
         let proc = supervisor();
         let id = run("ws");
         let mut events = python(&proc, id.clone(), &python_script("fake_dev_server.py"));
-        while detect_port(&proc.output(&id)).is_none() {
+        while !proc.output(&id).contains("8765") {
             tokio::time::timeout(Duration::from_secs(5), events.changed())
                 .await
                 .expect("a port in the output");
         }
-        assert_eq!(detect_port(&proc.output(&id)), Some(8765));
 
         let pid = pid_of(&proc, &id);
         proc.stop_workspace_sessions("ws").await;
@@ -1040,7 +984,7 @@ mod tests {
         let code = tokio::time::timeout(Duration::from_secs(5), events.exited())
             .await
             .unwrap();
-        assert_eq!(code, 17);
+        assert_eq!(code, Some(17));
         assert_eq!(proc.output(&id), "crashed");
         assert!(!proc.was_killed(&id));
     }

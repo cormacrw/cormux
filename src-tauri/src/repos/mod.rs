@@ -10,8 +10,9 @@ use specta::Type;
 
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
+use crate::harness_config::HarnessEnv;
 use crate::paths::expand_tilde;
-use crate::process::{Exit, HarnessEnv, SessionId, ShellCommand};
+use crate::process::{Exit, SessionId, ShellCommand};
 use crate::state::AppState;
 use crate::store::types::RepoRecord;
 
@@ -483,10 +484,7 @@ pub async fn test_setup(
 
     let env = checkout_env(state, &repo, &repo_path).await.vars();
     for (index, command) in commands.iter().enumerate() {
-        let session = SessionId::RepoTest {
-            repo: repo.id.clone(),
-            index,
-        };
+        let session = SessionId::unowned(format!("test-setup-{}-{index}", repo.id));
         let shell = ShellCommand {
             cmd: command.clone(),
             cwd: repo_path.clone(),

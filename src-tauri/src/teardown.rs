@@ -403,10 +403,7 @@ mod tests {
         let exit = state
             .process
             .run_to_exit(
-                crate::process::SessionId::Setup {
-                    workspace: "w".into(),
-                    index: 0,
-                },
+                crate::process::SessionId::of_workspace("w", "setup-0"),
                 &crate::process::ShellCommand {
                     cmd: "true".into(),
                     cwd: std::env::temp_dir(),
