@@ -1,5 +1,10 @@
 import { findFileRefs, wholeFileRef, worktreePath } from './file-refs'
 import { renderMath } from './render-math'
+import type {
+  PrChecksState,
+  PrReviewState,
+  PullRequestPayload,
+} from '$lib/ipc/bindings'
 
 /**
  * Spread on an element that holds a mounted block: blocks sit in the same root as the prose,
@@ -29,10 +34,8 @@ export function fileRefAt(
   return { path: ref.dataset.path, line }
 }
 
-type Checks = 'pass' | 'fail' | 'running' | 'none'
-
 /** What a PR card shows of a pull request Cormux knows. */
-type PullRequestCard = { title: string; checks: Checks; review: string }
+type PullRequestCard = Pick<PullRequestPayload, 'title' | 'checks' | 'review'>
 
 export type FindPullRequest = (
   repoFullName: string,
@@ -47,11 +50,18 @@ const INLINE_MATH = /(?<![\w$\\])\$(?=\S)([^$\n]+?)(?<=\S)\$(?![\w$])/g
 const GITHUB_LINK =
   /^https:\/\/github\.com\/([^/]+\/[^/]+)\/(pull|commit)\/([0-9a-f]+)\/?$/i
 
-const CHECKS: Record<Checks, string> = {
+const CHECKS: Record<PrChecksState, string> = {
   pass: 'Checks passing',
   fail: 'Checks failing',
   running: 'Checks running',
   none: '',
+}
+
+const REVIEW: Record<PrReviewState, string> = {
+  approved: 'Approved',
+  changes: 'Changes requested',
+  required: '',
+  draft: '',
 }
 
 function fileRefButton(path: string, line: number | null, workdir?: string) {
@@ -126,8 +136,7 @@ function githubCard(link: HTMLAnchorElement, findPr?: FindPullRequest) {
   if (!pr) return
   add(pr.title, 'ref-card-title')
   add(CHECKS[pr.checks], `ref-card-checks ref-card-checks-${pr.checks}`)
-  if (pr.review === 'approved') add('Approved', 'ref-card-checks')
-  if (pr.review === 'changes') add('Changes requested', 'ref-card-checks')
+  add(REVIEW[pr.review], 'ref-card-checks')
 }
 
 /**
