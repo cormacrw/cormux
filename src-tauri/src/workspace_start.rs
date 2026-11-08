@@ -13,6 +13,7 @@ use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::ThreadPicks;
 use crate::timeline::TimelineStep;
+use crate::transcript::Transcript;
 use crate::workspace_git::Checkout;
 use crate::workspaces::WorkspaceRecord;
 
@@ -157,11 +158,26 @@ const BRANCH_INSTRUCTION: &str = "This thread starts on a new branch cut from th
 /// What an agent is told about its workspace when a session starts. The branch instruction only
 /// holds for a Lead's first session on a branch cut from the repo's default branch: a Reviewer
 /// sits on a pull request's branch, and a workspace started from another base was started there
-/// on purpose.
-pub fn session_brief(store: &Store, workspace: &WorkspaceRecord, resuming: bool) -> String {
+/// on purpose. A session that resumes one, or follows New session or a resumed conversation,
+/// isn't the first: by then the worktree can hold work the reset would throw away.
+pub fn session_brief(
+    store: &Store,
+    transcript: &Transcript,
+    workspace: &WorkspaceRecord,
+    thread_id: &str,
+    resuming: bool,
+) -> String {
     let media = crate::media::instruction();
     if resuming || workspace.kind != WorkspaceKind::Lead {
         return media;
+    }
+    match transcript.on_first_conversation(thread_id) {
+        Ok(true) => {}
+        Ok(false) => return media,
+        Err(error) => {
+            log::warn!("reading {thread_id}'s conversations for its brief: {error}");
+            return media;
+        }
     }
     let default_branch = match store.repo_by_id(&workspace.repo_id) {
         Ok(Some(repo)) => repo.default_branch,
@@ -754,12 +770,15 @@ esac
     async fn only_a_leads_first_session_off_the_default_branch_is_told_it_may_reset() {
         let store = Store::in_memory().unwrap();
         store.seed_workspace("w1", WorkspaceLifecycle::Ready);
+        store.seed_thread("t1", "w1", crate::model::ThreadStatus::Idle);
+        let transcript = Transcript::new(store.clone());
         let lead = crate::workspaces::Workspaces::new(store.clone())
             .get("w1")
             .await
             .unwrap();
         let told = |workspace: &WorkspaceRecord, resuming| {
-            session_brief(&store, workspace, resuming).contains("git reset --hard")
+            session_brief(&store, &transcript, workspace, "t1", resuming)
+                .contains("git reset --hard")
         };
 
         assert!(told(&lead, false));
@@ -784,7 +803,35 @@ esac
             "started from another base on purpose"
         );
         for workspace in [&lead, &reviewer, &stacked] {
-            assert!(session_brief(&store, workspace, true).contains(&crate::media::instruction()));
+            assert!(
+                session_brief(&store, &transcript, workspace, "t1", true)
+                    .contains(&crate::media::instruction())
+            );
         }
+    }
+
+    /// Bug: New session cleared the saved session id, so the next launch read as a first
+    /// session and told the agent to `git reset --hard` over whatever the worktree held.
+    #[tokio::test]
+    async fn a_session_after_new_session_or_a_resumed_conversation_is_not_told_to_reset() {
+        let store = Store::in_memory().unwrap();
+        store.seed_workspace("w1", WorkspaceLifecycle::Ready);
+        store.seed_thread("t1", "w1", crate::model::ThreadStatus::Idle);
+        let transcript = Transcript::new(store.clone());
+        let lead = crate::workspaces::Workspaces::new(store.clone())
+            .get("w1")
+            .await
+            .unwrap();
+        transcript.record_user_message("t1", "Fix login").unwrap();
+        transcript
+            .record_step(
+                "t1",
+                TimelineStep::SessionStarted {
+                    ended_session: Some("s1".into()),
+                },
+            )
+            .unwrap();
+
+        assert!(!session_brief(&store, &transcript, &lead, "t1", false).contains("git reset"));
     }
 }

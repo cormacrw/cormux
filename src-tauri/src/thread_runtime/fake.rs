@@ -67,6 +67,21 @@ impl FakeEngines {
         sender.send(output).expect("the runtime is reading");
     }
 
+    /// The newest engine's way out, to report as it after it's been replaced.
+    pub fn output(&self, thread_id: &str) -> mpsc::UnboundedSender<EngineOutput> {
+        let state = self.state.lock().unwrap();
+        state
+            .outputs
+            .get(thread_id)
+            .expect("a launched engine")
+            .clone()
+    }
+
+    /// Lets go of the newest engine's way out, so its output closes once the test's copies go.
+    pub fn hang_up(&self, thread_id: &str) {
+        self.state.lock().unwrap().outputs.remove(thread_id);
+    }
+
     pub fn launches(&self) -> Vec<LaunchConfig> {
         self.state.lock().unwrap().launches.clone()
     }

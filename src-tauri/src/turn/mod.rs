@@ -9,7 +9,8 @@
 //!
 //! Pausing interrupts the turn and holds the thread: what is sent meanwhile queues, and resuming
 //! sends the queue, or tells the agent to continue. Once a turn has settled, `TurnEnded` goes out
-//! on the bus for the features that react to it.
+//! on the bus for the features that react to it. The end of a turn that was paused, or of an
+//! engine that was shut down on purpose, settles nothing: the thread already moved on.
 
 pub mod commands;
 
@@ -27,6 +28,7 @@ use crate::error::{Error, Result};
 use crate::model::ThreadStatus;
 use crate::state::AppState;
 use crate::store::types::ThreadRow;
+use crate::thread_runtime::TurnEnd;
 use crate::timeline::TimelineStep;
 
 /// What a resumed thread is told when nothing queued while it was paused.
@@ -166,7 +168,8 @@ pub async fn begin(
 /// it has cancelled. Stopping ends a pause too, and drops whatever queued behind it.
 pub async fn stop(state: &AppState, thread_id: &str) -> Result<()> {
     let thread = thread_row(state, thread_id)?;
-    if state.engines.has_thread(thread_id)
+    if thread.status.is_unfinished()
+        && state.engines.has_thread(thread_id)
         && let Err(error) = state.engines.cancel(thread_id)
     {
         log::warn!("cancelling {thread_id}'s turn: {error}");
@@ -266,23 +269,49 @@ pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -
     Ok(())
 }
 
-/// Settles a thread whose engine ended its turn or exited: idle, unless it's paused (pausing
-/// interrupts the engine, which answers with a turn end of its own). Then the features that
-/// react to a turn ending hear of it, reading the thread as it now is.
-pub async fn ended(state: &AppState, thread_id: &str) {
-    match state.store.thread_by_id(thread_id) {
-        Ok(Some(thread)) if thread.status != ThreadStatus::Paused => {
-            if let Err(error) = record(state, &thread, ThreadStatus::Idle).await {
-                log::warn!("settling thread {thread_id}: {error}");
-            }
+/// Settles a thread whose engine ended its turn or exited: idle, unless it's paused. Then the
+/// features that react to a turn ending hear of it, reading the thread as it now is.
+///
+/// An end from an engine since replaced or shut down is dropped. So is an interrupted turn's,
+/// unless it was stopped and nothing has started since: a paused turn isn't over, and a turn
+/// started after a stop isn't the one that ended.
+pub async fn ended(state: &AppState, end: &TurnEnd) {
+    let thread_id = end.thread_id.as_str();
+    if !state.engines.is_current(thread_id, end.engine) {
+        return;
+    }
+    let thread = match state.store.thread_by_id(thread_id) {
+        Ok(Some(thread)) => thread,
+        Ok(None) => return,
+        Err(error) => {
+            log::warn!("reading thread {thread_id}: {error}");
+            return;
         }
-        Ok(_) => {}
-        Err(error) => log::warn!("reading thread {thread_id}: {error}"),
+    };
+    if end.interrupted {
+        if thread.status.is_unfinished() {
+            return;
+        }
+    } else if thread.status != ThreadStatus::Paused
+        && let Err(error) = record(state, &thread, ThreadStatus::Idle).await
+    {
+        log::warn!("settling thread {thread_id}: {error}");
     }
     state.out.changed();
     state.bus.publish(DomainEvent::TurnEnded {
         thread_id: thread_id.to_string(),
     });
+}
+
+/// The thread's current engine ending its turn, as a test reports it.
+#[cfg(test)]
+pub async fn end_turn(state: &AppState, thread_id: &str) {
+    let end = TurnEnd {
+        thread_id: thread_id.to_string(),
+        engine: state.engines.current_engine(thread_id),
+        interrupted: false,
+    };
+    ended(state, &end).await;
 }
 
 /// Runs `ended` for each turn the engines report, one at a time, for the life of the app.
@@ -292,7 +321,7 @@ pub fn start_settling(state: &AppState) {
     tauri::async_runtime::spawn(async move {
         loop {
             match turn_ends.recv().await {
-                Ok(thread_id) => ended(&state, &thread_id).await,
+                Ok(end) => ended(&state, &end).await,
                 Err(RecvError::Lagged(missed)) => {
                     log::warn!("missed {missed} turn ends");
                 }
@@ -652,7 +681,7 @@ mod tests {
             .unwrap();
         let mut events = state.bus.subscribe();
 
-        ended(&state, T).await;
+        end_turn(&state, T).await;
 
         assert_eq!(thread_status(&state, T), "idle");
         assert_eq!(stored_workspace(&state), "idle");
@@ -672,7 +701,7 @@ mod tests {
             seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
         pause(&state, T).await.unwrap();
 
-        ended(&state, T).await;
+        end_turn(&state, T).await;
 
         assert_eq!(thread_status(&state, T), "paused");
     }
@@ -691,7 +720,7 @@ mod tests {
             .await
             .unwrap();
 
-        ended(&state, T).await;
+        end_turn(&state, T).await;
 
         assert_eq!(thread_status(&state, T), "idle");
         assert_eq!(stored_workspace(&state), "running");
@@ -749,6 +778,114 @@ mod tests {
             ["next"],
             "the queue went with the stop"
         );
+    }
+
+    /// An idle thread with a live engine, and the turn ends that engine reports.
+    async fn live(
+        state_status: ThreadStatus,
+    ) -> (
+        AppState,
+        FakeEngines,
+        tokio::sync::broadcast::Receiver<TurnEnd>,
+    ) {
+        let (state, _recording, fake) = faked(state_status, WorkspaceLifecycle::Idle).await;
+        let _engine = fake.engine(T);
+        state.engines.ensure(T, W).await.unwrap();
+        let ends = state.engines.turn_ends();
+        (state, fake, ends)
+    }
+
+    async fn report_end(
+        state: &AppState,
+        fake: &FakeEngines,
+        ends: &mut tokio::sync::broadcast::Receiver<TurnEnd>,
+    ) {
+        fake.report(
+            T,
+            crate::engines::EngineOutput::Event(crate::engines::AgentEvent::TurnEnd {
+                stop_reason: crate::model::StopReason::EndTurn,
+                error: None,
+            }),
+        );
+        let end = tokio::time::timeout(std::time::Duration::from_secs(5), ends.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        ended(state, &end).await;
+    }
+
+    fn turn_ended(events: &mut tokio::sync::broadcast::Receiver<DomainEvent>) -> bool {
+        std::iter::from_fn(|| events.try_recv().ok())
+            .any(|event| matches!(event, DomainEvent::TurnEnded { .. }))
+    }
+
+    /// Bug: the paused turn's end arrived after Resume and idled the thread mid-turn; pausing
+    /// alone also published `TurnEnded`, so a review read its half-written reply and a parent
+    /// heard its child was idle.
+    #[tokio::test]
+    async fn a_paused_turns_late_end_neither_idles_the_resumed_thread_nor_reads_as_ended() {
+        let (state, fake, mut ends) = live(ThreadStatus::Idle).await;
+        let mut events = state.bus.subscribe();
+        start(&state, &thread_row(&state, T).unwrap(), "go", "go")
+            .await
+            .unwrap();
+
+        pause(&state, T).await.unwrap();
+        resume(&state, T).await.unwrap();
+        report_end(&state, &fake, &mut ends).await;
+        assert_eq!(thread_status(&state, T), "running");
+        assert!(!turn_ended(&mut events));
+
+        report_end(&state, &fake, &mut ends).await;
+        assert_eq!(thread_status(&state, T), "idle");
+        assert!(turn_ended(&mut events));
+    }
+
+    #[tokio::test]
+    async fn a_paused_turns_end_leaves_it_paused_and_unended() {
+        let (state, fake, mut ends) = live(ThreadStatus::Idle).await;
+        let mut events = state.bus.subscribe();
+        start(&state, &thread_row(&state, T).unwrap(), "go", "go")
+            .await
+            .unwrap();
+
+        pause(&state, T).await.unwrap();
+        report_end(&state, &fake, &mut ends).await;
+
+        assert_eq!(thread_status(&state, T), "paused");
+        assert!(!turn_ended(&mut events));
+    }
+
+    /// Bug: the stopped turn's end idled the turn the next message started.
+    #[tokio::test]
+    async fn a_stopped_turns_end_leaves_the_next_turn_running() {
+        let (state, fake, mut ends) = live(ThreadStatus::Idle).await;
+        start(&state, &thread_row(&state, T).unwrap(), "go", "go")
+            .await
+            .unwrap();
+
+        stop(&state, T).await.unwrap();
+        start(&state, &thread_row(&state, T).unwrap(), "again", "again")
+            .await
+            .unwrap();
+        report_end(&state, &fake, &mut ends).await;
+
+        assert_eq!(thread_status(&state, T), "running");
+    }
+
+    #[tokio::test]
+    async fn a_stopped_turns_end_still_tells_the_features_it_ended() {
+        let (state, fake, mut ends) = live(ThreadStatus::Idle).await;
+        let mut events = state.bus.subscribe();
+        start(&state, &thread_row(&state, T).unwrap(), "go", "go")
+            .await
+            .unwrap();
+
+        stop(&state, T).await.unwrap();
+        report_end(&state, &fake, &mut ends).await;
+
+        assert_eq!(thread_status(&state, T), "idle");
+        assert!(turn_ended(&mut events));
     }
 
     #[tokio::test]

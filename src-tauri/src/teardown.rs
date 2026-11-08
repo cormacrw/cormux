@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
-use crate::model::WorkspaceLifecycle;
+use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::state::AppState;
 use crate::workspaces::WorkspaceRecord;
 
@@ -95,10 +95,15 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
         .collect();
 
     if let Err(error) = run_teardown_steps(state, &record, input.delete_branch, &thread_ids).await {
-        let restored = state
-            .workspaces
-            .set_status(&input.workspace_id, after_failed_teardown(record.status))
-            .await;
+        let restored = settle_stopped_threads(state, &input.workspace_id).await;
+        let restored = match restored {
+            Ok(()) => state
+                .workspaces
+                .set_status(&input.workspace_id, after_failed_teardown(record.status))
+                .await
+                .map(drop),
+            Err(error) => Err(error),
+        };
         if let Err(restore) = restored {
             log::warn!("restoring {} after teardown: {restore}", input.workspace_id);
         }
@@ -141,6 +146,20 @@ async fn run_teardown_steps(
         state.git.branch_delete(&repo, &record.branch).await?;
     }
 
+    Ok(())
+}
+
+/// The engines teardown stopped report no turn end, so a thread they left running is idled
+/// here. A paused one stays paused: resuming launches a new engine.
+async fn settle_stopped_threads(state: &AppState, workspace_id: &str) -> Result<()> {
+    for thread in state.store.threads_for_workspace(workspace_id)? {
+        if thread.status == ThreadStatus::Running {
+            state
+                .workspaces
+                .set_thread_status(&thread.id, workspace_id, ThreadStatus::Idle)
+                .await?;
+        }
+    }
     Ok(())
 }
 
@@ -318,6 +337,32 @@ mod tests {
         let state = registered("/tmp/cormux-no-such-worktree").await;
         let preview = super::preview(&state, "w").await.unwrap();
         assert!(!preview.data_loss.ask_first);
+    }
+
+    #[tokio::test]
+    async fn a_failed_teardown_idles_the_threads_whose_engines_it_stopped() {
+        let folder = tempfile::tempdir().unwrap();
+        let worktree = folder.path().join("not-a-repo");
+        let state = registered(worktree.to_str().unwrap()).await;
+        std::fs::create_dir(&worktree).unwrap();
+        state
+            .workspaces
+            .set_thread_status("t", "w", ThreadStatus::Running)
+            .await
+            .unwrap();
+
+        let torn = execute(
+            &state,
+            &TeardownInput {
+                workspace_id: "w".into(),
+                delete_branch: false,
+            },
+        )
+        .await;
+
+        assert!(torn.is_err(), "not a git worktree, so it can't be removed");
+        let thread = state.store.thread_by_id("t").unwrap().unwrap();
+        assert_eq!(thread.status, ThreadStatus::Idle);
     }
 
     #[test]

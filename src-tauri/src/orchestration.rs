@@ -1057,14 +1057,14 @@ mod tests {
         state.engines.ensure("parent", "w-parent").await.unwrap();
         start(&state);
 
-        crate::turn::ended(&state, "child").await;
+        crate::turn::end_turn(&state, "child").await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(engine.try_recv().is_err());
         assert!(
             state.store.thread_by_id("parent").unwrap().unwrap().status == ThreadStatus::Running
         );
 
-        crate::turn::ended(&state, "parent").await;
+        crate::turn::end_turn(&state, "parent").await;
         let report = first_prompt(&mut engine).await.expect("a report");
         assert!(report.contains("done"));
         assert!(
@@ -1095,7 +1095,7 @@ mod tests {
         assert!(report.contains("status=\"blocked\""));
         assert!(report.contains("execute"));
 
-        crate::turn::ended(&state, "parent").await;
+        crate::turn::end_turn(&state, "parent").await;
         state.bus.publish(asked("child"));
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(

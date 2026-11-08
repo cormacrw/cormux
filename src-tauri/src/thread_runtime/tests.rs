@@ -20,7 +20,7 @@ struct Setup {
     store: Store,
     transcript: Transcript,
     approvals: Arc<ApprovalBroker>,
-    turn_ends: broadcast::Receiver<String>,
+    turn_ends: broadcast::Receiver<TurnEnd>,
 }
 
 /// A runtime over `engines`, with one workspace in the temp folder for its threads.
@@ -70,7 +70,7 @@ fn setup(engines: Arc<dyn Engines>) -> Setup {
             },
             ..HostToolsConfig::default()
         }),
-        brief: Arc::new(|workspace, resuming| format!("{} resuming={resuming}", workspace.id)),
+        brief: Arc::new(|workspace, _, resuming| format!("{} resuming={resuming}", workspace.id)),
     });
     let turn_ends = runtime.turn_ends();
     Setup {
@@ -293,7 +293,7 @@ async fn a_turn_end_drops_its_approvals_and_is_reported_once() {
             error: None,
         }),
     );
-    assert_eq!(setup.turn_ends.recv().await.unwrap(), "t1");
+    assert_eq!(setup.turn_ends.recv().await.unwrap().thread_id, "t1");
     assert!(answered.await.is_err(), "the engine stopped waiting");
     assert!(
         setup
@@ -303,6 +303,119 @@ async fn a_turn_end_drops_its_approvals_and_is_reported_once() {
             .is_empty()
     );
     assert!(setup.turn_ends.try_recv().is_err());
+}
+
+fn permission(
+    id: &str,
+) -> (
+    PermissionRequest,
+    tokio::sync::oneshot::Receiver<PermissionAnswer>,
+) {
+    let (respond, answered) = tokio::sync::oneshot::channel();
+    let request = PermissionRequest {
+        id: id.into(),
+        tool_call_id: None,
+        tool: "Bash".into(),
+        role: ToolRole::Command {
+            command: "ls".into(),
+            description: None,
+        },
+        detail: Some("ls".into()),
+        questions: Vec::new(),
+        respond,
+    };
+    (request, answered)
+}
+
+fn turn_end() -> EngineOutput {
+    EngineOutput::Event(AgentEvent::TurnEnd {
+        stop_reason: StopReason::EndTurn,
+        error: None,
+    })
+}
+
+/// Bug: New session discards the engine without waiting, and its late end cancelled every
+/// approval on the thread, the new engine's included, leaving that CLI waiting for good.
+#[tokio::test(start_paused = true)]
+async fn an_engine_shut_down_on_purpose_reports_no_end_and_leaves_its_successors_approvals() {
+    let fake = FakeEngines::default();
+    let mut setup = setup(Arc::new(fake.clone()));
+    add_thread(&setup.store, "t1", "running", None);
+    setup.runtime.ensure("t1", W).await.unwrap();
+    let old = fake.output("t1");
+    let (asked, _old_answer) = permission("p1");
+    old.send(EngineOutput::Permission(asked)).unwrap();
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    setup.runtime.discard("t1").unwrap();
+    setup.runtime.ensure("t1", W).await.unwrap();
+    let (asked, mut answered) = permission("p2");
+    fake.report("t1", EngineOutput::Permission(asked));
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    old.send(turn_end()).unwrap();
+    drop(old);
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    assert!(
+        setup.turn_ends.try_recv().is_err(),
+        "no end from the old engine"
+    );
+    let pending: Vec<String> = setup
+        .store
+        .pending_approvals_for_thread("t1")
+        .unwrap()
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
+    assert_eq!(pending, ["p2"], "the old engine's request went with it");
+    assert!(answered.try_recv().is_err(), "still waiting on the user");
+    setup.approvals.resolve("p2", Answer::Approve).unwrap();
+    assert!(matches!(answered.await, Ok(PermissionAnswer::Allow)));
+}
+
+/// Bug: a failed read reports a turn end and then closes the output, which read as a second end.
+#[tokio::test(start_paused = true)]
+async fn a_turn_end_then_the_output_closing_is_one_end() {
+    let fake = FakeEngines::default();
+    let mut setup = setup(Arc::new(fake.clone()));
+    add_thread(&setup.store, "t1", "running", None);
+    setup.runtime.ensure("t1", W).await.unwrap();
+    setup.runtime.prompt("t1", "go").unwrap();
+    let output = fake.output("t1");
+    fake.hang_up("t1");
+
+    output.send(turn_end()).unwrap();
+    drop(output);
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let end = setup.turn_ends.try_recv().unwrap();
+    assert!(!end.interrupted);
+    assert!(setup.runtime.is_current("t1", end.engine));
+    assert!(setup.turn_ends.try_recv().is_err(), "one end");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_end_of_a_cancelled_turn_says_it_was_interrupted_once() {
+    let fake = FakeEngines::default();
+    let mut setup = setup(Arc::new(fake.clone()));
+    add_thread(&setup.store, "t1", "running", None);
+    setup.runtime.ensure("t1", W).await.unwrap();
+    setup.runtime.cancel("t1").unwrap();
+    fake.report("t1", turn_end());
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert!(
+        !setup.turn_ends.try_recv().unwrap().interrupted,
+        "nothing was open to interrupt"
+    );
+
+    setup.runtime.prompt("t1", "go").unwrap();
+    setup.runtime.cancel("t1").unwrap();
+    setup.runtime.prompt("t1", "continue").unwrap();
+    fake.report("t1", turn_end());
+    fake.report("t1", turn_end());
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert!(setup.turn_ends.try_recv().unwrap().interrupted);
+    assert!(!setup.turn_ends.try_recv().unwrap().interrupted);
 }
 
 #[tokio::test(start_paused = true)]
@@ -439,7 +552,7 @@ async fn a_turn_ends_only_after_its_background_agents_do() {
         .await
         .expect("turn end within 10s")
         .unwrap();
-    assert_eq!(thread_id, "t-bg");
+    assert_eq!(thread_id.thread_id, "t-bg");
     assert!(setup.turn_ends.try_recv().is_err(), "one turn end");
 }
 

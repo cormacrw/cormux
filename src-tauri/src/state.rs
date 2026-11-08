@@ -107,8 +107,15 @@ impl AppState {
             host_tools: Arc::new(crate::host_tools::session_config),
             brief: {
                 let store = store.clone();
-                Arc::new(move |workspace, resuming| {
-                    crate::workspace_start::session_brief(&store, workspace, resuming)
+                let transcript = transcript.clone();
+                Arc::new(move |workspace, thread_id, resuming| {
+                    crate::workspace_start::session_brief(
+                        &store,
+                        &transcript,
+                        workspace,
+                        thread_id,
+                        resuming,
+                    )
                 })
             },
         });

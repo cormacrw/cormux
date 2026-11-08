@@ -74,7 +74,8 @@ pub struct ApprovalBroker {
 }
 
 struct Waiter {
-    thread_id: String,
+    /// The engine launch that asked; see `ThreadRuntime::is_current`.
+    engine: u64,
     decided: oneshot::Sender<ApprovalDecision>,
 }
 
@@ -89,11 +90,12 @@ impl ApprovalBroker {
     }
 
     /// The decision for `request`: at once if `policy` lets it through, otherwise once the user
-    /// answers. The receiver closes unanswered if the thread's turn ends first. A request whose
+    /// answers. The receiver closes unanswered if `engine`'s turn ends first. A request whose
     /// card can't be saved is denied at once, since nothing would be shown to answer it.
     pub fn request(
         &self,
         thread_id: &str,
+        engine: u64,
         request: &PermissionRequest,
         policy: ApprovalPolicy,
     ) -> oneshot::Receiver<ApprovalDecision> {
@@ -119,13 +121,7 @@ impl ApprovalBroker {
                 });
                 return decision;
             }
-            waiting.insert(
-                request.id.clone(),
-                Waiter {
-                    thread_id: thread_id.to_string(),
-                    decided,
-                },
-            );
+            waiting.insert(request.id.clone(), Waiter { engine, decided });
             if let Err(error) = self.transcript.append(thread_id, request.event(false)) {
                 log::warn!("recording {thread_id}'s approval {}: {error}", request.id);
             }
@@ -145,15 +141,26 @@ impl ApprovalBroker {
         decision
     }
 
-    /// The thread's engine stopped waiting (its turn ended, or it exited), so its open requests
-    /// are denied and their waiters dropped.
-    pub fn cancel_for_thread(&self, thread_id: &str) {
+    /// `engine` stopped waiting (its turn ended, or it exited), so its open requests are denied
+    /// and their waiters dropped. Another engine's, such as the one that replaced it on the same
+    /// thread, stay open.
+    pub fn cancel_for_engine(&self, engine: u64) {
         let Ok(mut waiting) = self.waiting.lock() else {
             return;
         };
-        waiting.retain(|_, waiter| waiter.thread_id != thread_id);
-        if let Err(error) = self.store.deny_pending_approvals(thread_id) {
-            log::warn!("denying {thread_id}'s open approvals: {error}");
+        let ids: Vec<String> = waiting
+            .iter()
+            .filter(|(_, waiter)| waiter.engine == engine)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            waiting.remove(&id);
+            if let Err(error) = self
+                .store
+                .decide_approval(&id, ApprovalStatus::Denied, None)
+            {
+                log::warn!("denying approval {id}: {error}");
+            }
         }
     }
 

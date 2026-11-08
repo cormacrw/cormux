@@ -136,22 +136,6 @@ impl Store {
             Ok(changed > 0)
         })
     }
-
-    /// Approvals nothing can answer any more: the turn that asked has ended. Left pending,
-    /// they would hold the thread in "needs attention" for good.
-    pub fn deny_pending_approvals(&self, thread_id: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE approvals SET status = ?1 WHERE status = ?2 AND thread_id = ?3",
-                rusqlite::params![
-                    ApprovalStatus::Denied.as_str(),
-                    ApprovalStatus::Pending.as_str(),
-                    thread_id
-                ],
-            )?;
-            Ok(())
-        })
-    }
 }
 
 fn encode(payload: &ApprovalPayload) -> Result<String> {

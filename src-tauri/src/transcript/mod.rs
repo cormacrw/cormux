@@ -268,6 +268,12 @@ impl Transcript {
         ))
     }
 
+    /// Whether the thread is still on its first conversation: no new session was started in it
+    /// and no earlier one resumed.
+    pub fn on_first_conversation(&self, thread_id: &str) -> Result<bool> {
+        Ok(self.store.session_steps(thread_id)?.is_empty())
+    }
+
     /// The agent session to resume conversation `id` with; none starts the agent fresh. Errors
     /// for an id the thread doesn't have.
     pub fn session_to_resume(&self, thread_id: &str, id: &str) -> Result<Option<String>> {

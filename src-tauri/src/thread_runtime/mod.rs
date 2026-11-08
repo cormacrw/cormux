@@ -1,12 +1,15 @@
 //! Each thread's live engine: launching one in the thread's worktree when a prompt needs it,
 //! routing what it reports (events into the transcript, permission requests to approvals, tool
-//! calls to whoever serves the host's tools), adding up its cost, reporting each turn's end once,
-//! and shutting down engines that sit idle.
+//! calls to whoever serves the host's tools), adding up its cost, reporting each turn's end once
+//! with the engine it came from, and shutting down engines that sit idle. An engine shut down on
+//! purpose (stopped, discarded, reaped or replaced) reports no end: whoever shut it down has
+//! already settled its thread.
 
 #[cfg(test)]
 pub mod fake;
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -42,8 +45,30 @@ pub struct HostRequest {
 /// The host's tools as a session is told them, for the settings it starts with.
 pub type HostToolsFor = Arc<dyn Fn(&Settings) -> HostToolsConfig + Send + Sync>;
 
-/// What a session is told about the workspace it runs in, and whether it resumes a saved session.
-pub type BriefFor = Arc<dyn Fn(&WorkspaceRecord, bool) -> String + Send + Sync>;
+/// What a session is told about the workspace it runs in, for the thread it serves and whether it
+/// resumes a saved session.
+pub type BriefFor = Arc<dyn Fn(&WorkspaceRecord, &str, bool) -> String + Send + Sync>;
+
+/// A turn's end, or its engine's, as the engine that served the thread reported it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnEnd {
+    pub thread_id: String,
+    /// The launch it came from; see [`ThreadRuntime::is_current`].
+    pub engine: u64,
+    /// The turn was cancelled (paused or stopped) before it ended: the thread was already moved
+    /// by whoever cancelled it.
+    pub interrupted: bool,
+}
+
+/// Where an engine is in its turn, shared by its slot (which sends it prompts and cancels) and
+/// its pump (which sees the turn end).
+#[derive(Debug, Default)]
+struct EngineTurn {
+    /// Prompted, or reporting, since its last turn end.
+    open: bool,
+    /// Cancelled while open; the turn's end says so.
+    interrupted: bool,
+}
 
 #[derive(Clone)]
 pub struct ThreadRuntime {
@@ -57,8 +82,13 @@ pub struct ThreadRuntime {
     host_requests: mpsc::UnboundedSender<HostRequest>,
     /// Taken once, by whoever serves the host's tools; requests wait in it until then.
     host_inbox: Arc<Mutex<Option<mpsc::UnboundedReceiver<HostRequest>>>>,
-    ended: broadcast::Sender<String>,
+    ended: broadcast::Sender<TurnEnd>,
     threads: Arc<Mutex<HashMap<String, ThreadSlot>>>,
+    /// Each thread's newest engine that nobody shut down, by launch number. Kept apart from
+    /// `threads`, which forgets an engine once it has exited, so an engine that died on its own
+    /// still counts as current until the next launch.
+    current: Arc<Mutex<HashMap<String, u64>>>,
+    launches: Arc<AtomicU64>,
     /// One per thread, held from "no engine here" to the new one being registered, so two
     /// callers can't both launch a CLI for the same session (the second would replace the
     /// first's slot and shut it down mid-prompt).
@@ -67,6 +97,7 @@ pub struct ThreadRuntime {
 
 struct ThreadSlot {
     commands: mpsc::UnboundedSender<EngineCommand>,
+    turn: Arc<Mutex<EngineTurn>>,
     /// When anything last went to or came from the engine.
     last_active: Arc<Mutex<Instant>>,
     /// The CLI's process group, so quitting the app can take it down synchronously.
@@ -110,14 +141,32 @@ impl ThreadRuntime {
             host_inbox: Arc::new(Mutex::new(Some(host_inbox))),
             ended: broadcast::channel(64).0,
             threads: Arc::new(Mutex::new(HashMap::new())),
+            current: Arc::new(Mutex::new(HashMap::new())),
+            launches: Arc::new(AtomicU64::new(0)),
             launch_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Thread ids whose engine's turn just ended, or whose engine exited, once each. The open
-    /// approvals of that turn are already cancelled; the thread's status is the listener's.
-    pub fn turn_ends(&self) -> broadcast::Receiver<String> {
+    /// Turns that just ended, or engines that exited mid-turn, once each. The open approvals of
+    /// that engine are already cancelled; the thread's status is the listener's.
+    pub fn turn_ends(&self) -> broadcast::Receiver<TurnEnd> {
         self.ended.subscribe()
+    }
+
+    /// Whether `engine` is the thread's newest launch and nobody has shut it down since. An end
+    /// from any other engine is stale: the thread has moved on.
+    pub fn is_current(&self, thread_id: &str, engine: u64) -> bool {
+        is_current(&self.current, thread_id, engine)
+    }
+
+    /// The thread's current engine, made up if it never had one, for tests that report its
+    /// turn's end themselves.
+    #[cfg(test)]
+    pub fn current_engine(&self, thread_id: &str) -> u64 {
+        let mut current = self.current.lock().unwrap();
+        *current
+            .entry(thread_id.to_string())
+            .or_insert_with(|| self.launches.fetch_add(1, Ordering::Relaxed) + 1)
     }
 
     /// The engines' messages for the host's tools. There is one server; it takes them once.
@@ -187,15 +236,20 @@ impl ThreadRuntime {
             cwd: workspace.worktree(),
             model: self.store.thread_model(thread_id)?,
             effort: self.store.thread_effort(thread_id)?,
-            instructions: (self.brief)(workspace, resume.is_some()),
+            instructions: (self.brief)(workspace, thread_id, resume.is_some()),
             resume,
             host_tools: Some((self.host_tools)(&settings)),
         };
         let last_active = Arc::new(Mutex::new(Instant::now()));
+        let turn = Arc::new(Mutex::new(EngineTurn::default()));
+        let engine = self.launches.fetch_add(1, Ordering::Relaxed) + 1;
         let (output, reported) = mpsc::unbounded_channel();
         let (launched, launch_settled) = oneshot::channel();
         let pump = Pump {
             thread_id: thread_id.to_string(),
+            engine,
+            current: self.current.clone(),
+            turn: turn.clone(),
             store: self.store.clone(),
             transcript: self.transcript.clone(),
             approvals: self.approvals.clone(),
@@ -207,18 +261,23 @@ impl ThreadRuntime {
         // Running before the launch returns: the engine's handshake can already call the host's
         // tools. A launch that fails drops `launched`, so the pump reports no end for it.
         tokio::spawn(pump.run(reported, launch_settled));
-        let engine = self.engines.launch(config, output).await?;
+        let handle = self.engines.launch(config, output).await?;
         self.threads
             .lock()
             .map_err(|error| Error::Engine(error.to_string()))?
             .insert(
                 thread_id.to_string(),
                 ThreadSlot {
-                    commands: engine.commands,
+                    commands: handle.commands,
+                    turn,
                     last_active,
-                    pgid: engine.pgid,
+                    pgid: handle.pgid,
                 },
             );
+        self.current
+            .lock()
+            .map_err(|error| Error::Engine(error.to_string()))?
+            .insert(thread_id.to_string(), engine);
         let _ = launched.send(());
         Ok(())
     }
@@ -255,11 +314,16 @@ impl ThreadRuntime {
 
     /// Only `turn` sends prompts: it keeps the thread's status in step with them.
     pub fn prompt(&self, thread_id: &str, prompt: impl Into<Prompt>) -> Result<()> {
-        self.send(thread_id, EngineCommand::Prompt(prompt.into()))
+        self.send_with(thread_id, EngineCommand::Prompt(prompt.into()), |turn| {
+            turn.open = true;
+        })
     }
 
+    /// Interrupts the engine's turn. If one is open, its end will say it was interrupted.
     pub fn cancel(&self, thread_id: &str) -> Result<()> {
-        self.send(thread_id, EngineCommand::Cancel)
+        self.send_with(thread_id, EngineCommand::Cancel, |turn| {
+            turn.interrupted |= turn.open;
+        })
     }
 
     /// Signals every live engine's process group. For app quit, which can't wait on the
@@ -287,6 +351,7 @@ impl ThreadRuntime {
                 .threads
                 .lock()
                 .map_err(|error| Error::Engine(error.to_string()))?;
+            self.dismiss(thread_id);
             threads.remove(thread_id).map(|slot| slot.commands)
         };
         if let Some(commands) = commands {
@@ -299,11 +364,14 @@ impl ThreadRuntime {
 
     /// Shuts the engine down without waiting for it. The next prompt launches a new engine.
     pub fn discard(&self, thread_id: &str) -> Result<()> {
-        let slot = self
-            .threads
-            .lock()
-            .map_err(|error| Error::Engine(error.to_string()))?
-            .remove(thread_id);
+        let slot = {
+            let mut threads = self
+                .threads
+                .lock()
+                .map_err(|error| Error::Engine(error.to_string()))?;
+            self.dismiss(thread_id);
+            threads.remove(thread_id)
+        };
         if let Some(slot) = slot {
             let _ = slot.commands.send(EngineCommand::Shutdown);
         }
@@ -351,6 +419,7 @@ impl ThreadRuntime {
             .map(|(thread_id, _)| thread_id.clone())
             .collect();
         for thread_id in &idle {
+            self.dismiss(thread_id);
             if let Some(slot) = threads.remove(thread_id) {
                 let _ = slot.commands.send(EngineCommand::Shutdown);
             }
@@ -383,6 +452,16 @@ impl ThreadRuntime {
     }
 
     fn send(&self, thread_id: &str, command: EngineCommand) -> Result<()> {
+        self.send_with(thread_id, command, |_| {})
+    }
+
+    /// Sends `command`, moving the engine's turn by `turn` once it's on its way.
+    fn send_with(
+        &self,
+        thread_id: &str,
+        command: EngineCommand,
+        turn: impl FnOnce(&mut EngineTurn),
+    ) -> Result<()> {
         let threads = self
             .threads
             .lock()
@@ -391,20 +470,42 @@ impl ThreadRuntime {
             .get(thread_id)
             .ok_or_else(|| Error::Engine(format!("no engine for thread {thread_id}")))?;
         slot.touch();
+        let mut state = slot
+            .turn
+            .lock()
+            .map_err(|error| Error::Engine(error.to_string()))?;
         slot.commands
             .send(command)
-            .map_err(|_| Error::Engine("engine process is gone".into()))
+            .map_err(|_| Error::Engine("engine process is gone".into()))?;
+        turn(&mut state);
+        Ok(())
     }
+
+    /// The thread's engine is being shut down on purpose, so nothing it reports ends a turn.
+    fn dismiss(&self, thread_id: &str) {
+        if let Ok(mut current) = self.current.lock() {
+            current.remove(thread_id);
+        }
+    }
+}
+
+fn is_current(current: &Mutex<HashMap<String, u64>>, thread_id: &str, engine: u64) -> bool {
+    current
+        .lock()
+        .is_ok_and(|current| current.get(thread_id) == Some(&engine))
 }
 
 /// One engine's way out to the rest of the app, in the order it reported.
 struct Pump {
     thread_id: String,
+    engine: u64,
+    current: Arc<Mutex<HashMap<String, u64>>>,
+    turn: Arc<Mutex<EngineTurn>>,
     store: Store,
     transcript: Transcript,
     approvals: Arc<ApprovalBroker>,
     host_requests: mpsc::UnboundedSender<HostRequest>,
-    ended: broadcast::Sender<String>,
+    ended: broadcast::Sender<TurnEnd>,
     policy: ApprovalPolicy,
     last_active: Arc<Mutex<Instant>>,
 }
@@ -426,21 +527,24 @@ impl Pump {
                     context_size,
                     turn_cost_usd,
                 } => self.usage(used_tokens, context_size, turn_cost_usd),
-                EngineOutput::Permission(request) => self.permission(request),
+                EngineOutput::Permission(request) => {
+                    self.opened();
+                    self.permission(request)
+                }
                 EngineOutput::HostTool(call) => self.host_tool(call),
                 EngineOutput::Exited => {
                     exited = true;
                     if launch.succeeded().await {
                         self.transcript
                             .signal(&self.thread_id, AgentEvent::EngineExited { code: None });
-                        self.ended();
+                        self.gone();
                     }
                 }
             }
         }
         // An engine whose output broke off without saying it exited waits on nothing either.
         if !exited && launch.succeeded().await {
-            self.ended();
+            self.gone();
         }
     }
 
@@ -451,6 +555,9 @@ impl Pump {
             log::warn!("saving {}'s session: {error}", self.thread_id);
         }
         let turn_ended = matches!(event, AgentEvent::TurnEnd { .. });
+        if !turn_ended {
+            self.opened();
+        }
         if let Err(error) = self.transcript.append(&self.thread_id, event) {
             log::warn!("saving an event to {}: {error}", self.thread_id);
         }
@@ -459,10 +566,43 @@ impl Pump {
         }
     }
 
-    /// The engine stopped waiting on anything: its turn is over, or it is gone.
+    /// Reporting means the engine is in a turn, whether or not it was prompted for it (a
+    /// message queued behind the last turn starts the next by itself).
+    fn opened(&self) {
+        if let Ok(mut turn) = self.turn.lock() {
+            turn.open = true;
+        }
+    }
+
+    /// The engine is gone. That ends its turn only if one was open: a turn that already
+    /// reported its end (as a failed read does just before the output closes) ends once.
+    fn gone(&self) {
+        let open = self.turn.lock().is_ok_and(|turn| turn.open);
+        if open {
+            self.ended();
+        } else {
+            self.approvals.cancel_for_engine(self.engine);
+        }
+    }
+
+    /// The engine stopped waiting on anything: its turn is over, or it is gone. Its open
+    /// requests go either way; the end is reported only while it is the thread's current engine.
     fn ended(&self) {
-        self.approvals.cancel_for_thread(&self.thread_id);
-        let _ = self.ended.send(self.thread_id.clone());
+        let interrupted = match self.turn.lock() {
+            Ok(mut turn) => {
+                turn.open = false;
+                std::mem::take(&mut turn.interrupted)
+            }
+            Err(_) => false,
+        };
+        self.approvals.cancel_for_engine(self.engine);
+        if is_current(&self.current, &self.thread_id, self.engine) {
+            let _ = self.ended.send(TurnEnd {
+                thread_id: self.thread_id.clone(),
+                engine: self.engine,
+                interrupted,
+            });
+        }
     }
 
     /// Claude reports each turn's cost, so the thread's total adds them up across sessions.
@@ -497,7 +637,7 @@ impl Pump {
     fn permission(&self, request: PermissionRequest) {
         let decided = self
             .approvals
-            .request(&self.thread_id, &request, self.policy);
+            .request(&self.thread_id, self.engine, &request, self.policy);
         let respond = request.respond;
         tokio::spawn(async move {
             // A closed channel means the request was cancelled: the turn it belonged to is over.

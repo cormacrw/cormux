@@ -382,9 +382,7 @@ impl Store {
                 )?;
             }
             let torn: Vec<String> = conn
-                .prepare(
-                    "SELECT id FROM workspaces WHERE status = ?1 AND archived_at IS NULL",
-                )?
+                .prepare("SELECT id FROM workspaces WHERE status = ?1 AND archived_at IS NULL")?
                 .query_map([WorkspaceLifecycle::TearingDown.as_str()], |row| row.get(0))?
                 .collect::<rusqlite::Result<_>>()?;
             for id in torn {
@@ -938,10 +936,7 @@ mod tests {
         store.reset_interrupted_turns().unwrap();
 
         let status = |id: &str| store.workspace_by_id(id).unwrap().unwrap().status;
-        assert_eq!(
-            status("setting-up"),
-            WorkspaceLifecycle::ProvisioningFailed
-        );
+        assert_eq!(status("setting-up"), WorkspaceLifecycle::ProvisioningFailed);
         assert_eq!(status("torn-mid-turn"), WorkspaceLifecycle::Idle);
         assert_eq!(
             status("torn-mid-setup"),

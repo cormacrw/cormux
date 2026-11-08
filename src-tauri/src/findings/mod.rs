@@ -391,7 +391,7 @@ mod tests {
         );
         assert_eq!(stored_workspace(&state), "running");
 
-        crate::turn::ended(&state, T).await;
+        crate::turn::end_turn(&state, T).await;
         assert_eq!(thread_status(&state), "idle");
         assert_eq!(stored_workspace(&state), "idle");
         assert_eq!(
