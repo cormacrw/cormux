@@ -65,15 +65,6 @@ impl Store {
         })
     }
 
-    pub fn scratch_for_thread(&self, thread_id: &str) -> Result<Option<ScratchRow>> {
-        self.with_read(|conn| {
-            Ok(conn
-                .prepare_cached(&format!("{SCRATCH_COLUMNS} WHERE s.thread_id = ?1"))?
-                .query_row([thread_id], row_to_scratch)
-                .optional()?)
-        })
-    }
-
     /// Removes the scratch and its thread; events and approvals cascade with the thread.
     pub fn delete_scratch(&self, scratch_id: &str) -> Result<()> {
         self.with_tx(|conn| {
@@ -144,10 +135,6 @@ mod tests {
         assert_eq!(snapshot.scratches.len(), 1);
         assert_eq!(snapshot.scratches[0].engine, "claude");
         assert_eq!(snapshot.scratches[0].status, ThreadStatus::Idle);
-        assert_eq!(
-            store.scratch_for_thread("t1").unwrap().unwrap().id,
-            "scratch-1"
-        );
         assert!(store.thread_by_id("t1").unwrap().is_some());
 
         store.delete_scratch("scratch-1").unwrap();

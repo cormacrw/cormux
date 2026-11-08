@@ -1445,7 +1445,7 @@ export type WorkspaceMemory = { workspaceId: string; bytes: number }
 /**
  * A workspace as the webview shows it: its row, plus what only the running app knows.
  */
-export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; kind: WorkspaceKind; version: number; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
+export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; kind: WorkspaceKind; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
 export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; 
 /**
  * The branch the workspace is compared with and pulls from.

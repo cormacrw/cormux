@@ -70,6 +70,7 @@ fn setup(engines: Arc<dyn Engines>) -> Setup {
             },
             ..HostToolsConfig::default()
         }),
+        brief: Arc::new(|workspace, resuming| format!("{} resuming={resuming}", workspace.id)),
     });
     let turn_ends = runtime.turn_ends();
     Setup {
@@ -202,8 +203,7 @@ async fn a_session_starts_with_the_threads_choices_and_the_host_tools_its_settin
     let launched = fake.launches().remove(0);
     assert_eq!(launched.resume.as_deref(), Some("sess-9"));
     assert_eq!(launched.model.as_deref(), Some("opus"));
-    assert!(launched.instructions.contains("git reset --hard <branch>"));
-    assert!(launched.instructions.contains(&crate::media::instruction()));
+    assert_eq!(launched.instructions, "w1 resuming=true");
     let tools = launched.host_tools.unwrap();
     assert_eq!(tools.server_name, "host");
     assert_eq!(tools.disallowed, ["attach"], "References is off");
@@ -303,6 +303,40 @@ async fn a_turn_end_drops_its_approvals_and_is_reported_once() {
             .is_empty()
     );
     assert!(setup.turn_ends.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn an_engine_that_never_launched_reports_no_turn_end() {
+    let mut setup = setup(Arc::new(FakeEngines::default()));
+    setup
+        .store
+        .insert_workspace(&WorkspaceRow::new(
+            WorkspaceKind::Lead,
+            "gone",
+            "r1",
+            "Gone",
+            "feat/gone",
+            "main",
+            "/nonexistent/cormux-worktree",
+        ))
+        .unwrap();
+    add_thread(&setup.store, "t1", "idle", None);
+    setup
+        .store
+        .insert_pending_approval("a1", "t1", "edit", &ApprovalPayload::titled("Edit"))
+        .unwrap();
+
+    assert!(setup.runtime.ensure("t1", "gone").await.is_err());
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(setup.turn_ends.try_recv().is_err());
+    assert_eq!(
+        setup
+            .store
+            .pending_approvals_for_thread("t1")
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]

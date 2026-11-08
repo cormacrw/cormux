@@ -11,6 +11,7 @@ use crate::feedback::Change;
 use crate::model::WorkspaceKind;
 use crate::provisioning::{ProvisionPlan, SETUP_ACTIVITY, WorkspaceSpec};
 use crate::state::AppState;
+use crate::store::Store;
 use crate::timeline::TimelineStep;
 use crate::workspace_git::Checkout;
 use crate::workspaces::WorkspaceRecord;
@@ -149,6 +150,33 @@ pub async fn start_workspace(
         thread_id,
         base: input.base,
     })
+}
+
+/// Told to a Lead whose branch was cut from the repo's default branch: the user may have meant to
+/// start from another branch, and only the first message can say so.
+const BRANCH_INSTRUCTION: &str = "This thread starts on a new branch cut from the repo's default branch, with a worktree of its own. If the user's first message names another branch to start from, or asks to pick up earlier work, run `git reset --hard <branch>` (`origin/<branch>` if it only exists there) before anything else, while this branch has no commits of its own, and say which branch you started from. Ignore this for later messages, and don't do it for a branch the user only mentions.";
+
+/// What an agent is told about its workspace when a session starts. The branch instruction only
+/// holds for a Lead's first session on a branch cut from the repo's default branch: a Reviewer
+/// sits on a pull request's branch, and a workspace started from another base was started there
+/// on purpose.
+pub fn session_brief(store: &Store, workspace: &WorkspaceRecord, resuming: bool) -> String {
+    let media = crate::media::instruction();
+    if resuming || workspace.kind != WorkspaceKind::Lead {
+        return media;
+    }
+    let default_branch = match store.repo_by_id(&workspace.repo_id) {
+        Ok(Some(repo)) => repo.default_branch_or_main().to_string(),
+        Ok(None) => return media,
+        Err(error) => {
+            log::warn!("reading {}'s repo for its brief: {error}", workspace.id);
+            return media;
+        }
+    };
+    if workspace.base != default_branch {
+        return media;
+    }
+    format!("{BRANCH_INSTRUCTION}\n\n{media}")
 }
 
 /// How a Lead's workspace comes up: its branch from the base, then the goal as its first turn.
@@ -760,5 +788,43 @@ esac
 
         assert!(f.state.store.live_workspaces().unwrap().is_empty());
         assert!(f.recording.emitted().is_empty());
+    }
+
+    #[tokio::test]
+    async fn only_a_leads_first_session_off_the_default_branch_is_told_it_may_reset() {
+        let store = Store::in_memory().unwrap();
+        store.seed_workspace("w1", WorkspaceLifecycle::Ready);
+        let lead = crate::workspaces::Workspaces::new(store.clone())
+            .get("w1")
+            .await
+            .unwrap();
+        let told = |workspace: &WorkspaceRecord, resuming| {
+            session_brief(&store, workspace, resuming).contains("git reset --hard")
+        };
+
+        assert!(told(&lead, false));
+        assert!(
+            !told(&lead, true),
+            "a resumed session already had its first message"
+        );
+        let reviewer = WorkspaceRecord {
+            kind: WorkspaceKind::PrReview,
+            ..lead.clone()
+        };
+        assert!(
+            !told(&reviewer, false),
+            "a Reviewer sits on the PR's branch"
+        );
+        let stacked = WorkspaceRecord {
+            base: "feat/base".into(),
+            ..lead.clone()
+        };
+        assert!(
+            !told(&stacked, false),
+            "started from another base on purpose"
+        );
+        for workspace in [&lead, &reviewer, &stacked] {
+            assert!(session_brief(&store, workspace, true).contains(&crate::media::instruction()));
+        }
     }
 }

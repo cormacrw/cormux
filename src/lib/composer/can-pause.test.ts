@@ -10,7 +10,7 @@ describe('composer pause controls', () => {
   })
 
   it('labels resume when paused', () => {
-    expect(composerPauseLabel('paused', true)).toBe('Resume')
-    expect(composerPauseLabel('running', false)).toBe('Pause')
+    expect(composerPauseLabel('paused')).toBe('Resume')
+    expect(composerPauseLabel('running')).toBe('Pause')
   })
 })

@@ -622,8 +622,13 @@ mod tests {
         assert_eq!(finding.status, crate::model::FindingStatus::Fixed);
         assert_eq!(finding.commit_sha.as_deref(), Some("abc123"));
         assert!(
-            state.store.thread_by_id("t1").unwrap().unwrap().status == ThreadStatus::Idle,
+            state.store.findings_batch("t1").unwrap().is_empty(),
             "the last fix ends the batch"
+        );
+        assert_eq!(
+            state.store.thread_by_id("t1").unwrap().unwrap().status,
+            ThreadStatus::Running,
+            "the agent's turn goes on"
         );
     }
 

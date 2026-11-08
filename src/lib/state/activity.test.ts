@@ -68,10 +68,10 @@ describe('runningAgentCount', () => {
   it('counts working and starting agents, not paused or idle ones', () => {
     expect(
       runningAgentCount([
-        { status: 'running', paused: false },
-        { status: 'paused', paused: true },
-        { status: 'provisioning', paused: false },
-        { status: 'idle', paused: false },
+        { status: 'running' },
+        { status: 'paused' },
+        { status: 'provisioning' },
+        { status: 'idle' },
       ]),
     ).toBe(2)
   })

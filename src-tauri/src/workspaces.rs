@@ -29,7 +29,6 @@ pub struct WorkspaceRecord {
     pub worktree_path: String,
     pub status: WorkspaceLifecycle,
     pub kind: WorkspaceKind,
-    pub version: u64,
     pub activity: String,
     pub prov_step: u8,
     pub setup_failed_command: Option<String>,
@@ -50,7 +49,6 @@ impl WorkspaceRecord {
             worktree_path: row.worktree_path.clone(),
             status: row.status,
             kind: row.kind,
-            version: 1,
             activity: String::new(),
             prov_step: 0,
             setup_failed_command: None,
@@ -81,16 +79,9 @@ pub struct RenameWorkspaceInput {
     pub name: String,
 }
 
-#[derive(Debug, Clone)]
-struct ThreadSlot {
-    workspace_id: String,
-    activity: ThreadStatus,
-}
-
 #[derive(Default)]
 struct Inner {
     records: HashMap<String, WorkspaceRecord>,
-    threads: HashMap<String, ThreadSlot>,
 }
 
 #[derive(Clone)]
@@ -225,7 +216,6 @@ impl Workspaces {
         let record = load(&self.store, &mut inner, id)?;
         record.branch = branch.to_string();
         record.worktree_path = worktree;
-        record.version += 1;
         Ok(record.clone())
     }
 
@@ -294,13 +284,6 @@ impl Workspaces {
     ) -> Result<()> {
         let mut inner = self.inner.write().await;
         self.store.set_thread_status(thread_id, status)?;
-        inner.threads.insert(
-            thread_id.to_string(),
-            ThreadSlot {
-                workspace_id: workspace_id.to_string(),
-                activity: status,
-            },
-        );
         let Some(record) = inner.records.get_mut(workspace_id) else {
             return Ok(());
         };
@@ -312,7 +295,6 @@ impl Workspaces {
             assert_transition(record.status, derived)?;
             record.status = derived;
         }
-        record.version += 1;
         Ok(())
     }
 
@@ -324,12 +306,11 @@ impl Workspaces {
                 "branch switch refused while provisioning".into(),
             ));
         }
-        let blocked = self.inner.read().await.threads.values().any(|thread| {
-            thread.workspace_id == id
-                && matches!(
-                    thread.activity,
-                    ThreadStatus::Running | ThreadStatus::Provisioning
-                )
+        let blocked = self.store.threads_for_workspace(id)?.iter().any(|thread| {
+            matches!(
+                thread.status,
+                ThreadStatus::Running | ThreadStatus::Provisioning
+            )
         });
         if blocked {
             return Err(Error::Workspace(
@@ -344,7 +325,6 @@ impl Workspaces {
         let mut inner = self.inner.write().await;
         self.store.archive_workspace(id)?;
         inner.records.remove(id);
-        inner.threads.retain(|_, slot| slot.workspace_id != id);
         Ok(())
     }
 
@@ -356,7 +336,6 @@ impl Workspaces {
         let mut inner = self.inner.write().await;
         let record = load(&self.store, &mut inner, id)?;
         change(&self.store, record)?;
-        record.version += 1;
         Ok(record.clone())
     }
 }
@@ -561,6 +540,11 @@ mod tests {
             .await
             .unwrap();
         assert!(workspaces.can_switch_branch("w").await.is_err());
+        let fresh = Workspaces::new(store.clone());
+        assert!(
+            fresh.can_switch_branch("w").await.is_err(),
+            "the stored status counts, not what this instance saw"
+        );
         assert_eq!(
             workspaces.get("w").await.unwrap().status,
             WorkspaceLifecycle::Running

@@ -131,12 +131,8 @@
   const draft = $derived(composerDrafts.textFor(draftId))
   const threadStatus = $derived(thread?.status ?? 'idle')
   const showPause = $derived(composerShowsPauseControl(threadStatus))
-  const pauseLabel = $derived(
-    composerPauseLabel(threadStatus, thread?.paused ?? false),
-  )
-  const isPaused = $derived(
-    threadStatus === 'paused' || Boolean(thread?.paused),
-  )
+  const pauseLabel = $derived(composerPauseLabel(threadStatus))
+  const isPaused = $derived(threadStatus === 'paused')
   // Only how full the context is; tokens and cost are in the thread tab's tooltip.
   const contextFill = $derived(thread ? contextPercent(thread.usage) : null)
   const usageDetail = $derived(

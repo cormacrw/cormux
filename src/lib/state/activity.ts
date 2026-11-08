@@ -50,13 +50,11 @@ export function isWorkspaceProvisioning(
   return lifecycle === 'provisioning'
 }
 
-/** Agents working or starting, which hold the workspace's branch where it is. */
-export function runningAgentCount(
-  threads: { status: ThreadStatus; paused: boolean }[],
-): number {
-  return threads.filter(
-    (thread) =>
-      (thread.status === 'running' && !thread.paused) ||
-      thread.status === 'provisioning',
-  ).length
+/** An agent working or starting: what holds a workspace's branch where it is. */
+export function isAgentWorking(status: ThreadStatus): boolean {
+  return status === 'running' || status === 'provisioning'
+}
+
+export function runningAgentCount(threads: { status: ThreadStatus }[]): number {
+  return threads.filter((thread) => isAgentWorking(thread.status)).length
 }

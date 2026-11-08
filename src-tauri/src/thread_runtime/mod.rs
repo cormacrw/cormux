@@ -7,11 +7,10 @@
 pub mod fake;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::approvals::{ApprovalBroker, ApprovalDecision, ApprovalPolicy};
 use crate::engines::prompt::Prompt;
@@ -24,17 +23,13 @@ use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::settings::Settings;
 use crate::store::Store;
 use crate::transcript::Transcript;
-use crate::workspaces::Workspaces;
+use crate::workspaces::{WorkspaceRecord, Workspaces};
 
 /// Just over what a session gets to exit before it's killed.
 const STOP_GRACE: Duration = Duration::from_secs(6);
 /// A Claude CLI sitting idle this long gives its memory back; the next prompt resumes it.
 const IDLE_REAP_AFTER: Duration = Duration::from_secs(30 * 60);
 const IDLE_REAP_TICK: Duration = Duration::from_secs(5 * 60);
-
-/// Told to the agent when its session starts: a thread starts off the default branch unless its
-/// prompt says otherwise.
-const BRANCH_INSTRUCTION: &str = "This thread starts on a new branch cut from the repo's default branch, with a worktree of its own. If the user's first message names another branch to start from, or asks to pick up earlier work, run `git reset --hard <branch>` (`origin/<branch>` if it only exists there) before anything else, while this branch has no commits of its own, and say which branch you started from. Ignore this for later messages, and don't do it for a branch the user only mentions.";
 
 /// A message for the host's tools from a thread's engine, waiting for its reply.
 #[derive(Debug)]
@@ -47,6 +42,9 @@ pub struct HostRequest {
 /// The host's tools as a session is told them, for the settings it starts with.
 pub type HostToolsFor = Arc<dyn Fn(&Settings) -> HostToolsConfig + Send + Sync>;
 
+/// What a session is told about the workspace it runs in, and whether it resumes a saved session.
+pub type BriefFor = Arc<dyn Fn(&WorkspaceRecord, bool) -> String + Send + Sync>;
+
 #[derive(Clone)]
 pub struct ThreadRuntime {
     engines: Arc<dyn Engines>,
@@ -55,6 +53,7 @@ pub struct ThreadRuntime {
     transcript: Transcript,
     workspaces: Workspaces,
     host_tools: HostToolsFor,
+    brief: BriefFor,
     host_requests: mpsc::UnboundedSender<HostRequest>,
     /// Taken once, by whoever serves the host's tools; requests wait in it until then.
     host_inbox: Arc<Mutex<Option<mpsc::UnboundedReceiver<HostRequest>>>>,
@@ -86,7 +85,6 @@ fn touch(last_active: &Mutex<Instant>) {
     }
 }
 
-/// What the runtime needs from the rest of the app.
 pub struct RuntimeParts {
     pub engines: Arc<dyn Engines>,
     pub approvals: Arc<ApprovalBroker>,
@@ -94,6 +92,7 @@ pub struct RuntimeParts {
     pub transcript: Transcript,
     pub workspaces: Workspaces,
     pub host_tools: HostToolsFor,
+    pub brief: BriefFor,
 }
 
 impl ThreadRuntime {
@@ -106,6 +105,7 @@ impl ThreadRuntime {
             transcript: parts.transcript,
             workspaces: parts.workspaces,
             host_tools: parts.host_tools,
+            brief: parts.brief,
             host_requests,
             host_inbox: Arc::new(Mutex::new(Some(host_inbox))),
             ended: broadcast::channel(64).0,
@@ -175,23 +175,25 @@ impl ThreadRuntime {
                 "workspace {workspace_id} is being torn down"
             )));
         }
-        self.launch(thread_id, workspace.worktree()).await
+        self.launch(thread_id, &workspace).await
     }
 
-    async fn launch(&self, thread_id: &str, cwd: PathBuf) -> Result<()> {
+    async fn launch(&self, thread_id: &str, workspace: &WorkspaceRecord) -> Result<()> {
         let _ = self.stop(thread_id).await;
         let settings = Settings::load(&self.store);
+        let resume = self.store.thread_session(thread_id)?;
         let config = LaunchConfig {
             thread_id: thread_id.to_string(),
-            cwd,
+            cwd: workspace.worktree(),
             model: self.store.thread_model(thread_id)?,
             effort: self.store.thread_effort(thread_id)?,
-            resume: self.store.thread_session(thread_id)?,
-            instructions: format!("{BRANCH_INSTRUCTION}\n\n{}", crate::media::instruction()),
+            instructions: (self.brief)(workspace, resume.is_some()),
+            resume,
             host_tools: Some((self.host_tools)(&settings)),
         };
         let last_active = Arc::new(Mutex::new(Instant::now()));
         let (output, reported) = mpsc::unbounded_channel();
+        let (launched, launch_settled) = oneshot::channel();
         let pump = Pump {
             thread_id: thread_id.to_string(),
             store: self.store.clone(),
@@ -202,7 +204,9 @@ impl ThreadRuntime {
             policy: ApprovalPolicy::from(&settings),
             last_active: last_active.clone(),
         };
-        tokio::spawn(pump.run(reported));
+        // Running before the launch returns: the engine's handshake can already call the host's
+        // tools. A launch that fails drops `launched`, so the pump reports no end for it.
+        tokio::spawn(pump.run(reported, launch_settled));
         let engine = self.engines.launch(config, output).await?;
         self.threads
             .lock()
@@ -215,6 +219,7 @@ impl ThreadRuntime {
                     pgid: engine.pgid,
                 },
             );
+        let _ = launched.send(());
         Ok(())
     }
 
@@ -409,7 +414,12 @@ struct Pump {
 }
 
 impl Pump {
-    async fn run(self, mut reported: mpsc::UnboundedReceiver<EngineOutput>) {
+    async fn run(
+        self,
+        mut reported: mpsc::UnboundedReceiver<EngineOutput>,
+        launch_settled: oneshot::Receiver<()>,
+    ) {
+        let mut launch = LaunchOutcome::Pending(launch_settled);
         let mut exited = false;
         while let Some(output) = reported.recv().await {
             touch(&self.last_active);
@@ -424,14 +434,16 @@ impl Pump {
                 EngineOutput::HostTool(call) => self.host_tool(call),
                 EngineOutput::Exited => {
                     exited = true;
-                    self.transcript
-                        .signal(&self.thread_id, AgentEvent::EngineExited { code: None });
-                    self.ended();
+                    if launch.succeeded().await {
+                        self.transcript
+                            .signal(&self.thread_id, AgentEvent::EngineExited { code: None });
+                        self.ended();
+                    }
                 }
             }
         }
         // An engine whose output broke off without saying it exited waits on nothing either.
-        if !exited {
+        if !exited && launch.succeeded().await {
             self.ended();
         }
     }
@@ -505,6 +517,22 @@ impl Pump {
             thread_id: self.thread_id.clone(),
             call,
         });
+    }
+}
+
+/// Whether the engine a pump serves came up. One that never did had no turn to end: the launch's
+/// caller gets its error instead.
+enum LaunchOutcome {
+    Pending(oneshot::Receiver<()>),
+    Settled(bool),
+}
+
+impl LaunchOutcome {
+    async fn succeeded(&mut self) -> bool {
+        if let Self::Pending(settled) = self {
+            *self = Self::Settled(settled.await.is_ok());
+        }
+        matches!(self, Self::Settled(true))
     }
 }
 

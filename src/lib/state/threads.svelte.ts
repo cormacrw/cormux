@@ -16,7 +16,6 @@ export type Thread = {
   ownRole?: ThreadRole | null
   engine: string
   status: ThreadStatus
-  paused: boolean
   activity: string
   pendingApprovals: number
   usage: ThreadUsage
@@ -46,7 +45,6 @@ export function threadsFromSnapshot(snapshot: Snapshot): Thread[] {
       ownRole: thread.role,
       engine: thread.engine,
       status: thread.status,
-      paused: thread.status === 'paused',
       activity: threadActivity(thread.status, ws),
       pendingApprovals: pending.get(thread.id) ?? 0,
       retired: thread.retired,

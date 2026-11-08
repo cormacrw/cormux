@@ -112,6 +112,12 @@ impl AppState {
             transcript: transcript.clone(),
             workspaces: workspaces.clone(),
             host_tools: Arc::new(crate::host_tools::session_config),
+            brief: {
+                let store = store.clone();
+                Arc::new(move |workspace, resuming| {
+                    crate::workspace_start::session_brief(&store, workspace, resuming)
+                })
+            },
         });
         Self(Arc::new(Core {
             data_dir,

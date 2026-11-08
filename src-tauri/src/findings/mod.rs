@@ -183,10 +183,10 @@ pub async fn mark_fixed(
         )));
     }
     state.store.mark_finding_fixed(finding_id, commit_sha)?;
-    finish_batch_if_fixed(state, thread_id, &batch).await
+    finish_batch_if_fixed(state, thread_id, &batch)
 }
 
-async fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[String]) -> Result<()> {
+fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[String]) -> Result<()> {
     let mut batch_rows = Vec::with_capacity(batch.len());
     for id in batch {
         if let Some(row) = state.store.finding_by_id(id)? {
@@ -222,9 +222,6 @@ async fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[Strin
         },
     )?;
 
-    if let Some(thread) = state.store.thread_by_id(thread_id)? {
-        crate::turn::mark_idle(state, &thread).await?;
-    }
     state.store.set_findings_batch(thread_id, &[])?;
 
     state.out.changed(Change::THREADS);
@@ -382,15 +379,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_last_finding_fixed_idles_the_workspace_too() {
+    async fn the_last_finding_fixed_leaves_the_thread_running_until_its_turn_ends() {
         let (state, _fake, ids, _recording) = with_findings(ThreadStatus::Idle).await;
         send_workspace_findings(&state, W, T, ids).await.unwrap();
         assert_eq!(stored_workspace(&state), "running");
 
         mark_fixed(&state, T, "f1", "abc").await.unwrap();
-        assert_eq!(thread_status(&state), "running");
         mark_fixed(&state, T, "f2", "abc").await.unwrap();
+        assert_eq!(
+            thread_status(&state),
+            "running",
+            "the agent is still in its turn"
+        );
+        assert_eq!(stored_workspace(&state), "running");
 
+        crate::turn::ended(&state, T).await;
         assert_eq!(thread_status(&state), "idle");
         assert_eq!(stored_workspace(&state), "idle");
         assert_eq!(

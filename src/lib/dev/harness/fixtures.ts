@@ -61,7 +61,6 @@ export function workspaceFixture(fields: NewWorkspace): {
       repoPath: REPO_PATH,
       status: 'idle',
       kind: 'lead',
-      version: 1,
       activity: 'Idle',
       provStep: 0,
       setupFailedCommand: null,

@@ -17,7 +17,7 @@ describe('workspaceCardMetaText', () => {
       workspaceCardMetaText([
         threadFixture({ status: 'running' }),
         threadFixture({ id: 'th-2', status: 'running' }),
-        threadFixture({ id: 'th-3', status: 'paused', paused: true }),
+        threadFixture({ id: 'th-3', status: 'paused' }),
       ]),
     ).toBe('2 agents working')
   })

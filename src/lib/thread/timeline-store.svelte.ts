@@ -176,7 +176,7 @@ export class ThreadTimelineStore {
       meta: thread
         ? {
             status: thread.status,
-            paused: thread.paused,
+            paused: thread.status === 'paused',
             activity: thread.activity,
             lead: thread.ownRole === 'lead',
             scratch: false,

@@ -43,7 +43,6 @@ export function threadFixture(patch: Partial<Thread> = {}): Thread {
     ownRole: 'lead',
     engine: 'claude',
     status: 'idle',
-    paused: false,
     activity: 'Idle',
     pendingApprovals: 0,
     usage: NO_USAGE,

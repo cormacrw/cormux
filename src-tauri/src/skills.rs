@@ -93,9 +93,6 @@ async fn list_in_background(cwd: PathBuf) -> Result<Vec<Skill>> {
 }
 
 fn thread_cwd(state: &AppState, thread_id: &str) -> Result<PathBuf> {
-    if let Some(scratch) = state.store.scratch_for_thread(thread_id)? {
-        return repo_path(state, &scratch.repo_id);
-    }
     let thread = state
         .store
         .thread_by_id(thread_id)?

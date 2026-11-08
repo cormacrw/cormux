@@ -22,11 +22,10 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::attachments::PromptAttachment;
 use crate::bus::DomainEvent;
-use crate::engines::AgentEvent;
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::feedback::Change;
-use crate::model::{StopReason, ThreadStatus};
+use crate::model::ThreadStatus;
 use crate::state::AppState;
 use crate::store::types::ThreadRow;
 use crate::timeline::TimelineStep;
@@ -107,15 +106,7 @@ pub async fn submit(
     if text.is_empty() && attachments.is_empty() {
         return Ok(None);
     }
-    if state
-        .store
-        .thread_by_id(thread_id)?
-        .is_some_and(|thread| thread.retired)
-    {
-        return Err(Error::Workspace(
-            "this thread is read-only; start a new thread to carry on".into(),
-        ));
-    }
+    refuse_retired(&thread_row(state, thread_id)?)?;
     let folder = state.data_dir.attachments();
     // Reads and encodes the attached files, so it stays off the async workers.
     let (prompt, text) = tokio::task::spawn_blocking(move || {
@@ -174,23 +165,17 @@ pub async fn begin(
     state.engines.prompt(thread_id, prompt)
 }
 
-/// The thread reads as stopped at once, whatever the engine is still finishing: the turn's end
-/// and the step saying who stopped it go in the transcript now. Stopping ends a pause too, and
-/// drops whatever queued behind it.
+/// The thread reads as stopped at once, whatever the engine is still finishing: the step saying
+/// who stopped it goes in the transcript now, and the engine reports the turn's end itself once
+/// it has cancelled. Stopping ends a pause too, and drops whatever queued behind it.
 pub async fn stop(state: &AppState, thread_id: &str) -> Result<()> {
     let thread = thread_row(state, thread_id)?;
-    // A thread with no engine has nothing to cancel.
     if state.engines.has_thread(thread_id)
         && let Err(error) = state.engines.cancel(thread_id)
     {
         log::warn!("cancelling {thread_id}'s turn: {error}");
     }
     state.paused.take(thread_id);
-    let stopped = AgentEvent::TurnEnd {
-        stop_reason: StopReason::cancelled(),
-        error: None,
-    };
-    state.transcript.append(thread_id, stopped)?;
     state
         .transcript
         .record_step(thread_id, TimelineStep::AgentStopped)?;
@@ -244,11 +229,7 @@ pub async fn resume(state: &AppState, thread_id: &str) -> Result<()> {
 /// The step records the session it ended, so the conversation can be resumed later.
 pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
     let thread = thread_row(state, thread_id)?;
-    if state.store.scratch_for_thread(thread_id)?.is_some() {
-        return Err(Error::Workspace(
-            "a scratch can't start a new session".into(),
-        ));
-    }
+    refuse_retired(&thread)?;
     let ended = state.store.thread_session(thread_id)?;
     state.engines.discard(thread_id)?;
     state.paused.take(thread_id);
@@ -268,9 +249,7 @@ pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
 pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -> Result<()> {
     let thread_id = input.thread_id;
     let thread = thread_row(state, &thread_id)?;
-    if state.store.scratch_for_thread(&thread_id)?.is_some() {
-        return Err(Error::Workspace("a scratch has only one session".into()));
-    }
+    refuse_retired(&thread)?;
     let ended = state.store.thread_session(&thread_id)?;
     state.engines.discard(&thread_id)?;
     state.paused.take(&thread_id);
@@ -288,12 +267,6 @@ pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -
     record(state, &thread, ThreadStatus::Idle).await?;
     state.out.changed(Change::THREADS);
     Ok(())
-}
-
-/// A thread is done without the engine having said so: its findings are fixed, or its review
-/// was submitted. The caller tells the webview.
-pub async fn mark_idle(state: &AppState, thread: &ThreadRow) -> Result<()> {
-    record(state, thread, ThreadStatus::Idle).await
 }
 
 /// Settles a thread whose engine ended its turn or exited: idle, unless it's paused (pausing
@@ -330,6 +303,16 @@ pub fn start_settling(state: &AppState) {
             }
         }
     });
+}
+
+/// A retired thread (one a workspace outgrew, or a scratch's) stays readable but takes nothing.
+fn refuse_retired(thread: &ThreadRow) -> Result<()> {
+    if thread.retired {
+        return Err(Error::Workspace(
+            "this thread is read-only; start a new thread to carry on".into(),
+        ));
+    }
+    Ok(())
 }
 
 async fn record(state: &AppState, thread: &ThreadRow, status: ThreadStatus) -> Result<()> {
@@ -524,7 +507,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_retired_thread_refuses_a_message_and_an_empty_one_is_ignored() {
+    async fn a_retired_thread_refuses_messages_and_sessions_and_an_empty_one_is_ignored() {
         let (state, mut engine, recording) =
             seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
 
@@ -539,6 +522,13 @@ mod tests {
         let refused = submit(&state, T, "hello".into(), Vec::new()).await;
 
         assert!(refused.is_err());
+        assert!(new_session(&state, T).await.is_err());
+        let resume = ResumeThreadSessionInput {
+            thread_id: T.into(),
+            conversation_id: "c1".into(),
+            session_id: None,
+        };
+        assert!(resume_session(&state, resume).await.is_err());
         assert!(prompts(&mut engine).is_empty());
         assert_eq!(thread_status(&state, T), "idle");
     }
@@ -583,20 +573,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stopping_saves_and_streams_the_turns_end_and_who_stopped_it() {
-        let (state, _engine, _recording) =
+    async fn stopping_cancels_the_engine_and_records_who_stopped_it_once() {
+        let (state, mut engine, _recording) =
             seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
         let mut stream = state.transcript.subscribe(T);
 
         stop(&state, T).await.unwrap();
 
-        let ended = stream.recv().await.unwrap();
-        assert!(ended.seq.is_some());
-        assert!(matches!(
-            ended.event,
-            crate::transcript::TranscriptEvent::Agent(AgentEvent::TurnEnd { stop_reason, .. })
-                if stop_reason == StopReason::cancelled()
-        ));
+        assert!(matches!(engine.try_recv(), Ok(EngineCommand::Cancel)));
         let step = stream.recv().await.unwrap();
         assert!(step.seq.is_some());
         assert!(matches!(
@@ -606,6 +590,11 @@ mod tests {
                 ..
             })
         ));
+        assert!(
+            stream.try_recv().is_err(),
+            "the turn's end is the engine's to report"
+        );
+        assert_eq!(thread_status(&state, T), "idle");
     }
 
     #[tokio::test]

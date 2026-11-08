@@ -633,15 +633,10 @@ pub async fn submit_workspace_review(
     // Straight after the POST, before anything that can fail: a retry must not post twice.
     state.store.mark_review_submitted(&input.workspace_id)?;
 
-    let workspace_threads = state.store.threads_for_workspace(&input.workspace_id)?;
     let reviewer_thread = state
         .store
         .own_thread(&input.workspace_id)?
         .ok_or_else(|| Error::Store("Reviewer thread missing".into()))?;
-
-    for thread in &workspace_threads {
-        crate::turn::mark_idle(state, thread).await?;
-    }
 
     state.transcript.record_step(
         &reviewer_thread.id,
