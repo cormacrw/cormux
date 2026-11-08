@@ -1257,12 +1257,27 @@ clickupFolderId?: string | null;
  * Board lanes the user folded away, by status name.
  */
 clickupHiddenStatuses?: string[] | null }
-export type Skill = { name: string; description: string; 
+export type Skill = { name: string; description: string; source: SkillSource }
 /**
- * `project` for the repo's own skills, `user` for `~/.claude/skills`, `plugin` for
- * those from Claude Code plugins, `builtin` for those that ship with Claude Code.
+ * Where a skill comes from.
  */
-source: string }
+export type SkillSource = 
+/**
+ * The repo's own, in `.claude/skills`.
+ */
+"project" | 
+/**
+ * `~/.claude/skills`.
+ */
+"user" | 
+/**
+ * From a Claude Code plugin, or synced from claude.ai.
+ */
+"plugin" | 
+/**
+ * Ships with Claude Code.
+ */
+"builtin"
 export type Snapshot = { version: number; settings: Settings; persisted: PersistedSnapshot; 
 /**
  * Every live workspace, in the order they were created.

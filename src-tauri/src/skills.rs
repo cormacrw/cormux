@@ -15,9 +15,21 @@ use crate::state::AppState;
 pub struct Skill {
     pub name: String,
     pub description: String,
-    /// `project` for the repo's own skills, `user` for `~/.claude/skills`, `plugin` for
-    /// those from Claude Code plugins, `builtin` for those that ship with Claude Code.
-    pub source: String,
+    pub source: SkillSource,
+}
+
+/// Where a skill comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillSource {
+    /// The repo's own, in `.claude/skills`.
+    Project,
+    /// `~/.claude/skills`.
+    User,
+    /// From a Claude Code plugin, or synced from claude.ai.
+    Plugin,
+    /// Ships with Claude Code.
+    Builtin,
 }
 
 /// Plugin namespace Claude Code gives the skills claude.ai syncs into `~/.claude/skills/synced`.
@@ -105,8 +117,8 @@ fn list(cwd: &Path, home: Option<&Path>) -> Vec<Skill> {
     let mut seen = HashSet::new();
     let mut skills = Vec::new();
     let roots = [
-        Some((cwd.join(".claude/skills"), "project")),
-        home.map(|home| (home.join(".claude/skills"), "user")),
+        Some((cwd.join(".claude/skills"), SkillSource::Project)),
+        home.map(|home| (home.join(".claude/skills"), SkillSource::User)),
     ];
     for (root, source) in roots.into_iter().flatten() {
         let mut found = read_root(&root, source);
@@ -132,14 +144,14 @@ fn list(cwd: &Path, home: Option<&Path>) -> Vec<Skill> {
             skills.push(Skill {
                 name: name.to_string(),
                 description: description.to_string(),
-                source: "builtin".to_string(),
+                source: SkillSource::Builtin,
             });
         }
     }
     skills
 }
 
-fn read_root(root: &Path, source: &str) -> Vec<Skill> {
+fn read_root(root: &Path, source: SkillSource) -> Vec<Skill> {
     let Ok(entries) = std::fs::read_dir(root) else {
         return Vec::new();
     };
@@ -153,7 +165,7 @@ fn read_root(root: &Path, source: &str) -> Vec<Skill> {
             Some(Skill {
                 name: name.unwrap_or(folder),
                 description: description.unwrap_or_default(),
-                source: source.to_string(),
+                source,
             })
         })
         .collect()
@@ -174,12 +186,15 @@ fn plugin_skills(cwd: &Path, home: &Path) -> Vec<Skill> {
         );
     }
     for root in synced_roots {
-        skills.extend(namespaced(SYNCED_PLUGIN, read_root(&root, "plugin")));
+        skills.extend(namespaced(
+            SYNCED_PLUGIN,
+            read_root(&root, SkillSource::Plugin),
+        ));
     }
     for (plugin, install_path) in enabled_plugins(cwd, home) {
         skills.extend(namespaced(
             &plugin,
-            read_root(&install_path.join("skills"), "plugin"),
+            read_root(&install_path.join("skills"), SkillSource::Plugin),
         ));
     }
     skills
@@ -364,7 +379,7 @@ mod tests {
         let skills = list(&root.join("repo"), Some(&home));
         let plugin: Vec<_> = skills
             .iter()
-            .filter(|skill| skill.source == "plugin")
+            .filter(|skill| skill.source == SkillSource::Plugin)
             .map(|skill| skill.name.as_str())
             .collect();
         assert_eq!(
@@ -408,15 +423,15 @@ mod tests {
             .iter()
             .find(|skill| skill.name == "simplify")
             .unwrap();
-        assert_eq!(simplify.source, "user");
+        assert_eq!(simplify.source, SkillSource::User);
         assert!(
             skills
                 .iter()
-                .any(|skill| skill.name == "init" && skill.source == "builtin")
+                .any(|skill| skill.name == "init" && skill.source == SkillSource::Builtin)
         );
         let on_disk: Vec<_> = skills
             .into_iter()
-            .filter(|skill| skill.source != "builtin" && skill.name != "simplify")
+            .filter(|skill| skill.source != SkillSource::Builtin && skill.name != "simplify")
             .collect();
         assert_eq!(
             on_disk,
@@ -424,12 +439,12 @@ mod tests {
                 Skill {
                     name: "deploy".into(),
                     description: "Repo deploy".into(),
-                    source: "project".into(),
+                    source: SkillSource::Project,
                 },
                 Skill {
                     name: "notes".into(),
                     description: String::new(),
-                    source: "user".into(),
+                    source: SkillSource::User,
                 },
             ]
         );

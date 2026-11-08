@@ -1066,8 +1066,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_fetch_recounts_each_repo_and_skips_one_it_cannot_fetch()
-     {
+    async fn a_fetch_recounts_each_repo_and_skips_one_it_cannot_fetch() {
         let dir = tempfile::tempdir().unwrap();
         let origin = dir.path().join("origin");
         std::fs::create_dir(&origin).unwrap();
