@@ -15,7 +15,9 @@
   } from '$lib/workspace/output-log'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import ExternalLink from '@lucide/svelte/icons/external-link'
+  import Eraser from '@lucide/svelte/icons/eraser'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
+  import Play from '@lucide/svelte/icons/play'
   import RotateCw from '@lucide/svelte/icons/rotate-cw'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import Square from '@lucide/svelte/icons/square'
@@ -188,12 +190,18 @@
         variant="secondary"
         size="sm"
         disabled={!controls.start.enabled}
+        aria-label={narrow ? 'Run' : undefined}
         onclick={() => run('run')}
       >
-        {#if !narrow}Run{/if}
+        {#if narrow}<Play class="size-3.5" aria-hidden="true" />{:else}Run{/if}
       </Button>
     {:else if controls.start}
-      <Button variant="secondary" size="sm" onclick={() => run('restart')}>
+      <Button
+        variant="secondary"
+        size="sm"
+        aria-label={narrow ? 'Restart' : undefined}
+        onclick={() => run('restart')}
+      >
         <RotateCw class="size-3.5" aria-hidden="true" />
         {#if !narrow}Restart{/if}
       </Button>
@@ -202,6 +210,7 @@
         variant="ghost"
         size="sm"
         disabled={!controls.canRestart}
+        aria-label={narrow ? 'Restart' : undefined}
         onclick={() => run('restart')}
       >
         <RotateCw class="size-3.5" aria-hidden="true" />
@@ -211,6 +220,7 @@
         variant="ghost"
         size="sm"
         class="text-destructive hover:text-destructive"
+        aria-label={narrow ? 'Stop' : undefined}
         onclick={() => run('stop')}
       >
         <Square class="size-3.5" aria-hidden="true" />
@@ -222,9 +232,13 @@
       variant="ghost"
       size="sm"
       disabled={lines.length === 0}
+      aria-label={narrow ? 'Clear' : undefined}
       onclick={() => run('clear')}
     >
-      {#if !narrow}Clear{/if}
+      {#if narrow}<Eraser
+          class="size-3.5"
+          aria-hidden="true"
+        />{:else}Clear{/if}
     </Button>
     <TrayControls tray="output" name="Output" shortcut="toggleOutput" />
   </header>
