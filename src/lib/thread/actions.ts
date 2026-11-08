@@ -15,11 +15,13 @@ export async function sendToThread(
   text: string,
   attachments: ComposerAttachment[] = [],
 ): Promise<boolean> {
+  const sending = threadTimeline.send(threadId, text, attachments)
+  const shown = threadTimeline.userMessageShown(threadId, sending)
   firstPromptTransition(
-    () => threadTimeline.userMessageShown(threadId),
+    () => shown,
     () => wordmark.glide(),
   )
-  return toastFailure(await threadTimeline.send(threadId, text, attachments))
+  return toastFailure(await sending)
 }
 
 export async function stopThread(threadId: string) {

@@ -395,18 +395,17 @@ class ThreadTimelineStore {
     if (isUserMessage(streamed)) this.batcher.flush()
   }
 
-  /** Resolves once a message from you lands in the thread, or after `ms`. */
-  userMessageShown(threadId: string, ms = 1000): Promise<void> {
+  /** Resolves once a message from you lands in the thread, or `sending` settles without one. */
+  userMessageShown(threadId: string, sending: Promise<unknown>): Promise<void> {
     return new Promise((resolve) => {
       const done = () => {
-        clearTimeout(timer)
         if (this.userMessageWaiters.get(threadId) === done) {
           this.userMessageWaiters.delete(threadId)
         }
         resolve()
       }
-      const timer = setTimeout(done, ms)
       this.userMessageWaiters.set(threadId, done)
+      void sending.then(done, done)
     })
   }
 
