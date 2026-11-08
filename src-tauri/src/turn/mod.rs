@@ -7,6 +7,8 @@
 //!
 //! Creating a thread's row (`provisioning`) and setup handing it its first turn are the
 //! exceptions: setup owns the workspace until then, and a message sent meanwhile is refused.
+//! Teardown stops engines and settles what it stopped through here too (`stop_engines`,
+//! `settle_stopped`).
 //!
 //! A message for a running thread goes to its engine at once, which takes it into the turn it's
 //! running or starts its next turn on it; the thread runs until the engine has nothing left to
@@ -256,6 +258,38 @@ pub async fn stop(state: &AppState, thread_id: &str) -> Result<()> {
     announce_dropped(state, thread_id, dropped);
     if thread.status.is_mid_turn() && !engine_reports_end {
         announce_stopped(state, thread_id)?;
+    }
+    Ok(())
+}
+
+/// Stops the threads' engines for good from outside their turns (teardown), each under its turn
+/// lock so nothing starts, resumes or settles the thread while its engine goes down. Engines
+/// stopped this way report no end, so nothing settles the threads: see [`settle_stopped`].
+pub async fn stop_engines(state: &AppState, thread_ids: &[String]) -> Result<()> {
+    let mut stops = tokio::task::JoinSet::new();
+    for id in thread_ids {
+        let (state, id) = (state.clone(), id.clone());
+        stops.spawn(async move {
+            let _turn = state.turns.operation(&id).await;
+            state.engines.stop_threads(std::slice::from_ref(&id)).await
+        });
+    }
+    for stopped in stops.join_all().await {
+        stopped?;
+    }
+    Ok(())
+}
+
+/// Settles threads whose engines [`stop_engines`] stopped, once they carry on (a teardown that
+/// failed): a running one is idle. A paused one stays paused with what it holds, since resuming
+/// launches a new engine.
+pub async fn settle_stopped(state: &AppState, thread_ids: &[String]) -> Result<()> {
+    for id in thread_ids {
+        let _turn = state.turns.operation(id).await;
+        let thread = thread_row(state, id)?;
+        if thread.status == ThreadStatus::Running {
+            record(state, &thread, ThreadStatus::Idle).await?;
+        }
     }
     Ok(())
 }
@@ -551,6 +585,35 @@ mod tests {
             .unwrap();
         state.store.upsert_thread(&thread(T, status, None)).unwrap();
         (state, recording, fake)
+    }
+
+    /// Teardown stopped engines and idled threads outside the per-thread lock, so a turn
+    /// settling or starting meanwhile could act on a status teardown was changing.
+    #[tokio::test(start_paused = true)]
+    async fn teardown_stops_and_settles_a_thread_only_between_its_operations() {
+        let (state, mut engine, _recording) =
+            seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
+        let ids = [T.to_string()];
+        let operation = state.turns.operation(T).await;
+
+        let stopping = tokio::spawn({
+            let (state, ids) = (state.clone(), ids.clone());
+            async move { stop_engines(&state, &ids).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        assert!(state.engines.has_thread(T), "stopped mid-operation");
+
+        drop(operation);
+        while let Some(command) = engine.recv().await {
+            if matches!(command, EngineCommand::Shutdown) {
+                break;
+            }
+        }
+        drop(engine);
+        stopping.await.unwrap().unwrap();
+        assert!(!state.engines.has_thread(T));
+        settle_stopped(&state, &ids).await.unwrap();
+        assert_eq!(thread_status(&state, T), "idle");
     }
 
     fn thread_status(state: &AppState, id: &str) -> &'static str {

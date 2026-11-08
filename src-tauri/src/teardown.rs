@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::app::WorkspaceAppStatus;
 use crate::error::{Error, Result};
-use crate::model::{ThreadStatus, WorkspaceLifecycle};
+use crate::model::WorkspaceLifecycle;
 use crate::state::AppState;
 use crate::workspaces::WorkspaceRecord;
 
@@ -97,7 +97,7 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
         .collect();
 
     if let Err(error) = run_teardown_steps(state, &record, input.delete_branch, &thread_ids).await {
-        let restored = settle_stopped_threads(state, &input.workspace_id).await;
+        let restored = crate::turn::settle_stopped(state, &thread_ids).await;
         let restored = match restored {
             Ok(()) => state
                 .workspaces
@@ -130,7 +130,7 @@ async fn run_teardown_steps(
     delete_branch: bool,
     thread_ids: &[String],
 ) -> Result<()> {
-    state.engines.stop_threads(thread_ids).await?;
+    crate::turn::stop_engines(state, thread_ids).await?;
     state.process.stop_workspace_sessions(&record.id).await;
     let _setup = state.setup.cancel(&record.id).await;
 
@@ -157,20 +157,6 @@ async fn run_teardown_steps(
         state.git.branch_delete(&repo, &record.branch).await?;
     }
 
-    Ok(())
-}
-
-/// The engines teardown stopped report no turn end, so a thread they left running is idled
-/// here. A paused one stays paused: resuming launches a new engine.
-async fn settle_stopped_threads(state: &AppState, workspace_id: &str) -> Result<()> {
-    for thread in state.store.threads_for_workspace(workspace_id)? {
-        if thread.status == ThreadStatus::Running {
-            state
-                .workspaces
-                .set_thread_status(&thread.id, workspace_id, ThreadStatus::Idle)
-                .await?;
-        }
-    }
     Ok(())
 }
 
@@ -270,7 +256,7 @@ pub mod commands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ThreadRole, WorkspaceKind};
+    use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind};
     use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
 
     async fn registered(worktree: &str) -> AppState {
