@@ -3,8 +3,19 @@ import type { DiffFile } from '$lib/ipc/bindings'
 import type { EntryScope } from '$lib/thread/entering'
 import type { FindPullRequest } from '$lib/thread/enhance-markdown'
 
+/** Where a conversation's files and links lead, which its view supplies. */
+export type ConversationSource = {
+  /** The thread's worktree, so media a reply references can resolve and render. */
+  readonly workdir: string | undefined
+  readonly diffFile: (path: string) => DiffFile | undefined
+  readonly findPr: FindPullRequest
+  /** Opens a file in Changes; unset where there's no workspace (a scratch), so none are links. */
+  readonly revealFile:
+    ((path: string, line?: number | null) => void) | undefined
+}
+
 /** What every row of one conversation shares. Read through getters, so a row only tracks what it reads. */
-export type RowContext = {
+export type RowContext = ConversationSource & {
   /** Rows new to this thread pop in and replies type out; undefined renders without motion. */
   readonly entries: EntryScope | undefined
   readonly nowMs: number
@@ -16,10 +27,6 @@ export type RowContext = {
   }
   /** Folds opened in this thread, kept while rows unmount off screen. */
   readonly openFolds: SvelteSet<string>
-  /** The thread's worktree, so media a reply references can resolve and render. */
-  readonly workdir: string | undefined
-  readonly diffFile: (path: string) => DiffFile | undefined
-  readonly findPr: FindPullRequest
   /** A scratch's reads are marked read-only, with no worktree. */
   readonly scratch: boolean
 }

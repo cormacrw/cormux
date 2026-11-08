@@ -35,6 +35,7 @@
           {live}
           workdir={ctx.workdir}
           findPr={ctx.findPr}
+          revealFile={ctx.revealFile}
         />
       </div>
     {/if}

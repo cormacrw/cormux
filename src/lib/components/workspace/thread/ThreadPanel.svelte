@@ -3,10 +3,11 @@
   import { plural, pluralWord } from '$lib/format/plural'
   import { onDestroy } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-  import { entities } from '$lib/state'
+  import { entities, prs, workspaceUi } from '$lib/state'
+  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
-  import { openWorkspace } from '$lib/nav/open'
+  import { openWorkspace, revealFileInWorkspace } from '$lib/nav/open'
   import { wordmark } from '$lib/background/wordmark.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
@@ -19,6 +20,7 @@
   import ThreadHero from './ThreadHero.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
   import ThreadReferences from './ThreadReferences.svelte'
+  import type { ConversationSource } from './rows/context'
 
   let {
     workspace,
@@ -29,6 +31,25 @@
   } = $props()
 
   const threadId = $derived(thread.id)
+
+  // By path, so each edit step's `+n −m` is one lookup rather than a scan of the diff.
+  const diffFileByPath = $derived(
+    new Map(
+      (workspaceDiff.filesByWorkspace[workspace.id] ?? []).map((file) => [
+        file.path,
+        file,
+      ]),
+    ),
+  )
+  const source: ConversationSource = {
+    get workdir() {
+      return workspace.worktreePath
+    },
+    diffFile: (path) => diffFileByPath.get(path),
+    findPr: (repoFullName, num) => prs.find(repoFullName, num),
+    revealFile: (path, line = null) =>
+      revealFileInWorkspace(workspace.id, threadId, path, line),
+  }
   const view = $derived(threadTimeline.threadView(threadId))
   const live = $derived(view.live)
   // An empty conversation shows a greeting instead of the last one's messages.
@@ -67,7 +88,8 @@
     {threadId}
     role={thread.role}
     engine={engineDisplayName(thread.engine)}
-    workspaceId={workspace.id}
+    {source}
+    shown={workspaceUi.activeTab === 'thread'}
     contentClass={[
       'pt-3',
       // The greeting sits at the bottom, its box reaching down to the prompt

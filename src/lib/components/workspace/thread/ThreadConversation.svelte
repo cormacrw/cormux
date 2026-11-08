@@ -27,16 +27,11 @@
   import { createVirtualizer } from '@tanstack/svelte-virtual'
   import { Button } from '$lib/components/ui/button'
   import { enterConversation } from '$lib/thread/conversation-motion'
-  import { prs, workspaceUi } from '$lib/state'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
-  import { nav } from '$lib/core/nav.svelte'
-  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
-  import { workspaces } from '$lib/state/workspaces.svelte'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
-  import type { FindPullRequest } from '$lib/thread/enhance-markdown'
   import { createEntryScope } from '$lib/thread/entering'
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
-  import type { RowContext } from './rows/context'
+  import type { ConversationSource, RowContext } from './rows/context'
   import LiveRow from './rows/LiveRow.svelte'
   import ThreadFind from './ThreadFind.svelte'
   import TimelineMessages from './TimelineMessages.svelte'
@@ -45,7 +40,8 @@
     threadId,
     role,
     engine,
-    workspaceId,
+    source,
+    shown = true,
     scratch = false,
     liveInline = false,
     odId,
@@ -59,8 +55,10 @@
     /** Who the agent is in this thread, named over its turns; empty to name it by its engine. */
     role: string
     engine: string
-    /** Where its edits and media resolve; null for a scratch, which has no worktree. */
-    workspaceId: string | null
+    /** Where its edits, media and links resolve. */
+    source: ConversationSource
+    /** On screen rather than under a slide-out; coming back lands on the newest message. */
+    shown?: boolean
     scratch?: boolean
     /** Draw what the agent is doing as the last row, for a thread with no prompt bar to float it over. */
     liveInline?: boolean
@@ -97,18 +95,6 @@
     return () => clearInterval(timer)
   })
 
-  // By path, so each edit step's `+n −m` is one lookup rather than a scan of the diff.
-  const diffFileByPath = $derived(
-    new Map(
-      (workspaceId
-        ? (workspaceDiff.filesByWorkspace[workspaceId] ?? [])
-        : []
-      ).map((file) => [file.path, file]),
-    ),
-  )
-  const findPr: FindPullRequest = (repoFullName, num) =>
-    prs.items.find((pr) => pr.repoFullName === repoFullName && pr.num === num)
-
   // Snapshot what the thread already shows when it opens, or switches to another
   // conversation; only rows after that animate. Rows read from the store, older pages
   // included, were already there.
@@ -138,12 +124,13 @@
       return openFolds
     },
     get workdir() {
-      return workspaceId
-        ? workspaces.getById(workspaceId)?.worktreePath
-        : undefined
+      return source.workdir
     },
-    diffFile: (path) => diffFileByPath.get(path),
-    findPr,
+    diffFile: (path) => source.diffFile(path),
+    findPr: (repoFullName, num) => source.findPr(repoFullName, num),
+    get revealFile() {
+      return source.revealFile
+    },
     get scratch() {
       return scratch
     },
@@ -222,11 +209,9 @@
     })
   })
 
-  // Coming back to the thread, or to its tab, lands on the newest message.
+  // Coming back to the conversation lands on the newest message.
   $effect(() => {
-    void nav.threadId
-    void workspaceUi.activeTab
-    untrack(followEnd)
+    if (shown) untrack(followEnd)
   })
 
   const virtualizer = createVirtualizer<HTMLElement, Element>({

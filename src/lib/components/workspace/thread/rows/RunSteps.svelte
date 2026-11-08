@@ -7,7 +7,6 @@
   import { editPath, stepText } from '$lib/thread/timeline/step-text'
   import type { RunStep } from '$lib/thread/timeline-types'
   import { cn } from '$lib/utils'
-  import { revealInChanges } from '$lib/nav/open'
   import RunSummaryCard from '../reply/RunSummaryCard.svelte'
   import type { RowContext } from './context'
   import { ICONS } from './icons'
@@ -120,7 +119,8 @@
                 class="truncate font-mono text-primary underline-offset-2 hover:underline"
                 title={edit.path}
                 aria-label="View diff for {edit.path}"
-                onclick={() => revealInChanges(edit.path)}
+                disabled={!ctx.revealFile}
+                onclick={() => ctx.revealFile?.(edit.path)}
               >
                 {edit.path.split('/').pop()}
               </button>

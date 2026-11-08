@@ -6,7 +6,8 @@
   import CommandIcon from '@lucide/svelte/icons/command'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import ThreadConversation from '$lib/components/workspace/thread/ThreadConversation.svelte'
-  import { repos, scratches, shellDialogs } from '$lib/state'
+  import { prs, repos, scratches, shellDialogs } from '$lib/state'
+  import type { ConversationSource } from '$lib/components/workspace/thread/rows/context'
   import { nav } from '$lib/core/nav.svelte'
   import type { Scratch } from '$lib/state/scratches.svelte'
   import { engineDisplayName } from '$lib/engine/engines'
@@ -20,6 +21,14 @@
   const engineName = $derived(engineDisplayName(scratch?.engine ?? 'claude'))
 
   let headingEl = $state<HTMLHeadingElement | null>(null)
+
+  // No worktree and no Changes to open: file references stay plain text.
+  const source: ConversationSource = {
+    workdir: undefined,
+    diffFile: () => undefined,
+    findPr: (repoFullName, num) => prs.find(repoFullName, num),
+    revealFile: undefined,
+  }
 
   $effect(() => {
     if (nav.view !== 'scratch') return
@@ -85,7 +94,7 @@
       threadId={scratch.threadId}
       role=""
       engine={engineName}
-      workspaceId={null}
+      {source}
       scratch
       liveInline
       odId="session-thread"

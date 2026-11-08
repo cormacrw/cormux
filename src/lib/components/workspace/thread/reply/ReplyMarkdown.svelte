@@ -17,7 +17,6 @@
   } from '$lib/thread/reply/media'
   import { parseProse, type ReplySegment } from '$lib/thread/reply/parse'
   import { renderSanitizedMarkdown } from '$lib/thread/sanitize-markdown'
-  import { revealInChanges } from '$lib/nav/open'
   import MediaCompare from './MediaCompare.svelte'
   import ReplyBlock from './ReplyBlock.svelte'
   import ThreadMedia from './ThreadMedia.svelte'
@@ -27,6 +26,7 @@
     streaming = false,
     workdir,
     findPr,
+    revealFile,
   }: {
     /** Chat markdown: a reply's prose or a thought. */
     text: string
@@ -36,6 +36,8 @@
     workdir?: string
     /** Pull requests Cormux knows, so a link to one renders as a card with its state. */
     findPr?: FindPullRequest
+    /** Opens a file in Changes; without it, file references stay plain text. */
+    revealFile?: (path: string, line?: number | null) => void
   } = $props()
 
   type Part =
@@ -95,7 +97,9 @@
     const container = root
     if (!container || streaming) return
     const mounted = mountInlineMedia(container)
-    untrack(() => enhanceMarkdown(container, { workdir, findPr }))
+    untrack(() =>
+      enhanceMarkdown(container, { workdir, findPr, fileRefs: !!revealFile }),
+    )
     addCopyButtons(container)
     return () => {
       for (const component of mounted) void unmount(component)
@@ -142,10 +146,10 @@
     if (copyClicked(event, clipboard)) return
     const clicked = event.target instanceof Element ? event.target : null
     const file = clicked?.closest<HTMLElement>('.file-ref, .file-ref-link')
-    if (file?.dataset.path) {
+    if (file?.dataset.path && revealFile) {
       event.preventDefault()
       const line = file.dataset.line ? Number(file.dataset.line) : null
-      revealInChanges(file.dataset.path, line)
+      revealFile(file.dataset.path, line)
       return
     }
     openClickedLink(event)
