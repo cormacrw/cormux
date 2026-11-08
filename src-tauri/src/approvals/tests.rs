@@ -313,3 +313,24 @@ async fn a_request_whose_card_cannot_be_saved_is_denied_at_once() {
     assert!(message.contains("couldn't record"), "{message}");
     assert!(setup.events.try_recv().is_err(), "no card was announced");
 }
+
+/// Bug: once a panic poisoned the waiters' lock, every new request was dropped unanswered and
+/// every answer refused.
+#[tokio::test]
+async fn a_panic_holding_the_waiters_leaves_requests_answerable() {
+    let setup = setup();
+    std::thread::scope(|scope| {
+        let poisoned = scope.spawn(|| {
+            let _held = setup.broker.waiting.lock().unwrap();
+            panic!("poison the lock");
+        });
+        assert!(poisoned.join().is_err());
+    });
+    assert!(setup.broker.waiting.is_poisoned());
+
+    let decided = setup
+        .broker
+        .request("t1", 1, &command("a1"), ApprovalPolicy::default());
+    setup.broker.resolve("a1", Answer::Approve).unwrap();
+    assert_eq!(decided.await.unwrap(), ApprovalDecision::Approved);
+}

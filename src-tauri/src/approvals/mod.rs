@@ -7,7 +7,7 @@ mod payload;
 mod store;
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use tokio::sync::oneshot;
 
@@ -90,6 +90,12 @@ impl ApprovalBroker {
         }
     }
 
+    /// The waiters, even after a panic while they were held: each entry is whole, and dropping
+    /// them all would leave every open card unanswerable.
+    fn waiting(&self) -> MutexGuard<'_, HashMap<String, Waiter>> {
+        self.waiting.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// The decision for `request`: at once if `policy` lets it through, otherwise once the user
     /// answers. The receiver closes unanswered if `engine`'s turn ends first. A request whose
     /// card can't be saved is denied at once, since nothing would be shown to answer it.
@@ -108,10 +114,7 @@ impl ApprovalBroker {
         }
         let (card, tool) = payload::card(request);
         {
-            let Ok(mut waiting) = self.waiting.lock() else {
-                log::warn!("approvals lock poisoned; {} goes unanswered", request.id);
-                return decision;
-            };
+            let mut waiting = self.waiting();
             if let Err(error) =
                 self.store
                     .insert_pending_approval(&request.id, thread_id, tool, &card)
@@ -153,9 +156,7 @@ impl ApprovalBroker {
     /// and their waiters dropped, and the cards stop asking. Another engine's, such as the one
     /// that replaced it on the same thread, stay open.
     pub fn cancel_for_engine(&self, engine: u64) {
-        let Ok(mut waiting) = self.waiting.lock() else {
-            return;
-        };
+        let mut waiting = self.waiting();
         let ids: Vec<String> = waiting
             .iter()
             .filter(|(_, waiter)| waiter.engine == engine)
@@ -183,10 +184,7 @@ impl ApprovalBroker {
     /// Records the user's answer and hands it to the waiting engine. An answer to a request
     /// nothing waits on any more is refused, and the card stops asking.
     pub fn resolve(&self, id: &str, answer: Answer) -> Result<()> {
-        let mut waiting = self
-            .waiting
-            .lock()
-            .map_err(|error| Error::Approval(error.to_string()))?;
+        let mut waiting = self.waiting();
         let row = self
             .store
             .get_approval(id)?

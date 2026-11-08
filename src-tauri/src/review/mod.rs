@@ -161,10 +161,7 @@ pub async fn create_review_workspace(
             name: format!("PR #{} Review", pr.num),
             branch,
             base: pr.base.clone(),
-            pr: Some((
-                pr.num,
-                (!pr.html_url.is_empty()).then(|| pr.html_url.clone()),
-            )),
+            pr: Some((pr.num, Some(pr.html_url.clone()))),
             engine: engine.clone(),
             parent_thread_id: None,
             picks: Default::default(),
@@ -1120,7 +1117,7 @@ mod tests {
             review: crate::github::types::PrReviewState::Required,
             files: 1,
             is_draft: false,
-            html_url: String::new(),
+            html_url: format!("https://github.com/o/r/pull/{num}"),
             repo_full_name: "o/r".into(),
             repo_id: Some("r1".into()),
         }
