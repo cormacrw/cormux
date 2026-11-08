@@ -26,7 +26,6 @@
     canAddToStack,
     commitsLabel,
     isDiffTargetOf,
-    prStateLabel,
     sameDiffTarget,
     stackCardsTopFirst,
     stackSubtitle,
@@ -105,7 +104,9 @@
   /** A PR opened by hand shows up here before gh-stack learns of it on the next Sync. */
   function syncedPr(branch: string) {
     const pr = prs.forBranch(repoId, branch)
-    return pr ? { number: pr.num, url: pr.htmlUrl, state: 'OPEN' } : null
+    return pr
+      ? { number: pr.num, url: pr.htmlUrl, state: 'open' as const }
+      : null
   }
 
   async function checkout(name: string) {
@@ -497,10 +498,8 @@
                   type="button"
                   class="inline-flex shrink-0 items-center gap-1 rounded px-1 font-mono text-xs text-muted-foreground hover:text-foreground hover:underline disabled:no-underline"
                   disabled={!pr.url}
-                  title="Pull request #{pr.number}, {prStateLabel(pr.state)}"
-                  aria-label="Open pull request #{pr.number} on GitHub, {prStateLabel(
-                    pr.state,
-                  )}"
+                  title="Pull request #{pr.number}, {pr.state}"
+                  aria-label="Open pull request #{pr.number} on GitHub, {pr.state}"
                   onclick={() => pr.url && void openUrl(pr.url)}
                 >
                   <GitPullRequest class="size-3" aria-hidden="true" />

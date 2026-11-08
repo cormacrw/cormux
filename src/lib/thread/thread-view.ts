@@ -1,4 +1,4 @@
-import type { ApprovalRow } from '$lib/ipc/bindings'
+import type { ApprovalRow, ThreadStatus } from '$lib/ipc/bindings'
 import { promptHistory } from '$lib/composer/prompt-history'
 import { currentConversation, type CurrentConversation } from './conversations'
 import { activeIds, liveStatus, type LiveStatus } from './live-status'
@@ -33,7 +33,7 @@ export type ThreadView = {
 
 /** The thread's row, as far as its conversation cares. */
 export type ThreadMeta = {
-  status: string
+  status: ThreadStatus
   paused: boolean
   activity: string
   lead: boolean

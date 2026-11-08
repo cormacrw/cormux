@@ -113,7 +113,7 @@ export function gitHandlers({
           ? {
               number,
               url: `https://github.com/acme/my-app/pull/${number}`,
-              state: 'OPEN',
+              state: 'open' as const,
             }
           : null,
       }

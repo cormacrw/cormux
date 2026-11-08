@@ -53,8 +53,26 @@ pub enum StackStatus {
 pub struct StackPullRequest {
     pub number: u32,
     pub url: Option<String>,
-    /// `OPEN`, `MERGED` or `QUEUED`, as gh-stack reports it.
-    pub state: String,
+    pub state: StackPrState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum StackPrState {
+    Open,
+    Merged,
+    Queued,
+}
+
+impl StackPrState {
+    /// From gh-stack's word (`OPEN`, `MERGED`, `QUEUED`); anything else reads as open.
+    fn from_gh(state: &str) -> Self {
+        match state {
+            "MERGED" => Self::Merged,
+            "QUEUED" => Self::Queued,
+            _ => Self::Open,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -412,7 +430,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
             pr: branch.pr.map(|pr| StackPullRequest {
                 number: pr.number,
                 url: pr.url,
-                state: pr.state,
+                state: StackPrState::from_gh(&pr.state),
             }),
         });
     }

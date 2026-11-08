@@ -57,9 +57,3 @@ export function commitsLabel(count: number): string {
   if (count === 0) return 'No commits yet'
   return plural(count, 'commit', 'commits')
 }
-
-export function prStateLabel(state: string): string {
-  if (state === 'MERGED') return 'merged'
-  if (state === 'QUEUED') return 'queued'
-  return 'open'
-}

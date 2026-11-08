@@ -1275,11 +1275,8 @@ export type StackBranch = { name: string;
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
  */
 parent: string; files: number; additions: number; deletions: number; commits: number; current: boolean; merged: boolean; queued: boolean; needsRebase: boolean; pr: StackPullRequest | null }
-export type StackPullRequest = { number: number; url: string | null; 
-/**
- * `OPEN`, `MERGED` or `QUEUED`, as gh-stack reports it.
- */
-state: string }
+export type StackPrState = "open" | "merged" | "queued"
+export type StackPullRequest = { number: number; url: string | null; state: StackPrState }
 export type StackStatus = 
 /**
  * The checked-out branch is in a gh-stack stack.

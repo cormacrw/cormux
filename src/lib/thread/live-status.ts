@@ -1,3 +1,4 @@
+import type { ThreadStatus } from '$lib/ipc/bindings'
 import type { RunningAgent, TimelineItem } from './timeline-types'
 
 /** What the agent is doing now, shown while it works or sits paused mid-turn. */
@@ -9,7 +10,7 @@ export type LiveStatus = {
 }
 
 type LiveInput = {
-  status: string
+  status: ThreadStatus
   paused: boolean
   activity: string
   /** The workspace's own Lead, which sets up the worktree rather than joining it. */

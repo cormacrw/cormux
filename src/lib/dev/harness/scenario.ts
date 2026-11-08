@@ -5,6 +5,8 @@ import type {
   RepoGitRuntime,
   ResumeThreadSessionInput,
   Snapshot,
+  ThreadStatus,
+  WorkspaceLifecycle,
 } from '../../ipc/bindings'
 import type { StoredEventRow } from './db'
 import type { ToastPayload } from '../../feedback/toast-payload'
@@ -84,9 +86,9 @@ export type HarnessControls = {
   /** `HarnessScenario.stack` of `remote`: whether GitHub answers yet. */
   stackRemoteUp: boolean
   /** Sets a workspace's status without driving an agent. */
-  setStatus: (name: string, status: string) => void
+  setStatus: (name: string, status: WorkspaceLifecycle) => void
   /** Sets a thread's status, such as `running` for its live status, without a prompt. */
-  setThreadStatus: (threadId: string, status: string) => void
+  setThreadStatus: (threadId: string, status: ThreadStatus) => void
   /** Leaves a permission request pending on a thread, as an agent asking would. */
   requestApproval: (threadId: string) => void
   /** Delivers events to the open Lead thread as an engine would. */

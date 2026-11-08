@@ -81,13 +81,13 @@ export function createRuntime(scenario: HarnessScenario) {
     stackRemoteUp: false,
     setStatus(name, status) {
       for (const record of db.snapshot.workspaces) {
-        if (record.name === name) record.status = status as typeof record.status
+        if (record.name === name) record.status = status
       }
       emitStateChanged(CHANGE.state)
     },
     setThreadStatus(threadId, status) {
       const thread = findThread(db, threadId)
-      if (thread) thread.status = status as typeof thread.status
+      if (thread) thread.status = status
       emitStateChanged(CHANGE.state)
     },
     requestApproval(threadId) {
