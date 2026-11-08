@@ -40,6 +40,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
     db.snapshot.persisted.workspaces.push(row)
     db.snapshot.workspaces.push(record)
     db.snapshot.persisted.threads.push(leadThreadFixture(threadId, workspaceId))
+    db.snapshot.workspaceOwnThreads.push({ workspaceId, threadId })
     appendEvent(
       db,
       threadId,

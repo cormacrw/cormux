@@ -70,6 +70,28 @@ pub struct Snapshot {
     pub workspace_branch_locks: Vec<crate::workspaces::WorkspaceBranchLock>,
     /// Workspaces whose branch can't be reviewed now, and why.
     pub workspace_review_blocks: Vec<crate::review::WorkspaceReviewBlock>,
+    /// Each live workspace's own thread, for those with one.
+    pub workspace_own_threads: Vec<WorkspaceOwnThread>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceOwnThread {
+    pub workspace_id: String,
+    pub thread_id: String,
+}
+
+/// `threads` in creation order, as the snapshot lists them, so each workspace's first own one wins.
+fn own_threads(threads: &[ThreadRow]) -> Vec<WorkspaceOwnThread> {
+    let mut seen = std::collections::HashSet::new();
+    threads
+        .iter()
+        .filter(|thread| thread.is_own() && seen.insert(thread.workspace_id.as_str()))
+        .map(|thread| WorkspaceOwnThread {
+            workspace_id: thread.workspace_id.clone(),
+            thread_id: thread.id.clone(),
+        })
+        .collect()
 }
 
 fn persisted(store: &crate::store::Store) -> Result<PersistedSnapshot> {
@@ -109,6 +131,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         crate::harness_config::workspace_run_commands(&persisted.workspaces, &repo_run_commands);
     let workspace_branch_locks = crate::workspaces::branch_locks(&workspaces, &persisted.threads);
     let workspace_review_blocks = crate::review::review_blocks(&workspaces, &persisted.threads);
+    let workspace_own_threads = own_threads(&persisted.threads);
 
     Ok(Snapshot {
         version: state.out.version(),
@@ -127,6 +150,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         repo_removal_blocks,
         workspace_branch_locks,
         workspace_review_blocks,
+        workspace_own_threads,
     })
 }
 
@@ -141,6 +165,37 @@ mod tests {
     use crate::findings::FindingRow;
     use crate::model::{ApprovalPayload, ThreadStatus, WorkspaceLifecycle};
     use crate::store::Store;
+
+    /// Bug: `Store::own_thread` took the first thread with a role that wasn't closed, so a
+    /// workspace's older, retired Reviewer was the one review was refused or started for, while
+    /// the snapshot's review block and the webview went by the live Lead.
+    #[tokio::test]
+    async fn a_workspace_has_one_own_thread_whoever_asks() {
+        let store = Store::in_memory().unwrap();
+        store.seed_workspace("w1", WorkspaceLifecycle::Ready);
+        let old = crate::store::types::ThreadRow {
+            retired: true,
+            ..store.seed_thread("old", "w1", ThreadStatus::Running)
+        };
+        store.upsert_thread(&old).unwrap();
+        store.seed_thread("lead", "w1", ThreadStatus::Idle);
+        let mut child = crate::store::fixtures::thread("child", "w1", ThreadStatus::Idle);
+        child.role = None;
+        store.upsert_thread(&child).unwrap();
+
+        let threads = read(&store).threads;
+        let own: Vec<_> = own_threads(&threads)
+            .into_iter()
+            .map(|own| (own.workspace_id, own.thread_id))
+            .collect();
+        assert_eq!(own, [("w1".to_string(), "lead".to_string())]);
+        assert_eq!(store.own_thread("w1").unwrap().unwrap().id, "lead");
+        let records = crate::workspaces::Workspaces::new(store.clone())
+            .live()
+            .await
+            .unwrap();
+        assert!(crate::review::review_blocks(&records, &threads).is_empty());
+    }
 
     #[test]
     fn lists_what_the_live_workspaces_and_visible_threads_hold() {

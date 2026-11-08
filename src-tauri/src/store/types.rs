@@ -138,6 +138,12 @@ impl ThreadRow {
         }
     }
 
+    /// Its workspace's own thread, the Lead or Reviewer it still talks to: a role, not retired.
+    /// The first one, in creation order, is the one.
+    pub fn is_own(&self) -> bool {
+        self.role.is_some() && !self.retired
+    }
+
     #[cfg(test)]
     pub fn with_status(self, status: ThreadStatus) -> Self {
         Self { status, ..self }

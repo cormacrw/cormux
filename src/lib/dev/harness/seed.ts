@@ -127,6 +127,10 @@ export function seedFixtures(db: HarnessDb, scenario: HarnessScenario) {
     persisted.workspaces.push(row)
     snapshot.workspaces.push(record)
     persisted.threads.push(leadThreadFixture('th-billing', 'ws-billing'))
+    snapshot.workspaceOwnThreads.push({
+      workspaceId: 'ws-billing',
+      threadId: 'th-billing',
+    })
   }
   if (scenario.retiredThread) {
     persisted.threads.unshift({

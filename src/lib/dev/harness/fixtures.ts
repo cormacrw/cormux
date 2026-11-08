@@ -144,6 +144,9 @@ export function createFixtures() {
     repoRemovalBlocks: [],
     workspaceBranchLocks: [],
     workspaceReviewBlocks: [],
+    workspaceOwnThreads: [
+      { workspaceId: WORKSPACE_ID, threadId: LEAD_THREAD_ID },
+    ],
   }
   const timeline: StoredEventRow[] = [
     {

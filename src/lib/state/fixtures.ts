@@ -36,6 +36,7 @@ export function threadFixture(patch: Partial<Thread> = {}): Thread {
     workspaceId: 'ws-1',
     role: 'Lead',
     ownRole: 'lead',
+    own: true,
     engine: 'claude',
     status: 'idle',
     activity: 'Idle',

@@ -320,18 +320,12 @@ impl Store {
         })
     }
 
-    /// The workspace's own thread, its Lead or Reviewer: the one git steps are recorded in.
+    /// The workspace's own thread (see [`ThreadRow::is_own`]): the one git steps are recorded in.
     pub fn own_thread(&self, workspace_id: &str) -> Result<Option<ThreadRow>> {
-        self.with_read(|conn| {
-            Ok(conn
-                .prepare_cached(&select_threads(
-                    "threads",
-                    "WHERE t.workspace_id = ?1 AND t.role IS NOT NULL AND t.closed_at IS NULL
-                     ORDER BY t.created_at, t.rowid LIMIT 1",
-                ))?
-                .query_row([workspace_id], row_to_thread)
-                .optional()?)
-        })
+        Ok(self
+            .threads_for_workspace(workspace_id)?
+            .into_iter()
+            .find(ThreadRow::is_own))
     }
 
     pub fn set_workspace_status(
@@ -388,7 +382,7 @@ impl Store {
             for id in torn {
                 let threads: Vec<ThreadStatus> = conn
                     .prepare(
-                        "SELECT status FROM threads WHERE workspace_id = ?1 AND closed_at IS NULL",
+                        "SELECT status FROM threads WHERE workspace_id = ?1 AND retired = 0",
                     )?
                     .query_map([&id], |row| row.get::<_, String>(0))?
                     .map(|raw| raw.map(|raw| ThreadStatus::parse(&raw)))
@@ -429,7 +423,7 @@ impl Store {
             };
             let threads = conn
                 .prepare_cached(
-                    "SELECT status FROM threads WHERE workspace_id = ?1 AND closed_at IS NULL",
+                    "SELECT status FROM threads WHERE workspace_id = ?1 AND retired = 0",
                 )?
                 .query_map([&workspace_id], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;

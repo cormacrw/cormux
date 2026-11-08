@@ -14,6 +14,8 @@ export type Thread = {
   role: string
   /** Set on the workspace's own Lead or Reviewer. */
   ownRole?: ThreadRole | null
+  /** The workspace's own thread, as the core picks it: the one it still talks to. */
+  own: boolean
   engine: string
   status: ThreadStatus
   activity: string
@@ -36,6 +38,7 @@ export function threadsFromSnapshot(snapshot: Snapshot): Thread[] {
   const records = new Map(
     snapshot.workspaces.map((ws, index) => [ws.id, { ws, index }]),
   )
+  const own = new Set(snapshot.workspaceOwnThreads.map((row) => row.threadId))
   const items = persisted.threads.map((thread): Thread => {
     const ws = records.get(thread.workspaceId)?.ws
     return {
@@ -43,6 +46,7 @@ export function threadsFromSnapshot(snapshot: Snapshot): Thread[] {
       workspaceId: thread.workspaceId,
       role: thread.title,
       ownRole: thread.role,
+      own: own.has(thread.id),
       engine: thread.engine,
       status: thread.status,
       activity: threadActivity(thread.status, ws?.activity),
@@ -114,9 +118,9 @@ export class ThreadsStore {
     return this.byWorkspace.get(workspaceId) ?? NO_THREADS
   }
 
-  /** The workspace's one thread that can still be messaged. */
+  /** The workspace's own thread. */
   liveFor(workspaceId: string) {
-    return this.forWorkspace(workspaceId).find((thread) => !thread.retired)
+    return this.forWorkspace(workspaceId).find((thread) => thread.own)
   }
 
   childrenOf(threadId: string): Thread[] {

@@ -414,9 +414,9 @@ pub fn review_blocks(
     workspaces
         .iter()
         .filter_map(|workspace| {
-            let own = threads.iter().find(|thread| {
-                thread.workspace_id == workspace.id && thread.role.is_some() && !thread.retired
-            });
+            let own = threads
+                .iter()
+                .find(|thread| thread.workspace_id == workspace.id && thread.is_own());
             review_block(workspace, own).map(|reason| WorkspaceReviewBlock {
                 workspace_id: workspace.id.clone(),
                 reason: reason.into(),

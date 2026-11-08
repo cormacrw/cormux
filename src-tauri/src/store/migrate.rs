@@ -91,6 +91,7 @@ const MIGRATIONS: &[Migration] = migrations![
     "028_no_model_summaries",
     "029_drop_pr_cache_synced_at",
     "031_no_dismissed_approvals",
+    "032_closed_threads_retired",
     "033_workspace_setup_message",
 ];
 
@@ -552,6 +553,34 @@ mod tests {
             ids("SELECT id FROM visible_threads ORDER BY position"),
             ["open", "scratch"]
         );
+    }
+
+    #[test]
+    fn a_closed_thread_is_retired() {
+        let conn = migrated_before(32);
+        conn.execute_batch(
+            "INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
+             INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status)
+                VALUES ('w', 'r', 'W', 'a', '/tmp/a', 'idle');
+             INSERT INTO threads (id, workspace_id, title, engine, status, role) VALUES
+                ('open', 'w', 'Lead', 'claude', 'idle', 'lead'),
+                ('closed', 'w', 'Lead', 'claude', 'running', 'lead');
+             UPDATE threads SET closed_at = datetime('now') WHERE id = 'closed';",
+        )
+        .unwrap();
+
+        run(&conn, &[]).unwrap();
+
+        let row = |id: &str| -> (bool, String) {
+            conn.query_row(
+                "SELECT retired, status FROM threads WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(row("open"), (false, "idle".into()));
+        assert_eq!(row("closed"), (true, "idle".into()));
     }
 
     #[test]

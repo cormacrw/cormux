@@ -1279,7 +1279,11 @@ workspaceBranchLocks: WorkspaceBranchLock[];
 /**
  * Workspaces whose branch can't be reviewed now, and why.
  */
-workspaceReviewBlocks: WorkspaceReviewBlock[] }
+workspaceReviewBlocks: WorkspaceReviewBlock[]; 
+/**
+ * Each live workspace's own thread, for those with one.
+ */
+workspaceOwnThreads: WorkspaceOwnThread[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
@@ -1529,6 +1533,7 @@ export type WorkspaceKind =
  * paused and idle then follow its threads (see `status_from_threads`).
  */
 export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "paused" | "idle" | "tearingDown" | "provisioningFailed"
+export type WorkspaceOwnThread = { workspaceId: string; threadId: string }
 /**
  * A workspace as the webview shows it: its row, plus what only the running app knows.
  */
