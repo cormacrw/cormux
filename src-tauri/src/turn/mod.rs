@@ -469,6 +469,26 @@ pub async fn ended(state: &AppState, end: &TurnEnd) {
     });
 }
 
+/// No engine survives the app closing, so a turn in flight then is over: its thread is idle, and
+/// so is a workspace that was running or paused.
+pub fn on_restart(store: &crate::store::Store) -> Result<()> {
+    store.with_tx(|conn| {
+        for status in ThreadStatus::ALL.into_iter().filter(|s| s.is_mid_turn()) {
+            conn.execute(
+                "UPDATE threads SET status = ?1 WHERE status = ?2",
+                [ThreadStatus::Idle.as_str(), status.as_str()],
+            )?;
+        }
+        for from in [WorkspaceLifecycle::Running, WorkspaceLifecycle::Paused] {
+            conn.execute(
+                "UPDATE workspaces SET status = ?1 WHERE status = ?2 AND archived_at IS NULL",
+                [WorkspaceLifecycle::Idle.as_str(), from.as_str()],
+            )?;
+        }
+        Ok(())
+    })
+}
+
 /// The thread's current engine ending its turn, as a test reports it.
 #[cfg(test)]
 pub async fn end_turn(state: &AppState, thread_id: &str) {

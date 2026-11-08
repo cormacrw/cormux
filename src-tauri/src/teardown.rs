@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::app::WorkspaceAppStatus;
 use crate::error::{Error, Result};
-use crate::model::WorkspaceLifecycle;
+use crate::model::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
 use crate::state::AppState;
 use crate::workspaces::WorkspaceRecord;
 
@@ -158,6 +158,36 @@ async fn run_teardown_steps(
     }
 
     Ok(())
+}
+
+/// A teardown that was running when the app closed goes back to what the workspace's threads
+/// say, or failed setup if setup was what it stopped: finishing it unasked would delete the
+/// worktree and maybe the branch without the user seeing what's in them now, so they tear it
+/// down again from there.
+pub fn on_restart(store: &crate::store::Store) -> Result<()> {
+    store.with_tx(|conn| {
+        let torn: Vec<String> = conn
+            .prepare("SELECT id FROM workspaces WHERE status = ?1 AND archived_at IS NULL")?
+            .query_map([WorkspaceLifecycle::TearingDown.as_str()], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for id in torn {
+            let threads: Vec<ThreadStatus> = conn
+                .prepare("SELECT status FROM threads WHERE workspace_id = ?1 AND retired = 0")?
+                .query_map([&id], |row| row.get::<_, String>(0))?
+                .map(|raw| raw.map(|raw| ThreadStatus::parse(&raw)))
+                .collect::<rusqlite::Result<_>>()?;
+            let status = if threads.contains(&ThreadStatus::Provisioning) {
+                WorkspaceLifecycle::ProvisioningFailed
+            } else {
+                status_from_threads(WorkspaceLifecycle::Idle, threads.into_iter())
+            };
+            conn.execute(
+                "UPDATE workspaces SET status = ?1 WHERE id = ?2",
+                [status.as_str(), id.as_str()],
+            )?;
+        }
+        Ok(())
+    })
 }
 
 /// What a workspace is once a teardown that stopped its agents and setup gives up.

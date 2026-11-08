@@ -67,10 +67,13 @@ pub enum Listener {
 
 type Handler = dyn Fn(DomainEvent) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 
+/// Each listener's handler, in `Listener` order.
+type Listeners = Arc<Mutex<Vec<(Listener, Arc<Handler>)>>>;
+
 #[derive(Clone)]
 pub struct Bus {
     sender: broadcast::Sender<DomainEvent>,
-    listeners: Arc<Mutex<Vec<(Listener, Arc<Handler>)>>>,
+    listeners: Listeners,
     /// Events sent to the dispatcher, and how many its listeners have finished with.
     published: Arc<std::sync::atomic::AtomicU64>,
     handled: Arc<tokio::sync::watch::Sender<u64>>,

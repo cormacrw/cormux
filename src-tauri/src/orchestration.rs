@@ -399,31 +399,34 @@ async fn on_turn_end(state: &AppState, thread_id: &str, span: TurnSpan) -> Resul
 /// app.
 pub fn start(state: &AppState) {
     let state = state.clone();
-    state.bus.clone().listen(crate::bus::Listener::Orchestration, move |event| {
-        let state = state.clone();
-        async move {
-            let reported = match event {
-                DomainEvent::TurnEnded {
-                    thread_id, span, ..
-                } => on_turn_end(&state, &thread_id, span).await,
-                DomainEvent::ApprovalRequested {
-                    thread_id,
-                    approval_id,
-                    tool,
-                } => on_approval_requested(&state, &thread_id, &approval_id, &tool).await,
-                DomainEvent::ProvisioningFailed {
-                    workspace_id,
-                    message,
-                } => on_provisioning_failed(&state, &workspace_id, &message).await,
-                DomainEvent::PromptsDropped { .. } | DomainEvent::ApprovalsCancelled { .. } => {
-                    Ok(())
+    state
+        .bus
+        .clone()
+        .listen(crate::bus::Listener::Orchestration, move |event| {
+            let state = state.clone();
+            async move {
+                let reported = match event {
+                    DomainEvent::TurnEnded {
+                        thread_id, span, ..
+                    } => on_turn_end(&state, &thread_id, span).await,
+                    DomainEvent::ApprovalRequested {
+                        thread_id,
+                        approval_id,
+                        tool,
+                    } => on_approval_requested(&state, &thread_id, &approval_id, &tool).await,
+                    DomainEvent::ProvisioningFailed {
+                        workspace_id,
+                        message,
+                    } => on_provisioning_failed(&state, &workspace_id, &message).await,
+                    DomainEvent::PromptsDropped { .. } | DomainEvent::ApprovalsCancelled { .. } => {
+                        Ok(())
+                    }
+                };
+                if let Err(error) = reported {
+                    log::warn!("reporting to a parent thread failed: {error}");
                 }
-            };
-            if let Err(error) = reported {
-                log::warn!("reporting to a parent thread failed: {error}");
             }
-        }
-    });
+        });
 }
 
 /// A child waiting on an approval can't go on, and only the user can answer it.

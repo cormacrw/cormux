@@ -528,6 +528,104 @@ fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result
     }
 }
 
+/// The workspace row's columns that change after it's made; only `Workspaces` writes them.
+impl Store {
+    pub fn set_workspace_name(&self, workspace_id: &str, name: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET name = ?1 WHERE id = ?2",
+                rusqlite::params![name, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_workspace_branch(&self, workspace_id: &str, branch: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
+                rusqlite::params![branch, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_workspace_base(&self, workspace_id: &str, base: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET base = ?1 WHERE id = ?2",
+                rusqlite::params![base, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_workspace_checkout(
+        &self,
+        workspace_id: &str,
+        branch: &str,
+        worktree_path: &str,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET branch = ?1, worktree_path = ?2 WHERE id = ?3",
+                rusqlite::params![branch, worktree_path, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_workspace_pr(
+        &self,
+        workspace_id: &str,
+        pr_number: Option<i64>,
+        pr_html_url: Option<&str>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET pr_number = ?1, pr_html_url = ?2 WHERE id = ?3",
+                rusqlite::params![pr_number, pr_html_url, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_workspace_run_command(
+        &self,
+        workspace_id: &str,
+        command: Option<&str>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET run_command = ?1 WHERE id = ?2",
+                rusqlite::params![command, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_workspace_summary(&self, workspace_id: &str, summary: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET summary = ?1, summary_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![summary, workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn archive_workspace(&self, workspace_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE workspaces SET archived_at = datetime('now'), worktree_path = ''
+                 WHERE id = ?1",
+                rusqlite::params![workspace_id],
+            )?;
+            Ok(())
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

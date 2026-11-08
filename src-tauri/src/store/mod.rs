@@ -10,8 +10,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
 use crate::model::{
-    ApprovalStatus, ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle,
-    status_from_threads,
+    ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle, status_from_threads,
 };
 pub use migrate::RustMigration;
 use types::{RepoRecord, ThreadPicks, ThreadRow, WorkspaceRow};
@@ -188,101 +187,6 @@ impl Store {
         })
     }
 
-    pub fn set_workspace_name(&self, workspace_id: &str, name: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET name = ?1 WHERE id = ?2",
-                rusqlite::params![name, workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn set_workspace_branch(&self, workspace_id: &str, branch: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
-                rusqlite::params![branch, workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn set_workspace_base(&self, workspace_id: &str, base: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET base = ?1 WHERE id = ?2",
-                rusqlite::params![base, workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn set_workspace_checkout(
-        &self,
-        workspace_id: &str,
-        branch: &str,
-        worktree_path: &str,
-    ) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET branch = ?1, worktree_path = ?2 WHERE id = ?3",
-                rusqlite::params![branch, worktree_path, workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn set_workspace_pr(
-        &self,
-        workspace_id: &str,
-        pr_number: Option<i64>,
-        pr_html_url: Option<&str>,
-    ) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET pr_number = ?1, pr_html_url = ?2 WHERE id = ?3",
-                rusqlite::params![pr_number, pr_html_url, workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn set_workspace_run_command(
-        &self,
-        workspace_id: &str,
-        command: Option<&str>,
-    ) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET run_command = ?1 WHERE id = ?2",
-                rusqlite::params![command, workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn set_workspace_summary(&self, workspace_id: &str, summary: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET summary = ?1, summary_at = datetime('now') WHERE id = ?2",
-                rusqlite::params![summary, workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn archive_workspace(&self, workspace_id: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET archived_at = datetime('now'), worktree_path = ''
-                 WHERE id = ?1",
-                rusqlite::params![workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
     pub fn workspace_by_id(&self, workspace_id: &str) -> Result<Option<WorkspaceRow>> {
         self.with_read(|conn| {
             Ok(conn
@@ -338,65 +242,6 @@ impl Store {
                 "UPDATE workspaces SET status = ?1 WHERE id = ?2",
                 rusqlite::params![status.as_str(), workspace_id],
             )?;
-            Ok(())
-        })
-    }
-
-    /// No agent, setup or teardown survives the app closing. A turn in flight then is over. A
-    /// setup that was running reads as failed, so Retry and Skip take it. A teardown that was
-    /// running goes back to what the workspace's threads say (or failed setup, if setup was
-    /// what it stopped): finishing it unasked would delete the worktree and maybe the branch
-    /// without the user seeing what's in them now, so they tear it down again from there.
-    pub fn reset_interrupted_turns(&self) -> Result<()> {
-        self.with_tx(|conn| {
-            conn.execute(
-                "UPDATE approvals SET status = ?1 WHERE status = ?2",
-                [
-                    ApprovalStatus::Denied.as_str(),
-                    ApprovalStatus::Pending.as_str(),
-                ],
-            )?;
-            for status in ThreadStatus::ALL.into_iter().filter(|s| s.is_mid_turn()) {
-                conn.execute(
-                    "UPDATE threads SET status = ?1 WHERE status = ?2",
-                    [ThreadStatus::Idle.as_str(), status.as_str()],
-                )?;
-            }
-            for (from, to) in [
-                (WorkspaceLifecycle::Running, WorkspaceLifecycle::Idle),
-                (WorkspaceLifecycle::Paused, WorkspaceLifecycle::Idle),
-                (
-                    WorkspaceLifecycle::Provisioning,
-                    WorkspaceLifecycle::ProvisioningFailed,
-                ),
-            ] {
-                conn.execute(
-                    "UPDATE workspaces SET status = ?1 WHERE status = ?2 AND archived_at IS NULL",
-                    [to.as_str(), from.as_str()],
-                )?;
-            }
-            let torn: Vec<String> = conn
-                .prepare("SELECT id FROM workspaces WHERE status = ?1 AND archived_at IS NULL")?
-                .query_map([WorkspaceLifecycle::TearingDown.as_str()], |row| row.get(0))?
-                .collect::<rusqlite::Result<_>>()?;
-            for id in torn {
-                let threads: Vec<ThreadStatus> = conn
-                    .prepare(
-                        "SELECT status FROM threads WHERE workspace_id = ?1 AND retired = 0",
-                    )?
-                    .query_map([&id], |row| row.get::<_, String>(0))?
-                    .map(|raw| raw.map(|raw| ThreadStatus::parse(&raw)))
-                    .collect::<rusqlite::Result<_>>()?;
-                let status = if threads.contains(&ThreadStatus::Provisioning) {
-                    WorkspaceLifecycle::ProvisioningFailed
-                } else {
-                    status_from_threads(WorkspaceLifecycle::Idle, threads.into_iter())
-                };
-                conn.execute(
-                    "UPDATE workspaces SET status = ?1 WHERE id = ?2",
-                    [status.as_str(), id.as_str()],
-                )?;
-            }
             Ok(())
         })
     }
@@ -875,68 +720,6 @@ mod tests {
         assert_eq!(store.thread_effort("lead").unwrap(), None);
         let lead = store.thread_by_id("lead").unwrap().unwrap();
         assert_eq!((lead.used_tokens, lead.context_size), (None, None));
-    }
-
-    #[test]
-    fn a_restart_ends_the_turns_that_were_running() {
-        let store = Store::in_memory().unwrap();
-        store.seed_workspace("w", WorkspaceLifecycle::Paused);
-        store
-            .with_conn(|conn| {
-                conn.execute_batch(
-                    "PRAGMA foreign_keys = OFF;
-                     INSERT INTO threads (id, workspace_id, title, engine, status) VALUES
-                        ('busy', 'w', 'Lead', 'claude', 'running'),
-                        ('held', 'w', 'Helper', 'claude', 'paused'),
-                        ('setup', 'w2', 'Lead', 'claude', 'provisioning');
-                     INSERT INTO approvals (id, thread_id, status, tool, payload) VALUES
-                        ('stale', 'busy', 'pending', 'execute', '{}'),
-                        ('done', 'busy', 'approved', 'execute', '{}');",
-                )?;
-                Ok(())
-            })
-            .unwrap();
-
-        store.reset_interrupted_turns().unwrap();
-
-        let approval = |id: &str| store.get_approval(id).unwrap().unwrap().status;
-        assert_eq!(approval("stale"), ApprovalStatus::Denied);
-        assert_eq!(approval("done"), ApprovalStatus::Approved);
-        let status = |id: &str| store.thread_by_id(id).unwrap().unwrap().status;
-        assert_eq!(status("busy"), ThreadStatus::Idle);
-        assert_eq!(status("held"), ThreadStatus::Idle);
-        assert_eq!(status("setup"), ThreadStatus::Provisioning);
-        let workspace = store.workspace_by_id("w").unwrap().unwrap();
-        assert_eq!(workspace.status, WorkspaceLifecycle::Idle);
-    }
-
-    /// A quit mid-setup used to leave it `provisioning`, which Retry and Skip refuse, and a
-    /// quit mid-teardown `tearingDown`, which teardown refuses: stuck for good either way.
-    #[test]
-    fn a_restart_hands_back_interrupted_setups_and_teardowns() {
-        let store = Store::in_memory().unwrap();
-        for (id, status) in [
-            ("setting-up", WorkspaceLifecycle::Provisioning),
-            ("torn-mid-turn", WorkspaceLifecycle::TearingDown),
-            ("torn-mid-setup", WorkspaceLifecycle::TearingDown),
-            ("torn-empty", WorkspaceLifecycle::TearingDown),
-        ] {
-            store.seed_workspace(id, status);
-        }
-        store.seed_thread("lead", "setting-up", ThreadStatus::Provisioning);
-        store.seed_thread("busy", "torn-mid-turn", ThreadStatus::Running);
-        store.seed_thread("setup", "torn-mid-setup", ThreadStatus::Provisioning);
-
-        store.reset_interrupted_turns().unwrap();
-
-        let status = |id: &str| store.workspace_by_id(id).unwrap().unwrap().status;
-        assert_eq!(status("setting-up"), WorkspaceLifecycle::ProvisioningFailed);
-        assert_eq!(status("torn-mid-turn"), WorkspaceLifecycle::Idle);
-        assert_eq!(
-            status("torn-mid-setup"),
-            WorkspaceLifecycle::ProvisioningFailed
-        );
-        assert_eq!(status("torn-empty"), WorkspaceLifecycle::Ready);
     }
 
     #[test]

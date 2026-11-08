@@ -273,7 +273,10 @@ impl WorkspaceAppService {
             .store
             .workspace_by_id(&workspace.id)?
             .and_then(|row| row.run_command);
-        Ok(crate::harness_config::workspace_run_command(own.as_deref(), &repo)?.map(|run| run.command))
+        Ok(
+            crate::harness_config::workspace_run_command(own.as_deref(), &repo)?
+                .map(|run| run.command),
+        )
     }
 
     async fn workspace_name(&self, workspace_id: &str) -> String {

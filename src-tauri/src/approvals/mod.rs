@@ -14,6 +14,7 @@ use tokio::sync::oneshot;
 #[cfg(test)]
 pub use payload::QUESTION_TOOL;
 pub use store::ApprovalRow;
+pub use store::on_restart;
 pub(crate) use store::visible as visible_in;
 
 use crate::bus::{Bus, DomainEvent};

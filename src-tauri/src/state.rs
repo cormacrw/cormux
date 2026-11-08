@@ -28,6 +28,9 @@ pub const RUST_MIGRATIONS: &[crate::store::migrate::RustMigration] = &[
     crate::settings::MIGRATION,
 ];
 
+/// What an owner does to the store when the app opens, for what the last run left mid-way.
+pub type OnRestart = fn(&Store) -> Result<()>;
+
 /// Process-wide core state. The webview never holds this; IPC commands borrow it. A handle to
 /// one shared [`Core`], so a workflow can clone it into the background tasks it spawns.
 #[derive(Clone)]
@@ -69,10 +72,17 @@ pub struct Core {
 }
 
 impl AppState {
-    /// Turns that were running when the app last closed are over: no agent survives it.
-    pub fn new(data_dir: DataDir, output: Arc<dyn UserOutput>) -> Result<Self> {
+    /// Nothing running survives the app closing: each of `on_restart`, in order, puts back what
+    /// its owner left mid-way.
+    pub fn new(
+        data_dir: DataDir,
+        output: Arc<dyn UserOutput>,
+        on_restart: &[OnRestart],
+    ) -> Result<Self> {
         let store = Store::open(&data_dir.db(), RUST_MIGRATIONS)?;
-        store.reset_interrupted_turns()?;
+        for restart in on_restart {
+            restart(&store)?;
+        }
         let shell_env = SharedEnv::loading();
         let engines = Arc::new(ClaudeEngines::new(shell_env.without_waiting()));
         Ok(Self::with_store(

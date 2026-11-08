@@ -152,19 +152,22 @@ pub fn record_batch(
 /// or its session replaced) are open again, for the life of the app.
 pub fn start(state: &AppState) {
     let state = state.clone();
-    state.bus.clone().listen(crate::bus::Listener::Findings, move |event| {
-        let state = state.clone();
-        async move {
-            if let DomainEvent::PromptsDropped {
-                thread_id,
-                message_seqs,
-            } = event
-                && let Err(error) = reopen_dropped(&state, &thread_id, &message_seqs)
-            {
-                log::warn!("reopening findings {thread_id} never got: {error}");
+    state
+        .bus
+        .clone()
+        .listen(crate::bus::Listener::Findings, move |event| {
+            let state = state.clone();
+            async move {
+                if let DomainEvent::PromptsDropped {
+                    thread_id,
+                    message_seqs,
+                } = event
+                    && let Err(error) = reopen_dropped(&state, &thread_id, &message_seqs)
+                {
+                    log::warn!("reopening findings {thread_id} never got: {error}");
+                }
             }
-        }
-    });
+        });
 }
 
 fn reopen_dropped(state: &AppState, thread_id: &str, message_seqs: &[i64]) -> Result<()> {

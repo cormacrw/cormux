@@ -19,6 +19,21 @@ pub struct ApprovalRow {
     pub payload: Option<ApprovalPayload>,
 }
 
+/// No engine survives the app closing, so nothing can answer the cards that were waiting: they
+/// read as denied.
+pub fn on_restart(store: &Store) -> Result<()> {
+    store.with_conn(|conn| {
+        conn.execute(
+            "UPDATE approvals SET status = ?1 WHERE status = ?2",
+            [
+                ApprovalStatus::Denied.as_str(),
+                ApprovalStatus::Pending.as_str(),
+            ],
+        )?;
+        Ok(())
+    })
+}
+
 const APPROVAL_COLUMNS: &str = "SELECT id, thread_id, status, tool, payload FROM approvals";
 
 /// Closed threads' answers stay in the table for the record but never reach the webview.

@@ -161,7 +161,7 @@ provisioning → ready ⇄ running / paused / idle (from its threads' statuses) 
 provisioningFailed (retry, or skip setup and continue)
 ```
 
-Nothing running survives a quit, so on startup (`Store::reset_interrupted_turns`) a turn in flight ends idle, setup in progress reads as failed (Retry and Skip take it), and a teardown in progress goes back to what its threads say, or failed setup if setup was what it stopped. The user tears it down again with a fresh data-loss check rather than the core finishing a delete nobody is watching.
+Nothing running survives a quit, so on startup each owner puts back what it left mid-way (`lib.rs`'s `ON_RESTART`, which `AppState::new` runs in order: `approvals`, `turn`, `provisioning`, `teardown`): waiting approvals read as denied, a turn in flight ends idle, setup in progress reads as failed (Retry and Skip take it), and a teardown in progress goes back to what its threads say, or failed setup if setup was what it stopped. The user tears it down again with a fresh data-loss check rather than the core finishing a delete nobody is watching.
 
 A workspace's status follows its threads': `store::set_thread_status` writes both in one transaction (`model::status_from_threads`). It is running while any thread works or starts (`ThreadStatus::is_working`), paused when its only unfinished threads are paused, and idle otherwise; the webview reads it and doesn't re-derive it. Setup ends through `Workspaces::finish_provisioning`, which writes the thread's status before the workspace's, so a workspace set up without a prompt ends ready; it and `Workspaces::fail_provisioning` only move a workspace that is still provisioning, so late setup can't bring back one being torn down.
 

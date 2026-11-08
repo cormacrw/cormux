@@ -63,6 +63,15 @@ use tauri_specta::Event;
 use window_activity::WindowActivity;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// What each owner puts back after a quit, in order: teardown reads the thread statuses turn and
+/// provisioning leave.
+const ON_RESTART: &[state::OnRestart] = &[
+    approvals::on_restart,
+    turn::on_restart,
+    provisioning::on_restart,
+    teardown::on_restart,
+];
+
 /// The features that react to what happens in the core; the bus hands each event to them in
 /// `bus::Listener` order.
 fn start_listeners(state: &AppState) {
@@ -117,6 +126,7 @@ pub fn run() {
             let state = AppState::new(
                 paths::DataDir::for_app(app.path().app_data_dir()?),
                 Arc::new(TauriOutput(app.handle().clone())),
+                ON_RESTART,
             )?;
             app.asset_protocol_scope()
                 .allow_directory(state.data_dir.media(), true)?;
@@ -178,17 +188,86 @@ pub fn run() {
 mod tests {
     use super::*;
     use crate::engines::{AgentEvent, EngineCommand, MessageRole};
+    use crate::model::ApprovalStatus;
     use crate::model::{ThreadRole, ThreadStatus, WorkspaceLifecycle};
+    use crate::store::Store;
     use crate::store::fixtures;
     use crate::store::types::{ThreadRow, WorkspaceRow};
+
+    fn restart(store: &Store) {
+        for on_restart in ON_RESTART {
+            on_restart(store).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_restart_ends_the_turns_that_were_running() {
+        let store = Store::in_memory().unwrap();
+        store.seed_workspace("w", WorkspaceLifecycle::Paused);
+        store
+            .with_conn(|conn| {
+                conn.execute_batch(
+                    "PRAGMA foreign_keys = OFF;
+                     INSERT INTO threads (id, workspace_id, title, engine, status) VALUES
+                        ('busy', 'w', 'Lead', 'claude', 'running'),
+                        ('held', 'w', 'Helper', 'claude', 'paused'),
+                        ('setup', 'w2', 'Lead', 'claude', 'provisioning');
+                     INSERT INTO approvals (id, thread_id, status, tool, payload) VALUES
+                        ('stale', 'busy', 'pending', 'execute', '{}'),
+                        ('done', 'busy', 'approved', 'execute', '{}');",
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        restart(&store);
+
+        let approval = |id: &str| store.get_approval(id).unwrap().unwrap().status;
+        assert_eq!(approval("stale"), ApprovalStatus::Denied);
+        assert_eq!(approval("done"), ApprovalStatus::Approved);
+        let status = |id: &str| store.thread_by_id(id).unwrap().unwrap().status;
+        assert_eq!(status("busy"), ThreadStatus::Idle);
+        assert_eq!(status("held"), ThreadStatus::Idle);
+        assert_eq!(status("setup"), ThreadStatus::Provisioning);
+        let workspace = store.workspace_by_id("w").unwrap().unwrap();
+        assert_eq!(workspace.status, WorkspaceLifecycle::Idle);
+    }
+
+    /// A quit mid-setup used to leave it `provisioning`, which Retry and Skip refuse, and a
+    /// quit mid-teardown `tearingDown`, which teardown refuses: stuck for good either way.
+    #[test]
+    fn a_restart_hands_back_interrupted_setups_and_teardowns() {
+        let store = Store::in_memory().unwrap();
+        for (id, status) in [
+            ("setting-up", WorkspaceLifecycle::Provisioning),
+            ("torn-mid-turn", WorkspaceLifecycle::TearingDown),
+            ("torn-mid-setup", WorkspaceLifecycle::TearingDown),
+            ("torn-empty", WorkspaceLifecycle::TearingDown),
+        ] {
+            store.seed_workspace(id, status);
+        }
+        store.seed_thread("lead", "setting-up", ThreadStatus::Provisioning);
+        store.seed_thread("busy", "torn-mid-turn", ThreadStatus::Running);
+        store.seed_thread("setup", "torn-mid-setup", ThreadStatus::Provisioning);
+
+        restart(&store);
+
+        let status = |id: &str| store.workspace_by_id(id).unwrap().unwrap().status;
+        assert_eq!(status("setting-up"), WorkspaceLifecycle::ProvisioningFailed);
+        assert_eq!(status("torn-mid-turn"), WorkspaceLifecycle::Idle);
+        assert_eq!(
+            status("torn-mid-setup"),
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+        assert_eq!(status("torn-empty"), WorkspaceLifecycle::Ready);
+    }
 
     /// The order the app starts its listeners in is the bus's: a Lead whose branch review ends
     /// in the same turn a child's report waits for it has its findings read before the report
     /// starts its next turn.
     #[tokio::test]
     async fn the_apps_listeners_read_a_turn_before_starting_the_next() {
-        let (state, _recording, fake) =
-            AppState::faked(paths::DataDir::new(std::env::temp_dir()));
+        let (state, _recording, fake) = AppState::faked(paths::DataDir::new(std::env::temp_dir()));
         state.store.upsert_repo(&fixtures::repo("r1")).unwrap();
         for (workspace, thread, parent) in [("w1", "t1", None), ("w2", "child", Some("t1"))] {
             state

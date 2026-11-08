@@ -282,20 +282,24 @@ pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<Prov
 /// Reads each Reviewer's findings when its turn ends, for the life of the app.
 pub fn start(state: &AppState) {
     let state = state.clone();
-    state.bus.clone().listen(crate::bus::Listener::Review, move |event| {
-        let state = state.clone();
-        async move {
-            if let DomainEvent::TurnEnded {
-                thread_id,
-                span,
-                stopped,
-            } = event
-                && let Err(error) = on_reviewer_turn_end(&state, &thread_id, span, stopped).await
-            {
-                log::warn!("reading review findings failed: {error}");
+    state
+        .bus
+        .clone()
+        .listen(crate::bus::Listener::Review, move |event| {
+            let state = state.clone();
+            async move {
+                if let DomainEvent::TurnEnded {
+                    thread_id,
+                    span,
+                    stopped,
+                } = event
+                    && let Err(error) =
+                        on_reviewer_turn_end(&state, &thread_id, span, stopped).await
+                {
+                    log::warn!("reading review findings failed: {error}");
+                }
             }
-        }
-    });
+        });
 }
 
 fn review_status(store: &Store, workspace_id: &str) -> Result<Option<ReviewStatus>> {
