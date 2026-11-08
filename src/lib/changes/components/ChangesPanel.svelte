@@ -20,7 +20,7 @@
   import { openWorkspaceThread } from '$lib/nav/open'
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import { formatChangeCounts } from '$lib/changes/diff-totals'
-  import { revealDiffLine } from '$lib/changes/reveal-line'
+  import { revealDiffLine, scrollWithin } from '$lib/changes/reveal-line'
   import { Button } from '$lib/components/ui/button'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
   import { diffTargetLabel } from '$lib/changes/stack'
@@ -119,8 +119,9 @@
       const fileEl = scroller.querySelector(
         `[data-diff-path="${CSS.escape(path)}"]`,
       )
-      fileEl?.scrollIntoView({ block: 'start' })
-      if (fileEl && line != null) revealDiffLine(fileEl, line)
+      if (!fileEl) return
+      scrollWithin(scroller, fileEl, 'start')
+      if (line != null) revealDiffLine(scroller, fileEl, line)
     })
   })
 

@@ -14,11 +14,30 @@ function findNewLineRow(
 }
 
 /**
+ * Scrolls `scroller` alone so `el` sits at its top or centre. `scrollIntoView` would also scroll
+ * any clipped ancestor, such as the workspace's row while the tray is still sliding in.
+ */
+export function scrollWithin(
+  scroller: HTMLElement,
+  el: Element,
+  block: 'start' | 'center',
+) {
+  const box = scroller.getBoundingClientRect()
+  const target = el.getBoundingClientRect()
+  const offset =
+    block === 'start'
+      ? target.top - box.top
+      : target.top + target.height / 2 - (box.top + box.height / 2)
+  scroller.scrollTop += offset
+}
+
+/**
  * Scrolls the diff to a line of the new file and flashes it. The diff renders after the
  * file expands, so this retries for a moment. Lines outside the diff's hunks aren't
  * shown at all; then the file header stays in view instead.
  */
 export function revealDiffLine(
+  scroller: HTMLElement,
   fileEl: Element,
   line: number,
   timeoutMs = 1500,
@@ -31,7 +50,7 @@ export function revealDiffLine(
         requestAnimationFrame(attempt)
       return
     }
-    row.scrollIntoView({ block: 'center' })
+    scrollWithin(scroller, row, 'center')
     // Cells paint their own backgrounds, so tint each one rather than the row.
     for (const cell of row.cells) {
       cell.animate(

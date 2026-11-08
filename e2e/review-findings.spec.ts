@@ -120,6 +120,12 @@ test('findings: selectable text, checkbox-only toggles, location opens Changes a
       ),
     )
     .toBe(true)
+  // Only the diff scrolled: the row the tray slides into stays put.
+  expect(
+    await page
+      .locator('[data-od-id="git-slide-out"]')
+      .evaluate((tray) => tray.parentElement!.scrollLeft),
+  ).toBe(0)
   await page.screenshot({ path: 'e2e/output/review-findings-changes.png' })
   expect(errors).toEqual([])
 })
