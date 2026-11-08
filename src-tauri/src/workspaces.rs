@@ -349,12 +349,20 @@ impl Workspaces {
     }
 
     pub async fn can_switch_branch(&self, id: &str) -> Result<()> {
-        let record = self.get(id).await?;
-        let threads = self.store.threads_for_workspace(id)?;
-        match branch_lock(record.status, threads.iter().map(|thread| thread.status)) {
+        match self.branch_lock(id).await? {
             Some(reason) => Err(Error::Workspace(reason.into())),
             None => Ok(()),
         }
+    }
+
+    /// Why the workspace's branch can't move now; see [`branch_lock`].
+    pub async fn branch_lock(&self, id: &str) -> Result<Option<&'static str>> {
+        let record = self.get(id).await?;
+        let threads = self.store.threads_for_workspace(id)?;
+        Ok(branch_lock(
+            record.status,
+            threads.iter().map(|thread| thread.status),
+        ))
     }
 
     pub async fn archive(&self, id: &str) -> Result<()> {

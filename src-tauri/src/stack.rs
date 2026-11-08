@@ -323,7 +323,8 @@ pub fn parents(names_and_merged: &[(String, bool)], trunk: &str) -> Vec<String> 
 
 /// The workspace's stack. When its branch reads as unstacked, a stack made in another worktree
 /// or on GitHub is set up here first (`gh stack init`/`checkout`), which writes to the
-/// worktree: the workspace record follows whatever branch that leaves checked out.
+/// worktree: the workspace record follows whatever branch that leaves checked out. That switches
+/// branches, so it waits while the branch is locked (an agent working, or setup running).
 pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<WorkspaceStack> {
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
@@ -345,6 +346,12 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
     let json = match view(state, &worktree).await? {
         View::Stacked(json) => json,
         View::NotStacked => {
+            if let Some(reason) = state.workspaces.branch_lock(workspace_id).await? {
+                let message = stack_in_other_worktrees(state, &worktree, &record.branch)
+                    .await
+                    .map(|_| format!("This branch is in a stack from another worktree. {reason}"));
+                return Ok(empty(StackStatus::NotStacked, message));
+            }
             if !adopt_local_stack(state, &worktree, &record.branch).await {
                 if state.stacks.recently_unstacked(&worktree, &record.branch) {
                     return Ok(empty(StackStatus::NotStacked, None));
@@ -1296,6 +1303,48 @@ mod tests {
             fake.calls(),
             ["stack init --base main feat/a feat/b", "stack view --json"]
         );
+        assert_eq!(state.git.current_branch(&worktree).await.unwrap(), "feat/a");
+    }
+
+    /// Bug: opening the Stack tab ran `gh stack init`/`checkout` under a working agent, switching
+    /// its branch and failing to switch back over the agent's uncommitted changes.
+    #[tokio::test]
+    async fn a_stack_from_elsewhere_waits_while_an_agent_works() {
+        let fake = FakeGh::new();
+        let (state, _) = state_on(fake.env()).await;
+        let (_dir, repo, worktree) = repo_and_worktree();
+        std::fs::write(
+            repo.join(".git/gh-stack"),
+            stack_file("main", &["feat/a", "feat/b"]),
+        )
+        .unwrap();
+        state
+            .store
+            .upsert_repo(&RepoRecord {
+                path: repo.to_string_lossy().to_string(),
+                ..crate::store::fixtures::repo("r1")
+            })
+            .unwrap();
+        state
+            .store
+            .insert_workspace(&WorkspaceRow {
+                branch: "feat/a".into(),
+                worktree_path: worktree.to_string_lossy().to_string(),
+                ..crate::store::fixtures::workspace("w", WorkspaceLifecycle::Running)
+            })
+            .unwrap();
+        state
+            .store
+            .seed_thread("t", "w", crate::model::ThreadStatus::Running);
+        fake.reply("view", exits(2, "", "not in a stack\n"));
+
+        let stack = workspace_stack(&state, "w").await.unwrap();
+
+        assert_eq!(stack.status, StackStatus::NotStacked);
+        let message = stack.message.unwrap();
+        assert!(message.contains("another worktree"), "{message}");
+        assert!(message.contains("Pause or stop"), "{message}");
+        assert_eq!(fake.calls(), ["stack view --json"], "no init or checkout");
         assert_eq!(state.git.current_branch(&worktree).await.unwrap(), "feat/a");
     }
 
