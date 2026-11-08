@@ -58,7 +58,7 @@ const conversationsByEvents = new WeakMap<
 >()
 const promptsByEvents = new WeakMap<TimedEvent[], string[]>()
 
-export function conversationsOf(events: TimedEvent[]) {
+function conversationsOf(events: TimedEvent[]) {
   let split = conversationsByEvents.get(events)
   if (!split) {
     split = splitConversations(events)
