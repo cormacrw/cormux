@@ -348,8 +348,11 @@ impl Store {
         })
     }
 
-    /// No agent survives the app closing, so a turn in flight then is over. Provisioning is
-    /// left alone: it has its own retry.
+    /// No agent, setup or teardown survives the app closing. A turn in flight then is over. A
+    /// setup that was running reads as failed, so Retry and Skip take it. A teardown that was
+    /// running goes back to what the workspace's threads say (or failed setup, if setup was
+    /// what it stopped): finishing it unasked would delete the worktree and maybe the branch
+    /// without the user seeing what's in them now, so they tear it down again from there.
     pub fn reset_interrupted_turns(&self) -> Result<()> {
         self.with_tx(|conn| {
             conn.execute(
@@ -365,10 +368,41 @@ impl Store {
                     [ThreadStatus::Idle.as_str(), status.as_str()],
                 )?;
             }
-            for status in [WorkspaceLifecycle::Running, WorkspaceLifecycle::Paused] {
+            for (from, to) in [
+                (WorkspaceLifecycle::Running, WorkspaceLifecycle::Idle),
+                (WorkspaceLifecycle::Paused, WorkspaceLifecycle::Idle),
+                (
+                    WorkspaceLifecycle::Provisioning,
+                    WorkspaceLifecycle::ProvisioningFailed,
+                ),
+            ] {
                 conn.execute(
-                    "UPDATE workspaces SET status = ?1 WHERE status = ?2",
-                    [WorkspaceLifecycle::Idle.as_str(), status.as_str()],
+                    "UPDATE workspaces SET status = ?1 WHERE status = ?2 AND archived_at IS NULL",
+                    [to.as_str(), from.as_str()],
+                )?;
+            }
+            let torn: Vec<String> = conn
+                .prepare(
+                    "SELECT id FROM workspaces WHERE status = ?1 AND archived_at IS NULL",
+                )?
+                .query_map([WorkspaceLifecycle::TearingDown.as_str()], |row| row.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            for id in torn {
+                let threads: Vec<ThreadStatus> = conn
+                    .prepare(
+                        "SELECT status FROM threads WHERE workspace_id = ?1 AND closed_at IS NULL",
+                    )?
+                    .query_map([&id], |row| row.get::<_, String>(0))?
+                    .map(|raw| raw.map(|raw| ThreadStatus::parse(&raw)))
+                    .collect::<rusqlite::Result<_>>()?;
+                let status = if threads.contains(&ThreadStatus::Provisioning) {
+                    WorkspaceLifecycle::ProvisioningFailed
+                } else {
+                    status_from_threads(WorkspaceLifecycle::Idle, threads.into_iter())
+                };
+                conn.execute(
+                    "UPDATE workspaces SET status = ?1 WHERE id = ?2",
+                    [status.as_str(), id.as_str()],
                 )?;
             }
             Ok(())
@@ -882,6 +916,38 @@ mod tests {
         assert_eq!(status("setup"), ThreadStatus::Provisioning);
         let workspace = store.workspace_by_id("w").unwrap().unwrap();
         assert_eq!(workspace.status, WorkspaceLifecycle::Idle);
+    }
+
+    /// A quit mid-setup used to leave it `provisioning`, which Retry and Skip refuse, and a
+    /// quit mid-teardown `tearingDown`, which teardown refuses: stuck for good either way.
+    #[test]
+    fn a_restart_hands_back_interrupted_setups_and_teardowns() {
+        let store = Store::in_memory().unwrap();
+        for (id, status) in [
+            ("setting-up", WorkspaceLifecycle::Provisioning),
+            ("torn-mid-turn", WorkspaceLifecycle::TearingDown),
+            ("torn-mid-setup", WorkspaceLifecycle::TearingDown),
+            ("torn-empty", WorkspaceLifecycle::TearingDown),
+        ] {
+            store.seed_workspace(id, status);
+        }
+        store.seed_thread("lead", "setting-up", ThreadStatus::Provisioning);
+        store.seed_thread("busy", "torn-mid-turn", ThreadStatus::Running);
+        store.seed_thread("setup", "torn-mid-setup", ThreadStatus::Provisioning);
+
+        store.reset_interrupted_turns().unwrap();
+
+        let status = |id: &str| store.workspace_by_id(id).unwrap().unwrap().status;
+        assert_eq!(
+            status("setting-up"),
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+        assert_eq!(status("torn-mid-turn"), WorkspaceLifecycle::Idle);
+        assert_eq!(
+            status("torn-mid-setup"),
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+        assert_eq!(status("torn-empty"), WorkspaceLifecycle::Ready);
     }
 
     #[test]
