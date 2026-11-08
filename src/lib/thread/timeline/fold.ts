@@ -146,7 +146,7 @@ function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
   return merged
 }
 
-export type FoldState = {
+type FoldState = {
   items: TimelineItem[]
   run: RunStep[]
   // A subagent's steps can land runs after the step that spawned them.

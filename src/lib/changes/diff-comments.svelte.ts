@@ -1,8 +1,6 @@
 import type { DiffTarget } from '$lib/ipc/bindings'
 import type { DiffComment } from './diff-comment-format'
 
-export type { DiffComment, DiffCommentSide } from './diff-comment-format'
-
 /** Stored comments carry the level they were written on, since line numbers only hold within that diff. */
 type ScopedDiffComment = DiffComment & { branch: string | null }
 
@@ -16,10 +14,10 @@ export function commentBranch(
 }
 
 /** Draft review comments on the Changes diff, per workspace and branch, until sent to an agent. */
-export class DiffCommentsStore {
+class DiffCommentsStore {
   byWorkspace = $state<Record<string, ScopedDiffComment[]>>({})
 
-  list(workspaceId: string): ScopedDiffComment[] {
+  private list(workspaceId: string): ScopedDiffComment[] {
     return this.byWorkspace[workspaceId] ?? []
   }
 

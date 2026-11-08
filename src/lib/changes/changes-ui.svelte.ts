@@ -5,7 +5,7 @@ import { isDiffCollapsed } from './file-status'
 type FileRef = Pick<DiffFile, 'path' | 'added' | 'deleted'>
 
 /** How the Changes panel shows the open workspace's diff: folds and layout. */
-export class ChangesUiStore {
+class ChangesUiStore {
   /** Files the user folded (true) or unfolded (false); others use the default. */
   private collapsed = $state<Record<string, boolean>>({})
   diffMode = $state<'unified' | 'split'>('unified')

@@ -3,10 +3,8 @@
   import '@git-diff-view/svelte/styles/diff-view-pure.css'
   import { mode as theme } from 'mode-watcher'
   import type { DiffFile } from '$lib/ipc/bindings'
-  import {
-    diffComments,
-    type DiffComment,
-  } from '$lib/changes/diff-comments.svelte'
+  import { diffComments } from '$lib/changes/diff-comments.svelte'
+  import type { DiffComment } from '$lib/changes/diff-comment-format'
   import { toDiffViewData } from '$lib/changes/diff-view-data'
   import { isLargeDiff } from '$lib/changes/file-status'
   import { appearance } from '$lib/state'

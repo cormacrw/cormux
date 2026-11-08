@@ -55,7 +55,7 @@ function timedEvents(rows: ThreadEventRow[]): TimedEvent[] {
 export type ThreadActionError = { error: CoreError | unknown; doing: string }
 
 /** Owns every thread's loaded history, its stream, and the view and actions built on them. */
-export class ThreadTimelineStore {
+class ThreadTimelineStore {
   // Raw, not deep: a long thread holds thousands of events, and reading each through a
   // reactive proxy made every rebuild of the timeline ~30x slower. Always replaced, never mutated.
   // Only the threads you've opened recently are here; see `watch`.
