@@ -9,9 +9,13 @@
   import { untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Select from '$lib/components/ui/select'
-  import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
+  import ThreadComposer, {
+    type ComposerTarget,
+  } from '$lib/components/workspace/thread/ThreadComposer.svelte'
   import ThreadHero from '$lib/components/workspace/thread/ThreadHero.svelte'
-  import ThreadOptionPicker from '$lib/components/workspace/thread/ThreadOptionPicker.svelte'
+  import ThreadOptionPicker, {
+    draftOptions,
+  } from '$lib/components/workspace/thread/ThreadOptionPicker.svelte'
   import type { ComposerAttachment } from '$lib/composer/attachments'
   import { commands } from '$lib/ipc'
   import { focusPrompt, focusPromptAfterPicker } from '$lib/keyboard/focus-home'
@@ -99,9 +103,36 @@
     return true
   }
 
+  // A new thread's skills come from the repo it will start in.
   const listSkills = $derived.by(() => {
     const id = repoId
     return () => commands.listRepoSkills(id)
+  })
+  const composer: ComposerTarget = $derived({
+    draftKey: 'new-thread',
+    inputLabel: 'Start a new thread',
+    sendLabel: 'Start thread',
+    placeholder: repo
+      ? `What should we do in ${repo.name}?`
+      : 'Add a repo to start a thread',
+    disabled: !repo,
+    send: submit,
+    listSkills,
+    promptHistory: [],
+    stop: null,
+    pickers,
+  })
+  const modelSource = draftOptions('model', {
+    get current() {
+      return model
+    },
+    set: (next) => (model = next),
+  })
+  const effortSource = draftOptions('effort', {
+    get current() {
+      return effort
+    },
+    set: (next) => (effort = next),
   })
 </script>
 
@@ -158,62 +189,47 @@
       </div>
     </div>
 
-    <ThreadComposer
-      target={{
-        draftKey: 'new-thread',
-        repoName: repo?.name ?? null,
-        start: submit,
-        listSkills,
-        pickers,
-      }}
-    />
-    {#snippet pickers()}
-      {#if repos.items.length}
-        <label class="sr-only" for="new-thread-repo">Repository</label>
-        <Select.Root
-          type="single"
-          bind:open={repoOpen}
-          onOpenChangeComplete={(open) => {
-            // Back to the prompt rather than the picker's button.
-            if (!open) focusPromptAfterPicker()
-          }}
-          value={repoId}
-          onValueChange={(value) => {
-            if (value) repoId = value
-          }}
-        >
-          <Select.Trigger
-            bind:ref={repoTrigger}
-            id="new-thread-repo"
-            size="sm"
-            class="glass-well h-7 max-w-[168px] min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
-            title="The worktree is created from this repo ({shortcutLabel(
-              'pickRepo',
-            )})"
-            data-od-id="new-thread-repo"
-          >
-            <Folder class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
-            <span class="truncate">{repo?.name ?? 'Pick a repository'}</span>
-          </Select.Trigger>
-          <Select.Content>
-            {#each repos.items as row (row.id)}
-              <Select.Item value={row.id} label={row.name}>
-                {row.name}
-              </Select.Item>
-            {/each}
-          </Select.Content>
-        </Select.Root>
-        <ThreadOptionPicker
-          kind="model"
-          threadId={null}
-          bind:draftValue={model}
-        />
-        <ThreadOptionPicker
-          kind="effort"
-          threadId={null}
-          bind:draftValue={effort}
-        />
-      {/if}
-    {/snippet}
+    <ThreadComposer target={composer} />
   </div>
 </section>
+
+{#snippet pickers()}
+  {#if repos.items.length}
+    <label class="sr-only" for="new-thread-repo">Repository</label>
+    <Select.Root
+      type="single"
+      bind:open={repoOpen}
+      onOpenChangeComplete={(open) => {
+        // Back to the prompt rather than the picker's button.
+        if (!open) focusPromptAfterPicker()
+      }}
+      value={repoId}
+      onValueChange={(value) => {
+        if (value) repoId = value
+      }}
+    >
+      <Select.Trigger
+        bind:ref={repoTrigger}
+        id="new-thread-repo"
+        size="sm"
+        class="glass-well h-7 max-w-[168px] min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
+        title="The worktree is created from this repo ({shortcutLabel(
+          'pickRepo',
+        )})"
+        data-od-id="new-thread-repo"
+      >
+        <Folder class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
+        <span class="truncate">{repo?.name ?? 'Pick a repository'}</span>
+      </Select.Trigger>
+      <Select.Content>
+        {#each repos.items as row (row.id)}
+          <Select.Item value={row.id} label={row.name}>
+            {row.name}
+          </Select.Item>
+        {/each}
+      </Select.Content>
+    </Select.Root>
+    <ThreadOptionPicker kind="model" source={modelSource} />
+    <ThreadOptionPicker kind="effort" source={effortSource} />
+  {/if}
+{/snippet}

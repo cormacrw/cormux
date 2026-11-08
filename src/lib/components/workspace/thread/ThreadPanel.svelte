@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { switchConversation } from '$lib/thread/actions'
+  import {
+    sendToThread,
+    stopThread,
+    switchConversation,
+  } from '$lib/thread/actions'
+  import { commands } from '$lib/ipc'
   import { plural, pluralWord } from '$lib/format/plural'
   import { onDestroy } from 'svelte'
   import { startsOver } from '$lib/core/owner-scoped'
@@ -20,7 +25,11 @@
   import Pause from '@lucide/svelte/icons/pause'
   import Bot from '@lucide/svelte/icons/bot'
   import AgentSpinner from './AgentSpinner.svelte'
-  import ThreadComposer from './ThreadComposer.svelte'
+  import ThreadComposer, { type ComposerTarget } from './ThreadComposer.svelte'
+  import ThreadComposerTools from './ThreadComposerTools.svelte'
+  import ThreadOptionPicker, {
+    threadOptions,
+  } from './ThreadOptionPicker.svelte'
   import ThreadConversation from './ThreadConversation.svelte'
   import ThreadHero from './ThreadHero.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
@@ -67,6 +76,25 @@
   const threadEntities = $derived(
     settings.values.experimentalReferences ? entities.forThread(thread.id) : [],
   )
+
+  const listSkills = $derived.by(() => {
+    const id = threadId
+    return () => commands.listThreadSkills(id)
+  })
+  const composer: ComposerTarget = $derived({
+    draftKey: threadId,
+    inputLabel: 'Message the agent',
+    sendLabel: 'Send to agent',
+    placeholder: `Message ${thread.role}…`,
+    disabled: false,
+    send: (text, _stay, attachments) =>
+      sendToThread(threadId, text, attachments),
+    listSkills,
+    promptHistory: view.promptHistory,
+    stop: thread.status === 'running' ? () => void stopThread(threadId) : null,
+    pickers: composerPickers,
+    tools: composerTools,
+  })
 
   const AGENTS_SHOWN = 4
   // The live status floats over the end of the timeline, which leaves room for all of it.
@@ -239,12 +267,23 @@
     </div>
   {:else}
     <ThreadComposer
-      target={{ thread }}
+      target={composer}
       status={live ? liveStatus : undefined}
       onSent={() => conversation?.followEnd()}
     />
   {/if}
 </div>
+
+{#snippet composerPickers()}
+  <ThreadOptionPicker kind="model" source={threadOptions('model', threadId)} />
+  <ThreadOptionPicker
+    kind="effort"
+    source={threadOptions('effort', threadId)}
+  />
+{/snippet}
+{#snippet composerTools()}
+  <ThreadComposerTools {thread} canClearSession={view.canClearSession} />
+{/snippet}
 
 <style>
   #thread-panel {

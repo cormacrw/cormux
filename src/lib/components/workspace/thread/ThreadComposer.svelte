@@ -3,39 +3,37 @@
   import type { ComposerAttachment } from '$lib/composer/attachments'
   import type { CoreError } from '$lib/ipc'
   import type { Result, Skill } from '$lib/ipc/bindings'
-  import type { Thread } from '$lib/state/threads.svelte'
 
   /** Who a message goes to: a thread, or a new one that the first message starts. */
-  export type ComposerTarget =
-    | { thread: Thread }
-    | {
-        /** Where the draft is kept until the thread exists. */
-        draftKey: string
-        /** The repo it will start in, for the placeholder; null with none to pick. */
-        repoName: string | null
-        /**
-         * Starts the thread with the message; resolves false to put the draft back. `stay` is
-         * ⌘↵: send it off without leaving.
-         */
-        start: (
-          text: string,
-          stay: boolean,
-          attachments: ComposerAttachment[],
-        ) => Promise<boolean>
-        /** The `/` picker's skills, read from the repo it will start in. */
-        listSkills: () => Promise<Result<Skill[], CoreError>>
-        /** Its own repo, model and effort pickers, at the start of the footer. */
-        pickers: Snippet
-      }
+  export type ComposerTarget = {
+    /** Where the draft is kept. */
+    draftKey: string
+    /** The prompt's label for screen readers, and the Send button's. */
+    inputLabel: string
+    sendLabel: string
+    placeholder: string
+    /** Nowhere to send yet. */
+    disabled: boolean
+    /** Sends the message; resolves false to put the draft back. `stay` is ⌘↵. */
+    send: (
+      text: string,
+      stay: boolean,
+      attachments: ComposerAttachment[],
+    ) => Promise<boolean>
+    /** The `/` picker's skills; a new function reads them again. */
+    listSkills: () => Promise<Result<Skill[], CoreError>>
+    /** Past prompts ↑/↓ recall, oldest first. */
+    promptHistory: readonly string[]
+    /** Stops the agent while it's working: shows Stop and takes Esc. */
+    stop: (() => void) | null
+    /** Its pickers, at the start of the footer. */
+    pickers: Snippet
+    /** Its own controls, after the attach button. */
+    tools?: Snippet
+  }
 </script>
 
 <script lang="ts">
-  import {
-    sendToThread,
-    setThreadPaused,
-    stopThread,
-    switchConversation,
-  } from '$lib/thread/actions'
   import { onMount, tick } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { startsOver } from '$lib/core/owner-scoped'
@@ -55,10 +53,6 @@
     isImageName,
   } from '$lib/composer/attachments'
   import { Textarea } from '$lib/components/ui/textarea'
-  import {
-    composerPauseLabel,
-    composerShowsPauseControl,
-  } from '$lib/composer/can-pause'
   import { stepPromptHistory } from '$lib/composer/prompt-history'
   import { commands } from '$lib/ipc'
   import {
@@ -74,12 +68,8 @@
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { composerDrafts } from '$lib/composer/drafts-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
-  import { contextPercent, usageDetail } from '$lib/usage/usage'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
-  import { shortcutLabel } from '$lib/keyboard/shortcuts'
-  import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
-  import ThreadOptionPicker from './ThreadOptionPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import FileText from '@lucide/svelte/icons/file-text'
@@ -87,8 +77,6 @@
   import Kanban from '@lucide/svelte/icons/square-kanban'
   import Paperclip from '@lucide/svelte/icons/paperclip'
   import X from '@lucide/svelte/icons/x'
-  import Pause from '@lucide/svelte/icons/pause'
-  import Play from '@lucide/svelte/icons/play'
   import Sparkles from '@lucide/svelte/icons/sparkles'
   import Square from '@lucide/svelte/icons/square'
 
@@ -103,38 +91,19 @@
     status?: Snippet
   } = $props()
 
-  const thread = $derived('thread' in target ? target.thread : undefined)
-  const newThread = $derived('thread' in target ? undefined : target)
-  const disabled = $derived(newThread?.repoName === null)
-  const placeholder = $derived(
-    thread
-      ? `Message ${thread.role}…`
-      : newThread?.repoName
-        ? `What should we do in ${newThread.repoName}?`
-        : 'Add a repo to start a thread',
-  )
-
   let inputEl = $state<HTMLTextAreaElement | null>(null)
   let composing = $state(false)
 
-  const draftId = $derived(thread?.id ?? newThread?.draftKey ?? '')
+  const draftId = $derived(target.draftKey)
   /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
   let historyIndex = $derived<number | null>(startsOver(draftId, null))
   const draft = $derived(composerDrafts.textFor(draftId))
-  const threadStatus = $derived(thread?.status ?? 'idle')
-  const showPause = $derived(composerShowsPauseControl(threadStatus))
-  const pauseLabel = $derived(composerPauseLabel(threadStatus))
-  const isPaused = $derived(threadStatus === 'paused')
-  // Only how full the context is; tokens and cost are in the thread tab's tooltip.
-  const contextFill = $derived(thread ? contextPercent(thread.usage) : null)
-  const usageTooltip = $derived(thread ? usageDetail(thread.usage) : undefined)
-  const view = $derived(thread ? threadTimeline.threadView(thread.id) : null)
   const attachments = $derived(composerDrafts.attachmentsFor(draftId))
   // Drafts between Send and the core taking the message, which can mean starting the agent first.
   const sendingDrafts = new SvelteSet<string>()
   const sending = $derived(sendingDrafts.has(draftId))
   const canSend = $derived(
-    !disabled &&
+    !target.disabled &&
       !sending &&
       (draft.trim().length > 0 || attachments.length > 0),
   )
@@ -142,8 +111,7 @@
 
   // Typing `/` opens the skill picker, `@` the repos set up in Cormux (the folder goes in on
   // send), `#` your sprint tasks, and `!` your bangs (picking one puts its prompt in).
-  // A new thread's skills come from the repo it will start in.
-  const skillsOwner = $derived(newThread?.listSkills ?? draftId)
+  const skillsOwner = $derived(target.listSkills)
   let skills = $derived<Skill[] | null>(startsOver(skillsOwner, null))
   let skillsAsked = $derived(startsOver(skillsOwner, false))
   let pickerIndex = $derived(startsOver(draftId, 0))
@@ -205,10 +173,7 @@
     if (picker?.kind !== 'skill' || skillsAsked) return
     const owner = skillsOwner
     skillsAsked = true
-    const read = newThread
-      ? newThread.listSkills()
-      : commands.listThreadSkills(draftId)
-    void read.then((result) => {
+    void owner().then((result) => {
       if (result.status === 'error')
         toastCoreError(result.error, 'Could not read the skills')
       if (skillsOwner === owner)
@@ -265,8 +230,8 @@
   // Esc stops the agent once nothing in front of it (a popover, a slide-out) wanted the key.
   $effect(() =>
     keyboardLayers.onEscape('agent', () => {
-      if (threadStatus !== 'running') return false
-      stopTurn()
+      if (!target.stop) return false
+      stopTurn(target.stop)
       return true
     }),
   )
@@ -334,9 +299,9 @@
   }
 
   function onInput(event: Event) {
-    const target = event.currentTarget as HTMLTextAreaElement
-    composerDrafts.setFor(draftId, target.value)
-    caret = target.selectionStart
+    const input = event.currentTarget as HTMLTextAreaElement
+    composerDrafts.setFor(draftId, input.value)
+    caret = input.selectionStart
     historyIndex = null
     pickerDismissed = false
     pickerIndex = 0
@@ -361,11 +326,9 @@
     onSent?.()
     sendingDrafts.add(threadId)
     const outgoing = await expandMessage(text)
-    const sent = await (
-      newThread
-        ? newThread.start(outgoing, stay, attached)
-        : sendToThread(threadId, outgoing, attached)
-    ).finally(() => sendingDrafts.delete(threadId))
+    const sent = await target
+      .send(outgoing, stay, attached)
+      .finally(() => sendingDrafts.delete(threadId))
     if (!sent) {
       composerDrafts.setFor(threadId, text)
       if (attached.length) composerDrafts.addAttachments(threadId, attached)
@@ -447,14 +410,9 @@
     }
   })
 
-  function stopTurn() {
-    if (!thread) return
+  function stopTurn(stop: () => void) {
     takeFocusSoon()
-    void stopThread(thread.id)
-  }
-
-  function togglePause() {
-    if (thread) void setThreadPaused(thread.id, !isPaused)
+    stop()
   }
 
   function onKeydown(event: KeyboardEvent) {
@@ -481,15 +439,15 @@
   // ↑/↓ cycle past prompts from an empty composer, and keep cycling while the
   // recalled prompt is untouched and the caret is on its first (↑) or last (↓) line.
   function recallPrompt(event: KeyboardEvent) {
-    const target = event.currentTarget as HTMLTextAreaElement
-    const prompts = view?.promptHistory ?? []
+    const input = event.currentTarget as HTMLTextAreaElement
+    const prompts = target.promptHistory
     const older = event.key === 'ArrowUp'
     if (draft !== '') {
       if (historyIndex === null || draft !== prompts[historyIndex]) return
-      const caret = target.selectionStart
+      const caret = input.selectionStart
       const atEdge = older
         ? !draft.slice(0, caret).includes('\n')
-        : !draft.slice(target.selectionEnd).includes('\n')
+        : !draft.slice(input.selectionEnd).includes('\n')
       if (!atEdge) return
     }
     const next = stepPromptHistory(
@@ -504,7 +462,7 @@
     composerDrafts.setFor(draftId, text)
     void tick().then(() => {
       fitHeight()
-      target.setSelectionRange(text.length, text.length)
+      input.setSelectionRange(text.length, text.length)
     })
   }
 
@@ -678,16 +636,14 @@
         {/each}
       </ul>
     {/if}
-    <label class="sr-only" for="composer-input"
-      >{thread ? 'Message the agent' : 'Start a new thread'}</label
-    >
+    <label class="sr-only" for="composer-input">{target.inputLabel}</label>
     <Textarea
       bind:ref={inputEl}
       id="composer-input"
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      {placeholder}
+      placeholder={target.placeholder}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'composer-picker' : undefined}
@@ -716,13 +672,7 @@
         id="composer-meta"
         data-od-id="composer-meta"
       >
-        <!-- A new thread brings its own model and effort pickers: there's no thread to set yet. -->
-        {#if thread}
-          <ThreadOptionPicker kind="model" threadId={thread.id} />
-          <ThreadOptionPicker kind="effort" threadId={thread.id} />
-        {:else if newThread}
-          {@render newThread.pickers()}
-        {/if}
+        {@render target.pickers()}
         <Button
           type="button"
           variant="ghost"
@@ -735,48 +685,7 @@
         >
           <Paperclip class="size-3.5" aria-hidden="true" />
         </Button>
-        {#if contextFill != null}
-          <span
-            class="shrink-0 font-mono text-[10px] text-muted-foreground/80 tabular-nums"
-            data-od-id="composer-usage"
-            title={usageTooltip}
-            aria-label="Context {contextFill}% full">{contextFill}%</span
-          >
-        {/if}
-        {#if showPause}
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            data-od-id="composer-pause"
-            aria-label={pauseLabel}
-            onclick={togglePause}
-          >
-            {#if isPaused}
-              <Play class="size-3.5" aria-hidden="true" />
-            {:else}
-              <Pause class="size-3.5" aria-hidden="true" />
-            {/if}
-            {pauseLabel}
-          </Button>
-        {/if}
-        {#if thread}
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            data-od-id="composer-new-session"
-            title="Start a new session; the agent forgets this conversation"
-            disabled={!view?.canClearSession}
-            onclick={() => void switchConversation(thread.id, 'new')}
-          >
-            New session
-            <kbd
-              class="rounded border border-border/60 px-1 text-[10px] text-muted-foreground/80"
-              aria-hidden="true">{shortcutLabel('newSession')}</kbd
-            >
-          </Button>
-        {/if}
+        {@render target.tools?.()}
       </div>
 
       <!-- Beside a pinned pane the bar is narrow; the chips go before they'd overlap the buttons. -->
@@ -794,7 +703,8 @@
         <kbd class="rounded border border-border/60 px-1">!</kbd> bangs
       </span>
 
-      {#if threadStatus === 'running'}
+      {#if target.stop}
+        {@const stop = target.stop}
         <Button
           type="button"
           variant="secondary"
@@ -803,7 +713,7 @@
           data-od-id="composer-stop"
           title="Stop (Esc)"
           aria-label="Stop"
-          onclick={stopTurn}
+          onclick={() => stopTurn(stop)}
         >
           <Square class="size-3 fill-current" aria-hidden="true" />
         </Button>
@@ -814,7 +724,7 @@
         size="icon-sm"
         class="composer-send size-8 shrink-0 rounded-lg"
         data-od-id="composer-send"
-        aria-label={thread ? 'Send to agent' : 'Start thread'}
+        aria-label={target.sendLabel}
         aria-busy={sending}
         disabled={!canSend}
         onmousedown={(event) => {
