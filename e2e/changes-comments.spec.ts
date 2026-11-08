@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { setScenario } from './harness'
 
 test('comment on a diff line and send it to the agent', async ({ page }) => {
   const errors: string[] = []
@@ -138,4 +139,34 @@ test('comments on a branch that is not checked out cannot be sent yet', async ({
   await expect(
     panel.getByRole('button', { name: 'Send 1 comment to Lead' }),
   ).toBeEnabled()
+})
+
+test("comments go to the workspace's live thread, not a retired one on screen", async ({
+  page,
+}) => {
+  await setScenario(page, { retiredThread: true })
+  await page.goto('/')
+  await page.getByRole('button', { name: /Search or run a command/ }).click()
+  await page.keyboard.type('Open Reviewer')
+  await page
+    .getByRole('dialog')
+    .getByText('Open Reviewer in OAuth login')
+    .click()
+  await page.locator('#tray-changes').click()
+  const panel = page.getByRole('region', { name: 'Git', exact: true })
+  const diff = panel.getByRole('region', { name: 'Proposed changes' })
+  const line = diff
+    .locator('tr', { hasText: "if (provider === 'github')" })
+    .first()
+  await line.hover()
+  await line.locator('.diff-add-widget').first().click()
+  await panel
+    .getByRole('textbox', { name: /Comment on line/ })
+    .fill('Send this to the live thread')
+  await panel.getByRole('button', { name: 'Add comment' }).click()
+
+  await panel.getByRole('button', { name: 'Send 1 comment to Lead' }).click()
+  await expect(page.locator('#timeline')).toContainText(
+    'Send this to the live thread',
+  )
 })
