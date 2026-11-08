@@ -1,5 +1,6 @@
 mod diff;
 mod fetch;
+mod queue;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -16,6 +17,7 @@ use crate::shell_env::ShellEnv;
 
 pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
 pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
+pub use queue::WorktreeQueue;
 
 /// A merge or rebase stopped on these paths, waiting for the user to resolve or abort it.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -52,7 +54,7 @@ pub struct Git {
 
 struct GitInner {
     env: Arc<RwLock<ShellEnv>>,
-    queues: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
+    queue: WorktreeQueue,
     /// When each `repo\0base` last fetched, locked for the duration of a fetch.
     base_fetches: Mutex<HashMap<String, Arc<AsyncMutex<Option<Instant>>>>>,
 }
@@ -119,46 +121,23 @@ impl Git {
         Self {
             inner: Arc::new(GitInner {
                 env,
-                queues: Mutex::new(HashMap::new()),
+                queue: WorktreeQueue::default(),
                 base_fetches: Mutex::new(HashMap::new()),
             }),
         }
     }
 
-    fn queue_key(path: &Path) -> String {
-        path.to_string_lossy().to_string()
+    /// The queue every git-driving call in a worktree waits its turn in.
+    pub fn queue(&self) -> &WorktreeQueue {
+        &self.inner.queue
     }
 
-    async fn with_queue<T, F, Fut>(&self, worktree: &Path, f: F) -> Result<T>
+    async fn with_queue<T, F, Fut>(&self, worktree: &Path, f: F) -> T
     where
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<T>>,
+        Fut: std::future::Future<Output = T>,
     {
-        let key = Self::queue_key(worktree);
-        let lock = {
-            let mut queues = self
-                .inner
-                .queues
-                .lock()
-                .map_err(|error| Error::Git(error.to_string()))?;
-            queues
-                .entry(key.clone())
-                .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-                .clone()
-        };
-        let result = {
-            let _guard = lock.lock().await;
-            f().await
-        };
-        // Clones are only taken under this lock, so nobody can be about to queue on it.
-        if let Ok(mut queues) = self.inner.queues.lock()
-            && queues
-                .get(&key)
-                .is_some_and(|entry| Arc::ptr_eq(entry, &lock) && Arc::strong_count(entry) == 2)
-        {
-            queues.remove(&key);
-        }
-        result
+        self.inner.queue.run(worktree, f).await
     }
 
     async fn run(&self, cwd: &Path, args: &[&str]) -> Result<Output> {
@@ -166,47 +145,10 @@ impl Git {
             .await
     }
 
-    /// Run another git-driving tool (e.g. `gh stack`) in `worktree`, queued behind and
-    /// ahead of this worktree's own git calls. Spawn failures come back as `Err`.
-    pub async fn run_tool(
-        &self,
-        worktree: &Path,
-        program: &str,
-        args: &[&str],
-        extra_env: &[(&str, &str)],
-    ) -> Result<Output> {
-        self.with_queue(worktree, || {
-            self.run_tool_unqueued(worktree, program, args, extra_env)
-        })
-        .await
-    }
-
-    /// Like `run_tool`, for read-only calls that needn't wait behind the worktree's queue.
-    pub async fn run_tool_unqueued(
-        &self,
-        worktree: &Path,
-        program: &str,
-        args: &[&str],
-        extra_env: &[(&str, &str)],
-    ) -> Result<Output> {
-        let env = self.inner.env.read().await;
-        let mut command = Command::new(program);
-        command.args(args);
-        env.apply(&mut command);
-        command.envs(extra_env.iter().copied());
-        command.current_dir(worktree);
-        command.stdin(std::process::Stdio::null());
-        command
-            .output()
-            .await
-            .map_err(|error| Error::Git(format!("{program}: {error}")))
-    }
-
     async fn run_unlocked(&self, cwd: Option<&Path>, args: &[&str]) -> Result<Output> {
         self.run_with_env(cwd, args, &[]).await
     }
 
-    /// Like `run_unlocked`, with extra environment variables.
     async fn run_with_env(
         &self,
         cwd: Option<&Path>,
@@ -326,7 +268,7 @@ impl Git {
     /// Fetch `base` unless that just happened. Threads started together wait on one fetch,
     /// outside the repo's queue, so nothing else on the repo waits for the network.
     async fn fetch_base(&self, repo: &Path, base: &str) {
-        let key = format!("{}\0{base}", Self::queue_key(repo));
+        let key = format!("{}\0{base}", WorktreeQueue::key(repo));
         let slot = {
             let Ok(mut fetches) = self.inner.base_fetches.lock() else {
                 return;
@@ -384,13 +326,8 @@ impl Git {
     }
 
     pub async fn behind_count(&self, worktree: &Path, base: &str) -> Result<u32> {
-        let range = format!("HEAD..origin/{base}");
-        let output = self.run(worktree, &["rev-list", "--count", &range]).await?;
-        Self::require_success(&output, "rev-list --count")?;
-        Self::stdout(&output)
-            .trim()
-            .parse()
-            .map_err(|error| Error::Git(format!("behind count: {error}")))
+        self.rev_list_count(worktree, &format!("HEAD..origin/{base}"))
+            .await
     }
 
     /// Outside the repo's queue, like `fetch_base`: a slow network shouldn't stop new threads
@@ -422,13 +359,8 @@ impl Git {
         let (Some(before), Some(after)) = (before, self.resolve_ref(repo, &local).await?) else {
             return Ok(0);
         };
-        let range = format!("{before}..{after}");
-        let output = self.run(repo, &["rev-list", "--count", &range]).await?;
-        Self::require_success(&output, "rev-list --count")?;
-        Self::stdout(&output)
-            .trim()
-            .parse()
-            .map_err(|error| Error::Git(format!("pulled count: {error}")))
+        self.rev_list_count(repo, &format!("{before}..{after}"))
+            .await
     }
 
     async fn resolve_ref(&self, repo: &Path, reference: &str) -> Result<Option<String>> {
@@ -512,25 +444,16 @@ impl Git {
         args.push("HEAD");
         let whole = self.run_with_env(Some(worktree), &args, &env).await?;
         Self::diff_ok(&whole, "diff")?;
-        let text = Self::stdout(&whole);
-        let mut patches = split_patches(&text);
-        let mut changes = Vec::with_capacity(stats.len());
-        for stat in stats {
-            let patch = match patches.remove(stat.patch_header().as_str()) {
-                Some(patch) => patch.to_string(),
-                None => {
-                    let mut args = vec!["--literal-pathspecs"];
-                    args.extend(PATCH_ARGS);
-                    args.extend(["HEAD", "--"]);
-                    args.extend(stat.paths());
-                    let output = self.run_with_env(Some(worktree), &args, &env).await?;
-                    Self::diff_ok(&output, "diff file")?;
-                    Self::stdout(&output)
-                }
-            };
-            changes.push((stat, patch));
-        }
-        Ok(changes)
+        with_patches_from(stats, &Self::stdout(&whole), |paths| async move {
+            let mut args = vec!["--literal-pathspecs"];
+            args.extend(PATCH_ARGS);
+            args.extend(["HEAD", "--"]);
+            args.extend(paths.iter().map(String::as_str));
+            let output = self.run_with_env(Some(worktree), &args, &env).await?;
+            Self::diff_ok(&output, "diff file")?;
+            Ok(Self::stdout(&output))
+        })
+        .await
     }
 
     /// Throws away uncommitted changes to `paths`, or every uncommitted change when
@@ -633,28 +556,20 @@ impl Git {
         args.push(range);
         let whole = self.run(worktree, &args).await?;
         Self::diff_ok(&whole, "diff range")?;
-        let text = Self::stdout(&whole);
-        let mut patches = split_patches(&text);
-        let mut changes = Vec::with_capacity(stats.len());
-        for stat in stats {
-            let patch = match patches.remove(stat.patch_header().as_str()) {
-                Some(patch) => patch.to_string(),
-                None => {
-                    let mut args = vec!["--literal-pathspecs"];
-                    args.extend(PATCH_ARGS);
-                    args.extend([range, "--"]);
-                    args.extend(stat.paths());
-                    let output = self.run(worktree, &args).await?;
-                    if Self::diff_ok(&output, "diff file in range").is_ok() {
-                        Self::stdout(&output)
-                    } else {
-                        String::new()
-                    }
-                }
-            };
-            changes.push((stat, patch));
-        }
-        Ok(changes)
+        with_patches_from(stats, &Self::stdout(&whole), |paths| async move {
+            let mut args = vec!["--literal-pathspecs"];
+            args.extend(PATCH_ARGS);
+            args.extend([range, "--"]);
+            args.extend(paths.iter().map(String::as_str));
+            let output = self.run(worktree, &args).await?;
+            // The file still lists, with its counts, when only its patch can't be shown.
+            if let Err(error) = Self::diff_ok(&output, "diff file in range") {
+                log::warn!("{error}");
+                return Ok(String::new());
+            }
+            Ok(Self::stdout(&output))
+        })
+        .await
     }
 
     pub async fn status_porcelain(&self, worktree: &Path) -> Result<String> {
@@ -701,38 +616,29 @@ impl Git {
         Ok(())
     }
 
-    pub async fn merge(&self, worktree: &Path, base: &str) -> Result<()> {
-        self.require_clean_worktree(worktree, "merge").await?;
+    /// Brings `origin/<base>` into the checked-out branch by `operation` (merge or rebase).
+    /// Stopping on conflicts is `Error::GitConflict`, with the operation left in progress.
+    pub async fn integrate(
+        &self,
+        worktree: &Path,
+        base: &str,
+        operation: GitConflictOperation,
+    ) -> Result<()> {
+        let verb = match operation {
+            GitConflictOperation::Merge => "merge",
+            GitConflictOperation::Rebase => "rebase",
+        };
+        self.require_clean_worktree(worktree, verb).await?;
         let rev = format!("origin/{base}");
-        let output = self.run(worktree, &["merge", &rev]).await?;
+        let output = self.run(worktree, &[verb, &rev]).await?;
         if output.status.success() {
             return Ok(());
         }
         let paths = self.unmerged_paths(worktree).await?;
         if !paths.is_empty() {
-            return Err(Error::GitConflict {
-                operation: GitConflictOperation::Merge,
-                paths,
-            });
+            return Err(Error::GitConflict { operation, paths });
         }
-        Err(Self::fail(&output, "merge"))
-    }
-
-    pub async fn rebase(&self, worktree: &Path, base: &str) -> Result<()> {
-        self.require_clean_worktree(worktree, "rebase").await?;
-        let rev = format!("origin/{base}");
-        let output = self.run(worktree, &["rebase", &rev]).await?;
-        if output.status.success() {
-            return Ok(());
-        }
-        let paths = self.unmerged_paths(worktree).await?;
-        if !paths.is_empty() {
-            return Err(Error::GitConflict {
-                operation: GitConflictOperation::Rebase,
-                paths,
-            });
-        }
-        Err(Self::fail(&output, "rebase"))
+        Err(Self::fail(&output, verb))
     }
 
     pub async fn abort_merge(&self, worktree: &Path) -> Result<()> {
@@ -833,15 +739,19 @@ impl Git {
         Self::require_success(&output, "branch -D")
     }
 
+    /// Commits in `range`. A range git can't resolve is an error, not 0.
     pub async fn rev_list_count(&self, worktree: &Path, range: &str) -> Result<u32> {
-        let output = self.run(worktree, &["rev-list", "--count", range]).await?;
-        if !output.status.success() {
-            return Ok(0);
-        }
+        self.count_commits(worktree, &["rev-list", "--count", range])
+            .await
+    }
+
+    async fn count_commits(&self, worktree: &Path, args: &[&str]) -> Result<u32> {
+        let output = self.run(worktree, args).await?;
+        Self::require_success(&output, "rev-list --count")?;
         Self::stdout(&output)
             .trim()
             .parse()
-            .map_err(|error| Error::Git(format!("rev-list count: {error}")))
+            .map_err(|error| Error::Git(format!("rev-list --count: {error}")))
     }
 
     /// Commits only `left` has and only `right` has, as `(ahead, behind)` from `left`'s point of
@@ -871,9 +781,20 @@ impl Git {
         Ok(output.status.success())
     }
 
-    pub async fn unpushed_commit_count(&self, worktree: &Path, branch: &str) -> Result<u32> {
-        let range = format!("origin/{branch}..HEAD");
-        self.rev_list_count(worktree, &range).await
+    /// Commits on HEAD that `origin/<branch>` doesn't have; `None` when origin has no such
+    /// branch to compare with (it was never pushed).
+    pub async fn unpushed_commit_count(
+        &self,
+        worktree: &Path,
+        branch: &str,
+    ) -> Result<Option<u32>> {
+        let remote = format!("refs/remotes/origin/{branch}");
+        if !self.ref_exists(worktree, &remote).await? {
+            return Ok(None);
+        }
+        self.rev_list_count(worktree, &format!("{remote}..HEAD"))
+            .await
+            .map(Some)
     }
 
     /// Commits on HEAD that neither a remote nor `base` has, so removing the branch loses
@@ -883,18 +804,46 @@ impl Git {
         if self.ref_exists(worktree, base).await? {
             args.push(base);
         }
-        let output = self.run(worktree, &args).await?;
-        Self::require_success(&output, "rev-list")?;
-        Self::stdout(&output)
-            .trim()
-            .parse()
-            .map_err(|error| Error::Git(format!("rev-list count: {error}")))
+        self.count_commits(worktree, &args).await
     }
 
     pub async fn current_branch(&self, worktree: &Path) -> Result<String> {
         let output = self.run(worktree, &["branch", "--show-current"]).await?;
         Self::require_success(&output, "branch --show-current")?;
         Ok(Self::stdout(&output).trim().to_string())
+    }
+
+    /// The worktree's own git dir and the repo's common one (the same for the main checkout).
+    pub async fn git_dirs(&self, worktree: &Path) -> Result<(PathBuf, PathBuf)> {
+        let output = self
+            .run(
+                worktree,
+                &[
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-dir",
+                    "--git-common-dir",
+                ],
+            )
+            .await?;
+        Self::require_success(&output, "rev-parse --git-dir")?;
+        let stdout = Self::stdout(&output);
+        let mut lines = stdout.lines().map(|line| PathBuf::from(line.trim()));
+        match (lines.next(), lines.next()) {
+            (Some(own), Some(common)) => Ok((own, common)),
+            _ => Err(Error::Git("rev-parse --git-dir: unexpected output".into())),
+        }
+    }
+
+    /// A git config value as the worktree sees it; `None` when it isn't set.
+    pub async fn config_get(&self, worktree: &Path, key: &str) -> Result<Option<String>> {
+        let output = self.run(worktree, &["config", "--get", key]).await?;
+        match output.status.code() {
+            Some(0) => Ok(Some(Self::stdout(&output).trim().to_string())),
+            // git's "key not set".
+            Some(1) => Ok(None),
+            _ => Err(Self::fail(&output, "config --get")),
+        }
     }
 
     pub async fn ref_exists(&self, worktree: &Path, reference: &str) -> Result<bool> {
@@ -937,6 +886,29 @@ impl Git {
         Self::require_success(&output, "diff --shortstat")?;
         Ok(parse_shortstat(&Self::stdout(&output)))
     }
+}
+
+/// Pairs each file's stat with its patch, cut from `whole` (one diff of every file). A file
+/// whose patch can't be found there is diffed on its own by `file_patch`.
+async fn with_patches_from<F, Fut>(
+    stats: Vec<FileStat>,
+    whole: &str,
+    file_patch: F,
+) -> Result<Vec<(FileStat, String)>>
+where
+    F: Fn(Vec<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<String>>,
+{
+    let mut patches = split_patches(whole);
+    let mut changes = Vec::with_capacity(stats.len());
+    for stat in stats {
+        let patch = match patches.remove(stat.patch_header().as_str()) {
+            Some(patch) => patch.to_string(),
+            None => file_patch(stat.paths().into_iter().map(str::to_string).collect()).await?,
+        };
+        changes.push((stat, patch));
+    }
+    Ok(changes)
 }
 
 /// `git rev-list --left-right --count` prints `left<TAB>right`.
@@ -1267,11 +1239,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_count_git_cannot_make_is_an_error_not_zero() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        assert!(git.rev_list_count(&repo, "nope..HEAD").await.is_err());
+        // Never pushed: nothing on origin to count against, which isn't "nothing to push".
+        assert_eq!(git.unpushed_commit_count(&repo, "main").await.unwrap(), None);
+        assert_eq!(git.config_get(&repo, "cormux.unset").await.unwrap(), None);
+        let (own, common) = git.git_dirs(&repo).await.unwrap();
+        assert_eq!(own, common);
+    }
+
+    #[tokio::test]
     async fn an_idle_worktree_leaves_no_queue_behind() {
         let git = git_with_env().await;
         let (_dir, repo) = init_repo();
         git.status_porcelain(&repo).await.unwrap();
-        assert!(git.inner.queues.lock().unwrap().is_empty());
+        assert!(git.inner.queue.is_empty());
     }
 
     #[tokio::test]
@@ -1669,11 +1653,10 @@ mod tests {
 
         let removal = git.worktree_remove(&repo, &worktree, false);
         let finished = git
-            .with_queue(&repo, || async {
-                Ok(tokio::time::timeout(Duration::from_secs(10), removal).await)
+            .with_queue(&repo, || {
+                tokio::time::timeout(Duration::from_secs(10), removal)
             })
-            .await
-            .unwrap();
+            .await;
 
         finished
             .expect("removal waited for the repo queue")

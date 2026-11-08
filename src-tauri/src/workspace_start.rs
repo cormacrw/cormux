@@ -157,10 +157,7 @@ fn lead_plan(
         first_prompt,
         running_activity: "Reading repo…".into(),
         seed_summary: Some(Box::new(|workspace: &WorkspaceRecord| {
-            format!(
-                "Just started on “{}”, branched from {}. Claude Code is reading the repo to find where the change belongs; no files have been touched yet.",
-                workspace.name, workspace.base
-            )
+            crate::summaries::lead_started(&workspace.name, &workspace.base)
         })),
         started_toast: None,
     }

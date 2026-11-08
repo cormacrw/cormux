@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
-use crate::model::{SUMMARY_MODEL_LABEL, ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
+use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
 use crate::paths::{WORKTREE_ROOT_SETTING, expand_tilde, worktrees_root};
 use crate::process::{Exit, SessionId, ShellCommand};
 use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
@@ -392,9 +392,11 @@ fn seed_summary(state: &AppState, workspace: &WorkspaceRecord, seed: &SeedSummar
         .and_then(|row| row.summary)
         .is_some_and(|text| !text.is_empty());
     if !has_summary {
-        state
-            .workspaces
-            .set_summary(&workspace.id, &seed(workspace), SUMMARY_MODEL_LABEL)?;
+        state.workspaces.set_summary(
+            &workspace.id,
+            &seed(workspace),
+            crate::summaries::LOCAL_SOURCE,
+        )?;
     }
     Ok(())
 }

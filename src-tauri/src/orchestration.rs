@@ -230,44 +230,6 @@ fn check_can_send(store: &Store, caller_id: &str, id: &str) -> Result<ThreadRow>
     Ok(thread)
 }
 
-fn slug(text: &str) -> String {
-    let words: Vec<String> = text
-        .to_lowercase()
-        .split_whitespace()
-        .map(|word| {
-            word.chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-                .collect::<String>()
-        })
-        .filter(|word| !word.is_empty())
-        .take(5)
-        .collect();
-    if words.is_empty() {
-        "task".into()
-    } else {
-        words.join("-")
-    }
-}
-
-/// Same shape as the new thread page's drafted branches: a prefix, the goal's first words, and a
-/// number if that's taken.
-fn draft_branch(goal: &str, taken: &[String]) -> String {
-    let lower = goal.to_lowercase();
-    let has_word = |words: &[&str]| {
-        lower
-            .split(|c: char| !c.is_alphanumeric())
-            .any(|word| words.contains(&word))
-    };
-    let prefix = if has_word(&["fix", "bug", "broken", "error", "crash", "repair"]) {
-        "fix"
-    } else if has_word(&["refactor", "clean", "rename"]) {
-        "refactor"
-    } else {
-        "feat"
-    };
-    crate::naming::unique_branch(&format!("{prefix}/{}", slug(goal)), taken)
-}
-
 pub struct NewThread {
     pub goal: String,
     pub base: Option<String>,
@@ -308,7 +270,7 @@ pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) ->
         CreateWorkspaceInput {
             repo_id,
             name: String::new(),
-            branch: draft_branch(&new.goal, &taken),
+            branch: crate::naming::draft_branch(&new.goal, &taken),
             base,
             engine: caller.engine.clone(),
             goal: new.goal,
@@ -829,20 +791,6 @@ mod tests {
         assert!(check_can_send(&store, "other", "child").is_err());
         assert!(check_can_send(&store, "child", "parent").is_err());
         assert!(check_can_send(&store, "parent", "starting").is_err());
-    }
-
-    #[test]
-    fn branches_follow_the_goal_and_avoid_taken_names() {
-        assert_eq!(
-            draft_branch("Add a dark mode toggle now please", &[]),
-            "feat/add-a-dark-mode-toggle"
-        );
-        assert_eq!(draft_branch("Fix the crash", &[]), "fix/fix-the-crash");
-        assert_eq!(
-            draft_branch("Rename it", &["refactor/rename-it".into()]),
-            "refactor/rename-it-2"
-        );
-        assert_eq!(draft_branch("日本語", &[]), "feat/task");
     }
 
     fn report(child: &str, body: &str) -> Report {

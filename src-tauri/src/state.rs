@@ -8,8 +8,11 @@ use crate::clickup::ClickupClient;
 use crate::error::Result;
 use crate::feedback::{Notifier, UserOutput};
 use crate::git::{FetchScheduler, LiveDiffEngine};
+use crate::github::Github;
 use crate::orchestration::ReportQueue;
 use crate::paths::DataDir;
+use crate::stack::RemoteStackCache;
+use crate::summaries::Summaries;
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::PrSyncScheduler,
     llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
@@ -48,7 +51,10 @@ pub struct Core {
     pub metrics: Metrics,
     pub diffs: LiveDiffEngine,
     pub fetch: FetchScheduler,
+    pub github: Github,
     pub pr_sync: PrSyncScheduler,
+    pub stacks: RemoteStackCache,
+    pub summaries: Summaries,
     pub approval_notify: broadcast::Sender<()>,
     pub turn_end_notify: broadcast::Sender<String>,
     pub setup_failed: broadcast::Sender<crate::provisioning::SetupFailed>,
@@ -69,7 +75,7 @@ impl AppState {
         let git = Git::new(shell_env.clone());
         let diffs = LiveDiffEngine::new(git.clone());
         let fetch = FetchScheduler::new(git.clone());
-        let pr_sync = PrSyncScheduler::new(git.clone(), shell_env.clone());
+        let github = Github::new(shell_env.clone());
         let process = ProcessSupervisor::new(shell_env.clone());
         let apps = WorkspaceAppService::new();
         let workspaces = Workspaces::new(store.clone());
@@ -110,7 +116,10 @@ impl AppState {
             metrics: Metrics::new(),
             diffs,
             fetch,
-            pr_sync,
+            github,
+            pr_sync: PrSyncScheduler::default(),
+            stacks: RemoteStackCache::default(),
+            summaries: Summaries::default(),
             approval_notify,
             turn_end_notify,
             setup_failed,

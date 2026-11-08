@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use serde::Deserialize;
-use tokio::sync::RwLock;
 
 use crate::error::Error;
-use crate::shell_env::ShellEnv;
+
+use super::Gh;
 
 use super::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
 
@@ -75,7 +74,7 @@ fn is_signed_out(message: &str) -> bool {
 }
 
 pub async fn fetch_open_prs(
-    env: &Arc<RwLock<ShellEnv>>,
+    gh: &Gh,
     repo_origins: &HashMap<String, String>,
 ) -> std::result::Result<Vec<PullRequestPayload>, FetchError> {
     let query_arg = format!("query={SEARCH_QUERY}");
@@ -90,11 +89,7 @@ pub async fn fetch_open_prs(
         if let Some(after_arg) = &after_arg {
             args.extend(["-f", after_arg]);
         }
-        let output = {
-            let shell = env.read().await;
-            shell.run("gh", &args, None).await
-        };
-        let output = output.map_err(|error| {
+        let output = gh.stdout(&args).await.map_err(|error| {
             let message = error.to_string();
             if is_signed_out(&message) {
                 FetchError::SignedOut(message)
