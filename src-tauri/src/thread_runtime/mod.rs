@@ -25,6 +25,7 @@ use crate::error::{Error, Result};
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::settings::Settings;
 use crate::store::Store;
+use crate::store::types::ThreadRow;
 use crate::transcript::Transcript;
 use crate::workspaces::{WorkspaceRecord, Workspaces};
 
@@ -42,8 +43,8 @@ pub struct HostRequest {
     pub call: HostToolCall,
 }
 
-/// The host's tools as a session is told them, for the settings it starts with.
-pub type HostToolsFor = Arc<dyn Fn(&Settings) -> HostToolsConfig + Send + Sync>;
+/// The host's tools as a session is told them, for the settings it starts with and its thread.
+pub type HostToolsFor = Arc<dyn Fn(&Settings, &ThreadRow) -> HostToolsConfig + Send + Sync>;
 
 /// What a session is told about the workspace it runs in, for the thread it serves and whether it
 /// resumes a saved session.
@@ -242,6 +243,10 @@ impl ThreadRuntime {
     async fn launch(&self, thread_id: &str, workspace: &WorkspaceRecord) -> Result<()> {
         let _ = self.stop(thread_id).await;
         let settings = Settings::load(&self.store);
+        let thread = self
+            .store
+            .thread_by_id(thread_id)?
+            .ok_or_else(|| Error::Engine(format!("unknown thread {thread_id}")))?;
         let resume = self.store.thread_session(thread_id)?;
         let config = LaunchConfig {
             thread_id: thread_id.to_string(),
@@ -250,7 +255,7 @@ impl ThreadRuntime {
             effort: self.store.thread_effort(thread_id)?,
             instructions: (self.brief)(workspace, thread_id, resume.is_some()),
             resume,
-            host_tools: Some((self.host_tools)(&settings)),
+            host_tools: Some((self.host_tools)(&settings, &thread)),
         };
         let last_active = Arc::new(Mutex::new(Instant::now()));
         let turn = Arc::new(Mutex::new(EngineTurn::default()));

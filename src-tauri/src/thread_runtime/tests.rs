@@ -61,7 +61,7 @@ fn setup(engines: Arc<dyn Engines>) -> Setup {
         store: store.clone(),
         transcript: transcript.clone(),
         workspaces: Workspaces::new(store.clone()),
-        host_tools: Arc::new(|settings| HostToolsConfig {
+        host_tools: Arc::new(|settings, _thread| HostToolsConfig {
             server_name: "host".into(),
             disallowed: if settings.experimental_references {
                 Vec::new()

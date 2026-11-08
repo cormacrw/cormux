@@ -1,6 +1,6 @@
 //! The Cormux tools an agent's session can call, served over the session's own connection. One
-//! table lists them; what a session is offered, what runs without asking, what the agent is told
-//! and what a call may do all come from it.
+//! table lists them; what a session is offered (for its settings and its thread), what runs
+//! without asking, what the agent is told and what a call may do all come from it.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -12,6 +12,7 @@ use crate::error::{Error, Result};
 use crate::orchestration;
 use crate::settings::Settings;
 use crate::state::AppState;
+use crate::store::types::ThreadRow;
 use crate::thread_runtime::HostRequest;
 
 /// The server's name, which the engine puts in front of its tools' names.
@@ -50,15 +51,24 @@ struct HostTool {
     input_schema: fn() -> Value,
     /// Asks the user first, like any of the agent's own tools that changes something.
     needs_approval: bool,
-    /// Off, the tool isn't offered, and a session that started with it can't call it.
-    enabled: fn(&Settings) -> bool,
+    /// Why the tool isn't offered to this thread now, if it isn't; a session that started with
+    /// it can't call it either.
+    unavailable: fn(&Settings, &ThreadRow) -> Option<&'static str>,
     /// What the agent is told about it when its session starts.
     instruction: Option<&'static str>,
     handler: for<'a> fn(&'a AppState, Call<'a>) -> Reply<'a>,
 }
 
-fn always(_: &Settings) -> bool {
-    true
+fn always(_: &Settings, _: &ThreadRow) -> Option<&'static str> {
+    None
+}
+
+/// Orchestration is one level deep: a thread another thread started can't start its own.
+fn not_for_children(_: &Settings, thread: &ThreadRow) -> Option<&'static str> {
+    thread
+        .parent_thread_id
+        .is_some()
+        .then_some("a thread started by another thread can't start threads of its own")
 }
 
 const TOOLS: &[HostTool] = &[
@@ -77,7 +87,7 @@ const TOOLS: &[HostTool] = &[
             })
         },
         needs_approval: true,
-        enabled: always,
+        unavailable: not_for_children,
         instruction: Some(ORCHESTRATION_INSTRUCTION),
         handler: |state, call| {
             Box::pin(async move {
@@ -102,7 +112,7 @@ const TOOLS: &[HostTool] = &[
             })
         },
         needs_approval: false,
-        enabled: always,
+        unavailable: always,
         instruction: None,
         handler: |state, call| {
             Box::pin(async move {
@@ -125,7 +135,7 @@ const TOOLS: &[HostTool] = &[
             })
         },
         needs_approval: false,
-        enabled: always,
+        unavailable: always,
         instruction: None,
         handler: |state, call| {
             Box::pin(async move {
@@ -152,7 +162,7 @@ const TOOLS: &[HostTool] = &[
             })
         },
         needs_approval: false,
-        enabled: always,
+        unavailable: always,
         instruction: None,
         handler: |state, call| {
             Box::pin(async move {
@@ -181,7 +191,7 @@ const TOOLS: &[HostTool] = &[
             })
         },
         needs_approval: true,
-        enabled: always,
+        unavailable: always,
         instruction: None,
         handler: |state, call| {
             Box::pin(async move {
@@ -206,7 +216,7 @@ const TOOLS: &[HostTool] = &[
             })
         },
         needs_approval: false,
-        enabled: always,
+        unavailable: always,
         instruction: None,
         handler: |state, call| {
             Box::pin(async move {
@@ -231,7 +241,9 @@ const TOOLS: &[HostTool] = &[
             })
         },
         needs_approval: false,
-        enabled: |settings| settings.experimental_references,
+        unavailable: |settings, _| {
+            (!settings.experimental_references).then_some("it is turned off in Settings")
+        },
         instruction: Some(REFERENCES_INSTRUCTION),
         handler: |state, call| {
             Box::pin(async move {
@@ -245,9 +257,10 @@ const TOOLS: &[HostTool] = &[
     },
 ];
 
-pub fn session_config(settings: &Settings) -> HostToolsConfig {
-    let (on, off): (Vec<&HostTool>, Vec<&HostTool>) =
-        TOOLS.iter().partition(|tool| (tool.enabled)(settings));
+pub fn session_config(settings: &Settings, thread: &ThreadRow) -> HostToolsConfig {
+    let (on, off): (Vec<&HostTool>, Vec<&HostTool>) = TOOLS
+        .iter()
+        .partition(|tool| (tool.unavailable)(settings, thread).is_none());
     HostToolsConfig {
         server_name: SERVER_NAME.into(),
         allowed: on
@@ -302,9 +315,13 @@ async fn handle_message(state: &AppState, thread_id: &str, message: &Value) -> V
         }),
         "tools/list" => {
             let settings = Settings::load(&state.store);
+            let caller = match crate::turn::thread_row(state, thread_id) {
+                Ok(caller) => caller,
+                Err(error) => return unknown_method(message, &error.to_string()),
+            };
             let tools: Vec<Value> = TOOLS
                 .iter()
-                .filter(|tool| (tool.enabled)(&settings))
+                .filter(|tool| (tool.unavailable)(&settings, &caller).is_none())
                 .map(|tool| {
                     json!({
                         "name": tool.name,
@@ -327,11 +344,15 @@ async fn call_tool(state: &AppState, caller: &str, message: &Value) -> Value {
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let args = params.get("arguments").cloned().unwrap_or(Value::Null);
+    let unavailable = |tool: &HostTool| {
+        let caller = crate::turn::thread_row(state, caller).ok()?;
+        (tool.unavailable)(&Settings::load(&state.store), &caller)
+    };
     let called = match TOOLS.iter().find(|tool| tool.name == name) {
         None => Err(Error::Mcp(format!("unknown tool {name}"))),
         // A session started while it was on still has the tool.
-        Some(tool) if !(tool.enabled)(&Settings::load(&state.store)) => {
-            Err(Error::Mcp(format!("{name} is turned off in Settings")))
+        Some(tool) if let Some(reason) = unavailable(tool) => {
+            Err(Error::Mcp(format!("{name} isn't available: {reason}")))
         }
         Some(tool) => {
             (tool.handler)(
@@ -384,7 +405,7 @@ mod tests {
     use super::*;
     use crate::findings::FindingRow;
     use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind};
-    use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
+    use crate::store::types::{RepoRecord, WorkspaceRow};
     use std::sync::Arc;
 
     fn state() -> AppState {
@@ -421,6 +442,38 @@ mod tests {
             .store
             .upsert_thread(&ThreadRow::new("t1", "w1", ThreadRole::Lead, "claude"))
             .unwrap();
+    }
+
+    fn lead() -> ThreadRow {
+        ThreadRow::new("t1", "w1", ThreadRole::Lead, "claude")
+    }
+
+    /// Bug: a child was offered create_thread and told it could hand work on, so it raised an
+    /// approval card the host then always refused after the user approved.
+    #[tokio::test]
+    async fn a_thread_another_started_isnt_offered_or_told_about_starting_threads() {
+        let state = state();
+        let child = ThreadRow {
+            parent_thread_id: Some("t1".into()),
+            ..ThreadRow::new("c1", "w1", ThreadRole::Lead, "claude")
+        };
+        state.store.upsert_thread(&child).unwrap();
+
+        let config = session_config(&Settings::default(), &child);
+        assert!(config.disallowed.contains(&"create_thread".to_string()));
+        assert!(!config.instructions.contains("create_thread"));
+        let reply = handle_message(
+            &state,
+            "c1",
+            &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        )
+        .await;
+        let offered = reply["result"]["tools"].to_string();
+        assert!(!offered.contains("create_thread"), "{offered}");
+        let refused =
+            handle_message(&state, "c1", &call("create_thread", json!({"goal": "x"}))).await;
+        assert_eq!(refused["result"]["isError"], true);
+        assert!(listed(&state).await.contains(&"create_thread".to_string()));
     }
 
     fn call(name: &str, arguments: Value) -> Value {
@@ -479,14 +532,14 @@ mod tests {
             ..Settings::default()
         };
 
-        let config = session_config(&off);
+        let config = session_config(&off, &lead());
         assert_eq!(config.disallowed, ["attach_entity"]);
         assert!(!config.allowed.contains(&"attach_entity".to_string()));
         assert!(!config.instructions.contains("attach_entity"));
         assert!(config.instructions.contains("create_thread"));
         assert!(!listed(&state).await.contains(&"attach_entity".to_string()));
 
-        let config = session_config(&on);
+        let config = session_config(&on, &lead());
         assert!(config.disallowed.is_empty());
         assert!(config.allowed.contains(&"attach_entity".to_string()));
         assert!(config.instructions.contains("attach_entity"));
@@ -496,7 +549,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_the_tools_that_change_nothing_run_without_asking() {
-        let config = session_config(&Settings::default());
+        let config = session_config(&Settings::default(), &lead());
         assert!(config.allowed.contains(&"read_thread".to_string()));
         assert!(config.allowed.contains(&"mark_finding_fixed".to_string()));
         assert!(!config.allowed.contains(&"create_thread".to_string()));
