@@ -10,7 +10,7 @@ type PendingDiff =
 
 const emptyTotals = (): DiffLineTotals => ({ added: 0, deleted: 0 })
 
-export class WorkspaceDiffStore {
+class WorkspaceDiffStore {
   // Raw: diffs can be large, and unchanged files keep their identity across refreshes.
   filesByWorkspace = $state.raw<Record<string, DiffFile[]>>({})
   /** What each diff shows; `null` means uncommitted changes. */

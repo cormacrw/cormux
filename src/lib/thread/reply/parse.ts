@@ -1,5 +1,5 @@
 import { Marked, type Token } from 'marked'
-import { memoByText } from '../memo'
+import { memoByText } from '$lib/memo'
 import { isBeforeAfter, splitMedia, type MediaReference } from './media'
 import { BLOCKS, type ReplyBlock } from './registry'
 import { findTagBlock } from './tag-block'

@@ -31,7 +31,10 @@
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import { createEntryScope } from '$lib/thread/entering'
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
+  import { rowKey } from '$lib/thread/find'
+  import type { TimelineRow } from '$lib/thread/timeline-types'
   import type { ConversationSource, RowContext } from './rows/context'
+  import { runCollapses } from './rows/tool-run'
   import ThreadFind from './ThreadFind.svelte'
   import TimelineMessages from './TimelineMessages.svelte'
 
@@ -106,6 +109,77 @@
   // derived isn't tracked by it, so opening a fold wouldn't redraw.
   const openFolds = $derived(foldsFor(threadId))
 
+  // Drawn rows by key; a long thread only draws the rows near the screen.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const rowEls = new Map<string, HTMLElement>()
+  let awaitedRow: {
+    key: string
+    done: (row: HTMLElement | null) => void
+  } | null = null
+
+  function trackRow(node: HTMLElement, key: string) {
+    const track = (next: string) => {
+      key = next
+      rowEls.set(key, node)
+      if (awaitedRow?.key === key) {
+        awaitedRow.done(node)
+        awaitedRow = null
+      }
+    }
+    const untrackRow = () => {
+      if (rowEls.get(key) === node) rowEls.delete(key)
+    }
+    track(key)
+    return {
+      update(next: string) {
+        untrackRow()
+        track(next)
+      },
+      destroy: untrackRow,
+    }
+  }
+
+  /** The fold a row draws closed until opened, if any. */
+  function foldOf(row: TimelineRow): string | null {
+    if (row.kind === 'speaker') return null
+    const item = row.item
+    if (item.kind === 'thought') return item.id
+    if (
+      item.kind === 'toolRun' &&
+      runCollapses(item.steps, item.id === view.activeIds.run)
+    )
+      return item.id
+    return null
+  }
+
+  /**
+   * Opens row `index`'s fold and resolves its element once drawn, or null when it isn't. With
+   * `scroll`, a long thread first brings a row it hasn't drawn on screen.
+   */
+  async function revealRow(
+    index: number,
+    scroll: boolean,
+  ): Promise<HTMLElement | null> {
+    const row = rows[index]
+    if (!row) return null
+    const fold = foldOf(row)
+    if (fold) openFolds.add(fold)
+    const key = rowKey(row)
+    let element = rowEls.get(key) ?? null
+    if (!element && scroll && useVirtual) {
+      awaitedRow?.done(null)
+      const drawn = new Promise<HTMLElement | null>((done) => {
+        awaitedRow = { key, done }
+      })
+      $virtualizer.scrollToIndex(index, { align: 'center' })
+      element = await drawn
+    }
+    await tick()
+    return element
+  }
+
+  onDestroy(() => awaitedRow?.done(null))
+
   const ctx: RowContext = {
     get entries() {
       return entries
@@ -119,6 +193,7 @@
     get openFolds() {
       return openFolds
     },
+    trackRow,
     get workdir() {
       return source.workdir
     },
@@ -344,9 +419,7 @@
   <ThreadFind
     {rows}
     {contentEl}
-    scrollToRow={useVirtual
-      ? (index) => $virtualizer.scrollToIndex(index, { align: 'center' })
-      : undefined}
+    {revealRow}
     onScrollAway={() => {
       pinnedToBottom = false
     }}

@@ -5,25 +5,20 @@
   import X from '@lucide/svelte/icons/x'
   import { Button } from '$lib/components/ui/button'
   import { threadFind } from '$lib/thread/find-store.svelte'
-  import {
-    findCounterText,
-    findMatches,
-    rowKey,
-    stepMatch,
-  } from '$lib/thread/find'
+  import { findCounterText, findMatches, stepMatch } from '$lib/thread/find'
   import type { TimelineRow } from '$lib/thread/timeline-types'
 
   let {
     rows,
     contentEl,
-    scrollToRow,
+    revealRow,
     onScrollAway,
   }: {
     rows: TimelineRow[]
     /** The rendered conversation, where matches are highlighted. */
     contentEl: HTMLElement | null | undefined
-    /** Brings a row on screen when the list only renders some (long threads). */
-    scrollToRow?: (index: number) => void
+    /** Opens a row's fold and resolves its drawn element; `scroll` draws one a long thread hasn't. */
+    revealRow: (index: number, scroll: boolean) => Promise<HTMLElement | null>
     /** Called before moving to a match, so following the newest message doesn't pull back. */
     onScrollAway?: () => void
   } = $props()
@@ -85,14 +80,7 @@
     const target = `${current}\u0000${needle}`
     const scroll = target !== revealed
     revealed = target
-    const show = () =>
-      void reveal(
-        root,
-        needle,
-        match ? rowKey(rows[match.row]!) : null,
-        match,
-        scroll,
-      )
+    const show = () => void reveal(root, needle, match, scroll)
     clearTimeout(refreshTimer)
     if (scroll) show()
     else refreshTimer = setTimeout(show, REFRESH_MS)
@@ -135,40 +123,21 @@
   async function reveal(
     root: HTMLElement,
     needle: string,
-    key: string | null,
     match: { row: number; occurrence: number } | undefined,
     scroll: boolean,
   ) {
-    if (!needle || !match || key === null) {
+    if (!needle || !match) {
       clearHighlights()
       return
     }
     if (scroll) onScrollAway?.()
-    let rowEl = root.querySelector(`[data-row-key="${CSS.escape(key)}"]`)
-    if (!rowEl && scroll && scrollToRow) {
-      // A long thread only renders rows near the screen; bring this one in, then look again.
-      scrollToRow(match.row)
-      for (let frame = 0; frame < 10 && !rowEl; frame += 1) {
-        await new Promise((done) => requestAnimationFrame(done))
-        rowEl = root.querySelector(`[data-row-key="${CSS.escape(key)}"]`)
-      }
-    }
-    // Folded thoughts and runs aren't rendered until opened, and that happens on `toggle`.
-    const folds = rowEl?.querySelectorAll<HTMLDetailsElement>(
-      'details[data-lazy-fold]:not([open])',
-    )
-    if (folds?.length) {
-      for (const fold of folds) fold.open = true
-      await new Promise((done) => requestAnimationFrame(done))
-    }
-    await tick()
-    // Open collapsed thoughts and step details that hold the match.
+    const rowEl = await revealRow(match.row, scroll)
+    // Open step details inside the row that hold the match.
     const lower = needle.toLocaleLowerCase()
     for (const details of rowEl?.querySelectorAll('details') ?? []) {
       if (details.textContent?.toLocaleLowerCase().includes(lower))
         details.open = true
     }
-    await tick()
     const inRow = rowEl ? textRanges(rowEl, needle) : []
     const currentRange =
       inRow[Math.min(match.occurrence, inRow.length - 1)] ?? null

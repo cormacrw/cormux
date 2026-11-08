@@ -72,7 +72,6 @@ export function createRuntime(scenario: HarnessScenario) {
 
   const controls: HarnessControls = {
     prompts: [],
-    resolved: [],
     answered: [],
     opened: [],
     openedTerminal: null,

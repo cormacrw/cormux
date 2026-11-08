@@ -11,31 +11,36 @@ describe('thread urgency', () => {
     lifecycle: 'running' as const,
     paused: false,
     pendingApprovals: 0,
-    threadStatus: undefined,
   }
 
   it('is quiet only while working', () => {
-    expect(threadUrgency(working)).toBe('quiet')
-    expect(threadUrgency({ ...working, lifecycle: 'provisioning' })).toBe(
+    expect(threadUrgency(working, undefined)).toBe('quiet')
+    expect(
+      threadUrgency({ ...working, lifecycle: 'provisioning' }, undefined),
+    ).toBe('quiet')
+  })
+
+  it('is working as soon as the thread is, before the workspace catches up', () => {
+    expect(threadUrgency({ ...working, lifecycle: 'idle' }, 'running')).toBe(
       'quiet',
     )
   })
 
-  it('is working as soon as the thread is, before the workspace catches up', () => {
-    expect(
-      threadUrgency({ ...working, lifecycle: 'idle', threadStatus: 'running' }),
-    ).toBe('quiet')
-  })
-
   it('needs attention whenever nothing is happening', () => {
     for (const lifecycle of ['idle', 'ready', 'provisioningFailed'] as const) {
-      expect(threadUrgency({ ...working, lifecycle })).toBe('attention')
+      expect(threadUrgency({ ...working, lifecycle }, undefined)).toBe(
+        'attention',
+      )
     }
-    expect(threadUrgency({ ...working, paused: true })).toBe('attention')
+    expect(threadUrgency({ ...working, paused: true }, undefined)).toBe(
+      'attention',
+    )
   })
 
   it('needs attention on an approval, even mid-turn', () => {
-    expect(threadUrgency({ ...working, pendingApprovals: 1 })).toBe('attention')
+    expect(threadUrgency({ ...working, pendingApprovals: 1 }, 'running')).toBe(
+      'attention',
+    )
   })
 })
 

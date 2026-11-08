@@ -15,45 +15,6 @@ export class SettingsStore {
   // Raw and replaced whole: readers see a new object only when a setting changed.
   values = $state.raw<Settings>(defaultSettings())
 
-  get reduceMotion() {
-    return this.values.reduceMotion
-  }
-  get runEverything() {
-    return this.values.runEverything
-  }
-  get defaultEngine() {
-    return this.values.defaultEngine
-  }
-  /** Preferred repo id; resolve with `resolveDefaultRepoId` since it may be removed. */
-  get defaultRepo() {
-    return this.values.defaultRepo
-  }
-  /** Experimental: agents pin PRs, tickets and docs to a panel beside the thread. */
-  get experimentalReferences() {
-    return this.values.experimentalReferences
-  }
-  get worktreeRoot() {
-    return this.values.worktreeRoot
-  }
-  get notifyApprovals() {
-    return this.values.notifyApprovals
-  }
-  get notifyReviewFinished() {
-    return this.values.notifyReviewFinished
-  }
-  /** `!name` prompts, for any prompt bar and the command palette (Settings › Bangs). */
-  get bangs() {
-    return this.values.bangs
-  }
-  /** Instructions for drafting a PR description; empty means the built-in default. */
-  get prPrompt() {
-    return this.values.prPrompt
-  }
-  /** App that Open in Terminal launches; empty means Terminal. */
-  get terminalApp() {
-    return this.values.terminalApp
-  }
-
   hydrate(settings: Settings) {
     if (!deepEqual(settings, this.values)) this.values = settings
   }

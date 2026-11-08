@@ -48,7 +48,7 @@
   <SettingsPanel>
     {#each ENGINE_OPTIONS as option (option.kind)}
       {@const status = statusByKind.get(option.kind)}
-      {@const selected = settings.defaultEngine === option.kind}
+      {@const selected = settings.values.defaultEngine === option.kind}
       {@const install = engineInstallLabel(status)}
       <label
         class={cn(
@@ -109,7 +109,7 @@
     >
       {#snippet control()}
         <Switch
-          checked={settings.runEverything}
+          checked={settings.values.runEverything}
           onCheckedChange={(next) =>
             void updateSettings({ runEverything: next })}
           aria-label="Run everything"

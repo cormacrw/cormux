@@ -37,13 +37,14 @@
 </script>
 
 <script lang="ts">
+  import { rowKey } from '$lib/thread/find'
   import type { TimelineRow } from '$lib/thread/timeline-types'
   import SpeakerRow from './rows/SpeakerRow.svelte'
 
   let { rows, ctx }: { rows: TimelineRow[]; ctx: RowContext } = $props()
 </script>
 
-{#each rows as row (row.kind === 'speaker' ? row.id : row.item.id)}
+{#each rows as row (rowKey(row))}
   {#if row.kind === 'speaker'}
     <SpeakerRow {row} {ctx} />
   {:else}

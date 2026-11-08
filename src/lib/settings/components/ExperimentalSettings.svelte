@@ -13,7 +13,7 @@
   >
     {#snippet control()}
       <Switch
-        checked={settings.experimentalReferences}
+        checked={settings.values.experimentalReferences}
         onCheckedChange={(next) =>
           void updateSettings({ experimentalReferences: next })}
         aria-label="References"

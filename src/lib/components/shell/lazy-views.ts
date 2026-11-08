@@ -3,6 +3,19 @@ import type { ShellDialogId } from '$lib/state/shell-dialogs.svelte'
 
 type Loader = () => Promise<{ default: Component }>
 
+/** Loads a view's component; a chunk that fails to load goes to `report` and resolves undefined. */
+export async function loadView(
+  load: Loader,
+  report: (error: unknown) => void,
+): Promise<Component | undefined> {
+  try {
+    return (await load()).default
+  } catch (error) {
+    report(error)
+    return undefined
+  }
+}
+
 // Everything off the first screen, so startup only parses what it paints.
 export const loadSettings = () =>
   import('../../settings-page/SettingsView.svelte')
@@ -28,6 +41,8 @@ export function preloadLazyViews() {
     loadSprint,
     ...Object.values(SHELL_DIALOGS),
   ]) {
-    void load()
+    void loadView(load, (error) =>
+      console.warn('Could not preload a view', error),
+    )
   }
 }

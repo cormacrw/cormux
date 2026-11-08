@@ -29,7 +29,7 @@ async function description(task: ClickupTask): Promise<string> {
  * descriptions after it.
  */
 export async function expandMessage(text: string): Promise<string> {
-  const withBangs = expandBangs(text, settings.bangs)
+  const withBangs = expandBangs(text, settings.values.bangs)
   const withRepos = expandRepoAliases(withBangs, repos.items)
   const { text: expanded, mentioned } = expandTaskAliases(
     withRepos,

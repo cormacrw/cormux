@@ -19,7 +19,7 @@
 <li
   class="flex items-center gap-2 py-1 text-xs text-muted-foreground"
   aria-hidden="true"
-  data-row-key={row.id}
+  use:ctx.trackRow={row.id}
   use:popIn={{ entries: ctx.entries, key: row.id }}
 >
   {#if row.role}

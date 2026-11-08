@@ -4,11 +4,7 @@ import { fixtureEngines } from '../fixtures'
 import { CHANGE, type HarnessRuntime } from '../runtime'
 import type { HandlerSlice } from '../types'
 
-export function coreHandlers({
-  db,
-  scenario,
-  emitStateChanged,
-}: HarnessRuntime) {
+export function coreHandlers({ db, emitStateChanged }: HarnessRuntime) {
   return {
     get_snapshot: () => {
       const { snapshot } = db
@@ -58,7 +54,7 @@ export function coreHandlers({
     },
     // There's no shell environment to read again.
     reload_environment: () => null,
-    detect_engines: () => scenario.engines ?? fixtureEngines,
+    detect_engines: () => fixtureEngines,
     get_settings: () => db.snapshot.settings,
     update_settings: ({ patch }: { patch: SettingsPatch }) => {
       const changes = Object.fromEntries(

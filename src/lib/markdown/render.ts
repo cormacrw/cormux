@@ -17,8 +17,7 @@ import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import { Marked } from 'marked'
 import { markedHighlight } from 'marked-highlight'
-import { INLINE_MEDIA_ATTR, mediaKindForSource } from './reply/media'
-import { memoByText } from './memo'
+import { memoByText } from '$lib/memo'
 
 // Only the languages agents usually write, so the bundle doesn't carry all ~190 of them.
 for (const [name, language] of Object.entries({
@@ -83,38 +82,6 @@ const ALLOWED = {
   ALLOWED_ATTR: ['href', 'rel', 'target', 'start', 'class', 'align', 'alt'],
 }
 
-// A private instance: hooks are per instance, and Mermaid sanitises with the shared one.
-const purify = DOMPurify(globalThis.window)
-
-// `class` is only for highlight.js tokens (hljs-title, function_, language-ts), so an agent
-// can't pull the app's own Tailwind classes into its reply.
-purify.addHook('uponSanitizeAttribute', (_node, data) => {
-  if (data.attrName !== 'class') return
-  data.attrValue = data.attrValue
-    .split(/\s+/)
-    .filter((name) => /^(hljs|language-)|_$/.test(name))
-    .join(' ')
-})
-
-// An image never keeps its `src`, so nothing loads from the agent's markup. A local image (the
-// kind a top-level reference renders as a figure) is marked for `mountInlineMedia`, which
-// resolves it through the core; any other image becomes its alt text.
-purify.addHook('uponSanitizeElement', (node) => {
-  if (!(node instanceof Element) || node.nodeName !== 'IMG') return
-  const source = node.getAttribute('src') ?? ''
-  node.removeAttribute(INLINE_MEDIA_ATTR)
-  if (mediaKindForSource(source) === 'image') {
-    node.setAttribute(INLINE_MEDIA_ATTR, source)
-  }
-})
-
-purify.addHook('afterSanitizeAttributes', (node) => {
-  if (node.nodeName !== 'IMG' || !(node instanceof Element)) return
-  if (!node.hasAttribute(INLINE_MEDIA_ATTR)) {
-    node.replaceWith(node.getAttribute('alt') ?? '')
-  }
-})
-
 // GitHub's `> [!NOTE]`, and the `> **Warning:**` agents write by habit.
 const CALLOUT =
   /<blockquote>\s*<p>(?:\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:<br>)?|<strong>(Note|Tip|Important|Warning|Caution):?<\/strong>:?)\s*/gi
@@ -128,25 +95,7 @@ function markCallouts(html: string): string {
   })
 }
 
-function renderSafe(source: string): string {
-  const raw = marked.parse(source, { async: false })
-  return markCallouts(purify.sanitize(raw, ALLOWED))
-}
-
-const renderCached = memoByText(renderSafe, 300)
-
-/**
- * Chat markdown as sanitised HTML. Pass `growing` for text still being written, so a string
- * that changes every frame doesn't crowd the cache.
- */
-export function renderSanitizedMarkdown(
-  source: string,
-  growing = false,
-): string {
-  return growing ? renderSafe(source) : renderCached(source)
-}
-
-/** ClickUp task descriptions are written as documents, so they also get headings and checklists. */
+/** Documents (ClickUp task descriptions) also get headings and checklists. */
 const RICH = {
   ALLOWED_TAGS: [
     ...ALLOWED.ALLOWED_TAGS,
@@ -164,14 +113,74 @@ const RICH = {
   ALLOWED_ATTR: [...ALLOWED.ALLOWED_ATTR, 'type', 'checked', 'disabled'],
 }
 
-export function renderRichMarkdown(source: string): string {
-  const raw = marked.parse(source, { async: false })
-  const html = purify.sanitize(raw, RICH)
-  // GFM task lists are the only inputs marked emits; anything else is dropped.
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-  doc.querySelectorAll('input').forEach((input) => {
-    if (input.type !== 'checkbox') input.remove()
-    else input.disabled = true
+/**
+ * The images a renderer keeps: `keep` picks them, and each is marked with `attr` holding its
+ * source, for the caller to mount. No image keeps its `src`, so nothing loads from the markup;
+ * any other image becomes its alt text.
+ */
+export type KeptImages = {
+  attr: string
+  keep: (source: string) => boolean
+}
+
+export type MarkdownRenderer = {
+  /**
+   * Chat markdown as sanitised HTML. Pass `growing` for text still being written, so a string
+   * that changes every frame doesn't crowd the cache.
+   */
+  chat: (source: string, growing?: boolean) => string
+  /** A document as sanitised HTML; its checklists are disabled checkboxes. */
+  rich: (source: string) => string
+}
+
+export function markdownRenderer(images?: KeptImages): MarkdownRenderer {
+  // A private instance: hooks are per instance, and Mermaid sanitises with the shared one.
+  const purify = DOMPurify(globalThis.window)
+
+  // `class` is only for highlight.js tokens (hljs-title, function_, language-ts), so an agent
+  // can't pull the app's own Tailwind classes into its reply.
+  purify.addHook('uponSanitizeAttribute', (_node, data) => {
+    if (data.attrName !== 'class') return
+    data.attrValue = data.attrValue
+      .split(/\s+/)
+      .filter((name) => /^(hljs|language-)|_$/.test(name))
+      .join(' ')
   })
-  return doc.body.innerHTML
+
+  purify.addHook('uponSanitizeElement', (node) => {
+    if (!images || !(node instanceof Element) || node.nodeName !== 'IMG') return
+    const source = node.getAttribute('src') ?? ''
+    node.removeAttribute(images.attr)
+    if (images.keep(source)) node.setAttribute(images.attr, source)
+  })
+
+  purify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.nodeName !== 'IMG' || !(node instanceof Element)) return
+    if (!images || !node.hasAttribute(images.attr)) {
+      node.replaceWith(node.getAttribute('alt') ?? '')
+    }
+  })
+
+  function renderSafe(source: string): string {
+    const raw = marked.parse(source, { async: false })
+    return markCallouts(purify.sanitize(raw, ALLOWED))
+  }
+
+  const renderCached = memoByText(renderSafe, 300)
+
+  return {
+    chat: (source, growing = false) =>
+      growing ? renderSafe(source) : renderCached(source),
+    rich(source) {
+      const raw = marked.parse(source, { async: false })
+      const html = purify.sanitize(raw, RICH)
+      // GFM task lists are the only inputs marked emits; anything else is dropped.
+      const doc = new DOMParser().parseFromString(html, 'text/html')
+      doc.querySelectorAll('input').forEach((input) => {
+        if (input.type !== 'checkbox') input.remove()
+        else input.disabled = true
+      })
+      return doc.body.innerHTML
+    },
+  }
 }

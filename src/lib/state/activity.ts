@@ -75,3 +75,23 @@ export function isAgentWorking(status: ThreadStatus): boolean {
 export function runningAgentCount(threads: { status: ThreadStatus }[]): number {
   return threads.filter((thread) => isAgentWorking(thread.status)).length
 }
+
+/**
+ * Whether a workspace needs you: nothing is working in it, so it needs prompting or closing, or an
+ * agent waits on an approval. `threadStatus` is its live thread's, which can be ahead of the
+ * workspace's lifecycle.
+ */
+export function needsAttention(
+  workspace: {
+    lifecycle: WorkspaceLifecycle
+    paused: boolean
+    pendingApprovals: number
+  },
+  threadStatus: ThreadStatus | undefined,
+): boolean {
+  const working =
+    (threadStatus !== undefined && isAgentWorking(threadStatus)) ||
+    workspace.lifecycle === 'provisioning' ||
+    (workspace.lifecycle === 'running' && !workspace.paused)
+  return !working || workspace.pendingApprovals > 0
+}

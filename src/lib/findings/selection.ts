@@ -14,15 +14,6 @@ export function defaultSelectedIds(rows: FindingRow[]): Set<string> {
   return selected
 }
 
-export function mergeSelection(
-  rows: FindingRow[],
-  previous: Set<string>,
-  touched: boolean,
-): Set<string> {
-  if (touched) return new Set(previous)
-  return defaultSelectedIds(rows)
-}
-
 export function toggleFinding(
   selected: Set<string>,
   id: string,

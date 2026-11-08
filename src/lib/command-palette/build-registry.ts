@@ -124,7 +124,7 @@ export function buildPaletteCommandsFromState(
       id: `ws-open-${workspace.id}`,
       group: 'Workspaces',
       label: `Open ${workspace.name}`,
-      meta: workspaceCardMetaText(wsThreads),
+      meta: workspaceCardMetaText(workspace, wsThreads),
       icon: 'workspace',
       run: () => actions.openWorkspace(workspace.id),
     })

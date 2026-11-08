@@ -18,7 +18,7 @@
       id="pr-prompt"
       label="PR prompt"
       hint="What the agent is asked when Create PR drafts a description. The thread, goal and changed files are added after it."
-      saved={settings.prPrompt}
+      saved={settings.values.prPrompt}
       defaultPrompt={defaultPrPrompt}
       onSave={(next) => void updateSettings({ prPrompt: next })}
     />

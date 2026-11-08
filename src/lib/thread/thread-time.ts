@@ -1,4 +1,4 @@
-import { LruCache } from './memo'
+import { LruCache } from '$lib/memo'
 
 // Formatters are slow to create and every row shows a time, so these are made once, and
 // each timestamp is formatted once: a row asks for its label several times per render.

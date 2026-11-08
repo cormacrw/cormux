@@ -165,7 +165,7 @@ export function gitHandlers({
         deleted,
       }
     },
-    get_repo_git: () => scenario.repoGit ?? [],
+    get_repo_git: () => [],
     list_repo_branches: () => ({
       branches: ['main', 'develop', 'feat/oauth-login'],
     }),

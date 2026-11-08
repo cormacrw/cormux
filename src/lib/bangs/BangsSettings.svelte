@@ -21,7 +21,7 @@
   let drafts = $state<Record<string, { name: string; prompt: string }>>({})
 
   const defaultRepoId = $derived(
-    resolveDefaultRepoId(repos.items, settings.defaultRepo),
+    resolveDefaultRepoId(repos.items, settings.values.defaultRepo),
   )
 
   const saves = debouncedSaves()
@@ -40,12 +40,12 @@
   }
 
   function withDrafts(): Bang[] {
-    return settings.bangs.map((bang) => {
+    return settings.values.bangs.map((bang) => {
       const draft = drafts[bang.id]
       if (!draft) return bang
       // A cleared or taken name keeps the old one rather than leaving it unnamed or doubled.
       const name = bangName(draft.name)
-      const taken = settings.bangs.some(
+      const taken = settings.values.bangs.some(
         (other) => other.id !== bang.id && other.name === name,
       )
       return {
@@ -79,7 +79,7 @@
     flushSave()
     delete drafts[id]
     await updateSettings({
-      bangs: settings.bangs.filter((bang) => bang.id !== id),
+      bangs: settings.values.bangs.filter((bang) => bang.id !== id),
     })
     await tick()
     document.getElementById('settings-bang-name')?.focus()
@@ -93,14 +93,14 @@
       document.getElementById('settings-bang-name')?.focus()
       return
     }
-    if (settings.bangs.some((bang) => bang.name === name)) {
+    if (settings.values.bangs.some((bang) => bang.name === name)) {
       nameError = `!${name} already exists.`
       document.getElementById('settings-bang-name')?.focus()
       return
     }
     flushSave()
     const bang: Bang = { id: newBangId(), name, prompt: '' }
-    await updateSettings({ bangs: [...settings.bangs, bang] })
+    await updateSettings({ bangs: [...settings.values.bangs, bang] })
     nameDraft = ''
     nameError = null
     expand(bang)
@@ -109,13 +109,13 @@
   }
 </script>
 
-{#if settings.bangs.length > 0}
+{#if settings.values.bangs.length > 0}
   <ul
     class="set-group mt-4 space-y-2"
     aria-labelledby="settings-bangs-h"
     data-od-id="settings-bang-list"
   >
-    {#each settings.bangs as bang (bang.id)}
+    {#each settings.values.bangs as bang (bang.id)}
       {@const panelOpen = isExpanded(bang.id)}
       <li
         class="glass-card overflow-hidden rounded-2xl"

@@ -1,7 +1,7 @@
 import { commands, type CoreError } from '$lib/ipc'
 import type { StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
 
-export class StacksStore {
+class StacksStore {
   byWorkspace = $state<Record<string, WorkspaceStack>>({})
   loading = $state<Record<string, boolean>>({})
 

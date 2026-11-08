@@ -159,7 +159,7 @@
   $effect(() => {
     document.documentElement.classList.toggle(
       'reduce-motion',
-      settings.reduceMotion,
+      settings.values.reduceMotion,
     )
   })
 

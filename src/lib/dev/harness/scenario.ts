@@ -1,8 +1,6 @@
 import type {
   ApprovalRow,
-  EngineStatus,
   FindingRow,
-  RepoGitRuntime,
   ResumeThreadSessionInput,
   Snapshot,
   ThreadStatus,
@@ -59,10 +57,6 @@ export type HarnessScenario = {
   pullRequests?: Snapshot['persisted']['pullRequests']
   /** A stored ClickUp key and a picked sprint folder. */
   clickup?: boolean
-  /** Replaces the detected engines. */
-  engines?: EngineStatus[]
-  /** Replaces the repos' git state, which is otherwise empty. */
-  repoGit?: RepoGitRuntime[]
   /** The workspace whose teardown preview reports nothing to lose. */
   cleanTeardown?: string
   /** Starts the window in full screen. */
@@ -76,7 +70,6 @@ export type HarnessControls = {
     text: string
     attachments: { name: string; dataBase64: string | null }[]
   }[]
-  resolved: { id: string; approved: boolean; denyReason: string | null }[]
   answered: { id: string; answers: Record<string, string> }[]
   /** URLs handed to the system browser. */
   opened: string[]

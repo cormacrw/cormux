@@ -39,7 +39,7 @@
 
   let query = $state('')
   /** `!name more words`: start a thread with that bang's prompt, the words added. */
-  const bangRun = $derived(paletteBang(query, settings.bangs))
+  const bangRun = $derived(paletteBang(query, settings.values.bangs))
 
   const allCommands = $derived(buildPaletteCommands())
   const filtered = $derived(filterCommands(allCommands, query))
