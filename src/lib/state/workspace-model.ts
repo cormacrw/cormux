@@ -53,6 +53,8 @@ export type Workspace = {
   setupFailure: { command: string; exitCode: number } | null
   /** Why its branch can't be switched now; null when it can. */
   branchLock: string | null
+  /** Why "Review changes" can't start now; null when it can. */
+  reviewBlock: string | null
   /** What Run starts here (the workspace's own command, else its repo's), as the core resolved it. */
   run: Omit<WorkspaceRunCommand, 'workspaceId'> | null
   /** Where a review of this workspace stands; null before one starts. */
@@ -100,6 +102,12 @@ export function workspacesFromSnapshot(
     snapshot.workspaceBranchLocks.map((lock) => [
       lock.workspaceId,
       lock.reason,
+    ]),
+  )
+  const reviewBlocks = new Map(
+    snapshot.workspaceReviewBlocks.map((block) => [
+      block.workspaceId,
+      block.reason,
     ]),
   )
   const workspaceOf = new Map(
@@ -151,6 +159,7 @@ export function workspacesFromSnapshot(
             }
           : null,
       branchLock: branchLocks.get(record.id) ?? null,
+      reviewBlock: reviewBlocks.get(record.id) ?? null,
       run: runs.get(record.id) ?? null,
       reviewStatus: review?.status ?? null,
       reviewSubmitted: review?.submitted ?? false,

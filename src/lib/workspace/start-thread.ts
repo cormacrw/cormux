@@ -5,8 +5,6 @@ import {
 import { toastCoreError } from '$lib/feedback/wire-feedback'
 import { commands } from '$lib/ipc'
 import { refreshSnapshot } from '$lib/core/sync'
-import { repos } from '$lib/state/repos.svelte'
-import { settings } from '$lib/settings/store.svelte'
 
 /**
  * Spawns a thread: a new worktree off the repo's default branch, with the prompt as its first
@@ -29,8 +27,8 @@ export async function startThread(input: {
     repoId,
     name: '',
     branch: '',
-    base: repos.defaultBranch(repoId),
-    engine: settings.values.defaultEngine,
+    base: null,
+    engine: null,
     goal: prompt,
     model: input.model ?? null,
     effort: input.effort ?? null,

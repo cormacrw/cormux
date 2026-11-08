@@ -24,8 +24,10 @@ pub struct CreateWorkspaceInput {
     pub name: String,
     /// Empty to have one drafted from the goal.
     pub branch: String,
-    pub base: String,
-    pub engine: String,
+    /// `None` or blank starts from the repo's default branch.
+    pub base: Option<String>,
+    /// `None` or blank uses the default engine in Settings.
+    pub engine: Option<String>,
     pub goal: String,
     /// The model to start on; `None` leaves the engine's default.
     pub model: Option<String>,
@@ -65,6 +67,15 @@ pub async fn start_workspace(
             .collect(),
     };
 
+    let base = match given(input.base.as_deref()) {
+        Some(base) => base.to_string(),
+        None => state.store.repo(&input.repo_id)?.default_branch,
+    };
+    let engine = match given(input.engine.as_deref()) {
+        Some(engine) => engine.to_string(),
+        None => crate::settings::Settings::load(&state.store).default_engine_name(),
+    };
+
     // Read before anything is recorded, so an attachment that can't be read starts nothing.
     let (prompt, shown) = if input.attachments.is_empty() {
         (None, goal.clone())
@@ -97,9 +108,9 @@ pub async fn start_workspace(
             repo_id: input.repo_id.clone(),
             name: name.clone(),
             branch: branch.clone(),
-            base: input.base.clone(),
+            base: base.clone(),
             pr: None,
-            engine: input.engine.clone(),
+            engine,
             parent_thread_id,
             picks: ThreadPicks {
                 model: input.model.clone(),
@@ -147,8 +158,12 @@ pub async fn start_workspace(
     Ok(StartedWorkspace {
         workspace_id,
         thread_id,
-        base: input.base,
+        base,
     })
+}
+
+fn given(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 /// Told to a Lead whose branch was cut from the repo's default branch: the user may have meant to
@@ -448,8 +463,8 @@ esac
             repo_id: "r1".into(),
             name: name.into(),
             branch: branch.into(),
-            base: "main".into(),
-            engine: "claude".into(),
+            base: Some("main".into()),
+            engine: Some("claude".into()),
             goal: goal.into(),
             model: None,
             effort: None,
@@ -593,6 +608,35 @@ esac
         );
         let thread = store.thread_by_id(&started.thread_id).unwrap().unwrap();
         assert_eq!(thread.parent_thread_id.as_deref(), Some("parent"));
+    }
+
+    #[tokio::test]
+    async fn with_no_base_or_engine_the_repos_default_branch_and_the_default_engine_are_used() {
+        let f = fixture().await;
+        let request = CreateWorkspaceInput {
+            base: Some("  ".into()),
+            engine: None,
+            ..input("Work", "feat/y", "")
+        };
+
+        let started = start_workspace(&f.state, request, None).await.unwrap();
+
+        let default_branch = f.state.store.repo("r1").unwrap().default_branch;
+        assert_eq!(started.base, default_branch);
+        assert_eq!(
+            workspace(&f.state, &started.workspace_id).base,
+            default_branch
+        );
+        let thread = f
+            .state
+            .store
+            .thread_by_id(&started.thread_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            thread.engine,
+            crate::settings::Settings::load(&f.state.store).default_engine_name()
+        );
     }
 
     #[tokio::test]

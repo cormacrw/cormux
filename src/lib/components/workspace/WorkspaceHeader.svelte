@@ -3,7 +3,6 @@
   import { Button } from '$lib/components/ui/button'
   import { repos, shellDialogs, threads } from '$lib/state'
   import { appControls, controlApp } from '$lib/run-app/actions'
-  import { isAgentWorking, isWorkspaceProvisioning } from '$lib/state/activity'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import GitConflictBanner from './GitConflictBanner.svelte'
   import WorkspaceBranchTag from './WorkspaceBranchTag.svelte'
@@ -41,14 +40,6 @@
       ].map((thread) => thread.usage),
     ),
   )
-  const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
-  const setupUnfinished = $derived(
-    provisioning || workspace.lifecycle === 'provisioningFailed',
-  )
-  // A review runs in the workspace's one thread, so it waits for that thread to finish.
-  const reviewing = $derived(
-    wsThreads.some((thread) => isAgentWorking(thread.status)),
-  )
 
   // Handled here rather than on the buttons, since most actions live in ⋯.
   function onKeydown(event: KeyboardEvent) {
@@ -58,7 +49,7 @@
       if (start) void controlApp(workspace.id, start.action)
     } else if (shellDialogs.allows(event, 'reviewBranch')) {
       event.preventDefault()
-      if (workspace.kind !== 'review' && !setupUnfinished && !reviewing) {
+      if (workspace.kind !== 'review' && !workspace.reviewBlock) {
         void startBranchReview(workspace.id)
       }
     } else if (shellDialogs.allows(event, 'stopApp')) {
@@ -129,7 +120,7 @@
       <WorkspaceMoreMenu
         workspaceId={workspace.id}
         canReview={workspace.kind !== 'review'}
-        reviewDisabled={setupUnfinished || reviewing}
+        reviewBlock={workspace.reviewBlock}
       />
       <WorkspacePrimaryAction {workspace} />
     </div>

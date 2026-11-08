@@ -29,7 +29,11 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       name: input.goal.slice(0, 48),
       // The core drafts a branch from the goal when none is given; any `feat/` name stands in.
       branch: input.branch || `feat/harness-${n}`,
-      base: input.base,
+      base:
+        input.base ||
+        db.snapshot.persisted.repos.find((repo) => repo.id === input.repoId)
+          ?.defaultBranch ||
+        'main',
       worktreePath: `/tmp/cormux-fixture/harness-${n}`,
       createdAtMs: Date.now(),
     })

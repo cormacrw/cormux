@@ -23,11 +23,12 @@
   let {
     workspaceId,
     canReview = false,
-    reviewDisabled = false,
+    reviewBlock = null,
   }: {
     workspaceId: string
     canReview?: boolean
-    reviewDisabled?: boolean
+    /** Why a review can't start now, as the core says. */
+    reviewBlock?: string | null
   } = $props()
 
   let open = $state(false)
@@ -128,7 +129,8 @@
     </DropdownMenu.Item>
     {#if canReview}
       <DropdownMenu.Item
-        disabled={reviewDisabled}
+        disabled={reviewBlock != null}
+        title={reviewBlock ?? undefined}
         onclick={() => closeAndRun(() => void startBranchReview(workspaceId))}
       >
         <ScanSearch class="size-4" aria-hidden="true" />

@@ -66,6 +66,32 @@ export function coreHandlers({ db, emitStateChanged }: HarnessRuntime) {
               : null
         return reason ? [{ workspaceId: record.id, reason }] : []
       })
+      // As the core's `review::review_block`.
+      snapshot.workspaceReviewBlocks = snapshot.workspaces.flatMap((record) => {
+        const lead = snapshot.persisted.threads.find(
+          (thread) =>
+            thread.workspaceId === record.id &&
+            thread.role != null &&
+            !thread.retired,
+        )
+        const reason =
+          record.kind === 'review'
+            ? 'This is a review workspace; its Reviewer already reviews the PR.'
+            : record.status === 'provisioning'
+              ? 'Wait for setup to finish to review.'
+              : record.status === 'provisioningFailed'
+                ? 'Setup failed. Retry or skip it to review.'
+                : record.status === 'tearingDown'
+                  ? 'This workspace is being torn down.'
+                  : !lead
+                    ? 'This workspace has no Lead to review with.'
+                    : (WORKING_THREAD_STATUSES as readonly string[]).includes(
+                          lead.status,
+                        )
+                      ? "The agent is still working; review once it's done."
+                      : null
+        return reason ? [{ workspaceId: record.id, reason }] : []
+      })
       // A copy, as the real IPC deserialises one: the stores keep rows whose contents didn't
       // change, so handing them the harness's own objects would hide its edits.
       return structuredClone(snapshot)

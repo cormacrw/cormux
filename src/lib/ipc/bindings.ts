@@ -697,11 +697,13 @@ async endScratch(scratchId: string) : Promise<Result<null, Error>> {
 export const events = __makeEvents__<{
 memorySampled: MemorySampled,
 menuChosen: MenuChosen,
+notificationRaised: NotificationRaised,
 stateChanged: StateChanged,
 toastRaised: ToastRaised
 }>({
 memorySampled: "memory-sampled",
 menuChosen: "menu-chosen",
+notificationRaised: "notification-raised",
 stateChanged: "state-changed",
 toastRaised: "toast-raised"
 })
@@ -837,7 +839,15 @@ export type CreateWorkspaceInput = { repoId: string; name: string;
 /**
  * Empty to have one drafted from the goal.
  */
-branch: string; base: string; engine: string; goal: string; 
+branch: string; 
+/**
+ * `None` or blank starts from the repo's default branch.
+ */
+base: string | null; 
+/**
+ * `None` or blank uses the default engine in Settings.
+ */
+engine: string | null; goal: string; 
 /**
  * The model to start on; `None` leaves the engine's default.
  */
@@ -986,6 +996,20 @@ export type ModelOption = {
  * What the engine is told: a `--model` alias or `--effort` level for Claude.
  */
 id: string; label: string }
+/**
+ * Something the user asked to hear about even while away: the webview shows it as a desktop
+ * notification when the window isn't in front, and focusing the app then opens its target.
+ */
+export type NotificationPayload = { body: string; workspaceId: string | null; 
+/**
+ * With `workspace_id`, opens this thread's tab.
+ */
+threadId: string | null; 
+/**
+ * With `workspace_id`, opens its Findings tab.
+ */
+opensFindings: boolean }
+export type NotificationRaised = { payload: NotificationPayload }
 export type PersistedSnapshot = { reviews: ReviewRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
 /**
  * Newest first.
@@ -1217,7 +1241,11 @@ repoRemovalBlocks: RepoRemovalBlock[];
 /**
  * Workspaces whose branch can't be switched now, and why.
  */
-workspaceBranchLocks: WorkspaceBranchLock[] }
+workspaceBranchLocks: WorkspaceBranchLock[]; 
+/**
+ * Workspaces whose branch can't be reviewed now, and why.
+ */
+workspaceReviewBlocks: WorkspaceReviewBlock[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
@@ -1373,11 +1401,7 @@ threadId: string | null;
 /**
  * With `workspace_id`, clicking the toast opens its Findings tab.
  */
-opensFindings: boolean; 
-/**
- * Also said as a desktop notification, when the window isn't in front.
- */
-notification: string | null }
+opensFindings: boolean }
 export type ToastTone = "ok" | "bad" | "default"
 export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
 /**
@@ -1475,6 +1499,10 @@ export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "paused"
  * A workspace as the webview shows it: its row, plus what only the running app knows.
  */
 export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; kind: WorkspaceKind; activity: WorkspaceActivity }
+/**
+ * A workspace whose branch can't be reviewed now, and why, for the snapshot.
+ */
+export type WorkspaceReviewBlock = { workspaceId: string; reason: string }
 export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; 
 /**
  * The branch the workspace is compared with and pulls from.
