@@ -1,71 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import {
-  statusDotVariantForWorkspace,
-  workspaceStatusWord,
-  statusDotVariantForAttention,
-} from './status'
+import { statusDotFor } from './status'
 
-describe('statusDotVariantForWorkspace', () => {
-  it('maps provisioning lifecycles', () => {
-    expect(
-      statusDotVariantForWorkspace({
-        lifecycle: 'provisioning',
-        activityText: 'Idle',
-      }),
-    ).toBe('provisioning')
+describe('statusDotFor', () => {
+  it('follows the lifecycle of a workspace that is getting on with it', () => {
+    const dot = (lifecycle: Parameters<typeof statusDotFor>[0]['lifecycle']) =>
+      statusDotFor({ lifecycle, pendingApprovals: 0 }, false)
+    expect(dot('provisioning')).toBe('provisioning')
+    expect(dot('running')).toBe('running')
+    expect(dot('paused')).toBe('paused')
+    expect(dot('idle')).toBe('idle')
   })
 
-  it('maps running and paused', () => {
+  // Bug: Ctrl+Tab showed a workspace waiting on an approval as running, where the sidebar flashed.
+  it('says a workspace needs you first, flashing only while an agent waits on an answer', () => {
     expect(
-      statusDotVariantForWorkspace({
-        lifecycle: 'running',
-        activityText: '',
-      }),
-    ).toBe('running')
-    expect(
-      statusDotVariantForWorkspace({ lifecycle: 'paused', activityText: '' }),
-    ).toBe('paused')
-  })
-})
-
-describe('workspaceStatusWord', () => {
-  it('uses activity text when idle', () => {
-    expect(
-      workspaceStatusWord({
-        lifecycle: 'idle',
-        activityText: 'Plan ready',
-      }),
-    ).toBe('Plan ready')
-  })
-
-  it('says a paused workspace is paused, whatever it was last doing', () => {
-    expect(
-      workspaceStatusWord({
-        lifecycle: 'paused',
-        activityText: 'Reading repo…',
-      }),
-    ).toBe('Paused')
-  })
-
-  it('uses Starting and Running labels', () => {
-    expect(
-      workspaceStatusWord({
-        lifecycle: 'provisioning',
-        activityText: '',
-      }),
-    ).toBe('Starting')
-    expect(
-      workspaceStatusWord({
-        lifecycle: 'running',
-        activityText: '',
-      }),
-    ).toBe('Running')
-  })
-})
-
-describe('statusDotVariantForAttention', () => {
-  it('flashes only while the agent is on hold for an answer', () => {
-    expect(statusDotVariantForAttention(1)).toBe('waiting')
-    expect(statusDotVariantForAttention(0)).toBe('ready')
+      statusDotFor({ lifecycle: 'running', pendingApprovals: 1 }, true),
+    ).toBe('waiting')
+    expect(statusDotFor({ lifecycle: 'idle', pendingApprovals: 0 }, true)).toBe(
+      'ready',
+    )
   })
 })

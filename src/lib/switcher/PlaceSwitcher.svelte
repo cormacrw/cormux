@@ -2,9 +2,10 @@
   import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus'
   import Kanban from '@lucide/svelte/icons/square-kanban'
   import StatusDot from '$lib/sidebar/components/StatusDot.svelte'
-  import { repos, workspaces } from '$lib/state'
+  import { repos, threads, workspaces } from '$lib/state'
+  import { needsAttention } from '$lib/state/activity'
   import { switcher } from '$lib/switcher/store.svelte'
-  import { statusDotVariantForWorkspace } from '$lib/sidebar/status'
+  import { statusDotFor } from '$lib/sidebar/status'
   import { commitPlace } from '$lib/switcher/navigate'
   import { placeKey, type Place } from '$lib/switcher/places'
   import { cn } from '$lib/utils'
@@ -69,7 +70,11 @@
           {#if place.kind === 'workspace'}
             {@const workspace = workspaces.getById(place.id)}
             {#if workspace}
-              <StatusDot variant={statusDotVariantForWorkspace(workspace)} />
+              {@const attention = needsAttention(
+                workspace,
+                threads.liveFor(workspace.id)?.status,
+              )}
+              <StatusDot variant={statusDotFor(workspace, attention)} />
             {/if}
             <span class="truncate font-medium">{label(place)}</span>
             <span

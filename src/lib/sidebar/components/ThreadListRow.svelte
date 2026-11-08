@@ -3,11 +3,7 @@
   import { navigate } from '$lib/core/nav.svelte'
   import { formatRelativeAge } from '$lib/format/relative-time'
   import { plural } from '$lib/format/plural'
-  import {
-    statusDotVariantForAttention,
-    statusDotVariantForWorkspace,
-    workspaceStatusWord,
-  } from '$lib/sidebar/status'
+  import { statusDotFor } from '$lib/sidebar/status'
   import { nav } from '$lib/core/nav.svelte'
   import type { ThreadListRowItem } from '$lib/sidebar/thread-list-store.svelte'
   import { cn } from '$lib/utils'
@@ -33,16 +29,12 @@
     if (workspace.pendingApprovals > 0) {
       return `${plural(workspace.pendingApprovals, 'approval', 'approvals')} waiting`
     }
-    return workspaceStatusWord(workspace)
+    return workspace.activityText
   })
 
-  // An approval can land while the workspace still reads as running, so urgency decides.
-  const dotVariant = $derived.by(() => {
-    if (attention) {
-      return statusDotVariantForAttention(workspace?.pendingApprovals ?? 0)
-    }
-    return workspace ? statusDotVariantForWorkspace(workspace) : 'idle'
-  })
+  const dotVariant = $derived(
+    workspace ? statusDotFor(workspace, attention) : 'idle',
+  )
 
   // Only what the dot can't say: a setup that failed, or a leftover that can't be prompted.
   const showStatus = $derived(

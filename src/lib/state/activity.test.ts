@@ -47,6 +47,24 @@ describe('workspaceActivity', () => {
     ).toBe('Setup failed')
   })
 
+  // Bug: the sidebar and repo page said "Running"/"Starting" where the rest of the app said
+  // "Working", and an idle workspace went on reading "Reading repo…" after its first turn.
+  it('says paused, and the first read only while the agent works', () => {
+    const lead = {
+      kind: 'lead' as const,
+      activity: { kind: 'agentStarted' as const },
+    }
+    expect(workspaceActivity({ ...lead, status: 'paused' })).toBe('Paused')
+    expect(workspaceActivity({ ...lead, status: 'idle' })).toBe('Idle')
+    expect(
+      workspaceActivity({
+        ...lead,
+        status: 'running',
+        activity: { kind: 'none' },
+      }),
+    ).toBe('Working')
+  })
+
   it('falls back to the lifecycle, by kind while setting up', () => {
     expect(
       workspaceActivity({

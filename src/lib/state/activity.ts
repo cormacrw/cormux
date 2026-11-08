@@ -25,17 +25,22 @@ export function threadActivity(
   }
 }
 
-/** What a workspace is doing: what the core says it's at, else its lifecycle, in words. */
+/**
+ * What a workspace is doing, in the words every place that names it uses: paused if it is, else
+ * what the core says it's at, else its lifecycle. The agent's first read only lasts its first turn.
+ */
 export function workspaceActivity(
   record: Pick<WorkspaceRecord, 'status' | 'kind' | 'activity'>,
 ): string {
   const review = record.kind === 'review'
+  if (record.status === 'paused') return 'Paused'
   switch (record.activity.kind) {
     case 'settingUp':
       return review ? 'Checking out the PR…' : 'Running worktree setup…'
     case 'startingAgent':
       return 'Starting agent…'
     case 'agentStarted':
+      if (record.status !== 'running') break
       return review ? 'Reading the diff…' : 'Reading repo…'
     case 'setupFailed':
       return 'Setup failed'
@@ -55,8 +60,6 @@ export function workspaceActivity(
         : 'Running worktree setup…'
     case 'running':
       return 'Working'
-    case 'paused':
-      return 'Paused'
     case 'ready':
       return 'Ready'
     default:

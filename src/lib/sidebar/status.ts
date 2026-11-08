@@ -8,30 +8,22 @@ import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 export type StatusDotVariant =
   'provisioning' | 'running' | 'waiting' | 'ready' | 'paused' | 'idle'
 
-type WorkspaceSidebarInput = {
-  lifecycle: WorkspaceLifecycle
-  activityText: string
-}
-
-export function statusDotVariantForWorkspace(
-  workspace: WorkspaceSidebarInput,
+/**
+ * A workspace's dot. One that needs you (`needsAttention`) says so first, flashing only while an
+ * agent is on hold for an answer; an approval can land while it still reads as running. Otherwise
+ * the dot follows its lifecycle.
+ */
+export function statusDotFor(
+  workspace: { lifecycle: WorkspaceLifecycle; pendingApprovals: number },
+  attention: boolean,
 ): StatusDotVariant {
-  if (workspace.lifecycle === 'provisioning') return 'provisioning'
-  if (workspace.lifecycle === 'running') return 'running'
-  if (workspace.lifecycle === 'paused') return 'paused'
-  return 'idle'
-}
-
-/** The dot for a thread that needs you: only an agent on hold for an answer is worth flashing for. */
-export function statusDotVariantForAttention(
-  pendingApprovals: number,
-): StatusDotVariant {
-  return pendingApprovals > 0 ? 'waiting' : 'ready'
-}
-
-export function workspaceStatusWord(workspace: WorkspaceSidebarInput): string {
-  if (workspace.lifecycle === 'provisioning') return 'Starting'
-  if (workspace.lifecycle === 'running') return 'Running'
-  if (workspace.lifecycle === 'paused') return 'Paused'
-  return workspace.activityText
+  if (attention) return workspace.pendingApprovals > 0 ? 'waiting' : 'ready'
+  switch (workspace.lifecycle) {
+    case 'provisioning':
+    case 'running':
+    case 'paused':
+      return workspace.lifecycle
+    default:
+      return 'idle'
+  }
 }

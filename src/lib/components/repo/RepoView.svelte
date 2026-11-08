@@ -14,7 +14,6 @@
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { branchHoldLabel } from '$lib/repo/branch-hold'
-  import { workspaceStatusWord } from '$lib/sidebar/status'
   import { prs, repos, scratches, workspaces } from '$lib/state'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
@@ -170,7 +169,7 @@
             class="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
           >
             {#each repoWorkspaces as row (row.id)}
-              {@const status = workspaceStatusWord(row)}
+              {@const status = row.activityText}
               <li>
                 <button
                   type="button"
