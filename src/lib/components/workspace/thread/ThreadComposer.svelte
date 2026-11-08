@@ -41,11 +41,10 @@
   import { startsOver } from '$lib/core/owner-scoped'
   import {
     composerMayTakeFocus,
-    INLINE_PICKER_ATTR,
     isEditable,
-    PROMPT_ID,
+    registerPrompt,
   } from '$lib/keyboard/focus-home'
-  import { onEscape } from '$lib/keyboard/escape'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
   import { nav } from '$lib/core/nav.svelte'
   import { getCurrentWebview } from '@tauri-apps/api/webview'
   import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
@@ -265,43 +264,49 @@
 
   // Esc stops the agent once nothing in front of it (a popover, a slide-out) wanted the key.
   $effect(() =>
-    onEscape('agent', () => {
+    keyboardLayers.onEscape('agent', () => {
       if (threadStatus !== 'running') return false
       stopTurn()
       return true
     }),
   )
 
-  /** Puts focus back in the prompt, unless the user is busy somewhere else. */
-  function takeFocus() {
-    if (inputEl && composerMayTakeFocus(inputEl))
-      inputEl.focus({ preventScroll: true })
+  $effect(() => registerPrompt(() => inputEl))
+
+  /**
+   * Puts focus back in the prompt, unless the user is busy somewhere else. It waits for Svelte
+   * to draw what the trigger changed (a button swapped out, a menu opened), so the check sees
+   * the page as it now is.
+   */
+  function takeFocusSoon() {
+    void tick().then(() => {
+      if (inputEl && composerMayTakeFocus(inputEl))
+        inputEl.focus({ preventScroll: true })
+    })
   }
 
   // Opening a conversation, switching threads, or coming back to one puts
   // focus in the prompt, ready to type.
   $effect(() => {
     void draftId
-    void nav.arrivals
-    void tick().then(takeFocus)
+    return nav.onArrival(takeFocusSoon)
   })
 
   // The conversation stays mounted under the slide-outs, so closing one (or picking the
   // thread tab again) brings focus back here rather than to a fresh composer.
   $effect(() => {
-    if (workspaceUi.activeTab !== 'thread') return
-    void tick().then(takeFocus)
+    if (workspaceUi.activeTab === 'thread') takeFocusSoon()
   })
 
   // Coming back to the app with nothing focused lands in the prompt too.
   function onWindowFocus() {
-    if (document.activeElement === document.body) void tick().then(takeFocus)
+    if (document.activeElement === document.body) takeFocusSoon()
   }
 
   // A click on a control in the composer's footer (attach, New session, pause) leaves
   // the prompt focused; a menu that opens keeps focus until it closes.
   function onFootClick(event: MouseEvent) {
-    if ((event.target as Element).closest('button')) void tick().then(takeFocus)
+    if ((event.target as Element).closest('button')) takeFocusSoon()
   }
 
   /** Typing while focus has drifted (after a click in the conversation) goes to the prompt. */
@@ -444,7 +449,7 @@
 
   function stopTurn() {
     if (!thread) return
-    void tick().then(takeFocus)
+    takeFocusSoon()
     void stopThread(thread.id)
   }
 
@@ -497,7 +502,7 @@
     historyIndex = next
     const text = next === null ? '' : (prompts[next] ?? '')
     composerDrafts.setFor(draftId, text)
-    queueMicrotask(() => {
+    void tick().then(() => {
       fitHeight()
       target.setSelectionRange(text.length, text.length)
     })
@@ -530,7 +535,6 @@
     {@const shownKind = pickerOptions[0]?.kind ?? 'skill'}
     <ul
       id="composer-picker"
-      {...{ [INLINE_PICKER_ATTR]: '' }}
       role="listbox"
       aria-label={shownKind === 'repo'
         ? 'Repositories'
@@ -674,12 +678,12 @@
         {/each}
       </ul>
     {/if}
-    <label class="sr-only" for={PROMPT_ID}
+    <label class="sr-only" for="composer-input"
       >{thread ? 'Message the agent' : 'Start a new thread'}</label
     >
     <Textarea
       bind:ref={inputEl}
-      id={PROMPT_ID}
+      id="composer-input"
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"

@@ -1,5 +1,4 @@
-import { untrack } from 'svelte'
-import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
+import { keyboardLayers } from '$lib/keyboard/layers.svelte'
 import { isShortcut, type MatchedShortcutId } from '$lib/keyboard/shortcuts'
 import { workspaces } from './workspaces.svelte'
 
@@ -27,19 +26,22 @@ const guards: {
 }
 
 /**
- * The app-wide modal gate. Shell dialogs open through here; dialogs that keep their own open
- * state `hold` it while open. Shortcuts and the command palette wait while any is open.
+ * The shell dialogs, opened through here with what they open on. Each is a modal layer from the
+ * moment it's asked for (a teardown waits on its preview before it shows).
  */
 class ShellDialogsStore {
   private openArgs = $state<{ [K in ShellDialogId]?: ShellDialogArgs[K] }>({})
-  private holds = $state(0)
+
+  constructor() {
+    keyboardLayers.hold('modal', () => Object.keys(this.openArgs).length > 0)
+  }
 
   /** Opens a dialog unless its guard says no; returns whether it opened. */
   open<K extends ShellDialogId>(id: K, args: ShellDialogArgs[K]): boolean {
     const guard = guards[id] as
       ((args: ShellDialogArgs[K]) => boolean) | undefined
     if (guard && !guard(args)) return false
-    closeActiveWorkspacePopover()
+    keyboardLayers.closePopover()
     this.openArgs = { ...this.openArgs, [id]: args }
     return true
   }
@@ -59,22 +61,14 @@ class ShellDialogsStore {
     return this.openArgs[id] != null
   }
 
+  /** A shell dialog or any other modal is open. */
   anyOpen() {
-    return this.holds > 0 || Object.keys(this.openArgs).length > 0
+    return keyboardLayers.modal
   }
 
   /** A shortcut for a button on screen: pressed, not held down, and no dialog open. */
   allows(event: KeyboardEvent, id: MatchedShortcutId) {
     return isShortcut(event, id) && !event.repeat && !this.anyOpen()
-  }
-
-  /** Holds the gate while `isOpen()` is true. Call while a component initialises. */
-  hold(isOpen: () => boolean) {
-    $effect(() => {
-      if (!isOpen()) return
-      untrack(() => (this.holds += 1))
-      return () => untrack(() => (this.holds -= 1))
-    })
   }
 }
 

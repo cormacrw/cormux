@@ -36,10 +36,11 @@
 
   // Arriving on the page focuses its title, unless a task is open; closing one leaves focus
   // to the flyout, which hands it back to the task's card.
-  $effect(() => {
-    void nav.arrivals
-    if (!untrack(() => clickup.selectedTaskId)) title?.focus()
-  })
+  $effect(() =>
+    nav.onArrival(() => {
+      if (!untrack(() => clickup.selectedTaskId)) title?.focus()
+    }),
+  )
 
   $effect(() => {
     if (!clickup.board) void clickup.refresh()

@@ -14,7 +14,6 @@
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { openExternal } from '$lib/feedback/open-external'
   import { onModEnter } from '$lib/keyboard/mod-enter'
-  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { branchHoldLabel } from '$lib/repo/branch-hold'
   import { prs, repos, scratches, workspaces } from '$lib/state'
   import ExternalLink from '@lucide/svelte/icons/external-link'
@@ -29,7 +28,6 @@
   let deleting = $derived<string | null>(startsOver(nav.repoId, null))
   /** A branch origin doesn't have as it is locally, awaiting a confirmed delete. */
   let unpushed = $derived<string | null>(startsOver(nav.repoId, null))
-  shellDialogs.hold(() => unpushed != null)
   // Held after close so the copy doesn't change while the dialog animates out.
   let unpushedShown = $state('')
   $effect(() => {
@@ -47,11 +45,11 @@
     scratches.items.filter((row) => row.repoId === repo?.id),
   )
 
-  $effect(() => {
-    if (nav.view !== 'repo') return
-    void nav.arrivals
-    titleEl?.focus()
-  })
+  $effect(() =>
+    nav.onArrival(() => {
+      if (nav.view === 'repo') titleEl?.focus()
+    }),
+  )
 
   // Read again when the repo's workspaces move branches: the core says which it holds.
   const workspaceBranches = $derived(

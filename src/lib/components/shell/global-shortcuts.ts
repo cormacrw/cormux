@@ -4,9 +4,8 @@
 import { openWorkspace } from '$lib/nav/open'
 import { nav } from '$lib/core/nav.svelte'
 import { switchConversation } from '$lib/thread/actions'
-import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
-import { focusPrompt, overlayOpen } from '$lib/keyboard/focus-home'
-import { runEscape } from '$lib/keyboard/escape'
+import { focusPrompt } from '$lib/keyboard/focus-home'
+import { keyboardLayers } from '$lib/keyboard/layers.svelte'
 import { threadFind } from '$lib/thread/find-store.svelte'
 import { handleSwitcherKeydown } from '$lib/switcher/navigate'
 import { threadTimeline } from '$lib/thread/timeline-store.svelte'
@@ -97,12 +96,12 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
 
 /** Esc closes the innermost thing: a popover, then a slide-out, then stops a working agent. */
 function onEscape(event: KeyboardEvent) {
-  if (closeActiveWorkspacePopover()) {
+  if (keyboardLayers.closePopover()) {
     event.preventDefault()
     return
   }
   if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
   // A field, dialog or menu that took Esc has used it.
-  if (event.defaultPrevented || overlayOpen() || shellDialogs.anyOpen()) return
-  if (runEscape()) event.preventDefault()
+  if (event.defaultPrevented || keyboardLayers.held) return
+  if (keyboardLayers.runEscape()) event.preventDefault()
 }

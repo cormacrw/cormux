@@ -26,13 +26,14 @@
   }
 
   // Arriving focuses the title, or the section the route asks for.
-  $effect(() => {
-    void nav.arrivals
-    if (untrack(() => nav.view) !== 'settings') return
-    settingsTitle?.focus()
-    const section = untrack(() => nav.take('settings', 'section'))
-    if (section) void tick().then(() => jumpTo(section))
-  })
+  $effect(() =>
+    nav.onArrival(() => {
+      if (untrack(() => nav.view) !== 'settings') return
+      settingsTitle?.focus()
+      const section = untrack(() => nav.take('settings', 'section'))
+      if (section) void tick().then(() => jumpTo(section))
+    }),
+  )
 
   function jumpTo(section: SettingsSectionId) {
     const target = sectionRefs[section]

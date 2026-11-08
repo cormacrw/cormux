@@ -1,9 +1,6 @@
-<script lang="ts" module>
-  /** Where the lightbox mounts: the workspace column, beside the sidebar. */
-  export const MEDIA_HOST_ATTR = 'data-media-lightbox-host'
-</script>
-
 <script lang="ts">
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
+  import { mediaHost } from './media-host'
   import Maximize from '@lucide/svelte/icons/maximize'
   import X from '@lucide/svelte/icons/x'
   import ZoomIn from '@lucide/svelte/icons/zoom-in'
@@ -34,19 +31,16 @@
   let dragged = false
   let dragging = $state(false)
 
-  /**
-   * Moves the overlay out of the timeline into the workspace column, so it
-   * sits above the workspace header but stops at the sidebar. The timeline is
-   * inside a view-transition stacking context, which traps `fixed` children
-   * under the header.
-   */
+  const host = mediaHost()
+
+  // Mounted only while open.
+  $effect(() => keyboardLayers.hold('overlay', () => true))
+
+  /** Moves the overlay out of the timeline into the view's host: above its header, beside the sidebar. */
   function portal(node: HTMLElement) {
-    const host = document.querySelector(`[${MEDIA_HOST_ATTR}]`)
-    if (!host) {
-      node.classList.replace('absolute', 'fixed')
-      return
-    }
-    host.appendChild(node)
+    const target = host()
+    if (!target) return
+    target.appendChild(node)
     return () => node.remove()
   }
 

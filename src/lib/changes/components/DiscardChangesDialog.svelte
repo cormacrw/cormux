@@ -12,7 +12,6 @@
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { onModEnter } from '$lib/keyboard/mod-enter'
-  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
 
   let {
@@ -24,8 +23,6 @@
     request: DiscardRequest | null
     onClose: () => void
   } = $props()
-
-  shellDialogs.hold(() => request != null)
 
   // Held after close so the copy doesn't change while the dialog animates out.
   let shown = $state<DiscardRequest | null>(null)

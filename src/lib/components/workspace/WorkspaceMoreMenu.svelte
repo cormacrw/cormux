@@ -2,10 +2,7 @@
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
   import { appControls, controlApp } from '$lib/run-app/actions'
-  import {
-    claimWorkspacePopover,
-    releaseWorkspacePopover,
-  } from '$lib/keyboard/popover-registry'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
   import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
   import { shellDialogs, workspaceUi } from '$lib/state'
   import type { Workspace } from '$lib/state/workspaces.svelte'
@@ -43,8 +40,8 @@
 
   $effect(() => {
     if (!open) return
-    claimWorkspacePopover(popoverHandle)
-    return () => releaseWorkspacePopover(popoverHandle)
+    keyboardLayers.claimPopover(popoverHandle)
+    return () => keyboardLayers.releasePopover(popoverHandle)
   })
 
   function closeAndRun(action: () => void) {

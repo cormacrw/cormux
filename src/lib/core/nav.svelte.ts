@@ -1,12 +1,12 @@
+import { tick } from 'svelte'
 import { NEW_THREAD, type Route, type View } from './route'
 
 type RouteOf<V extends View> = Extract<Route, { view: V }>
 
 class Nav {
   route = $state.raw<Route>(NEW_THREAD)
-  /** Bumped by every `navigate`, so a view can move focus on arrival even when the route is the same. */
-  arrivals = $state(0)
   private listeners = new Set<(to: Route, from: Route) => void>()
+  private arrivals = new Set<() => void>()
 
   get view(): View {
     return this.route.view
@@ -27,14 +27,29 @@ class Nav {
   navigate(route: Route) {
     const from = this.route
     this.route = route
-    this.arrivals += 1
     for (const listener of this.listeners) listener(route, from)
+    for (const arrival of this.arrivals) arrival()
   }
 
   /** Runs on every navigation, before views react; for stores that follow the route. */
   onNavigate(listener: (to: Route, from: Route) => void) {
     this.listeners.add(listener)
     return () => void this.listeners.delete(listener)
+  }
+
+  /**
+   * Runs `arrive` now and again after every navigation, even to the same route, once the views
+   * have drawn it: for a view moving focus on arrival. Call it in an `$effect`, which it returns
+   * the stop for; what `arrive` reads now re-runs it as the effect's own dependencies.
+   */
+  onArrival(arrive: () => void) {
+    arrive()
+    const later = () =>
+      void tick().then(() => {
+        if (this.arrivals.has(later)) arrive()
+      })
+    this.arrivals.add(later)
+    return () => void this.arrivals.delete(later)
   }
 
   /** The route's one-shot `key` when it's on `view`, cleared so it isn't taken twice. */

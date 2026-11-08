@@ -7,6 +7,7 @@
   import ThreadConversation from '$lib/components/workspace/thread/ThreadConversation.svelte'
   import { prs, repos, scratches, shellDialogs } from '$lib/state'
   import type { ConversationSource } from '$lib/components/workspace/thread/rows/context'
+  import { provideMediaHost } from '$lib/components/workspace/thread/reply/media-host'
   import { nav } from '$lib/core/nav.svelte'
   import type { Scratch } from '$lib/state/scratches.svelte'
   import { engineDisplayName } from '$lib/engine/engines'
@@ -19,6 +20,8 @@
   const engineName = $derived(engineDisplayName(scratch?.engine ?? 'claude'))
 
   let headingEl = $state<HTMLHeadingElement | null>(null)
+  let sectionEl: HTMLElement | undefined = $state()
+  provideMediaHost(() => sectionEl)
 
   // No worktree and no Changes to open: file references stay plain text.
   const source: ConversationSource = {
@@ -30,11 +33,11 @@
     openFindings: undefined,
   }
 
-  $effect(() => {
-    if (nav.view !== 'scratch') return
-    void nav.arrivals
-    void tick().then(() => headingEl?.focus())
-  })
+  $effect(() =>
+    nav.onArrival(() => {
+      if (nav.view === 'scratch') void tick().then(() => headingEl?.focus())
+    }),
+  )
 
   function onKeydown(event: KeyboardEvent) {
     if (!scratch || !shellDialogs.allows(event, 'deleteScratch')) return
@@ -47,7 +50,8 @@
 
 {#if scratch}
   <section
-    class="view flex min-h-0 flex-1 flex-col"
+    bind:this={sectionEl}
+    class="view relative flex min-h-0 flex-1 flex-col"
     id="view-session"
     aria-label="Scratch"
     data-od-id="session-view"

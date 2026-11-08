@@ -7,7 +7,7 @@
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { onModEnter } from '$lib/keyboard/mod-enter'
-  import { shellDialogs, workspaces } from '$lib/state'
+  import { workspaces } from '$lib/state'
 
   let {
     workspaceId = $bindable(null as string | null),
@@ -19,7 +19,6 @@
   let saving = $state(false)
 
   const open = $derived(workspaceId != null)
-  shellDialogs.hold(() => open)
 
   // Seed once per opened workspace; untracked so snapshot refreshes don't wipe typing.
   $effect(() => {

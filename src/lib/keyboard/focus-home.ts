@@ -1,3 +1,5 @@
+import { keyboardLayers } from './layers.svelte'
+
 // The composer is where focus belongs in a conversation. These decide when it can take focus
 // back without pulling it away from something the user is in the middle of.
 
@@ -31,24 +33,21 @@ export function overlaySelector(state = ''): string {
   return OVERLAY_ROLES.map((role) => `[role="${role}"]${state}`).join(', ')
 }
 
-/** Marks a list that sits in the prompt and handles its keys itself (the composer's picker): not an overlay. */
-export const INLINE_PICKER_ATTR = 'data-inline-picker'
+/** The prompts mounted, the one on screen last. */
+const prompts: (() => HTMLElement | null | undefined)[] = []
 
-// A layer on its way out (`data-state="closed"`) no longer counts.
-const OPEN_OVERLAY = overlaySelector(
-  `:not([data-state="closed"]):not([${INLINE_PICKER_ATTR}])`,
-)
-
-/** An open dialog, menu or list holds the keyboard for now: focus and Esc are its own. */
-export function overlayOpen(): boolean {
-  return !!document.querySelector(OPEN_OVERLAY)
+/** For a composer: makes its input the prompt `focusPrompt` reaches. Returns the release. */
+export function registerPrompt(input: () => HTMLElement | null | undefined) {
+  prompts.push(input)
+  return () => {
+    const index = prompts.lastIndexOf(input)
+    if (index !== -1) prompts.splice(index, 1)
+  }
 }
 
-export const PROMPT_ID = 'composer-input'
-
-/** False when no prompt is on screen. */
+/** Puts focus in the prompt on screen, as asked; false when there isn't one. */
 export function focusPrompt(): boolean {
-  const prompt = document.getElementById(PROMPT_ID)
+  const prompt = prompts.at(-1)?.()
   prompt?.focus()
   return prompt != null
 }
@@ -58,16 +57,13 @@ export function focusPrompt(): boolean {
  * opened meanwhile, since one shortcut can swap one picker for another.
  */
 export function focusPromptAfterPicker() {
-  const nextPicker = document.querySelector(
-    '[role="menu"][data-state="open"], [data-slot="select-content"][data-state="open"]',
-  )
-  if (!nextPicker) focusPrompt()
+  if (!keyboardLayers.held) focusPrompt()
 }
 
 export function composerMayTakeFocus(composer: HTMLElement | null): boolean {
   const active = document.activeElement
   if (active === composer) return false
-  if (overlayOpen()) return false
+  if (keyboardLayers.held) return false
   if (active && active !== document.body && isEditable(active)) return false
   if (
     active &&

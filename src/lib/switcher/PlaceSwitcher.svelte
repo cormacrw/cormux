@@ -9,6 +9,7 @@
   import { commitPlace } from '$lib/switcher/navigate'
   import { placeKey, type Place } from '$lib/switcher/places'
   import { cn } from '$lib/utils'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
 
   /** Shown only once Ctrl is held a moment, so a quick Ctrl+Tab just switches. */
   const SHOW_AFTER_MS = 120
@@ -22,6 +23,8 @@
     const timer = setTimeout(() => (visible = true), SHOW_AFTER_MS)
     return () => clearTimeout(timer)
   })
+
+  $effect(() => keyboardLayers.hold('overlay', () => switcher.open && visible))
 
   const PAGES = {
     newThread: { label: 'New thread', icon: MessageSquarePlus },
