@@ -2,7 +2,7 @@
 //! tool name (`name`, or only the title on the oldest rows) and a coarse kind. Used once, to
 //! rewrite those rows the way the timeline drew them.
 
-use super::tools::{QUESTION_TOOL, display_name, humanize, role};
+use super::tools::{display_name, humanize, is_hidden, is_subagent, role};
 use crate::engines::events::{EditVerb, ToolRole};
 
 /// A saved tool call's fields that carried its meaning.
@@ -20,11 +20,9 @@ pub struct RestoredCall {
     pub hidden: bool,
 }
 
-const EXIT_PLAN_TOOL: &str = "ExitPlanMode";
-
 pub fn restore_call(saved: &SavedCall) -> RestoredCall {
     let tool = saved.name.unwrap_or(saved.title);
-    let hidden = tool == QUESTION_TOOL || tool == EXIT_PLAN_TOOL;
+    let hidden = is_hidden(tool);
     let detail = saved.detail.unwrap_or_default().to_string();
     let (role, title) = match saved.kind {
         "edit" | "delete" | "move" => {
@@ -38,7 +36,7 @@ pub fn restore_call(saved: &SavedCall) -> RestoredCall {
             (ToolRole::Edit { verb }, saved.title.to_string())
         }
         // A shell call's title was its command, or the tool's name when it had none.
-        "execute" if !matches!(tool, "Agent" | "Task") => {
+        "execute" if !is_subagent(tool) => {
             let command = saved.title.trim();
             let command = if saved.name == Some(command) {
                 ""

@@ -14,6 +14,16 @@ pub const ENTER_PLAN_TOOL: &str = "EnterPlanMode";
 /// Keeps the session's todo list, which the thread shows as its plan.
 pub const TODO_TOOL: &str = "TodoWrite";
 
+/// Tools the thread draws as something else (a question card, the plan's approval), not a step.
+pub(super) fn is_hidden(name: &str) -> bool {
+    name == QUESTION_TOOL || name == EXIT_PLAN_TOOL
+}
+
+/// Starts a subagent. Older builds called it Task.
+pub(super) fn is_subagent(name: &str) -> bool {
+    matches!(name, "Agent" | "Task")
+}
+
 /// How Claude names a tool served by an MCP server.
 pub fn mcp_tool_name(server: &str, tool: &str) -> String {
     format!("mcp__{server}__{tool}")
@@ -61,7 +71,7 @@ pub fn tool_use(name: &str, input: &Value) -> ToolUse {
         title,
         detail,
         locations: path.into_iter().collect(),
-        hidden: name == QUESTION_TOOL || name == EXIT_PLAN_TOOL,
+        hidden: is_hidden(name),
     }
 }
 
@@ -94,8 +104,7 @@ pub fn role(name: &str, input: &Value) -> ToolRole {
         "Skill" => ToolRole::Skill {
             name: field("skill"),
         },
-        // Older builds called it Task.
-        "Agent" | "Task" => ToolRole::Subagent {
+        name if is_subagent(name) => ToolRole::Subagent {
             description: input
                 .get("description")
                 .and_then(Value::as_str)
