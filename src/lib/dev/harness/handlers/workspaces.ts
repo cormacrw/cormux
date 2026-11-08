@@ -86,11 +86,18 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       runtime.threadEfforts.set(created.threadId, input.effort)
       return created
     },
-    // Opens the fixture workspace.
-    create_review_workspace: () => ({
-      workspaceId: WORKSPACE_ID,
-      created: true,
-    }),
+    // As the core: the PR's open review workspace, else the fixture workspace as if started.
+    create_review_workspace: ({ input }: Input<'create_review_workspace'>) => {
+      const existing = db.snapshot.persisted.workspaces.find(
+        (row) =>
+          row.kind === 'review' &&
+          row.repoId === input.repoId &&
+          row.prNumber === input.prNumber,
+      )
+      return existing
+        ? { workspaceId: existing.id, created: false }
+        : { workspaceId: WORKSPACE_ID, created: true }
+    },
     get_teardown_preview: ({ workspaceId }: { workspaceId: string }) => ({
       workspaceId,
       workspaceName: 'OAuth login',

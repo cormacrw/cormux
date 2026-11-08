@@ -121,7 +121,7 @@ fn find_existing_review_workspace(
 }
 
 /// A review workspace for the repo's pull request `pr_number`, as the last PR sync saw it, or
-/// the one already open for it.
+/// the one already open for it: one per PR, the rule's only owner.
 pub async fn create_review_workspace(
     state: &AppState,
     input: CreateReviewWorkspaceInput,
@@ -141,6 +141,7 @@ pub async fn create_review_workspace(
         // The PR may have been retargeted since.
         if existing.base != pr.base {
             state.workspaces.set_base(&existing.id, &pr.base).await?;
+            state.out.changed();
         }
         return Ok(CreateReviewWorkspaceResult {
             workspace_id: existing.id,
@@ -820,5 +821,65 @@ mod tests {
             assert_eq!(example[0].severity, "blocking");
             assert_eq!(example[0].line, Some(48));
         }
+    }
+
+    /// Bug: the webview reopened an existing review itself, so this never ran and a
+    /// retargeted PR's review kept comparing against the old base.
+    #[tokio::test]
+    async fn reopening_a_review_follows_a_retargeted_pr() {
+        let (state, recording, _fake) = workspace(ThreadStatus::Idle);
+        let review = WorkspaceRow::new(
+            WorkspaceKind::PrReview,
+            "w2",
+            "r1",
+            "PR #7 Review",
+            "feat/pr",
+            "main",
+            std::env::temp_dir()
+                .join("cormux-review-w2")
+                .display()
+                .to_string(),
+        )
+        .with_pr(7, None);
+        state.store.insert_workspace(&review).unwrap();
+        state
+            .store
+            .upsert_pr(&crate::github::types::PullRequestPayload {
+                num: 7,
+                title: "Retargeted".into(),
+                author: "ana".into(),
+                head: "feat/pr".into(),
+                base: "release".into(),
+                updated_at: "2026-01-01T00:00:00Z".into(),
+                checks: crate::github::types::PrChecksState::Pass,
+                review: crate::github::types::PrReviewState::Required,
+                files: 1,
+                is_draft: false,
+                html_url: "https://github.com/o/r/pull/7".into(),
+                repo_full_name: "o/r".into(),
+                repo_id: Some("r1".into()),
+            })
+            .unwrap();
+
+        let result = create_review_workspace(
+            &state,
+            CreateReviewWorkspaceInput {
+                repo_id: "r1".into(),
+                pr_number: 7,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            (result.workspace_id.as_str(), result.created),
+            ("w2", false)
+        );
+        assert_eq!(
+            state.store.workspace_by_id("w2").unwrap().unwrap().base,
+            "release"
+        );
+        assert_eq!(state.workspaces.get("w2").await.unwrap().base, "release");
+        assert!(!recording.state_changes().is_empty());
     }
 }

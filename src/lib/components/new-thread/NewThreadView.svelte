@@ -6,7 +6,6 @@
   import { openWorkspace } from '$lib/nav/open'
   import { openSettings } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
-  import { readPref, writePref } from '$lib/primitives/local-pref'
   import { tick, untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Select from '$lib/components/ui/select'
@@ -34,8 +33,6 @@
   import { startThread } from '$lib/workspace/start-thread'
   import Folder from '@lucide/svelte/icons/folder'
 
-  const LAST_REPO_KEY = 'cormux-last-repo'
-
   let repoId = $state('')
   let repoOpen = $state(false)
   let repoTrigger = $state<HTMLButtonElement | null>(null)
@@ -50,10 +47,7 @@
     const items = repos.items
     untrack(() => {
       if (!items.some((row) => row.id === repoId)) {
-        repoId = resolveDefaultRepoId(
-          items,
-          readPref(LAST_REPO_KEY) || settings.values.defaultRepo,
-        )
+        repoId = resolveDefaultRepoId(items, settings.values.defaultRepo)
       }
     })
   })
@@ -97,7 +91,6 @@
       attachments,
     })
     if (!workspaceId) return false
-    writePref(LAST_REPO_KEY, id)
     if (stay) return true
     // The greeting falls away and the conversation rises in, as on a first prompt in a thread.
     firstPromptTransition(

@@ -233,6 +233,25 @@ test('⌘⇧R picks the repo with the arrow keys and ↵', async ({ page }) => {
   await expect(composer).toBeFocused()
 })
 
+// Bug: the last repo used was remembered and beat the "Default repository" setting.
+test('the new thread page starts on the default repository, not the last one used', async ({
+  page,
+}) => {
+  await page.goto('/?secondRepo')
+  const composer = page.locator('#composer-input')
+  await expect(composer).toBeFocused()
+  await page.keyboard.press('ControlOrMeta+Shift+R')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#new-thread-repo')).toHaveText('api')
+  await composer.fill('Start in api')
+  await page.keyboard.press('ControlOrMeta+Enter')
+  await expect(composer).toHaveValue('')
+
+  await page.reload()
+  await expect(page.locator('#new-thread-repo')).toHaveText('my-app')
+})
+
 test('the shortcuts swap one picker for another, keeping the arrow keys', async ({
   page,
 }) => {
