@@ -255,7 +255,7 @@
   /** Back to the newest message, and following it again. */
   export function followEnd() {
     pinnedToBottom = true
-    queueMicrotask(() => {
+    void tick().then(() => {
       if (scrollEl) scrollTo(scrollEl)
       keepFollowing()
     })

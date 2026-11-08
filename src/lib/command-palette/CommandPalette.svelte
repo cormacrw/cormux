@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import * as Command from '$lib/components/ui/command/index.js'
   import { Kbd } from '$lib/components/ui/kbd/index.js'
   import {
@@ -54,12 +55,12 @@
     }
     // Closed first (product/features/02-command-palette-and-shortcuts.md), so the command runs with focus back where it was.
     palette.close()
-    queueMicrotask(() => command.run())
+    void tick().then(() => command.run())
   }
 
   function completeBang(label: string) {
     query = `${label} `
-    queueMicrotask(() => {
+    void tick().then(() => {
       inputEl?.focus()
       inputEl?.setSelectionRange(query.length, query.length)
     })
