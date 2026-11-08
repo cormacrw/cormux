@@ -58,7 +58,6 @@ pub struct ToastRaisedPayload {
     pub thread_id: Option<String>,
 }
 
-/// Where the [`Notifier`] sends things.
 pub trait UserOutput: Send + Sync {
     fn state_changed(&self, version: u64, change: Change);
     fn toast(&self, payload: ToastRaisedPayload);
@@ -194,7 +193,6 @@ impl Notifier {
 #[derive(Debug, PartialEq, Eq)]
 enum Decision {
     EmitNow(Change),
-    /// Wait this long, then `flush`.
     Schedule(Duration),
     /// A flush is already scheduled and will carry this change.
     Merged,

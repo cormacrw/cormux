@@ -1,6 +1,6 @@
 //! A thread's event log: everything the thread shows, saved in order and streamed to whoever is
-//! watching it. This is the only writer of `thread_events` and the only reader of its rows' kinds
-//! and payloads.
+//! watching it. This is the only writer of `thread_events` and decodes its rows' kinds and
+//! payloads for the core; the webview still gets rows as stored from `get_thread_events`.
 //!
 //! What is saved and what is only streamed:
 //! - Saved ([`Transcript::append`]): the user's messages, what the engine said and did (messages,

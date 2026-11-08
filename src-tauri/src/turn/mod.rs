@@ -32,7 +32,6 @@ use crate::timeline::TimelineStep;
 /// What a resumed thread is told when nothing queued while it was paused.
 const RESUME_PROMPT: &str = "continue";
 
-/// An earlier conversation to resume in a thread.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ResumeThreadSessionInput {

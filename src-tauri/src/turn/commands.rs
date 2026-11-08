@@ -39,9 +39,7 @@ pub async fn resume_thread(thread_id: String, state: State<'_, AppState>) -> Res
     super::resume(&state, &thread_id).await
 }
 
-/// Like `/clear`: the agent forgets the conversation and the thread starts a
-/// fresh one. The step records the session it ended, so the conversation can
-/// be resumed later (`resume_thread_session`).
+/// Like `/clear`: the agent forgets the conversation and the thread starts a fresh one.
 #[tauri::command]
 #[specta::specta]
 pub async fn new_thread_session(thread_id: String, state: State<'_, AppState>) -> Result<()> {

@@ -52,7 +52,8 @@ pub struct Snapshot {
     pub memory: Option<MemorySample>,
     /// Approvals waiting on the user, which the dock badge also shows.
     pub pending_approvals: usize,
-    /// True when a PAT is stored or `gh auth token` succeeds.
+    /// True when the last PR sync was signed in to `gh`, or, before one has run, when an earlier
+    /// sync's time is stored.
     pub github_auth_configured: bool,
     /// True when a ClickUp API key is saved. Every ClickUp surface hides without one.
     pub clickup_configured: bool,
@@ -61,7 +62,6 @@ pub struct Snapshot {
     pub repo_run_commands: Vec<RepoRunCommand>,
 }
 
-/// The stored rows, read in one transaction.
 fn persisted(store: &crate::store::Store) -> Result<PersistedSnapshot> {
     store.read_consistent(|conn| {
         Ok(PersistedSnapshot {

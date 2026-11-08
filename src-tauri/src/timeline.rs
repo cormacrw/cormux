@@ -1,6 +1,7 @@
 //! What the core itself did in a thread, as the Timeline shows it. Each step is typed by what
-//! happened, so the UI picks a step's icon and chips from its kind
-//! (`src/lib/thread/timeline-step.ts`) and rewording a title here can't change either. The title
+//! happened, so the UI picks a step's row and icon from its kind (`STEP_ROW` in
+//! `src/lib/thread/timeline/fold.ts`, `components/workspace/thread/rows/step-icons.ts`) and
+//! rewording a title here can't change either. The title
 //! and detail are stored alongside as display text; `transcript` writes them.
 
 use serde::{Deserialize, Serialize};

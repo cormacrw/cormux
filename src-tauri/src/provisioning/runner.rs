@@ -118,7 +118,6 @@ pub async fn create(state: &AppState, spec: WorkspaceSpec) -> Result<Created> {
     })
 }
 
-/// Runs the plan in the background.
 pub fn start(state: &AppState, plan: ProvisionPlan) {
     let state = state.clone();
     tauri::async_runtime::spawn(async move { run(&state, plan).await });

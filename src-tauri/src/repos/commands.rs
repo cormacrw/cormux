@@ -46,8 +46,6 @@ pub async fn set_repo_default_branch(
     super::set_default_branch(&state, input)
 }
 
-/// Commits each repo's default branch is behind and ahead of `origin`, against the last
-/// fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
 #[tauri::command]
 #[specta::specta]
 pub async fn get_repo_git(state: State<'_, AppState>) -> Result<Vec<RepoGitRuntime>> {

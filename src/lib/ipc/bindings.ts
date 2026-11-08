@@ -86,9 +86,7 @@ async resumeThread(threadId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Like `/clear`: the agent forgets the conversation and the thread starts a
- * fresh one. The step records the session it ended, so the conversation can
- * be resumed later (`resume_thread_session`).
+ * Like `/clear`: the agent forgets the conversation and the thread starts a fresh one.
  */
 async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
     try {
@@ -630,10 +628,6 @@ async setRepoDefaultBranch(input: SetRepoDefaultBranchInput) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Commits each repo's default branch is behind and ahead of `origin`, against the last
- * fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
- */
 async getRepoGit() : Promise<Result<RepoGitRuntime[], Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_repo_git") };
@@ -806,9 +800,6 @@ export type ApprovalRow = { id: string; threadId: string; status: ApprovalStatus
  * None when the stored card can't be read; the timeline falls back to the permission event.
  */
 payload: ApprovalPayload | null }
-/**
- * Where an approval stands.
- */
 export type ApprovalStatus = "pending" | "approved" | "denied" | 
 /**
  * Older builds' word for a card a newer one replaced; reads as denied. Not written any more.
@@ -953,9 +944,6 @@ export type Error =
  */
 { kind: "Invalid"; message: string } | { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: GitConflictOperation; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
 export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: FindingStatus; commitSha: string | null; sentToThreadId: string | null }
-/**
- * Where a review finding stands.
- */
 export type FindingStatus = "open" | 
 /**
  * Sent to a thread to fix.
@@ -1062,9 +1050,6 @@ singleInstance: boolean }
  * their own.
  */
 export type RepoRunCommand = { repoId: string; command: string; source: RunCommandSource }
-/**
- * An earlier conversation to resume in a thread.
- */
 export type ResumeThreadSessionInput = { threadId: string; 
 /**
  * The UI's id for the conversation, echoed back in the timeline.
@@ -1191,7 +1176,8 @@ workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: Memo
  */
 pendingApprovals: number; 
 /**
- * True when a PAT is stored or `gh auth token` succeeds.
+ * True when the last PR sync was signed in to `gh`, or, before one has run, when an earlier
+ * sync's time is stored.
  */
 githubAuthConfigured: boolean; 
 /**
@@ -1313,9 +1299,6 @@ retired: boolean;
  * The thread that started this one through `create_thread`.
  */
 parentThreadId: string | null }
-/**
- * What a thread is doing.
- */
 export type ThreadStatus = "provisioning" | "running" | "paused" | "idle"
 /**
  * Something the core did in a thread. A new kind fails `pnpm check` until the UI's `STEP_ROW`

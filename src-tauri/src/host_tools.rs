@@ -117,7 +117,7 @@ const TOOLS: &[HostTool] = &[
     },
     HostTool {
         name: "get_thread",
-        description: "One thread's status, last reply, modified file count, PR and pending approvals.",
+        description: "One thread's status, branch, last reply, PR, cost and pending approvals.",
         input_schema: || {
             json!({
                 "type": "object",

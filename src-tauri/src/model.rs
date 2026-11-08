@@ -114,7 +114,6 @@ impl ThreadRole {
     }
 }
 
-/// What a thread is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ThreadStatus {
@@ -174,7 +173,6 @@ pub fn status_from_threads(
     }
 }
 
-/// Where an approval stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ApprovalStatus {
@@ -206,7 +204,6 @@ impl ApprovalStatus {
     }
 }
 
-/// Where a review finding stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum FindingStatus {

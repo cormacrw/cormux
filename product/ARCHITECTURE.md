@@ -1,6 +1,6 @@
 # Architecture
 
-How Harness is built. Product context lives in [`PRODUCT.md`](PRODUCT.md) and feature behaviour in [`features/`](features/README.md). This document says which part of the stack owns each piece of behaviour, and records the technical decisions that the feature specs depend on.
+How Cormux is built. Product context lives in [`PRODUCT.md`](PRODUCT.md) and feature behaviour in [`features/`](features/README.md). This document says which part of the stack owns each piece of behaviour, and records the technical decisions that the feature specs depend on.
 
 ## Stack
 
@@ -15,7 +15,7 @@ The rest of this document adds libraries *inside* these layers. None of them cha
 
 ### The one correction: PTYs are for apps, not agents
 
-The stack brief says agent CLIs run "via PTY streams". A pseudo-terminal gives Harness the same bytes a human would see in a terminal: a redrawing TUI full of ANSI escape codes. Every core feature of the conversation (tool-call steps, edit rows, plans, approval cards, findings) needs **structured events**, and scraping a TUI to get them would break on every CLI release.
+The stack brief says agent CLIs run "via PTY streams". A pseudo-terminal gives Cormux the same bytes a human would see in a terminal: a redrawing TUI full of ANSI escape codes. Every core feature of the conversation (tool-call steps, edit rows, plans, approval cards, findings) needs **structured events**, and scraping a TUI to get them would break on every CLI release.
 
 So the backend runs two kinds of child process:
 
@@ -31,25 +31,25 @@ Each feature spec checked against the stack. "Supported" means the stack handles
 | # | Feature | Verdict | How |
 | --- | --- | --- | --- |
 | 01 | App shell and sidebar | Supported | Tauri overlay title bar with native macOS traffic lights; `sysinfo` crate for the memory meter; dock badge for pending approvals. |
-| 02 | Command palette and shortcuts | Supported | bits-ui `Command` with its built-in filter off, so Harness applies the spec's substring match on label and meta. Shortcuts are handled in the webview and mirrored in the native app menu. |
+| 02 | Command palette and shortcuts | Supported | bits-ui `Command` with its built-in filter off, so Cormux applies the spec's substring match on label and meta. Shortcuts are handled in the webview and mirrored in the native app menu. |
 | 03 | Toasts | Supported | shadcn-svelte `Sonner` (svelte-sonner) inside a polite live region. OS notifications, a gap in the spec, come from `tauri-plugin-notification`. |
-| 04 | Homebase and cards | Supported, needs a decision | Summaries need a small model call, which the stack doesn't name. See [Small model calls](#small-model-calls). |
-| 05 | Open pull requests | Supported, needs a decision | GitHub client in Rust; token in the macOS Keychain. Auth method is open. See [GitHub](#github). |
+| 04 | Homebase and cards | Supported | Cards show what the core records (status, activity, PR, review); no model writes card text. |
+| 05 | Open pull requests | Supported | Listed through the `gh` CLI's GraphQL API with the user's own `gh` login. See [GitHub](#github). |
 | 06 | New workspace | Supported | `git worktree add` from the Rust git module; branch lists from `git for-each-ref`; name and branch drafting stay local in the UI. |
 | 07 | Worktree provisioning | Supported | Setup commands run in a PTY in the user's login shell environment, stop on first failure. |
 | 08 | Teardown | Supported | Stop agents and the app by process group, then `git worktree remove` and `git branch -D`. |
 | 09 | Workspace header | Supported | "Open in editor" and "Reveal in Finder" (spec gaps) via `tauri-plugin-opener`. |
 | 10 | Thread tabs | Supported | One engine process per thread, all with the worktree as their working directory. |
 | 11 | Agent conversation | Supported via structured protocol | Engine events map onto the timeline item kinds. Long threads need a virtual list; agent markdown needs sanitising. |
-| 12 | Composer | Supported, needs a decision | Sending is `session/prompt`. **Pause can't be a true pause**; see [Pause semantics](#pause-semantics). |
-| 13 | Approvals | Supported | Claude Code's `can_use_tool` control request blocks the agent until Harness answers. Auto-approve read-only tools is enforced by the backend. |
+| 12 | Composer | Supported | Sending is a `user` message on the thread's stream-JSON stdin. **Pause can't be a true pause**; see [Pause semantics](#pause-semantics). |
+| 13 | Approvals | Supported | Claude Code's `can_use_tool` control request blocks the agent until Cormux answers. The one policy, "Run everything", is enforced by the core; questions always wait for the user. |
 | 14 | Changes panel | Supported | Filesystem watcher plus `git diff`; custom diff renderer with Shiki highlighting and jsdiff word ranges; `Resizable` panes. |
 | 15 | Run app and Output | Supported | PTY per app in its own process group; ANSI to styled spans; port read from output; exit code gives the missing Crashed state. |
 | 16 | Branch switching | Supported | `git switch`, refused with a clear message when the worktree is dirty. |
 | 17 | Pull and rebase | Supported | Shared `git fetch` per repo; conflicts detected from exit status and unmerged paths. |
-| 18 | Create PR | Supported | `git push` with the user's own credentials, then the GitHub API. Drafting uses the small model call. |
+| 18 | Create PR | Supported | `git push` with the user's own credentials, then the GitHub API. The description is drafted by the small model call from the thread and the branch's diff against the PR's base. |
 | 19 | Review workspaces | Supported | `git fetch origin pull/<N>/head`, worktree on that ref, Reviewer thread. |
-| 20 | Review findings | Supported | Findings arrive as structured tool calls to Harness's own MCP server, not parsed from prose. Submit review uses the GitHub reviews API. |
+| 20 | Review findings | Supported | The reviewer ends its reply with a JSON findings block that the core parses when its turn ends (and asks again for when it's missing or malformed). Submit review uses the GitHub reviews API. |
 | 21 | Settings | Supported | Persisted in SQLite; engine detection by resolving each CLI on the login-shell `PATH`. |
 | 22 | Repos | Supported | Native folder picker (`tauri-plugin-dialog`); `git rev-parse` validation; default branch from `origin/HEAD`. |
 
@@ -66,15 +66,18 @@ flowchart LR
 
   subgraph Core["Rust core (Tauri)"]
     IPC[Commands, events, channels]
-    WS[Workspace manager]
-    ENG[Engine adapters]
-    APR[Approval broker]
-    MCP[Harness MCP server]
-    GIT[Git module]
-    PROC[Process supervisor]
-    GH[GitHub client]
-    LLM[Small model client]
-    DB[(SQLite)]
+    FEAT[Features: workspaces, turn, review, findings, orchestration, …]
+    RT[thread_runtime]
+    ENG[engines]
+    TR[transcript]
+    APR[approvals]
+    HT[host_tools]
+    BUS[bus]
+    GIT[git]
+    PROC[process]
+    GH[github via gh]
+    LLM[llm]
+    DB[(store: SQLite)]
   end
 
   subgraph Children["Child processes"]
@@ -85,22 +88,36 @@ flowchart LR
 
   UI <--> Stores
   Stores <--> IPC
-  IPC --> WS
-  WS --> ENG & GIT & PROC & DB
+  IPC --> FEAT
+  FEAT --> RT & TR & GIT & PROC & DB & BUS
+  RT --> ENG
+  RT --> TR & APR & HT
   ENG <-->|stdio JSON| Agents
-  Agents -->|tool calls| MCP
-  ENG --> APR
+  Agents -->|mcp_message| ENG
+  APR & FEAT -->|publish| BUS
   PROC <-->|PTY| Apps
   GIT --> Git
-  GH -->|HTTPS| GitHub[(GitHub API)]
-  LLM -->|one-shot| Agents
+  GH -->|gh api / HTTPS| GitHub[(GitHub API)]
+  LLM -->|one-shot claude -p| Agents
 ```
 
 **The Rust core is the source of truth.** The webview holds a mirror of state for rendering. It never spawns processes, reads files, or holds tokens. If the webview reloads, it asks the core for a snapshot and carries on.
 
 ## Rust core
 
-Modules under `src-tauri/src/`. Each owns one concern and exposes async functions to the IPC layer.
+Modules under `src-tauri/src/`, one concern each. A feature keeps its commands (`<feature>/commands.rs`, or a `commands` section), its SQL (an `impl Store` block beside it, e.g. `findings/store.rs`) and its row types together; `ipc/mod.rs` only lists the commands for registration.
+
+**Dependency direction**, lowest first. A module only imports from the layers below it; `state` (the `AppState` every command borrows) is the composition root that wires the rest together, and the features' command adapters import it.
+
+| Layer | Modules |
+| --- | --- |
+| Leaves | `error`, `model` (shared wire enums), `time`, `paths`, `shell_env`, `bus`, `media`, `timeline` (the core's step vocabulary) |
+| Infrastructure | `store` (connections, migrations, repo/workspace/thread rows; imports only `model` and `error`), `git`, `process`, `llm`, `credentials`, `engines` (imports `shell_env`, `model`, `error` only) |
+| Thread core | `transcript` (event log), `approvals` (broker), `thread_runtime` (live engines), `settings` (typed preferences) |
+| Features | `turn`, `workspaces`, `workspace_start`, `provisioning`, `workspace_git`, `changes`, `teardown`, `repos`, `review`, `findings`, `orchestration`, `host_tools`, `github`, `create_pr`, `pr_draft`, `stack`, `app`, `clickup`, `skills`, `scratch`, `entities`, `metrics`, `window_activity`, `feedback`, `snapshot` |
+| Shell | `state`, `ipc`, `menu`, `lib` (startup order) |
+
+Features don't call each other to react to something: they publish on the **bus** (`bus::DomainEvent`: `TurnEnded`, `ApprovalRequested`, `ProvisioningFailed`) and the features that care subscribe from their own `start` (orchestration, review, feedback). `turn` publishes `TurnEnded` once a turn has settled, `approvals` publishes `ApprovalRequested`, `provisioning` publishes `ProvisioningFailed`.
 
 ### Shell environment (`shell_env`)
 
@@ -108,7 +125,7 @@ macOS GUI apps don't inherit the user's shell `PATH`, so `claude`, `pnpm`, `nvm`
 
 ### Repos and git (`git`)
 
-Harness shells out to the system `git` rather than using a library (`git2`, `gix`). That way it inherits the user's config, credential helpers, SSH keys, hooks and LFS, and a push from Harness behaves like a push from the terminal. Output is read from porcelain and `-z` formats.
+Cormux shells out to the system `git` rather than using a library (`git2`, `gix`). That way it inherits the user's config, credential helpers, SSH keys, hooks and LFS, and a push from Cormux behaves like a push from the terminal. Output is read from porcelain and `-z` formats.
 
 | Need | Command |
 | --- | --- |
@@ -132,34 +149,38 @@ Harness shells out to the system `git` rather than using a library (`git2`, `gix
 
 All git calls for one worktree go through a per-worktree queue so two operations can't race on the index.
 
-### Workspace manager (`workspace`)
+### Workspaces (`workspaces`, `workspace_start`, `provisioning`, `teardown`)
 
-Owns each workspace's lifecycle as a state machine and enforces the locks the specs describe:
+`workspaces` keeps each live workspace's record (its row plus the setup activity only the running app knows); `workspace_start` names, records and provisions a Lead's workspace, `review` does the same for a PR review, and both hand `provisioning` a plan. Lifecycle (`model::WorkspaceLifecycle`):
 
 ```
-creating → provisioning → ready ⇄ (threads running / idle / waiting) → tearing_down → gone
-                 ↓
-         provisioning_failed (retry, skip and continue, edit setup)
+provisioning → ready ⇄ running / idle (from its threads' statuses) → tearingDown → archived
+      ↓
+provisioningFailed (retry, or skip setup and continue)
 ```
 
-- **Branch switch lock:** refused while any thread is running or provisioning (checked again at execution time, as in [16](features/16-branch-switching.md)).
-- **Provisioning:** worktree, then setup commands in order, then the Lead thread's engine. Stops on the first non-zero exit.
-- **Teardown order:** stop agents (graceful, then forced after 5s), stop the app process group, remove the worktree, delete the branch if chosen. On any failure the workspace stays and the error is shown.
+A workspace's status follows its threads': `store::set_thread_status` writes both in one transaction (`model::status_from_threads`).
+
+- **Branch switch lock:** refused while the workspace is provisioning or any of its stored threads is running or provisioning (checked at execution time, as in [16](features/16-branch-switching.md)).
+- **Provisioning:** the workspace and its thread (with the model and effort picked) are written in one transaction; then the worktree, setup commands in order, then the thread's first turn. Any error on the way marks setup failed, so it can be retried or skipped.
+- **Teardown order:** stop the thread's engine (a shutdown, then killed after `STOP_GRACE`, 6 s), stop the workspace's processes, remove the worktree, delete the branch if chosen, archive the row. A count git can't give (uncommitted files, unpushed commits) is treated as at risk in the preview.
 - **Environment for setup and run:** `HARNESS_REPO_PATH` (the main checkout), `HARNESS_WORKTREE_PATH`, `HARNESS_WORKSPACE`, `HARNESS_BRANCH`, `HARNESS_BASE`. This replaces hard-coded paths like `cp ~/code/my-app/.env.local`.
 
 ### Engine adapters (`engines`)
 
 The core of the product. Each thread is one long-lived engine process with the worktree as its working directory. Adapters translate each engine's native stream into one internal event model, and they are the only code that knows an engine's vocabulary: Claude's tool names, its `mcp__<server>__<tool>` naming and its CLI flags stay in `engines::claude`. A typed launch config yields both the CLI's arguments and its initialize handshake. A tool call reaches the rest of the app with a typed role (read, search, edit, command, fetch, web search, skill, MCP tool, subagent…), and permission requests and host tool calls arrive with a responder to answer them.
 
-`thread_runtime` sits above the adapters: it keeps each thread's live engine, launches one in the thread's worktree when a prompt needs it, routes what it reports (events into the transcript, permission requests to the approval broker, tool calls to the MCP server), adds up cost, publishes each turn's end once, and shuts down engines that sit idle. Tests give it fake engines.
+`thread_runtime` sits above the adapters: it keeps each thread's live engine, launches one in the thread's worktree when a prompt needs it, routes what it reports (events into the transcript, permission requests to the approval broker, host tool calls to `host_tools`), adds up cost, reports each turn's end once, and shuts down engines that sit idle. It holds no product prompts: what a session is told comes from functions it's given, like its host tools — `host_tools::session_config` for the tools and `workspace_start::session_brief` for the workspace (the branch instruction only for a Lead's first session on a branch off the default branch, plus how replies show media). An engine that fails to launch reports no turn end; its caller gets the error. Tests give it fake engines (`thread_runtime::fake`) or the mock CLI behind a `claude` shim on `PATH`.
 
-`transcript` owns each thread's event log: it is the only writer, it saves an event and then streams it to whoever watches the thread (so prompts, stops and the core's own steps stream like the engine's events), and it is the only reader of the stored rows. A few signals are streamed but never saved: an engine exiting, a permission approved without asking, and the tool a permission is waiting on.
+`turn` is the only code that sends prompts and moves a thread's status: start (the user's message is saved first), pause and resume (interrupt and hold, with a queue), stop (records who stopped it; the engine reports the turn's end), new and resumed sessions, and settling a turn the engine ended before publishing `TurnEnded`.
+
+`transcript` owns each thread's event log: it is the only writer of `thread_events`, it saves an event and then streams it to whoever watches the thread (so prompts, stops and the core's own steps stream like the engine's events), and the core reads kinds and payloads only through it. A few signals are streamed but never saved: an engine exiting, a permission approved without asking, the tool a permission is waiting on, and a stream that lagged.
 
 | Engine | Process | Protocol | Approvals arrive as |
 | --- | --- | --- | --- |
 | Claude Code | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --await-initialize` | Claude stream-JSON, translated to engine events in Rust | `control_request` with subtype `can_use_tool` |
 
-Claude Code gets a native Rust translator so Cormux doesn't have to bundle or require Node. Its control protocol is the one Anthropic's Agent SDK uses, but it's thinly documented and has had permission bugs, so it's the first thing to spike (see [Spikes](#spikes-before-building-features)).
+Claude Code gets a native Rust translator so Cormux doesn't have to bundle or require Node. Its control protocol is the one Anthropic's Agent SDK uses, but it's thinly documented; what Cormux relies on is written down at the top of `engines/claude/mod.rs`.
 
 **Mapping to timeline items** ([11](features/11-agent-conversation.md)):
 
@@ -170,11 +191,11 @@ Claude Code gets a native Rust translator so Cormux doesn't have to bundle or re
 | Tool call, role `edit` | `edit` step linked to the Changes panel |
 | Plan update | `plan` |
 | Permission request | `approval` |
-| Harness MCP `report_finding` call | finding, plus a `findings` card when the review ends |
+| `ReviewFindingsReady` step (recorded when a review's findings are read) | the `findings` card, in the thread that ran the review |
 | Current tool call in progress | the live row's subtitle, replacing the prototype's rotating strings |
 | Usage update | token and cost counters (a spec gap) |
 
-**Sessions and restarts:** each thread stores its engine session id. After Harness restarts, the thread resumes with `claude --resume <id>`.
+**Sessions and restarts:** each thread stores its engine session id. After Cormux restarts, the thread resumes with `claude --resume <id>`.
 
 **Engine detection** (Settings, [21](features/21-settings.md)): resolve each binary on the login-shell `PATH`, run `--version`, and check sign-in status. Missing engines are shown as not installed rather than failing at workspace creation.
 
@@ -188,13 +209,13 @@ Owns each pending approval from request to answer: the stored row the card shows
 
 ### Host tools (`host_tools`)
 
-A small MCP server inside the core, described by one table of tools: what a session is offered, which tools run without asking, what the agent is told and which calls are refused all come from it. Claude threads reach it over their existing stream-JSON connection rather than a separate process: `--mcp-config` declares an `sdk` server, the same name goes in `sdkMcpServers` on `initialize`, and each JSON-RPC message then arrives as a `mcp_message` control request. The session a message came through identifies the caller, so a tool can't act as another thread. Read-only scratches don't get these tools.
+A small MCP server inside the core, described by one table of tools: what a session is offered, which tools run without asking, what the agent is told and which calls are refused all come from it. Claude threads reach it over their existing stream-JSON connection rather than a separate process: `--mcp-config` declares an `sdk` server, the same name goes in `sdkMcpServers` on `initialize`, and each JSON-RPC message then arrives as a `mcp_message` control request. The session a message came through identifies the caller, so a tool can't act as another thread. Settings decide which tools a session is offered (`attach_entity` only while References is on); calls wait in a channel until the server has started.
 
 | Tool | Approval | Purpose |
 | --- | --- | --- |
 | `create_thread` | Yes | Starts a new branch, worktree and child thread on a goal, and returns its id at once. |
 | `list_threads` | No | The caller's children, or every thread in the repo, with status and branch. |
-| `get_thread` | No | One thread's status, last reply, modified files, PR and pending approvals. |
+| `get_thread` | No | One thread's status, branch, last reply, PR, cost and pending approvals. |
 | `read_thread` | No | The transcript, a page at a time. |
 | `send_to_thread` | Yes | A follow-up message to a thread the caller started. |
 | `mark_finding_fixed` | No | Marks a review finding the thread was sent as fixed; the last one closes the batch. |
@@ -204,21 +225,21 @@ Threads are visible within a repo only. A child can't start threads of its own, 
 
 Children report by push (`orchestration`): when one finishes a turn, is blocked on an approval or fails setup, its parent gets a `<thread_report>` prompt once it is idle, with waiting reports merged into one turn. Reports wait in memory, so one still queued at quit is lost; `list_threads` and `get_thread` recover the state.
 
-Review findings come from the reviewer's reply.
+Review findings come from the reviewer's reply, not from a tool: the core parses the findings block at the end of the reviewer's turn.
 
 ### Process supervisor (`process`)
 
 Runs setup and run commands in a PTY (`portable-pty`) using the login-shell environment, each in its own process group so Stop, Restart and Teardown kill the whole tree.
 
 - **Output:** read on a background task, split into lines, kept in a ring buffer (500 lines on screen, full log on disk for the session), and streamed to the UI in batches of about 30ms.
-- **Ports:** the port is read from the output (`localhost:<port>`, `127.0.0.1:<port>`), confirmed by checking the process tree's listening sockets. Harness also sets `PORT` to a free port before spawning, which many frameworks respect. This replaces the prototype's prediction.
+- **Ports:** the port is read from the output (`localhost:<port>`, `127.0.0.1:<port>`), confirmed by checking the process tree's listening sockets. Cormux also sets `PORT` to a free port before spawning, which many frameworks respect. This replaces the prototype's prediction.
 - **Exit:** a non-zero exit while running becomes the **Crashed** state with the exit code and a Restart button.
 - **Input:** the PTY accepts keystrokes, so dev-server shortcuts (`r`, `o`) are possible later without changing the design.
-- **Quit:** on app exit, the supervisor stops every app and agent before the process ends.
+- **Quit:** on app exit, the core signals every engine's process group (`thread_runtime::kill_all`) and the supervisor stops every process it runs.
 
 ### GitHub (`github`)
 
-A Rust client (`octocrab` or `reqwest` with GraphQL). The token lives in the macOS Keychain (`keyring` crate) and never reaches the webview.
+Cormux keeps no GitHub token of its own: it uses the `gh` CLI's login. The PR list comes from `gh api graphql`; creating a PR and submitting a review use `reqwest` against the REST API with the token `gh auth token` prints, which never reaches the webview.
 
 | Need | API |
 | --- | --- |
@@ -227,16 +248,11 @@ A Rust client (`octocrab` or `reqwest` with GraphQL). The token lives in the mac
 | Create PR | `POST /repos/{owner}/{repo}/pulls` after `git push` |
 | Submit review | `POST /repos/{owner}/{repo}/pulls/{n}/reviews` with a verdict and line comments (`path`, `line`, `side`); findings outside the diff go in the review body |
 
-Sync runs every 2 minutes, on window focus and on demand, respecting rate-limit headers. PRs are matched to registered repos by their `origin` remote URL, which fixes "which repo does this PR belong to" in [05](features/05-open-pull-requests.md).
+Sync runs every 2 minutes and on window focus (at most once a minute, owned by `window_activity`). PRs are matched to registered repos by their `origin` remote URL, which fixes "which repo does this PR belong to" in [05](features/05-open-pull-requests.md).
 
 ### Small model calls (`llm`)
 
-Workspace summaries ([04](features/04-homebase-workspace-cards.md)), the PR "why" ([18](features/18-create-pr.md)) and optional name refinement ([06](features/06-new-workspace.md)) need a fast, cheap model. Two ways to reach one:
-
-1. **Through an installed engine** (default): a one-shot `claude -p --model haiku --output-format json` with the thread excerpt and diff stats. Uses the sign-in the user already has; costs about a second of CLI start-up.
-2. **Direct API key**: an Anthropic key stored in the Keychain, called over HTTPS from Rust. Faster, but asks the user for a key.
-
-Summaries refresh on significant events (edit batches, approvals, turn end), debounced to at most one call per workspace per minute.
+The PR description ([18](features/18-create-pr.md)) and name and branch refinement ([06](features/06-new-workspace.md)) use a fast, cheap model through the installed engine: a one-shot `claude -p --model haiku --output-format json`, on the sign-in the user already has. Each has a local fallback when the call fails or is slow (the goal's first words for a name, the goal for a PR's "why"). No model writes workspace or card text.
 
 ### Storage (`store`)
 
@@ -244,9 +260,15 @@ SQLite (`rusqlite`, bundled) in the app data directory. Settings, repos and repo
 
 Repo config can also be read from a committed file (`.cormux/config.json`) so a team shares setup and run commands, with Settings as a local override.
 
+**Migrations** run in version order inside `Store::open`: the SQL files in `src-tauri/migrations/`, plus Rust migrations their owning module supplies (024 is `transcript::MIGRATION`, which rewrites rows older builds saved). Each runs in its own transaction and is recorded in `schema_migrations`.
+
+**Settings** (`settings::Settings`) are one typed struct, stored one row per field; it is the only place their keys are named. Commands read and write it whole (`get_settings`, `update_settings` with a patch). The ClickUp API key is kept in `~/.cormux/credentials.json`, not in the database.
+
+**Snapshot** (`snapshot`): what the webview loads in one go — every feature's rows read in one read transaction, plus the state only memory holds (live workspace records, git counts, running apps, memory, pending approval count). Every state change the core announces (`feedback::Notifier::changed`) bumps a version the snapshot carries; the webview refetches on each, and `repoGit` marks a change that also moved `origin`.
+
 ### Metrics (`metrics`)
 
-`sysinfo` sums resident memory for the Harness process, its webview process, and each engine and app process tree, sampled every 4 seconds. The meter shows the total and can break it down per workspace.
+`sysinfo` sums resident memory for the Cormux process and every process it started (engines, setup, apps), sampled every 4 seconds (every minute while the window is in the background). The webview's content process is an XPC service, not a child, so it isn't counted. The meter shows the total.
 
 ## IPC
 
@@ -254,7 +276,7 @@ Repo config can also be read from a committed file (`.cormux/config.json`) so a 
 | --- | --- | --- |
 | **Commands** (`#[tauri::command]`) | UI → core | Every action: create workspace, send message, approve, run app, create PR. Typed request and response. |
 | **Channels** (`tauri::ipc::Channel`) | core → UI | High-volume ordered streams: agent message chunks, PTY output, diff updates. One per subscribed thread or log. |
-| **Events** | core → UI | Low-volume state changes: workspace status, approval counts, PR sync, toasts. |
+| **Events** | core → UI | `StateChanged { version, change: { repoGit } }` after anything the snapshot shows changed, toasts, memory samples and menu choices. |
 
 TypeScript types for commands and payloads are generated from the Rust definitions (`tauri-specta`) so the two sides can't drift. Every state event carries a version number; if the UI sees a gap, it re-fetches a snapshot.
 
@@ -317,9 +339,9 @@ Agent output is untrusted and the webview can call backend commands, so an injec
 
 - **Strict CSP**; no remote scripts or content. Links from agent text open in the default browser via the opener plugin, never in the webview.
 - **No generic shell access from the UI.** The Tauri shell plugin isn't exposed. The core only runs commands it builds itself: git, configured setup and run commands, and engine binaries.
-- **Capabilities** grant the webview only Harness's own commands and the dialog, opener and notification plugins.
+- **Capabilities** grant the webview only Cormux's own commands and the dialog, opener and notification plugins.
 - **All agent text is sanitised** before rendering; `{@html}` is only used on sanitised output.
-- **Secrets** (GitHub token, optional model key) stay in the Keychain and in Rust.
+- **Secrets** stay in Rust: GitHub through the `gh` login, the ClickUp key in `~/.cormux/credentials.json`.
 
 ## Performance budget
 
@@ -328,7 +350,7 @@ Agent output is untrusted and the webview can call backend commands, so an injec
 | App bundle | about 10 MB | Rust binary plus frontend assets. Shiki grammars add a few MB if bundled rather than lazy-loaded. |
 | Rust core, idle | 15 to 30 MB | The stack's figure. |
 | Webview process, idle | about 50 to 120 MB | WKWebView runs in its own process and isn't included in the figure above. |
-| Per agent thread | 150 to 400 MB | The engine CLI's own footprint, outside Harness's control. This dominates the memory meter. |
+| Per agent thread | 150 to 400 MB | The engine CLI's own footprint, outside Cormux's control. This dominates the memory meter. |
 | Streaming | 60 fps while an agent streams and an app logs | Batching on channels and fine-grained updates. |
 
 The stack's 15 to 30 MB claim holds for the core, but the number users see in Activity Monitor will be larger because of the webview and, above all, the agents. The memory meter should say so honestly.
@@ -344,27 +366,22 @@ Closed under epic COR-31. Product-facing summary in [`PRODUCT.md` → Decisions 
 | ID | Shipped behaviour |
 | --- | --- |
 | COR-207 | **Engines:** Claude (stream-JSON) only. Other engines were dropped; migrations 014 and 018 turn their threads into Claude threads. |
-| COR-208 | **GitHub auth:** Keychain service `cormux` / user `github-token`; `resolve_token` falls back to `gh auth token`. **Reviews:** `ReviewLineComment` on submit when findings include path and line. |
-| COR-209 | **Small model:** `LlmClient::complete` uses Keychain Anthropic key if present, else `claude -p --model haiku --output-format json`. Debounced per workspace (~60s). |
-| COR-210 | **Quit:** `RunEvent::ExitRequested` → `process.stop_all()` (PTY apps). **Teardown:** `engines.stop_threads` sends `EngineCommand::Shutdown` then waits `STOP_GRACE` (5s) per thread. |
+| COR-208 | **GitHub auth:** the `gh` CLI's login (`gh auth token`); Cormux stores no token. **Reviews:** findings with a path and line go as line comments; if GitHub refuses one (422), they all go in the body. |
+| COR-209 | **Small model:** `LlmClient::complete` runs `claude -p --model haiku --output-format json`, for PR descriptions and names only. |
+| COR-210 | **Quit:** `RunEvent::ExitRequested` → `thread_runtime::kill_all` (engine process groups) and `process.stop_all()`. **Teardown:** `stop_threads` sends `EngineCommand::Shutdown` then waits up to `STOP_GRACE` (6 s, just over the session's own 5 s) per thread. |
 | COR-211 | **Archive:** Teardown sets `workspaces.archived_at` and clears `worktree_path`; timeline events stay in SQLite. Active queries filter `archived_at IS NULL`. |
-| COR-212 | **Changes review:** `review_worktree_file`: `approve` → `git stage`; `reject` → `discard_worktree_file`. UI `undo` only resets `changesReview` state. |
-| COR-213 | **Approvals:** Broker auto-answers read/search when `autoApproveReadOnly` is on; edit/delete/execute always surface. Allowlist hooks reserved (`approvals/hooks.ts`) for COR-143. |
+| COR-212 | **Changes review:** no per-file approve step; Discard (`discard_workspace_changes`) is the one write from the Changes panel. |
+| COR-213 | **Approvals:** one policy, "Run everything" (`ApprovalPolicy` from Settings): every tool request is approved without a card; questions always wait. Without it every request shows a card. |
 | COR-214 | **Skills:** `SkillsSettings` empty state only; no persistence or session injection. |
-| COR-215 | **No in-app editor/tree.** Conflicts: `abort_workspace_git_conflict`. Workspace header opens worktree in OS editor/Finder via opener plugin. |
+| COR-215 | **No in-app editor/tree.** Conflicts: `abort_workspace_git` backs out a pull or rebase. Workspace header opens the worktree in the OS editor/Finder via the opener plugin. |
 | COR-216 | **UI stack:** `components.json` style `nova`; `@fontsource-variable/geist` fonts; Tailwind v4 + shadcn-svelte. |
-| COR-217 | **Join thread:** `join_thread_provisioning` attaches to existing worktree; no nested worktrees per thread. |
+| COR-217 | **One thread per workspace:** a new thread is a new workspace (its own branch and worktree); agents start them with `create_thread`. |
 | COR-218 | **License:** `Cargo.toml` `license = "UNLICENSED"`; no payment or entitlement checks in app. |
 
 ### Pause semantics
 
 The composer's Pause ([12](features/12-composer.md)) can't freeze an agent mid-thought. Suspending the process (`SIGSTOP`) would leave its model request hanging until the API times out. The realistic behaviour is **interrupt and hold**: Pause cancels the current turn (Claude Code's interrupt), the thread shows "Paused by you", messages typed while paused are queued, and Resume sends the queue (or "continue") as the next turn. An in-flight tool call is either allowed to finish or cancelled with it, depending on the engine.
 
-## Spikes before building features
+## Protocol notes
 
-Short experiments that de-risk the plan, in order:
-
-1. **Claude Code control protocol:** spawn `claude -p` with stream-JSON in and out, `--permission-prompt-tool stdio`, and `--await-initialize`. Send a host `initialize` control request before the first user message, then two messages, receive and answer a `can_use_tool` request, interrupt a turn, resume a session. `-p` is required: the CLI only accepts `--input-format stream-json` in print mode. Without the initialize handshake, permission asks are auto-denied (`system`/`permission_denied`) instead of `can_use_tool`. Interrupt is a host `control_request` with `subtype: interrupt`. Resume is a new process with `--resume <session_id>` from `system`/`init`.
-2. **Login-shell environment:** resolve env via `$SHELL -l -i -c 'env -0'` (the same capture a signed Finder-launched `.app` needs), then run `claude --version` / `pnpm` in that env. Finder codesign is the same function with a GUI-empty `PATH`.
-3. **PTY app lifecycle:** `portable-pty`, port parsed from `localhost:<port>` / `127.0.0.1:<port>`, Stop uses `killpg`, non-zero exit is the crash code.
-4. **Streaming load:** Homebase → "Streaming load spike" streams agent text and 100 Hz logs over IPC while a 5000-line diff is open; fps is shown in the workspace header.
+The spikes that settled the Claude control protocol, the login-shell environment, PTY app lifecycle and streaming load are done; what they found is in the code it shaped: `engines/claude/mod.rs` (handshake, permission prompts, interrupt, resume, background agents, host MCP over the same stream), `shell_env.rs` and `process/`.

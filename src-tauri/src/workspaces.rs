@@ -1,5 +1,6 @@
-//! The workspace repository: each workspace's live record in memory and its row in SQLite. Every
-//! change goes through a setter here that writes both, so nothing else keeps them in step.
+//! The workspace repository: each live workspace's record in memory (its row, plus the setup
+//! activity only the running app knows) over its row in SQLite. A setter for a field the record
+//! holds writes both; the PR, intro and run command live only in the row.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
