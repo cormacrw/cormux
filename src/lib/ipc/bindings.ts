@@ -812,11 +812,19 @@ questions?: AgentQuestion[];
  * The user's answers, keyed by question text.
  */
 answers?: Partial<{ [key in string]: string }> }
-export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; 
+export type ApprovalRow = { id: string; threadId: string; status: ApprovalStatus; tool: string; 
 /**
  * None when the stored card can't be read; the timeline falls back to the permission event.
  */
 payload: ApprovalPayload | null }
+/**
+ * Where an approval stands.
+ */
+export type ApprovalStatus = "pending" | "approved" | "denied" | 
+/**
+ * Older builds' word for a card a newer one replaced; reads as denied. Not written any more.
+ */
+"dismissed"
 /**
  * How a workspace came to be on another branch.
  */
@@ -930,9 +938,6 @@ export type EditVerb = "Edited" | "Created" | "Deleted"
  */
 export type EngineKind = "claude"
 export type EngineStatus = { kind: EngineKind; installed: boolean; binary: string | null; version: string | null; signedIn: boolean | null }
-/**
- * Something a thread's agent linked to its work with `attach_entity`: a PR, a ticket, a doc.
- */
 export type EntityRow = { id: number; threadId: string; name: string; url: string; 
 /**
  * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
@@ -942,7 +947,11 @@ createdAt: string }
  * Shared error type for the Rust core. Serialised as a tagged union so the
  * generated TypeScript bindings stay in lockstep with Rust.
  */
-export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: GitConflictOperation; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
+export type Error = 
+/**
+ * The request itself was wrong: a missing value, an unknown id, a finding in the wrong state.
+ */
+{ kind: "Invalid"; message: string } | { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: GitConflictOperation; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
 export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null; sentToThreadId: string | null }
 /**
  * The git operation a conflict stopped.
@@ -993,7 +1002,14 @@ threadActivity: ThreadActivityRow[]; approvals: ApprovalRow[]; findings: Finding
  */
 entities: EntityRow[]; pullRequests: PrRow[] }
 export type PlanStep = { content: string; status: string }
-export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
+export type PrChecksState = "pass" | "fail" | "running" | 
+/**
+ * The PR has no status checks or check runs at all.
+ */
+"none"
+export type PrRelationship = "review" | "author" | "mention" | "assigned"
+export type PrReviewState = "required" | "changes" | "approved" | "draft"
+export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: PullRequestPayload }
 export type PromptAttachment = { name: string; 
 /**
  * A file on disk, from the file picker or a drop.
@@ -1004,6 +1020,11 @@ path: string | null;
  */
 dataBase64: string | null }
 export type PtyChunk = { workspaceId: string; line: string }
+export type PullRequestPayload = { num: number; title: string; 
+/**
+ * GitHub login, or the literal `you` when the viewer authored the PR.
+ */
+author: string; rel: PrRelationship; head: string; base: string; updatedAt: string; checks: PrChecksState; failing: number | null; review: PrReviewState; additions: number; deletions: number; files: number; isDraft: boolean; htmlUrl: string; repoFullName: string; repoId: string | null }
 export type QuestionOption = { label: string; description?: string }
 export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
@@ -1053,7 +1074,7 @@ export type RunCommandSource =
 /**
  * A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
  */
-export type ScratchRow = { id: string; repoId: string; title: string; threadId: string; engine: string; status: string; 
+export type ScratchRow = { id: string; repoId: string; title: string; threadId: string; engine: string; status: ThreadStatus; 
 /**
  * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
  */
@@ -1203,7 +1224,7 @@ title: string;
 /**
  * The workspace's own Lead or Reviewer; none for any other thread.
  */
-role: ThreadRole | null; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean; 
+role: ThreadRole | null; engine: string; sessionId: string | null; status: ThreadStatus; usedTokens: number | null; contextSize: number | null; costUsd: number | null; 
 /**
  * Kept to read but can't be continued: a workspace's older thread, or a scratch's.
  */
@@ -1212,6 +1233,10 @@ retired: boolean;
  * The thread that started this one through `create_thread`.
  */
 parentThreadId: string | null }
+/**
+ * What a thread is doing.
+ */
+export type ThreadStatus = "provisioning" | "running" | "paused" | "idle"
 /**
  * Something the core did in a thread. New kinds need a row in the UI's `STEP_PRESENTATION`.
  * Fields stay snake_case, like `AgentEvent`'s: specta exports them as written.
@@ -1304,7 +1329,7 @@ export type WorkspaceRow = { id: string; repoId: string; name: string; branch: s
 /**
  * The branch the workspace is compared with and pulls from.
  */
-base: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: WorkspaceKind; prNumber: number | null; prHtmlUrl: string | null; modifiedFiles: number; archivedAt: string | null }
+base: string; worktreePath: string; status: WorkspaceLifecycle; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: WorkspaceKind; prNumber: number | null; prHtmlUrl: string | null; archivedAt: string | null }
 export type WorkspaceStack = { workspaceId: string; status: StackStatus; 
 /**
  * Why the stack is unavailable, for the panel to show.

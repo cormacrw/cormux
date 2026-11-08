@@ -9,7 +9,7 @@ use tauri_specta::Builder;
 pub fn builder() -> Builder {
     Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
-            commands::get_snapshot,
+            crate::snapshot::get_snapshot,
             commands::reload_environment,
             commands::get_metrics,
             commands::get_thread_events,

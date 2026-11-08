@@ -57,8 +57,8 @@ fn question(id: &str) -> PermissionRequest {
     }
 }
 
-fn status(store: &Store, id: &str) -> String {
-    store.get_approval(id).unwrap().unwrap().status
+fn status(store: &Store, id: &str) -> &'static str {
+    store.get_approval(id).unwrap().unwrap().status.as_str()
 }
 
 #[tokio::test]
@@ -88,7 +88,7 @@ async fn an_answer_reaches_the_waiting_engine_and_the_card_together() {
 
     assert_eq!(decided.await.unwrap(), ApprovalDecision::Approved);
     let row = setup.store.get_approval("a1").unwrap().unwrap();
-    assert_eq!(row.status, "approved");
+    assert_eq!(row.status.as_str(), "approved");
     assert!(row.payload.unwrap().resolved_at_ms.is_some());
     assert_eq!(setup.broker.pending_count(), 0);
     assert!(setup.broker.resolve("a1", Answer::Approve).is_err());
@@ -164,7 +164,7 @@ async fn a_question_gets_its_answers() {
         }
     );
     let row = setup.store.get_approval("q1").unwrap().unwrap();
-    assert_eq!(row.status, "approved");
+    assert_eq!(row.status.as_str(), "approved");
     assert_eq!(row.payload.unwrap().answers, answers);
 }
 

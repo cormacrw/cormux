@@ -1,5 +1,7 @@
 //! Registered repos: adding and removing them, their settings, and git in their main checkouts.
 
+mod store;
+
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -565,7 +567,7 @@ mod tests {
         state
             .store
             .insert_workspace(&WorkspaceRow {
-                status: "ready".into(),
+                status: crate::model::WorkspaceLifecycle::Ready,
                 ..crate::store::types::WorkspaceRow::new(
                     crate::model::WorkspaceKind::Lead,
                     "w1",

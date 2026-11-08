@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::error::{Error, Result};
 use crate::feedback::Change;
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
+use crate::findings::FindingRow;
 use crate::github::RepoSlug;
 use crate::github::auth;
 use crate::github::review::{ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput};
@@ -11,7 +12,7 @@ use crate::model::{ThreadStatus, WorkspaceKind};
 use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
 use crate::store::Store;
-use crate::store::types::{FindingRow, WorkspaceRow};
+use crate::store::types::WorkspaceRow;
 use crate::timeline::TimelineStep;
 use crate::transcript::TranscriptEvent;
 use crate::workspace_git::Checkout;
@@ -419,7 +420,7 @@ pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result
         .into_iter()
         .find(|row| !row.retired)
         .ok_or_else(|| Error::Workspace(format!("no thread in workspace {workspace_id}")))?;
-    if thread.has_status(ThreadStatus::Running) {
+    if thread.status == ThreadStatus::Running {
         return Err(Error::Workspace(
             "the agent is still working; review once it's done".into(),
         ));
@@ -874,7 +875,7 @@ mod tests {
 
         assert_eq!(thread_id, "t1");
         let thread = state.store.thread_by_id("t1").unwrap().unwrap();
-        assert!(thread.has_status(ThreadStatus::Paused));
+        assert_eq!(thread.status, ThreadStatus::Paused);
         assert!(prompts(&mut engine).is_empty());
         assert!(recording.state_changes().contains(&Change::THREADS));
 
@@ -889,7 +890,7 @@ mod tests {
 
         assert!(start_branch_review(&state, "w1").await.is_err());
         let thread = state.store.thread_by_id("t1").unwrap().unwrap();
-        assert!(thread.has_status(ThreadStatus::Idle));
+        assert_eq!(thread.status, ThreadStatus::Idle);
         assert!(!review_is_ready(&state.store, "w1"));
         assert_eq!(
             state.store.get_setting(&review_status_key("w1")).unwrap(),

@@ -41,7 +41,7 @@ test.describe('repos', () => {
           repoId: 'my-app',
           number: 12,
           title: 'Tune the accent palette',
-          payload: JSON.stringify({
+          payload: {
             num: 12,
             title: 'Tune the accent palette',
             author: 'you',
@@ -59,7 +59,7 @@ test.describe('repos', () => {
             htmlUrl: 'https://github.com/acme/app/pull/12',
             repoFullName: 'acme/app',
             repoId: 'my-app',
-          }),
+          },
         },
       ],
     })

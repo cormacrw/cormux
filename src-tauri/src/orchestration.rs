@@ -7,8 +7,10 @@ use crate::bus::DomainEvent;
 use crate::error::{Error, Result};
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::state::AppState;
-use crate::store::Store;
 use crate::store::types::{ThreadRow, WorkspaceRow};
+use crate::store::{
+    Store, THREAD_WIDTH, thread_at, thread_columns, workspace_at, workspace_columns,
+};
 use crate::timeline::TimelineStep;
 use crate::transcript::Transcript;
 use crate::workspace_start::CreateWorkspaceInput;
@@ -23,7 +25,7 @@ const READ_PAGE_CHARS: usize = 20_000;
 
 const CLOSED_THREADS_LIMIT: i64 = 50;
 
-const FAILED: &str = WorkspaceLifecycle::ProvisioningFailed.as_str();
+const FAILED: WorkspaceLifecycle = WorkspaceLifecycle::ProvisioningFailed;
 
 /// The target of a tool call: any thread in the caller's repo. Anything else reads as unknown.
 fn visible_thread(
@@ -55,13 +57,13 @@ fn caller_repo(store: &Store, caller: &ThreadRow) -> Result<String> {
         .ok_or_else(|| Error::Mcp("this thread has no workspace".into()))
 }
 
-fn thread_status(thread: &ThreadRow, workspace: &WorkspaceRow) -> String {
+fn thread_status(thread: &ThreadRow, workspace: &WorkspaceRow) -> &'static str {
     if workspace.archived_at.is_some() {
-        "closed".into()
+        "closed"
     } else if workspace.status == FAILED {
-        FAILED.into()
+        FAILED.as_str()
     } else {
-        thread.status.clone()
+        thread.status.as_str()
     }
 }
 
@@ -100,11 +102,10 @@ pub fn list_threads(store: &Store, caller_id: &str, scope: Option<&str>) -> Resu
             )));
         }
     };
-    let snapshot = store.snapshot()?;
+    let workspaces = store.live_workspaces()?;
     let mut threads = Vec::new();
-    for thread in snapshot.threads {
-        let Some(workspace) = snapshot
-            .workspaces
+    for thread in store.workspace_threads()? {
+        let Some(workspace) = workspaces
             .iter()
             .find(|row| row.id == thread.workspace_id && row.repo_id == repo)
         else {
@@ -122,7 +123,7 @@ pub fn list_threads(store: &Store, caller_id: &str, scope: Option<&str>) -> Resu
             "title": workspace.name,
             "status": status,
             "branch": workspace.branch,
-            "needsAttention": pending > 0 || status == FAILED,
+            "needsAttention": pending > 0 || status == FAILED.as_str(),
             "parentThreadId": thread.parent_thread_id,
         }));
     }
@@ -148,7 +149,6 @@ pub fn get_thread(
         "status": thread_status(&thread, &workspace),
         "branch": workspace.branch,
         "lastReply": truncated(&transcript.last_agent_reply(id)?, REPLY_LIMIT),
-        "modifiedFiles": workspace.modified_files,
         "prNumber": workspace.pr_number,
         "prUrl": workspace.pr_html_url,
         "pendingApprovals": approvals,
@@ -187,7 +187,7 @@ fn check_can_spawn(store: &Store, caller: &ThreadRow) -> Result<()> {
     let active = store
         .active_children(&caller.id)?
         .into_iter()
-        .filter(|(_, workspace_status)| workspace_status != FAILED)
+        .filter(|(_, workspace_status)| *workspace_status != FAILED)
         .count();
     if active >= MAX_ACTIVE_CHILDREN {
         return Err(Error::Mcp(format!(
@@ -203,7 +203,7 @@ fn check_can_send(store: &Store, caller_id: &str, id: &str) -> Result<ThreadRow>
         .thread_by_id(id)?
         .filter(|thread| thread.parent_thread_id.as_deref() == Some(caller_id))
         .ok_or_else(|| Error::Mcp(format!("{id} is not a thread you started")))?;
-    if thread.has_status(ThreadStatus::Provisioning) {
+    if thread.status == ThreadStatus::Provisioning {
         return Err(Error::Mcp(
             "that thread is still being set up; its report will say when it's done".into(),
         ));
@@ -486,7 +486,7 @@ async fn on_provisioning_failed(state: &AppState, workspace_id: &str, message: &
     if let Some(child) = child
         && let Some(parent_id) = child.parent_thread_id.clone()
     {
-        let report = report_for(&state.store, &child, FAILED, message.to_string())?;
+        let report = report_for(&state.store, &child, FAILED.as_str(), message.to_string())?;
         state.orchestration.reports.push(&parent_id, report);
         deliver(state, &parent_id).await;
     }
@@ -525,7 +525,7 @@ async fn deliver(state: &AppState, parent_id: &str) {
     let Some(parent) = reportable_parent(state, parent_id).await else {
         return;
     };
-    if !parent.has_status(ThreadStatus::Idle) {
+    if parent.status != ThreadStatus::Idle {
         return;
     }
     let reports = state.orchestration.reports.take(parent_id);
@@ -549,13 +549,68 @@ async fn deliver(state: &AppState, parent_id: &str) {
     }
 }
 
+impl Store {
+    /// The threads a parent started that are still doing something, each with its workspace's
+    /// status, so a failed setup can be told from a live child.
+    pub fn active_children(&self, parent_id: &str) -> Result<Vec<(String, WorkspaceLifecycle)>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare_cached(
+                "SELECT t.id, w.status FROM visible_threads t
+                 JOIN live_workspaces w ON w.id = t.workspace_id
+                 WHERE t.parent_thread_id = ?1 AND t.status IN (?2, ?3, ?4)",
+            )?;
+            let rows = stmt.query_map(
+                rusqlite::params![
+                    parent_id,
+                    ThreadStatus::Provisioning.as_str(),
+                    ThreadStatus::Running.as_str(),
+                    ThreadStatus::Paused.as_str(),
+                ],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        WorkspaceLifecycle::parse(&row.get::<_, String>(1)?),
+                    ))
+                },
+            )?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// A repo's torn down workspaces with their threads, most recently closed first.
+    pub fn closed_threads(
+        &self,
+        repo_id: &str,
+        limit: i64,
+    ) -> Result<Vec<(ThreadRow, WorkspaceRow)>> {
+        self.with_read(|conn| {
+            // One query: the most recently archived workspaces of the repo, each joined to its
+            // threads, instead of a thread query per workspace.
+            let mut stmt = conn.prepare_cached(&format!(
+                "SELECT {}, {} FROM (
+                    SELECT rowid AS position, * FROM workspaces
+                    WHERE repo_id = ?1 AND archived_at IS NOT NULL
+                    ORDER BY archived_at DESC, rowid DESC LIMIT ?2
+                 ) w JOIN threads t ON t.workspace_id = w.id
+                 ORDER BY w.archived_at DESC, w.position DESC, t.rowid",
+                thread_columns("t"),
+                workspace_columns("w"),
+            ))?;
+            let rows = stmt.query_map(rusqlite::params![repo_id, limit], |row| {
+                Ok((thread_at(row, 0)?, workspace_at(row, THREAD_WIDTH)?))
+            })?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::engines::EngineCommand;
     use crate::feedback::Change;
     use crate::feedback::RecordingOutput;
-    use crate::store::types::RepoRecord;
+    use crate::store::fixtures;
     use tokio::sync::mpsc::UnboundedReceiver;
 
     fn prompt_text(engine: &mut UnboundedReceiver<EngineCommand>) -> String {
@@ -573,17 +628,7 @@ mod tests {
 
     fn seed(store: &Store) {
         for repo in ["r1", "r2"] {
-            store
-                .upsert_repo(&RepoRecord {
-                    id: repo.into(),
-                    path: format!("/tmp/{repo}"),
-                    name: repo.into(),
-                    default_branch: Some("main".into()),
-                    setup_commands: String::new(),
-                    run_command: None,
-                    single_instance: false,
-                })
-                .unwrap();
+            store.upsert_repo(&fixtures::repo(repo)).unwrap();
         }
     }
 
@@ -591,33 +636,17 @@ mod tests {
         let workspace = format!("w-{id}");
         store
             .insert_workspace(&WorkspaceRow {
-                status: "ready".into(),
-                ..crate::store::types::WorkspaceRow::new(
-                    crate::model::WorkspaceKind::Lead,
-                    workspace.clone(),
-                    repo,
-                    format!("Title {id}"),
-                    format!("feat/{id}"),
-                    "main",
-                    format!("/tmp/wt-{id}"),
-                )
+                repo_id: repo.into(),
+                name: format!("Title {id}"),
+                branch: format!("feat/{id}"),
+                worktree_path: format!("/tmp/wt-{id}"),
+                ..fixtures::workspace(&workspace, WorkspaceLifecycle::Ready)
             })
             .unwrap();
         store
             .upsert_thread(&ThreadRow {
-                id: id.into(),
-                workspace_id: workspace,
-                title: "Lead".into(),
-                role: Some(crate::model::ThreadRole::Lead),
-                engine: "claude".into(),
-                session_id: None,
-                status: status.into(),
-                used_tokens: None,
-                context_size: None,
-                cost_usd: None,
-                transcript_readonly: false,
-                retired: false,
                 parent_thread_id: parent.map(str::to_string),
+                ..fixtures::thread(id, &workspace, ThreadStatus::parse(status))
             })
             .unwrap();
     }
@@ -697,7 +726,30 @@ mod tests {
             .unwrap();
         let thread = get_thread(&store, &transcript(&store), "parent", "child").unwrap();
         assert_eq!(thread["lastReply"], "All done.");
-        assert_eq!(thread["status"], FAILED);
+        assert_eq!(thread["status"], FAILED.as_str());
+    }
+
+    #[test]
+    fn closed_threads_come_with_their_workspace_newest_first() {
+        let store = store();
+        for id in ["a", "b", "c"] {
+            add_thread(&store, id, "r1", None, "idle");
+        }
+        store
+            .upsert_thread(&fixtures::thread("a-helper", "w-a", ThreadStatus::Idle))
+            .unwrap();
+        for id in ["w-a", "w-b"] {
+            store.archive_workspace(id).unwrap();
+        }
+        let closed = store.closed_threads("r1", 10).unwrap();
+        let ids: Vec<_> = closed
+            .iter()
+            .map(|(thread, workspace)| (thread.id.as_str(), workspace.id.as_str()))
+            .collect();
+        // w-b was archived last; w-c is still live so it stays out.
+        assert_eq!(ids, [("b", "w-b"), ("a", "w-a"), ("a-helper", "w-a")]);
+        assert_eq!(store.closed_threads("r1", 1).unwrap().len(), 1);
+        assert!(store.closed_threads("r2", 10).unwrap().is_empty());
     }
 
     #[test]
@@ -907,7 +959,7 @@ mod tests {
         assert!(prompt_text(&mut engine).contains("<thread_report id=\"child\""));
         assert_eq!(
             state.store.thread_by_id("parent").unwrap().unwrap().status,
-            "running"
+            ThreadStatus::Running
         );
         assert!(state.orchestration.reports.take("parent").is_empty());
         assert_eq!(recording.state_changes(), [Change::THREADS]);
@@ -919,7 +971,7 @@ mod tests {
             AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         let mut parent = state.store.thread_by_id("parent").unwrap().unwrap();
-        parent.status = "running".into();
+        parent.status = ThreadStatus::Running;
         state.store.upsert_thread(&parent).unwrap();
         let mut engine = fake.engine("parent");
 
@@ -1018,24 +1070,14 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(engine.try_recv().is_err());
         assert!(
-            state
-                .store
-                .thread_by_id("parent")
-                .unwrap()
-                .unwrap()
-                .has_status(ThreadStatus::Running)
+            state.store.thread_by_id("parent").unwrap().unwrap().status == ThreadStatus::Running
         );
 
         crate::turn::ended(&state, "parent").await;
         let report = first_prompt(&mut engine).await.expect("a report");
         assert!(report.contains("done"));
         assert!(
-            state
-                .store
-                .thread_by_id("parent")
-                .unwrap()
-                .unwrap()
-                .has_status(ThreadStatus::Running)
+            state.store.thread_by_id("parent").unwrap().unwrap().status == ThreadStatus::Running
         );
     }
 

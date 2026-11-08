@@ -2,16 +2,8 @@
 
 use crate::engines::{AgentEvent, MessageRole};
 use crate::error::Result;
-use crate::store::types::ThreadActivityRow;
 
 use super::{MESSAGE, StepEvent, TOOL, Transcript, TranscriptEvent};
-
-/// The rows that mean a thread moved: a turn ending, an engine exiting, or the user asking
-/// something. Must stay word for word what the `thread_events_activity` partial index (migration
-/// 020) declares, or SQLite walks every streamed chunk of a thread mid-turn.
-const ACTIVITY_ROWS: &str = "e.kind IN ('turn_end', 'exit')
-                                OR (e.kind = 'message'
-                                    AND json_extract(e.payload, '$.role') = 'user')";
 
 /// Who an entry is from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,11 +172,6 @@ impl Transcript {
         lines.reverse();
         Ok(lines.join("\n"))
     }
-
-    /// When each open thread last moved; streamed output doesn't count.
-    pub fn activity(&self) -> Result<Vec<ThreadActivityRow>> {
-        self.store.thread_activity(ACTIVITY_ROWS)
-    }
 }
 
 #[cfg(test)]
@@ -279,37 +266,13 @@ mod tests {
 
     #[test]
     fn activity_is_the_last_user_message_turn_end_or_exit() {
-        use crate::model::{ThreadRole, WorkspaceKind};
-        use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
+        use crate::model::{ThreadStatus, WorkspaceLifecycle};
         let store = Store::in_memory().unwrap();
-        store
-            .upsert_repo(&RepoRecord {
-                id: "r1".into(),
-                path: "/tmp/app".into(),
-                name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
-            })
-            .unwrap();
-        store
-            .insert_workspace(&WorkspaceRow::new(
-                WorkspaceKind::Lead,
-                "w1",
-                "r1",
-                "Work",
-                "feat",
-                "main",
-                "/tmp/wt",
-            ))
-            .unwrap();
+        store.seed_workspace("w1", WorkspaceLifecycle::Idle);
         for id in ["quiet", "asked", "ended", "exited"] {
-            store
-                .upsert_thread(&ThreadRow::new(id, "w1", ThreadRole::Lead, "claude"))
-                .unwrap();
+            store.seed_thread(id, "w1", ThreadStatus::Idle);
         }
-        let transcript = Transcript::new(store);
+        let transcript = Transcript::new(store.clone());
         transcript.append("quiet", agent("hi")).unwrap();
         transcript
             .record_step("quiet", TimelineStep::AgentPaused)
@@ -328,8 +291,8 @@ mod tests {
             .append("exited", AgentEvent::EngineExited { code: None })
             .unwrap();
 
-        let mut moved: Vec<String> = transcript
-            .activity()
+        let mut moved: Vec<String> = store
+            .with_read(super::super::activity_in)
             .unwrap()
             .into_iter()
             .map(|row| row.thread_id)
@@ -341,10 +304,7 @@ mod tests {
     /// Mid-turn, the lookup must not walk back through a thread's streamed chunks.
     #[test]
     fn the_activity_lookup_uses_its_partial_index() {
-        let plan = Store::in_memory()
-            .unwrap()
-            .latest_event_query_plan(ACTIVITY_ROWS)
-            .unwrap();
+        let plan = Store::in_memory().unwrap().activity_query_plan().unwrap();
         assert!(
             plan.contains("thread_events_activity"),
             "activity lookup no longer uses its index: {plan}"

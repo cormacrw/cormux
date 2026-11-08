@@ -105,9 +105,8 @@ mod tests {
 
     fn workspace(name: &str) -> WorkspaceRow {
         WorkspaceRow {
-            status: "running".into(),
+            status: crate::model::WorkspaceLifecycle::Running,
             summary: Some("Adds idle timeout. Sessions are rejected after 30 minutes.".into()),
-            modified_files: 2,
             ..crate::store::types::WorkspaceRow::new(
                 crate::model::WorkspaceKind::Lead,
                 "w1",

@@ -491,7 +491,7 @@ mod tests {
         assert!(id.starts_with("ws-") && id.len() > 30, "{id}");
         let row = state.store.workspace_by_id(&id).unwrap().unwrap();
         assert_eq!(row.base, "develop");
-        assert_eq!(row.lifecycle(), WorkspaceLifecycle::Provisioning);
+        assert_eq!(row.status, WorkspaceLifecycle::Provisioning);
         let thread = state.store.own_thread(&id).unwrap().unwrap();
         assert_eq!(thread.role, Some(crate::model::ThreadRole::Lead));
         assert_eq!(thread.title, "Lead");

@@ -446,7 +446,7 @@ esac
                 .store
                 .thread_by_id(&thread_id)
                 .unwrap()
-                .is_some_and(|thread| thread.has_status(ThreadStatus::Idle))
+                .is_some_and(|thread| thread.status == ThreadStatus::Idle)
         })
         .await;
 

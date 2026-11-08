@@ -29,7 +29,7 @@ pub enum PrReviewState {
     Draft,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestPayload {
     pub num: i64,

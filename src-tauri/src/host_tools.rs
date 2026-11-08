@@ -385,8 +385,9 @@ fn web_url(url: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::findings::FindingRow;
     use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind};
-    use crate::store::types::{FindingRow, RepoRecord, ThreadRow, WorkspaceRow};
+    use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
     use std::sync::Arc;
 
     fn state() -> AppState {
@@ -539,7 +540,7 @@ mod tests {
         )
         .await;
         assert_eq!(reply["result"]["isError"], true);
-        assert!(state.store.snapshot().unwrap().entities.is_empty());
+        assert!(crate::snapshot::read(&state.store).entities.is_empty());
 
         Settings {
             references: true,
@@ -560,7 +561,7 @@ mod tests {
             &attach(json!({ "name": "PR #42: Fix login", "url": url })),
         )
         .await;
-        let entities = state.store.snapshot().unwrap().entities;
+        let entities = crate::snapshot::read(&state.store).entities;
         assert_eq!(entities.len(), 1);
         assert_eq!(entities[0].thread_id, "t1");
         assert_eq!(entities[0].name, "PR #42: Fix login");
@@ -624,12 +625,7 @@ mod tests {
         assert_eq!(finding.status, "fixed");
         assert_eq!(finding.commit_sha.as_deref(), Some("abc123"));
         assert!(
-            state
-                .store
-                .thread_by_id("t1")
-                .unwrap()
-                .unwrap()
-                .has_status(ThreadStatus::Idle),
+            state.store.thread_by_id("t1").unwrap().unwrap().status == ThreadStatus::Idle,
             "the last fix ends the batch"
         );
     }

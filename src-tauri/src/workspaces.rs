@@ -48,7 +48,7 @@ impl WorkspaceRecord {
             branch: row.branch.clone(),
             base: row.base.clone(),
             worktree_path: row.worktree_path.clone(),
-            status: row.lifecycle(),
+            status: row.status,
             kind: row.kind,
             version: 1,
             activity: String::new(),
@@ -298,7 +298,7 @@ impl Workspaces {
             return Ok(());
         };
         let derived = match self.store.workspace_by_id(workspace_id)? {
-            Some(row) => row.lifecycle(),
+            Some(row) => row.status,
             None => status_from_threads(record.status, std::iter::once(status)),
         };
         if derived != record.status {
@@ -554,7 +554,7 @@ mod tests {
             .unwrap();
         workspaces.can_switch_branch("w").await.unwrap();
         assert_eq!(
-            store.workspace_by_id("w").unwrap().unwrap().lifecycle(),
+            store.workspace_by_id("w").unwrap().unwrap().status,
             WorkspaceLifecycle::Idle
         );
     }
@@ -579,7 +579,7 @@ mod tests {
             WorkspaceLifecycle::TearingDown
         );
         assert_eq!(
-            store.workspace_by_id("w").unwrap().unwrap().lifecycle(),
+            store.workspace_by_id("w").unwrap().unwrap().status,
             WorkspaceLifecycle::TearingDown
         );
     }

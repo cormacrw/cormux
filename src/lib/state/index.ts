@@ -2,7 +2,7 @@ import type { Snapshot, StateChanged } from '$lib/ipc'
 import { onSnapshotSupervision } from '$lib/feedback/supervision'
 import { parseTimestampMs } from '$lib/format/relative-time'
 import { pullRequestFromRow } from '$lib/state/pr-from-payload'
-import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
+import type { ThreadStatus, WorkspaceLifecycle } from '$lib/ipc/bindings'
 import { fetchSnapshot } from '$lib/ipc'
 import { app } from './app.svelte'
 import { coalesce } from './coalesce'
@@ -64,12 +64,10 @@ function pendingByThread(approvals: Snapshot['persisted']['approvals']) {
   return map
 }
 
-function threadActivityLine(status: string): string {
+function threadActivityLine(status: ThreadStatus): string {
   switch (status) {
     case 'running':
       return 'Working'
-    case 'waiting':
-      return 'Waiting for approval'
     case 'paused':
       return 'Paused'
     default:
@@ -141,7 +139,6 @@ function modelsFromSnapshot(snapshot: Snapshot) {
       kind,
       prNumber: row?.prNumber ?? null,
       prHtmlUrl: row?.prHtmlUrl ?? null,
-      modifiedFiles: row?.modifiedFiles ?? 0,
       provStep: workspace.provStep ?? 0,
       setupFailedCommand: workspace.setupFailedCommand ?? null,
       setupFailedExitCode: workspace.setupFailedExitCode ?? null,
@@ -236,9 +233,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   app.hydrate(snapshot)
   memory.hydrate(snapshot.memory)
   prs.hydrate({
-    items: snapshot.persisted.pullRequests
-      .map(pullRequestFromRow)
-      .filter((row): row is NonNullable<typeof row> => row != null),
+    items: snapshot.persisted.pullRequests.map(pullRequestFromRow),
     authConfigured: snapshot.githubAuthConfigured,
   })
   clickup.hydrate(snapshot.clickupConfigured, snapshot.persisted.settings)

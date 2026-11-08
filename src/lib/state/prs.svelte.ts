@@ -1,10 +1,11 @@
+import type {
+  PrChecksState,
+  PrRelationship,
+  PrReviewState,
+} from '$lib/ipc/bindings'
 import { reuseRows } from './reuse-rows'
 
-export type PrRelationship = 'review' | 'author' | 'mention' | 'assigned'
-
-export type PrChecksState = 'pass' | 'fail' | 'running' | 'none'
-
-export type PrReviewState = 'required' | 'changes' | 'approved' | 'draft'
+export type { PrChecksState, PrRelationship, PrReviewState }
 
 export type PullRequest = {
   id: string

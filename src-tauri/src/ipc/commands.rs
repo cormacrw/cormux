@@ -5,8 +5,8 @@ use tauri::{State, ipc::Channel};
 use super::subscriptions::{Subscriptions, stream_agent_events, stream_diffs, stream_pty};
 use super::types::{
     ControlWorkspaceAppInput, CreateWorkspaceBranchInput, CreateWorkspaceResult, DiffUpdate,
-    PtyChunk, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput, TeardownInput,
-    TeardownPreview, WorkspaceAppControlAction,
+    PtyChunk, SetSettingInput, SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview,
+    WorkspaceAppControlAction,
 };
 use crate::app::WorkspaceAppAction;
 use crate::clickup::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
@@ -31,43 +31,6 @@ use crate::transcript::StreamedEvent;
 use crate::turn::{ResumeThreadSessionInput, thread_row};
 use crate::workspace_start::CreateWorkspaceInput;
 use crate::workspaces::RenameWorkspaceInput;
-
-#[tauri::command]
-#[specta::specta]
-pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
-    let memory = state.metrics.latest();
-    let github_auth_configured = state.pr_sync.auth_configured(&state);
-
-    let transcript = state.transcript.clone();
-    let persisted = state
-        .store
-        .blocking(move |store| {
-            let mut snapshot = store.snapshot()?;
-            snapshot.thread_activity = transcript.activity()?;
-            Ok(snapshot)
-        })
-        .await?;
-    let workspaces = state
-        .workspaces
-        .records_for(&persisted.workspaces, &persisted.repos)
-        .await;
-    let workspace_ids: Vec<String> = workspaces.iter().map(|row| row.id.clone()).collect();
-    let workspace_git = state.workspace_git.snapshot(&workspace_ids).await;
-    let repo_run_commands = crate::harness_config::repo_run_commands(&persisted.repos);
-
-    Ok(Snapshot {
-        version: state.out.version(),
-        persisted,
-        workspaces,
-        workspace_git,
-        memory,
-        pending_approvals: state.approvals.pending_count(),
-        github_auth_configured,
-        clickup_configured: state.clickup.is_configured(),
-        workspace_apps: state.apps.snapshot(),
-        repo_run_commands,
-    })
-}
 
 /// Whether git would take `name` as a branch name; the error says why not.
 #[tauri::command]
@@ -204,7 +167,7 @@ pub async fn get_thread_events(
     before_seq: Option<i64>,
     limit: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<crate::store::types::ThreadEventPage> {
+) -> Result<crate::transcript::ThreadEventPage> {
     state
         .store
         .blocking(move |store| store.thread_event_page(&thread_id, after_seq, before_seq, limit))

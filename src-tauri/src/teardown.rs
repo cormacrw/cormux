@@ -43,7 +43,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
         .ok_or_else(|| Error::unknown_workspace(workspace_id))?;
     let worktree = PathBuf::from(&record.worktree_path);
 
-    let uncommitted_files = count_uncommitted_files(state, &worktree, row.modified_files).await;
+    let uncommitted_files = count_uncommitted_files(state, &worktree).await;
     let unpushed_commits = if worktree.is_dir() {
         state
             .git
@@ -159,13 +159,13 @@ fn after_failed_teardown(before: WorkspaceLifecycle) -> WorkspaceLifecycle {
     }
 }
 
-async fn count_uncommitted_files(state: &AppState, worktree: &Path, fallback: i64) -> u32 {
+async fn count_uncommitted_files(state: &AppState, worktree: &Path) -> u32 {
     if !worktree.is_dir() {
-        return fallback.max(0) as u32;
+        return 0;
     }
     match state.git.numstat(worktree).await {
         Ok(files) => files.len() as u32,
-        Err(_) => fallback.max(0) as u32,
+        Err(_) => 0,
     }
 }
 
@@ -250,7 +250,7 @@ mod tests {
         assert!(state.workspaces.get("w").await.is_err());
         let archived = state.store.workspace_by_id("w").unwrap().unwrap();
         assert!(archived.archived_at.is_some());
-        assert_eq!(archived.lifecycle(), WorkspaceLifecycle::TearingDown);
+        assert_eq!(archived.status, WorkspaceLifecycle::TearingDown);
     }
 
     #[test]

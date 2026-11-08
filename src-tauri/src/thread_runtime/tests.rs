@@ -90,11 +90,10 @@ fn add_thread(store: &Store, id: &str, status: &str, session: Option<&str>) {
             role: Some(ThreadRole::Lead),
             engine: "claude".into(),
             session_id: session.map(str::to_string),
-            status: status.into(),
+            status: crate::model::ThreadStatus::parse(status),
             used_tokens: None,
             context_size: None,
             cost_usd: None,
-            transcript_readonly: false,
             retired: false,
             parent_thread_id: None,
         })

@@ -137,7 +137,7 @@ pub async fn start(
 ) -> Result<i64> {
     // First, so the thread shows the message while an engine takes its time to start.
     let seq = state.transcript.record_user_message(&thread.id, shown)?;
-    if thread.has_status(ThreadStatus::Paused) {
+    if thread.status == ThreadStatus::Paused {
         state.paused.push(&thread.id, prompt.into())?;
     } else {
         send(state, thread, prompt.into()).await?;
@@ -200,7 +200,7 @@ pub async fn stop(state: &AppState, thread_id: &str) -> Result<()> {
 /// Only a running thread can pause; any other is left as it is.
 pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
     let thread = thread_row(state, thread_id)?;
-    if !thread.has_status(ThreadStatus::Running) {
+    if thread.status != ThreadStatus::Running {
         return Ok(());
     }
     // An engine that's gone has no turn left to interrupt; the thread still holds.
@@ -219,7 +219,7 @@ pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
 /// take it the thread stays paused, with its queue.
 pub async fn resume(state: &AppState, thread_id: &str) -> Result<()> {
     let thread = thread_row(state, thread_id)?;
-    if !thread.has_status(ThreadStatus::Paused) {
+    if thread.status != ThreadStatus::Paused {
         return Ok(());
     }
     let queued = state.paused.take(thread_id);
@@ -299,7 +299,7 @@ pub async fn mark_idle(state: &AppState, thread: &ThreadRow) -> Result<()> {
 /// react to a turn ending hear of it, reading the thread as it now is.
 pub async fn ended(state: &AppState, thread_id: &str) {
     match state.store.thread_by_id(thread_id) {
-        Ok(Some(thread)) if !thread.has_status(ThreadStatus::Paused) => {
+        Ok(Some(thread)) if thread.status != ThreadStatus::Paused => {
             if let Err(error) = record(state, &thread, ThreadStatus::Idle).await {
                 log::warn!("settling thread {thread_id}: {error}");
             }
@@ -346,7 +346,8 @@ mod tests {
 
     use crate::feedback::RecordingOutput;
     use crate::model::WorkspaceLifecycle;
-    use crate::store::types::{RepoRecord, WorkspaceRow};
+    use crate::store::fixtures;
+    use crate::store::types::WorkspaceRow;
     use tokio::sync::mpsc::UnboundedReceiver;
 
     type Engine = UnboundedReceiver<EngineCommand>;
@@ -356,19 +357,8 @@ mod tests {
 
     fn thread(id: &str, status: ThreadStatus, parent: Option<&str>) -> ThreadRow {
         ThreadRow {
-            id: id.into(),
-            workspace_id: W.into(),
-            title: "Lead".into(),
-            role: Some(crate::model::ThreadRole::Lead),
-            engine: "claude".into(),
-            session_id: None,
-            status: status.into(),
-            used_tokens: None,
-            context_size: None,
-            cost_usd: None,
-            transcript_readonly: false,
-            retired: false,
             parent_thread_id: parent.map(str::to_string),
+            ..fixtures::thread(id, W, status)
         }
     }
 
@@ -391,43 +381,36 @@ mod tests {
     ) -> (AppState, Arc<RecordingOutput>, FakeEngines) {
         let (state, recording, fake) =
             AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
-        state
-            .store
-            .upsert_repo(&RepoRecord {
-                id: "r1".into(),
-                path: "/tmp/app".into(),
-                name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
-            })
-            .unwrap();
+        state.store.upsert_repo(&fixtures::repo("r1")).unwrap();
         state
             .store
             .insert_workspace(&WorkspaceRow {
-                status: workspace.as_str().into(),
-                ..crate::store::types::WorkspaceRow::new(
-                    crate::model::WorkspaceKind::Lead,
-                    W,
-                    "r1",
-                    "Work",
-                    "feat/x",
-                    "main",
-                    std::env::temp_dir().display().to_string(),
-                )
+                worktree_path: std::env::temp_dir().display().to_string(),
+                ..fixtures::workspace(W, workspace)
             })
             .unwrap();
         state.store.upsert_thread(&thread(T, status, None)).unwrap();
         (state, recording, fake)
     }
 
-    fn thread_status(state: &AppState, id: &str) -> String {
-        state.store.thread_by_id(id).unwrap().unwrap().status
+    fn thread_status(state: &AppState, id: &str) -> &'static str {
+        state
+            .store
+            .thread_by_id(id)
+            .unwrap()
+            .unwrap()
+            .status
+            .as_str()
     }
 
-    fn stored_workspace(state: &AppState) -> String {
-        state.store.workspace_by_id(W).unwrap().unwrap().status
+    fn stored_workspace(state: &AppState) -> &'static str {
+        state
+            .store
+            .workspace_by_id(W)
+            .unwrap()
+            .unwrap()
+            .status
+            .as_str()
     }
 
     async fn live_workspace(state: &AppState) -> WorkspaceLifecycle {

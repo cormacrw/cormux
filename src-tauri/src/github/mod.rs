@@ -5,6 +5,7 @@ pub mod gh;
 mod r#match;
 mod rest;
 pub mod review;
+mod store;
 mod sync;
 pub mod types;
 
@@ -17,6 +18,8 @@ use crate::shell_env::ShellEnv;
 pub use gh::Gh;
 pub use r#match::RepoSlug;
 pub use rest::RestGithubClient;
+pub use store::PrRow;
+pub(crate) use store::all as pull_requests_in;
 pub use sync::{PrSyncScheduler, start};
 
 /// GitHub's two transports, made once: the `gh` CLI (reads, login) and REST (writes).

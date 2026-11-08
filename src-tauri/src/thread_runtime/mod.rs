@@ -373,7 +373,7 @@ impl ThreadRuntime {
             .thread_by_id(thread_id)
             .ok()
             .flatten()
-            .is_some_and(|thread| thread.has_status(ThreadStatus::Idle));
+            .is_some_and(|thread| thread.status == ThreadStatus::Idle);
         let unanswered = self
             .store
             .pending_approvals_for_thread(thread_id)

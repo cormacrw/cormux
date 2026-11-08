@@ -1,3 +1,5 @@
+mod store;
+
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -7,8 +9,10 @@ use crate::engines::AgentEvent;
 use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
-use crate::store::types::FindingRow;
 use crate::timeline::TimelineStep;
+
+pub use store::FindingRow;
+pub(crate) use store::live as live_in;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -315,12 +319,24 @@ mod tests {
         state.store.finding_by_id(id).unwrap().unwrap().status
     }
 
-    fn thread_status(state: &AppState) -> String {
-        state.store.thread_by_id(T).unwrap().unwrap().status
+    fn thread_status(state: &AppState) -> &'static str {
+        state
+            .store
+            .thread_by_id(T)
+            .unwrap()
+            .unwrap()
+            .status
+            .as_str()
     }
 
-    fn stored_workspace(state: &AppState) -> String {
-        state.store.workspace_by_id(W).unwrap().unwrap().status
+    fn stored_workspace(state: &AppState) -> &'static str {
+        state
+            .store
+            .workspace_by_id(W)
+            .unwrap()
+            .unwrap()
+            .status
+            .as_str()
     }
 
     fn prompts(engine: &mut UnboundedReceiver<EngineCommand>) -> Vec<String> {

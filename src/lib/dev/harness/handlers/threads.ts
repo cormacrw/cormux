@@ -307,8 +307,6 @@ export function threadHandlers(runtime: HarnessRuntime) {
         (entry) => entry.id === id,
       )
       if (row) {
-        const thread = findThread(row.threadId)
-        if (thread?.status === 'waiting') thread.status = 'running'
         row.status = approved ? 'approved' : 'denied'
         if (row.payload) {
           row.payload = {

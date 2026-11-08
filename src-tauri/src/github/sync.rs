@@ -5,7 +5,6 @@ use std::time::Duration;
 use crate::error::Result;
 use crate::feedback::Change;
 use crate::state::AppState;
-use crate::store::types::PrRow;
 
 use super::client::{self, FetchError};
 use super::r#match::load_repo_origins;
@@ -70,20 +69,7 @@ impl PrSyncScheduler {
             Err(FetchError::Other(error)) => return Err(error),
         };
 
-        let mut rows = Vec::with_capacity(items.len());
-        for pr in &items {
-            let payload = serde_json::to_string(pr)
-                .map_err(|error| crate::error::Error::Github(error.to_string()))?;
-            rows.push(PrRow {
-                id: pr.cache_id(),
-                repo_id: pr.repo_id.clone(),
-                number: pr.num,
-                title: pr.title.clone(),
-                payload,
-            });
-        }
-
-        let changed = state.store.replace_pull_requests(&rows)?;
+        let changed = state.store.replace_pull_requests(&items)?;
         let synced_at = crate::time::unix_secs().to_string();
         state.store.set_setting(SYNCED_AT_KEY, &synced_at)?;
         self.auth.store(AUTH_SIGNED_IN, Ordering::SeqCst);

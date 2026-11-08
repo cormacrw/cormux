@@ -20,7 +20,6 @@ const baseWorkspace = {
   kind: null,
   prNumber: null,
   prHtmlUrl: null,
-  modifiedFiles: 0,
   provStep: 0,
   setupFailedCommand: null,
   setupFailedExitCode: null,

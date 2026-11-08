@@ -83,20 +83,21 @@ pub fn build_summary_prompt(workspace: &WorkspaceRow, threads: &[ThreadRow]) -> 
         .map(|thread| {
             format!(
                 "- {} ({}, status: {})",
-                thread.title, thread.engine, thread.status
+                thread.title,
+                thread.engine,
+                thread.status.as_str()
             )
         })
         .collect();
     format!(
         "Write at most three short sentences summarizing where this software workspace stands. \
          No markdown. Workspace: \"{}\" on branch {} (status: {}). \
-         {} agent thread(s):\n{}\nModified files: {}.",
+         {} agent thread(s):\n{}",
         workspace.name,
         workspace.branch,
-        workspace.status,
+        workspace.status.as_str(),
         threads.len(),
         thread_lines.join("\n"),
-        workspace.modified_files
     )
 }
 
@@ -120,24 +121,22 @@ pub fn fallback_summary(workspace: &WorkspaceRow, threads: &[ThreadRow]) -> Stri
     }
     let active = threads
         .iter()
-        .filter(|t| t.has_status(ThreadStatus::Running) || t.has_status(ThreadStatus::Provisioning))
+        .filter(|t| t.status == ThreadStatus::Running || t.status == ThreadStatus::Provisioning)
         .count();
     if active > 0 {
         format!(
-            "Work continues on “{}” ({}). {} of {} agent(s) are active; {} file(s) touched so far.",
+            "Work continues on “{}” ({}). {} of {} agent(s) are active.",
             workspace.name,
             workspace.branch,
             active,
             threads.len(),
-            workspace.modified_files
         )
     } else {
         format!(
-            "“{}” on {} is waiting on you or idle. {} agent(s) attached; {} modified file(s).",
+            "“{}” on {} is waiting on you or idle. {} agent(s) attached.",
             workspace.name,
             workspace.branch,
             threads.len(),
-            workspace.modified_files
         )
     }
 }
@@ -202,19 +201,16 @@ mod tests {
     use crate::model::{ThreadRole, WorkspaceLifecycle};
 
     fn workspace() -> WorkspaceRow {
-        WorkspaceRow {
-            modified_files: 3,
-            ..WorkspaceRow::new(
-                WorkspaceKind::Lead,
-                "w1",
-                "r1",
-                "Auth session timeout",
-                "feat/auth",
-                "main",
-                "/tmp/wt",
-            )
-            .with_status(WorkspaceLifecycle::Running)
-        }
+        WorkspaceRow::new(
+            WorkspaceKind::Lead,
+            "w1",
+            "r1",
+            "Auth session timeout",
+            "feat/auth",
+            "main",
+            "/tmp/wt",
+        )
+        .with_status(WorkspaceLifecycle::Running)
     }
 
     #[test]

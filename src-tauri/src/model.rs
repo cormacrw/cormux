@@ -117,9 +117,9 @@ impl ThreadRole {
 /// Who writes workspace summaries, shown under each one.
 pub const SUMMARY_MODEL_LABEL: &str = "Haiku 4.5";
 
-/// What a thread is doing. `ThreadRow::status` stays a string, since that's what the webview
-/// is sent; these are the only values Rust writes to it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What a thread is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub enum ThreadStatus {
     Provisioning,
     Running,
@@ -146,12 +146,6 @@ impl ThreadStatus {
             "paused" => Self::Paused,
             _ => Self::Idle,
         }
-    }
-}
-
-impl From<ThreadStatus> for String {
-    fn from(status: ThreadStatus) -> Self {
-        status.as_str().to_string()
     }
 }
 
@@ -183,12 +177,15 @@ pub fn status_from_threads(
     }
 }
 
-/// Where an approval stands. `ApprovalRow::status` stays a string for the webview.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Where an approval stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub enum ApprovalStatus {
     Pending,
     Approved,
     Denied,
+    /// Older builds' word for a card a newer one replaced; reads as denied. Not written any more.
+    Dismissed,
 }
 
 impl ApprovalStatus {
@@ -197,13 +194,18 @@ impl ApprovalStatus {
             Self::Pending => "pending",
             Self::Approved => "approved",
             Self::Denied => "denied",
+            Self::Dismissed => "dismissed",
         }
     }
-}
 
-impl From<ApprovalStatus> for String {
-    fn from(status: ApprovalStatus) -> Self {
-        status.as_str().to_string()
+    /// A stored status. Anything unrecognised was answered somehow, so it reads as `Denied`.
+    pub fn parse(raw: &str) -> Self {
+        match raw {
+            "pending" => Self::Pending,
+            "approved" => Self::Approved,
+            "dismissed" => Self::Dismissed,
+            _ => Self::Denied,
+        }
     }
 }
 
@@ -359,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn thread_statuses_keep_their_stored_words() {
+    fn thread_and_approval_statuses_keep_their_stored_words() {
         for (status, word) in [
             (ThreadStatus::Provisioning, "provisioning"),
             (ThreadStatus::Running, "running"),
@@ -368,8 +370,18 @@ mod tests {
         ] {
             assert_eq!(status.as_str(), word);
             assert_eq!(ThreadStatus::parse(word), status);
+            assert_eq!(serde_json::to_value(status).unwrap(), word);
         }
         assert_eq!(ThreadStatus::parse("waiting"), ThreadStatus::Idle);
+        for status in [
+            ApprovalStatus::Pending,
+            ApprovalStatus::Approved,
+            ApprovalStatus::Denied,
+            ApprovalStatus::Dismissed,
+        ] {
+            assert_eq!(ApprovalStatus::parse(status.as_str()), status);
+            assert_eq!(serde_json::to_value(status).unwrap(), status.as_str());
+        }
     }
 
     #[test]

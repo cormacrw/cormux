@@ -8,6 +8,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error, Serialize, Type)]
 #[serde(tag = "kind", content = "message")]
 pub enum Error {
+    /// The request itself was wrong: a missing value, an unknown id, a finding in the wrong state.
+    #[error("{0}")]
+    Invalid(String),
+
     #[error("io: {0}")]
     Io(String),
 
@@ -56,6 +60,12 @@ pub enum Error {
 
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
+        Self::Io(error.to_string())
+    }
+}
+
+impl From<tokio::task::JoinError> for Error {
+    fn from(error: tokio::task::JoinError) -> Self {
         Self::Io(error.to_string())
     }
 }

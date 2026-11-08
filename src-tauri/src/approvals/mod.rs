@@ -3,6 +3,7 @@
 //! answered while its agent still waits, or as waiting once its agent has stopped.
 
 mod payload;
+mod store;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -10,6 +11,8 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 
 pub use payload::QUESTION_TOOL;
+pub use store::ApprovalRow;
+pub(crate) use store::visible as visible_in;
 
 use crate::bus::{Bus, DomainEvent};
 use crate::engines::{AgentEvent, PermissionRequest};
@@ -157,7 +160,7 @@ impl ApprovalBroker {
             .store
             .get_approval(id)?
             .ok_or_else(|| Error::Approval(format!("unknown approval {id}")))?;
-        if row.status != ApprovalStatus::Pending.as_str() {
+        if row.status != ApprovalStatus::Pending {
             return Err(Error::Approval("approval already decided".into()));
         }
         let Some(waiter) = waiting.remove(id) else {

@@ -163,7 +163,7 @@ test('the header links a PR opened outside Cormux for the checked-out branch', a
         repoId: 'my-app',
         number: 57,
         title: payload.title,
-        payload: JSON.stringify(payload),
+        payload,
       },
     ],
   })

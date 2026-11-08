@@ -1,4 +1,8 @@
-import type { WorkspaceLifecycle, WorkspaceRecord } from '$lib/ipc/bindings'
+import type {
+  ThreadStatus,
+  WorkspaceLifecycle,
+  WorkspaceRecord,
+} from '$lib/ipc/bindings'
 
 export function workspaceActivityFromRecord(
   lifecycle: WorkspaceLifecycle,
@@ -20,13 +24,12 @@ export function workspaceActivityFromRecord(
 }
 
 export function threadActivityForProvisioning(
-  status: string,
+  status: ThreadStatus,
   workspaceActivity: string,
   provStep: number,
 ): string {
   if (status !== 'provisioning') {
     if (status === 'running') return 'Working'
-    if (status === 'waiting') return 'Waiting for approval'
     if (status === 'paused') return 'Paused'
     return 'Idle'
   }

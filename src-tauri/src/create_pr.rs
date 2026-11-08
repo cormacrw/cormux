@@ -11,7 +11,7 @@ use crate::github::create::CreatePullRequestInput;
 use crate::github::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
 use crate::pr_draft::{PR_PROMPT_KEY, draft_why, pr_prompt};
 use crate::state::AppState;
-use crate::store::types::{PrRow, WorkspaceRow};
+use crate::store::types::WorkspaceRow;
 use crate::timeline::TimelineStep;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -198,15 +198,7 @@ pub async fn create_workspace_pull_request(
         repo_full_name: slug.full_name(),
         repo_id: Some(workspace.repo_id.clone()),
     };
-    let payload_json =
-        serde_json::to_string(&payload).map_err(|error| Error::Store(error.to_string()))?;
-    state.store.upsert_pr(&PrRow {
-        id: payload.cache_id(),
-        repo_id: Some(workspace.repo_id.clone()),
-        number: created.number,
-        title: title.clone(),
-        payload: payload_json,
-    })?;
+    state.store.upsert_pr(&payload)?;
 
     // The PR exists now, so nothing below may fail the command.
     crate::workspace_git::record_in_own_thread(

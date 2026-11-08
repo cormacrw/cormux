@@ -3,132 +3,61 @@ use rusqlite::Connection;
 use crate::error::{Error, Result};
 
 struct Migration {
-    version: i64,
+    /// The file name without `.sql`; its number is the version.
     name: &'static str,
     sql: &'static str,
 }
 
-/// Version 24 is taken by `transcript::upgrade`, which rewrites rows in Rust; the next SQL
-/// migration is 25.
-const MIGRATIONS: &[Migration] = &[
-    Migration {
-        version: 1,
-        name: "001_initial",
-        sql: include_str!("../../migrations/001_initial.sql"),
-    },
-    Migration {
-        version: 2,
-        name: "002_sessions_findings_usage",
-        sql: include_str!("../../migrations/002_sessions_findings_usage.sql"),
-    },
-    Migration {
-        version: 3,
-        name: "003_workspace_card_fields",
-        sql: include_str!("../../migrations/003_workspace_card_fields.sql"),
-    },
-    Migration {
-        version: 4,
-        name: "004_workspace_archive",
-        sql: include_str!("../../migrations/004_workspace_archive.sql"),
-    },
-    Migration {
-        version: 5,
-        name: "005_workspace_pr_url",
-        sql: include_str!("../../migrations/005_workspace_pr_url.sql"),
-    },
-    Migration {
-        version: 6,
-        name: "006_findings_sent_thread",
-        sql: include_str!("../../migrations/006_findings_sent_thread.sql"),
-    },
-    Migration {
-        version: 7,
-        name: "007_scratches",
-        sql: include_str!("../../migrations/007_scratches.sql"),
-    },
-    Migration {
-        version: 8,
-        name: "008_thread_closed",
-        sql: include_str!("../../migrations/008_thread_closed.sql"),
-    },
-    Migration {
-        version: 9,
-        name: "009_todos",
-        sql: include_str!("../../migrations/009_todos.sql"),
-    },
-    Migration {
-        version: 10,
-        name: "010_thread_model",
-        sql: include_str!("../../migrations/010_thread_model.sql"),
-    },
-    Migration {
-        version: 11,
-        name: "011_repo_single_instance",
-        sql: include_str!("../../migrations/011_repo_single_instance.sql"),
-    },
-    Migration {
-        version: 12,
-        name: "012_week_plan",
-        sql: include_str!("../../migrations/012_week_plan.sql"),
-    },
-    Migration {
-        version: 13,
-        name: "013_todo_number",
-        sql: include_str!("../../migrations/013_todo_number.sql"),
-    },
-    Migration {
-        version: 14,
-        name: "014_drop_cursor",
-        sql: include_str!("../../migrations/014_drop_cursor.sql"),
-    },
-    Migration {
-        version: 15,
-        name: "015_one_thread_per_workspace",
-        sql: include_str!("../../migrations/015_one_thread_per_workspace.sql"),
-    },
-    Migration {
-        version: 16,
-        name: "016_drop_plan_mode",
-        sql: include_str!("../../migrations/016_drop_plan_mode.sql"),
-    },
-    Migration {
-        version: 17,
-        name: "017_thread_parent",
-        sql: include_str!("../../migrations/017_thread_parent.sql"),
-    },
-    Migration {
-        version: 18,
-        name: "018_drop_acp_engines",
-        sql: include_str!("../../migrations/018_drop_acp_engines.sql"),
-    },
-    Migration {
-        version: 19,
-        name: "019_read_path_indexes",
-        sql: include_str!("../../migrations/019_read_path_indexes.sql"),
-    },
-    Migration {
-        version: 20,
-        name: "020_thread_activity_index",
-        sql: include_str!("../../migrations/020_thread_activity_index.sql"),
-    },
-    Migration {
-        version: 21,
-        name: "021_thread_effort",
-        sql: include_str!("../../migrations/021_thread_effort.sql"),
-    },
-    Migration {
-        version: 22,
-        name: "022_thread_entities",
-        sql: include_str!("../../migrations/022_thread_entities.sql"),
-    },
-    Migration {
-        version: 23,
-        name: "023_workspace_base_kind_thread_role",
-        sql: include_str!("../../migrations/023_workspace_base_kind_thread_role.sql"),
-    },
+impl Migration {
+    fn version(&self) -> i64 {
+        self.name[..3]
+            .parse()
+            .expect("a migration's file name starts with its three-digit version")
+    }
+}
+
+macro_rules! migrations {
+    ($($name:literal),* $(,)?) => {
+        &[$(Migration {
+            name: $name,
+            sql: include_str!(concat!("../../migrations/", $name, ".sql")),
+        }),*]
+    };
+}
+
+/// Versions taken by migrations that rewrite rows in Rust rather than run a file:
+/// 24 is `transcript::upgrade`.
+#[cfg(test)]
+const RUST_VERSIONS: &[i64] = &[24];
+
+const MIGRATIONS: &[Migration] = migrations![
+    "001_initial",
+    "002_sessions_findings_usage",
+    "003_workspace_card_fields",
+    "004_workspace_archive",
+    "005_workspace_pr_url",
+    "006_findings_sent_thread",
+    "007_scratches",
+    "008_thread_closed",
+    "009_todos",
+    "010_thread_model",
+    "011_repo_single_instance",
+    "012_week_plan",
+    "013_todo_number",
+    "014_drop_cursor",
+    "015_one_thread_per_workspace",
+    "016_drop_plan_mode",
+    "017_thread_parent",
+    "018_drop_acp_engines",
+    "019_read_path_indexes",
+    "020_thread_activity_index",
+    "021_thread_effort",
+    "022_thread_entities",
+    "023_workspace_base_kind_thread_role",
+    "025_snapshot_views_and_dead_data",
 ];
 
-pub fn run(conn: &Connection) -> Result<()> {
+fn create_ledger(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY,
@@ -136,6 +65,11 @@ pub fn run(conn: &Connection) -> Result<()> {
             applied_at TEXT NOT NULL DEFAULT (datetime('now'))
         );",
     )?;
+    Ok(())
+}
+
+pub fn run(conn: &Connection) -> Result<()> {
+    create_ledger(conn)?;
 
     // Table rebuilds (007) drop a parent table, which would cascade-delete its children while
     // foreign keys are on. The pragma is ignored inside a transaction, so set it out here.
@@ -149,7 +83,7 @@ fn apply_pending(conn: &Connection) -> Result<()> {
     for migration in MIGRATIONS {
         let already_applied: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?1)",
-            [migration.version],
+            [migration.version()],
             |row| row.get(0),
         )?;
 
@@ -181,7 +115,7 @@ fn apply(conn: &Connection, migration: &Migration) -> Result<()> {
         .map_err(|error| Error::Store(format!("{}: {error}", migration.name)))?;
     conn.execute(
         "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
-        rusqlite::params![migration.version, migration.name],
+        rusqlite::params![migration.version(), migration.name],
     )?;
     Ok(())
 }
@@ -190,65 +124,96 @@ fn apply(conn: &Connection, migration: &Migration) -> Result<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn applies_initial_schema() {
+    /// A database as the migrations before `version` left it.
+    fn migrated_before(version: i64) -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        run(&conn).unwrap();
-        run(&conn).unwrap();
+        create_ledger(&conn).unwrap();
+        for migration in MIGRATIONS.iter().filter(|m| m.version() < version) {
+            apply(&conn, migration).unwrap();
+        }
+        conn
+    }
 
-        let tables: Vec<String> = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+    fn names(conn: &Connection, kind: &str) -> Vec<String> {
+        conn.prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = ?1 AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .unwrap()
+        .query_map([kind], |row| row.get(0))
+        .unwrap()
+        .map(|name| name.unwrap())
+        .collect()
+    }
+
+    fn columns(conn: &Connection, table: &str) -> Vec<String> {
+        conn.prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
             .unwrap()
             .query_map([], |row| row.get(0))
             .unwrap()
             .map(|name| name.unwrap())
-            .collect();
+            .collect()
+    }
 
-        let version: i64 = conn
-            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+    #[test]
+    fn every_migration_file_is_listed_in_order() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
+        let mut files: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter_map(|name| name.strip_suffix(".sql").map(str::to_string))
+            .collect();
+        files.sort();
+        let listed: Vec<&str> = MIGRATIONS.iter().map(|m| m.name).collect();
+        assert_eq!(listed, files);
+
+        let mut versions: Vec<i64> = MIGRATIONS.iter().map(Migration::version).collect();
+        versions.extend(RUST_VERSIONS);
+        versions.sort();
+        let latest = *versions.last().unwrap();
+        assert_eq!(
+            latest as usize,
+            versions.len(),
+            "versions run 1, 2, 3… with none skipped or taken twice: {versions:?}"
+        );
+    }
+
+    #[test]
+    fn applies_every_migration_once() {
+        let conn = Connection::open_in_memory().unwrap();
+        run(&conn).unwrap();
+        run(&conn).unwrap();
+
+        let applied: i64 = conn
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 23);
-
-        for expected in [
-            "approvals",
-            "findings",
-            "pr_cache",
-            "repo_config",
-            "repos",
-            "schema_migrations",
-            "scratches",
-            "settings",
-            "sprint_plan",
-            "thread_entities",
-            "thread_events",
-            "threads",
-            "todos",
-            "workspaces",
-        ] {
-            assert!(
-                tables.iter().any(|name| name == expected),
-                "missing {expected}"
-            );
-        }
+        assert_eq!(applied as usize, MIGRATIONS.len());
+        assert_eq!(
+            names(&conn, "table"),
+            [
+                "approvals",
+                "findings",
+                "pr_cache",
+                "repo_config",
+                "repos",
+                "schema_migrations",
+                "scratches",
+                "settings",
+                "thread_entities",
+                "thread_events",
+                "threads",
+                "workspaces",
+            ]
+        );
+        assert_eq!(names(&conn, "view"), ["live_workspaces", "visible_threads"]);
     }
 
     #[test]
     fn scratches_migration_keeps_thread_history() {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = migrated_before(7);
         conn.pragma_update(None, "foreign_keys", true).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_migrations (
-                version INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );",
-        )
-        .unwrap();
-        for migration in &MIGRATIONS[..6] {
-            apply(&conn, migration).unwrap();
-        }
         conn.execute_batch(
             "INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
              INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status)
@@ -296,18 +261,7 @@ mod tests {
 
     #[test]
     fn one_thread_stays_live_per_workspace() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_migrations (
-                version INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );",
-        )
-        .unwrap();
-        for migration in &MIGRATIONS[..14] {
-            apply(&conn, migration).unwrap();
-        }
+        let conn = migrated_before(15);
         // `lead` was created first, but `helper` spoke last, so `helper` carries on.
         conn.execute_batch(
             "INSERT INTO threads (id, workspace_id, title, engine, status) VALUES
@@ -350,18 +304,7 @@ mod tests {
 
     #[test]
     fn cursor_threads_become_claude_threads() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_migrations (
-                version INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );",
-        )
-        .unwrap();
-        for migration in &MIGRATIONS[..13] {
-            apply(&conn, migration).unwrap();
-        }
+        let conn = migrated_before(14);
         conn.execute_batch(
             "INSERT INTO threads (id, workspace_id, title, engine, session_id, status, model)
                 VALUES ('c', 'w', 'Lead', 'cursor', 'cursor-sess', 'idle', 'gpt-5'),
@@ -401,18 +344,7 @@ mod tests {
 
     #[test]
     fn codex_and_gemini_threads_become_claude_threads() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_migrations (
-                version INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );",
-        )
-        .unwrap();
-        for migration in &MIGRATIONS[..17] {
-            apply(&conn, migration).unwrap();
-        }
+        let conn = migrated_before(18);
         conn.execute_batch(
             "INSERT INTO threads (id, workspace_id, title, engine, session_id, status, model)
                 VALUES ('x', 'w', 'Lead', 'codex', 'acp-sess', 'idle', 'gpt-5'),
@@ -454,18 +386,7 @@ mod tests {
 
     #[test]
     fn workspaces_get_a_base_and_kind_and_threads_a_role() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_migrations (
-                version INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );",
-        )
-        .unwrap();
-        for migration in &MIGRATIONS[..22] {
-            apply(&conn, migration).unwrap();
-        }
+        let conn = migrated_before(23);
         conn.execute_batch(
             "INSERT INTO repos (id, path, name, default_branch) VALUES
                 ('dev', '/tmp/dev', 'dev', 'develop'),
@@ -517,5 +438,45 @@ mod tests {
         );
         assert_eq!(thread("r").0.as_deref(), Some("reviewer"));
         assert_eq!(thread("h"), (None, "Agent 2".into(), "idle".into()));
+    }
+
+    #[test]
+    fn dead_tables_and_columns_go_and_the_views_list_what_shows() {
+        let conn = migrated_before(25);
+        conn.execute_batch(
+            "INSERT INTO todos (id, title) VALUES ('t', 'old');
+             INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
+             INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status, modified_files)
+                VALUES ('live', 'r', 'Live', 'a', '/tmp/a', 'idle', 3),
+                       ('gone', 'r', 'Gone', 'b', '/tmp/b', 'idle', 0);
+             UPDATE workspaces SET archived_at = datetime('now') WHERE id = 'gone';
+             INSERT INTO threads (id, workspace_id, title, engine, status, transcript_readonly) VALUES
+                ('open', 'live', 'Lead', 'claude', 'idle', 1),
+                ('closed', 'live', 'Agent 2', 'claude', 'idle', 0),
+                ('archived', 'gone', 'Lead', 'claude', 'idle', 0),
+                ('scratch', 's', 'Scratch', 'claude', 'idle', 0);
+             UPDATE threads SET closed_at = datetime('now') WHERE id = 'closed';
+             INSERT INTO scratches (id, repo_id, title, thread_id) VALUES ('s', 'r', 'Q', 'scratch');",
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        assert!(!names(&conn, "table").contains(&"todos".to_string()));
+        assert!(!columns(&conn, "workspaces").contains(&"modified_files".to_string()));
+        assert!(!columns(&conn, "threads").contains(&"transcript_readonly".to_string()));
+        let ids = |sql: &str| -> Vec<String> {
+            conn.prepare(sql)
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .map(|id| id.unwrap())
+                .collect()
+        };
+        assert_eq!(ids("SELECT id FROM live_workspaces"), ["live"]);
+        assert_eq!(
+            ids("SELECT id FROM visible_threads ORDER BY position"),
+            ["open", "scratch"]
+        );
     }
 }

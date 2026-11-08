@@ -14,7 +14,9 @@ use crate::engines::{
     AgentEvent, SavedCall, ToolCallStatus, restore_call, restore_permission_tool,
 };
 use crate::error::Result;
-use crate::store::{Rewrite, Store};
+use crate::store::Store;
+
+use super::store::Rewrite;
 use crate::timeline::{StepIcon, TimelineStep};
 
 const VERSION: i64 = 24;
