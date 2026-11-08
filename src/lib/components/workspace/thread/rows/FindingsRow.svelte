@@ -4,7 +4,7 @@
   import { severitySummary } from '$lib/findings/format'
   import { nav } from '$lib/core/nav.svelte'
   import { findings } from '$lib/findings/store.svelte'
-  import { openWorkspaceFindings } from '$lib/workspace/open'
+  import { openWorkspaceFindings } from '$lib/nav/open'
   import type { TimelineItem } from '$lib/thread/timeline-types'
   import type { RowContext } from './context'
   import RowShell from './RowShell.svelte'

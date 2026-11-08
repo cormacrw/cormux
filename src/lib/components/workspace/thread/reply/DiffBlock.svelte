@@ -1,7 +1,7 @@
 <script lang="ts">
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import type { DiffBlock } from '$lib/thread/reply/blocks/diff'
-  import { revealInChanges } from '$lib/workspace/open'
+  import { revealInChanges } from '$lib/nav/open'
 
   let { data: diff, workdir }: { data: DiffBlock; workdir?: string } = $props()
 </script>

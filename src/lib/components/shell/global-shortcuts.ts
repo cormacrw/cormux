@@ -1,6 +1,6 @@
 // The app's keyboard router, beside `menu.ts` (the menu bar's). Buttons on screen handle
 // their own shortcuts through `shellDialogs.allows`; this handles the ones with no button.
-import { openWorkspace } from '$lib/workspace/open'
+import { openWorkspace } from '$lib/nav/open'
 import { openSettings } from '$lib/settings/open'
 import { nav, navigate } from '$lib/core/nav.svelte'
 import { switchConversation } from '$lib/thread/actions'

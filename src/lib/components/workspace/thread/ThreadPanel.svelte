@@ -6,7 +6,7 @@
   import { entities } from '$lib/state'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
-  import { openWorkspace } from '$lib/workspace/open'
+  import { openWorkspace } from '$lib/nav/open'
   import { appearance } from '$lib/state/appearance.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'

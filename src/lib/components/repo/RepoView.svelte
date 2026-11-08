@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { openWorkspace } from '$lib/workspace/open'
+  import { openWorkspace } from '$lib/nav/open'
   import { nav, navigate } from '$lib/core/nav.svelte'
   import { windowDrag } from '$lib/primitives/window-drag'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'

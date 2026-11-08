@@ -1,4 +1,4 @@
-import { openWorkspace } from '$lib/workspace/open'
+import { openWorkspace } from '$lib/nav/open'
 import { nav, navigate } from '$lib/core/nav.svelte'
 import { clickup } from '$lib/clickup/store.svelte'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'

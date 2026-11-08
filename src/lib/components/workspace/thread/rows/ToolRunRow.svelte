@@ -2,7 +2,7 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import { editedPaths, toolRunSummary } from '$lib/thread/tool-run-summary'
   import type { TimelineItem } from '$lib/thread/timeline-types'
-  import { revealInChanges } from '$lib/workspace/open'
+  import { revealInChanges } from '$lib/nav/open'
   import type { RowContext } from './context'
   import Fold from './Fold.svelte'
   import RowShell from './RowShell.svelte'

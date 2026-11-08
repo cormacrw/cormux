@@ -8,6 +8,7 @@ import type { PullRequest } from '$lib/state/prs.svelte'
 import type { Scratch } from '$lib/state/scratches.svelte'
 import type { Thread } from '$lib/state/threads.svelte'
 import type { Workspace } from '$lib/state/workspaces.svelte'
+import type { SettingsSectionId } from '$lib/core/route'
 import type { PaletteCommand } from './types'
 
 type PaletteRegistryActions = {
@@ -20,7 +21,7 @@ type PaletteRegistryActions = {
   openSettings: () => void
   openWorkspace: (workspaceId: string, threadId?: string) => void
   toggleReduceMotion: () => void
-  openSettingsSection: (section: string) => void
+  openSettingsSection: (section: SettingsSectionId) => void
   openWorkspaceThread: (workspaceId: string, threadId: string) => void
   openWorkspaceFindings: (workspaceId: string) => void
   controlApp: (workspaceId: string, action: WorkspaceAppControlAction) => void

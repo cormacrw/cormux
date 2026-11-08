@@ -15,7 +15,7 @@
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { nav } from '$lib/core/nav.svelte'
   import { changesUi } from '$lib/changes/changes-ui.svelte'
-  import { openWorkspaceThread } from '$lib/workspace/open'
+  import { openWorkspaceThread } from '$lib/nav/open'
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import { formatChangeCounts } from '$lib/changes/diff-totals'
   import { revealDiffLine } from '$lib/changes/reveal-line'

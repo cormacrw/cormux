@@ -17,7 +17,7 @@
   } from '$lib/thread/reply/media'
   import { parseProse, type ReplySegment } from '$lib/thread/reply/parse'
   import { renderSanitizedMarkdown } from '$lib/thread/sanitize-markdown'
-  import { revealInChanges } from '$lib/workspace/open'
+  import { revealInChanges } from '$lib/nav/open'
   import MediaCompare from './MediaCompare.svelte'
   import ReplyBlock from './ReplyBlock.svelte'
   import ThreadMedia from './ThreadMedia.svelte'

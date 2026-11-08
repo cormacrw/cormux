@@ -3,7 +3,7 @@
   sending the first message spawns one, in its own worktree, and opens it.
 -->
 <script lang="ts">
-  import { openWorkspace } from '$lib/workspace/open'
+  import { openWorkspace } from '$lib/nav/open'
   import { openSettings } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
   import { tick, untrack } from 'svelte'

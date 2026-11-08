@@ -1,14 +1,10 @@
 <script lang="ts">
   import { windowDrag } from '$lib/primitives/window-drag'
   import { tick, untrack } from 'svelte'
-  import SettingsSectionHead from '$lib/settings/components/SettingsSectionHead.svelte'
-  import SettingsSectionNav from '$lib/settings/components/SettingsSectionNav.svelte'
-  import {
-    SETTINGS_SECTIONS,
-    SETTINGS_SECTION_IDS,
-    type SettingsSectionId,
-  } from '$lib/settings/components/sections'
-  import { normalizeSettingsSection } from '$lib/settings/sections'
+  import SettingsSectionHead from './SettingsSectionHead.svelte'
+  import SettingsSectionNav from './SettingsSectionNav.svelte'
+  import { SETTINGS_SECTIONS } from './sections'
+  import type { SettingsSectionId } from '$lib/core/route'
   import { nav } from '$lib/core/nav.svelte'
   import { settings } from '$lib/settings/store.svelte'
 
@@ -34,14 +30,8 @@
     void nav.arrivals
     if (untrack(() => nav.view) !== 'settings') return
     settingsTitle?.focus()
-    const raw = untrack(() => nav.take('settings', 'section'))
-    if (!raw) return
-    const section = normalizeSettingsSection(
-      raw,
-      SETTINGS_SECTION_IDS,
-      'agents',
-    )
-    void tick().then(() => jumpTo(section))
+    const section = untrack(() => nav.take('settings', 'section'))
+    if (section) void tick().then(() => jumpTo(section))
   })
 
   function jumpTo(section: SettingsSectionId) {
@@ -59,9 +49,8 @@
     const root = scrollRoot
     if (!root) return
     const atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 8
-    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'experimental'
     if (atBottom) {
-      activeSection = last
+      activeSection = SETTINGS_SECTIONS.at(-1)!.id
       return
     }
     const rootTop = root.getBoundingClientRect().top

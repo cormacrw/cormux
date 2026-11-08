@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { openWorkspace } from '$lib/workspace/open'
+  import { openWorkspace } from '$lib/nav/open'
   import { navigate } from '$lib/core/nav.svelte'
   import { formatRelativeAge } from '$lib/format/relative-time'
   import { plural } from '$lib/format/plural'
