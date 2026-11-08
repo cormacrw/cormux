@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import TrayControls from '$lib/components/tray/TrayControls.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Badge } from '$lib/components/ui/badge'
@@ -7,13 +8,14 @@
   import { repos, workspaceUi } from '$lib/state'
   import { workspaces } from '$lib/state/workspaces.svelte'
   import { appControls, controlApp } from '$lib/run-app/actions'
+  import { outputBody } from '$lib/run-app/controls'
   import { openRepoRunCommand } from '$lib/settings/open'
   import {
     OUTPUT_LINE_CAP,
     appendOutputLines,
     type OutputLine,
   } from '$lib/run-app/output-log'
-  import { openUrl } from '@tauri-apps/plugin-opener'
+  import { openExternal } from '$lib/feedback/open-external'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import Eraser from '@lucide/svelte/icons/eraser'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -42,11 +44,13 @@
   let nextLineId = 0
   let flushFrame: number | undefined
   let logEl: HTMLDivElement | undefined = $state()
+  let sectionEl: HTMLElement | undefined = $state()
   let stickToBottom = $state(true)
 
   const runtime = $derived(workspaces.runtime(workspaceId))
-  // A primitive, so status or git updates to `runtime` don't wipe the log.
-  const logVersion = $derived(runtime.logVersion)
+  // A primitive, so status or git updates to `runtime` (or a rebuilt workspace behind the
+  // `workspaceId` prop) don't wipe the log; only Clear or another workspace does.
+  const logKey = $derived(`${workspaceId}:${runtime.logVersion}`)
   const repo = $derived(repos.getById(repoId))
   const repoCommand = $derived(repos.runCommand(repoId))
   const controls = $derived(appControls(workspaceId))
@@ -65,11 +69,13 @@
             : 'Stopped',
   )
 
-  const showEmptyNoCommand = $derived(
-    !provisioning && !runCommand && lines.length === 0,
-  )
-  const showEmptyIdle = $derived(
-    !provisioning && !!runCommand && lines.length === 0,
+  const body = $derived(
+    outputBody({
+      provisioning,
+      appStatus: runtime.appStatus,
+      runCommand,
+      hasLines: lines.length > 0,
+    }),
   )
 
   function resetLog() {
@@ -84,15 +90,14 @@
     lines = appendOutputLines(lines, pending)
     pending = []
     if (stickToBottom) {
-      queueMicrotask(() => {
+      void tick().then(() => {
         if (logEl) logEl.scrollTop = logEl.scrollHeight
       })
     }
   }
 
   $effect(() => {
-    void logVersion
-    void workspaceId
+    void logKey
     resetLog()
     stickToBottom = true
   })
@@ -114,7 +119,6 @@
   $effect(() => {
     const id = workspaceId
     return subscribePty(id, (chunk) => {
-      if (chunk.workspaceId !== id) return
       pending.push({ id: nextLineId++, ...chunk.entry })
       if (pending.length > OUTPUT_LINE_CAP) pending.shift()
       if (workspaceUi.outputVisible) {
@@ -135,19 +139,27 @@
 
   function run(action: WorkspaceAppControlAction) {
     void controlApp(workspaceId, action)
-    // Clearing bumps `logVersion`, which empties the list above.
-    if (action === 'clear') queueMicrotask(() => logEl?.focus())
+    // Clear disables itself, so focus moves on: to the emptied log, or to the panel when
+    // nothing is running and the log gives way to that note.
+    if (action === 'clear') {
+      void tick().then(() => (logEl?.isConnected ? logEl : sectionEl)?.focus())
+    }
   }
 
   function openAppUrl() {
     if (!runtime.port) return
-    void openUrl(
+    void openExternal(
       `${runtime.https ? 'https' : 'http'}://localhost:${runtime.port}/`,
     )
   }
 </script>
 
-<section class="flex min-h-0 flex-1 flex-col gap-2" data-od-id="output">
+<section
+  bind:this={sectionEl}
+  tabindex="-1"
+  class="flex min-h-0 flex-1 flex-col gap-2 outline-none"
+  data-od-id="output"
+>
   <header
     id="term-head"
     class="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2.5"
@@ -242,7 +254,7 @@
     <TrayControls tray="output" name="Output" shortcut="toggleOutput" />
   </header>
 
-  {#if showEmptyNoCommand}
+  {#if body === 'noCommand'}
     <div
       class="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-12 text-center"
     >
@@ -272,7 +284,7 @@
         </Button>
       </div>
     </div>
-  {:else if showEmptyIdle}
+  {:else if body === 'idle'}
     <div
       class="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-12 text-center"
     >

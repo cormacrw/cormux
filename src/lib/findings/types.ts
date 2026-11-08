@@ -5,15 +5,23 @@ export type FindingSeverity = 'blocking' | 'suggestion' | 'nit'
 export const FINDING_GROUPS: {
   severity: FindingSeverity
   label: string
+  /** One of them, in a count: `1 suggestion`. */
+  one: string
   note: string
 }[] = [
-  { severity: 'blocking', label: 'Blocking', note: 'Fix before this merges' },
+  {
+    severity: 'blocking',
+    label: 'Blocking',
+    one: 'blocking',
+    note: 'Fix before this merges',
+  },
   {
     severity: 'suggestion',
     label: 'Suggestions',
+    one: 'suggestion',
     note: 'Worth doing in this PR',
   },
-  { severity: 'nit', label: 'Nits', note: 'Optional polish' },
+  { severity: 'nit', label: 'Nits', one: 'nit', note: 'Optional polish' },
 ]
 
 export function findingLocation(row: FindingRow): string {

@@ -3,7 +3,6 @@
   Drag its left edge to resize it; Esc or × closes it.
 -->
 <script lang="ts">
-  import { tick } from 'svelte'
   import SprintTaskPanel from '$lib/clickup/components/SprintTaskPanel.svelte'
   import { clickup } from '$lib/clickup/store.svelte'
   import { overlaySelector } from '$lib/keyboard/focus-home'
@@ -20,10 +19,10 @@
 
   const ready = $derived(clickup.selectedTask != null)
 
-  async function close() {
+  /** Esc, × and a click elsewhere: focus goes back to the task's card, since the pane turns inert. */
+  function close() {
     const id = clickup.selectedTaskId
     clickup.select(null)
-    await tick()
     if (!id) return
     document.querySelector<HTMLElement>(`[data-task-id="${id}"]`)?.focus()
   }
@@ -31,7 +30,7 @@
   $effect(() =>
     onEscape('slideOut', () => {
       if (!ready) return false
-      void close()
+      close()
       return true
     }),
   )
@@ -52,7 +51,7 @@
       )
     )
       return
-    void close()
+    close()
   }
 </script>
 
@@ -80,6 +79,6 @@
   ></div>
   <!-- Stays mounted while it slides away; the pane holds its own last task. -->
   <div class="min-h-0 flex-1 [&>aside]:bg-transparent">
-    <SprintTaskPanel />
+    <SprintTaskPanel onClose={close} />
   </div>
 </div>

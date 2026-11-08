@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import { fly } from 'svelte/transition'
-  import { openUrl } from '@tauri-apps/plugin-opener'
+  import { openExternal } from '$lib/feedback/open-external'
   import type { Component } from 'svelte'
   import type { EntityRow } from '$lib/ipc/bindings'
   import { motionMs } from '$lib/motion'
@@ -27,7 +27,7 @@
 
   function open(event: MouseEvent, url: string) {
     event.preventDefault()
-    void openUrl(url).catch(() => {})
+    void openExternal(url)
   }
 </script>
 

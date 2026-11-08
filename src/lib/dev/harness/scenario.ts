@@ -27,6 +27,8 @@ export type HarnessScenario = {
    * enough to see the Changes splash.
    */
   slow?: Partial<Record<WireCommand, number>>
+  /** Commands that answer with a core error carrying this message, for a test of the failure. */
+  failing?: Partial<Record<WireCommand, string>>
   /** URL `?bigDiff=N`: N long TypeScript files, to see how Changes copes with a big diff. */
   bigDiff?: number
   /**
@@ -85,6 +87,8 @@ export type HarnessControls = {
   requestApproval: (threadId: string) => void
   /** Delivers events to the open Lead thread as an engine would. */
   agentEvents: (events: object[]) => void
+  /** Puts a workspace's app up on :5173, printing `lines` to an open Output. */
+  appRunning: (workspaceId: string, lines: string[]) => void
   /** Commits the uncommitted diff, as the watcher reports it. */
   commit: () => void
   /** Raises a toast of any tone. Set just after install: wait for it with `waitForFunction`. */

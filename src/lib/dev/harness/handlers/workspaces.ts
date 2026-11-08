@@ -122,8 +122,17 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
     },
     // Run and Stop only move the header's own state; no app is really started.
     control_workspace_app: () => null,
-    // The Output panel subscribes when it opens; a fixture workspace has no process to log.
-    subscribe_pty: () => runtime.newId(),
+    // The Output panel subscribes when it opens; only `appRunning` prints to it.
+    subscribe_pty: ({
+      workspaceId,
+      channel,
+    }: {
+      workspaceId: string
+      channel: { id: number }
+    }) => {
+      runtime.ptyChannels.set(workspaceId, { id: channel.id, index: 0 })
+      return runtime.newId()
+    },
     dismiss_workspace_findings: ({
       input,
     }: Input<'dismiss_workspace_findings'>) => {

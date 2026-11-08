@@ -4,7 +4,6 @@
   import { appControls, controlApp } from '$lib/run-app/actions'
   import {
     claimWorkspacePopover,
-    registerPopoverCloser,
     releaseWorkspacePopover,
   } from '$lib/keyboard/popover-registry'
   import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
@@ -20,7 +19,6 @@
   import SquareTerminal from '@lucide/svelte/icons/square-terminal'
   import Terminal from '@lucide/svelte/icons/terminal'
   import Trash2 from '@lucide/svelte/icons/trash-2'
-  import { onMount } from 'svelte'
 
   let {
     workspaceId,
@@ -44,16 +42,6 @@
       triggerEl?.focus()
     },
   }
-
-  onMount(() => {
-    registerPopoverCloser(() => {
-      if (!open) return false
-      open = false
-      triggerEl?.focus()
-      return true
-    })
-    return () => registerPopoverCloser(null)
-  })
 
   $effect(() => {
     if (open) {

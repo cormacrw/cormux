@@ -3,12 +3,13 @@ import { FINDING_GROUPS } from './types'
 import { plural } from '$lib/format/plural'
 
 export function severitySummary(rows: Pick<FindingRow, 'severity'>[]): string {
-  return FINDING_GROUPS.map(({ severity, label }) => {
-    const count = rows.filter((row) => row.severity === severity).length
-    const word =
-      count === 1 ? label.toLowerCase().replace(/s$/, '') : label.toLowerCase()
-    return `${count} ${word}`
-  })
+  return FINDING_GROUPS.map(({ severity, label, one }) =>
+    plural(
+      rows.filter((row) => row.severity === severity).length,
+      one,
+      label.toLowerCase(),
+    ),
+  )
     .filter((line) => !line.startsWith('0 '))
     .join(', ')
 }

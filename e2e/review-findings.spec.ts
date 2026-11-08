@@ -198,3 +198,59 @@ test('findings: dismiss one or the selection, and restore it', async ({
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/findings-dismissed.png' })
 })
+
+test('a PR review that found nothing opens Findings on “Nothing to fix”', async ({
+  page,
+}) => {
+  await setScenario(page, { reviewFindings: [] })
+  await page.goto('/')
+  await page
+    .getByRole('button', { name: /OAuth login/ })
+    .first()
+    .click()
+  await page.locator('#tray-findings').click()
+  await expect(page.locator('[data-od-id="findings-empty"]')).toContainText(
+    'Nothing to fix',
+  )
+  await expect(page.locator('#tray-findings')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+})
+
+test('findings: picking findings keeps the list where it was scrolled', async ({
+  page,
+}) => {
+  await setScenario(page, {
+    reviewFindings: Array.from({ length: 24 }, (_, index) =>
+      finding(
+        `f${index}`,
+        index % 2 ? 'suggestion' : 'blocking',
+        `Finding ${index}`,
+        null,
+        null,
+        'A paragraph of explanation that takes up a little room in the list.',
+      ),
+    ),
+  })
+  await page.goto('/')
+  await page
+    .getByRole('button', { name: /OAuth login/ })
+    .first()
+    .click()
+  await page.locator('#tray-findings').click()
+  const panel = page.locator('#findings-panel')
+  const box = panel.getByRole('checkbox', { name: 'Select “Finding 21”' })
+  await box.scrollIntoViewIfNeeded()
+  const scroller = panel.locator('.overflow-y-auto').first()
+  const top = await scroller.evaluate((el) => el.scrollTop)
+  expect(top).toBeGreaterThan(0)
+  await box.click()
+  await expect(box).toBeChecked()
+  // Dispatched, since a real click would first scroll the header's None into view.
+  await panel
+    .getByRole('button', { name: 'None', exact: true })
+    .dispatchEvent('click')
+  await expect(box).not.toBeChecked()
+  expect(await scroller.evaluate((el) => el.scrollTop)).toBe(top)
+})

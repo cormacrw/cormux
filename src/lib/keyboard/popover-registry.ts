@@ -5,7 +5,10 @@ type PopoverHandle = {
 
 let active: PopoverHandle | null = null
 
-/** Only one popover at a time: the ⋯ menu, the model and effort pickers, the new thread's repo. */
+/**
+ * Only one popover at a time: the ⋯ menu, the model and effort pickers, the new thread's repo.
+ * Esc, a dialog or the palette closes whichever is open.
+ */
 export function claimWorkspacePopover(handle: PopoverHandle) {
   if (active && active !== handle) {
     active.close()
@@ -22,17 +25,4 @@ export function closeActiveWorkspacePopover(): boolean {
   active.close()
   active.restoreFocus()
   return true
-}
-
-type PopoverCloser = () => boolean
-
-let closeOpenPopover: PopoverCloser | null = null
-
-/** The popover Esc closes before anything else; it returns whether one was open. */
-export function registerPopoverCloser(closer: PopoverCloser | null) {
-  closeOpenPopover = closer
-}
-
-export function dismissOpenPopover(): boolean {
-  return closeOpenPopover?.() ?? false
 }

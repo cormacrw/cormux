@@ -14,7 +14,6 @@
     changesTabAriaLabel,
     findingsTabAriaLabel,
     outputTabAriaLabel,
-    showFindingsTab,
   } from '$lib/workspace/thread-tabs'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import List from '@lucide/svelte/icons/list'
@@ -23,13 +22,7 @@
 
   let { workspace }: { workspace: Workspace } = $props()
 
-  const showFindings = $derived(
-    showFindingsTab({
-      workspaceKind: workspace.kind,
-      reviewReady: workspace.reviewStatus === 'ready',
-      hasFindings: findings.hasReviewFindings(workspace.id),
-    }),
-  )
+  const showFindings = $derived(findings.tabAvailable(workspace))
   const openFindings = $derived(findings.openCount(workspace.id))
   const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
   const runtime = $derived(workspace.runtime)

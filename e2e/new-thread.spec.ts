@@ -31,6 +31,35 @@ test('the first page is a new thread, and typing into it spawns a workspace', as
   ).toContainText('my-app')
 })
 
+test('the new thread’s conversation rises in once it has opened', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const w = window as Window & { __rises?: number }
+    w.__rises = 0
+    const animate = Element.prototype.animate
+    Element.prototype.animate = function (...args) {
+      if (this.matches('#thread-scroll [data-conversation-part]')) {
+        w.__rises! += 1
+      }
+      return animate.apply(this, args)
+    }
+  })
+  await page.goto('/')
+  await page.locator('#composer-input').fill('Add rate limiting to the API')
+  await page.keyboard.press('Enter')
+  await expect(
+    page.locator('#timeline').getByText('Add rate limiting to the API'),
+  ).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as Window & { __rises?: number }).__rises ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0)
+})
+
 test('⌘↵ starts a thread and stays on the new thread page', async ({
   page,
 }) => {

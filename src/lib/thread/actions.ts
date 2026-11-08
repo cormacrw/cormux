@@ -1,18 +1,10 @@
 // What the user does to a thread, with the motion around it: the store only talks to the core.
 import type { ComposerAttachment } from '$lib/composer/attachments'
-import { toastCoreError } from '$lib/feedback/wire-feedback'
+import { toastFailure } from '$lib/feedback/action-failure'
 import { wordmark } from '$lib/background/wordmark.svelte'
-import {
-  threadTimeline,
-  type ThreadActionError,
-} from '$lib/thread/timeline-store.svelte'
+import { threadTimeline } from '$lib/thread/timeline-store.svelte'
 import type { ConversationSummary } from '$lib/ipc/bindings'
 import { firstPromptTransition, leaveConversation } from './conversation-motion'
-
-function toastFailure(failure: ThreadActionError | null): boolean {
-  if (failure) toastCoreError(failure.error, failure.doing)
-  return failure === null
-}
 
 /**
  * Sends a message to the thread's agent; resolves false (after toasting) if it didn't send.
@@ -32,6 +24,11 @@ export async function sendToThread(
 
 export async function stopThread(threadId: string) {
   toastFailure(await threadTimeline.stop(threadId))
+}
+
+/** Pauses the thread's agent, or lets a paused one carry on. */
+export async function setThreadPaused(threadId: string, paused: boolean) {
+  toastFailure(await threadTimeline.setPaused(threadId, paused))
 }
 
 /**

@@ -5,7 +5,6 @@
   import * as Card from '$lib/components/ui/card'
   import { Textarea } from '$lib/components/ui/textarea'
   import { commands, type CoreError } from '$lib/ipc'
-  import { coreErrorText } from '$lib/core/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { focusPrompt } from '$lib/keyboard/focus-home'
   import { cn } from '$lib/utils'
@@ -68,7 +67,7 @@
     try {
       const result = await send()
       if (result.status === 'error') {
-        toastCoreError(coreErrorText(result.error, 'Could not send the answer'))
+        toastCoreError(result.error, 'Could not send the answer')
       } else {
         focusPrompt()
       }

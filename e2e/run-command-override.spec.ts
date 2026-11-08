@@ -69,3 +69,21 @@ test('Output: a workspace can have a run command when its repo has none', async 
     page.getByRole('button', { name: 'Run', exact: true }),
   ).toBeEnabled()
 })
+
+test('Output: Clear empties a running app’s log and keeps focus in it', async ({
+  page,
+}) => {
+  await setScenario(page, { runCommand: 'pnpm dev' })
+  await openOutput(page)
+  await expect(page.getByText('Nothing running')).toBeVisible()
+  await page.evaluate(() =>
+    window.__HARNESS__!.appRunning('ws-auth', ['VITE ready in 312 ms']),
+  )
+  const log = page.getByRole('log', { name: 'App output' })
+  await expect(log).toContainText('VITE ready in 312 ms')
+
+  await page.getByRole('button', { name: 'Clear', exact: true }).click()
+  await expect(log).toBeEmpty()
+  await expect(log).toBeFocused()
+  await expect(page.getByText('Nothing running')).toHaveCount(0)
+})

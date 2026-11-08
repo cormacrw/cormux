@@ -6,7 +6,7 @@
   import { openWorkspace } from '$lib/nav/open'
   import { openSettings } from '$lib/settings/open'
   import { windowDrag } from '$lib/primitives/window-drag'
-  import { tick, untrack } from 'svelte'
+  import { untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Select from '$lib/components/ui/select'
   import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
@@ -96,17 +96,14 @@
     firstPromptTransition(
       () => openWorkspace(workspaceId),
       () => wordmark.glide(),
+      enterConversation,
     )
-    void tick().then(enterConversation)
     return true
   }
 
   const listSkills = $derived.by(() => {
     const id = repoId
-    return async () => {
-      const result = await commands.listRepoSkills(id)
-      return result.status === 'ok' ? result.data : []
-    }
+    return () => commands.listRepoSkills(id)
   })
 </script>
 

@@ -12,6 +12,7 @@
   import WorkspaceOutputPanel from '../../run-app/components/WorkspaceOutputPanel.svelte'
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
+  import { MEDIA_HOST_ATTR } from './thread/reply/MediaLightbox.svelte'
   import ChangesPanel from '../../changes/components/ChangesPanel.svelte'
   import { resizeEdge } from '$lib/primitives/slide-out'
   import { focusPrompt } from '$lib/keyboard/focus-home'
@@ -25,7 +26,7 @@
   )
   const activeThread = $derived(
     workspaceThreads.find((thread) => thread.id === nav.threadId) ??
-      workspaceThreads.find((thread) => !thread.retired) ??
+      (nav.workspaceId ? threads.liveFor(nav.workspaceId) : undefined) ??
       workspaceThreads[0],
   )
 
@@ -149,21 +150,20 @@
     if (!findingsTabActive || !findingsHeading) return
     const heading = findingsHeading
     untrack(() => nav.take('workspace', 'panel'))
-    queueMicrotask(() => heading.focus({ preventScroll: true }))
+    void tick().then(() => heading.focus({ preventScroll: true }))
   })
 
+  // A workspace whose Findings tab went away (or never had one) leaves it for the thread.
   $effect(() => {
-    if (!workspace?.id || !findingsTabActive) return
-    if (
-      workspaceUi.activeTab === 'findings' &&
-      !findings.hasReviewFindings(workspace.id)
-    ) {
-      workspaceUi.openTab('thread')
-    }
+    if (!workspace || !findingsTabActive) return
+    if (!findings.tabAvailable(workspace)) workspaceUi.openTab('thread')
   })
 </script>
 
-<section class="relative flex min-h-0 flex-1 flex-col" data-media-lightbox-host>
+<section
+  class="relative flex min-h-0 flex-1 flex-col"
+  {...{ [MEDIA_HOST_ATTR]: '' }}
+>
   {#if workspace}
     <RenameWorkspaceDialog bind:workspaceId={renameWorkspaceId} />
     <WorkspaceHeader

@@ -55,3 +55,18 @@ export function appActionAllowed(
       return true
   }
 }
+
+/**
+ * What the Output panel shows under its header: the log, unless it's empty with no app up to
+ * print to it, when it says why.
+ */
+export function outputBody(input: {
+  provisioning: boolean
+  appStatus: WorkspaceAppStatus
+  runCommand: string
+  hasLines: boolean
+}): 'log' | 'noCommand' | 'idle' {
+  const up = input.appStatus === 'starting' || input.appStatus === 'running'
+  if (input.provisioning || input.hasLines || up) return 'log'
+  return input.runCommand ? 'idle' : 'noCommand'
+}

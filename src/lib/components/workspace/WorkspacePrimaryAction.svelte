@@ -9,7 +9,7 @@
   } from '$lib/create-pr/pr-header'
   import { prs, shellDialogs } from '$lib/state'
   import { stacks } from '$lib/changes/stacks.svelte'
-  import { openUrl } from '@tauri-apps/plugin-opener'
+  import { openExternal } from '$lib/feedback/open-external'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
 
   let {
@@ -55,7 +55,7 @@
       return
     }
     if (branchPr && prUrl) {
-      void openUrl(prUrl)
+      void openExternal(prUrl)
       return
     }
     shellDialogs.open('createPr', { workspaceId: workspace.id })

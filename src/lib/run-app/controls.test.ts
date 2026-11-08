@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appActionAllowed, appControlsFor } from './controls'
+import { appActionAllowed, appControlsFor, outputBody } from './controls'
 
 const ready = { lifecycle: 'idle' as const, runCommand: 'pnpm dev' }
 
@@ -43,5 +43,27 @@ describe('appControlsFor', () => {
     const running = appControlsFor({ ...ready, appStatus: 'running' })
     expect(appActionAllowed(running, 'restart')).toBe(true)
     expect(appActionAllowed(running, 'run')).toBe(false)
+  })
+})
+
+describe('outputBody', () => {
+  const stopped = {
+    provisioning: false,
+    appStatus: 'stopped' as const,
+    runCommand: 'pnpm dev',
+    hasLines: false,
+  }
+
+  it('explains an empty log only while nothing is running', () => {
+    expect(outputBody(stopped)).toBe('idle')
+    expect(outputBody({ ...stopped, runCommand: '' })).toBe('noCommand')
+    expect(outputBody({ ...stopped, hasLines: true })).toBe('log')
+    expect(outputBody({ ...stopped, provisioning: true })).toBe('log')
+  })
+
+  it('keeps the log for a running app whose output was just cleared', () => {
+    expect(outputBody({ ...stopped, appStatus: 'running' })).toBe('log')
+    expect(outputBody({ ...stopped, appStatus: 'starting' })).toBe('log')
+    expect(outputBody({ ...stopped, appStatus: 'crashed' })).toBe('idle')
   })
 })

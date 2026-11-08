@@ -2,6 +2,7 @@
   import * as Alert from '$lib/components/ui/alert'
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { openSettings } from '$lib/settings/open'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
@@ -12,14 +13,18 @@
 
   async function retry() {
     busy = true
-    await commands.retryWorkspaceProvisioning(workspace.id)
+    const result = await commands.retryWorkspaceProvisioning(workspace.id)
     busy = false
+    if (result.status === 'error')
+      toastCoreError(result.error, 'Could not retry setup')
   }
 
   async function skip() {
     busy = true
-    await commands.skipWorkspaceProvisioningSetup(workspace.id)
+    const result = await commands.skipWorkspaceProvisioningSetup(workspace.id)
     busy = false
+    if (result.status === 'error')
+      toastCoreError(result.error, 'Could not skip setup')
   }
 
   function editSetup() {

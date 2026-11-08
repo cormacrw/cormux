@@ -5,6 +5,7 @@
   import { onMount, tick, untrack } from 'svelte'
   import { afterPaint } from '$lib/changes/mount-queue'
   import { commands } from '$lib/ipc'
+  import { coreErrorText } from '$lib/core/core-error'
   import {
     commentBranch,
     diffComments,
@@ -34,6 +35,7 @@
   import MopSparkles from '@lucide/svelte/icons/mop-sparkles'
   import Send from '@lucide/svelte/icons/send'
   import Trash2 from '@lucide/svelte/icons/trash-2'
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import Undo2 from '@lucide/svelte/icons/undo-2'
 
   let {
@@ -80,15 +82,24 @@
   const workspaceId = $derived(workspace.id)
   const branch = $derived(workspace.branch)
 
+  // What the core said when a refresh last failed, for the note shown instead of a clean diff.
+  let refreshError = $state<string | null>(null)
+  const failed = $derived(workspaceDiff.failed(workspace.id))
+
+  function refresh(id: string) {
+    refreshError = null
+    void workspaceDiff.fetch(id, async () => {
+      const result = await commands.refreshWorkspaceDiff(id)
+      if (result.status === 'ok') return true
+      if (id === workspaceId) refreshError = coreErrorText(result.error)
+      return false
+    })
+  }
+
   $effect(() => {
     void branch
     const id = workspaceId
-    untrack(() => {
-      void workspaceDiff.fetch(id, async () => {
-        const result = await commands.refreshWorkspaceDiff(id)
-        return result.status === 'ok'
-      })
-    })
+    untrack(() => refresh(id))
   })
 
   // A file link (conversation, findings) expands that file and scrolls to it, or to its line.
@@ -117,7 +128,7 @@
   function setDiffMode(mode: 'unified' | 'split') {
     const top = scrollEl?.scrollTop ?? 0
     changesUi.diffMode = mode
-    queueMicrotask(() => {
+    void tick().then(() => {
       if (scrollEl) scrollEl.scrollTop = top
     })
   }
@@ -286,6 +297,29 @@
               ? (file) => (discardRequest = { file, count: 1 })
               : undefined}
           />
+        </div>
+      {:else if !loading && failed}
+        <div
+          class="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center"
+          data-od-id="changes-refresh-failed"
+        >
+          <TriangleAlert
+            class="size-8 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <div>
+            <h2 class="text-sm font-semibold">Couldn’t load the diff</h2>
+            <p class="text-sm text-muted-foreground">
+              {refreshError ?? 'Git didn’t answer.'}
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onclick={() => refresh(workspaceId)}
+          >
+            Try again
+          </Button>
         </div>
       {:else if !loading}
         <div
