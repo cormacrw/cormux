@@ -2,7 +2,7 @@ import type { FindingRow } from '$lib/ipc/bindings'
 import { FINDING_GROUPS } from './types'
 import { plural } from '$lib/format/plural'
 
-export function severitySummary(rows: FindingRow[]): string {
+export function severitySummary(rows: Pick<FindingRow, 'severity'>[]): string {
   return FINDING_GROUPS.map(({ severity, label }) => {
     const count = rows.filter((row) => row.severity === severity).length
     const word =

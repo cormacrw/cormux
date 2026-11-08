@@ -15,7 +15,7 @@ export function rowKey(row: TimelineRow): string {
  * approvals and app events. Searching this rather than the page finds rows a long thread hasn't
  * rendered yet, and text inside collapsed steps.
  */
-export function rowSearchText(row: TimelineRow): string {
+function rowSearchText(row: TimelineRow): string {
   if (row.kind === 'speaker') return ''
   const item = row.item
   switch (item.kind) {

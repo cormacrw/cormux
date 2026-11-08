@@ -9,7 +9,7 @@ export function changesTabAriaLabel(countLabel: string | null): string {
   return countLabel ? `Git, ${countLabel}` : 'Git, no changes yet'
 }
 
-export function outputTabState(input: {
+function outputTabState(input: {
   provisioning: boolean
   appStatus: WorkspaceAppStatus
   port: number | null

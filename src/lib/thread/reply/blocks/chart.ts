@@ -12,10 +12,10 @@ export type ChartSpec = {
 }
 
 /** The chart palette's length. Past it hues would repeat, so the rest aren't drawn. */
-export const MAX_SERIES = 5
+const MAX_SERIES = 5
 
 /** Null for anything that can't be drawn honestly; the block then stays code. */
-export function parseChartSpec(source: string): ChartSpec | null {
+function parseChartSpec(source: string): ChartSpec | null {
   let raw: unknown
   try {
     raw = JSON.parse(source)

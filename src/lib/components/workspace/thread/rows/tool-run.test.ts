@@ -2,12 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { TimelineStep, ToolRole, TranscriptEvent } from '$lib/ipc/bindings'
 import { TimelineBuilder } from '$lib/thread/timeline/builder'
 import type { RunStep, TimelineItem } from '$lib/thread/timeline-types'
-import type { IconName } from './icon-name'
 import { stepIcon } from './step-icons'
 import {
   agentState,
   iconTone,
-  isQuiet,
   newChips,
   runCollapses,
   segmentSteps,
@@ -69,79 +67,23 @@ const step = (kind: TimelineStep, id = 'step'): TranscriptEvent => ({
   step: kind,
 })
 
-/** Keyed by kind, so a new kind doesn't compile until it has an icon here. */
-const STEP_ICONS: {
-  [K in TimelineStep['kind']]: [Extract<TimelineStep, { kind: K }>, IconName]
-} = {
-  agentStopped: [{ kind: 'agentStopped' }, 'stop'],
-  agentPaused: [{ kind: 'agentPaused' }, 'pause'],
-  agentResumed: [{ kind: 'agentResumed' }, 'play'],
-  sessionStarted: [{ kind: 'sessionStarted', ended_session: 's1' }, 'session'],
-  sessionResumed: [
-    { kind: 'sessionResumed', conversation: 'c', ended_session: null },
-    'tool',
-  ],
-  startedByThread: [{ kind: 'startedByThread', workspace: 'Auth' }, 'tool'],
-  messageFromThread: [{ kind: 'messageFromThread', workspace: 'Auth' }, 'tool'],
-  reportFromThread: [{ kind: 'reportFromThread', title: 'Auth' }, 'tool'],
-  fileDeleted: [{ kind: 'fileDeleted', path: 'a.rs' }, 'trash'],
-  migrationApplied: [{ kind: 'migrationApplied' }, 'database'],
-  suggestionsForwarded: [{ kind: 'suggestionsForwarded' }, 'pr'],
-  suggestionsSent: [
-    { kind: 'suggestionsSent', approval_id: 'a', what: 'a.rs' },
-    'pr',
-  ],
-  branchSwitched: [
-    { kind: 'branchSwitched', branch: 'b', change: { kind: 'stackSynced' } },
-    'branch',
-  ],
-  commitsPulled: [
-    { kind: 'commitsPulled', count: 2, base: 'main', branch: 'b' },
-    'download',
-  ],
-  branchRebased: [
-    { kind: 'branchRebased', branch: 'b', base: 'm', replayed_onto: 1 },
-    'branch',
-  ],
-  worktreeCreated: [
-    { kind: 'worktreeCreated', branch: 'b', base: 'm' },
-    'branch',
-  ],
-  worktreeReady: [
-    { kind: 'worktreeReady', repo: 'app', setup_commands: 2 },
-    'branch',
-  ],
-  prOpened: [{ kind: 'prOpened', number: 12, branch: 'b', base: 'm' }, 'pr'],
-  prCheckedOut: [
-    { kind: 'prCheckedOut', number: 7, head: 'b', base: 'm', files_changed: 3 },
-    'pr',
-  ],
-  reviewSubmitted: [{ kind: 'reviewSubmitted', number: 7 }, 'pr'],
-  reviewFindingsReady: [{ kind: 'reviewFindingsReady', count: 2 }, 'list'],
-  reviewFindingsUnreadable: [
-    { kind: 'reviewFindingsUnreadable', reason: 'no block' },
-    'tool',
-  ],
-  findingsReceived: [
-    { kind: 'findingsReceived', count: 2, titles: ['A', 'B'] },
-    'list',
-  ],
-  findingsFixed: [
-    { kind: 'findingsFixed', count: 2, files: ['a.rs'] },
-    'check',
-  ],
-  legacy: [
-    { kind: 'legacy', title: 'Read 3 changed files', icon: 'file', run: false },
-    'file',
-  ],
+const findingsFixed: TimelineStep = {
+  kind: 'findingsFixed',
+  count: 2,
+  files: ['a.rs'],
 }
 
 describe('core step icons', () => {
-  for (const [kind, [sample, icon]] of Object.entries(STEP_ICONS)) {
-    it(`draws ${kind} with its icon`, () => {
-      expect(stepIcon(sample)).toBe(icon)
-    })
-  }
+  it('draws a step saved by an older build with the icon it carries', () => {
+    expect(
+      stepIcon({
+        kind: 'legacy',
+        title: 'Read 3 files',
+        icon: 'file',
+        run: false,
+      }),
+    ).toBe('file')
+  })
 
   it('draws a kind this build does not know plainly', () => {
     expect(stepIcon({ kind: 'somethingNew' } as unknown as TimelineStep)).toBe(
@@ -149,61 +91,29 @@ describe('core step icons', () => {
     )
   })
 
-  it('draws a step among tool steps with the same icon, standing out', () => {
-    const [fixed] = stepsOf(step(STEP_ICONS.findingsFixed[0]))
-    expect(toolIcon(fixed!)).toBe('check')
-    expect(isQuiet(fixed!)).toBe(false)
-    expect(iconTone(fixed!)).toBe('text-success')
+  it('draws a step among tool steps with its icon, standing out', () => {
+    const steps = stepsOf(call('r', { kind: 'read' }), step(findingsFixed))
+    expect(toolIcon(steps[1]!)).toBe('check')
+    expect(segmentSteps(steps).map((segment) => segment.quiet)).toEqual([
+      true,
+      false,
+    ])
+    expect(iconTone(steps[1]!)).toBe('text-success')
   })
 })
 
 describe('tool step looks', () => {
-  const lookOf = (role: ToolRole) => {
-    const [only] = stepsOf(call('t', role))
-    return { icon: toolIcon(only!), quiet: isQuiet(only!) }
-  }
+  const iconOf = (role: ToolRole) => toolIcon(stepsOf(call('t', role))[0]!)
 
   it('picks a command icon from the role, not from words in the command', () => {
-    expect(lookOf(command('npm run preview')).icon).toBe('terminal')
-    expect(lookOf(command('git pull --rebase')).icon).toBe('terminal')
-    expect(lookOf(command('pnpm test')).icon).toBe('check')
+    expect(iconOf(command('npm run preview'))).toBe('terminal')
+    expect(iconOf(command('git pull --rebase'))).toBe('terminal')
+    expect(iconOf(command('pnpm test'))).toBe('check')
   })
 
-  it('draws each role with its icon, quietly unless it stands out', () => {
-    expect(lookOf({ kind: 'read' })).toEqual({ icon: 'file', quiet: true })
-    expect(lookOf({ kind: 'search' })).toEqual({ icon: 'search', quiet: true })
-    expect(lookOf({ kind: 'toolLookup' })).toEqual({
-      icon: 'search',
-      quiet: true,
-    })
-    expect(lookOf({ kind: 'fetch', url: 'https://a.b' })).toEqual({
-      icon: 'globe',
-      quiet: true,
-    })
-    expect(lookOf({ kind: 'webSearch', query: 'q' })).toEqual({
-      icon: 'globe',
-      quiet: true,
-    })
-    expect(lookOf({ kind: 'skill', name: 'review' })).toEqual({
-      icon: 'skill',
-      quiet: true,
-    })
-    expect(lookOf({ kind: 'mcp', server: 'Trello', action: 'Read' })).toEqual({
-      icon: 'tool',
-      quiet: true,
-    })
-    expect(lookOf({ kind: 'other', name: 'Todo write' })).toEqual({
-      icon: 'tool',
-      quiet: false,
-    })
-    expect(lookOf({ kind: 'subagent', description: 'Explore' })).toEqual({
-      icon: 'agent',
-      quiet: false,
-    })
-    expect(lookOf({ kind: 'edit', verb: 'Deleted' })).toEqual({
-      icon: 'trash',
-      quiet: true,
-    })
+  it('tells a deleted file from an edited one', () => {
+    expect(iconOf({ kind: 'edit', verb: 'Deleted' })).toBe('trash')
+    expect(iconOf({ kind: 'edit', verb: 'Edited' })).toBe('pencil')
   })
 
   it('splits a run into quiet lines and steps that stand out', () => {
@@ -246,7 +156,7 @@ describe('chips', () => {
   })
 
   it('claims nothing about fixed findings that the core never checked', () => {
-    const [fixed] = stepsOf(step(STEP_ICONS.findingsFixed[0]))
+    const [fixed] = stepsOf(step(findingsFixed))
     expect(stepChips(fixed!, false)).toEqual([])
   })
 

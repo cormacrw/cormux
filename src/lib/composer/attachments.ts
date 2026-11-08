@@ -21,12 +21,12 @@ export function isImageName(name: string): boolean {
   return name.includes('.') && IMAGE_EXTENSIONS.includes(extension)
 }
 
-export function fileNameOf(path: string): string {
+function fileNameOf(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }
 
 /** A pasted screenshot arrives as `image.png`; give it a name that says when. */
-export function pastedName(name: string, type: string, now: Date): string {
+function pastedName(name: string, type: string, now: Date): string {
   if (name && name !== 'image.png') return name
   const extension = type.split('/')[1]?.replace('jpeg', 'jpg') || 'png'
   const stamp = now.toISOString().slice(0, 19).replace(/[T:]/g, '-')

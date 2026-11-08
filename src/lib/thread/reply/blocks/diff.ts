@@ -21,7 +21,7 @@ function lineKind(text: string): DiffBlockLine['kind'] {
   return 'context'
 }
 
-export function parseDiffBlock(code: string): DiffBlock {
+function parseDiffBlock(code: string): DiffBlock {
   const lines = code
     .replace(/\n$/, '')
     .split('\n')
