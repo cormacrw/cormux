@@ -7,7 +7,7 @@ use crate::clickup::ClickupClient;
 use crate::engines::{ClaudeEngines, Engines};
 use crate::error::Result;
 use crate::feedback::{Notifier, UserOutput};
-use crate::git::{FetchScheduler, LiveDiffEngine};
+use crate::git::LiveDiffEngine;
 use crate::github::Github;
 use crate::orchestration::Orchestration;
 use crate::paths::DataDir;
@@ -65,7 +65,6 @@ pub struct Core {
     pub store: Store,
     pub metrics: Metrics,
     pub diffs: LiveDiffEngine,
-    pub fetch: FetchScheduler,
     pub github: Github,
     pub pr_sync: PrSyncScheduler,
     pub stacks: RemoteStackCache,
@@ -110,7 +109,6 @@ impl AppState {
     ) -> Self {
         let git = Git::new(shell_env.clone());
         let diffs = LiveDiffEngine::new(git.clone());
-        let fetch = FetchScheduler::new(git.clone());
         let github = Github::new(shell_env.clone());
         let process = ProcessSupervisor::new(shell_env.clone());
         let workspaces = Workspaces::new(store.clone());
@@ -172,7 +170,6 @@ impl AppState {
             store,
             metrics: Metrics::new(),
             diffs,
-            fetch,
             github,
             pr_sync: PrSyncScheduler::default(),
             stacks: RemoteStackCache::default(),

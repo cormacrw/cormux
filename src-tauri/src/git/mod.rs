@@ -1,5 +1,4 @@
 mod diff;
-mod fetch;
 mod queue;
 
 use std::collections::HashMap;
@@ -15,7 +14,6 @@ use crate::model::FALLBACK_DEFAULT_BRANCH;
 use crate::shell_env::SharedEnv;
 
 pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
-pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
 pub use queue::WorktreeQueue;
 
 /// A merge stopped on these paths, waiting for the user to resolve or abort it.

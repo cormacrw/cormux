@@ -9,10 +9,11 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::RwLock;
+use tokio::task::JoinSet;
 
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastTone};
-use crate::git::{BehindUpdate, GitConflictState, RepoFetchTarget, WorkspaceFetchTarget};
+use crate::git::{Git, GitConflictState};
 use crate::repos::{BranchHold, BranchHolds};
 use crate::state::AppState;
 use crate::store::types::RepoRecord;
@@ -190,7 +191,7 @@ pub async fn fetch_all(state: &AppState) {
             return;
         }
     };
-    let updates = state.fetch.tick(targets).await;
+    let updates = fetch_repos(&state.git, targets).await;
     state.workspace_git.apply(&updates).await;
     state.out.repo_git_moved();
 }
@@ -216,6 +217,65 @@ async fn fetch_targets(state: &AppState) -> Result<Vec<RepoFetchTarget>> {
             });
     }
     Ok(by_repo.into_values().collect())
+}
+
+struct BehindUpdate {
+    workspace_id: String,
+    behind: u32,
+}
+
+struct WorkspaceFetchTarget {
+    workspace_id: String,
+    worktree_path: PathBuf,
+    base: String,
+}
+
+struct RepoFetchTarget {
+    repo_path: PathBuf,
+    workspaces: Vec<WorkspaceFetchTarget>,
+}
+
+/// One `git fetch` per repo (worktrees share an object store), then each workspace's behind
+/// count. Repos fetch side by side: each has its own git queue, and one slow remote shouldn't
+/// hold the others' counts back. A repo that can't fetch is skipped.
+async fn fetch_repos(git: &Git, repos: Vec<RepoFetchTarget>) -> Vec<BehindUpdate> {
+    let mut tasks = JoinSet::new();
+    for repo in repos {
+        let git = git.clone();
+        tasks.spawn(async move { fetch_repo(&git, repo).await });
+    }
+    let mut updates = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        match result {
+            Ok(repo_updates) => updates.extend(repo_updates),
+            Err(error) => log::warn!("fetch task failed: {error}"),
+        }
+    }
+    updates
+}
+
+async fn fetch_repo(git: &Git, repo: RepoFetchTarget) -> Vec<BehindUpdate> {
+    if let Err(error) = git.fetch(&repo.repo_path).await {
+        log::warn!("fetch {} failed: {error}", repo.repo_path.display());
+        return Vec::new();
+    }
+    let mut updates = Vec::with_capacity(repo.workspaces.len());
+    for workspace in repo.workspaces {
+        match git
+            .behind_count(&workspace.worktree_path, &workspace.base)
+            .await
+        {
+            Ok(behind) => updates.push(BehindUpdate {
+                workspace_id: workspace.workspace_id,
+                behind,
+            }),
+            Err(error) => log::warn!(
+                "behind count {} failed: {error}",
+                workspace.worktree_path.display()
+            ),
+        }
+    }
+    updates
 }
 
 pub async fn add_worktree(
@@ -997,5 +1057,43 @@ mod tests {
         std::fs::remove_dir_all(repo.join(".git")).unwrap();
         refresh_stats(&state, &record).await;
         assert_eq!(behind(state.clone()).await, 1);
+    }
+
+    fn fetch_commit(repo: &Path, file: &str) {
+        std::fs::write(repo.join(file), "x\n").unwrap();
+        git(repo, &["add", file]);
+        git(repo, &["commit", "-qm", file]);
+    }
+
+    #[tokio::test]
+    async fn a_fetch_recounts_each_repo_and_skips_one_it_cannot_fetch()
+     {
+        let dir = tempfile::tempdir().unwrap();
+        let origin = dir.path().join("origin");
+        std::fs::create_dir(&origin).unwrap();
+        git(&origin, &["init", "-qb", "main"]);
+        fetch_commit(&origin, "one.txt");
+        git(dir.path(), &["clone", "-q", "origin", "clone"]);
+        let clone = dir.path().join("clone");
+        fetch_commit(&origin, "landed.txt");
+        let broken = dir.path().join("broken");
+        git(dir.path(), &["clone", "-q", "origin", "broken"]);
+        git(&broken, &["remote", "set-url", "origin", "/nowhere"]);
+
+        let target = |path: &Path, id: &str| RepoFetchTarget {
+            repo_path: path.to_path_buf(),
+            workspaces: vec![WorkspaceFetchTarget {
+                workspace_id: id.into(),
+                worktree_path: path.to_path_buf(),
+                base: "main".into(),
+            }],
+        };
+        let git = Git::new(crate::shell_env::SharedEnv::loaded(ShellEnv::new()));
+        let updates = fetch_repos(&git, vec![target(&clone, "w1"), target(&broken, "w2")]).await;
+        let counts: Vec<_> = updates
+            .iter()
+            .map(|update| (update.workspace_id.as_str(), update.behind))
+            .collect();
+        assert_eq!(counts, [("w1", 1)]);
     }
 }
