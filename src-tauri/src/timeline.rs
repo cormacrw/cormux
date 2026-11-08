@@ -125,6 +125,10 @@ pub enum TimelineStep {
     ReviewFindingsUnreadable {
         reason: String,
     },
+    /// The review this thread ran found something; its card opens the Findings panel.
+    ReviewFindingsReady {
+        count: u32,
+    },
     FindingsReceived {
         count: u32,
         titles: Vec<String>,
@@ -195,6 +199,9 @@ impl TimelineStep {
             Self::PrCheckedOut { number, .. } => format!("Checked out #{number}"),
             Self::ReviewSubmitted { number } => format!("Submitted review on #{number}"),
             Self::ReviewFindingsUnreadable { .. } => "Couldn’t read the review findings".into(),
+            Self::ReviewFindingsReady { count } => {
+                format!("Review found {count} finding{}", plural(*count))
+            }
             Self::FindingsReceived { count, .. } => {
                 format!("Received {count} findings from the review")
             }
@@ -217,6 +224,7 @@ impl TimelineStep {
             | Self::FileDeleted { .. }
             | Self::MigrationApplied
             | Self::SuggestionsForwarded
+            | Self::ReviewFindingsReady { .. }
             | Self::Legacy { .. } => None,
             Self::SuggestionsSent { what, .. } => Some(what.clone()),
             Self::BranchSwitched { branch, change } => Some(change.detail(branch)),
@@ -475,6 +483,11 @@ mod tests {
                 },
                 "Fixed 2 findings",
                 Some("a.rs, b.rs"),
+            ),
+            (
+                TimelineStep::ReviewFindingsReady { count: 1 },
+                "Review found 1 finding",
+                None,
             ),
         ];
         for (step, title, detail) in cases {

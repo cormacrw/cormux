@@ -65,6 +65,19 @@ pub(crate) fn all(conn: &Connection) -> Result<Vec<PrRow>> {
 }
 
 impl Store {
+    /// The cached pull request `number` of the repo, if the last sync or Cormux saw it.
+    pub fn cached_pull_request(
+        &self,
+        repo_id: &str,
+        number: i64,
+    ) -> Result<Option<PullRequestPayload>> {
+        Ok(self
+            .with_read(all)?
+            .into_iter()
+            .find(|row| row.repo_id.as_deref() == Some(repo_id) && row.number == number)
+            .map(|row| row.payload))
+    }
+
     pub fn upsert_pr(&self, pr: &PullRequestPayload) -> Result<()> {
         let row = PrRow::from(pr);
         let payload = encode(&row.payload)?;

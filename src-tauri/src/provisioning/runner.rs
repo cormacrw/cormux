@@ -39,7 +39,7 @@ pub struct Created {
     pub thread_id: String,
 }
 
-type SeedSummary = Box<dyn Fn(&WorkspaceRecord) -> String + Send + Sync>;
+type Intro = Box<dyn Fn(&WorkspaceRecord) -> String + Send + Sync>;
 
 /// How a recorded workspace is brought up. Built by whoever knows what the workspace is for.
 pub struct ProvisionPlan {
@@ -52,8 +52,8 @@ pub struct ProvisionPlan {
     pub first_prompt: Option<Prompt>,
     /// Shown once the agent has its prompt.
     pub running_activity: String,
-    /// The card summary until a real one is written, from the workspace as setup leaves it.
-    pub seed_summary: Option<SeedSummary>,
+    /// What the workspace's intro says, from the workspace as setup leaves it.
+    pub intro: Option<Intro>,
     /// Raised once the agent has its prompt.
     pub started_toast: Option<Vec<ToastPart>>,
 }
@@ -336,8 +336,8 @@ async fn finish_after_setup(
     }
 
     if plan.first_prompt.is_some() {
-        if let Some(seed) = &plan.seed_summary {
-            seed_summary(state, &workspace, seed)?;
+        if let Some(intro) = &plan.intro {
+            write_intro(state, &workspace, intro)?;
         }
         state
             .workspaces
@@ -375,19 +375,17 @@ async fn finish_after_setup(
     Ok(())
 }
 
-/// A card summary until a real one is written; one already there stays.
-fn seed_summary(state: &AppState, workspace: &WorkspaceRecord, seed: &SeedSummary) -> Result<()> {
-    let has_summary = state
+/// Written once: a retried setup keeps the first.
+fn write_intro(state: &AppState, workspace: &WorkspaceRecord, intro: &Intro) -> Result<()> {
+    let written = state
         .store
         .workspace_by_id(&workspace.id)?
         .and_then(|row| row.summary)
         .is_some_and(|text| !text.is_empty());
-    if !has_summary {
-        state.workspaces.set_summary(
-            &workspace.id,
-            &seed(workspace),
-            crate::summaries::LOCAL_SOURCE,
-        )?;
+    if !written {
+        state
+            .workspaces
+            .set_summary(&workspace.id, &intro(workspace))?;
     }
     Ok(())
 }
@@ -563,7 +561,7 @@ mod tests {
                 setup_activity: SETUP_ACTIVITY.into(),
                 first_prompt: Some("Go".into()),
                 running_activity: "Working".into(),
-                seed_summary: None,
+                intro: None,
                 started_toast: None,
             },
         )

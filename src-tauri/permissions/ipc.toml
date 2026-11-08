@@ -27,7 +27,6 @@ commands.allow = [
   "resolve_approval",
   "answer_question",
   "resolve_all_approvals",
-  "summarise_workspace",
   "sync_pull_requests",
   "set_clickup_api_key",
   "clear_clickup_api_key",

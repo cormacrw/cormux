@@ -91,6 +91,7 @@ const MIGRATIONS: &[Migration] = migrations![
     "025_snapshot_views_and_dead_data",
     "026_per_entity_state",
     "027_retire_scratch_threads",
+    "028_no_model_summaries",
 ];
 
 fn create_ledger(conn: &Connection) -> Result<()> {
@@ -187,6 +188,15 @@ mod tests {
         conn
     }
 
+    /// Runs the one migration numbered `version`, on a database migrated up to it.
+    fn apply_version(conn: &Connection, version: i64) {
+        let migration = MIGRATIONS
+            .iter()
+            .find(|m| super::version(m.name) == version)
+            .unwrap();
+        apply(conn, version, migration.name, &Step::Sql(migration.sql)).unwrap();
+    }
+
     fn names(conn: &Connection, kind: &str) -> Vec<String> {
         conn.prepare(
             "SELECT name FROM sqlite_master
@@ -258,7 +268,7 @@ mod tests {
             .unwrap()
             .map(|version| version.unwrap())
             .collect();
-        assert_eq!(ledger, [23, 24, 25, 26, 27]);
+        assert_eq!(ledger[..3], [23, 24, 25]);
     }
 
     #[test]
@@ -586,7 +596,7 @@ mod tests {
         )
         .unwrap();
 
-        run(&conn, &[]).unwrap();
+        apply_version(&conn, 26);
 
         let run_command = |id: &str| -> Option<String> {
             conn.query_row(
@@ -665,5 +675,57 @@ mod tests {
             (approval("a"), approval("b")),
             ("denied".into(), "pending".into())
         );
+    }
+
+    #[test]
+    fn no_column_says_a_model_wrote_a_summary_and_old_lead_intros_stop_claiming_nothing_changed() {
+        let conn = migrated_before(28);
+        conn.execute_batch(
+            "INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
+             INSERT INTO workspaces (id, repo_id, name, branch, base, worktree_path, status, kind, summary)
+             VALUES
+                ('lead', 'r', 'Login', 'a', 'main', '/tmp/a', 'idle', 'lead',
+                 'Just started on “Login”, branched from main. Claude Code is reading the repo to find where the change belongs; no files have been touched yet.'),
+                ('kept', 'r', 'Kept', 'b', 'main', '/tmp/b', 'idle', 'lead', 'Adds OAuth.'),
+                ('pr', 'r', 'PR #7 Review', 'c', 'main', '/tmp/c', 'running', 'review', NULL),
+                ('done', 'r', 'PR #8 Review', 'd', 'main', '/tmp/d', 'idle', 'review', NULL);
+             INSERT INTO review_state (workspace_id, status, author) VALUES
+                ('lead', 'ready', '@ana'),
+                ('done', 'ready', 'you');",
+        )
+        .unwrap();
+
+        run(&conn, &[]).unwrap();
+
+        assert!(!columns(&conn, "workspaces").contains(&"summary_source".to_string()));
+        assert!(!columns(&conn, "review_state").contains(&"author".to_string()));
+        let summary = |id: &str| -> String {
+            conn.query_row(
+                "SELECT summary FROM workspaces WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(summary("lead"), "Started “Login” on a branch from main.");
+        assert_eq!(summary("kept"), "Adds OAuth.");
+        let ids: Vec<String> = conn
+            .prepare("SELECT id FROM live_workspaces ORDER BY position")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|id| id.unwrap())
+            .collect();
+        assert_eq!(ids, ["lead", "kept", "pr", "done"], "the view still reads");
+        let status = |id: &str| -> String {
+            conn.query_row(
+                "SELECT status FROM review_state WHERE workspace_id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(status("pr"), "running", "an open PR review is running");
+        assert_eq!(status("done"), "ready");
     }
 }

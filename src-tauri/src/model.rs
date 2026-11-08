@@ -114,9 +114,6 @@ impl ThreadRole {
     }
 }
 
-/// Who writes workspace summaries, shown under each one.
-pub const SUMMARY_MODEL_LABEL: &str = "Haiku 4.5";
-
 /// What a thread is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

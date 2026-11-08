@@ -9,8 +9,8 @@ use tauri_specta::Builder;
 
 use crate::{
     app, approvals, attachments, changes, clickup, create_pr, environment, findings, git, github,
-    menu, metrics, repos, review, scratch, settings, skills, snapshot, stack, summaries, teardown,
-    terminal, thread_media, turn, workspace_git, workspace_start, workspaces,
+    menu, metrics, repos, review, scratch, settings, skills, snapshot, stack, teardown, terminal,
+    thread_media, turn, workspace_git, workspace_start, workspaces,
 };
 
 /// The one list of commands: registers them with Tauri and names them for the allowlist test.
@@ -54,7 +54,6 @@ commands![
     changes::commands::refresh_workspace_diff,
     changes::commands::set_workspace_diff_target,
     changes::commands::discard_workspace_changes,
-    summaries::commands::summarise_workspace,
     github::sync::sync_pull_requests,
     clickup::commands::set_clickup_api_key,
     clickup::commands::clear_clickup_api_key,

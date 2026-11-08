@@ -3,7 +3,8 @@ use crate::error::{Error, Result};
 use super::rest::RestGithubClient;
 use super::rest::api_url;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub enum ReviewVerdict {
     Approve,
     RequestChanges,
@@ -27,6 +28,15 @@ pub struct ReviewLineComment {
     pub body: String,
 }
 
+/// What GitHub did with a review.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReviewPosted {
+    Posted,
+    /// The whole review was refused (422) because an inline comment sits outside the PR's diff
+    /// hunks, e.g. a finding on an unchanged line.
+    CommentsRejected(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct SubmitPullRequestReviewInput {
     pub verdict: ReviewVerdict,
@@ -42,7 +52,7 @@ impl RestGithubClient {
         repo: &str,
         pull_number: i64,
         input: &SubmitPullRequestReviewInput,
-    ) -> Result<()> {
+    ) -> Result<ReviewPosted> {
         let comments: Vec<serde_json::Value> = input
             .comments
             .iter()
@@ -61,9 +71,15 @@ impl RestGithubClient {
             "comments": comments,
         });
         let url = api_url(&format!("repos/{owner}/{repo}/pulls/{pull_number}/reviews"));
-        self.post(token, &url, &body).await.map_err(|error| {
-            Error::Github(format!("submit pull request review failed: {error}"))
-        })?;
-        Ok(())
+        let (status, text) = self.post_for_status(token, &url, &body).await?;
+        if status == reqwest::StatusCode::UNPROCESSABLE_ENTITY && !input.comments.is_empty() {
+            return Ok(ReviewPosted::CommentsRejected(text));
+        }
+        if !status.is_success() {
+            return Err(Error::Github(format!(
+                "submit pull request review failed ({status}): {text}"
+            )));
+        }
+        Ok(ReviewPosted::Posted)
     }
 }

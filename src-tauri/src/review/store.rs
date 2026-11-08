@@ -39,13 +39,11 @@ pub struct ReviewRow {
     pub workspace_id: String,
     /// None before a branch review starts.
     pub status: Option<ReviewStatus>,
-    /// The PR author as cards name them: `you` or `@login`.
-    pub author: Option<String>,
     /// The review was posted to GitHub.
     pub submitted: bool,
 }
 
-const REVIEW_COLUMNS: &str = "SELECT workspace_id, status, author, submitted FROM review_state";
+const REVIEW_COLUMNS: &str = "SELECT workspace_id, status, submitted FROM review_state";
 
 /// The live workspaces' reviews.
 pub(crate) fn live(conn: &Connection) -> Result<Vec<ReviewRow>> {
@@ -80,17 +78,6 @@ impl Store {
         })
     }
 
-    pub fn set_review_author(&self, workspace_id: &str, author: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO review_state (workspace_id, author) VALUES (?1, ?2)
-                 ON CONFLICT(workspace_id) DO UPDATE SET author = excluded.author",
-                rusqlite::params![workspace_id, author],
-            )?;
-            Ok(())
-        })
-    }
-
     pub fn mark_review_submitted(&self, workspace_id: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -110,7 +97,6 @@ fn row_to_review(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReviewRow> {
             .get::<_, Option<String>>(1)?
             .as_deref()
             .and_then(ReviewStatus::parse),
-        author: row.get(2)?,
-        submitted: row.get::<_, i64>(3)? != 0,
+        submitted: row.get::<_, i64>(2)? != 0,
     })
 }

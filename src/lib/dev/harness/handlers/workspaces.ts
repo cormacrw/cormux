@@ -8,7 +8,6 @@ export const workspaceUnsupported = [
   'rename_workspace',
   'retry_workspace_provisioning',
   'skip_workspace_provisioning_setup',
-  'summarise_workspace',
   'send_workspace_findings',
   'submit_workspace_review',
   'start_branch_review',

@@ -76,7 +76,6 @@ describe('timeline pipeline at scale', () => {
     const input = (list: Timed[]) => ({
       events: list,
       approvals: [],
-      findingsFor: null,
     })
     const first = time('first build (5k events)', () =>
       new TimelineBuilder().build(input(events)),

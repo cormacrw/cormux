@@ -4,8 +4,8 @@ use crate::llm::LlmClient;
 use crate::store::types::WorkspaceRow;
 
 /// A description built from what's known when the model can't be asked: the goal the thread
-/// was started with (or the workspace name) and the first sentence of the card summary.
-pub fn fallback_why(workspace: &WorkspaceRow, goal: &str) -> String {
+/// was started with, or the workspace name.
+fn fallback_why(workspace: &WorkspaceRow, goal: &str) -> String {
     let goal_trimmed = goal.trim().trim_end_matches('.').trim();
     let goal_source = if goal_trimmed.is_empty() {
         workspace.name.trim().trim_end_matches('.').trim()
@@ -16,18 +16,7 @@ pub fn fallback_why(workspace: &WorkspaceRow, goal: &str) -> String {
     if let Some(first) = goal_lower.chars().next() {
         goal_lower = first.to_lowercase().collect::<String>() + &goal_lower[first.len_utf8()..];
     }
-
-    let summary_sentence = workspace
-        .summary
-        .as_deref()
-        .and_then(|summary| summary.split(". ").next())
-        .map(|sentence| sentence.trim_end_matches('.').to_string())
-        .filter(|sentence| !sentence.is_empty());
-
-    match summary_sentence {
-        Some(summary) => format!("This change is needed to {goal_lower}. {summary}."),
-        None => format!("This change is needed to {goal_lower}."),
-    }
+    format!("This change is needed to {goal_lower}.")
 }
 
 pub const DEFAULT_PR_PROMPT: &str = "Write the description for this pull request in GitHub-flavoured markdown. \
@@ -103,7 +92,7 @@ mod tests {
     fn workspace(name: &str) -> WorkspaceRow {
         WorkspaceRow {
             status: crate::model::WorkspaceLifecycle::Running,
-            summary: Some("Adds idle timeout. Sessions are rejected after 30 minutes.".into()),
+            summary: Some("Started “Auth” on a branch from main.".into()),
             ..crate::store::types::WorkspaceRow::new(
                 crate::model::WorkspaceKind::Lead,
                 "w1",
@@ -123,24 +112,20 @@ mod tests {
         assert_eq!(pr_prompt(" Be brief. "), "Be brief.");
     }
 
-    /// The fallback only ever says what the thread and summary say; a workspace that happens
-    /// to be named after a common topic gets no invented story about it.
+    /// The fallback only says what the goal says, never the intro Cormux wrote; a workspace
+    /// named after a common topic gets no invented story about it.
     #[test]
-    fn fallback_never_invents_details() {
-        let text = fallback_why(&workspace("Auth session timeout"), "");
+    fn fallback_says_only_the_goal_or_the_name() {
         assert_eq!(
-            text,
-            "This change is needed to auth session timeout. Adds idle timeout."
+            fallback_why(&workspace("Auth session timeout"), ""),
+            "This change is needed to auth session timeout."
         );
-    }
-
-    #[test]
-    fn fallback_builds_from_goal_and_summary() {
-        let text = fallback_why(
-            &workspace("Widget polish"),
-            "Fix the broken checkout button",
+        assert_eq!(
+            fallback_why(
+                &workspace("Widget polish"),
+                "Fix the broken checkout button."
+            ),
+            "This change is needed to fix the broken checkout button."
         );
-        assert!(text.contains("fix the broken checkout button"));
-        assert!(text.contains("Adds idle timeout"));
     }
 }

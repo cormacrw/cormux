@@ -20,6 +20,12 @@ pub struct DraftPrWhyResult {
     pub workspace_id: String,
     pub text: String,
     pub from_llm: bool,
+    /// The branch the PR will target: the base, or the branch below in a stack.
+    pub base: String,
+    /// What the PR will show, against `base`.
+    pub files: u32,
+    pub added: u32,
+    pub deleted: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -57,7 +63,7 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
     let record = state.workspaces.get(workspace_id).await?;
     let worktree = Path::new(&record.worktree_path);
     let base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await;
-    let diff = pr_diff(state, workspace_id, worktree, &base, &record.base).await;
+    let diff = pr_diff(state, workspace_id, worktree, &base).await?;
 
     let thread = state
         .store
@@ -78,10 +84,15 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
     )
     .await?;
 
+    let (added, deleted, files) = diff_totals(&diff);
     Ok(DraftPrWhyResult {
         workspace_id: workspace_id.to_string(),
         text,
         from_llm,
+        base,
+        files,
+        added,
+        deleted,
     })
 }
 
@@ -144,7 +155,7 @@ pub async fn create_workspace_pull_request(
 
     let slug = RepoSlug::of_origin(&state.git, worktree).await?;
 
-    let diff = pr_diff(state, &input.workspace_id, worktree, &pr_base, &record.base).await;
+    let diff = pr_diff(state, &input.workspace_id, worktree, &pr_base).await?;
 
     let title = input
         .title
@@ -181,7 +192,7 @@ pub async fn create_workspace_pull_request(
     let payload = PullRequestPayload {
         num: created.number,
         title: title.clone(),
-        author: "you".into(),
+        author: crate::github::types::VIEWER_AUTHOR.into(),
         rel: PrRelationship::Author,
         head: record.branch.clone(),
         base: pr_base.clone(),
@@ -242,29 +253,18 @@ pub async fn create_workspace_pull_request(
     })
 }
 
-/// The changes the PR will show. A stacked PR is measured against the branch below it;
-/// otherwise this is the Changes panel's diff, as it always was.
+/// The changes the PR will show: the branch's commits against the branch it targets, whatever
+/// the Changes panel is showing.
 async fn pr_diff(
     state: &AppState,
     workspace_id: &str,
     worktree: &Path,
     pr_base: &str,
-    trunk: &str,
-) -> crate::git::WorktreeDiff {
-    let diff = if pr_base == trunk {
-        state.diffs.compute(workspace_id, worktree).await
-    } else {
-        state
-            .diffs
-            .compute_against(workspace_id, worktree, pr_base)
-            .await
-    };
-    diff.unwrap_or(crate::git::WorktreeDiff {
-        workspace_id: workspace_id.to_string(),
-        target: None,
-        files: vec![],
-        uncommitted: Default::default(),
-    })
+) -> Result<crate::git::WorktreeDiff> {
+    state
+        .diffs
+        .compute_against(workspace_id, worktree, pr_base)
+        .await
 }
 
 fn diff_totals(diff: &crate::git::WorktreeDiff) -> (u32, u32, u32) {
@@ -310,5 +310,44 @@ pub mod commands {
         state: State<'_, AppState>,
     ) -> Result<CreateWorkspacePullRequestResult> {
         super::create_workspace_pull_request(&state, input).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git {args:?}: {output:?}");
+    }
+
+    #[tokio::test]
+    async fn the_pr_diff_is_the_branch_against_its_base_whatever_changes_shows() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "-q", "-b", "main"]);
+        git(repo, &["config", "user.email", "t@example.com"]);
+        git(repo, &["config", "user.name", "T"]);
+        std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "-qm", "base"]);
+        git(repo, &["switch", "-qc", "feat"]);
+        std::fs::write(repo.join("b.txt"), "one\ntwo\n").unwrap();
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "-qm", "work"]);
+        std::fs::write(repo.join("a.txt"), "a\nuncommitted\n").unwrap();
+        let (state, _recording) = AppState::recorded(crate::paths::DataDir::new(repo.into()));
+        state.diffs.set_diff_target("w1", None);
+
+        let diff = pr_diff(&state, "w1", repo, "main").await.unwrap();
+
+        let files: Vec<&str> = diff.files.iter().map(|file| file.path.as_str()).collect();
+        assert_eq!(files, ["b.txt"]);
+        assert_eq!(diff_totals(&diff), (2, 0, 1));
     }
 }

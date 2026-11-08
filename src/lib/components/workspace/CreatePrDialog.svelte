@@ -12,8 +12,7 @@
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { SKELETON_WIDTHS } from '$lib/primitives/skeleton'
   import { shellDialogs, workspaces } from '$lib/state'
-  import { stacks } from '$lib/changes/stacks.svelte'
-  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
+  import type { DraftPrWhyResult } from '$lib/ipc/bindings'
 
   const workspaceId = $derived(
     shellDialogs.args('createPr')?.workspaceId ?? null,
@@ -34,36 +33,16 @@
 
   let whyField = $state<HTMLTextAreaElement | null>(null)
 
-  const diffFiles = $derived(
-    workspaceId ? (workspaceDiff.filesByWorkspace[workspaceId] ?? []) : [],
-  )
-  const diffTotals = $derived(workspaceDiff.totals(workspaceId ?? ''))
-  // A stacked branch's PR targets the nearest unmerged branch below it, and the
-  // counts are against that branch, matching what the backend opens.
-  const stackBranch = $derived.by(() => {
-    const level = workspace && stacks.branchFor(workspace.id, workspace.branch)
-    return level && !level.merged ? level : undefined
-  })
+  /** The core's draft says what the PR will target and show. */
+  let draft = $state<DraftPrWhyResult | null>(null)
   const routeLine = $derived(
-    workspace
-      ? formatPrRouteLine(
-          stackBranch
-            ? {
-                branch: workspace.branch,
-                base: stackBranch.parent,
-                fileCount: stackBranch.files,
-                totals: {
-                  added: stackBranch.additions,
-                  deleted: stackBranch.deletions,
-                },
-              }
-            : {
-                branch: workspace.branch,
-                base: workspace.base,
-                fileCount: diffFiles.length,
-                totals: diffTotals,
-              },
-        )
+    workspace && draft
+      ? formatPrRouteLine({
+          branch: workspace.branch,
+          base: draft.base,
+          fileCount: draft.files,
+          totals: { added: draft.added, deleted: draft.deleted },
+        })
       : '',
   )
 
@@ -76,6 +55,7 @@
     whyError = false
     submitError = null
     why = ''
+    draft = null
     hint = 'Drafting from the thread and diff…'
 
     const minDelay = new Promise((resolve) => setTimeout(resolve, MIN_DRAFT_MS))
@@ -91,6 +71,7 @@
       return
     }
 
+    draft = draftResult.data
     why = draftResult.data.text
     drafting = false
     hint = 'Drafted from the thread and diff. Edit it before creating.'

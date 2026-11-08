@@ -1,3 +1,4 @@
+mod findings_block;
 mod store;
 
 use crate::bus::DomainEvent;
@@ -8,7 +9,10 @@ use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::findings::FindingRow;
 use crate::github::RepoSlug;
 use crate::github::auth;
-use crate::github::review::{ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput};
+use crate::github::review::{
+    ReviewLineComment, ReviewPosted, ReviewVerdict, SubmitPullRequestReviewInput,
+};
+use crate::github::types::PullRequestPayload;
 use crate::model::{ThreadStatus, WorkspaceKind};
 use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
@@ -27,13 +31,6 @@ pub use store::{ReviewRow, ReviewStatus};
 pub struct CreateReviewWorkspaceInput {
     pub repo_id: String,
     pub pr_number: i64,
-    pub title: String,
-    pub head: String,
-    pub base: String,
-    pub author: String,
-    pub author_is_you: bool,
-    pub files_changed: i64,
-    pub pr_html_url: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, specta::Type)]
@@ -45,38 +42,26 @@ pub struct CreateReviewWorkspaceResult {
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub enum SubmitReviewVerdict {
-    Approve,
-    RequestChanges,
-    Comment,
-}
-
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
 pub struct SubmitWorkspaceReviewInput {
     pub workspace_id: String,
-    pub verdict: SubmitReviewVerdict,
+    pub verdict: ReviewVerdict,
 }
 
-pub fn user_review_message(
-    pr_number: i64,
-    title: &str,
-    author: &str,
-    author_is_you: bool,
-) -> String {
-    let by = if author_is_you {
+fn user_review_message(pr: &PullRequestPayload) -> String {
+    let by = if pr.authored_by_viewer() {
         "you".to_string()
     } else {
-        format!("@{author}")
+        format!("@{}", pr.author)
     };
     format!(
-        "Review #{pr_number} “{title}” by {by}. Flag bugs, risky changes and missing tests. Don’t push commits; draft comments for me to approve."
+        "Review #{} “{}” by {by}. Flag bugs, risky changes and missing tests. Don’t push commits; draft comments for me to approve.",
+        pr.num, pr.title
     )
 }
 
 /// Sent to the engine after the user's message but never shown in the thread. The
 /// findings block it asks for is parsed at the end of the turn and hidden in the UI.
-pub fn reviewer_rubric() -> String {
+fn reviewer_rubric() -> String {
     rubric_with_intro(
         "You are the Reviewer for this pull request. Its branch is checked out in your working directory; \
          use `gh pr diff` or git against the base branch to see what changed, and read the surrounding code. \
@@ -86,7 +71,7 @@ pub fn reviewer_rubric() -> String {
 }
 
 /// The rubric for reviewing a regular workspace's own branch, uncommitted work included.
-pub fn branch_reviewer_rubric(base: &str) -> String {
+fn branch_reviewer_rubric(base: &str) -> String {
     rubric_with_intro(
         &format!(
             "You are the Reviewer for the work in this worktree. Review everything that differs from `{base}`: \
@@ -115,37 +100,48 @@ array inside {open} tags. The user never sees this block; Cormux turns it into t
 - file: path relative to the repository root, or null if the finding isn't about one file.
 - line: {line_hint}
 - Output raw JSON with no code fence. Use [] if you found nothing. Emit the block exactly once, at the very end.",
-        open = crate::findings_block::OPEN_TAG,
-        close = crate::findings_block::CLOSE_TAG,
+        open = findings_block::OPEN_TAG,
+        close = findings_block::CLOSE_TAG,
     )
 }
 
-pub fn reviewer_engine_prompt(user_message: &str) -> String {
+fn reviewer_engine_prompt(user_message: &str) -> String {
     format!("{user_message}\n\n{}", reviewer_rubric())
 }
 
-pub fn find_existing_review_workspace(
+fn find_existing_review_workspace(
     store: &Store,
     repo_id: &str,
     pr_number: i64,
-) -> Option<WorkspaceRow> {
-    store.live_workspaces().ok()?.into_iter().find(|row| {
+) -> Result<Option<WorkspaceRow>> {
+    Ok(store.live_workspaces()?.into_iter().find(|row| {
         row.kind == WorkspaceKind::PrReview
             && row.repo_id == repo_id
             && row.pr_number == Some(pr_number)
-    })
+    }))
 }
 
+/// A review workspace for the repo's pull request `pr_number`, as the last PR sync saw it, or
+/// the one already open for it.
 pub async fn create_review_workspace(
     state: &AppState,
     input: CreateReviewWorkspaceInput,
 ) -> Result<CreateReviewWorkspaceResult> {
+    let pr = state
+        .store
+        .cached_pull_request(&input.repo_id, input.pr_number)?
+        .ok_or_else(|| {
+            Error::Invalid(format!(
+                "pull request #{} of repo {} isn't in the PR list",
+                input.pr_number, input.repo_id
+            ))
+        })?;
     if let Some(existing) =
-        find_existing_review_workspace(&state.store, &input.repo_id, input.pr_number)
+        find_existing_review_workspace(&state.store, &input.repo_id, input.pr_number)?
     {
         // The PR may have been retargeted since.
-        if existing.base != input.base {
-            state.workspaces.set_base(&existing.id, &input.base).await?;
+        if existing.base != pr.base {
+            state.workspaces.set_base(&existing.id, &pr.base).await?;
         }
         return Ok(CreateReviewWorkspaceResult {
             workspace_id: existing.id,
@@ -159,10 +155,13 @@ pub async fn create_review_workspace(
         WorkspaceSpec {
             kind: WorkspaceKind::PrReview,
             repo_id: input.repo_id.clone(),
-            name: format!("PR #{} Review", input.pr_number),
-            branch: input.head.clone(),
-            base: input.base.clone(),
-            pr: Some((input.pr_number, input.pr_html_url.clone())),
+            name: format!("PR #{} Review", pr.num),
+            branch: pr.head.clone(),
+            base: pr.base.clone(),
+            pr: Some((
+                pr.num,
+                (!pr.html_url.is_empty()).then(|| pr.html_url.clone()),
+            )),
             engine: engine.clone(),
             parent_thread_id: None,
         },
@@ -171,33 +170,23 @@ pub async fn create_review_workspace(
     let workspace_id = created.workspace.id.clone();
     let thread_id = created.thread_id.clone();
 
-    let user_message = user_review_message(
-        input.pr_number,
-        &input.title,
-        &input.author,
-        input.author_is_you,
-    );
+    let user_message = user_review_message(&pr);
     state
         .transcript
         .append(&thread_id, TranscriptEvent::briefing(&user_message))?;
     state.transcript.record_step(
         &thread_id,
         TimelineStep::PrCheckedOut {
-            number: input.pr_number,
-            head: input.head.clone(),
-            base: input.base.clone(),
-            files_changed: input.files_changed,
+            number: pr.num,
+            head: pr.head.clone(),
+            base: pr.base.clone(),
+            files_changed: pr.files,
         },
     )?;
 
-    let author_label = if input.author_is_you {
-        "you".into()
-    } else {
-        format!("@{}", input.author)
-    };
     state
         .store
-        .set_review_author(&workspace_id, &author_label)?;
+        .set_review_status(&workspace_id, ReviewStatus::Running)?;
 
     state.out.changed();
 
@@ -208,20 +197,14 @@ pub async fn create_review_workspace(
                 value: "Opened a review workspace for ".into(),
             },
             ToastPart::Code {
-                value: format!("#{}", input.pr_number),
+                value: format!("#{}", pr.num),
             },
         ],
         workspace_id: Some(workspace_id.clone()),
         thread_id: Some(thread_id.clone()),
     });
 
-    let plan = review_plan(
-        &created.workspace,
-        &thread_id,
-        &user_message,
-        input.pr_number,
-        author_label,
-    );
+    let plan = review_plan(&created.workspace, &thread_id, &user_message, pr.num);
     crate::provisioning::start(state, plan);
 
     Ok(CreateReviewWorkspaceResult {
@@ -236,10 +219,8 @@ fn review_plan(
     thread_id: &str,
     user_message: &str,
     pr_number: i64,
-    author: String,
 ) -> ProvisionPlan {
     let pr_label = format!("#{pr_number}");
-    let seed_label = pr_label.clone();
     ProvisionPlan {
         workspace_id: workspace.id.clone(),
         thread_id: thread_id.to_string(),
@@ -247,9 +228,7 @@ fn review_plan(
         setup_activity: "Checking out the PR…".into(),
         first_prompt: Some(reviewer_engine_prompt(user_message).into()),
         running_activity: "Reading the diff…".into(),
-        seed_summary: Some(Box::new(move |workspace: &WorkspaceRecord| {
-            crate::summaries::review_started(&seed_label, &author, &workspace.base)
-        })),
+        intro: None,
         started_toast: Some(vec![
             ToastPart::Text {
                 value: "Reviewer started on ".into(),
@@ -276,10 +255,7 @@ pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<Prov
         .transcript
         .first_message(&thread.id)?
         .unwrap_or_default();
-    let author = review_author(&state.store, &workspace.id)?;
-    Ok(review_plan(
-        workspace, &thread.id, &message, pr_number, author,
-    ))
+    Ok(review_plan(workspace, &thread.id, &message, pr_number))
 }
 
 /// Reads each Reviewer's findings when its turn ends, for the life of the app.
@@ -297,10 +273,6 @@ pub fn start(state: &AppState) {
     });
 }
 
-pub fn review_is_ready(store: &Store, workspace_id: &str) -> bool {
-    review_status(store, workspace_id) == Some(ReviewStatus::Ready)
-}
-
 fn review_status(store: &Store, workspace_id: &str) -> Option<ReviewStatus> {
     store
         .review(workspace_id)
@@ -309,45 +281,30 @@ fn review_status(store: &Store, workspace_id: &str) -> Option<ReviewStatus> {
         .and_then(|review| review.status)
 }
 
-fn review_author(store: &Store, workspace_id: &str) -> Result<String> {
-    Ok(store
-        .review(workspace_id)?
-        .and_then(|review| review.author)
-        .unwrap_or_else(|| "the author".into()))
-}
-
 /// Runs when any thread's turn ends. For a Reviewer whose review isn't done yet, reads
 /// the findings block from its last reply and turns it into the Findings list. If the
 /// block is missing or malformed, leaves a note in the thread and tries again next turn.
-pub async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
+async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     let Some(thread) = state.store.thread_by_id(thread_id)? else {
         return Ok(());
     };
     let Some(workspace) = state.store.workspace_by_id(&thread.workspace_id)? else {
         return Ok(());
     };
-    let branch_review = workspace.kind != WorkspaceKind::PrReview;
-    let pending = if branch_review {
-        branch_review_running(&state.store, &workspace.id)
-    } else {
-        !review_is_ready(&state.store, &workspace.id)
-    };
+    let pending = review_status(&state.store, &workspace.id) == Some(ReviewStatus::Running);
     if workspace.archived_at.is_some() || !pending {
         return Ok(());
     }
 
     let reply = state.transcript.last_agent_reply(thread_id)?;
-    let findings = match crate::findings_block::parse_findings_block(
-        &reply,
-        &workspace.worktree_path,
-    ) {
+    let findings = match findings_block::parse_findings_block(&reply, &workspace.worktree_path) {
         Ok(findings) => findings,
         Err(error) => {
             let detail = match error {
-                crate::findings_block::BlockError::Missing => {
+                findings_block::BlockError::Missing => {
                     "The reply didn’t end with a findings block. Ask the agent to finish the review with its findings.".to_string()
                 }
-                crate::findings_block::BlockError::Invalid(reason) => {
+                findings_block::BlockError::Invalid(reason) => {
                     format!("The findings block wasn’t valid JSON ({reason}). Ask the agent to send it again.")
                 }
             };
@@ -377,15 +334,7 @@ pub async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<(
         })
         .collect();
     state.store.replace_findings(&workspace.id, &rows)?;
-    if branch_review {
-        complete_branch_review(state, &workspace, thread_id)
-    } else {
-        complete_review(state, &workspace, thread_id).await
-    }
-}
-
-fn branch_review_running(store: &Store, workspace_id: &str) -> bool {
-    review_status(store, workspace_id) == Some(ReviewStatus::Running)
+    complete_review(state, &workspace, thread_id, rows.len()).await
 }
 
 /// Review a regular workspace's own branch. The workspace's thread reads the changes against
@@ -401,10 +350,8 @@ pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result
 
     let thread = state
         .store
-        .threads_for_workspace(workspace_id)?
-        .into_iter()
-        .find(|row| !row.retired)
-        .ok_or_else(|| Error::Workspace(format!("no thread in workspace {workspace_id}")))?;
+        .own_thread(workspace_id)?
+        .ok_or_else(|| Error::Workspace(format!("no Lead in workspace {workspace_id}")))?;
     if thread.status == ThreadStatus::Running {
         return Err(Error::Workspace(
             "the agent is still working; review once it's done".into(),
@@ -424,77 +371,45 @@ pub async fn start_branch_review(state: &AppState, workspace_id: &str) -> Result
     Ok(thread.id)
 }
 
-/// The turn-end handler has already replaced any earlier findings with this review's.
-fn complete_branch_review(
-    state: &AppState,
-    workspace: &WorkspaceRow,
-    thread_id: &str,
-) -> Result<()> {
-    state
-        .store
-        .set_review_status(&workspace.id, ReviewStatus::Ready)?;
-    let found = state
-        .store
-        .findings_for_workspace(&workspace.id)?
-        .iter()
-        .any(|row| row.status == crate::model::FindingStatus::Open);
-    if !found {
-        state.out.toast(ToastRaisedPayload {
-            tone: ToastTone::Ok,
-            parts: vec![
-                ToastPart::Text {
-                    value: "Review of ".into(),
-                },
-                ToastPart::Code {
-                    value: workspace.branch.clone(),
-                },
-                ToastPart::Text {
-                    value: " finished · no findings".into(),
-                },
-            ],
-            workspace_id: Some(workspace.id.clone()),
-            thread_id: Some(thread_id.to_string()),
-        });
-    }
-    state.out.changed();
-    Ok(())
-}
-
+/// The turn-end handler has already replaced any earlier findings with this review's. The
+/// thread that ran the review gets the findings card; with none, a toast says so.
 async fn complete_review(
     state: &AppState,
     workspace: &WorkspaceRow,
     thread_id: &str,
+    found: usize,
 ) -> Result<()> {
-    let findings: Vec<FindingRow> = state.store.findings_for_workspace(&workspace.id)?;
-
     state
         .store
         .set_review_status(&workspace.id, ReviewStatus::Ready)?;
-
-    let author = review_author(&state.store, &workspace.id)?;
-    let pr_label = workspace
-        .pr_number
-        .map(|num| format!("#{num}"))
-        .unwrap_or_else(|| "the PR".into());
-    let counted = (!findings.is_empty()).then(|| count_findings(&findings));
-    let card_summary = crate::summaries::review_ready(&pr_label, &author, counted.as_deref());
-    state
-        .workspaces
-        .set_summary(&workspace.id, &card_summary, crate::summaries::LOCAL_SOURCE)?;
-    state
-        .workspaces
-        .set_activity(&workspace.id, "Review ready", 0, None)
-        .await?;
-
-    // With findings, the frontend toasts (and notifies) when they first appear.
-    if findings.is_empty() {
+    let reviewed = match workspace.kind {
+        WorkspaceKind::PrReview => {
+            state
+                .workspaces
+                .set_activity(&workspace.id, "Review ready", 0, None)
+                .await?;
+            workspace
+                .pr_number
+                .map(|num| format!("#{num}"))
+                .unwrap_or_else(|| "the PR".into())
+        }
+        WorkspaceKind::Lead => workspace.branch.clone(),
+    };
+    if found > 0 {
+        state.transcript.record_step(
+            thread_id,
+            TimelineStep::ReviewFindingsReady {
+                count: found as u32,
+            },
+        )?;
+    } else {
         state.out.toast(ToastRaisedPayload {
             tone: ToastTone::Ok,
             parts: vec![
                 ToastPart::Text {
                     value: "Review of ".into(),
                 },
-                ToastPart::Code { value: pr_label },
+                ToastPart::Code { value: reviewed },
                 ToastPart::Text {
                     value: " finished · no findings".into(),
                 },
@@ -505,27 +420,6 @@ async fn complete_review(
     }
     state.out.changed();
     Ok(())
-}
-
-fn count_findings(findings: &[FindingRow]) -> String {
-    let blocking = findings
-        .iter()
-        .filter(|row| row.severity == "blocking")
-        .count();
-    let suggestions = findings
-        .iter()
-        .filter(|row| row.severity == "suggestion")
-        .count();
-    let nits = findings.iter().filter(|row| row.severity == "nit").count();
-    if findings.is_empty() {
-        return "no findings".into();
-    }
-    format!(
-        "{blocking} blocking issue{}, {suggestions} suggestion{} and {nits} nit{}",
-        if blocking == 1 { "" } else { "s" },
-        if suggestions == 1 { "" } else { "s" },
-        if nits == 1 { "" } else { "s" },
-    )
 }
 
 pub async fn submit_workspace_review(
@@ -595,28 +489,17 @@ pub async fn submit_workspace_review(
         format!("Review submitted from Cormux.\n\n{}", body_lines.join("\n"))
     };
 
-    let verdict = match input.verdict {
-        SubmitReviewVerdict::Approve => ReviewVerdict::Approve,
-        SubmitReviewVerdict::RequestChanges => ReviewVerdict::RequestChanges,
-        SubmitReviewVerdict::Comment => ReviewVerdict::Comment,
-    };
-
     let client = &state.github.rest;
     let mut review = SubmitPullRequestReviewInput {
-        verdict,
+        verdict: input.verdict,
         body,
         comments: line_comments,
     };
-    let submitted = client
+    let posted = client
         .submit_pull_request_review(&token, &owner, &repo_name, pr_number, &review)
-        .await;
-    if let Err(error) = submitted {
-        // GitHub rejects the whole review (422) when any inline comment sits outside the PR's
-        // diff hunks, e.g. a finding on an unchanged line. Rather than block the submit on
-        // one finding, post them all in the body instead.
-        if review.comments.is_empty() || !error.to_string().contains("422") {
-            return Err(error);
-        }
+        .await?;
+    // Rather than block the submit on one finding, post them all in the body instead.
+    if let ReviewPosted::CommentsRejected(error) = posted {
         log::warn!("inline review comments rejected, moving them to the body: {error}");
         let moved: Vec<String> = review
             .comments
@@ -715,6 +598,14 @@ mod tests {
     use crate::store::types::{RepoRecord, ThreadRow};
     use crate::thread_runtime::fake::FakeEngines;
 
+    fn review_is_ready(store: &Store, workspace_id: &str) -> bool {
+        review_status(store, workspace_id) == Some(ReviewStatus::Ready)
+    }
+
+    fn branch_review_running(store: &Store, workspace_id: &str) -> bool {
+        review_status(store, workspace_id) == Some(ReviewStatus::Running)
+    }
+
     /// A Lead workspace whose thread is in `status`.
     fn workspace(status: ThreadStatus) -> (AppState, Arc<RecordingOutput>, FakeEngines) {
         let (state, recording, fake) =
@@ -781,6 +672,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn findings_get_their_card_in_the_thread_that_ran_the_review_only() {
+        let (state, recording) = reviewing(
+            "One thing.\n\n<cormux-findings>\n[{\"severity\": \"blocking\", \"title\": \"Leak\", \"file\": null, \"line\": null, \"explanation\": \"x\"}]\n</cormux-findings>",
+        );
+        state
+            .store
+            .upsert_thread(&ThreadRow::new("other", "w1", ThreadRole::Lead, "claude"))
+            .unwrap();
+
+        on_reviewer_turn_end(&state, "t1").await.unwrap();
+
+        let card = |thread: &str| {
+            state
+                .store
+                .thread_events_after(thread, 0, 50)
+                .unwrap()
+                .iter()
+                .any(|(_, _, payload)| payload.contains("\"reviewFindingsReady\""))
+        };
+        assert!(card("t1"));
+        assert!(!card("other"));
+        assert!(recording.toasts().is_empty());
+    }
+
+    #[tokio::test]
     async fn a_branch_review_finishes_when_its_turn_ends() {
         let (state, recording) = reviewing("Fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
         start(&state);
@@ -800,7 +716,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_finished_pr_review_saves_its_card_summary() {
+    async fn a_finished_pr_review_reads_as_ready_under_its_own_name() {
         let (state, _recording, _) = workspace(ThreadStatus::Idle);
         state
             .store
@@ -825,7 +741,10 @@ mod tests {
                     .with_status(ThreadStatus::Running),
             )
             .unwrap();
-        state.store.set_review_author("pr", "@ana").unwrap();
+        state
+            .store
+            .set_review_status("pr", ReviewStatus::Running)
+            .unwrap();
         let said = agent_said("Fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
         state.transcript.append("rt", said).unwrap();
         state.workspaces.rename("pr", "Renamed").await.unwrap();
@@ -833,10 +752,6 @@ mod tests {
         on_reviewer_turn_end(&state, "rt").await.unwrap();
 
         let row = state.store.workspace_by_id("pr").unwrap().unwrap();
-        assert_eq!(
-            row.summary.as_deref(),
-            Some("Reviewed #7 from @ana: no findings.")
-        );
         assert_eq!(row.name, "Renamed");
         assert_eq!(
             state.workspaces.get("pr").await.unwrap().activity,

@@ -7,10 +7,6 @@ type Chip = { label: string; tone: 'success' | 'muted' }
 
 const AUTO_APPROVED: Chip = { label: 'Read-only, auto-approved', tone: 'muted' }
 const SCRATCH: Chip = { label: 'Read-only, no worktree', tone: 'muted' }
-const FINDINGS_FIXED: Chip[] = [
-  { label: 'Tests pass', tone: 'success' },
-  { label: 'Committed locally, not pushed', tone: 'muted' },
-]
 
 /** A run this long folds down to its summary once the agent has moved on. */
 const COLLAPSE_RUN_AT = 6
@@ -60,9 +56,7 @@ export function stepChips(step: RunStep, scratch: boolean): Chip[] {
   if (step.kind === 'tool' && step.role.kind === 'edit') return []
   // A scratch runs on the main checkout in the engine's read-only mode.
   if (step.autoApproved) return [scratch ? SCRATCH : AUTO_APPROVED]
-  if (step.kind === 'step') {
-    return step.step.kind === 'findingsFixed' ? FINDINGS_FIXED : []
-  }
+  if (step.kind === 'step') return []
   if (scratch && (step.role.kind === 'read' || step.role.kind === 'search')) {
     return [SCRATCH]
   }

@@ -255,17 +255,11 @@ impl Store {
         })
     }
 
-    pub fn set_workspace_summary(
-        &self,
-        workspace_id: &str,
-        summary: &str,
-        source: &str,
-    ) -> Result<()> {
+    pub fn set_workspace_summary(&self, workspace_id: &str, summary: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "UPDATE workspaces SET summary = ?1, summary_at = datetime('now'), summary_source = ?2
-                 WHERE id = ?3",
-                rusqlite::params![summary, source, workspace_id],
+                "UPDATE workspaces SET summary = ?1, summary_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![summary, workspace_id],
             )?;
             Ok(())
         })
@@ -534,9 +528,9 @@ fn write_workspace(conn: &Connection, workspace: &WorkspaceRow) -> Result<()> {
     conn.execute(
         "INSERT INTO workspaces (
             id, repo_id, name, branch, base, worktree_path, status,
-            summary, summary_at, summary_source, kind, pr_number, pr_html_url, run_command
+            summary, summary_at, kind, pr_number, pr_html_url, run_command
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         rusqlite::params![
             workspace.id,
             workspace.repo_id,
@@ -547,7 +541,6 @@ fn write_workspace(conn: &Connection, workspace: &WorkspaceRow) -> Result<()> {
             workspace.status.as_str(),
             workspace.summary,
             workspace.summary_at,
-            workspace.summary_source,
             workspace.kind.as_str(),
             workspace.pr_number,
             workspace.pr_html_url,
@@ -620,7 +613,7 @@ fn row_to_repo(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
 }
 
 /// `WorkspaceRow`'s columns, in the order `workspace_at` reads them.
-const WORKSPACE_FIELDS: [&str; 16] = [
+const WORKSPACE_FIELDS: [&str; 15] = [
     "id",
     "repo_id",
     "name",
@@ -631,7 +624,6 @@ const WORKSPACE_FIELDS: [&str; 16] = [
     "created_at",
     "summary",
     "summary_at",
-    "summary_source",
     "kind",
     "pr_number",
     "pr_html_url",
@@ -718,12 +710,11 @@ pub(crate) fn workspace_at(row: &rusqlite::Row<'_>, at: usize) -> rusqlite::Resu
         created_at: row.get(at + 7)?,
         summary: row.get(at + 8)?,
         summary_at: row.get(at + 9)?,
-        summary_source: row.get(at + 10)?,
-        kind: WorkspaceKind::parse(row.get::<_, Option<String>>(at + 11)?.as_deref()),
-        pr_number: row.get(at + 12)?,
-        pr_html_url: row.get(at + 13)?,
-        archived_at: row.get(at + 14)?,
-        run_command: row.get(at + 15)?,
+        kind: WorkspaceKind::parse(row.get::<_, Option<String>>(at + 10)?.as_deref()),
+        pr_number: row.get(at + 11)?,
+        pr_html_url: row.get(at + 12)?,
+        archived_at: row.get(at + 13)?,
+        run_command: row.get(at + 14)?,
     })
 }
 
@@ -904,7 +895,7 @@ mod tests {
         store.seed_thread("t1", "w1", ThreadStatus::Idle);
 
         store
-            .set_workspace_summary("w1", "Working on login.", "Haiku 4.5")
+            .set_workspace_summary("w1", "Working on login.")
             .unwrap();
         let row = store.workspace_by_id("w1").unwrap().unwrap();
         assert_eq!(row.summary.as_deref(), Some("Working on login."));

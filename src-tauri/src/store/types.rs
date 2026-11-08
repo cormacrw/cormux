@@ -2,9 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
-use crate::model::{
-    SUMMARY_MODEL_LABEL, ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle,
-};
+use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -50,9 +48,9 @@ pub struct WorkspaceRow {
     pub worktree_path: String,
     pub status: WorkspaceLifecycle,
     pub created_at: String,
+    /// What the workspace's Lead shows above its thread, written by Cormux when setup is done.
     pub summary: Option<String>,
     pub summary_at: Option<String>,
-    pub summary_source: String,
     pub kind: WorkspaceKind,
     pub pr_number: Option<i64>,
     pub pr_html_url: Option<String>,
@@ -83,7 +81,6 @@ impl WorkspaceRow {
             created_at: String::new(),
             summary: None,
             summary_at: None,
-            summary_source: SUMMARY_MODEL_LABEL.into(),
             kind,
             pr_number: None,
             pr_html_url: None,

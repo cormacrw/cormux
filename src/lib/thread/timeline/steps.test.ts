@@ -14,7 +14,6 @@ function render(...events: TranscriptEvent[]) {
       event,
     })),
     approvals: [],
-    findingsFor: null,
   }).items
 }
 
@@ -133,7 +132,7 @@ describe('core steps in the timeline', () => {
       atMs: 0,
       event,
     }))
-    const input = { approvals: [], findingsFor: null }
+    const input = { approvals: [] }
     const builder = new TimelineBuilder()
     builder.build({ ...input, events: rows.slice(0, 2) })
     expect(builder.build({ ...input, events: rows })).toEqual(

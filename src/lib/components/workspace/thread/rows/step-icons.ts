@@ -27,6 +27,7 @@ const STEP_ICONS: Record<TimelineStep['kind'], IconName> = {
   prCheckedOut: 'pr',
   reviewSubmitted: 'pr',
   reviewFindingsUnreadable: 'tool',
+  reviewFindingsReady: 'list',
   findingsReceived: 'list',
   findingsFixed: 'check',
   legacy: 'tool',

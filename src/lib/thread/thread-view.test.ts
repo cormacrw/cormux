@@ -33,7 +33,6 @@ function sources(extra: Partial<ViewSources> = {}): ViewSources {
   return {
     events: timed(user('Fix it'), agent('On it')),
     approvals: [],
-    findingsFor: null,
     meta: running,
     currentTool: null,
     hasOlder: false,
@@ -116,13 +115,5 @@ describe('a thread view', () => {
     )
     expect(view.promptHistory).toEqual(['one', 'two'])
     expect(view.canClearSession).toBe(true)
-  })
-
-  it('ends with the findings card once the review is ready', () => {
-    const view = new ThreadViewBuilder().view(sources({ findingsFor: 'ws-1' }))
-    expect(view.items.at(-1)).toMatchObject({
-      kind: 'findings',
-      workspaceId: 'ws-1',
-    })
   })
 })

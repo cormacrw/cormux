@@ -44,7 +44,6 @@ export type ViewSources = {
   /** Undefined until the thread's history has been read. */
   events: TimedEvent[] | undefined
   approvals: ApprovalRow[]
-  findingsFor: string | null
   meta: ThreadMeta | undefined
   currentTool: string | null
   hasOlder: boolean
@@ -80,7 +79,6 @@ function sameSources(a: ViewSources, b: ViewSources) {
   return (
     a.events === b.events &&
     a.approvals === b.approvals &&
-    a.findingsFor === b.findingsFor &&
     a.currentTool === b.currentTool &&
     a.hasOlder === b.hasOlder &&
     a.generation === b.generation &&
@@ -109,7 +107,6 @@ export class ThreadViewBuilder {
     const fold = this.timeline.build({
       events: conversations.current.events,
       approvals: sources.approvals,
-      findingsFor: sources.findingsFor,
     })
     const meta = sources.meta
     const live = meta

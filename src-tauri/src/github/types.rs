@@ -34,7 +34,7 @@ pub enum PrReviewState {
 pub struct PullRequestPayload {
     pub num: i64,
     pub title: String,
-    /// GitHub login, or the literal `you` when the viewer authored the PR.
+    /// GitHub login, or [`VIEWER_AUTHOR`] when the viewer authored the PR.
     pub author: String,
     pub rel: PrRelationship,
     pub head: String,
@@ -52,8 +52,15 @@ pub struct PullRequestPayload {
     pub repo_id: Option<String>,
 }
 
+/// The author of a pull request the signed-in user opened, as the PR list shows it.
+pub const VIEWER_AUTHOR: &str = "you";
+
 impl PullRequestPayload {
     pub fn cache_id(&self) -> String {
         format!("{}#{}", self.repo_full_name, self.num)
+    }
+
+    pub fn authored_by_viewer(&self) -> bool {
+        self.author == VIEWER_AUTHOR
     }
 }

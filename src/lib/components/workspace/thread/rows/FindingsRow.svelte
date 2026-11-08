@@ -15,10 +15,14 @@
   }: { item: Extract<TimelineItem, { kind: 'findings' }>; ctx: RowContext } =
     $props()
 
-  const rows = $derived(findings.forWorkspace(item.workspaceId))
+  // A row only shows in the open thread, whose workspace ran the review.
+  const workspaceId = $derived(nav.workspaceId)
+  const rows = $derived(workspaceId ? findings.forWorkspace(workspaceId) : [])
 
   function openFindings() {
-    openWorkspaceFindings(item.workspaceId, nav.threadId ?? undefined)
+    if (workspaceId) {
+      openWorkspaceFindings(workspaceId, nav.threadId ?? undefined)
+    }
   }
 </script>
 

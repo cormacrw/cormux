@@ -51,8 +51,6 @@ export type Workspace = {
   pendingApprovals: number
   createdAtMs: number | null
   summary: string | null
-  summaryAtMs: number | null
-  summarySource: string
   prNumber: number | null
   prHtmlUrl: string | null
   provStep: number
@@ -147,8 +145,6 @@ export function workspacesFromSnapshot(
       pendingApprovals: pending.get(record.id) ?? 0,
       createdAtMs: parseTimestampMs(row?.createdAt),
       summary: row?.summary ?? null,
-      summaryAtMs: parseTimestampMs(row?.summaryAt ?? null),
-      summarySource: row?.summarySource ?? '',
       prNumber: row?.prNumber ?? null,
       prHtmlUrl: row?.prHtmlUrl ?? null,
       provStep: record.provStep,

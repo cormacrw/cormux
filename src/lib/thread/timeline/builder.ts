@@ -93,7 +93,7 @@ export class TimelineBuilder {
         approvals: input.approvals,
       }
     })
-    return finishFold(state, input)
+    return finishFold(state)
   }
 
   build(input: FoldInput): TimelineFold {

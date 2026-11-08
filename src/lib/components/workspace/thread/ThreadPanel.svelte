@@ -107,8 +107,8 @@
         onResume={(to) => switchConversation(threadId, to)}
       />
     {/snippet}
-    {#snippet intro(nowMs: number)}
-      <ThreadIntro {thread} {workspace} {nowMs} />
+    {#snippet intro()}
+      <ThreadIntro {thread} {workspace} />
     {/snippet}
   </ThreadConversation>
 

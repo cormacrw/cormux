@@ -14,7 +14,6 @@ use crate::github::Github;
 use crate::orchestration::Orchestration;
 use crate::paths::DataDir;
 use crate::stack::RemoteStackCache;
-use crate::summaries::Summaries;
 use crate::thread_runtime::{RuntimeParts, ThreadRuntime};
 use crate::transcript::Transcript;
 use crate::{
@@ -63,7 +62,6 @@ pub struct Core {
     pub github: Github,
     pub pr_sync: PrSyncScheduler,
     pub stacks: RemoteStackCache,
-    pub summaries: Summaries,
     pub orchestration: Orchestration,
 }
 
@@ -142,7 +140,6 @@ impl AppState {
             github,
             pr_sync: PrSyncScheduler::default(),
             stacks: RemoteStackCache::default(),
-            summaries: Summaries::default(),
             orchestration: Orchestration::default(),
         }))
     }

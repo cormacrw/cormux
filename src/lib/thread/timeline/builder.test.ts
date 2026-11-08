@@ -81,7 +81,6 @@ function input(count: number): FoldInput {
   return {
     events: rows.slice(0, count),
     approvals: [],
-    findingsFor: null,
   }
 }
 
@@ -131,7 +130,6 @@ describe('TimelineBuilder', () => {
       const next: FoldInput = {
         events: entries.slice(0, count),
         approvals: [],
-        findingsFor: null,
       }
       expect(builder.build(next)).toEqual(foldTimeline(next))
     }
@@ -159,7 +157,7 @@ describe('TimelineBuilder', () => {
       status,
       payload: '',
     })
-    const base = { events, findingsFor: null }
+    const base = { events }
     const builder = new TimelineBuilder()
     builder.build({ ...base, approvals: [row('pending')] as never })
     const items = builder.build({
@@ -189,7 +187,6 @@ describe('running subagents', () => {
         event,
       })),
       approvals: [],
-      findingsFor: null,
     }).agents
   }
 
@@ -235,7 +232,6 @@ describe('running subagents', () => {
         event,
       })),
       approvals: [],
-      findingsFor: null,
     })
     const run = items.find((item) => item.kind === 'toolRun')
     expect(run?.kind === 'toolRun' && run.steps[0]).toMatchObject({
@@ -266,7 +262,6 @@ describe('running subagents', () => {
       const next: FoldInput = {
         events: entries.slice(0, count),
         approvals: [],
-        findingsFor: null,
       }
       expect(builder.build(next)).toEqual(foldTimeline(next))
     }

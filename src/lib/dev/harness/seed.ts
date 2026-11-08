@@ -46,13 +46,21 @@ function seedReviewFindings(
   })
   persisted.findings = findings
   persisted.reviews = [
-    {
-      workspaceId: WORKSPACE_ID,
-      status: 'ready',
-      author: null,
-      submitted: false,
-    },
+    { workspaceId: WORKSPACE_ID, status: 'ready', submitted: false },
   ]
+  // The core records the card in the thread that ran the review.
+  appendEvent(
+    db,
+    LEAD_THREAD_ID,
+    {
+      type: 'step',
+      id: 'step-findings-ready',
+      title: `Review found ${findings.length} findings`,
+      detail: null,
+      step: { kind: 'reviewFindingsReady', count: findings.length },
+    },
+    SEEDED_AT,
+  )
 }
 
 function seedLeadUsage(

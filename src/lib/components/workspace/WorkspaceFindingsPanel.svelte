@@ -46,7 +46,7 @@
     threads.forWorkspace(workspaceId).filter((thread) => !thread.retired),
   )
   const reviewer = $derived(
-    wsThreads.find((thread) => thread.role === 'Reviewer') ?? wsThreads[0],
+    wsThreads.find((thread) => thread.ownRole === 'reviewer') ?? wsThreads[0],
   )
   const selected = $derived(findings.selectedIds(workspaceId))
   const summary = $derived(selectedSummary(rows, selected))

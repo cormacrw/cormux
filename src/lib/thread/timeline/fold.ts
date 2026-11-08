@@ -23,8 +23,6 @@ export type FoldInput = {
    */
   events: { seq: number; atMs?: number; event: TranscriptEvent }[]
   approvals: ApprovalRow[]
-  /** The workspace whose review findings are ready, which ends the thread with their card. */
-  findingsFor: string | null
 }
 
 export type TimelineFold = {
@@ -56,6 +54,7 @@ const STEP_ROW: Record<TimelineStep['kind'], 'divider' | 'run'> = {
   prCheckedOut: 'divider',
   reviewSubmitted: 'divider',
   reviewFindingsUnreadable: 'divider',
+  reviewFindingsReady: 'divider',
   findingsReceived: 'run',
   findingsFixed: 'run',
   legacy: 'divider',
@@ -219,6 +218,11 @@ function foldEvent(
       break
     }
     case 'step': {
+      if (event.step.kind === 'reviewFindingsReady') {
+        flushRun(run, items, state.runSeq)
+        items.push({ kind: 'findings', id: event.id, seq })
+        break
+      }
       if (!joinsRun(event.step)) {
         flushRun(run, items, state.runSeq)
         items.push({
@@ -334,21 +338,13 @@ function runningAgents(agents: ToolStep[]): RunningAgent[] {
   })
 }
 
-export function finishFold(state: FoldState, input: FoldInput): TimelineFold {
+export function finishFold(state: FoldState): TimelineFold {
   flushRun(state.run, state.items, state.runSeq)
   // A thought right before the reply can hold the answer too, so the reply stands alone.
   const items = state.items.filter(
     (item, index) =>
       !(item.kind === 'thought' && state.items[index + 1]?.kind === 'reply'),
   )
-  if (input.findingsFor) {
-    items.push({
-      kind: 'findings',
-      id: 'findings',
-      workspaceId: input.findingsFor,
-      seq: input.events.at(-1)?.seq ?? 0,
-    })
-  }
   return { items, agents: runningAgents(state.agents) }
 }
 
@@ -369,5 +365,5 @@ export function foldEvents(
 export function foldTimeline(input: FoldInput): TimelineFold {
   const state = foldState()
   foldEvents(state, input.events, input.approvals)
-  return finishFold(state, input)
+  return finishFold(state)
 }

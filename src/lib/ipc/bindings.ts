@@ -275,17 +275,6 @@ async discardWorkspaceChanges(workspaceId: string, paths: string[]) : Promise<Re
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Generate or return a cached workspace card summary (debounced LLM + local fallback).
- */
-async summariseWorkspace(workspaceId: string) : Promise<Result<WorkspaceSummaryResult, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("summarise_workspace", { workspaceId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async syncPullRequests() : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("sync_pull_requests") };
@@ -914,7 +903,7 @@ export type ClickupTask = { id: string; customId: string | null; name: string; s
 export type ClickupTaskDetail = { task: ClickupTask; description: string; tags: ClickupTag[]; creator: ClickupUser | null; listName: string | null; dueMs: number | null; createdMs: number | null; updatedMs: number | null }
 export type ClickupUser = { id: number; username: string; initials: string; color: string | null }
 export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
-export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number; title: string; head: string; base: string; author: string; authorIsYou: boolean; filesChanged: number; prHtmlUrl: string | null }
+export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number }
 export type CreateReviewWorkspaceResult = { workspaceId: string; created: boolean }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type CreateWorkspaceInput = { repoId: string; name: string; 
@@ -960,7 +949,15 @@ export type DiffUpdate = { workspaceId: string; diff: WorktreeDiff | null }
  * Findings to dismiss, or (with `dismissed: false`) to restore.
  */
 export type DismissWorkspaceFindingsInput = { workspaceId: string; findingIds: string[]; dismissed: boolean }
-export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean }
+export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean; 
+/**
+ * The branch the PR will target: the base, or the branch below in a stack.
+ */
+base: string; 
+/**
+ * What the PR will show, against `base`.
+ */
+files: number; added: number; deleted: number }
 export type EditVerb = "Edited" | "Created" | "Deleted"
 /**
  * The engine a thread runs on. Claude is the only one; the name is kept on threads and in
@@ -1072,7 +1069,7 @@ dataBase64: string | null }
 export type PtyChunk = { workspaceId: string; line: string }
 export type PullRequestPayload = { num: number; title: string; 
 /**
- * GitHub login, or the literal `you` when the viewer authored the PR.
+ * GitHub login, or [`VIEWER_AUTHOR`] when the viewer authored the PR.
  */
 author: string; rel: PrRelationship; head: string; base: string; updatedAt: string; checks: PrChecksState; failing: number | null; review: PrReviewState; additions: number; deletions: number; files: number; isDraft: boolean; htmlUrl: string; repoFullName: string; repoId: string | null }
 export type QuestionOption = { label: string; description?: string }
@@ -1111,10 +1108,6 @@ export type ReviewRow = { workspaceId: string;
  */
 status: ReviewStatus | null; 
 /**
- * The PR author as cards name them: `you` or `@login`.
- */
-author: string | null; 
-/**
  * The review was posted to GitHub.
  */
 submitted: boolean }
@@ -1127,6 +1120,7 @@ export type ReviewStatus =
  * The findings are in.
  */
 "ready"
+export type ReviewVerdict = "approve" | "requestChanges" | "comment"
 /**
  * Where a run command comes from.
  */
@@ -1282,8 +1276,7 @@ export type StreamLagged = { type: "streamLagged"; missed: number }
  * event that failed to save.
  */
 export type StreamedEvent = { seq: number | null; event: TranscriptEvent }
-export type SubmitReviewVerdict = "approve" | "requestChanges" | "comment"
-export type SubmitWorkspaceReviewInput = { workspaceId: string; verdict: SubmitReviewVerdict }
+export type SubmitWorkspaceReviewInput = { workspaceId: string; verdict: ReviewVerdict }
 export type SwitchWorkspaceBranchInput = { workspaceId: string; branch: string }
 export type TeardownDataLoss = { uncommittedFiles: number; unpushedCommits: number; hasDataLoss: boolean; warning: string | null }
 export type TeardownInput = { workspaceId: string; deleteBranch: boolean }
@@ -1361,7 +1354,11 @@ export type TimelineStep = { kind: "agentStopped" } | { kind: "agentPaused" } | 
 /**
  * `ended_session` is what the conversation before it can be resumed from.
  */
-{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | { kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] } | 
+{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | { kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | 
+/**
+ * The review this thread ran found something; its card opens the Findings panel.
+ */
+{ kind: "reviewFindingsReady"; count: number } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] } | 
 /**
  * A step an older build saved with only its English title, which drew it the way `icon`
  * and `run` say: between turns, or among the agent's steps.
@@ -1445,7 +1442,11 @@ export type WorkspaceRow = { id: string; repoId: string; name: string; branch: s
 /**
  * The branch the workspace is compared with and pulls from.
  */
-base: string; worktreePath: string; status: WorkspaceLifecycle; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: WorkspaceKind; prNumber: number | null; prHtmlUrl: string | null; archivedAt: string | null; 
+base: string; worktreePath: string; status: WorkspaceLifecycle; createdAt: string; 
+/**
+ * What the workspace's Lead shows above its thread, written by Cormux when setup is done.
+ */
+summary: string | null; summaryAt: string | null; kind: WorkspaceKind; prNumber: number | null; prHtmlUrl: string | null; archivedAt: string | null; 
 /**
  * The workspace's own run command, which Run starts instead of the repo's.
  */
@@ -1464,7 +1465,6 @@ currentNeedsRebase: boolean;
  * Bottom of the stack (closest to the trunk) first.
  */
 branches: StackBranch[] }
-export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
 export type WorktreeDiff = { workspaceId: string; 
 /**
  * What the diff shows; `None` means uncommitted changes vs `HEAD`.

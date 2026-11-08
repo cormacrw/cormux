@@ -86,10 +86,9 @@ export type TimelineItem =
       atMs: number
     }
   | {
-      /** The workspace's review finished with findings to look at. */
+      /** The review this thread ran found something to look at. */
       kind: 'findings'
       id: string
-      workspaceId: string
       seq: number
     }
 

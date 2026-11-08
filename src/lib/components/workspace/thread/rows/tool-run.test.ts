@@ -19,7 +19,6 @@ function build(...events: TranscriptEvent[]): TimelineItem[] {
   return new TimelineBuilder().build({
     events: events.map((event, index) => ({ seq: index + 1, event })),
     approvals: [],
-    findingsFor: null,
   }).items
 }
 
@@ -118,6 +117,7 @@ const STEP_ICONS: {
     'pr',
   ],
   reviewSubmitted: [{ kind: 'reviewSubmitted', number: 7 }, 'pr'],
+  reviewFindingsReady: [{ kind: 'reviewFindingsReady', count: 2 }, 'list'],
   reviewFindingsUnreadable: [
     { kind: 'reviewFindingsUnreadable', reason: 'no block' },
     'tool',
@@ -245,12 +245,9 @@ describe('chips', () => {
     expect(stepChips(ran!, true)).toEqual([])
   })
 
-  it('gives fixed findings their chips from the kind, not the words', () => {
+  it('claims nothing about fixed findings that the core never checked', () => {
     const [fixed] = stepsOf(step(STEP_ICONS.findingsFixed[0]))
-    expect(stepChips(fixed!, false)).toEqual([
-      { label: 'Tests pass', tone: 'success' },
-      { label: 'Committed locally, not pushed', tone: 'muted' },
-    ])
+    expect(stepChips(fixed!, false)).toEqual([])
   })
 
   it('shows a run of reads its shared chip once', () => {

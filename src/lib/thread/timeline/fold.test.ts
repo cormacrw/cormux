@@ -24,7 +24,6 @@ function build(
         : { seq: index + 1, event: entry },
     ),
     approvals,
-    findingsFor: null,
   })
 }
 
@@ -359,23 +358,30 @@ describe('the timeline fold', () => {
     ])
   })
 
-  it('ends the thread with the findings card once its review is ready', () => {
+  it('shows the findings card where the core recorded it, and nowhere else', () => {
     const fold = new TimelineBuilder().build({
       events: [
         {
           seq: 7,
-          event: { type: 'messageChunk', role: 'agent', text: 'Done' },
+          event: {
+            type: 'step',
+            id: 'step-ready',
+            title: 'Review found 2 findings',
+            detail: null,
+            step: { kind: 'reviewFindingsReady', count: 2 },
+          },
+        },
+        {
+          seq: 8,
+          event: { type: 'messageChunk', role: 'agent', text: 'Fixing them' },
         },
       ],
       approvals: [],
-      findingsFor: 'ws-1',
     })
-    expect(fold.items.at(-1)).toEqual({
-      kind: 'findings',
-      id: 'findings',
-      workspaceId: 'ws-1',
-      seq: 7,
-    })
+    expect(fold.items.filter((item) => item.kind === 'findings')).toEqual([
+      { kind: 'findings', id: 'step-ready', seq: 7 },
+    ])
+    expect(fold.items.at(-1)?.kind).toBe('reply')
   })
 
   it('leaves a hidden call out', () => {

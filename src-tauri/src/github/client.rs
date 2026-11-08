@@ -6,7 +6,9 @@ use crate::error::Error;
 
 use super::Gh;
 
-use super::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
+use super::types::{
+    PrChecksState, PrRelationship, PrReviewState, PullRequestPayload, VIEWER_AUTHOR,
+};
 
 const SEARCH_QUERY: &str = r#"
 query($q: String!, $after: String) {
@@ -202,7 +204,7 @@ fn map_pr(
     let repo_id = super::r#match::match_repo_id(repo_origins, &repo_full_name);
     // Deleted accounts come back as a null author; GitHub shows them as "ghost".
     let author = match pr.author {
-        Some(author) if author.login.eq_ignore_ascii_case(viewer) => "you".into(),
+        Some(author) if author.login.eq_ignore_ascii_case(viewer) => VIEWER_AUTHOR.into(),
         Some(author) => author.login,
         None => "ghost".into(),
     };

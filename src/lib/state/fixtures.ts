@@ -19,8 +19,6 @@ export function workspaceFixture(patch: Partial<Workspace> = {}): Workspace {
     pendingApprovals: 0,
     createdAtMs: null,
     summary: null,
-    summaryAtMs: null,
-    summarySource: 'Haiku 4.5',
     prNumber: null,
     prHtmlUrl: null,
     provStep: 0,

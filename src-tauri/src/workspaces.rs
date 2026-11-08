@@ -243,8 +243,9 @@ impl Workspaces {
         self.store.set_workspace_pr(id, number, html_url)
     }
 
-    pub fn set_summary(&self, id: &str, summary: &str, source: &str) -> Result<()> {
-        self.store.set_workspace_summary(id, summary, source)
+    /// The text the workspace's Lead shows above its thread, written by Cormux.
+    pub fn set_summary(&self, id: &str, summary: &str) -> Result<()> {
+        self.store.set_workspace_summary(id, summary)
     }
 
     /// The workspace's own run command; blank goes back to the repo's.
@@ -495,9 +496,7 @@ mod tests {
         let store = store_with_repo("main");
         let root = tempfile::tempdir().unwrap();
         let workspaces = registered(&store, root.path()).await;
-        workspaces
-            .set_summary("w", "Started.", crate::model::SUMMARY_MODEL_LABEL)
-            .unwrap();
+        workspaces.set_summary("w", "Started.").unwrap();
         workspaces
             .set_pr("w", Some(7), Some("https://github.com/o/r/pull/7"))
             .unwrap();

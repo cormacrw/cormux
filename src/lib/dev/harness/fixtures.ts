@@ -49,7 +49,6 @@ export function workspaceFixture(fields: NewWorkspace): {
       createdAt,
       summary: null,
       summaryAt: null,
-      summarySource: 'Haiku 4.5',
       kind: 'lead',
       prNumber: null,
       prHtmlUrl: null,

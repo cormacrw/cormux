@@ -32,10 +32,8 @@ import {
   type TimedEvent,
 } from '$lib/thread/timed-events'
 import { appearance } from '../state/appearance.svelte'
-import { findings } from '../findings/store.svelte'
 import { scratches } from '../state/scratches.svelte'
-import { threads, type Thread } from '../state/threads.svelte'
-import { workspaces } from '../state/workspaces.svelte'
+import { threads } from '../state/threads.svelte'
 import { threadActivity } from '../state/activity'
 
 const PAGE = 2000
@@ -150,16 +148,6 @@ export class ThreadTimelineStore {
     if (next) this.activityByThread = next
   }
 
-  /** The workspace whose review findings the thread ends with, if they're ready. */
-  private findingsFor(thread: Thread | undefined): string | null {
-    if (!thread) return null
-    const workspaceId = thread.workspaceId
-    if (!findings.forWorkspace(workspaceId).length) return null
-    return workspaces.getById(workspaceId)?.reviewStatus === 'ready'
-      ? workspaceId
-      : null
-  }
-
   /** Everything the thread's conversation shows; the same object until something in it changes. */
   threadView(threadId: string): ThreadView {
     let builder = this.views.get(threadId)
@@ -172,7 +160,6 @@ export class ThreadTimelineStore {
     return builder.view({
       events: this.eventsByThread[threadId],
       approvals: this.approvalsByThread.get(threadId) ?? NO_APPROVALS,
-      findingsFor: this.findingsFor(thread),
       meta: thread
         ? {
             status: thread.status,

@@ -4,7 +4,7 @@
   import { Button } from '$lib/components/ui/button/index.js'
   import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
-  import type { SubmitReviewVerdict } from '$lib/ipc/bindings'
+  import type { ReviewVerdict } from '$lib/ipc/bindings'
   import { coreErrorText } from '$lib/core/core-error'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { shellDialogs, workspaces } from '$lib/state'
@@ -17,7 +17,7 @@
     workspaceId ? workspaces.getById(workspaceId) : undefined,
   )
 
-  let verdict = $state<SubmitReviewVerdict>('comment')
+  let verdict = $state<ReviewVerdict>('comment')
   let submitting = $state(false)
   let submitError = $state<string | null>(null)
 
