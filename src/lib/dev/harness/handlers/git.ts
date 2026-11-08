@@ -143,15 +143,25 @@ export function gitHandlers({
     push_stack: () => null,
     sync_stack: () => null,
     default_pr_prompt: () => 'Write the description for this pull request.',
-    draft_pr_why: ({ workspaceId }: { workspaceId: string }) => ({
-      workspaceId,
-      text: 'Lets people sign in with their Google account.',
-      fromLlm: false,
-      base: 'main',
-      files: 3,
-      added: 42,
-      deleted: 7,
-    }),
+    // Like the core: a stacked branch's PR targets the branch below it, counted against it.
+    draft_pr_why: ({ workspaceId }: { workspaceId: string }) => {
+      const branch = currentBranch(workspaceId)
+      const index = stackBranches.indexOf(branch)
+      const [added, deleted, , files] =
+        index >= 0 ? (STACK_STATS[branch] ?? [0, 0, 0, 0]) : [42, 7, 0, 3]
+      return {
+        workspaceId,
+        text: 'Lets people sign in with their Google account.',
+        fromLlm: false,
+        base:
+          index >= 0
+            ? (stackBranches[index - 1] ?? 'main')
+            : (findWorkspace(workspaceId).record?.base ?? 'main'),
+        files,
+        added,
+        deleted,
+      }
+    },
     get_repo_git: () => scenario.repoGit ?? [],
     list_repo_branches: () => ({
       branches: ['main', 'develop', 'feat/oauth-login'],
