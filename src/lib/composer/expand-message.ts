@@ -1,4 +1,6 @@
-import { commands } from '$lib/ipc'
+import { commands, type CoreError } from '$lib/ipc'
+import { coreErrorText } from '$lib/core/core-error'
+import { toastCoreError } from '$lib/feedback/wire-feedback'
 import type { ClickupTask } from '$lib/ipc/bindings'
 import { clickup } from '$lib/clickup/store.svelte'
 import { repos } from '$lib/state/repos.svelte'
@@ -6,6 +8,20 @@ import { settings } from '$lib/settings/store.svelte'
 import { expandBangs } from '$lib/bangs/bangs'
 import { expandRepoAliases } from './repo-aliases'
 import { expandTaskAliases, taskContext } from './task-aliases'
+
+/** The message still goes, without the task's context; the user should know that. */
+function descriptionLeftOut(task: ClickupTask, error: unknown) {
+  toastCoreError(
+    `Sent without the description of “${task.name}”: ${errorText(error)}`,
+  )
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'object' && error !== null && 'kind' in error)
+    return coreErrorText(error as CoreError, 'ClickUp didn’t answer')
+  return String(error)
+}
 
 /** How long sending waits for a task's description before going without it. */
 const DESCRIPTION_WAIT_MS = 3000
@@ -15,8 +31,15 @@ async function description(task: ClickupTask): Promise<string> {
   if (known !== undefined) return known
   const fetched = commands
     .clickupTask(task.id)
-    .then((result) => (result.status === 'ok' ? result.data.description : ''))
-    .catch(() => '')
+    .then((result) => {
+      if (result.status === 'ok') return result.data.description
+      descriptionLeftOut(task, result.error)
+      return ''
+    })
+    .catch((error: unknown) => {
+      descriptionLeftOut(task, error)
+      return ''
+    })
   const timeout = new Promise<string>((done) =>
     setTimeout(() => done(''), DESCRIPTION_WAIT_MS),
   )

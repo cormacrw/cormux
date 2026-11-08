@@ -102,6 +102,12 @@
   })
 </script>
 
+{#snippet failure()}
+  {#if sendError}
+    <p class="text-xs text-destructive">{sendError}</p>
+  {/if}
+{/snippet}
+
 <div
   id="findings-panel"
   role="region"
@@ -369,6 +375,7 @@
             No findings to send.
           {/if}
         </p>
+        {@render failure()}
         {#if rows.length && dismissedCount < rows.length && liveThread}
           <span class="grow"></span>
           <Button variant="secondary" onclick={goToTargetThread}>
@@ -381,9 +388,7 @@
           {barSummary}
         </p>
         <span class="grow"></span>
-        {#if sendError}
-          <p class="text-xs text-destructive">{sendError}</p>
-        {/if}
+        {@render failure()}
         <Button
           variant="outline"
           data-od-id="findings-dismiss-selected"

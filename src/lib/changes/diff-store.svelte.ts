@@ -54,7 +54,8 @@ class WorkspaceDiffStore {
   /**
    * Track a diff fetch. The result arrives on the diff channel, so a retarget
    * stays pending until an update for the new target lands; a plain refresh
-   * clears when the command returns, since an unchanged diff sends nothing.
+   * clears when the command returns, since an unchanged diff sends nothing. So does
+   * a retarget back to what's already showing.
    */
   async fetch(
     workspaceId: string,
@@ -71,10 +72,11 @@ class WorkspaceDiffStore {
     this.failedByWorkspace[workspaceId] = false
     const ok = await run()
     if (!ok) this.failedByWorkspace[workspaceId] = true
-    if (
-      (!ok || !retarget) &&
-      this.pendingByWorkspace[workspaceId] === pending
-    ) {
+    const settled =
+      !ok ||
+      !retarget ||
+      sameDiffTarget(this.target(workspaceId), retarget.target)
+    if (settled && this.pendingByWorkspace[workspaceId] === pending) {
       this.clearPending(workspaceId)
     }
   }

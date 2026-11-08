@@ -110,6 +110,16 @@ test('findings: selectable text, checkbox-only toggles, location opens Changes a
     .locator('[data-diff-path="src/auth/session.ts"] [data-line-new-num="4"]')
     .first()
   await expect(row).toBeInViewport()
+  // The line flashes, though the panel had only just mounted.
+  await expect
+    .poll(() =>
+      row.evaluate((el) =>
+        [...el.closest('tr')!.cells].some(
+          (cell) => cell.getAnimations().length > 0,
+        ),
+      ),
+    )
+    .toBe(true)
   await page.screenshot({ path: 'e2e/output/review-findings-changes.png' })
   expect(errors).toEqual([])
 })

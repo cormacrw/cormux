@@ -5,6 +5,7 @@ import {
   leadThreadFixture,
   REPO_ID,
   WORKSPACE_ID,
+  workspaceFixture,
 } from './fixtures'
 import type { HarnessScenario } from './scenario'
 
@@ -112,6 +113,20 @@ export function seedFixtures(db: HarnessDb, scenario: HarnessScenario) {
   if (scenario.pullRequests) {
     persisted.pullRequests = scenario.pullRequests
     snapshot.githubAuthConfigured = true
+  }
+  if (scenario.secondWorkspace) {
+    const { row, record } = workspaceFixture({
+      id: 'ws-billing',
+      repoId: REPO_ID,
+      name: 'Billing fix',
+      branch: 'fix/billing',
+      base: 'main',
+      worktreePath: '/tmp/cormux-fixture/billing',
+      createdAtMs: 1,
+    })
+    persisted.workspaces.push(row)
+    snapshot.workspaces.push(record)
+    persisted.threads.push(leadThreadFixture('th-billing', 'ws-billing'))
   }
   if (scenario.retiredThread) {
     persisted.threads.unshift({

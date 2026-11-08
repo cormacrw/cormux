@@ -10,7 +10,10 @@ export function openSettings(
   navigate({ view: 'settings', ...at })
 }
 
-/** Settings › Repositories with this repo open and its run command field focused. */
+/**
+ * Settings › Repositories with this repo open and its run command field focused. The repo is
+ * where it scrolls to, so there's no section for the page to jump to as well.
+ */
 export function openRepoRunCommand(repoId: string) {
-  openSettings({ section: 'repos', repoId, field: 'runCommand' })
+  openSettings({ repoId, field: 'runCommand' })
 }

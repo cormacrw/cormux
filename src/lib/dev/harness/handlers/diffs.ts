@@ -35,8 +35,15 @@ export function diffHandlers(runtime: HarnessRuntime) {
   const uncommittedFiles = () =>
     diffFiles().filter((file) => discarded && !discarded.has(file.path))
 
+  const sameTarget = (a: DiffTarget | null, b: DiffTarget | null) =>
+    JSON.stringify(a) === JSON.stringify(b)
+  // What the last diff sent showed, and what the panel last asked for.
+  let sentTarget: DiffTarget | null | undefined
+  let wantedTarget: DiffTarget | null = null
+
   const sendDiff = (target: DiffTarget | null) => {
     if (!runtime.diffChannel) return
+    sentTarget = target
     runtime.send(runtime.diffChannel, {
       workspaceId: db.diff.workspaceId,
       diff: {
@@ -62,17 +69,26 @@ export function diffHandlers(runtime: HarnessRuntime) {
       return runtime.newId()
     },
     refresh_workspace_diff: () => null,
-    set_workspace_diff_target: ({
+    set_workspace_diff_target: async ({
       workspaceId,
       target,
     }: {
       workspaceId: string
       target: DiffTarget | null
     }) => {
-      // The new diff follows on the channel once the command has returned.
-      if (workspaceId === db.diff.workspaceId) {
-        queueMicrotask(() => sendDiff(target ?? null))
-      }
+      if (workspaceId !== db.diff.workspaceId) return null
+      const next = target ?? null
+      wantedTarget = next
+      const ms = next ? (scenario.slowBranchDiff ?? 0) : 0
+      if (ms) await new Promise((resolve) => setTimeout(resolve, ms))
+      // As in the core: a compute the panel has moved on from is dropped, and an unchanged diff
+      // isn't sent again. Otherwise it follows on the channel once the command has returned.
+      if (
+        !sameTarget(wantedTarget, next) ||
+        sameTarget(sentTarget ?? null, next)
+      )
+        return null
+      queueMicrotask(() => sendDiff(next))
       return null
     },
     discard_workspace_changes: ({

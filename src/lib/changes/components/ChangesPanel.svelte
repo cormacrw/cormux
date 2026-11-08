@@ -107,14 +107,16 @@
   $effect(() => {
     const reveal = nav.route.view === 'workspace' ? nav.route.reveal : null
     const target = reveal && files.find((file) => file.path === reveal.path)
-    if (!reveal || !target) return
+    // Waits for the list to mount, which a first open of the panel holds back a frame.
+    const scroller = scrollEl
+    if (!reveal || !target || !scroller) return
     const { path, line } = reveal
     untrack(() => {
       nav.take('workspace', 'reveal')
       if (changesUi.isCollapsed(target)) changesUi.setCollapsed([target], false)
     })
     void tick().then(() => {
-      const fileEl = scrollEl?.querySelector(
+      const fileEl = scroller.querySelector(
         `[data-diff-path="${CSS.escape(path)}"]`,
       )
       fileEl?.scrollIntoView({ block: 'start' })

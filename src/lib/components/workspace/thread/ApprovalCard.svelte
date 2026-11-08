@@ -50,18 +50,21 @@
       )
       if (result.status === 'error') {
         toastCoreError(result.error, 'Could not resolve approval')
+        return
       }
     } catch (error) {
       toastCoreError(error)
+      return
     } finally {
       resolving = false
-      denying = false
-      denyReason = ''
-      // Back to the prompt once it's answered; the card itself if there's no composer.
-      queueMicrotask(() => {
-        if (!focusPrompt()) cardEl?.focus({ preventScroll: true })
-      })
     }
+    // Answered: back to the prompt, or the card itself if there's no composer. A failure keeps
+    // the card as it was, reason and all, to try again.
+    denying = false
+    denyReason = ''
+    queueMicrotask(() => {
+      if (!focusPrompt()) cardEl?.focus({ preventScroll: true })
+    })
   }
 
   function startDeny() {
