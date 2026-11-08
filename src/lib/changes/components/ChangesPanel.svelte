@@ -3,6 +3,7 @@
   import { pluralWord } from '$lib/format/plural'
   import TrayControls from '$lib/components/tray/TrayControls.svelte'
   import { onMount, tick, untrack } from 'svelte'
+  import type { Action } from 'svelte/action'
   import { afterPaint } from '$lib/changes/mount-queue'
   import { commands } from '$lib/ipc'
   import { coreErrorText } from '$lib/core/core-error'
@@ -101,6 +102,17 @@
     untrack(() => refresh(id))
   })
 
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const fileRows = new Map<string, HTMLElement>()
+  const trackFile: Action<HTMLElement, string> = (node, path) => {
+    fileRows.set(path, node)
+    return {
+      destroy: () => {
+        if (fileRows.get(path) === node) fileRows.delete(path)
+      },
+    }
+  }
+
   // A file link (conversation, findings) expands that file and scrolls to it, or to its line.
   $effect(() => {
     const reveal = nav.route.view === 'workspace' ? nav.route.reveal : null
@@ -114,9 +126,7 @@
       if (changesUi.isCollapsed(target)) changesUi.setCollapsed([target], false)
     })
     void tick().then(() => {
-      const fileEl = scroller.querySelector(
-        `[data-diff-path="${CSS.escape(path)}"]`,
-      )
+      const fileEl = fileRows.get(path)
       if (!fileEl) return
       scrollWithin(scroller, fileEl, 'start')
       if (line != null) revealDiffLine(scroller, fileEl, line)
@@ -290,7 +300,6 @@
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div
           bind:this={scrollEl}
-          data-diff-scroller
           class="min-h-0 flex-1 overflow-y-auto [contain:strict]"
           tabindex="0"
           role="region"
@@ -300,6 +309,8 @@
             workspaceId={workspace.id}
             branch={commentScope}
             {files}
+            scroller={scrollEl}
+            {trackFile}
             onDiscard={canDiscard
               ? (file) => (discardRequest = { file, count: 1 })
               : undefined}

@@ -18,7 +18,8 @@ export async function loadView(
 /** Each shell dialog's component, mounted the first time it opens. */
 export const SHELL_DIALOGS: Record<ShellDialogId, Loader> = {
   teardown: () => import('../workspace/TeardownDialog.svelte'),
-  createPr: () => import('../workspace/CreatePrDialog.svelte'),
-  submitReview: () => import('../workspace/SubmitReviewDialog.svelte'),
+  createPr: () => import('$lib/create-pr/components/CreatePrDialog.svelte'),
+  submitReview: () =>
+    import('$lib/review/components/SubmitReviewDialog.svelte'),
   endScratch: () => import('../scratch/EndScratchDialog.svelte'),
 }

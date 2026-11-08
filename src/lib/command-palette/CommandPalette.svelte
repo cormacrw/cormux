@@ -12,7 +12,6 @@
   import { bangPreview, paletteBang } from '$lib/bangs/bangs'
   import { palette } from '$lib/command-palette/store.svelte'
   import { settings } from '$lib/settings/store.svelte'
-  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import type { Component } from 'svelte'
   import Download from '@lucide/svelte/icons/download'
   import GitBranch from '@lucide/svelte/icons/git-branch'
@@ -97,11 +96,6 @@
 
   $effect(() => {
     if (palette.isOpen) query = ''
-  })
-
-  // A dialog opening from a shortcut takes over from the palette.
-  $effect(() => {
-    if (shellDialogs.anyOpen()) palette.close()
   })
 </script>
 

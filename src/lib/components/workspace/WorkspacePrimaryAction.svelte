@@ -3,12 +3,9 @@
   import ShortcutKbd from '$lib/primitives/ShortcutKbd.svelte'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import {
-    branchPullRequest,
-    primaryPrActionLabel,
-  } from '$lib/create-pr/pr-header'
-  import { prs, shellDialogs } from '$lib/state'
-  import { stacks } from '$lib/changes/stacks.svelte'
+  import { primaryPrActionLabel } from '$lib/changes/branch-pr'
+  import { canCreatePr, workspacePr } from '$lib/changes/workspace-pr'
+  import { shellDialogs } from '$lib/state'
   import { openExternal } from '$lib/feedback/open-external'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
 
@@ -22,18 +19,7 @@
     workspace.kind === 'review' && workspace.reviewSubmitted,
   )
 
-  const stackPr = $derived(stacks.branchFor(workspace.id, workspace.branch)?.pr)
-  // Any PR for the checked-out branch, not just one this workspace opened.
-  const branchPr = $derived(
-    branchPullRequest({
-      items: prs.items,
-      repoId: workspace.repoId,
-      branch: workspace.branch,
-      prNumber: workspace.prNumber,
-      prHtmlUrl: workspace.prHtmlUrl,
-      stackPr,
-    }),
-  )
+  const branchPr = $derived(workspacePr(workspace))
   const prLabel = $derived(
     branchPr ? primaryPrActionLabel(branchPr.synced, branchPr.number) : '',
   )
@@ -58,7 +44,9 @@
       void openExternal(prUrl)
       return
     }
-    shellDialogs.open('createPr', { workspaceId: workspace.id })
+    if (canCreatePr(workspace)) {
+      shellDialogs.open('createPr', { workspaceId: workspace.id })
+    }
   }
 </script>
 

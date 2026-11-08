@@ -107,7 +107,7 @@ test('findings: selectable text, checkbox-only toggles, location opens Changes a
   await panel.getByRole('button', { name: 'src/auth/session.ts:4' }).click()
   await expect(page.locator('#changes-panel')).toBeVisible()
   const row = page
-    .locator('[data-diff-path="src/auth/session.ts"] [data-line-new-num="4"]')
+    .locator('#changes-file-src_auth_session_ts [data-line-new-num="4"]')
     .first()
   await expect(row).toBeInViewport()
   // The line flashes, though the panel had only just mounted.

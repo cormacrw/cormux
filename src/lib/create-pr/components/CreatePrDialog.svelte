@@ -46,8 +46,6 @@
       : '',
   )
 
-  const MIN_DRAFT_MS = 1200
-
   async function startDraft() {
     if (!workspaceId || !workspace) return
     const generation = ++draftGeneration
@@ -58,10 +56,7 @@
     draft = null
     hint = 'Drafting from the thread and diff…'
 
-    const minDelay = new Promise((resolve) => setTimeout(resolve, MIN_DRAFT_MS))
-    const draftPromise = commands.draftPrWhy(workspaceId)
-
-    const [draftResult] = await Promise.all([draftPromise, minDelay])
+    const draftResult = await commands.draftPrWhy(workspaceId)
     if (generation !== draftGeneration || !open) return
 
     if (draftResult.status === 'error') {

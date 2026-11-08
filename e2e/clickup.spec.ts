@@ -212,4 +212,33 @@ test.describe('clickup', () => {
     await expect(lanes).toHaveCount(4)
     await expect(menu).not.toContainText('hidden')
   })
+
+  test('a drag called off with Escape doesn’t open the card on release', async ({
+    page,
+  }) => {
+    await enableClickup(page)
+    await page.goto('/')
+    await page
+      .getByRole('navigation', { name: 'Sidebar' })
+      .getByRole('button', { name: /Sprint/ })
+      .click()
+    const card = page.locator('[data-task-id="t1"]')
+    const from = (await card.boundingBox())!
+    await page.mouse.move(from.x + 20, from.y + 20)
+    await page.mouse.down()
+    await page.mouse.move(from.x + 40, from.y + 30, { steps: 4 })
+    await page.keyboard.press('Escape')
+    await page.mouse.move(from.x + 20, from.y + 20, { steps: 4 })
+    await page.mouse.up()
+    await expect(
+      page.locator('[data-od-id="task-flyout"]'),
+    ).not.toHaveAttribute('data-open', 'true')
+
+    // The next click opens it as usual.
+    await card.click()
+    await expect(page.locator('[data-od-id="task-flyout"]')).toHaveAttribute(
+      'data-open',
+      'true',
+    )
+  })
 })

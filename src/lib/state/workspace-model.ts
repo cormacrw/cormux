@@ -72,14 +72,8 @@ function countBy<T>(rows: T[], key: (row: T) => string | null) {
   return counts
 }
 
-/**
- * The snapshot's live workspaces, each with its row, review, pending approvals and runtime.
- * A runtime the snapshot doesn't mention stays as `previous` had it.
- */
-export function workspacesFromSnapshot(
-  snapshot: Snapshot,
-  previous: (id: string) => WorkspaceRuntime | undefined = () => undefined,
-): Workspace[] {
+/** The snapshot's live workspaces, each with its row, review, pending approvals and runtime. */
+export function workspacesFromSnapshot(snapshot: Snapshot): Workspace[] {
   const { persisted } = snapshot
   const rows = new Map(persisted.workspaces.map((row) => [row.id, row]))
   const reviews = new Map(
@@ -127,7 +121,7 @@ export function workspacesFromSnapshot(
     const review = reviews.get(record.id)
     const gitRow = git.get(record.id)
     const app = apps.get(record.id)
-    const runtime = { ...(previous(record.id) ?? IDLE_RUNTIME) }
+    const runtime = { ...IDLE_RUNTIME }
     if (gitRow) {
       runtime.behind = gitRow.behind
       runtime.conflict = gitRow.conflict

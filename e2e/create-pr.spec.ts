@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { setScenario } from './harness'
 
 test('Create PR drafts a description with no extra options', async ({
   page,
@@ -7,6 +8,8 @@ test('Create PR drafts a description with no extra options', async ({
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.setViewportSize({ width: 1440, height: 900 })
+  // Drafting asks an agent; long enough here to see the skeleton.
+  await setScenario(page, { slow: { draft_pr_why: 1200 } })
   await page.goto('/')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await page.keyboard.press('ControlOrMeta+p')

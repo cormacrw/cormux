@@ -43,8 +43,4 @@ export class WorkspacesStore {
 
 export const workspaces = new WorkspacesStore()
 
-onSnapshot((snapshot) =>
-  workspaces.hydrate(
-    workspacesFromSnapshot(snapshot, (id) => workspaces.getById(id)?.runtime),
-  ),
-)
+onSnapshot((snapshot) => workspaces.hydrate(workspacesFromSnapshot(snapshot)))

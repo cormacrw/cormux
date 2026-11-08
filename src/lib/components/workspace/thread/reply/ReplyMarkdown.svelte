@@ -9,6 +9,10 @@
   import { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
   import {
     enhanceMarkdown,
+    fileRefAt,
+    inReplyBlock,
+    markReplyBlock,
+    REPLY_BLOCK,
     type FindPullRequest,
   } from '$lib/thread/enhance-markdown'
   import {
@@ -122,7 +126,7 @@
       `img[${INLINE_MEDIA_ATTR}], a[href]`,
     )
     return Array.from(targets).flatMap((element) => {
-      if (element.closest('[data-reply-block]')) return []
+      if (inReplyBlock(element)) return []
       const isImage = element instanceof HTMLImageElement
       const source = isImage
         ? element.getAttribute(INLINE_MEDIA_ATTR)
@@ -131,7 +135,7 @@
       const alt = isImage ? element.getAttribute('alt') : element.textContent
       const host = document.createElement('span')
       host.className = 'reply-inline-media'
-      host.dataset.replyBlock = ''
+      markReplyBlock(host)
       element.replaceWith(host)
       return [
         mount(ThreadMedia, {
@@ -144,12 +148,10 @@
 
   function handleClick(event: MouseEvent) {
     if (copyClicked(event, clipboard)) return
-    const clicked = event.target instanceof Element ? event.target : null
-    const file = clicked?.closest<HTMLElement>('.file-ref, .file-ref-link')
-    if (file?.dataset.path && revealFile) {
+    const file = fileRefAt(event.target)
+    if (file && revealFile) {
       event.preventDefault()
-      const line = file.dataset.line ? Number(file.dataset.line) : null
-      revealFile(file.dataset.path, line)
+      revealFile(file.path, file.line)
       return
     }
     openClickedLink(event)
@@ -166,7 +168,7 @@
     {#if part.kind === 'html'}
       {@html part.html}
     {:else}
-      <div class="reply-block" data-reply-block>
+      <div class="reply-block" {...REPLY_BLOCK}>
         {#if part.kind === 'media'}
           <ThreadMedia source={part.source} alt={part.alt} {workdir} />
         {:else if part.kind === 'compare'}

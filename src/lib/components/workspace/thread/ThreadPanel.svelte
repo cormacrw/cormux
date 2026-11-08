@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { switchConversation } from '$lib/thread/actions'
+  import {
+    sendToThread,
+    stopThread,
+    switchConversation,
+  } from '$lib/thread/actions'
+  import { commands } from '$lib/ipc'
   import { plural, pluralWord } from '$lib/format/plural'
   import { onDestroy } from 'svelte'
   import { startsOver } from '$lib/core/owner-scoped'
@@ -20,9 +25,13 @@
   import Pause from '@lucide/svelte/icons/pause'
   import Bot from '@lucide/svelte/icons/bot'
   import AgentSpinner from './AgentSpinner.svelte'
-  import ThreadComposer from './ThreadComposer.svelte'
+  import ThreadComposer, { type ComposerTarget } from './ThreadComposer.svelte'
+  import ThreadComposerTools from './ThreadComposerTools.svelte'
+  import ThreadOptionPicker, {
+    threadOptions,
+  } from './ThreadOptionPicker.svelte'
   import ThreadConversation from './ThreadConversation.svelte'
-  import ThreadHero from './ThreadHero.svelte'
+  import ThreadHero, { showsHero } from './ThreadHero.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
   import ThreadReferences from './ThreadReferences.svelte'
   import type { ConversationSource } from './rows/context'
@@ -61,12 +70,31 @@
   }
   const view = $derived(threadTimeline.threadView(threadId))
   const live = $derived(view.live)
-  const showHero = $derived(view.loaded && view.items.length === 0)
+  const showHero = $derived(showsHero(view))
   let conversation: ThreadConversation | undefined = $state()
 
   const threadEntities = $derived(
     settings.values.experimentalReferences ? entities.forThread(thread.id) : [],
   )
+
+  const listSkills = $derived.by(() => {
+    const id = threadId
+    return () => commands.listThreadSkills(id)
+  })
+  const composer: ComposerTarget = $derived({
+    draftKey: threadId,
+    inputLabel: 'Message the agent',
+    sendLabel: 'Send to agent',
+    placeholder: `Message ${thread.role}…`,
+    disabled: false,
+    send: (text, _stay, attachments) =>
+      sendToThread(threadId, text, attachments),
+    listSkills,
+    promptHistory: view.promptHistory,
+    stop: thread.status === 'running' ? () => void stopThread(threadId) : null,
+    pickers: composerPickers,
+    tools: composerTools,
+  })
 
   const AGENTS_SHOWN = 4
   // The live status floats over the end of the timeline, which leaves room for all of it.
@@ -108,17 +136,8 @@
     engine={engineDisplayName(thread.engine)}
     {source}
     shown={workspaceUi.activeTab === 'thread'}
-    contentClass={[
-      'pt-3',
-      // The greeting sits at the bottom, its box reaching down to the prompt
-      // bar so it can fall away behind it (see ThreadHero).
-      showHero
-        ? 'flex min-h-full flex-col overflow-clip'
-        : live
-          ? 'pb-14'
-          : 'pb-4',
-    ]}
-    padBottom={live && !showHero && liveStatusHeight
+    contentClass={['pt-3', live ? 'pb-14' : 'pb-4']}
+    padBottom={live && liveStatusHeight
       ? `calc(${liveStatusHeight}px + 1.75rem)`
       : undefined}
   >
@@ -239,12 +258,23 @@
     </div>
   {:else}
     <ThreadComposer
-      target={{ thread }}
+      target={composer}
       status={live ? liveStatus : undefined}
       onSent={() => conversation?.followEnd()}
     />
   {/if}
 </div>
+
+{#snippet composerPickers()}
+  <ThreadOptionPicker kind="model" source={threadOptions('model', threadId)} />
+  <ThreadOptionPicker
+    kind="effort"
+    source={threadOptions('effort', threadId)}
+  />
+{/snippet}
+{#snippet composerTools()}
+  <ThreadComposerTools {thread} canClearSession={view.canClearSession} />
+{/snippet}
 
 <style>
   #thread-panel {

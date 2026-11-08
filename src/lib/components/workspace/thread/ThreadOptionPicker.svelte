@@ -2,13 +2,79 @@
   The composer's model and effort pickers: a menu over the same kind of per-thread choice.
   ⌘⇧M and ⌘⇧E open them with the current pick focused, ready for the arrow keys and ↵.
 -->
+<script lang="ts" module>
+  import { commands, type CoreError } from '$lib/ipc'
+  import type { Result, ThreadModels } from '$lib/ipc/bindings'
+
+  export type OptionKind = 'model' | 'effort'
+
+  /** Where a picker reads its choices and saves a pick. */
+  export type OptionSource = {
+    /** Whose pick it is; another starts the picker over. */
+    key: string
+    list: () => Promise<Result<ThreadModels, CoreError>>
+    set: (next: string | null) => Promise<CoreError | null>
+  }
+
+  const COMMANDS = {
+    model: {
+      listEngine: commands.engineModels,
+      listThread: commands.threadModels,
+      setThread: commands.setThreadModel,
+    },
+    effort: {
+      listEngine: commands.engineEfforts,
+      listThread: commands.threadEfforts,
+      setThread: commands.setThreadEffort,
+    },
+  }
+
+  /** A thread's own pick, saved by the core. */
+  export function threadOptions(
+    kind: OptionKind,
+    threadId: string,
+  ): OptionSource {
+    const { listThread, setThread } = COMMANDS[kind]
+    return {
+      key: threadId,
+      list: () => listThread(threadId),
+      set: async (next) => {
+        const result = await setThread(threadId, next)
+        return result.status === 'error' ? result.error : null
+      },
+    }
+  }
+
+  /** A pick for a thread that doesn't exist yet: it stays with the caller until it's created. */
+  export function draftOptions(
+    kind: OptionKind,
+    pick: { get current(): string | null; set(next: string | null): void },
+  ): OptionSource {
+    return {
+      key: `draft-${kind}`,
+      list: async () => {
+        const listed = await COMMANDS[kind].listEngine()
+        return listed.status === 'ok'
+          ? {
+              status: 'ok',
+              data: { current: pick.current, options: listed.data },
+            }
+          : listed
+      },
+      set: async (next) => {
+        pick.set(next)
+        return null
+      },
+    }
+  }
+</script>
+
 <script lang="ts">
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { commands } from '$lib/ipc'
   import { latestRequests, startsOver } from '$lib/core/owner-scoped'
-  import type { ModelOption, ThreadModels } from '$lib/ipc/bindings'
+  import type { ModelOption } from '$lib/ipc/bindings'
   import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
@@ -22,9 +88,6 @@
       title: `Model for this thread (${shortcutLabel('pickModel')})`,
       failure: 'Could not change the model',
       readFailure: 'Could not read the models',
-      listEngine: commands.engineModels,
-      listThread: commands.threadModels,
-      setThread: commands.setThreadModel,
     },
     effort: {
       name: 'Effort',
@@ -32,30 +95,19 @@
       title: `Effort for this thread (${shortcutLabel('pickEffort')})`,
       failure: 'Could not change the effort',
       readFailure: 'Could not read the effort levels',
-      listEngine: commands.engineEfforts,
-      listThread: commands.threadEfforts,
-      setThread: commands.setThreadEffort,
     },
   }
 
-  let {
-    kind,
-    threadId,
-    draftValue = $bindable(null),
-  }: {
-    kind: keyof typeof KINDS
-    /** Null for a thread that doesn't exist yet: the pick stays in `draftValue` until it's created. */
-    threadId: string | null
-    draftValue?: string | null
-  } = $props()
+  let { kind, source }: { kind: OptionKind; source: OptionSource } = $props()
 
   /** The radio value for the engine's own default. */
   const DEFAULT = ''
 
   const config = $derived(KINDS[kind])
 
-  let models = $derived<ThreadModels | null>(startsOver(threadId, null))
-  const loads = latestRequests<string | null>()
+  const key = $derived(source.key)
+  let models = $derived<ThreadModels | null>(startsOver(key, null))
+  const loads = latestRequests<string>()
   let open = $state(false)
   let trigger = $state<HTMLElement | null>(null)
   let content = $state<HTMLElement | null>(null)
@@ -79,11 +131,11 @@
   )
 
   $effect(() => {
-    void load(threadId)
+    void load(source)
   })
 
   $effect(() => {
-    if (open) void load(threadId)
+    if (open) void load(source)
   })
 
   // Opening one picker from the keyboard closes the other.
@@ -97,44 +149,24 @@
     return () => keyboardLayers.releasePopover(handle)
   })
 
-  async function load(forThread: string | null) {
-    const isLatest = loads(forThread)
-    const result =
-      forThread === null
-        ? await config.listEngine().then((listed) =>
-            listed.status === 'ok'
-              ? {
-                  status: 'ok' as const,
-                  data: { current: draftValue, options: listed.data },
-                }
-              : listed,
-          )
-        : await config.listThread(forThread)
-    if (!isLatest() || forThread !== threadId) return
+  async function load(from: OptionSource) {
+    const isLatest = loads(from.key)
+    const result = await from.list()
+    if (!isLatest() || from.key !== key) return
     if (result.status === 'ok') models = result.data
     else toastCoreError(result.error, config.readFailure)
   }
 
   async function pick(value: string) {
     if (!models) return
-    const forThread = threadId
-    const previous = models.current
+    const to = source
     const next = value === DEFAULT ? null : value
-    if (next === previous) return
+    if (next === models.current) return
     // A read already under way predates the pick.
-    void loads(forThread)
-    models = { ...models, current: next }
-    if (forThread === null) {
-      draftValue = next
-      return
-    }
-    const result = await config.setThread(forThread, next)
-    if (result.status === 'error') {
-      if (forThread === threadId && models) {
-        models = { ...models, current: previous }
-      }
-      toastCoreError(result.error, config.failure)
-    }
+    void loads(to.key)
+    const error = await to.set(next)
+    if (error) toastCoreError(error, config.failure)
+    else if (to.key === key && models) models = { ...models, current: next }
   }
 
   function onWindowKeydown(event: KeyboardEvent) {
@@ -189,8 +221,9 @@
         {config.name}
       </DropdownMenu.Label>
       <DropdownMenu.RadioGroup
-        value={models?.current ?? DEFAULT}
-        onValueChange={(value) => void pick(value)}
+        bind:value={
+          () => models?.current ?? DEFAULT, (value) => void pick(value)
+        }
       >
         <DropdownMenu.RadioItem value={DEFAULT}>Default</DropdownMenu.RadioItem>
         {#each options as option (option.id)}

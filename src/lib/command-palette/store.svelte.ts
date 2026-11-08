@@ -5,6 +5,11 @@ import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 class PaletteStore {
   isOpen = $state(false)
 
+  constructor() {
+    // A dialog opening from a shortcut takes over from the palette.
+    keyboardLayers.closeUnderModal(() => this.close())
+  }
+
   open() {
     if (shellDialogs.anyOpen()) return
     keyboardLayers.closePopover()

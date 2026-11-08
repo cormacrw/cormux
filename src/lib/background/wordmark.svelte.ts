@@ -3,6 +3,12 @@
  * which the thread on screen reports, and comes back with the greeting. It only animates
  * the move when one is asked for: a first prompt sent, or a conversation cleared.
  */
+
+/** The glide's two moves; Backdrop's CSS takes them from here. */
+export const GLIDE_RISE_MS = 1200
+export const GLIDE_FALL_MS = 420
+const GLIDE_MS = Math.max(GLIDE_RISE_MS, GLIDE_FALL_MS)
+
 class WordmarkState {
   /** The thread on screen shows a conversation rather than its greeting. */
   private conversationShowing = $state(false)
@@ -10,8 +16,6 @@ class WordmarkState {
   private risingEarly = $state(false)
   /** The wordmark animates to its new place instead of jumping there. */
   gliding = $state(false)
-  /** How long a glide lasts: the slower of its two moves, which Backdrop reads from its CSS. */
-  glideMs = 1000
   private glideTimer: ReturnType<typeof setTimeout> | undefined
 
   readonly away = $derived(this.conversationShowing && !this.risingEarly)
@@ -28,7 +32,7 @@ class WordmarkState {
     clearTimeout(this.glideTimer)
     this.glideTimer = setTimeout(() => {
       this.gliding = false
-    }, this.glideMs)
+    }, GLIDE_MS)
   }
 
   /** Glides back up ahead of a conversation being cleared; returns the undo for when it isn't. */

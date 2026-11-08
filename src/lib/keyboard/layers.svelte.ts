@@ -30,6 +30,7 @@ type EscapeHandler = () => boolean
 class KeyboardLayers {
   private layers = new SvelteSet<Layer>()
   private popover: PopoverHandle | null = null
+  private underModal = new Set<() => void>()
   private escapes = new Map<EscapeStep, Set<EscapeHandler>>(
     ESCAPE_ORDER.map((step) => [step, new Set()]),
   )
@@ -76,6 +77,18 @@ class KeyboardLayers {
     this.popover.close()
     this.popover.restoreFocus()
     return true
+  }
+
+  /** Closes `close`'s overlay whenever a dialog opens over the page. Returns the release. */
+  closeUnderModal(close: () => void) {
+    this.underModal.add(close)
+    return () => void this.underModal.delete(close)
+  }
+
+  /** A dialog is opening: the popover and every overlay that gives way to one close. */
+  modalOpening() {
+    this.closePopover()
+    for (const close of this.underModal) close()
   }
 
   /** Adds a step to Esc's chain under the page; the order is `ESCAPE_ORDER`, not registration's. */

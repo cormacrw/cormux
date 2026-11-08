@@ -123,6 +123,16 @@ export class ThreadsStore {
     return this.forWorkspace(workspaceId).find((thread) => thread.own)
   }
 
+  /** The thread a workspace shows: the one asked for, else its own, else its first. */
+  shownIn(workspaceId: string, threadId?: string | null): Thread | undefined {
+    const list = this.forWorkspace(workspaceId)
+    return (
+      list.find((thread) => thread.id === threadId) ??
+      this.liveFor(workspaceId) ??
+      list[0]
+    )
+  }
+
   childrenOf(threadId: string): Thread[] {
     return this.byParent.get(threadId) ?? NO_THREADS
   }

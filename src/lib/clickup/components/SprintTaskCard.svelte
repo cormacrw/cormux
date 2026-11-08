@@ -33,11 +33,6 @@
 
   const unpointed = $derived(task.points == null)
   const ref = $derived(taskRef(task))
-
-  function pointerDown(event: PointerEvent) {
-    if ((event.target as Element).closest('[data-card-action]')) return
-    onPointerDown?.(event)
-  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -55,7 +50,7 @@
     ghost && 'rotate-[1.5deg] cursor-grabbing shadow-2xl',
   )}
   data-unpointed={unpointed || undefined}
-  onpointerdown={ghost ? undefined : pointerDown}
+  onpointerdown={ghost ? undefined : onPointerDown}
 >
   {#if !ghost}
     <!-- Covers the card so the whole surface selects, while the action buttons sit above it. -->

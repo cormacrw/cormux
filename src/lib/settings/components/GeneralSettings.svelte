@@ -127,8 +127,10 @@
   >
     {#snippet control()}
       <Switch
-        checked={settings.values.reduceMotion}
-        onCheckedChange={(next) => void updateSettings({ reduceMotion: next })}
+        bind:checked={
+          () => settings.values.reduceMotion,
+          (next) => void updateSettings({ reduceMotion: next })
+        }
         aria-label="Reduce motion"
       />
     {/snippet}

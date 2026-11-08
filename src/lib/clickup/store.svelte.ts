@@ -1,13 +1,8 @@
-import type {
-  ClickupBoard,
-  ClickupTaskDetail,
-  Settings,
-} from '$lib/ipc/bindings'
+import type { ClickupBoard, ClickupTaskDetail, Result } from '$lib/ipc/bindings'
 import { commands, type CoreError } from '$lib/ipc'
 import { onSnapshot } from '$lib/core/sync'
 import { coalesce } from '$lib/core/coalesce'
 import { coreErrorText } from '$lib/core/core-error'
-import { deepEqual } from '$lib/deep-equal'
 import { settings } from '$lib/settings/store.svelte'
 import {
   assignedToMe,
@@ -34,14 +29,16 @@ const SETTLE_MS = 800
  */
 export class ClickupStore {
   configured = $state(false)
-  folderId = $state('')
+  readonly folderId = $derived(settings.values.clickupFolderId)
+  readonly hiddenStatuses = $derived(settings.values.clickupHiddenStatuses)
+  /** The folder the board was loaded for; picking another starts the board over. */
+  private boardFolderId = ''
   board = $state<ClickupBoard | null>(null)
   loading = $state(false)
   error = $state<string | null>(null)
   selectedTaskId = $state<string | null>(null)
   details = $state<Record<string, ClickupTaskDetail>>({})
   detailError = $state<string | null>(null)
-  hiddenStatuses = $state<string[]>([])
 
   /** Bumped by every write so a refresh that started earlier can't undo it. */
   private writes = 0
@@ -52,6 +49,8 @@ export class ClickupStore {
   readonly ready = $derived(this.configured && this.folderId !== '')
   /** The board narrowed to the current user's tasks; every surface reads this one. */
   readonly mine = $derived(this.board && assignedToMe(this.board))
+  /** The tasks a message can mention with `#`. */
+  readonly sprintTasks = $derived(this.mine?.tasks ?? [])
   /** Every lane, hidden ones included, for the lanes menu. */
   readonly allLanes = $derived(
     this.mine ? sprintLanes(this.mine.statuses, this.mine.tasks) : [],
@@ -65,14 +64,11 @@ export class ClickupStore {
     this.mine?.tasks.find((task) => task.id === this.selectedTaskId) ?? null,
   )
 
-  hydrate(configured: boolean, chosen: Settings) {
-    const folderId = chosen.clickupFolderId
-    const hidden = chosen.clickupHiddenStatuses
-    // Only a real change: a new array here would rebuild every lane on every snapshot.
-    if (!deepEqual(hidden, this.hiddenStatuses)) this.hiddenStatuses = hidden
-    const changed = configured !== this.configured || folderId !== this.folderId
+  hydrate(configured: boolean) {
+    const changed =
+      configured !== this.configured || this.folderId !== this.boardFolderId
     this.configured = configured
-    this.folderId = folderId
+    this.boardFolderId = this.folderId
     if (!changed) return
     this.board = null
     this.details = {}
@@ -137,7 +133,6 @@ export class ClickupStore {
   }
 
   private persistHidden(next: string[]): Promise<CoreError | null> {
-    this.hiddenStatuses = next
     return settings.update({ clickupHiddenStatuses: next })
   }
 
@@ -148,17 +143,28 @@ export class ClickupStore {
 
   async loadDetail(taskId: string) {
     this.detailError = null
-    const result = await commands.clickupTask(taskId)
-    if (result.status === 'error') {
-      if (this.selectedTaskId === taskId) {
-        this.detailError = coreErrorText(
-          result.error,
-          'Could not load the task',
-        )
-      }
-      return
+    const result = await this.fetchDetail(taskId)
+    if (result.status === 'error' && this.selectedTaskId === taskId) {
+      this.detailError = coreErrorText(result.error, 'Could not load the task')
     }
-    this.details = { ...this.details, [taskId]: result.data }
+  }
+
+  /** A task's description, read from ClickUp once and kept. */
+  async description(taskId: string): Promise<Result<string, CoreError>> {
+    const known = this.details[taskId]
+    if (known) return { status: 'ok', data: known.description }
+    const result = await this.fetchDetail(taskId)
+    return result.status === 'ok'
+      ? { status: 'ok', data: result.data.description }
+      : result
+  }
+
+  private async fetchDetail(taskId: string) {
+    const result = await commands.clickupTask(taskId)
+    if (result.status === 'ok') {
+      this.details = { ...this.details, [taskId]: result.data }
+    }
+    return result
   }
 
   private patchDetail(
@@ -230,6 +236,4 @@ export class ClickupStore {
 
 export const clickup = new ClickupStore()
 
-onSnapshot((snapshot) =>
-  clickup.hydrate(snapshot.clickupConfigured, snapshot.settings),
-)
+onSnapshot((snapshot) => clickup.hydrate(snapshot.clickupConfigured))

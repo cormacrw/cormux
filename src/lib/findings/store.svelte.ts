@@ -13,7 +13,7 @@ import {
 import { openFindings } from '$lib/findings/types'
 import { threads } from '$lib/state/threads.svelte'
 import type { Workspace } from '$lib/state/workspaces.svelte'
-import { showFindingsTab } from '$lib/workspace/thread-tabs'
+import { showFindingsTab } from './tab'
 import { reuseRows } from '../state/reuse-rows'
 import { onSnapshot } from '$lib/core/sync'
 

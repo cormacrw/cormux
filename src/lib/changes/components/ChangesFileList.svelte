@@ -1,6 +1,7 @@
 <script lang="ts">
   import { pluralWord } from '$lib/format/plural'
   import type { DiffFile } from '$lib/ipc/bindings'
+  import type { Action } from 'svelte/action'
   import { diffComments } from '$lib/changes/diff-comments.svelte'
   import { splitPath, STATUS_MARK } from '$lib/changes/file-status'
   import { changesUi } from '$lib/changes/changes-ui.svelte'
@@ -14,11 +15,16 @@
     workspaceId,
     branch,
     files,
+    scroller,
+    trackFile,
     onDiscard,
   }: {
     workspaceId: string
     branch: string | null
     files: DiffFile[]
+    scroller: HTMLElement | undefined
+    /** Hands each file's row to the panel, which scrolls to it. */
+    trackFile: Action<HTMLElement, string>
     /** Set while the list shows uncommitted changes, which can be thrown away. */
     onDiscard?: (file: DiffFile) => void
   } = $props()
@@ -41,7 +47,7 @@
     {@const bodyId = `changes-file-${file.path.replace(/[^\w-]/g, '_')}`}
     <li
       class="border-b border-border/60 [content-visibility:auto] [contain-intrinsic-size:auto_480px]"
-      data-diff-path={file.path}
+      use:trackFile={file.path}
     >
       <div
         class="group/file sticky top-0 z-10 flex items-center border-b border-border/40 bg-background-solid hover:bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background-solid))]"
@@ -114,7 +120,7 @@
       {#if open}
         <div id={bodyId}>
           {#if file.hunks.length}
-            <LazyDiff {workspaceId} {branch} {file} />
+            <LazyDiff {workspaceId} {branch} {file} {scroller} />
           {:else}
             <p class="px-3 py-2 text-xs text-muted-foreground">
               {file.oldPath
