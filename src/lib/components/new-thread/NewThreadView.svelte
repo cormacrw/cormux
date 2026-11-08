@@ -110,10 +110,7 @@
 
   const listSkills = $derived.by(() => {
     const id = repoId
-    return async () => {
-      const result = await commands.listRepoSkills(id)
-      return result.status === 'ok' ? result.data : []
-    }
+    return () => commands.listRepoSkills(id)
   })
 </script>
 

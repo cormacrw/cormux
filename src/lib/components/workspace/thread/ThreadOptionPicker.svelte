@@ -5,7 +5,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
-  import { showToast } from '$lib/feedback/show-toast'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { commands } from '$lib/ipc'
   import type { ModelOption, ThreadModels } from '$lib/ipc/bindings'
   import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
@@ -15,7 +15,6 @@
     claimWorkspacePopover,
     releaseWorkspacePopover,
   } from '$lib/keyboard/popover-registry'
-  import { coreErrorText } from '$lib/core/core-error'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
 
   const KINDS = {
@@ -125,12 +124,7 @@
       if (forThread === threadId && models) {
         models = { ...models, current: previous }
       }
-      showToast({
-        tone: 'bad',
-        parts: [
-          { type: 'text', value: coreErrorText(result.error, config.failure) },
-        ],
-      })
+      toastCoreError(result.error, config.failure)
     }
   }
 

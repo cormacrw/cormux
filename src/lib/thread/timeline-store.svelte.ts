@@ -8,6 +8,7 @@ import type {
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc/bindings'
 import type { CoreError } from '$lib/ipc'
+import type { ActionFailure } from '$lib/feedback/action-failure'
 import { subscribeAgentEvents } from '$lib/ipc/channels'
 import {
   toPromptAttachment,
@@ -40,7 +41,6 @@ type ThreadHistory = {
 }
 
 /** Why an action failed: the core's error, or what threw, with what was being tried. */
-export type ThreadActionError = { error: CoreError | unknown; doing: string }
 
 /** Owns every thread's loaded history, its stream, and the view and actions built on them. */
 class ThreadTimelineStore {
@@ -329,7 +329,7 @@ class ThreadTimelineStore {
     threadId: string,
     text: string,
     attachments: ComposerAttachment[] = [],
-  ): Promise<ThreadActionError | null> {
+  ): Promise<ActionFailure | null> {
     const doing = 'Could not reach the agent'
     try {
       const result = await commands.sendThreadPrompt(
@@ -343,18 +343,34 @@ class ThreadTimelineStore {
     }
   }
 
-  async stop(threadId: string): Promise<ThreadActionError | null> {
+  async stop(threadId: string): Promise<ActionFailure | null> {
     const result = await commands.cancelThreadTurn(threadId)
     return result.status === 'error'
       ? { error: result.error, doing: 'Could not stop the agent' }
       : null
   }
 
+  async setPaused(
+    threadId: string,
+    paused: boolean,
+  ): Promise<ActionFailure | null> {
+    const result = paused
+      ? await commands.pauseThread(threadId)
+      : await commands.resumeThread(threadId)
+    if (result.status === 'ok') return null
+    return {
+      error: result.error,
+      doing: paused
+        ? 'Could not pause the agent'
+        : 'Could not resume the agent',
+    }
+  }
+
   /** Swaps the conversation for a fresh session, or back to an earlier one, which the core resumes. */
   async switchConversation(
     threadId: string,
     to: ConversationSummary | 'new',
-  ): Promise<ThreadActionError | null> {
+  ): Promise<ActionFailure | null> {
     const result =
       to === 'new'
         ? await commands.newThreadSession(threadId)

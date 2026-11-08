@@ -20,7 +20,7 @@ import {
   withTaskStatus,
 } from './board'
 
-import type { ClickupWriteError } from './write-error'
+import type { ActionFailure } from '$lib/feedback/action-failure'
 
 /**
  * How long after the last write the board reloads, so it picks up what ClickUp did in
@@ -176,7 +176,7 @@ export class ClickupStore {
   async moveTask(
     taskId: string,
     statusName: string,
-  ): Promise<ClickupWriteError | null> {
+  ): Promise<ActionFailure | null> {
     const board = this.board
     const status = board?.statuses.find((row) => row.name === statusName)
     const task = board?.tasks.find((row) => row.id === taskId)
@@ -210,7 +210,7 @@ export class ClickupStore {
   async setPoints(
     taskId: string,
     points: number,
-  ): Promise<ClickupWriteError | null> {
+  ): Promise<ActionFailure | null> {
     const board = this.board
     const task = board?.tasks.find((row) => row.id === taskId)
     if (!board || !task || task.points === points) return null

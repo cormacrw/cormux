@@ -1,7 +1,8 @@
 <script lang="ts" module>
   import type { Snippet } from 'svelte'
   import type { ComposerAttachment } from '$lib/composer/attachments'
-  import type { Skill } from '$lib/ipc/bindings'
+  import type { CoreError } from '$lib/ipc'
+  import type { Result, Skill } from '$lib/ipc/bindings'
   import type { Thread } from '$lib/state/threads.svelte'
 
   /** Who a message goes to: a thread, or a new one that the first message starts. */
@@ -22,7 +23,7 @@
           attachments: ComposerAttachment[],
         ) => Promise<boolean>
         /** The `/` picker's skills, read from the repo it will start in. */
-        listSkills: () => Promise<Skill[]>
+        listSkills: () => Promise<Result<Skill[], CoreError>>
         /** Its own repo, model and effort pickers, at the start of the footer. */
         pickers: Snippet
       }
@@ -31,6 +32,7 @@
 <script lang="ts">
   import {
     sendToThread,
+    setThreadPaused,
     stopThread,
     switchConversation,
   } from '$lib/thread/actions'
@@ -67,8 +69,7 @@
   import Zap from '@lucide/svelte/icons/zap'
   import { clickup } from '$lib/clickup/store.svelte'
   import { repos } from '$lib/state/repos.svelte'
-  import { coreErrorText } from '$lib/core/core-error'
-  import { showToast } from '$lib/feedback/show-toast'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { composerDrafts } from '$lib/composer/drafts-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
   import { contextPercent, usageDetail } from '$lib/usage/usage'
@@ -201,7 +202,6 @@
     historyIndex = null
     skills = null
     skillsThreadId = null
-    queueMicrotask(() => fitHeight())
   })
 
   $effect(() => {
@@ -210,17 +210,13 @@
     skillsThreadId = threadId
     const read = newThread
       ? newThread.listSkills()
-      : commands
-          .listThreadSkills(threadId)
-          .then((result) => (result.status === 'ok' ? result.data : []))
-    void read
-      .catch((error: unknown) => {
-        console.warn('could not read skills', error)
-        return []
-      })
-      .then((found) => {
-        if (draftId === threadId) skills = found
-      })
+      : commands.listThreadSkills(threadId)
+    void read.then((result) => {
+      if (result.status === 'error')
+        toastCoreError(result.error, 'Could not read the skills')
+      if (draftId === threadId)
+        skills = result.status === 'ok' ? result.data : []
+    })
   })
 
   function chooseFrom(word: TriggerWord) {
@@ -232,7 +228,7 @@
     composerDrafts.setFor(draftId, next.text)
     caret = next.caret
     pickerIndex = 0
-    queueMicrotask(() => {
+    void tick().then(() => {
       fitHeight()
       inputEl?.focus()
       inputEl?.setSelectionRange(next.caret, next.caret)
@@ -307,7 +303,7 @@
   // A click on a control in the composer's footer (attach, New session, pause) leaves
   // the prompt focused; a menu that opens keeps focus until it closes.
   function onFootClick(event: MouseEvent) {
-    if ((event.target as Element).closest('button')) setTimeout(takeFocus, 0)
+    if ((event.target as Element).closest('button')) void tick().then(takeFocus)
   }
 
   /** Typing while focus has drifted (after a click in the conversation) goes to the prompt. */
@@ -353,9 +349,9 @@
     composerDrafts.setFor(threadId, '')
     if (attached.length) composerDrafts.setAttachments(threadId, [])
     historyIndex = null
-    // Clearing the draft disables Send. A click focuses that button first, and
-    // disabling a focused button drops focus, so put it back on the prompt.
-    queueMicrotask(() => {
+    // Clearing the draft disables Send, and disabling a focused button (reached with Tab)
+    // drops focus, so put it back on the prompt.
+    void tick().then(() => {
       fitHeight()
       inputEl?.focus()
     })
@@ -381,16 +377,7 @@
           await attachmentFromFile(file),
         ])
       } catch (error) {
-        showToast({
-          tone: 'bad',
-          parts: [
-            {
-              type: 'text',
-              value:
-                error instanceof Error ? error.message : 'Could not attach',
-            },
-          ],
-        })
+        toastCoreError(error, 'Could not attach')
       }
     }
   }
@@ -448,7 +435,9 @@
         if (gone) stop()
         else unlisten = stop
       })
-      .catch(() => {})
+      .catch((error: unknown) =>
+        toastCoreError(error, 'Files dropped from Finder can’t be attached'),
+      )
     return () => {
       gone = true
       unlisten?.()
@@ -461,20 +450,8 @@
     void stopThread(thread.id)
   }
 
-  async function togglePause() {
-    if (!thread) return
-    const result = isPaused
-      ? await commands.resumeThread(thread.id)
-      : await commands.pauseThread(thread.id)
-    if (result.status === 'error') {
-      const fallback = isPaused
-        ? 'Could not resume the agent'
-        : 'Could not pause the agent'
-      showToast({
-        tone: 'bad',
-        parts: [{ type: 'text', value: coreErrorText(result.error, fallback) }],
-      })
-    }
+  function togglePause() {
+    if (thread) void setThreadPaused(thread.id, !isPaused)
   }
 
   function onKeydown(event: KeyboardEvent) {
@@ -770,7 +747,7 @@
             size="xs"
             data-od-id="composer-pause"
             aria-label={pauseLabel}
-            onclick={() => void togglePause()}
+            onclick={togglePause}
           >
             {#if isPaused}
               <Play class="size-3.5" aria-hidden="true" />
