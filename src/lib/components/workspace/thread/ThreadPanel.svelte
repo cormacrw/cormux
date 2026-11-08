@@ -221,8 +221,7 @@
     </div>
   {:else}
     <ThreadComposer
-      {thread}
-      newSession
+      target={{ thread }}
       status={live ? liveStatus : undefined}
       onSent={() => conversation?.followEnd()}
     />

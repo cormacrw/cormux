@@ -172,64 +172,61 @@
     </div>
 
     <ThreadComposer
-      draftKey="new-thread"
-      inputLabel="Start a new thread"
-      placeholder={repo
-        ? `What should we do in ${repo.name}?`
-        : 'Add a repo to start a thread'}
-      sendLabel="Start thread"
-      disabled={!repo}
-      onSubmit={submit}
-      {listSkills}
-    >
-      {#snippet pickers()}
-        {#if repos.items.length}
-          <label class="sr-only" for="new-thread-repo">Repository</label>
-          <Select.Root
-            type="single"
-            bind:open={repoOpen}
-            onOpenChangeComplete={(open) => {
-              // Back to the prompt rather than the picker's button.
-              if (!open) focusPromptAfterPicker()
-            }}
-            value={repoId}
-            onValueChange={(value) => {
-              if (value) repoId = value
-            }}
+      target={{
+        draftKey: 'new-thread',
+        repoName: repo?.name ?? null,
+        start: submit,
+        listSkills,
+        pickers,
+      }}
+    />
+    {#snippet pickers()}
+      {#if repos.items.length}
+        <label class="sr-only" for="new-thread-repo">Repository</label>
+        <Select.Root
+          type="single"
+          bind:open={repoOpen}
+          onOpenChangeComplete={(open) => {
+            // Back to the prompt rather than the picker's button.
+            if (!open) focusPromptAfterPicker()
+          }}
+          value={repoId}
+          onValueChange={(value) => {
+            if (value) repoId = value
+          }}
+        >
+          <Select.Trigger
+            bind:ref={repoTrigger}
+            id="new-thread-repo"
+            size="sm"
+            class="glass-well h-7 max-w-[168px] min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
+            title="The worktree is created from this repo ({shortcutLabel(
+              'pickRepo',
+            )})"
+            data-od-id="new-thread-repo"
           >
-            <Select.Trigger
-              bind:ref={repoTrigger}
-              id="new-thread-repo"
-              size="sm"
-              class="glass-well h-7 max-w-[168px] min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
-              title="The worktree is created from this repo ({shortcutLabel(
-                'pickRepo',
-              )})"
-              data-od-id="new-thread-repo"
-            >
-              <Folder class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
-              <span class="truncate">{repo?.name ?? 'Pick a repository'}</span>
-            </Select.Trigger>
-            <Select.Content>
-              {#each repos.items as row (row.id)}
-                <Select.Item value={row.id} label={row.name}>
-                  {row.name}
-                </Select.Item>
-              {/each}
-            </Select.Content>
-          </Select.Root>
-          <ThreadOptionPicker
-            kind="model"
-            threadId={null}
-            bind:draftValue={model}
-          />
-          <ThreadOptionPicker
-            kind="effort"
-            threadId={null}
-            bind:draftValue={effort}
-          />
-        {/if}
-      {/snippet}
-    </ThreadComposer>
+            <Folder class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
+            <span class="truncate">{repo?.name ?? 'Pick a repository'}</span>
+          </Select.Trigger>
+          <Select.Content>
+            {#each repos.items as row (row.id)}
+              <Select.Item value={row.id} label={row.name}>
+                {row.name}
+              </Select.Item>
+            {/each}
+          </Select.Content>
+        </Select.Root>
+        <ThreadOptionPicker
+          kind="model"
+          threadId={null}
+          bind:draftValue={model}
+        />
+        <ThreadOptionPicker
+          kind="effort"
+          threadId={null}
+          bind:draftValue={effort}
+        />
+      {/if}
+    {/snippet}
   </div>
 </section>
