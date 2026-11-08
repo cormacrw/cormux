@@ -9,13 +9,12 @@ export function workspaceActivityFromRecord(
     return record.activity
   }
   if (lifecycle === 'provisioningFailed') return 'Setup failed'
-  if (lifecycle === 'provisioning' || lifecycle === 'creating') {
+  if (lifecycle === 'provisioning') {
     return kind === 'review'
       ? 'Checking out the PR…'
       : 'Running worktree setup…'
   }
   if (lifecycle === 'running') return 'Working'
-  if (lifecycle === 'waiting') return 'Waiting for approval'
   if (lifecycle === 'ready') return 'Ready'
   return 'Idle'
 }
@@ -41,5 +40,5 @@ export function threadActivityForProvisioning(
 export function isWorkspaceProvisioning(
   lifecycle: WorkspaceLifecycle,
 ): boolean {
-  return lifecycle === 'creating' || lifecycle === 'provisioning'
+  return lifecycle === 'provisioning'
 }

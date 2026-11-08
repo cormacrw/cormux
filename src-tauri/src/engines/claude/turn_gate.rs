@@ -4,6 +4,7 @@ use tokio::time::Instant;
 
 use super::protocol::Event;
 use crate::engines::events::AgentEvent;
+use crate::model::StopReason;
 
 /// A finished agent starts its follow-up turn at once, but a stopped one starts none, so its
 /// thread can't wait for another `result`.
@@ -40,7 +41,10 @@ impl TurnGate {
     pub fn pass(&mut self, event: AgentEvent) -> Option<AgentEvent> {
         let finished = matches!(
             &event,
-            AgentEvent::TurnEnd { stop_reason, .. } if stop_reason == "end_turn"
+            AgentEvent::TurnEnd {
+                stop_reason: StopReason::EndTurn,
+                ..
+            }
         );
         if finished && !self.agents.is_empty() {
             self.held = Some(event);
@@ -70,7 +74,7 @@ mod tests {
 
     fn turn_end(stop_reason: &str) -> AgentEvent {
         AgentEvent::TurnEnd {
-            stop_reason: stop_reason.into(),
+            stop_reason: stop_reason.to_string().into(),
             error: None,
         }
     }

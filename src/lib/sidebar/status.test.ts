@@ -80,9 +80,7 @@ describe('plural', () => {
 
 describe('statusDotVariantForAttention', () => {
   it('flashes only while the agent is on hold for an answer', () => {
-    expect(statusDotVariantForAttention(1, 'running')).toBe('waiting')
-    expect(statusDotVariantForAttention(0, 'waiting')).toBe('waiting')
-    expect(statusDotVariantForAttention(0, 'idle')).toBe('ready')
-    expect(statusDotVariantForAttention(0, undefined)).toBe('ready')
+    expect(statusDotVariantForAttention(1)).toBe('waiting')
+    expect(statusDotVariantForAttention(0)).toBe('ready')
   })
 })

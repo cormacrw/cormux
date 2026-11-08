@@ -16,11 +16,10 @@ mod github;
 mod harness_config;
 mod ipc;
 mod llm;
-// Not given to any engine yet, so none of its tools are called.
-#[allow(dead_code)]
 mod mcp;
 mod menu;
 mod metrics;
+mod model;
 mod naming;
 mod orchestration;
 mod paths;
@@ -38,6 +37,7 @@ mod store;
 mod summaries;
 mod teardown;
 mod thread_media;
+mod time;
 mod timeline;
 mod turn;
 mod window_activity;
@@ -56,16 +56,6 @@ use window_activity::WindowActivity;
 const METRICS_INTERVAL: Duration = Duration::from_secs(4);
 /// Nobody reads the sidebar label while the window is in the background, so only every 60s.
 const METRICS_BACKGROUND_TICKS: u32 = 15;
-
-/// Dev builds keep their own data, so running Cormux from inside Cormux can't touch the
-/// installed app's workspaces.
-pub(crate) fn data_dir(app_data: std::path::PathBuf) -> std::path::PathBuf {
-    if cfg!(debug_assertions) {
-        app_data.join("dev")
-    } else {
-        app_data
-    }
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -94,13 +84,9 @@ pub fn run() {
                 }
                 tauri::async_runtime::spawn(async move {
                     let state = app.state::<AppState>();
-                    match state.fetch.tick().await {
-                        Ok(updates) => {
-                            crate::git_workspace::apply_behind_updates(&state, &updates).await;
-                            state.notify(&output(&app), StateChangeKind::BehindCounts);
-                        }
-                        Err(error) => log::warn!("focus fetch failed: {error}"),
-                    }
+                    let updates = state.fetch.tick().await;
+                    crate::git_workspace::apply_behind_updates(&state, &updates).await;
+                    state.notify(&output(&app), StateChangeKind::BehindCounts);
                     let state = app.state::<AppState>();
                     if let Err(error) = state.pr_sync.sync_app(&output(&app), &state).await {
                         log::warn!("focus PR sync failed: {error}");
@@ -127,14 +113,14 @@ pub fn run() {
 
             app.manage(WindowActivity::new());
             let out = output(app.handle());
-            let state = AppState::new(data_dir(app.path().app_data_dir()?));
+            let state = AppState::new(paths::DataDir::for_app(app.path().app_data_dir()?));
             state.diffs.start();
             state.fetch.spawn_loop();
 
             // PR sync shells out to `gh` and `git`, so it waits for the login-shell PATH.
             let env = state.shell_env.clone();
             let pr_sync = state.pr_sync.clone();
-            state.store.open(&state.data_dir.join("cormux.db"))?;
+            state.store.open(&state.data_dir.db())?;
             state.store.reset_interrupted_turns()?;
             let approval_notify = state.approval_notify.clone();
             state.engines.spawn_idle_reaper();

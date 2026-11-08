@@ -885,7 +885,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs gh with the gh-stack extension"]
     async fn adopts_a_stack_made_in_another_worktree() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         state
             .shell_env
             .write()

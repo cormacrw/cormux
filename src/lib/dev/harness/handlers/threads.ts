@@ -318,7 +318,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
         })
       }
       emitStateChanged()
-      return { focusComposer: false }
+      return null
     },
     resolve_thread_media: ({ source }: { source: string }) => {
       const name = source.split('/').filter(Boolean).pop() ?? source

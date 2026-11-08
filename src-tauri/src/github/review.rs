@@ -1,8 +1,6 @@
-use serde::Deserialize;
-
 use crate::error::{Error, Result};
 
-pub use super::rest::RestGithubClient;
+use super::rest::RestGithubClient;
 use super::rest::api_url;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,17 +61,9 @@ impl RestGithubClient {
             "comments": comments,
         });
         let url = api_url(&format!("repos/{owner}/{repo}/pulls/{pull_number}/reviews"));
-        let text = self.post(token, &url, &body).await.map_err(|error| {
+        self.post(token, &url, &body).await.map_err(|error| {
             Error::Github(format!("submit pull request review failed: {error}"))
         })?;
-        let _payload: SubmitResponse = serde_json::from_str(&text)
-            .map_err(|error| Error::Github(format!("parse review response: {error}")))?;
         Ok(())
     }
-}
-
-#[derive(Debug, Deserialize)]
-struct SubmitResponse {
-    #[allow(dead_code)]
-    id: i64,
 }

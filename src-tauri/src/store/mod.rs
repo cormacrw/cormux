@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
-use crate::workspace::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
+use crate::model::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
 use types::{
     ApprovalRow, EntityRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow,
     SettingRow, ThreadActivityRow, ThreadEventPage, ThreadEventRow, ThreadRow, WorkspaceRow,
@@ -276,14 +276,6 @@ impl Store {
             )?;
             Ok(())
         })
-    }
-
-    pub fn set_workspace_pr_number(
-        &self,
-        workspace_id: &str,
-        pr_number: Option<i64>,
-    ) -> Result<()> {
-        self.set_workspace_pr(workspace_id, pr_number, None)
     }
 
     pub fn set_workspace_pr(
@@ -1120,6 +1112,7 @@ impl Store {
         })
     }
 
+    #[cfg(test)]
     pub fn upsert_finding(&self, finding: &FindingRow) -> Result<()> {
         self.with_conn(|conn| Self::write_finding(conn, finding))
     }

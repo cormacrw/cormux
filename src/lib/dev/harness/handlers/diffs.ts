@@ -44,7 +44,6 @@ export function diffHandlers(runtime: HarnessRuntime) {
     }
     runtime.send(runtime.diffChannel, {
       workspaceId: fixtureDiff.workspaceId,
-      path: '',
       diff,
     })
   }

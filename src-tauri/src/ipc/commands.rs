@@ -19,11 +19,10 @@ use super::types::{
     CreateWorkspaceInput, CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult,
     CreateWorkspaceResult, DiffUpdate, DraftPrWhyResult, LocalBranchesResult, PtyChunk,
     RemoveRepoInput, RenameWorkspaceInput, RepoBranchesResult, RepoGitRuntime,
-    ResolveApprovalResult, ResumeThreadSessionInput, SendWorkspaceFindingsInput,
-    SetRepoDefaultBranchInput, SetRepoRunCommandInput, SetRepoSetupCommandsInput,
-    SetRepoSingleInstanceInput, SetSettingInput, Snapshot, SwitchWorkspaceBranchInput,
-    TeardownInput, TeardownPreview, TestRepoSetupInput, TestRepoSetupResult,
-    WorkspaceAppControlAction, WorkspaceSummaryResult,
+    ResumeThreadSessionInput, SendWorkspaceFindingsInput, SetRepoDefaultBranchInput,
+    SetRepoRunCommandInput, SetRepoSetupCommandsInput, SetRepoSingleInstanceInput, SetSettingInput,
+    Snapshot, SwitchWorkspaceBranchInput, TeardownInput, TeardownPreview, TestRepoSetupInput,
+    TestRepoSetupResult, WorkspaceAppControlAction, WorkspaceSummaryResult,
 };
 
 #[tauri::command]
@@ -52,7 +51,6 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
 
     Ok(Snapshot {
         version: state.snapshot_version(),
-        view: super::types::AppView::Homebase,
         persisted,
         workspaces,
         workspace_git,
@@ -191,7 +189,7 @@ pub async fn set_setting(
 #[tauri::command]
 #[specta::specta]
 pub async fn reload_environment(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    state.shell_env.write().await.reload().await?;
+    state.shell_env.write().await.load().await?;
     state.notify(&output(&app), StateChangeKind::Environment);
     Ok(())
 }
@@ -346,7 +344,7 @@ pub async fn resolve_approval(
     approved: bool,
     deny_reason: Option<String>,
     state: State<'_, AppState>,
-) -> Result<ResolveApprovalResult> {
+) -> Result<()> {
     crate::approvals::resolve_approval(&output(&app), &state, &id, approved, deny_reason).await
 }
 #[tauri::command]
@@ -368,7 +366,7 @@ pub async fn resolve_all_approvals(
     approved: bool,
     deny_reason: Option<String>,
     state: State<'_, AppState>,
-) -> Result<ResolveApprovalResult> {
+) -> Result<()> {
     crate::approvals::resolve_all_approvals(
         &output(&app),
         &state,
@@ -899,16 +897,11 @@ pub async fn send_workspace_findings(
 #[tauri::command]
 #[specta::specta]
 pub async fn resolve_thread_media(
-    app: AppHandle,
     source: String,
     workdir: Option<String>,
+    state: State<'_, AppState>,
 ) -> Result<Option<crate::thread_media::ThreadMedia>> {
-    use tauri::Manager;
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| Error::Workspace(error.to_string()))?;
-    let media_dir = crate::data_dir(app_data).join("media");
+    let media_dir = state.data_dir.media();
     // Copies a file of up to hundreds of megabytes; not on an async worker.
     tokio::task::spawn_blocking(move || {
         crate::thread_media::resolve(

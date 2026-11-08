@@ -4,6 +4,7 @@ use super::payload::{
     AgentQuestion, ApprovalPayload, QUESTION_TOOL, payload_from_permission, payload_with_questions,
 };
 use crate::engines::AgentEvent;
+use crate::model::ApprovalStatus;
 use crate::store::Store;
 use crate::store::types::ApprovalRow;
 
@@ -55,7 +56,7 @@ fn record_pending(
     store.upsert_approval(&ApprovalRow {
         id: id.clone(),
         thread_id: thread_id.to_string(),
-        status: "pending".into(),
+        status: ApprovalStatus::Pending.into(),
         tool: tool_key,
         payload: payload_json,
     })?;
@@ -70,7 +71,11 @@ pub fn mark_resolved(
     approved: bool,
     deny_reason: Option<String>,
 ) -> Result<(ApprovalRow, ApprovalPayload), crate::error::Error> {
-    let status = if approved { "approved" } else { "denied" };
+    let status = if approved {
+        ApprovalStatus::Approved
+    } else {
+        ApprovalStatus::Denied
+    };
     finish(store, id, status, |payload| {
         if !approved {
             payload.deny_reason = deny_reason.filter(|value| !value.trim().is_empty());
@@ -83,25 +88,27 @@ pub fn mark_answered(
     id: &str,
     answers: BTreeMap<String, String>,
 ) -> Result<(ApprovalRow, ApprovalPayload), crate::error::Error> {
-    finish(store, id, "approved", |payload| payload.answers = answers)
+    finish(store, id, ApprovalStatus::Approved, |payload| {
+        payload.answers = answers
+    })
 }
 
 fn finish(
     store: &Store,
     id: &str,
-    status: &str,
+    status: ApprovalStatus,
     apply: impl FnOnce(&mut ApprovalPayload),
 ) -> Result<(ApprovalRow, ApprovalPayload), crate::error::Error> {
     let row = store
         .get_approval(id)?
         .ok_or_else(|| crate::error::Error::Approval(format!("unknown approval {id}")))?;
-    if row.status != "pending" {
+    if row.status != ApprovalStatus::Pending.as_str() {
         return Err(crate::error::Error::Approval(
             "approval already decided".into(),
         ));
     }
     let mut payload: ApprovalPayload = serde_json::from_str(&row.payload).unwrap_or_default();
-    payload.resolved_at_ms = Some(chrono_ms());
+    payload.resolved_at_ms = Some(crate::time::unix_ms());
     apply(&mut payload);
     let payload_json = serde_json::to_string(&payload)
         .map_err(|error| crate::error::Error::Store(error.to_string()))?;
@@ -123,11 +130,4 @@ fn persist_permission_event(
         .map_err(|error| crate::error::Error::Store(error.to_string()))?;
     store.append_event(thread_id, "permission", &payload)?;
     Ok(())
-}
-
-fn chrono_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or(0)
 }

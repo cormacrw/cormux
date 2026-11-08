@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::composer::persist_agent_event;
 use crate::engines::AgentEvent;
@@ -11,65 +11,6 @@ use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::FindingRow;
 use crate::timeline::{TimelineStep, record_step};
-
-pub const SEVERITIES: &[&str] = &["blocking", "suggestion", "nit"];
-
-pub fn validate_severity(severity: &str) -> Result<()> {
-    if SEVERITIES.contains(&severity) {
-        Ok(())
-    } else {
-        Err(Error::Mcp(
-            "severity must be blocking, suggestion, or nit".into(),
-        ))
-    }
-}
-
-pub fn validate_finding_location(
-    worktree: &Path,
-    file: Option<&str>,
-    line: Option<i64>,
-) -> Result<()> {
-    let Some(path) = file.filter(|value| !value.trim().is_empty()) else {
-        if line.is_some() {
-            return Err(Error::Mcp("line requires a file path".into()));
-        }
-        return Ok(());
-    };
-    let relative = path.trim_start_matches("./");
-    // Only plain names: `..` climbs out, and an absolute path would replace the worktree
-    // entirely in `join`.
-    let inside = Path::new(relative)
-        .components()
-        .all(|part| matches!(part, std::path::Component::Normal(_)));
-    if !inside {
-        return Err(Error::Mcp("file path must stay inside the worktree".into()));
-    }
-    let full = worktree.join(relative);
-    if !full.is_file() {
-        return Err(Error::Mcp(format!("file not found in worktree: {path}")));
-    }
-    if let Some(line_no) = line {
-        if line_no < 1 {
-            return Err(Error::Mcp("line must be a positive integer".into()));
-        }
-        let contents = std::fs::read_to_string(&full)
-            .map_err(|error| Error::Mcp(format!("could not read {path}: {error}")))?;
-        let max_line = contents.lines().count() as i64;
-        if line_no > max_line {
-            return Err(Error::Mcp(format!(
-                "line {line_no} is out of range for {path} ({max_line} lines)"
-            )));
-        }
-    }
-    Ok(())
-}
-
-pub fn worktree_for_workspace(store: &Store, workspace_id: &str) -> Result<PathBuf> {
-    let workspace = store
-        .workspace_by_id(workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    Ok(PathBuf::from(workspace.worktree_path))
-}
 
 pub fn findings_batch_key(thread_id: &str) -> String {
     format!("findings-batch:{thread_id}")
@@ -187,7 +128,7 @@ pub fn dismiss_findings(
 fn build_fix_prompt(findings: &[FindingRow]) -> String {
     let mut lines = vec![
         "Work through these review findings one at a time.".into(),
-        "After each fix, call the Harness MCP tool `mark_finding_fixed` with the finding id and commit sha."
+        "After each fix, call the Cormux MCP tool `mark_finding_fixed` with the finding id and commit sha."
             .into(),
     ];
     for row in findings {
@@ -204,11 +145,24 @@ fn build_fix_prompt(findings: &[FindingRow]) -> String {
     lines.join("\n")
 }
 
-pub async fn on_finding_marked_fixed(
+/// What the `mark_finding_fixed` tool the fix prompt names will do. The tool isn't offered to
+/// engines yet, so only tests call this.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tool is offered in a later change")
+)]
+pub async fn mark_fixed(
     out: &Output,
     state: &AppState,
     finding_id: &str,
+    commit_sha: &str,
 ) -> Result<()> {
+    state.store.mark_finding_fixed(finding_id, commit_sha)?;
+    on_finding_marked_fixed(out, state, finding_id).await
+}
+
+/// Once every finding in the thread's batch is fixed, records it and idles the thread.
+async fn on_finding_marked_fixed(out: &Output, state: &AppState, finding_id: &str) -> Result<()> {
     let Some(finding) = state.store.finding_by_id(finding_id)? else {
         return Ok(());
     };
@@ -273,22 +227,4 @@ pub fn persist_current_tool(store: &Store, thread_id: &str, title: &str) -> Resu
         title: title.to_string(),
     };
     persist_agent_event(store, thread_id, &event)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use tempfile::tempdir;
-
-    #[test]
-    fn validates_file_and_line_in_worktree() {
-        let dir = tempdir().unwrap();
-        let file = dir.path().join("src/a.ts");
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(&file, "line1\nline2\n").unwrap();
-        validate_finding_location(dir.path(), Some("src/a.ts"), Some(2)).unwrap();
-        assert!(validate_finding_location(dir.path(), Some("src/a.ts"), Some(9)).is_err());
-        assert!(validate_finding_location(dir.path(), Some("../escape"), None).is_err());
-    }
 }

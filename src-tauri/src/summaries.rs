@@ -1,8 +1,8 @@
 use crate::error::{Error, Result};
 use crate::ipc::types::WorkspaceSummaryResult;
+use crate::model::ThreadStatus;
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
-use crate::workspace::ThreadStatus;
 
 pub const SUMMARY_MODEL_LABEL: &str = "Haiku 4.5";
 
@@ -95,7 +95,7 @@ pub async fn summarise(state: &AppState, workspace_id: String) -> Result<Workspa
 
     let prompt = build_summary_prompt(&workspace, &threads);
     let (summary, from_llm) = match state.llm.summarise(&workspace_id, &prompt).await {
-        Ok(Some(result)) if !result.text.is_empty() => (result.text, true),
+        Ok(Some(text)) if !text.is_empty() => (text, true),
         _ => (fallback_summary(&workspace, &threads), false),
     };
 

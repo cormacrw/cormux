@@ -150,7 +150,7 @@ impl ProcessSupervisor {
         }
         {
             if let Ok(env) = self.env.try_read() {
-                env.apply_pty(&mut cmd);
+                env.apply(&mut cmd);
             }
         }
         for (key, value) in extra_env {

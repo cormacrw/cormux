@@ -10,15 +10,15 @@ use super::claude::turn_gate::TurnGate;
 use super::claude::{CanUseTool, ClaudeSession, Event, PermissionDecision, SpawnOptions};
 use super::command::EngineCommand;
 use super::detect::{self, EngineStatus};
-use super::events::{AgentEvent, EngineKind, StreamedEvent, ToolCallStatus, ToolKind};
+use super::events::{AgentEvent, EngineKind, StreamedEvent, ToolCallStatus};
 use super::models::{ThreadModels, static_efforts, static_models};
 use super::prompt::Prompt;
 use crate::approvals::{ApprovalBroker, ApprovalDecision};
 use crate::error::{Error, Result};
 use crate::mcp::CormuxMcp;
+use crate::model::{StopReason, ThreadStatus};
 use crate::shell_env::ShellEnv;
 use crate::store::Store;
-use crate::workspace::ThreadStatus;
 
 const EVENT_CAP: usize = 256;
 /// Just over what a session gets to exit before it's killed.
@@ -79,17 +79,9 @@ pub struct SpawnSpec {
     pub thread_id: String,
     pub kind: EngineKind,
     pub cwd: PathBuf,
-    pub resume: Option<String>,
     pub override_argv: Option<Vec<String>>,
-    pub auto_approve_readonly: bool,
     pub auto_approve_all: bool,
-    /// Scratches: the engine's own read-only mode, and edits are denied without asking.
-    pub read_only: bool,
 }
-
-/// Sent back to an agent that tries to edit inside a read-only scratch.
-pub const READ_ONLY_DENIAL: &str =
-    "This is a read-only scratch. Do not edit files; answer in the conversation instead.";
 
 impl EngineRegistry {
     pub fn new(
@@ -197,13 +189,8 @@ impl EngineRegistry {
         let (events, _) = broadcast::channel(EVENT_CAP);
         let last_active = Arc::new(Mutex::new(Instant::now()));
         self.forward_turn_ends(&spec.thread_id, events.subscribe(), last_active.clone());
-        let resume = spec
-            .resume
-            .clone()
-            .or_else(|| self.store.thread_session(&spec.thread_id).ok().flatten());
-        let mut spec = spec;
-        spec.resume = resume;
-        let session_id = Arc::new(Mutex::new(spec.resume.clone()));
+        let resume = self.store.thread_session(&spec.thread_id).ok().flatten();
+        let session_id = Arc::new(Mutex::new(resume.clone()));
         let model = self.store.thread_model(&spec.thread_id).ok().flatten();
         let effort = self.store.thread_effort(&spec.thread_id).ok().flatten();
         let env = self.env.read().await.clone();
@@ -322,7 +309,8 @@ impl EngineRegistry {
         Ok(())
     }
 
-    pub fn release_thread(&self, thread_id: &str) -> Result<Option<Prompt>> {
+    /// Ends a pause. The prompt is what queued during it, or `continue` if nothing did.
+    pub fn release_thread(&self, thread_id: &str) -> Result<Prompt> {
         let mut holds = self
             .holds
             .lock()
@@ -331,9 +319,9 @@ impl EngineRegistry {
         slot.paused = false;
         let queued = std::mem::take(&mut slot.queued);
         if queued.is_empty() {
-            return Ok(Some("continue".into()));
+            return Ok("continue".into());
         }
-        Ok(Some(Prompt::merge(queued)))
+        Ok(Prompt::merge(queued))
     }
 
     pub fn enqueue_while_held(&self, thread_id: &str, prompt: Prompt) -> Result<()> {
@@ -544,13 +532,12 @@ impl EngineRegistry {
         let mut options = SpawnOptions {
             binary,
             cwd: Some(spec.cwd.clone()),
-            resume: spec.resume.clone(),
+            resume: session_id.lock().ok().and_then(|id| id.clone()),
             model,
             effort,
             extra_args,
             use_default_args,
-            // A read-only scratch has no workspace to start threads from.
-            orchestrate: use_default_args && !spec.read_only,
+            orchestrate: use_default_args,
             references,
             env: Some(env.vars().clone()),
         };
@@ -564,9 +551,7 @@ impl EngineRegistry {
         let approvals = self.approvals.clone();
         let store = self.store.clone();
         let thread_id = spec.thread_id.clone();
-        let auto_ro = spec.auto_approve_readonly;
         let auto_all = spec.auto_approve_all;
-        let read_only = spec.read_only;
         let approval_notify = self.approval_notify.clone();
         let mcp = self.mcp.clone();
         tokio::spawn(async move {
@@ -579,11 +564,7 @@ impl EngineRegistry {
                 mcp,
                 thread_id,
                 session_id,
-                ClaudePolicy {
-                    auto_ro,
-                    auto_all,
-                    read_only,
-                },
+                ClaudePolicy { auto_all },
                 approval_notify,
             )
             .await;
@@ -801,7 +782,7 @@ async fn run_claude(
                     Err(error) => {
                         // Saved, so after a reload the thread still says why its turn ended.
                         pump.emit(AgentEvent::TurnEnd {
-                            stop_reason: "error".into(),
+                            stop_reason: StopReason::failed(None),
                             error: Some(error.to_string()),
                         });
                         let _ = session.shutdown().await;
@@ -855,9 +836,7 @@ fn permission_decision(answer: ClaudeAnswer) -> PermissionDecision {
 
 #[derive(Clone, Copy)]
 struct ClaudePolicy {
-    auto_ro: bool,
     auto_all: bool,
-    read_only: bool,
 }
 
 async fn handle_claude_permission(
@@ -868,19 +847,6 @@ async fn handle_claude_permission(
     policy: ClaudePolicy,
     answer_tx: mpsc::UnboundedSender<ClaudeAnswer>,
 ) {
-    let kind = ToolKind::from_claude_tool(&req.tool_name);
-    // Leaving plan mode is how Claude asks to start editing, so a scratch always says no.
-    if policy.read_only && (kind.is_edit() || req.tool_name == "ExitPlanMode") {
-        let _ = session
-            .answer_tool(
-                &req.request_id,
-                PermissionDecision::Deny {
-                    message: READ_ONLY_DENIAL.into(),
-                },
-            )
-            .await;
-        return;
-    }
     // Only the user can answer a question, so no auto-approve setting applies to one.
     let questions = if req.tool_name == "AskUserQuestion" {
         crate::approvals::questions_from_input(&req.input)
@@ -888,7 +854,7 @@ async fn handle_claude_permission(
         Vec::new()
     };
     let mut mapped = claude_map::map_permission(req);
-    if questions.is_empty() && (policy.auto_all || (policy.auto_ro && kind.is_readonly())) {
+    if questions.is_empty() && policy.auto_all {
         if let AgentEvent::Permission { auto_approved, .. } = &mut mapped {
             *auto_approved = true;
         }
@@ -966,15 +932,6 @@ fn persist_event(store: &Store, thread_id: &str, event: &AgentEvent) -> Option<i
 mod tests {
     use super::*;
 
-    fn test_mcp(store: Store) -> CormuxMcp {
-        let env = Arc::new(RwLock::new(ShellEnv::new()));
-        CormuxMcp::new(
-            store,
-            crate::process::ProcessSupervisor::new(env),
-            Arc::new(ApprovalBroker::new()),
-            crate::app::WorkspaceAppService::new(),
-        )
-    }
     use crate::approvals::ApprovalBroker;
     use crate::shell_env::ShellEnv;
     use crate::store::Store;
@@ -990,7 +947,7 @@ mod tests {
             env,
             approvals,
             store.clone(),
-            test_mcp(store),
+            CormuxMcp::new(store),
             approval_notify,
             broadcast::channel(8).0,
         )
@@ -1099,7 +1056,7 @@ mod tests {
             Arc::new(RwLock::new(ShellEnv::new())),
             Arc::new(ApprovalBroker::new()),
             store.clone(),
-            test_mcp(store),
+            CormuxMcp::new(store),
             broadcast::channel(4).0,
             broadcast::channel(8).0,
         );
@@ -1108,11 +1065,8 @@ mod tests {
                 thread_id: thread_id.into(),
                 kind: EngineKind::Claude,
                 cwd: std::env::temp_dir(),
-                resume: None,
                 override_argv: None,
-                auto_approve_readonly: false,
                 auto_approve_all: true,
-                read_only: false,
             })
             .await
             .unwrap();
@@ -1226,7 +1180,7 @@ mod tests {
             Arc::new(RwLock::new(ShellEnv::new())),
             Arc::new(ApprovalBroker::new()),
             store.clone(),
-            test_mcp(store.clone()),
+            CormuxMcp::new(store.clone()),
             broadcast::channel(4).0,
             broadcast::channel(8).0,
         );
@@ -1235,11 +1189,8 @@ mod tests {
                 thread_id: "live".into(),
                 kind: EngineKind::Claude,
                 cwd: std::env::temp_dir(),
-                resume: None,
                 override_argv: None,
-                auto_approve_readonly: false,
                 auto_approve_all: false,
-                read_only: false,
             })
             .await
             .unwrap();
@@ -1300,7 +1251,7 @@ mod tests {
             Arc::new(RwLock::new(ShellEnv::new())),
             approvals.clone(),
             store.clone(),
-            test_mcp(store.clone()),
+            CormuxMcp::new(store.clone()),
             broadcast::channel(4).0,
             broadcast::channel(4).0,
         );
@@ -1309,11 +1260,8 @@ mod tests {
                 thread_id: "t-ask".into(),
                 kind: EngineKind::Claude,
                 cwd: std::env::temp_dir(),
-                resume: None,
                 override_argv: Some(mock_claude_argv()),
-                auto_approve_readonly: true,
                 auto_approve_all: true,
-                read_only: false,
             })
             .await
             .unwrap();
@@ -1379,7 +1327,7 @@ mod tests {
             env,
             Arc::new(ApprovalBroker::new()),
             store.clone(),
-            test_mcp(store),
+            CormuxMcp::new(store),
             broadcast::channel(4).0,
             turn_end_notify,
         );
@@ -1388,11 +1336,8 @@ mod tests {
                 thread_id: "t-idle".into(),
                 kind: EngineKind::Claude,
                 cwd: std::env::temp_dir(),
-                resume: None,
                 override_argv: Some(mock_claude_argv()),
-                auto_approve_readonly: true,
                 auto_approve_all: true,
-                read_only: false,
             })
             .await
             .unwrap();
@@ -1416,7 +1361,7 @@ mod tests {
             env,
             Arc::new(ApprovalBroker::new()),
             store.clone(),
-            test_mcp(store),
+            CormuxMcp::new(store),
             broadcast::channel(4).0,
             turn_end_notify,
         );
@@ -1425,11 +1370,8 @@ mod tests {
                 thread_id: "t-bg".into(),
                 kind: EngineKind::Claude,
                 cwd: std::env::temp_dir(),
-                resume: None,
                 override_argv: Some(mock_claude_argv()),
-                auto_approve_readonly: true,
                 auto_approve_all: true,
-                read_only: false,
             })
             .await
             .unwrap();
@@ -1460,11 +1402,8 @@ mod tests {
                 thread_id: "t1".into(),
                 kind: EngineKind::Claude,
                 cwd: std::env::temp_dir(),
-                resume: None,
                 override_argv: Some(mock_claude_argv()),
-                auto_approve_readonly: true,
                 auto_approve_all: false,
-                read_only: false,
             })
             .await
             .unwrap();
@@ -1475,7 +1414,7 @@ mod tests {
         let permission_id = loop {
             let event = events.recv().await.unwrap().event;
             if let AgentEvent::Permission { id, kind, .. } = event {
-                assert_eq!(kind, ToolKind::Execute);
+                assert_eq!(kind, crate::engines::ToolKind::Execute);
                 break id;
             }
         };
@@ -1484,7 +1423,7 @@ mod tests {
         loop {
             match events.recv().await.unwrap().event {
                 AgentEvent::TurnEnd { stop_reason, .. } => {
-                    assert_eq!(stop_reason, "end_turn");
+                    assert_eq!(stop_reason, StopReason::EndTurn);
                     break;
                 }
                 AgentEvent::EngineExited { .. } => panic!("exited early"),
@@ -1496,7 +1435,7 @@ mod tests {
         engines.cancel("t1").unwrap();
         loop {
             if let AgentEvent::TurnEnd { stop_reason, .. } = events.recv().await.unwrap().event {
-                assert_ne!(stop_reason, "end_turn");
+                assert_ne!(stop_reason, StopReason::EndTurn);
                 break;
             }
         }

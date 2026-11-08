@@ -81,7 +81,7 @@ pub async fn generate_title(
     max: usize,
 ) -> Option<String> {
     match llm.complete(&build_title_prompt(prompt, kind)).await {
-        Ok(result) => clean_title(&result.text, max),
+        Ok(text) => clean_title(&text, max),
         Err(error) => {
             log::warn!("could not name the {kind}: {error}");
             None
@@ -122,7 +122,7 @@ pub fn clean_branch(raw: &str) -> Option<String> {
 
 pub async fn generate_branch(llm: &LlmClient, prompt: &str) -> Option<String> {
     match llm.complete(&build_branch_prompt(prompt)).await {
-        Ok(result) => clean_branch(&result.text),
+        Ok(text) => clean_branch(&text),
         Err(error) => {
             log::warn!("could not name the branch: {error}");
             None

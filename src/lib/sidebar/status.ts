@@ -17,34 +17,22 @@ export type WorkspaceSidebarInput = {
 export function statusDotVariantForWorkspace(
   workspace: WorkspaceSidebarInput,
 ): StatusDotVariant {
-  if (
-    workspace.lifecycle === 'creating' ||
-    workspace.lifecycle === 'provisioning'
-  ) {
-    return 'provisioning'
-  }
+  if (workspace.lifecycle === 'provisioning') return 'provisioning'
   if (workspace.lifecycle === 'running') {
     return workspace.paused ? 'paused' : 'running'
   }
-  if (workspace.lifecycle === 'waiting') return 'waiting'
   return 'idle'
 }
 
 /** The dot for a thread that needs you: only an agent on hold for an answer is worth flashing for. */
 export function statusDotVariantForAttention(
   pendingApprovals: number,
-  lifecycle: WorkspaceLifecycle | undefined,
 ): StatusDotVariant {
-  return pendingApprovals > 0 || lifecycle === 'waiting' ? 'waiting' : 'ready'
+  return pendingApprovals > 0 ? 'waiting' : 'ready'
 }
 
 export function workspaceStatusWord(workspace: WorkspaceSidebarInput): string {
-  if (
-    workspace.lifecycle === 'creating' ||
-    workspace.lifecycle === 'provisioning'
-  ) {
-    return 'Starting'
-  }
+  if (workspace.lifecycle === 'provisioning') return 'Starting'
   if (workspace.lifecycle === 'running') {
     return workspace.paused ? 'Paused' : 'Running'
   }

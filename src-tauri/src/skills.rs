@@ -85,7 +85,7 @@ fn repo_path(state: &AppState, repo_id: &str) -> Result<PathBuf> {
 /// Reads every skill's file, so it stays off the threads running everything else.
 async fn list_in_background(cwd: PathBuf) -> Result<Vec<Skill>> {
     tokio::task::spawn_blocking(move || {
-        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let home = crate::paths::home();
         list(&cwd, home.as_deref())
     })
     .await

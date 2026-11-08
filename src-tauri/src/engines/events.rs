@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::model::StopReason;
 use crate::timeline::TimelineStep;
 
-/// Engines Harness can spawn.
+/// Engines Cormux can spawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum EngineKind {
@@ -66,14 +67,6 @@ impl ToolKind {
             Self::Fetch => "fetch",
             Self::Other => "other",
         }
-    }
-
-    pub fn is_edit(self) -> bool {
-        matches!(self, Self::Edit | Self::Delete | Self::Move)
-    }
-
-    pub fn is_readonly(self) -> bool {
-        matches!(self, Self::Read | Self::Search | Self::Think)
     }
 
     pub fn from_claude_tool(name: &str) -> Self {
@@ -207,7 +200,8 @@ pub enum AgentEvent {
         cost_usd: Option<f64>,
     },
     TurnEnd {
-        stop_reason: String,
+        #[specta(type = String)]
+        stop_reason: StopReason,
         error: Option<String>,
     },
     EngineExited {
@@ -232,7 +226,5 @@ mod tests {
         assert_eq!(ToolKind::from_claude_tool("Grep"), ToolKind::Search);
         assert_eq!(ToolKind::from_claude_tool("Bash"), ToolKind::Execute);
         assert_eq!(ToolKind::from_claude_tool("Write"), ToolKind::Edit);
-        assert!(ToolKind::Read.is_readonly());
-        assert!(!ToolKind::Execute.is_readonly());
     }
 }

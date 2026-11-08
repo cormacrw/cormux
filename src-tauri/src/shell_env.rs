@@ -34,24 +34,24 @@ impl ShellEnv {
         &self.vars
     }
 
-    pub fn apply(&self, command: &mut Command) {
+    /// Replaces the command's environment with this one. Until the env has loaded it is
+    /// empty, and the command keeps this process's.
+    pub fn apply(&self, command: &mut impl EnvTarget) {
         if self.vars.is_empty() {
             return;
         }
-        command.env_clear();
+        command.clear_env();
         for (key, value) in &self.vars {
-            command.env(key, value);
+            command.set_env(key, value);
         }
     }
 
-    pub fn apply_pty(&self, command: &mut CommandBuilder) {
-        if self.vars.is_empty() {
-            return;
-        }
-        command.env_clear();
-        for (key, value) in &self.vars {
-            command.env(key, value);
-        }
+    /// The user's shell: the login env's `$SHELL`, else this process's, else macOS's default.
+    pub fn shell(&self) -> String {
+        self.get("SHELL")
+            .map(str::to_string)
+            .or_else(|| std::env::var("SHELL").ok())
+            .unwrap_or_else(|| "/bin/zsh".into())
     }
 
     pub fn command(&self, program: &str) -> Command {
@@ -61,7 +61,7 @@ impl ShellEnv {
     }
 
     pub async fn load(&mut self) -> Result<()> {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let shell = self.shell();
         let output = Command::new(&shell)
             .args(["-l", "-i", "-c", "env -0"])
             .stdin(Stdio::null())
@@ -96,10 +96,6 @@ impl ShellEnv {
                 }
             }
         }
-    }
-
-    pub async fn reload(&mut self) -> Result<()> {
-        self.load().await
     }
 
     pub async fn run(&self, program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
@@ -153,6 +149,32 @@ impl ShellEnv {
             )));
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+}
+
+/// A command [`ShellEnv::apply`] can set up: a plain child process or a PTY one.
+pub trait EnvTarget {
+    fn clear_env(&mut self);
+    fn set_env(&mut self, key: &str, value: &str);
+}
+
+impl EnvTarget for Command {
+    fn clear_env(&mut self) {
+        self.env_clear();
+    }
+
+    fn set_env(&mut self, key: &str, value: &str) {
+        self.env(key, value);
+    }
+}
+
+impl EnvTarget for CommandBuilder {
+    fn clear_env(&mut self) {
+        self.env_clear();
+    }
+
+    fn set_env(&mut self, key: &str, value: &str) {
+        self.env(key, value);
     }
 }
 
@@ -211,14 +233,5 @@ mod tests {
                 .await;
             let _ = PathBuf::from(&dir);
         }
-    }
-
-    #[tokio::test]
-    async fn reload_replaces_cached_vars() {
-        let mut env = ShellEnv::new();
-        env.load().await.unwrap();
-        let first = env.get("PATH").unwrap().to_string();
-        env.reload().await.unwrap();
-        assert_eq!(env.get("PATH").unwrap(), first);
     }
 }

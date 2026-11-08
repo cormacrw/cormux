@@ -8,11 +8,11 @@ use crate::composer::persist_user_message;
 use crate::error::{Error, Result};
 use crate::feedback::Output;
 use crate::ipc::types::{CreateWorkspaceInput, StateChangeKind};
-use crate::paths::{expand_tilde, worktrees_base};
+use crate::model::{ThreadStatus, WorkspaceLifecycle};
+use crate::paths::{WORKTREE_ROOT_SETTING, expand_tilde, worktrees_root};
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::timeline::{TimelineStep, record_step};
-use crate::workspace::ThreadStatus;
 
 pub struct StartedWorkspace {
     pub workspace_id: String,
@@ -66,7 +66,7 @@ pub async fn start_workspace(
     let (prompt, shown) = if input.attachments.is_empty() {
         (None, goal.clone())
     } else {
-        let folder = state.data_dir.join("attachments");
+        let folder = state.data_dir.attachments();
         let (text, attachments) = (goal.clone(), input.attachments.clone());
         let (prompt, shown) = tokio::task::spawn_blocking(move || {
             crate::attachments::build_prompt(&folder, &text, &attachments)
@@ -78,18 +78,8 @@ pub async fn start_workspace(
 
     let workspace_id = new_workspace_id();
     let thread_id = Uuid::new_v4().to_string();
-    let repo_name = repo_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("repo");
-    let worktrees_base = worktrees_base(&state.store)?;
-    let worktree_path = crate::workspace::WorkspaceManager::worktree_path(
-        &worktrees_base,
-        repo_name,
-        &input.branch,
-    );
-
-    state
+    let worktrees_root = worktrees_root(state.store.get_setting(WORKTREE_ROOT_SETTING)?.as_deref());
+    let record = state
         .workspace
         .register_provisioning(
             &workspace_id,
@@ -98,7 +88,7 @@ pub async fn start_workspace(
             &input.name,
             &input.branch,
             &input.base,
-            &worktrees_base,
+            &worktrees_root,
         )
         .await?;
 
@@ -107,8 +97,8 @@ pub async fn start_workspace(
         repo_id: input.repo_id.clone(),
         name: input.name.clone(),
         branch: input.branch.clone(),
-        worktree_path: worktree_path.to_string_lossy().to_string(),
-        status: "provisioning".into(),
+        worktree_path: record.worktree_path.clone(),
+        status: WorkspaceLifecycle::Provisioning.as_str().into(),
         created_at: String::new(),
         summary: None,
         summary_at: None,
@@ -289,11 +279,7 @@ fn spawn_auto_name(
 }
 
 fn new_workspace_id() -> String {
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
-    format!("ws{ms:x}")
+    format!("ws{:x}", crate::time::unix_ms())
 }
 
 #[cfg(test)]
@@ -352,7 +338,7 @@ esac
         git(&repo, &["config", "user.name", "Cormux"]);
         git(&repo, &["commit", "-q", "--allow-empty", "-m", "init"]);
 
-        let state = AppState::new(dir.path().join("data"));
+        let state = AppState::new(crate::paths::DataDir::new(dir.path().join("data")));
         state.store.open_in_memory().unwrap();
         state
             .store

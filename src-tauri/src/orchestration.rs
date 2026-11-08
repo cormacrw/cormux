@@ -6,11 +6,11 @@ use serde_json::{Value, json};
 use crate::error::{Error, Result};
 use crate::feedback::Output;
 use crate::ipc::types::CreateWorkspaceInput;
+use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::timeline::{TimelineStep, record_step};
-use crate::workspace::{ThreadStatus, WorkspaceLifecycle};
 use crate::workspace_start::start_workspace;
 
 /// A parent's children still doing something, past which `create_thread` refuses.
@@ -892,7 +892,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_child_finishing_after_its_parent_was_killed_leaves_no_ghost() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         state.store.archive_workspace("w-parent").unwrap();
         assert_no_ghost(&state).await;
@@ -901,7 +901,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_child_finishing_while_its_parent_is_killed_starts_no_engine() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         let row = state.store.workspace_by_id("w-parent").unwrap().unwrap();
         let mut record = crate::git_workspace::resolve_record(&state, "w-parent", &row)
@@ -914,7 +914,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_idle_parent_is_prompted_with_its_reports_and_the_ui_told() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         let mut engine = state.engines.fake_thread("parent");
         let (recording, out) = RecordingOutput::new();
@@ -935,7 +935,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_busy_parent_keeps_its_reports_for_its_own_turn_end() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         let mut parent = state.store.thread_by_id("parent").unwrap().unwrap();
         parent.status = "running".into();
@@ -952,7 +952,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_report_that_cannot_be_delivered_waits_for_the_next_try() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         let (recording, out) = RecordingOutput::new();
 
@@ -966,7 +966,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_turn_end_reports_the_childs_reply_to_its_parent_once() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         seed(&state.store);
         add_thread(&state.store, "parent", "r1", None, "idle");
         add_thread(&state.store, "child", "r1", Some("parent"), "idle");
@@ -991,7 +991,7 @@ mod tests {
 
     #[tokio::test]
     async fn reports_wait_for_a_parent_that_can_continue() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         seed(&state.store);
         add_thread(&state.store, "parent", "r1", None, "running");
         state.reports.push("parent", report("child", "done"));

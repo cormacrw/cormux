@@ -1,4 +1,3 @@
-mod effects;
 mod payload;
 mod record;
 mod resolve;
@@ -8,7 +7,6 @@ use std::sync::Mutex;
 
 use tokio::sync::oneshot;
 
-pub use effects::apply_harness_effects;
 pub use payload::{QUESTION_TOOL, questions_from_input};
 pub use record::{
     mark_answered, mark_resolved, record_pending_permission, record_pending_question,
@@ -18,7 +16,7 @@ pub use resolve::{answer_question, resolve_all_approvals, resolve_approval};
 use crate::error::{Error, Result};
 
 /// Pending permission requests keyed by approval id. Engine adapters block on the
-/// receiver until the UI (or auto-approve) resolves them.
+/// receiver until the user answers.
 #[derive(Debug, Default)]
 pub struct ApprovalBroker {
     pending: Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>,

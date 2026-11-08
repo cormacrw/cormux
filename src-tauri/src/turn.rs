@@ -14,11 +14,11 @@ use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::feedback::Output;
 use crate::ipc::types::{ResumeThreadSessionInput, StateChangeKind};
+use crate::model::ThreadStatus;
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::ThreadRow;
 use crate::timeline::{TimelineStep, record_step};
-use crate::workspace::ThreadStatus;
 
 /// Any thread, a scratch's included.
 pub fn thread_row(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
@@ -50,7 +50,7 @@ pub async fn submit(
             "this thread is read-only; start a new thread to carry on".into(),
         ));
     }
-    let folder = state.data_dir.join("attachments");
+    let folder = state.data_dir.attachments();
     // Reads and encodes the attached files, so it stays off the async workers.
     let (prompt, text) = tokio::task::spawn_blocking(move || {
         crate::attachments::build_prompt(&folder, &text, &attachments)
@@ -129,9 +129,8 @@ pub async fn resume(out: &Output, state: &AppState, thread_id: &str) -> Result<(
     }
     record_step(&state.store, thread_id, TimelineStep::AgentResumed)?;
     record(state, &thread, ThreadStatus::Running).await?;
-    if let Some(prompt) = state.engines.release_thread(thread_id)? {
-        let _ = state.engines.prompt(thread_id, prompt);
-    }
+    let prompt = state.engines.release_thread(thread_id)?;
+    let _ = state.engines.prompt(thread_id, prompt);
     notify(out, state);
     Ok(())
 }
@@ -281,8 +280,9 @@ mod tests {
     use super::*;
     use crate::engines::EngineCommand;
     use crate::feedback::RecordingOutput;
+    use crate::model::WorkspaceLifecycle;
     use crate::store::types::{ApprovalRow, FindingRow, RepoRecord, WorkspaceRow};
-    use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
+    use crate::workspace::WorkspaceRecord;
     use tokio::sync::mpsc::UnboundedReceiver;
 
     type Engine = UnboundedReceiver<EngineCommand>;
@@ -310,7 +310,7 @@ mod tests {
     /// A workspace in both the store and the manager, with one thread in `status` whose engine
     /// is the receiver returned. `workspace` is the workspace's status to start from.
     async fn seeded(status: ThreadStatus, workspace: WorkspaceLifecycle) -> (AppState, Engine) {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         state.store.open_in_memory().unwrap();
         state
             .store
@@ -740,8 +740,7 @@ mod tests {
         assert_eq!(stored_workspace(&state), "running");
 
         for id in ["f1", "f2"] {
-            state.store.mark_finding_fixed(id, "abc").unwrap();
-            crate::findings::on_finding_marked_fixed(&out, &state, id)
+            crate::findings::mark_fixed(&out, &state, id, "abc")
                 .await
                 .unwrap();
         }

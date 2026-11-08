@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::app::WorkspaceAppRuntime;
-use crate::git::WorktreeDiff;
+use crate::git::{GitConflictState, WorktreeDiff};
 use crate::metrics::MemorySample;
 use crate::store::types::PersistedSnapshot;
 use crate::workspace::WorkspaceRecord;
@@ -11,7 +11,6 @@ use crate::workspace::WorkspaceRecord;
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub version: u64,
-    pub view: AppView,
     pub persisted: PersistedSnapshot,
     pub workspaces: Vec<WorkspaceRecord>,
     pub workspace_git: Vec<WorkspaceGitRuntime>,
@@ -29,20 +28,6 @@ pub struct Snapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub enum AppView {
-    Homebase,
-    Workspace { id: String },
-    Settings,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ResolveApprovalResult {
-    pub focus_composer: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
 pub struct PtyChunk {
     pub workspace_id: String,
     pub line: String,
@@ -52,7 +37,6 @@ pub struct PtyChunk {
 #[serde(rename_all = "camelCase")]
 pub struct DiffUpdate {
     pub workspace_id: String,
-    pub path: String,
     pub diff: Option<WorktreeDiff>,
 }
 
@@ -178,20 +162,6 @@ pub struct WorkspaceGitRuntime {
     pub behind: u32,
     pub ahead: u32,
     pub conflict: Option<GitConflictState>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct GitConflictState {
-    pub operation: GitConflictOperation,
-    pub paths: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum GitConflictOperation {
-    Merge,
-    Rebase,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NDJSON stand-in for `claude -p` used by the COR-42 spawn test."""
+"""NDJSON stand-in for `claude -p`, for the session and engine registry tests."""
 
 import json
 import sys
@@ -60,19 +60,6 @@ for raw in sys.stdin:
                     },
                 }
             )
-        elif text.startswith("plan"):
-            emit(
-                {
-                    "type": "control_request",
-                    "request_id": "req_plan",
-                    "request": {
-                        "subtype": "can_use_tool",
-                        "tool_name": "ExitPlanMode",
-                        "input": {"plan": "# Plan: add retries\n\n1. Wrap the call"},
-                        "tool_use_id": "toolu_plan",
-                    },
-                }
-            )
         elif text.startswith("background"):
             # Shaped like the real CLI: the turn's result lands first, then the finished
             # agent starts a turn of its own.
@@ -126,21 +113,6 @@ for raw in sys.stdin:
                 "session_id": SESSION,
                 "is_error": False,
                 "result": "ok",
-            }
-        )
-    elif kind == "control_request" and msg.get("request", {}).get("subtype") == "set_permission_mode":
-        emit(
-            {
-                "type": "control_response",
-                "response": {"subtype": "success", "request_id": msg["request_id"]},
-            }
-        )
-        emit(
-            {
-                "type": "assistant",
-                "message": {
-                    "content": [{"type": "text", "text": "mode:" + msg["request"]["mode"]}]
-                },
             }
         )
     elif kind == "control_request" and msg.get("request", {}).get("subtype") == "interrupt":

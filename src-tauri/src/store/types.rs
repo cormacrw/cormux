@@ -82,7 +82,7 @@ pub struct ThreadRow {
 }
 
 impl ThreadRow {
-    pub fn has_status(&self, status: crate::workspace::ThreadStatus) -> bool {
+    pub fn has_status(&self, status: crate::model::ThreadStatus) -> bool {
         self.status == status.as_str()
     }
 }

@@ -1,10 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
 use crate::error::{Error, Result};
-
-const CONFIG_REL: &str = ".cormux/config.json";
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,7 +13,7 @@ pub struct CommittedRepoConfig {
 }
 
 pub fn read_committed_config(repo_path: &Path) -> Option<CommittedRepoConfig> {
-    let file = repo_path.join(CONFIG_REL);
+    let file = crate::paths::repo_config(repo_path);
     let text = std::fs::read_to_string(&file).ok()?;
     serde_json::from_str(&text).ok()
 }
@@ -137,23 +135,6 @@ pub fn merge_initial_config(
         .or(suggested.run_command);
 
     (setup, run)
-}
-
-pub fn path_for_display(path: &Path) -> String {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        if canonical.starts_with(&home) {
-            let rest = canonical
-                .strip_prefix(&home)
-                .unwrap_or(&canonical)
-                .to_string_lossy()
-                .trim_start_matches('/')
-                .to_string();
-            return format!("~/{rest}");
-        }
-    }
-    canonical.to_string_lossy().to_string()
 }
 
 pub fn validate_add_path(path: &str) -> Result<(String, String)> {

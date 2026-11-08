@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use crate::error::{Error, Result};
 use crate::feedback::Output;
 use crate::ipc::types::StateChangeKind;
+use crate::model::WorkspaceLifecycle;
 use crate::state::AppState;
-use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
+use crate::workspace::WorkspaceRecord;
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -47,9 +48,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     }
 
     let record = resolve_record(state, workspace_id, &row).await?;
-    let repo_path = PathBuf::from(&record.repo_path);
     let worktree = PathBuf::from(&record.worktree_path);
-    let repo_name = repo_dir_name(&repo_path);
 
     let uncommitted_files = count_uncommitted_files(state, &worktree, row.modified_files).await;
     let unpushed_commits = if worktree.is_dir() {
@@ -71,7 +70,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
         workspace_name: row.name,
         engine_label: "Claude Code".into(),
         branch: branch.clone(),
-        worktree_path: display_worktree_path(repo_name, &branch),
+        worktree_path: record.worktree_path.clone(),
         app_running: state.process.workspace_has_session(workspace_id),
         // A branch holding the only copy of its commits stays, so a later thread can pick it up.
         delete_branch_default: row.pr_number.is_none() && unpushed_commits == 0,
@@ -130,7 +129,6 @@ pub async fn execute(out: &Output, state: &AppState, input: &TeardownInput) -> R
     state.store.archive_workspace(&input.workspace_id)?;
     state.diffs.unwatch(&input.workspace_id);
     state.process.forget_workspace(&input.workspace_id);
-    state.fetch.remove_workspace(&input.workspace_id).await;
     state.workspace.remove(&input.workspace_id).await;
     state.workspace.sync_fetch_targets().await;
 
@@ -180,7 +178,7 @@ async fn resolve_record(
         .store
         .repo_by_id(&row.repo_id)?
         .ok_or_else(|| Error::Git(format!("unknown repo {}", row.repo_id)))?;
-    let repo_path = expand_tilde(&repo.path);
+    let repo_path = crate::paths::expand_tilde(&repo.path);
     let base = repo.default_branch.unwrap_or_else(|| "main".into());
     let status = WorkspaceLifecycle::parse(&row.status);
 
@@ -233,32 +231,6 @@ fn data_loss_warning(uncommitted_files: u32, unpushed_commits: u32) -> Option<St
         return None;
     }
     Some(format!("{} This can't be undone.", parts.join(" ")))
-}
-
-fn display_worktree_path(repo_name: &str, branch: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "~".into());
-    format!(
-        "{}/.harness/worktrees/{}/{}",
-        home,
-        repo_name,
-        branch.replace('/', "-")
-    )
-}
-
-fn repo_dir_name(repo_path: &Path) -> &str {
-    repo_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("repo")
-}
-
-fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        return PathBuf::from(home).join(rest);
-    }
-    PathBuf::from(path)
 }
 
 #[cfg(test)]

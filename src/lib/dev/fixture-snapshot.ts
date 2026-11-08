@@ -14,7 +14,6 @@ export const fixtureEngines: EngineStatus[] = [
 
 export const fixtureSnapshot: Snapshot = {
   version: 1,
-  view: 'homebase',
   persisted: {
     settings: [{ key: 'defaultEngine', value: 'claude' }],
     repos: [

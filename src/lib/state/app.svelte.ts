@@ -62,9 +62,6 @@ export class AppStore {
   }
 
   hydrate(snapshot: Snapshot) {
-    // ponytail: core always sends view=homebase. Applying it on every snapshot
-    // (including the focus refresh a file dialog triggers) leaves Settings.
-    // Apply snapshot.view once the core actually stores the open view.
     // A snapshot read before a newer event must not look like a gap on the next one.
     this.version = Math.max(this.version, snapshot.version)
   }

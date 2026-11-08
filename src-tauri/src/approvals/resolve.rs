@@ -2,10 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use super::{ApprovalDecision, QUESTION_TOOL, apply_harness_effects, mark_answered, mark_resolved};
+use super::{ApprovalDecision, QUESTION_TOOL, mark_answered, mark_resolved};
 use crate::error::Result;
-use crate::feedback::{Output, emit_approval_counts, toast_for_approval};
-use crate::ipc::types::{ResolveApprovalResult, StateChangeKind};
+use crate::feedback::{Output, emit_approval_counts};
+use crate::ipc::types::StateChangeKind;
 use crate::state::AppState;
 
 pub async fn resolve_approval(
@@ -14,7 +14,7 @@ pub async fn resolve_approval(
     id: &str,
     approved: bool,
     deny_reason: Option<String>,
-) -> Result<ResolveApprovalResult> {
+) -> Result<()> {
     let (row, payload) = mark_resolved(&state.store, id, approved, deny_reason.clone())?;
     let deny_message = if approved {
         None
@@ -25,19 +25,13 @@ pub async fn resolve_approval(
         .approvals
         .resolve(id, approved, deny_message.clone())
         .await?;
-    let hints = apply_harness_effects(state, &row, &payload, approved)?;
     notify_approval_resolved(out, state);
     if !approved && let Some(reason) = deny_message.filter(|value| !value.trim().is_empty()) {
         let _ = state
             .engines
             .prompt(&row.thread_id, format!("Approval denied: {reason}"));
     }
-    if let Some(payload) = toast_for_approval(&row.tool, approved) {
-        out.toast(payload);
-    }
-    Ok(ResolveApprovalResult {
-        focus_composer: hints.focus_composer,
-    })
+    Ok(())
 }
 
 fn notify_approval_resolved(out: &Output, state: &AppState) {
@@ -65,16 +59,14 @@ pub async fn resolve_all_approvals(
     thread_id: &str,
     approved: bool,
     deny_reason: Option<String>,
-) -> Result<ResolveApprovalResult> {
+) -> Result<()> {
     let pending = state.store.pending_approvals_for_thread(thread_id)?;
-    let mut focus_composer = false;
     // Approving a question would answer it with nothing, so those wait for the user.
     for row in pending
         .into_iter()
         .filter(|row| !approved || row.tool != QUESTION_TOOL)
     {
-        let result = resolve_approval(out, state, &row.id, approved, deny_reason.clone()).await?;
-        focus_composer |= result.focus_composer;
+        resolve_approval(out, state, &row.id, approved, deny_reason.clone()).await?;
     }
-    Ok(ResolveApprovalResult { focus_composer })
+    Ok(())
 }

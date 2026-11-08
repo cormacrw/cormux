@@ -9,94 +9,11 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
-use crate::git::{FetchScheduler, Git, LiveDiffEngine, RepoFetchTarget, WorkspaceFetchTarget};
-use crate::ipc::types::GitConflictState;
-
-/// Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
-/// describe activity after provisioning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkspaceLifecycle {
-    Creating,
-    Provisioning,
-    Ready,
-    Running,
-    Idle,
-    Waiting,
-    TearingDown,
-    Gone,
-    ProvisioningFailed,
-}
-
-impl WorkspaceLifecycle {
-    /// What the store and the webview call it, the same word serde writes.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Creating => "creating",
-            Self::Provisioning => "provisioning",
-            Self::Ready => "ready",
-            Self::Running => "running",
-            Self::Idle => "idle",
-            Self::Waiting => "waiting",
-            Self::TearingDown => "tearingDown",
-            Self::Gone => "gone",
-            Self::ProvisioningFailed => "provisioningFailed",
-        }
-    }
-
-    /// A stored status. Anything unrecognised reads as `Ready`.
-    pub fn parse(raw: &str) -> Self {
-        match raw {
-            "creating" => Self::Creating,
-            "provisioning" => Self::Provisioning,
-            "running" => Self::Running,
-            "idle" => Self::Idle,
-            "waiting" => Self::Waiting,
-            "tearingDown" => Self::TearingDown,
-            "gone" => Self::Gone,
-            "provisioningFailed" => Self::ProvisioningFailed,
-            _ => Self::Ready,
-        }
-    }
-}
-
-/// What a thread is doing. `ThreadRow::status` stays a string, since that's what the webview
-/// is sent; these are the only values Rust writes to it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ThreadStatus {
-    Provisioning,
-    Running,
-    Paused,
-    Idle,
-}
-
-impl ThreadStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Provisioning => "provisioning",
-            Self::Running => "running",
-            Self::Paused => "paused",
-            Self::Idle => "idle",
-        }
-    }
-
-    /// A stored status. Anything else, such as the `waiting` older builds could leave behind,
-    /// isn't doing anything, so it reads as `Idle`.
-    pub fn parse(raw: &str) -> Self {
-        match raw {
-            "provisioning" => Self::Provisioning,
-            "running" => Self::Running,
-            "paused" => Self::Paused,
-            _ => Self::Idle,
-        }
-    }
-}
-
-impl From<ThreadStatus> for String {
-    fn from(status: ThreadStatus) -> Self {
-        status.as_str().to_string()
-    }
-}
+use crate::git::{
+    FetchScheduler, Git, GitConflictState, LiveDiffEngine, RepoFetchTarget, WorkspaceFetchTarget,
+};
+use crate::model::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
+use crate::paths;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -159,14 +76,6 @@ impl WorkspaceManager {
         }
     }
 
-    pub fn default_worktrees_base(home: &Path) -> PathBuf {
-        home.join(".harness").join("worktrees")
-    }
-
-    pub fn worktree_path(worktrees_base: &Path, repo: &str, branch: &str) -> PathBuf {
-        worktrees_base.join(repo).join(branch_slug(branch))
-    }
-
     pub fn harness_env(workspace: &WorkspaceRecord) -> Vec<(String, String)> {
         vec![
             ("HARNESS_REPO_PATH".into(), workspace.repo_path.clone()),
@@ -222,12 +131,11 @@ impl WorkspaceManager {
         name: &str,
         branch: &str,
         base: &str,
-        worktrees_base: &Path,
+        worktrees_root: &Path,
     ) -> Result<WorkspaceRecord> {
         crate::git::validate_ref_name(branch, "branch")?;
         crate::git::validate_ref_name(base, "base")?;
-        let repo_name = repo_dir_name(repo_path);
-        let worktree = Self::worktree_path(worktrees_base, repo_name, branch);
+        let worktree = paths::worktree_path(worktrees_root, repo_path, branch);
         let mut inner = self.inner.write().await;
         ensure_worktree_free(&inner.workspaces, workspace_id, &worktree)?;
         if let Some(parent) = worktree.parent() {
@@ -267,7 +175,7 @@ impl WorkspaceManager {
             .workspaces
             .get(workspace_id)
             .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-        let worktree = Path::new(&current.worktree_path).with_file_name(branch_slug(branch));
+        let worktree = Path::new(&current.worktree_path).with_file_name(paths::branch_slug(branch));
         if worktree != Path::new(&current.worktree_path) {
             ensure_worktree_free(&inner.workspaces, workspace_id, &worktree)?;
         }
@@ -427,10 +335,7 @@ impl WorkspaceManager {
             .workspaces
             .get(workspace_id)
             .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-        if matches!(
-            workspace.status,
-            WorkspaceLifecycle::Creating | WorkspaceLifecycle::Provisioning
-        ) {
+        if matches!(workspace.status, WorkspaceLifecycle::Provisioning) {
             return Err(Error::Workspace(
                 "branch switch refused while provisioning".into(),
             ));
@@ -515,9 +420,6 @@ impl WorkspaceManager {
         let inner = self.inner.read().await;
         let mut by_repo: HashMap<String, RepoFetchTarget> = HashMap::new();
         for workspace in inner.workspaces.values() {
-            if workspace.status == WorkspaceLifecycle::Gone {
-                continue;
-            }
             let entry = by_repo
                 .entry(workspace.repo_path.clone())
                 .or_insert_with(|| RepoFetchTarget {
@@ -533,10 +435,6 @@ impl WorkspaceManager {
         drop(inner);
         self.fetch.set_repos(by_repo.into_values().collect()).await;
     }
-}
-
-fn branch_slug(branch: &str) -> String {
-    branch.replace('/', "-")
 }
 
 /// A new workspace gets a folder of its own. `feat/x` and `feat-x` slug to the same folder,
@@ -559,43 +457,6 @@ fn ensure_worktree_free(
     Ok(())
 }
 
-fn repo_dir_name(repo_path: &Path) -> &str {
-    repo_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("repo")
-}
-
-/// A workspace's status given its threads: the one derivation, for the live record and the
-/// stored row alike. Setup and teardown own the workspace until they finish, so their states
-/// are left alone.
-pub fn status_from_threads(
-    current: WorkspaceLifecycle,
-    threads: impl Iterator<Item = ThreadStatus>,
-) -> WorkspaceLifecycle {
-    if matches!(
-        current,
-        WorkspaceLifecycle::Creating
-            | WorkspaceLifecycle::Provisioning
-            | WorkspaceLifecycle::TearingDown
-            | WorkspaceLifecycle::Gone
-            | WorkspaceLifecycle::ProvisioningFailed
-    ) {
-        return current;
-    }
-    let threads: Vec<_> = threads.collect();
-    if threads
-        .iter()
-        .any(|activity| matches!(activity, ThreadStatus::Running | ThreadStatus::Provisioning))
-    {
-        WorkspaceLifecycle::Running
-    } else if threads.is_empty() {
-        WorkspaceLifecycle::Ready
-    } else {
-        WorkspaceLifecycle::Idle
-    }
-}
-
 fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result<()> {
     if from == to {
         return Ok(());
@@ -603,9 +464,6 @@ fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result
     let ok = matches!(
         (from, to),
         (
-            WorkspaceLifecycle::Creating,
-            WorkspaceLifecycle::Provisioning
-        ) | (
             WorkspaceLifecycle::Provisioning,
             WorkspaceLifecycle::Ready
                 | WorkspaceLifecycle::Running
@@ -614,19 +472,17 @@ fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result
             WorkspaceLifecycle::Ready,
             WorkspaceLifecycle::Running
                 | WorkspaceLifecycle::Idle
-                | WorkspaceLifecycle::Waiting
                 | WorkspaceLifecycle::TearingDown
         ) | (
-            WorkspaceLifecycle::Running | WorkspaceLifecycle::Idle | WorkspaceLifecycle::Waiting,
+            WorkspaceLifecycle::Running | WorkspaceLifecycle::Idle,
             WorkspaceLifecycle::Ready
                 | WorkspaceLifecycle::Running
                 | WorkspaceLifecycle::Idle
-                | WorkspaceLifecycle::Waiting
                 | WorkspaceLifecycle::TearingDown
         ) | (
             WorkspaceLifecycle::ProvisioningFailed,
             WorkspaceLifecycle::Provisioning | WorkspaceLifecycle::TearingDown
-        ) | (WorkspaceLifecycle::TearingDown, WorkspaceLifecycle::Gone)
+        )
     );
     if ok {
         Ok(())
@@ -674,16 +530,6 @@ mod tests {
         (dir, path)
     }
 
-    #[test]
-    fn worktree_path_includes_repo_and_branch_slug() {
-        let base = Path::new("/Users/dev/.harness/worktrees");
-        let path = WorkspaceManager::worktree_path(base, "my-app", "feat/login");
-        assert_eq!(
-            path,
-            PathBuf::from("/Users/dev/.harness/worktrees/my-app/feat-login")
-        );
-    }
-
     #[tokio::test]
     async fn retargeting_moves_the_branch_and_its_folder() {
         let manager = manager().await;
@@ -701,8 +547,7 @@ mod tests {
         assert!(record.worktree_path.ends_with("/fix-oauth-login"));
         assert_eq!(
             Path::new(&record.worktree_path).parent(),
-            WorkspaceManager::worktree_path(base.path(), repo_dir_name(&repo), "feat/draft")
-                .parent()
+            paths::worktree_path(base.path(), &repo, "feat/draft").parent()
         );
     }
 
@@ -738,93 +583,13 @@ mod tests {
         assert!(env.iter().any(|(key, _)| key == "HARNESS_WORKTREE_PATH"));
     }
 
-    const LIFECYCLES: [WorkspaceLifecycle; 9] = [
-        WorkspaceLifecycle::Creating,
-        WorkspaceLifecycle::Provisioning,
-        WorkspaceLifecycle::Ready,
-        WorkspaceLifecycle::Running,
-        WorkspaceLifecycle::Idle,
-        WorkspaceLifecycle::Waiting,
-        WorkspaceLifecycle::TearingDown,
-        WorkspaceLifecycle::Gone,
-        WorkspaceLifecycle::ProvisioningFailed,
-    ];
-
-    #[test]
-    fn every_lifecycle_survives_the_store_under_its_wire_name() {
-        for lifecycle in LIFECYCLES {
-            assert_eq!(WorkspaceLifecycle::parse(lifecycle.as_str()), lifecycle);
-            assert_eq!(
-                serde_json::to_value(lifecycle).unwrap(),
-                lifecycle.as_str(),
-                "the webview and the store must agree"
-            );
-        }
-        assert_eq!(
-            WorkspaceLifecycle::parse("archived"),
-            WorkspaceLifecycle::Ready
-        );
-    }
-
-    #[test]
-    fn thread_statuses_keep_their_stored_words() {
-        for (status, word) in [
-            (ThreadStatus::Provisioning, "provisioning"),
-            (ThreadStatus::Running, "running"),
-            (ThreadStatus::Paused, "paused"),
-            (ThreadStatus::Idle, "idle"),
-        ] {
-            assert_eq!(status.as_str(), word);
-            assert_eq!(ThreadStatus::parse(word), status);
-        }
-        assert_eq!(ThreadStatus::parse("waiting"), ThreadStatus::Idle);
-    }
-
-    #[test]
-    fn a_workspace_status_comes_from_its_threads() {
-        use ThreadStatus::{Idle, Paused, Provisioning, Running};
-        use WorkspaceLifecycle as Lifecycle;
-        for (threads, expected) in [
-            (vec![], Lifecycle::Ready),
-            (vec![Idle], Lifecycle::Idle),
-            (vec![Paused], Lifecycle::Idle),
-            (vec![Idle, Running], Lifecycle::Running),
-            (vec![Idle, Provisioning], Lifecycle::Running),
-        ] {
-            assert_eq!(
-                status_from_threads(Lifecycle::Running, threads.clone().into_iter()),
-                expected,
-                "{threads:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn setup_and_teardown_keep_their_status_whatever_the_threads_do() {
-        use WorkspaceLifecycle as Lifecycle;
-        for current in [
-            Lifecycle::Creating,
-            Lifecycle::Provisioning,
-            Lifecycle::TearingDown,
-            Lifecycle::Gone,
-            Lifecycle::ProvisioningFailed,
-        ] {
-            assert_eq!(
-                status_from_threads(current, [ThreadStatus::Running].into_iter()),
-                current
-            );
-        }
-    }
-
     #[test]
     fn rejects_illegal_transitions() {
-        assert!(assert_transition(WorkspaceLifecycle::Gone, WorkspaceLifecycle::Ready).is_err());
         assert!(
-            assert_transition(
-                WorkspaceLifecycle::Creating,
-                WorkspaceLifecycle::Provisioning
-            )
-            .is_ok()
+            assert_transition(WorkspaceLifecycle::TearingDown, WorkspaceLifecycle::Ready).is_err()
+        );
+        assert!(
+            assert_transition(WorkspaceLifecycle::Provisioning, WorkspaceLifecycle::Ready).is_ok()
         );
     }
 }

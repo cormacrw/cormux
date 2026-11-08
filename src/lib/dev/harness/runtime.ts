@@ -81,7 +81,6 @@ export function createRuntime(scenario: HarnessScenario) {
       if (!runtime.diffChannel) return
       send(runtime.diffChannel, {
         workspaceId: fixtureDiff.workspaceId,
-        path: '',
         diff: {
           ...fixtureDiff,
           files: [],

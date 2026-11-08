@@ -1,20 +1,22 @@
+use std::path::PathBuf;
+
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
 use crate::feedback::Output;
+use crate::github::RestGithubClient;
 use crate::github::auth;
-use crate::github::review::{
-    RestGithubClient, ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput,
-};
+use crate::github::review::{ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput};
 use crate::ipc::types::StateChangeKind;
 use crate::ipc::types::{ToastPart, ToastRaisedPayload, ToastTone};
-use crate::paths::{expand_tilde, worktrees_base};
+use crate::model::{ThreadStatus, WorkspaceLifecycle};
+use crate::paths::{WORKTREE_ROOT_SETTING, expand_tilde, worktrees_root};
 use crate::provisioning::LeadProvisionJob;
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::{FindingRow, ThreadRow, WorkspaceRow};
 use crate::timeline::{TimelineStep, record_step};
-use crate::workspace::{ThreadStatus, WorkspaceLifecycle, WorkspaceRecord};
+use crate::workspace::WorkspaceRecord;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -196,17 +198,10 @@ pub async fn create_review_workspace(
 
     let thread_id = Uuid::new_v4().to_string();
     let engine = default_engine(&state.store);
-    let repo_name = repo_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("repo")
-        .to_string();
-    let worktrees_root = worktrees_base(&state.store)?;
-    let worktree_path =
-        crate::workspace::WorkspaceManager::worktree_path(&worktrees_root, &repo_name, &input.head);
+    let worktrees_root = worktrees_root(state.store.get_setting(WORKTREE_ROOT_SETTING)?.as_deref());
 
     let workspace_name = format!("PR #{} Review", input.pr_number);
-    state
+    let record = state
         .workspace
         .register_provisioning(
             &workspace_id,
@@ -218,6 +213,7 @@ pub async fn create_review_workspace(
             &worktrees_root,
         )
         .await?;
+    let worktree_path = PathBuf::from(&record.worktree_path);
 
     state.store.upsert_workspace(&WorkspaceRow {
         id: workspace_id.clone(),
@@ -336,7 +332,7 @@ pub async fn create_review_workspace(
             LeadProvisionJob {
                 workspace_id: workspace_id_bg.clone(),
                 thread_id: thread_id.clone(),
-                repo_name,
+                repo_name: crate::paths::repo_dir_name(&repo_path).to_string(),
                 setup_commands_raw: setup_commands,
                 engine,
                 goal,
@@ -585,7 +581,7 @@ async fn complete_review(
     };
     state.store.upsert_workspace(&WorkspaceRow {
         summary: Some(card_summary),
-        summary_at: Some(chrono_timestamp()),
+        summary_at: Some(crate::time::sqlite_now()),
         ..workspace.clone()
     })?;
     let _ = state
@@ -818,13 +814,6 @@ async fn parse_repo_slug(
     Ok((owner, repo_name))
 }
 
-fn chrono_timestamp() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -833,7 +822,7 @@ mod tests {
 
     /// A branch review in flight, its thread having just said `reply`.
     fn reviewing(reply: &str) -> AppState {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         state.store.open_in_memory().unwrap();
         state
             .store

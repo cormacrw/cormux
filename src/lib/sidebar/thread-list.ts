@@ -28,7 +28,6 @@ export function threadUrgency(input: {
   const working =
     input.threadStatus === 'running' ||
     input.threadStatus === 'provisioning' ||
-    input.lifecycle === 'creating' ||
     input.lifecycle === 'provisioning' ||
     (input.lifecycle === 'running' && !input.paused)
   return working && input.pendingApprovals === 0 ? 'quiet' : 'attention'

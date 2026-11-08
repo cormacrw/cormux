@@ -45,10 +45,7 @@
   // An approval can land while the workspace still reads as running, so urgency decides.
   const dotVariant = $derived.by(() => {
     if (attention) {
-      return statusDotVariantForAttention(
-        workspace?.pendingApprovals ?? 0,
-        workspace?.lifecycle,
-      )
+      return statusDotVariantForAttention(workspace?.pendingApprovals ?? 0)
     }
     return statusInput ? statusDotVariantForWorkspace(statusInput) : 'idle'
   })

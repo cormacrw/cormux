@@ -2,9 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use specta::Type;
 use tokio::sync::RwLock;
 
 use crate::error::{Error, Result};
@@ -13,13 +11,6 @@ use crate::shell_env::ShellEnv;
 const DEBOUNCE: Duration = Duration::from_secs(60);
 /// Upper bound on one `claude -p` call, so a hung CLI can't spin forever.
 const CALL_TIMEOUT: Duration = Duration::from_secs(90);
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LlmResult {
-    pub text: String,
-    pub source: String,
-}
 
 /// One-shot small-model calls for workspace summaries and PR drafting.
 #[derive(Clone)]
@@ -47,19 +38,19 @@ impl LlmClient {
         true
     }
 
-    pub async fn summarise(&self, workspace_id: &str, prompt: &str) -> Result<Option<LlmResult>> {
+    pub async fn summarise(&self, workspace_id: &str, prompt: &str) -> Result<Option<String>> {
         if !self.allow(workspace_id) {
             return Ok(None);
         }
         self.complete(prompt).await.map(Some)
     }
 
-    pub async fn complete(&self, prompt: &str) -> Result<LlmResult> {
+    pub async fn complete(&self, prompt: &str) -> Result<String> {
         complete_via_claude(&self.env, prompt).await
     }
 }
 
-async fn complete_via_claude(env: &Arc<RwLock<ShellEnv>>, prompt: &str) -> Result<LlmResult> {
+async fn complete_via_claude(env: &Arc<RwLock<ShellEnv>>, prompt: &str) -> Result<String> {
     // Snapshot the env and release the lock: holding a read guard for the whole
     // CLI run would stall `reload` (write-preferring) and every git call behind it.
     let env = env.read().await.clone();
@@ -73,10 +64,7 @@ async fn complete_via_claude(env: &Arc<RwLock<ShellEnv>>, prompt: &str) -> Resul
         .await
         .map_err(|_| Error::Llm(format!("claude -p timed out after {CALL_TIMEOUT:?}")))?
         .map_err(|error| Error::Llm(error.to_string()))?;
-    Ok(LlmResult {
-        text: extract_text(&stdout),
-        source: "claude-cli".into(),
-    })
+    Ok(extract_text(&stdout))
 }
 
 pub fn extract_text(stdout: &str) -> String {

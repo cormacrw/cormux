@@ -19,7 +19,7 @@ pub enum Error {
 
     #[error("git conflict during {operation}")]
     GitConflict {
-        operation: String,
+        operation: crate::model::GitConflictOperation,
         paths: Vec<String>,
     },
 

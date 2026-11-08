@@ -3,15 +3,18 @@ use std::time::Duration;
 
 use crate::error::{Error, Result};
 use crate::feedback::Output;
+use crate::git::GitConflictState;
 use crate::ipc::types::{
-    GitConflictOperation, GitConflictState, RenameWorkspaceInput, StateChangeKind, ToastPart,
-    ToastRaisedPayload, ToastTone, WorkspaceGitRuntime,
+    RenameWorkspaceInput, StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone,
+    WorkspaceGitRuntime,
 };
+use crate::model::GitConflictOperation;
+use crate::model::WorkspaceLifecycle;
 use crate::paths::expand_tilde;
 use crate::state::AppState;
 use crate::store::types::WorkspaceRow;
 use crate::timeline::{BranchChange, TimelineStep, record_step};
-use crate::workspace::{WorkspaceLifecycle, WorkspaceRecord};
+use crate::workspace::WorkspaceRecord;
 
 /// Load a workspace persisted by an earlier launch and start its live diff watcher.
 /// Only creating a worktree does either, so without this a restored workspace has
@@ -151,7 +154,7 @@ pub async fn switch_workspace_branch(
         .await?;
     state.store.set_workspace_branch(workspace_id, branch)?;
     if row.pr_number.is_some() {
-        state.store.set_workspace_pr_number(workspace_id, None)?;
+        state.store.set_workspace_pr(workspace_id, None, None)?;
     }
 
     refresh_git_stats(state, workspace_id, &worktree, &record.base, branch).await;
@@ -223,13 +226,7 @@ pub async fn pull_workspace(out: &Output, state: &AppState, workspace_id: &str) 
         Err(Error::GitConflict { operation, paths }) => {
             state
                 .workspace
-                .set_git_conflict(
-                    workspace_id,
-                    GitConflictState {
-                        operation: parse_conflict_op(&operation),
-                        paths,
-                    },
-                )
+                .set_git_conflict(workspace_id, GitConflictState { operation, paths })
                 .await;
             emit_git_state(out, state);
             Err(Error::Git(
@@ -292,13 +289,7 @@ pub async fn rebase_workspace(out: &Output, state: &AppState, workspace_id: &str
         Err(Error::GitConflict { operation, paths }) => {
             state
                 .workspace
-                .set_git_conflict(
-                    workspace_id,
-                    GitConflictState {
-                        operation: parse_conflict_op(&operation),
-                        paths,
-                    },
-                )
+                .set_git_conflict(workspace_id, GitConflictState { operation, paths })
                 .await;
             emit_git_state(out, state);
             Err(Error::Git(
@@ -396,7 +387,7 @@ pub async fn create_workspace_branch(
         .await?;
     state.store.set_workspace_branch(workspace_id, name)?;
     if row.pr_number.is_some() {
-        state.store.set_workspace_pr_number(workspace_id, None)?;
+        state.store.set_workspace_pr(workspace_id, None, None)?;
     }
     refresh_git_stats(state, workspace_id, &worktree, &record.base, name).await;
     let _ = state.diffs.compute(workspace_id, &worktree).await;
@@ -440,7 +431,7 @@ pub async fn adopt_checked_out_branch(
             .await?;
         state.store.set_workspace_branch(workspace_id, &branch)?;
         if row.pr_number.is_some() {
-            state.store.set_workspace_pr_number(workspace_id, None)?;
+            state.store.set_workspace_pr(workspace_id, None, None)?;
         }
         if let Ok(thread_id) = lead_thread_id(state, workspace_id) {
             let _ = record_step(
@@ -488,10 +479,7 @@ async fn adopt_outside_checkouts(out: &Output, state: &AppState) -> Result<()> {
     for row in state.store.live_workspaces()? {
         if !matches!(
             WorkspaceLifecycle::parse(&row.status),
-            WorkspaceLifecycle::Ready
-                | WorkspaceLifecycle::Running
-                | WorkspaceLifecycle::Idle
-                | WorkspaceLifecycle::Waiting
+            WorkspaceLifecycle::Ready | WorkspaceLifecycle::Running | WorkspaceLifecycle::Idle
         ) {
             continue;
         }
@@ -516,14 +504,6 @@ async fn adopt_outside_checkouts(out: &Output, state: &AppState) -> Result<()> {
         adopt_checked_out_branch(out, state, &row.id, change).await?;
     }
     Ok(())
-}
-
-fn parse_conflict_op(raw: &str) -> GitConflictOperation {
-    if raw == "rebase" {
-        GitConflictOperation::Rebase
-    } else {
-        GitConflictOperation::Merge
-    }
 }
 
 /// Recounts how far the worktree is behind its base and ahead of its own branch on origin.

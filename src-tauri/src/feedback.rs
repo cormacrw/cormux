@@ -47,26 +47,6 @@ fn pending_approvals(state: &AppState) -> usize {
     stored.max(state.approvals.pending_count())
 }
 
-/// The toast an approval earns once it's granted, if any. Only cross-thread effects get one;
-/// an edit or delete already shows as resolved on its card.
-pub fn toast_for_approval(tool: &str, approved: bool) -> Option<ToastRaisedPayload> {
-    if !approved {
-        return None;
-    }
-    let parts = match tool {
-        "send_suggestions" | "review_suggestions" => vec![ToastPart::Text {
-            value: "Review suggestions sent to Lead".into(),
-        }],
-        _ => return None,
-    };
-    Some(ToastRaisedPayload {
-        tone: ToastTone::Ok,
-        parts,
-        workspace_id: None,
-        thread_id: None,
-    })
-}
-
 #[cfg(test)]
 #[derive(Debug, Clone)]
 pub enum Emitted {
@@ -151,7 +131,7 @@ mod tests {
 
     #[test]
     fn approval_counts_go_to_the_webview_and_then_the_dock() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         state.store.open_in_memory().unwrap();
         let (recording, out) = RecordingOutput::new();
 
@@ -164,19 +144,5 @@ mod tests {
                 Emitted::Badge(None)
             ]
         ));
-    }
-
-    #[test]
-    fn approval_toast_copy() {
-        let payload = toast_for_approval("send_suggestions", true).expect("toast");
-        assert!(matches!(payload.tone, ToastTone::Ok));
-        assert_eq!(payload.parts.len(), 1);
-    }
-
-    #[test]
-    fn edits_deletes_and_denials_have_no_toast() {
-        assert!(toast_for_approval("edit", false).is_none());
-        assert!(toast_for_approval("edit", true).is_none());
-        assert!(toast_for_approval("delete_file", true).is_none());
     }
 }

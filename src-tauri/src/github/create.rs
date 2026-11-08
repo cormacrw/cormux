@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use crate::error::{Error, Result};
 
-pub use super::rest::RestGithubClient;
+use super::rest::RestGithubClient;
 use super::rest::api_url;
 
 #[derive(Debug, Clone)]

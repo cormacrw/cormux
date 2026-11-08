@@ -14,7 +14,6 @@ use crate::feedback::Output;
 use crate::ipc::types::{StateChangeKind, ToastPart, ToastTone};
 use crate::process::{ProcessSupervisor, detect_port, serves_https};
 use crate::state::AppState;
-use crate::store::Store;
 use crate::workspace::WorkspaceManager;
 
 const RUN_SESSION_SUFFIX: &str = "-app";
@@ -52,7 +51,6 @@ struct WorkspaceAppRecord {
     port: Option<u16>,
     https: bool,
     exit_code: Option<i32>,
-    kind: AppKind,
     /// Bumped on every run so a monitor from an earlier run knows to exit.
     generation: u64,
 }
@@ -132,61 +130,27 @@ impl WorkspaceAppService {
         }
     }
 
-    pub fn restart_approved(
-        &self,
-        process: &ProcessSupervisor,
-        store: &Store,
-        workspace_id: &str,
-    ) -> Result<()> {
-        let workspace = store
-            .workspace_by_id(workspace_id)?
-            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-        let repo = store
-            .repo_by_id(&workspace.repo_id)?
-            .ok_or_else(|| Error::Workspace(format!("unknown repo {}", workspace.repo_id)))?;
-        let repo_path = crate::paths::expand_tilde(&repo.path);
-        let run_command = crate::harness_config::workspace_run_command(
-            store,
-            workspace_id,
-            &repo.run_command,
-            &repo_path,
-        )
-        .ok_or_else(|| Error::Process("no run command configured".into()))?;
-        let repo_for_env = repo;
-
-        let session_id = run_session_id(workspace_id);
-        let _ = process.stop_session(&session_id);
-        process.append_log_line(workspace_id, "^C");
-        process.append_log_line(workspace_id, "──── Restarting ────");
-
-        self.set_status(workspace_id, WorkspaceAppStatus::Starting, None, None);
-        let kind = AppKind::detect(&run_command);
-        let port = self.pick_port_with_log(process, workspace_id, kind);
-        let mut env = workspace_from_row(&workspace, Some(&repo_for_env));
-        env.push(("PORT".into(), port.to_string()));
-        spawn_run(
-            process,
-            workspace_id,
-            &workspace.worktree_path,
-            &run_command,
-            &env,
-        )?;
-        Ok(())
-    }
-
     async fn run(&self, out: &Output, state: &AppState, workspace_id: &str) -> Result<()> {
         let (worktree, run_command, kind, name) = run_context(state, workspace_id).await?;
         self.stop_other_instances(out, state, workspace_id).await?;
         let port = self.pick_port_with_log(&state.process, workspace_id, kind);
         let env = run_env(state, workspace_id, port).await?;
 
-        let generation = self.set_record(workspace_id, kind);
+        let generation = self.next_generation(workspace_id);
         self.set_status(workspace_id, WorkspaceAppStatus::Starting, Some(port), None);
         state
             .process
             .append_log_line(workspace_id, format!("> {run_command}"));
 
-        spawn_run(&state.process, workspace_id, &worktree, &run_command, &env)?;
+        let shell = state.shell_env.read().await.shell();
+        spawn_run(
+            &state.process,
+            &shell,
+            workspace_id,
+            &worktree,
+            &run_command,
+            &env,
+        )?;
 
         let (out_bg, state_bg) = (out.clone(), state.clone());
         let workspace_id = workspace_id.to_string();
@@ -313,7 +277,7 @@ impl WorkspaceAppService {
         port
     }
 
-    fn set_record(&self, workspace_id: &str, kind: AppKind) -> u64 {
+    fn next_generation(&self, workspace_id: &str) -> u64 {
         let mut inner = self.inner.lock().unwrap();
         let record = inner
             .entry(workspace_id.to_string())
@@ -322,10 +286,8 @@ impl WorkspaceAppService {
                 port: None,
                 https: false,
                 exit_code: None,
-                kind,
                 generation: 0,
             });
-        record.kind = kind;
         record.generation += 1;
         record.generation
     }
@@ -459,7 +421,6 @@ impl WorkspaceAppService {
                 port: None,
                 https: false,
                 exit_code: None,
-                kind: AppKind::Vite,
                 generation: 0,
             });
         record.status = status;
@@ -499,43 +460,21 @@ fn run_session_id(workspace_id: &str) -> String {
 
 fn spawn_run(
     process: &ProcessSupervisor,
+    shell: &str,
     workspace_id: &str,
     worktree_path: &str,
     run_command: &str,
     extra_env: &[(String, String)],
 ) -> Result<()> {
     let session_id = run_session_id(workspace_id);
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     process.spawn_session(
         &session_id,
-        &shell,
+        shell,
         &["-l", "-c", run_command],
         Some(Path::new(worktree_path)),
         extra_env,
     )?;
     Ok(())
-}
-
-fn workspace_from_row(
-    row: &crate::store::types::WorkspaceRow,
-    repo: Option<&crate::store::types::RepoRecord>,
-) -> Vec<(String, String)> {
-    let record = crate::workspace::WorkspaceRecord {
-        id: row.id.clone(),
-        repo_id: row.repo_id.clone(),
-        repo_path: repo.map(|r| r.path.clone()).unwrap_or_default(),
-        name: row.name.clone(),
-        branch: row.branch.clone(),
-        base: "main".into(),
-        worktree_path: row.worktree_path.clone(),
-        status: crate::workspace::WorkspaceLifecycle::Ready,
-        version: 0,
-        activity: String::new(),
-        prov_step: 0,
-        setup_failed_command: None,
-        setup_failed_exit_code: None,
-    };
-    WorkspaceManager::harness_env(&record)
 }
 
 async fn run_context(

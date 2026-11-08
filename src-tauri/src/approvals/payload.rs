@@ -38,14 +38,9 @@ pub struct ApprovalPayload {
     pub ok_label: String,
     pub no_label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub effect: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_at_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deny_reason: Option<String>,
-    /// The markdown plan an `ExitPlanMode` call hands over; the Plan tab shows it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan: Option<String>,
     /// What the agent asked; empty for an ordinary permission request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub questions: Vec<AgentQuestion>,
@@ -62,10 +57,8 @@ impl Default for ApprovalPayload {
             why: String::new(),
             ok_label: "Approve".into(),
             no_label: "Deny".into(),
-            effect: None,
             resolved_at_ms: None,
             deny_reason: None,
-            plan: None,
             questions: Vec::new(),
             answers: BTreeMap::new(),
         }
@@ -85,101 +78,19 @@ pub fn payload_from_permission(event: &AgentEvent) -> (ApprovalPayload, String) 
     };
 
     let what = detail.clone().unwrap_or_else(|| tool_name.clone());
-    let (tool_key, labels) = harness_tool_meta(tool_name, *kind, title, &what);
-    let mut payload = ApprovalPayload {
-        title: labels.title,
-        what: labels.what,
-        why: labels.why,
-        ok_label: labels.ok,
-        no_label: labels.no,
-        effect: labels.effect,
+    let lower = tool_name.to_lowercase();
+    let tool_key = if lower.contains("bash") || lower.contains("run") {
+        ToolKind::Execute.as_str()
+    } else {
+        kind.as_str()
+    };
+    let payload = ApprovalPayload {
+        title: title.clone(),
+        what,
+        why: tool_name.clone(),
         ..ApprovalPayload::default()
     };
-    if payload.what.is_empty() {
-        payload.what = what;
-    }
-    (payload, tool_key)
-}
-
-struct LabelSet {
-    title: String,
-    what: String,
-    why: String,
-    ok: String,
-    no: String,
-    effect: Option<String>,
-}
-
-fn harness_tool_meta(
-    tool_name: &str,
-    kind: ToolKind,
-    title: &str,
-    detail: &str,
-) -> (String, LabelSet) {
-    let lower = tool_name.to_lowercase();
-    if lower.contains("delete") || kind == ToolKind::Delete {
-        return (
-            "delete_file".into(),
-            LabelSet {
-                title: "Delete file".into(),
-                what: detail.to_string(),
-                why: "Agent requested a delete".into(),
-                ok: "Approve delete".into(),
-                no: "Keep file".into(),
-                effect: Some("delete_file".into()),
-            },
-        );
-    }
-    if lower.contains("migration") || lower.contains("migrate") {
-        return (
-            "migration".into(),
-            LabelSet {
-                title: "Run database migration".into(),
-                what: detail.to_string(),
-                why: "Schema change requested".into(),
-                ok: "Run migration".into(),
-                no: "Skip".into(),
-                effect: Some("migration".into()),
-            },
-        );
-    }
-    if lower.contains("suggestion") || lower.contains("review") {
-        return (
-            "send_suggestions".into(),
-            LabelSet {
-                title: "Apply review suggestions".into(),
-                what: detail.to_string(),
-                why: title.to_string(),
-                ok: "Send to Lead".into(),
-                no: "Dismiss".into(),
-                effect: Some("send_to_lead".into()),
-            },
-        );
-    }
-    if kind == ToolKind::Execute || lower.contains("bash") || lower.contains("run") {
-        return (
-            "execute".into(),
-            LabelSet {
-                title: title.to_string(),
-                what: detail.to_string(),
-                why: tool_name.to_string(),
-                ok: "Approve".into(),
-                no: "Deny".into(),
-                effect: None,
-            },
-        );
-    }
-    (
-        kind.as_str().into(),
-        LabelSet {
-            title: title.to_string(),
-            what: detail.to_string(),
-            why: tool_name.to_string(),
-            ok: "Approve".into(),
-            no: "Deny".into(),
-            effect: None,
-        },
-    )
+    (payload, tool_key.into())
 }
 
 /// The questions in an `AskUserQuestion` call's input. Empty when it doesn't parse, which

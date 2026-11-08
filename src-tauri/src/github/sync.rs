@@ -99,7 +99,7 @@ impl PrSyncScheduler {
         }
 
         let changed = state.store.replace_pull_requests(&rows)?;
-        let synced_at = chrono_like_now();
+        let synced_at = crate::time::unix_secs().to_string();
         state.store.set_setting(SYNCED_AT_KEY, &synced_at)?;
         self.auth.store(AUTH_SIGNED_IN, Ordering::SeqCst);
         Ok(changed)
@@ -127,14 +127,4 @@ impl PrSyncScheduler {
         state.notify(out, StateChangeKind::PrSync);
         Ok(())
     }
-}
-
-/// Unix seconds, as the `githubPrSyncedAt` setting stores them.
-fn chrono_like_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    format!("{secs}")
 }

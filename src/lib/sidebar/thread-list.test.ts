@@ -45,12 +45,7 @@ describe('thread urgency', () => {
   })
 
   it('needs attention whenever nothing is happening', () => {
-    for (const lifecycle of [
-      'idle',
-      'ready',
-      'waiting',
-      'provisioningFailed',
-    ] as const) {
+    for (const lifecycle of ['idle', 'ready', 'provisioningFailed'] as const) {
       expect(threadUrgency({ ...working, lifecycle })).toBe('attention')
     }
     expect(threadUrgency({ ...working, paused: true })).toBe('attention')

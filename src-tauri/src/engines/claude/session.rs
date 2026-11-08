@@ -57,9 +57,9 @@ impl Default for SpawnOptions {
     }
 }
 
-/// One long-lived `claude -p` process speaking NDJSON on stdin/stdout.
 const LINE_BUFFER_KEEP: usize = 1024 * 1024;
 
+/// One long-lived `claude -p` process speaking NDJSON on stdin/stdout.
 pub struct ClaudeSession {
     child: Child,
     stdin: ChildStdin,
@@ -67,7 +67,6 @@ pub struct ClaudeSession {
     /// The line being read. It lives here, not in `next_event`, so a read cancelled by
     /// `select!` keeps what it had and the next call finishes the same line.
     pending: Vec<u8>,
-    session_id: Option<String>,
     next_request_id: u64,
 }
 
@@ -149,7 +148,6 @@ impl ClaudeSession {
             stdin,
             stdout: BufReader::new(stdout),
             pending: Vec::new(),
-            session_id: None,
             next_request_id: 1,
         };
 
@@ -199,11 +197,6 @@ impl ClaudeSession {
                 }
             }
         }
-    }
-
-    #[cfg(test)]
-    pub fn session_id(&self) -> Option<&str> {
-        self.session_id.as_deref()
     }
 
     #[cfg(test)]
@@ -274,14 +267,6 @@ impl ClaudeSession {
             let Some(event) = event else {
                 continue;
             };
-            if let Event::Init { session_id, .. } = &event {
-                self.session_id = Some(session_id.clone());
-            }
-            if let Event::Result { session_id, .. } = &event
-                && let Some(id) = session_id
-            {
-                self.session_id = Some(id.clone());
-            }
             return Ok(Some(event));
         }
     }
@@ -800,12 +785,17 @@ mod tests {
         let interrupt_id = session.interrupt().await.unwrap();
         eprintln!("sent interrupt {interrupt_id}");
         let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
+        let mut session_id = None;
         loop {
             if tokio::time::Instant::now() > deadline {
                 break;
             }
             match timeout(Duration::from_secs(5), session.next_event()).await {
-                Ok(Ok(Some(Event::Result { .. }) | None)) => break,
+                Ok(Ok(Some(Event::Result { session_id: id, .. }))) => {
+                    session_id = id;
+                    break;
+                }
+                Ok(Ok(None)) => break,
                 Ok(Ok(Some(Event::CanUseTool(req)))) => {
                     let _ = session
                         .answer_tool(
@@ -823,7 +813,7 @@ mod tests {
             }
         }
 
-        let session_id = session.session_id().unwrap_or("unknown").to_string();
+        let session_id = session_id.unwrap_or_else(|| "unknown".into());
         session.shutdown().await.unwrap();
 
         let mut resumed = ClaudeSession::spawn(SpawnOptions {
@@ -834,10 +824,7 @@ mod tests {
         })
         .await
         .unwrap();
-        eprintln!(
-            "resumed original={session_id} new={:?}",
-            resumed.session_id()
-        );
+        eprintln!("resumed {session_id}");
         resumed
             .send_user("Reply with exactly the word resumed. Do not use tools.")
             .await

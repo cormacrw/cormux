@@ -2,6 +2,7 @@ use serde_json::Value;
 
 use super::protocol::{AssistantBlock, CanUseTool, Event};
 use crate::engines::events::{AgentEvent, MessageRole, PlanStep, ToolCallStatus, ToolKind};
+use crate::model::StopReason;
 
 /// Timeline events for one CLI event. An assistant message can hold thinking, text and
 /// several tool calls, so this returns them all in order.
@@ -52,9 +53,9 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
             ..
         } => vec![AgentEvent::TurnEnd {
             stop_reason: if *is_error {
-                subtype.clone().unwrap_or_else(|| "error".into())
+                StopReason::failed(subtype.clone())
             } else {
-                "end_turn".into()
+                StopReason::EndTurn
             },
             error: if *is_error { result.clone() } else { None },
         }],

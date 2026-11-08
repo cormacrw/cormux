@@ -7,9 +7,8 @@ use std::path::{Path, PathBuf};
 pub const CLICKUP_API_KEY: &str = "clickupApiKey";
 
 fn path() -> io::Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".cormux/credentials.json"))
+    crate::paths::credentials()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))
 }
 
 pub fn get(name: &str) -> Option<String> {

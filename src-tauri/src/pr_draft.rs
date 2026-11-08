@@ -94,7 +94,7 @@ pub async fn draft_why(
 ) -> Result<(String, bool)> {
     let prompt = build_draft_prompt(instructions, workspace, base, goal, transcript, diff);
     match llm.complete(&prompt).await {
-        Ok(result) if !result.text.trim().is_empty() => Ok((result.text.trim().to_string(), true)),
+        Ok(text) if !text.trim().is_empty() => Ok((text.trim().to_string(), true)),
         _ => Ok((fallback_why(workspace, goal), false)),
     }
 }

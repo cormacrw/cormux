@@ -65,8 +65,6 @@
         toastCoreError(
           coreErrorText(result.error, 'Could not resolve approval'),
         )
-      } else if (result.data.focusComposer) {
-        onFocusComposer?.()
       }
     } catch (error) {
       toastCoreError(error)

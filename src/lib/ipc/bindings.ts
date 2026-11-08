@@ -183,7 +183,7 @@ async setThreadEffort(threadId: string, effort: string | null) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
-async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
+async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved, denyReason }) };
 } catch (e) {
@@ -199,7 +199,7 @@ async answerQuestion(id: string, answers: Partial<{ [key in string]: string }>) 
     else return { status: "error", error: e  as any };
 }
 },
-async resolveAllApprovals(threadId: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
+async resolveAllApprovals(threadId: string, approved: boolean, denyReason: string | null) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_all_approvals", { threadId, approved, denyReason }) };
 } catch (e) {
@@ -791,7 +791,6 @@ export type AgentEvent =
  * Fields an engine fills in after the first `ToolCall`, such as an edit's path.
  */
 { type: "toolCallUpdate"; id: string; title: string | null; kind: ToolKind | null; status: ToolCallStatus | null; locations: string[]; output?: string | null } | { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
-export type AppView = "homebase" | { workspace: { id: string } } | "settings"
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
 /**
  * How a workspace came to be on another branch.
@@ -870,14 +869,14 @@ export type DiffTarget = {
  * A branch, or `HEAD` for whatever the worktree has checked out.
  */
 head: string; base: string }
-export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff | null }
+export type DiffUpdate = { workspaceId: string; diff: WorktreeDiff | null }
 /**
  * Findings to dismiss, or (with `dismissed: false`) to restore.
  */
 export type DismissWorkspaceFindingsInput = { workspaceId: string; findingIds: string[]; dismissed: boolean }
 export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean }
 /**
- * Engines Harness can spawn.
+ * Engines Cormux can spawn.
  */
 export type EngineKind = "claude"
 export type EngineStatus = { kind: EngineKind; installed: boolean; binary: string | null; version: string | null; signedIn: boolean | null }
@@ -893,9 +892,15 @@ createdAt: string }
  * Shared error type for the Rust core. Serialised as a tagged union so the
  * generated TypeScript bindings stay in lockstep with Rust.
  */
-export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: string; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
+export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: GitConflictOperation; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
 export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null; sentToThreadId: string | null }
+/**
+ * The git operation a conflict stopped.
+ */
 export type GitConflictOperation = "merge" | "rebase"
+/**
+ * A merge or rebase stopped on these paths, waiting for the user to resolve or abort it.
+ */
 export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
 /**
  * Lines added and deleted across a set of files.
@@ -961,7 +966,6 @@ export type RepoRecord = { id: string; path: string; name: string; defaultBranch
  * Running the app in one workspace stops it in the repo's other workspaces.
  */
 singleInstance: boolean }
-export type ResolveApprovalResult = { focusComposer: boolean }
 /**
  * An earlier conversation to resume in a thread.
  */
@@ -995,7 +999,7 @@ export type Skill = { name: string; description: string;
  * those from Claude Code plugins, `builtin` for those that ship with Claude Code.
  */
 source: string }
-export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
+export type Snapshot = { version: number; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
 /**
  * In-memory broker queue (may exceed persisted pending rows).
  */
@@ -1111,11 +1115,7 @@ export type TimelineStep = { kind: "agentStopped" } | { kind: "agentPaused" } | 
 /**
  * `ended_session` is what the conversation before it can be resumed from.
  */
-{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | 
-/**
- * On the Reviewer's thread, when approving suggestions hands them over.
- */
-{ kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] }
+{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | { kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
 export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null; 
@@ -1138,10 +1138,10 @@ https: boolean; exitCode: number | null }
 export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
 export type WorkspaceGitRuntime = { workspaceId: string; behind: number; ahead: number; conflict: GitConflictState | null }
 /**
- * Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
- * describe activity after provisioning.
+ * A workspace's lifecycle. `ready` is idle with no threads; running/idle describe activity
+ * after provisioning.
  */
-export type WorkspaceLifecycle = "creating" | "provisioning" | "ready" | "running" | "idle" | "waiting" | "tearingDown" | "gone" | "provisioningFailed"
+export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "idle" | "tearingDown" | "provisioningFailed"
 export type WorkspaceMemory = { workspaceId: string; bytes: number }
 export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
 export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; prHtmlUrl: string | null; modifiedFiles: number; archivedAt: string | null }

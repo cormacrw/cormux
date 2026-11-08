@@ -55,14 +55,7 @@ export { threadTimeline } from './thread-timeline.svelte'
 type PersistedThread = Snapshot['persisted']['threads'][number]
 
 function mapCardStatus(lifecycle: WorkspaceLifecycle): WorkspaceCardStatus {
-  if (
-    lifecycle === 'running' ||
-    lifecycle === 'provisioning' ||
-    lifecycle === 'creating'
-  ) {
-    return 'working'
-  }
-  if (lifecycle === 'waiting') return 'needsAttention'
+  if (lifecycle === 'running' || lifecycle === 'provisioning') return 'working'
   return 'idle'
 }
 
@@ -76,14 +69,11 @@ function pendingByThread(approvals: Snapshot['persisted']['approvals']) {
 }
 
 const LIFECYCLE_VALUES = new Set<WorkspaceLifecycle>([
-  'creating',
   'provisioning',
   'ready',
   'running',
   'idle',
-  'waiting',
   'tearingDown',
-  'gone',
   'provisioningFailed',
 ])
 
@@ -175,11 +165,11 @@ function modelsFromSnapshot(snapshot: Snapshot) {
 
     const kind = row?.kind === 'review' ? ('review' as const) : null
 
-    // Waiting says what it's waiting for, not whatever the workspace was last doing.
-    const activityText =
-      workspace.status === 'waiting'
-        ? 'Waiting for approval'
-        : workspaceActivityFromRecord(workspace.status, workspace, kind)
+    const activityText = workspaceActivityFromRecord(
+      workspace.status,
+      workspace,
+      kind,
+    )
 
     return {
       id: workspace.id,

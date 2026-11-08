@@ -3,8 +3,9 @@ use std::path::Path;
 use crate::error::{Error, Result};
 use crate::feedback::Output;
 use crate::git_workspace::{lead_thread_id, refresh_git_stats, resolve_record};
+use crate::github::RestGithubClient;
 use crate::github::auth;
-use crate::github::create::{CreatePullRequestInput, RestGithubClient};
+use crate::github::create::CreatePullRequestInput;
 use crate::github::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
 use crate::ipc::types::{
     CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
@@ -178,7 +179,8 @@ pub async fn create_workspace_pull_request(
         rel: PrRelationship::Author,
         head: record.branch.clone(),
         base: pr_base.clone(),
-        updated_at: iso_timestamp_now(),
+        // GitHub's form, so the row made here sorts and ages like the synced ones.
+        updated_at: crate::time::iso_now(),
         checks: PrChecksState::Running,
         failing: None,
         review: PrReviewState::Draft,
@@ -285,55 +287,4 @@ fn append_opened_pr_step(
             base: base.to_string(),
         },
     )
-}
-
-/// Now, in the `YYYY-MM-DDTHH:MM:SSZ` form GitHub's `updatedAt` takes, so the PR row made here
-/// sorts and ages like the synced ones. (It used to be unix seconds, which the webview's
-/// `Date.parse` couldn't read, so a fresh PR showed as updated at the epoch until the next sync.)
-fn iso_timestamp_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    iso_timestamp(secs)
-}
-
-fn iso_timestamp(unix_secs: u64) -> String {
-    let days = unix_secs / 86_400;
-    let rem = unix_secs % 86_400;
-    let (year, month, day) = civil_from_days(days as i64);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60
-    )
-}
-
-/// Days since 1970-01-01 to a proleptic Gregorian date (Howard Hinnant's `civil_from_days`).
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (year, month, day)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn timestamps_take_githubs_form() {
-        assert_eq!(iso_timestamp(0), "1970-01-01T00:00:00Z");
-        assert_eq!(iso_timestamp(951_782_400), "2000-02-29T00:00:00Z");
-        assert_eq!(iso_timestamp(1_727_657_551), "2024-09-30T00:52:31Z");
-        assert_eq!(iso_timestamp(4_102_444_799), "2099-12-31T23:59:59Z");
-    }
 }

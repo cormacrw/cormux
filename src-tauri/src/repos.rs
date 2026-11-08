@@ -123,7 +123,7 @@ pub async fn pull_default_branch(out: &Output, state: &AppState, repo_id: &str) 
         .await?;
 
     // Workspaces count how far behind origin/<base> they are, which the pull just moved.
-    let updates = state.fetch.tick().await?;
+    let updates = state.fetch.tick().await;
     crate::git_workspace::apply_behind_updates(state, &updates).await;
     state.notify(out, StateChangeKind::BehindCounts);
 
@@ -162,7 +162,7 @@ pub async fn add(out: &Output, state: &AppState, input: AddRepoInput) -> Result<
         .show_toplevel(&expanded)
         .await
         .map_err(|_| Error::Git("That folder is not a git repository".into()))?;
-    let display_path = crate::harness_config::path_for_display(&toplevel);
+    let display_path = crate::paths::for_display(&toplevel);
 
     let repos = state.store.repos()?;
     if repos
@@ -267,7 +267,7 @@ pub async fn test_setup(
         });
     }
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let shell = state.shell_env.read().await.shell();
     let harness_env = vec![
         ("HARNESS_REPO_PATH".into(), repo.path.clone()),
         (
@@ -425,7 +425,7 @@ mod tests {
 
     fn fixture() -> (AppState, Arc<RecordingOutput>, Output, TempDir) {
         let dir = TempDir::new().unwrap();
-        let state = AppState::new(dir.path().join("data"));
+        let state = AppState::new(crate::paths::DataDir::new(dir.path().join("data")));
         state.store.open_in_memory().unwrap();
         let (recording, out) = RecordingOutput::new();
         (state, recording, out, dir)

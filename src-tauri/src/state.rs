@@ -1,5 +1,4 @@
 use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -13,6 +12,7 @@ use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::ipc::subscriptions::Subscriptions;
 use crate::ipc::types::StateChangeKind;
 use crate::orchestration::ReportQueue;
+use crate::paths::DataDir;
 use crate::{
     approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::PrSyncScheduler,
     llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
@@ -40,8 +40,7 @@ impl Deref for AppState {
 
 pub struct Core {
     pub event_version: AtomicU64,
-    /// The app's data folder, this build's own: see `crate::data_dir`.
-    pub data_dir: PathBuf,
+    pub data_dir: DataDir,
     changes: Mutex<ChangeCoalescer>,
     pub shell_env: Arc<RwLock<ShellEnv>>,
     pub git: Git,
@@ -65,7 +64,7 @@ pub struct Core {
 }
 
 impl AppState {
-    pub fn new(data_dir: PathBuf) -> Self {
+    pub fn new(data_dir: DataDir) -> Self {
         let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
         let git = Git::new(shell_env.clone());
         let diffs = LiveDiffEngine::new(git.clone());
@@ -78,12 +77,7 @@ impl AppState {
         let approvals = Arc::new(ApprovalBroker::new());
         let (approval_notify, _) = broadcast::channel(32);
         let (turn_end_notify, _) = broadcast::channel(64);
-        let mcp = CormuxMcp::new(
-            store.clone(),
-            process.clone(),
-            approvals.clone(),
-            apps.clone(),
-        );
+        let mcp = CormuxMcp::new(store.clone());
         let engines = EngineRegistry::new(
             shell_env.clone(),
             approvals.clone(),
@@ -227,12 +221,12 @@ mod tests {
 
     #[test]
     fn constructs_without_async_runtime() {
-        let _state = AppState::new(std::env::temp_dir());
+        let _state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
     }
 
     #[tokio::test]
     async fn a_burst_reaches_the_output_as_one_trailing_event_numbered_in_sequence() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         let (recording, out) = crate::feedback::RecordingOutput::new();
         state.notify(&out, StateChangeKind::PrSync);
         state.notify(&out, StateChangeKind::WorkspaceStatus);

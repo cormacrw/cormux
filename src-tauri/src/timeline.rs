@@ -81,11 +81,12 @@ pub enum TimelineStep {
     ReportFromThread {
         title: String,
     },
+    // The next four are no longer recorded. Approving a tool whose name held "delete",
+    // "migration", "review" or "suggestion" used to add them, so older threads still show them.
     FileDeleted {
         path: String,
     },
     MigrationApplied,
-    /// On the Reviewer's thread, when approving suggestions hands them over.
     SuggestionsForwarded,
     SuggestionsSent {
         approval_id: String,

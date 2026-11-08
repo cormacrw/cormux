@@ -184,7 +184,6 @@ pub async fn stream_diffs(
             {
                 let _ = channel.send(DiffUpdate {
                     workspace_id: workspace_id.clone(),
-                    path: String::new(),
                     diff: Some((*diff).clone()),
                 });
                 last = Some(diff);

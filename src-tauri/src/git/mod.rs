@@ -11,10 +11,19 @@ use tokio::process::Command;
 use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 use crate::error::{Error, Result};
+use crate::model::GitConflictOperation;
 use crate::shell_env::ShellEnv;
 
 pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
 pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
+
+/// A merge or rebase stopped on these paths, waiting for the user to resolve or abort it.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GitConflictState {
+    pub operation: GitConflictOperation,
+    pub paths: Vec<String>,
+}
 
 /// A new thread waits this long at most for its base branch to fetch.
 const BASE_FETCH_TIMEOUT: Duration = Duration::from_secs(20);
@@ -103,14 +112,6 @@ pub fn parse_local_branch_tips(stdout: &str) -> Vec<LocalBranchTip> {
             })
         })
         .collect()
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct BranchRef {
-    pub name: String,
-    pub refname: String,
 }
 
 impl Git {
@@ -288,30 +289,6 @@ impl Git {
             return Ok(branch);
         }
         Ok("main".into())
-    }
-
-    #[cfg(test)]
-    pub async fn list_branches(&self, repo: &Path) -> Result<Vec<BranchRef>> {
-        let output = self
-            .run(
-                repo,
-                &[
-                    "for-each-ref",
-                    "--format=%(refname)",
-                    "refs/heads",
-                    "refs/remotes",
-                ],
-            )
-            .await?;
-        Self::require_success(&output, "for-each-ref")?;
-        Ok(Self::stdout(&output)
-            .lines()
-            .filter(|line| !line.is_empty())
-            .map(|refname| BranchRef {
-                name: short_ref(refname),
-                refname: refname.to_string(),
-            })
-            .collect())
     }
 
     pub async fn worktree_add(
@@ -734,7 +711,7 @@ impl Git {
         let paths = self.unmerged_paths(worktree).await?;
         if !paths.is_empty() {
             return Err(Error::GitConflict {
-                operation: "merge".into(),
+                operation: GitConflictOperation::Merge,
                 paths,
             });
         }
@@ -751,7 +728,7 @@ impl Git {
         let paths = self.unmerged_paths(worktree).await?;
         if !paths.is_empty() {
             return Err(Error::GitConflict {
-                operation: "rebase".into(),
+                operation: GitConflictOperation::Rebase,
                 paths,
             });
         }
@@ -790,25 +767,15 @@ impl Git {
     /// last fetch, so deleting the local branch loses nothing.
     pub async fn in_sync_with_origin(&self, repo: &Path, branch: &str) -> Result<bool> {
         let local = self
-            .rev_parse(repo, &format!("refs/heads/{branch}"))
+            .resolve_ref(repo, &format!("refs/heads/{branch}"))
             .await?;
         let remote = self
-            .rev_parse(repo, &format!("refs/remotes/origin/{branch}"))
+            .resolve_ref(repo, &format!("refs/remotes/origin/{branch}"))
             .await?;
         Ok(local.is_some() && local == remote)
     }
 
     /// The commit `reference` points at, or `None` when it doesn't exist.
-    async fn rev_parse(&self, repo: &Path, reference: &str) -> Result<Option<String>> {
-        let output = self
-            .run(repo, &["rev-parse", "--verify", "--quiet", reference])
-            .await?;
-        Ok(output
-            .status
-            .success()
-            .then(|| Self::stdout(&output).trim().to_string()))
-    }
-
     pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
         let output = self
             .run(repo, &["for-each-ref", "--format=%(refname)", "refs/heads"])
@@ -1005,15 +972,6 @@ fn parse_shortstat(text: &str) -> ShortStat {
         }
     }
     stat
-}
-
-#[cfg(test)]
-fn short_ref(refname: &str) -> String {
-    refname
-        .strip_prefix("refs/heads/")
-        .or_else(|| refname.strip_prefix("refs/remotes/"))
-        .unwrap_or(refname)
-        .to_string()
 }
 
 /// One changed file from `git diff --numstat`. A rename keeps the path it came from.
@@ -1667,8 +1625,8 @@ mod tests {
         let (_dir, repo) = init_repo();
         let top = git.show_toplevel(&repo).await.unwrap();
         assert_eq!(top.canonicalize().unwrap(), repo.canonicalize().unwrap());
-        let branches = git.list_branches(&repo).await.unwrap();
-        assert!(branches.iter().any(|branch| branch.name == "main"));
+        let branches = git.list_local_branches(&repo).await.unwrap();
+        assert!(branches.iter().any(|branch| branch == "main"));
         assert_eq!(git.default_branch(&repo).await.unwrap(), "main");
     }
 

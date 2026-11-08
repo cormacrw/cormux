@@ -7,7 +7,6 @@ use specta::Type;
 use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
-use crate::error::Result;
 use crate::git::Git;
 
 const FETCH_INTERVAL: Duration = Duration::from_secs(300);
@@ -51,18 +50,9 @@ impl FetchScheduler {
         *self.repos.write().await = repos;
     }
 
-    pub async fn remove_workspace(&self, workspace_id: &str) {
-        let mut repos = self.repos.write().await;
-        for repo in repos.iter_mut() {
-            repo.workspaces
-                .retain(|workspace| workspace.workspace_id != workspace_id);
-        }
-        repos.retain(|repo| !repo.workspaces.is_empty());
-    }
-
     /// Fetches every repo and recounts its workspaces. Repos fetch side by side: each has its
     /// own git queue, and one slow remote shouldn't hold the others' counts back.
-    pub async fn tick(&self) -> Result<Vec<BehindUpdate>> {
+    pub async fn tick(&self) -> Vec<BehindUpdate> {
         let repos = self.repos.read().await.clone();
         let mut tasks = JoinSet::new();
         for repo in repos {
@@ -76,7 +66,7 @@ impl FetchScheduler {
                 Err(error) => log::warn!("fetch task failed: {error}"),
             }
         }
-        Ok(updates)
+        updates
     }
 
     pub fn spawn_loop(&self) {
@@ -86,9 +76,7 @@ impl FetchScheduler {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 interval.tick().await;
-                if let Err(error) = scheduler.tick().await {
-                    log::warn!("background fetch failed: {error}");
-                }
+                scheduler.tick().await;
             }
         });
     }
@@ -131,7 +119,7 @@ mod tests {
         env.load_or_inherit().await.unwrap();
         let git = Git::new(Arc::new(RwLock::new(env)));
         let scheduler = FetchScheduler::new(git);
-        let updates = scheduler.tick().await.unwrap();
+        let updates = scheduler.tick().await;
         assert!(updates.is_empty());
     }
 }

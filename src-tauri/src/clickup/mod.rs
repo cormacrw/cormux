@@ -4,7 +4,7 @@ mod sprint;
 pub mod types;
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use reqwest::header::AUTHORIZATION;
 use serde::Deserialize;
@@ -188,7 +188,7 @@ impl ClickupClient {
             )
             .await?;
         let sprints: Vec<ClickupSprint> = response.lists.into_iter().map(map_sprint).collect();
-        let sprint = current_sprint(&sprints, now_ms())
+        let sprint = current_sprint(&sprints, crate::time::unix_ms())
             .cloned()
             .ok_or_else(|| Error::Clickup("the sprint folder has no sprints".into()))?;
 
@@ -265,13 +265,6 @@ impl ClickupClient {
         }
         self.update_task(task_id, json!({ "points": points })).await
     }
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or_default()
 }
 
 /// ClickUp errors look like `{"err":"Token invalid","ECODE":"OAUTH_025"}`.

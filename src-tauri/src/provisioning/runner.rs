@@ -6,12 +6,13 @@ use crate::engines::{EngineKind, SpawnSpec};
 use crate::error::{Error, Result};
 use crate::feedback::Output;
 use crate::ipc::types::StateChangeKind;
+use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::process::ProcessSupervisor;
 use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
 use crate::timeline::{TimelineStep, record_step};
-use crate::workspace::{ThreadStatus, WorkspaceLifecycle, WorkspaceManager, WorkspaceRecord};
+use crate::workspace::{WorkspaceManager, WorkspaceRecord};
 
 #[derive(Debug, Clone)]
 pub struct LeadProvisionJob {
@@ -175,7 +176,7 @@ async fn run_setup_commands(
         ),
     );
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let shell = state.shell_env.read().await.shell();
     let worktree = PathBuf::from(&record.worktree_path);
     let harness_env = WorkspaceManager::harness_env(record);
 
@@ -424,11 +425,8 @@ async fn spawn_engine(
             thread_id: thread_id.to_string(),
             kind,
             cwd: PathBuf::from(&workspace.worktree_path),
-            resume: None,
             override_argv: None,
-            auto_approve_readonly: false,
             auto_approve_all: run_everything,
-            read_only: false,
         })
         .await?;
     if let Some(prompt) =
@@ -486,7 +484,6 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
             workspace.name, record.base
         )
     };
-    let now = chrono_timestamp();
     let _ = state.store.upsert_workspace(&WorkspaceRow {
         id: workspace.id,
         repo_id: workspace.repo_id,
@@ -496,7 +493,7 @@ async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Res
         status: workspace.status,
         created_at: workspace.created_at,
         summary: Some(summary),
-        summary_at: Some(now),
+        summary_at: Some(crate::time::sqlite_now()),
         summary_source: workspace.summary_source,
         kind: workspace.kind,
         pr_number: workspace.pr_number,
@@ -609,10 +606,7 @@ async fn set_activity(
 
 async fn workspace_alive(state: &AppState, workspace_id: &str) -> bool {
     match state.workspace.get(workspace_id).await {
-        Some(record) => !matches!(
-            record.status,
-            WorkspaceLifecycle::TearingDown | WorkspaceLifecycle::Gone
-        ),
+        Some(record) => record.status != WorkspaceLifecycle::TearingDown,
         None => false,
     }
 }
@@ -696,13 +690,6 @@ fn emit_snapshot(out: &Output, state: &AppState) {
     state.notify(out, StateChangeKind::WorkspaceStatus);
 }
 
-fn chrono_timestamp() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -744,7 +731,7 @@ mod tests {
 
     #[tokio::test]
     async fn failed_setup_refreshes_toasts_and_then_merges_the_second_refresh() {
-        let state = AppState::new(std::env::temp_dir());
+        let state = AppState::new(crate::paths::DataDir::new(std::env::temp_dir()));
         state.store.open_in_memory().unwrap();
         let (recording, out) = RecordingOutput::new();
 

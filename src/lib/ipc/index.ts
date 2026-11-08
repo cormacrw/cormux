@@ -10,7 +10,6 @@ export {
   type PlanStep,
   type ToolCallStatus,
   type ToolKind,
-  type AppView,
   type DiffUpdate,
   type Error as CoreError,
   type PtyChunk,
