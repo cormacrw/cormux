@@ -54,8 +54,8 @@
   }
 
   // Close immediately and let the teardown run in the background: the sidebar
-  // drops the workspace and its row shows Deleting until the core
-  // finishes. A failure toasts here; success needs no toast, the row just goes.
+  // row shows Deleting until the core finishes, then goes. A failure toasts
+  // here; success needs no toast.
   function confirmTeardown() {
     if (!workspaceId) return
     const tornId = workspaceId

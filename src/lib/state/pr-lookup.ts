@@ -9,7 +9,6 @@ export function prForBranch(
   return items.find((pr) => pr.repoId === repoId && pr.head === branch)
 }
 
-/** The synced pull request numbered `num` in the repo. */
 export function prByNumber(
   items: PullRequest[],
   repoId: string,

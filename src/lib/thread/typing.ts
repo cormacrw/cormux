@@ -56,7 +56,6 @@ function unfinishedTableStart(text: string): number | null {
 export function stableMarkdown(partial: string): string {
   const fences = partial.match(/^```/gm)?.length ?? 0
   if (fences % 2 === 1) {
-    // Inside a code block: show it as a block straight away.
     return partial.endsWith('\n') ? `${partial}\`\`\`` : `${partial}\n\`\`\``
   }
   const table = unfinishedTableStart(partial)
@@ -65,9 +64,7 @@ export function stableMarkdown(partial: string): string {
   const link = /\[[^\]\n]*(\]\([^)\s]*)?$/.exec(text)
   if (link) text = text.slice(0, link.index)
   const lastLine = text.slice(text.lastIndexOf('\n') + 1)
-  // Inline code that's still open on the last line.
   if ((lastLine.split('`').length - 1) % 2 === 1) text += '`'
-  // Bold that's still open on the last line (`**` and `__`).
   for (const marker of ['**', '__']) {
     const line = text.slice(text.lastIndexOf('\n') + 1)
     if (countOutsideCode(line, marker) % 2 === 1) {

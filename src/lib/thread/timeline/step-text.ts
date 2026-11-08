@@ -79,7 +79,6 @@ export function stepText(step: RunStep): StepText {
   }
 }
 
-/** The last part of a path: `src/lib/a.ts` is `a.ts`. */
 export function basename(path: string): string {
   return path.split('/').pop() ?? path
 }

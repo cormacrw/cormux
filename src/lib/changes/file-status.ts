@@ -43,7 +43,6 @@ export function isLargeDiff(
   return file.added + file.deleted > LARGE_DIFF_LINES
 }
 
-/** A file is folded if the user folded it, or by default when it's a test, generated or huge. */
 export function isDiffCollapsed(
   collapsed: Record<string, boolean>,
   file: Pick<DiffFile, 'path' | 'added' | 'deleted'>,

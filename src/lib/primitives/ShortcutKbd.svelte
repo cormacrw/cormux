@@ -1,4 +1,3 @@
-<!-- A button's ⌘-letter shortcut, drawn with the ⌘ glyph and taken from SHORTCUTS. -->
 <script lang="ts">
   import CommandIcon from '@lucide/svelte/icons/command'
   import { Kbd } from '$lib/components/ui/kbd'

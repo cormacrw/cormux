@@ -1,7 +1,6 @@
 import type { Skill } from '$lib/ipc/bindings'
 import { prefixFirst } from './match'
 
-/** Names starting with the query first, then names or descriptions containing it. */
 export function filterSkills(skills: Skill[], query: string): Skill[] {
   return prefixFirst(
     skills,

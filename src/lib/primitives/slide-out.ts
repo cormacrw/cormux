@@ -11,7 +11,7 @@ export function savePaneWidth(key: string, width: number) {
 }
 
 type ResizeEdgeOptions = {
-  /** The area the pane sits at the right of, 12px in. */
+  /** The area the pane sits at the right of. */
   bounds: () => DOMRect | undefined
   min: number
   /** Room the pane always leaves to its left. */

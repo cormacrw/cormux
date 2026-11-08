@@ -1,7 +1,6 @@
 // Per-machine preferences in localStorage. Storage is optional (it can be unavailable, or
 // full): a failed read is no preference, and a failed write keeps the choice for this session.
 
-/** The string saved under `key`, or null when there's none. */
 export function readPref(key: string): string | null {
   try {
     return globalThis.localStorage?.getItem(key) ?? null

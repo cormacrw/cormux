@@ -36,7 +36,7 @@ export async function notifyHarness(body: string, target?: ToastTarget) {
     sendNotification({ title: appName, body })
     pendingTarget = target && hasToastTarget(target) ? target : null
   } catch {
-    // Ignore when notifications are unavailable.
+    // A notification that can't be shown isn't worth an error of its own.
   }
 }
 

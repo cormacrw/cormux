@@ -56,7 +56,6 @@
     return run?.source === 'config' ? run.command : ''
   }
 
-  /** Opens the repo's panel, and scrolls to and focuses one of its fields when given. */
   function revealRepo(repoId: string, field?: RepoField) {
     setExpanded(repoId, true)
     if (!field) return

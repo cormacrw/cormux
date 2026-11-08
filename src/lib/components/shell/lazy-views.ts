@@ -3,7 +3,6 @@ import type { ShellDialogId } from '$lib/state/shell-dialogs.svelte'
 
 type Loader = () => Promise<{ default: Component }>
 
-/** Loads a view's component; a chunk that fails to load goes to `report` and resolves undefined. */
 export async function loadView(
   load: Loader,
   report: (error: unknown) => void,

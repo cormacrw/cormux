@@ -14,13 +14,11 @@ const handlers = new Map<EscapeLayer, Set<EscapeHandler>>(
   LAYERS.map((layer) => [layer, new Set()]),
 )
 
-/** Registers `handle` for `layer`; returns the unregister. */
 export function onEscape(layer: EscapeLayer, handle: EscapeHandler) {
   handlers.get(layer)!.add(handle)
   return () => void handlers.get(layer)!.delete(handle)
 }
 
-/** Runs the layers in order until one handles Esc; returns whether one did. */
 export function runEscape(): boolean {
   for (const layer of LAYERS) {
     for (const handle of handlers.get(layer)!) if (handle()) return true

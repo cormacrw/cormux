@@ -2,7 +2,6 @@ import { NO_USAGE } from '$lib/usage/usage'
 import type { Thread } from './threads.svelte'
 import { IDLE_RUNTIME, type Workspace } from './workspace-model'
 
-/** A plain idle workspace for tests, with `patch` on top. */
 export function workspaceFixture(patch: Partial<Workspace> = {}): Workspace {
   return {
     id: 'ws-1',
@@ -30,7 +29,6 @@ export function workspaceFixture(patch: Partial<Workspace> = {}): Workspace {
   }
 }
 
-/** A plain idle thread for tests, with `patch` on top. */
 export function threadFixture(patch: Partial<Thread> = {}): Thread {
   return {
     id: 'th-1',

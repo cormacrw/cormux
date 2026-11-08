@@ -35,7 +35,6 @@
   })
 </script>
 
-<!-- Icon buttons beside ⋯: Play when the app is stopped; Stop and Restart, joined, while it runs. -->
 <div
   bind:this={group}
   role="group"

@@ -1,4 +1,3 @@
-/** Keeps the last `limit` values used, dropping the least recently used one first. */
 export class LruCache<K, V> {
   private values = new Map<K, V>()
 
@@ -7,7 +6,6 @@ export class LruCache<K, V> {
   get(key: K): V | undefined {
     if (!this.values.has(key)) return undefined
     const value = this.values.get(key) as V
-    // Re-inserted so the oldest key is always the least recently used.
     this.values.delete(key)
     this.values.set(key, value)
     return value

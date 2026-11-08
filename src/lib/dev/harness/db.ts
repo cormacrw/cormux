@@ -71,7 +71,6 @@ function nextSeq(db: HarnessDb, threadId: string) {
   return last + 1
 }
 
-/** Saves an event into a thread's transcript, numbered as the store would. */
 export function appendEvent(
   db: HarnessDb,
   threadId: string,
@@ -200,7 +199,6 @@ export function eventPage(
   }
 }
 
-/** The conversation streamed events are in now. */
 export function currentConversation(db: HarnessDb, threadId: string) {
   return conversationsOf(threadRows(db, threadId)).current
 }
@@ -257,7 +255,6 @@ export function findThread(db: HarnessDb, threadId: string) {
   return db.snapshot.persisted.threads.find((row) => row.id === threadId)
 }
 
-/** A workspace's stored row and its snapshot record. */
 export function findWorkspace(db: HarnessDb, workspaceId: string) {
   return {
     row: db.snapshot.persisted.workspaces.find(

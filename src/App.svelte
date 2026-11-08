@@ -184,7 +184,6 @@
 </script>
 
 <ModeWatcher />
-<!-- What the glass sits on: the theme's gradient and the wordmark. -->
 <Backdrop />
 <PlaceSwitcher />
 

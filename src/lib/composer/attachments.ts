@@ -21,7 +21,6 @@ export function isImageName(name: string): boolean {
   return name.includes('.') && IMAGE_EXTENSIONS.includes(extension)
 }
 
-/** The last part of a path, for a file picked or dropped by path. */
 export function fileNameOf(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }
@@ -45,7 +44,6 @@ export function toPromptAttachment(
   }
 }
 
-/** Reads a pasted or dropped file, with a thumbnail for images. */
 export async function attachmentFromFile(
   file: File,
   now = new Date(),

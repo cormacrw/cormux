@@ -33,7 +33,6 @@ type Handler<W extends WireCommand> = (
   args: never,
 ) => Data<W> | Promise<Data<W>>
 
-/** The arguments of the commands that take a single `input` struct. */
 export type Input<W extends WireCommand> = {
   input: Parameters<CommandsByWireName[W]>[0]
 }

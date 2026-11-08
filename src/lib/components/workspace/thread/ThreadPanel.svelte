@@ -33,7 +33,6 @@
 
   const threadId = $derived(thread.id)
 
-  // By path, so each edit step's `+n −m` is one lookup rather than a scan of the diff.
   const diffFileByPath = $derived(
     new Map(
       (workspaceDiff.filesByWorkspace[workspace.id] ?? []).map((file) => [
@@ -53,7 +52,6 @@
   }
   const view = $derived(threadTimeline.threadView(threadId))
   const live = $derived(view.live)
-  // An empty conversation shows a greeting instead of the last one's messages.
   const showHero = $derived(view.loaded && view.items.length === 0)
   let conversation: ThreadConversation | undefined = $state()
 

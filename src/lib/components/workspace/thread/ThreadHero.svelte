@@ -1,11 +1,10 @@
 <!--
   An empty conversation: a big greeting just above the prompt bar instead of
   the last conversation's messages, with a card to resume an earlier
-  conversation. Under the greeting: the agent, and the
-  branch and workspace it works in. As wide as the prompt bar (--thread-column, or
-  the thread column less the bar's 4px sides), so the two line up. Its box runs
-  down to the bar's top edge (past the bar's 8px top padding), so sending the
-  first prompt drops it out of view right behind the bar.
+  conversation. Under the greeting: the agent, and the branch and workspace it
+  works in. As wide as the prompt bar, so the two line up. Its box runs down to
+  the bar's top edge, so sending the first prompt drops it out of view right
+  behind the bar.
 -->
 <script lang="ts">
   import { plural } from '$lib/format/plural'
@@ -27,7 +26,6 @@
     greeting: string
     /** The agent and where it works; none on the new thread page, until it's sent. */
     who?: { role: string; branch: string; workspace: string }
-    /** Earlier conversations to resume. */
     earlier?: ConversationSummary[]
     nowMs?: number
     onResume?: (conversation: ConversationSummary) => Promise<void>
@@ -71,7 +69,6 @@
   </h2>
 
   {#if who}
-    <!-- Who you're talking to, and where they'll work. -->
     <p
       class="hero-who -mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground"
       data-od-id="thread-hero-who"
@@ -139,7 +136,6 @@
 </div>
 
 <style>
-  /* The greeting rises in, then each card just after it. */
   .thread-hero h2,
   .hero-who,
   .thread-hero section {

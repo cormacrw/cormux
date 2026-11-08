@@ -44,7 +44,6 @@ export function createRuntime(scenario: HarnessScenario) {
     callbacks.get(channel.id)?.({ index: channel.index++, message })
   }
 
-  /** Saves an event in a thread's transcript, then streams it with its `seq`. */
   const append = (threadId: string, event: TranscriptEvent) => {
     const { seq } = appendEvent(db, threadId, event)
     const channel = agentChannels.get(threadId)

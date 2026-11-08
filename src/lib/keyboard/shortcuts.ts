@@ -122,7 +122,6 @@ export const SHORTCUTS = {
 
 export type ShortcutId = keyof typeof SHORTCUTS
 
-/** The shortcuts `isShortcut` can match: the ones with a key. */
 export type MatchedShortcutId = {
   [K in ShortcutId]: (typeof SHORTCUTS)[K] extends
     { key: unknown } | { ctrlKey: string }

@@ -7,7 +7,7 @@ function drain() {
   if (queue.length) schedule()
 }
 
-// After the next frame paints, so each job lands in its own frame.
+// rAF fires before the frame paints; the timeout inside it runs after the paint.
 function schedule() {
   if (scheduled) return
   scheduled = true

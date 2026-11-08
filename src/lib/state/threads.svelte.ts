@@ -119,12 +119,10 @@ export class ThreadsStore {
     return this.forWorkspace(workspaceId).find((thread) => !thread.retired)
   }
 
-  /** The threads this one started. */
   childrenOf(threadId: string): Thread[] {
     return this.byParent.get(threadId) ?? NO_THREADS
   }
 
-  /** The workspace's older threads, kept to read. */
   retiredFor(workspaceId: string) {
     return this.forWorkspace(workspaceId).filter((thread) => thread.retired)
   }

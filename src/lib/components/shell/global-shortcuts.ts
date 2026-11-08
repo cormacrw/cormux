@@ -43,7 +43,6 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   const inWorkspace = nav.view === 'workspace'
   const onThread = inWorkspace && workspaceUi.activeTab === 'thread'
 
-  // Find in the conversation on screen: a workspace thread or a scratch.
   if (isShortcut(event, 'find')) {
     if ((onThread || nav.view === 'scratch') && !gated) {
       event.preventDefault()

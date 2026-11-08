@@ -132,7 +132,6 @@
     }
     if (scroll) onScrollAway?.()
     const rowEl = await revealRow(match.row, scroll)
-    // Open step details inside the row that hold the match.
     const lower = needle.toLocaleLowerCase()
     for (const details of rowEl?.querySelectorAll('details') ?? []) {
       if (details.textContent?.toLocaleLowerCase().includes(lower))

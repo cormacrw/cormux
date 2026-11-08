@@ -27,10 +27,8 @@ export function createSync(fetch: () => Promise<Snapshot>) {
     for (const slice of slices) slice(snapshot)
   }
 
-  /** Fetch and apply a snapshot. Calls that land during one share the next, not one each. */
   const refreshSnapshot = coalesce(async () => apply(await fetch()))
 
-  /** One state event: the core moved, so re-read; a skipped version means one was missed. */
   function receive(event: StateChanged) {
     if (event.version > seenVersion + 1) {
       for (const listener of changeListeners) listener('gap')

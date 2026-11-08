@@ -136,7 +136,7 @@
 
   function onWindowKeydown(event: KeyboardEvent) {
     if (!shellDialogs.allows(event, config.shortcut)) return
-    // Git and Output slide over the conversation and leave the composer inert.
+    // A slide-out over the conversation leaves the composer inert.
     if (!trigger || trigger.closest('[inert]')) return
     event.preventDefault()
     open = !open

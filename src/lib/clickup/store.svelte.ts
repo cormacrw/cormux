@@ -110,7 +110,6 @@ export class ClickupStore {
     this.board = result.data
   })
 
-  /** Runs a write, then reloads once SETTLE_MS pass with no other write. */
   private async write<T>(run: () => Promise<T>): Promise<T> {
     this.writes += 1
     this.inFlight += 1

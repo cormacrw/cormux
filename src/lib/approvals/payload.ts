@@ -18,7 +18,6 @@ export function approvalResolvedChip(
   return `${item.noLabel} · ${label}`
 }
 
-/** One question's answer: the options picked, then anything typed. */
 export function composeAnswer(selected: string[], typed: string): string {
   return [...selected, typed.trim()].filter(Boolean).join(', ')
 }

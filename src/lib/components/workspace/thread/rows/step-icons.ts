@@ -33,7 +33,7 @@ const STEP_ICONS: Record<TimelineStep['kind'], IconName> = {
   legacy: 'tool',
 }
 
-/** A kind this build doesn't know (the store outlived a downgrade) still shows, plainly. */
+/** A `legacy` step, saved by an older build with only its English title, carries its own icon. */
 export function stepIcon(step: TimelineStep): IconName {
   if (step.kind === 'legacy') return step.icon
   return STEP_ICONS[step.kind] ?? 'tool'

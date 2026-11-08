@@ -10,7 +10,6 @@ import { filterTasks } from './task-aliases'
 /** A trigger word in the draft: where it starts and ends, and what's typed before the caret. */
 export type TriggerWord = { start: number; end: number; query: string }
 
-/** Each trigger's sigil, and what its word is made of. */
 const TRIGGERS = {
   // Not a path: `src/app` and `/usr/bin` aren't skills.
   skill: { sigil: '/', chars: '[^\\s/]' },

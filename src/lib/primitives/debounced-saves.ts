@@ -30,7 +30,6 @@ export function debouncedSaves(delayMs = SAVE_DELAY_MS) {
       pending.set(key, { timer, save })
     },
     cancel,
-    /** Runs a waiting save now. */
     flush(key: string) {
       const waiting = pending.get(key)
       if (cancel(key)) waiting?.save()
