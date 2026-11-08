@@ -4,6 +4,7 @@
 //! saves overrides it field by field, and a blank field follows the file.
 
 use std::path::Path;
+use std::time::Duration;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -40,6 +41,18 @@ fn config_error(file: &Path, error: impl std::fmt::Display) -> Error {
         "{} can't be used: {error}",
         crate::paths::for_display(file)
     ))
+}
+
+/// How long one setup command may run before setup gives up on it.
+pub const SETUP_COMMAND_TIMEOUT: Duration = Duration::from_secs(3600);
+
+/// A setup's commands, one per line; blank lines and `#` comments are skipped.
+pub fn parse_setup_commands(raw: &str) -> Vec<String> {
+    raw.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect()
 }
 
 pub fn effective_setup(stored: &str, repo_path: &Path) -> Result<String> {
@@ -332,6 +345,14 @@ fn follow_committed_config(conn: &Connection) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn setup_skips_blank_and_comment_lines() {
+        let cmds = super::parse_setup_commands(
+            "pnpm install\n\n# copy env\ncp .env.example .env\n  uv sync  \n",
+        );
+        assert_eq!(cmds, ["pnpm install", "cp .env.example .env", "uv sync"]);
+    }
+
     use super::*;
     use std::fs;
 

@@ -96,13 +96,6 @@ impl WorkspaceRecord {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RenameWorkspaceInput {
-    pub workspace_id: String,
-    pub name: String,
-}
-
 #[derive(Default)]
 struct Inner {
     records: HashMap<String, WorkspaceRecord>,
@@ -524,20 +517,6 @@ fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result
             "illegal transition {from:?} → {to:?}"
         )))
     }
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn rename_workspace(
-    state: tauri::State<'_, crate::state::AppState>,
-    input: RenameWorkspaceInput,
-) -> Result<()> {
-    state
-        .workspaces
-        .rename(&input.workspace_id, &input.name)
-        .await?;
-    state.out.changed();
-    Ok(())
 }
 
 #[cfg(test)]

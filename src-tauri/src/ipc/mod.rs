@@ -9,7 +9,7 @@ use tauri_specta::Builder;
 use crate::{
     app, approvals, attachments, changes, clickup, create_pr, environment, findings, menu, repos,
     review, scratch, settings, skills, snapshot, stack, teardown, terminal, thread_media,
-    transcript, turn, workspace_git, workspace_start, workspaces,
+    transcript, turn, workspace_git, workspace_start,
 };
 
 /// The one list of commands: registers them with Tauri and names them for the allowlist test.
@@ -72,7 +72,7 @@ commands![
     skills::commands::list_repo_skills,
     workspace_start::commands::retry_workspace_provisioning,
     workspace_start::commands::skip_workspace_provisioning_setup,
-    workspaces::rename_workspace,
+    workspace_start::commands::rename_workspace,
     workspace_git::commands::switch_workspace_branch,
     workspace_git::commands::pull_workspace,
     create_pr::commands::default_pr_prompt,

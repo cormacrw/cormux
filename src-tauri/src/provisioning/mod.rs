@@ -8,7 +8,6 @@ pub use runner::{ProvisionPlan, WorkspaceSpec, create, fail, retry, run, skip_se
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use tokio::sync::OwnedMutexGuard;
 
@@ -61,34 +60,5 @@ impl SetupRuns {
         let mut held = self.slot(workspace_id).lock_owned().await;
         *held = 0;
         held
-    }
-}
-
-pub const SETUP_COMMAND_TIMEOUT: Duration = Duration::from_secs(3600);
-
-pub fn parse_setup_commands(raw: &str) -> Vec<String> {
-    raw.lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(str::to_string)
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn skips_blank_and_comment_lines() {
-        let cmds =
-            parse_setup_commands("pnpm install\n\n# copy env\ncp .env.example .env\n  uv sync  \n");
-        assert_eq!(
-            cmds,
-            vec![
-                "pnpm install".to_string(),
-                "cp .env.example .env".to_string(),
-                "uv sync".to_string(),
-            ]
-        );
     }
 }

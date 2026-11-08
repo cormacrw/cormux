@@ -465,7 +465,7 @@ pub async fn test_setup(
     let repo = state.store.repo(&input.repo_id)?;
     let repo_path = expand_tilde(&repo.path);
     let setup_raw = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path)?;
-    let commands = crate::provisioning::parse_setup_commands(&setup_raw);
+    let commands = crate::harness_config::parse_setup_commands(&setup_raw);
     if commands.is_empty() {
         return Ok(TestRepoSetupResult {
             ok: true,
@@ -489,7 +489,7 @@ pub async fn test_setup(
             .run_to_exit(
                 session,
                 &shell,
-                crate::provisioning::SETUP_COMMAND_TIMEOUT,
+                crate::harness_config::SETUP_COMMAND_TIMEOUT,
                 None,
             )
             .await?;

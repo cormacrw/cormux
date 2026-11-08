@@ -311,6 +311,27 @@ pub mod commands {
 
     #[derive(Debug, Clone, Serialize, Deserialize, Type)]
     #[serde(rename_all = "camelCase")]
+    pub struct RenameWorkspaceInput {
+        pub workspace_id: String,
+        pub name: String,
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn rename_workspace(
+        state: State<'_, AppState>,
+        input: RenameWorkspaceInput,
+    ) -> Result<()> {
+        state
+            .workspaces
+            .rename(&input.workspace_id, &input.name)
+            .await?;
+        state.out.changed();
+        Ok(())
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
     pub struct CreateWorkspaceResult {
         pub workspace_id: String,
     }
