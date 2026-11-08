@@ -3,6 +3,7 @@ import { appendEvent, findThread, findWorkspace, type HarnessDb } from './db'
 import {
   LEAD_THREAD_ID,
   leadThreadFixture,
+  NO_RUN_COMMAND,
   REPO_ID,
   WORKSPACE_ID,
   workspaceFixture,
@@ -51,6 +52,13 @@ function seedReviewFindings(
     role: 'reviewer',
   })
   persisted.findings = findings
+  db.snapshot.workspaceReviewBlocks = [
+    {
+      workspaceId: WORKSPACE_ID,
+      reason:
+        'This is a review workspace; its Reviewer already reviews the PR.',
+    },
+  ]
   persisted.reviews = [
     { workspaceId: WORKSPACE_ID, status: 'ready', submitted: false },
   ]
@@ -83,6 +91,25 @@ function seedLeadUsage(
   })
 }
 
+/** The repo's run command, and what the core resolves Run to in each of its workspaces. */
+function seedRunCommand(db: HarnessDb, command: string) {
+  const { snapshot } = db
+  const repo = snapshot.persisted.repos.find((row) => row.id === REPO_ID)!
+  repo.runCommand = command
+  snapshot.repoRunCommands = [{ repoId: REPO_ID, command, source: 'repo' }]
+  const ids = snapshot.persisted.workspaces
+    .filter((row) => row.repoId === REPO_ID)
+    .map((row) => row.id)
+  snapshot.workspaceRunCommands = ids.map((workspaceId) => ({
+    workspaceId,
+    command,
+    source: 'repo' as const,
+  }))
+  snapshot.workspaceRunBlocks = snapshot.workspaceRunBlocks.filter(
+    (block) => !ids.includes(block.workspaceId),
+  )
+}
+
 /** Shapes a session's fresh fixtures to the scenario, before the app first reads them. */
 export function seedFixtures(db: HarnessDb, scenario: HarnessScenario) {
   const { snapshot } = db
@@ -107,7 +134,6 @@ export function seedFixtures(db: HarnessDb, scenario: HarnessScenario) {
   if (scenario.approvals) persisted.approvals = scenario.approvals
   if (scenario.reviewFindings) seedReviewFindings(db, scenario.reviewFindings)
   Object.assign(snapshot.settings, scenario.settings)
-  if (scenario.runCommand) repo.runCommand = scenario.runCommand
   if (scenario.leadUsage) seedLeadUsage(db, scenario.leadUsage)
   if (scenario.entities) persisted.entities = scenario.entities
   if (scenario.pullRequests) {
@@ -131,7 +157,18 @@ export function seedFixtures(db: HarnessDb, scenario: HarnessScenario) {
       workspaceId: 'ws-billing',
       threadId: 'th-billing',
     })
+    snapshot.workspaceRunBlocks.push({
+      workspaceId: 'ws-billing',
+      reason: NO_RUN_COMMAND,
+    })
+    snapshot.repoRemovalBlocks = [
+      {
+        repoId: REPO_ID,
+        reason: 'my-app has 2 workspaces. Tear them down first.',
+      },
+    ]
   }
+  if (scenario.runCommand) seedRunCommand(db, scenario.runCommand)
   if (scenario.retiredThread) {
     persisted.threads.unshift({
       ...leadThreadFixture('th-retired-reviewer', WORKSPACE_ID),
@@ -148,4 +185,5 @@ export function seedFixtures(db: HarnessDb, scenario: HarnessScenario) {
       clickupFolderId: 'folder-sprints',
     })
   }
+  Object.assign(snapshot, scenario.decisions)
 }

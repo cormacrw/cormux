@@ -63,6 +63,12 @@ test('Changes shows the gh-stack stack beside the diff, checks out, pushes and a
 })
 
 test('Stack starts from an unstacked branch', async ({ page }) => {
+  await setScenario(page, {
+    refusedBranches: {
+      'bad name':
+        'Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.',
+    },
+  })
   const panel = await openStack(page, '?stack=none')
   await expect(panel).toContainText("feat/oauth-login isn't in a stack")
   await expect(panel.locator('[data-stack-branch]')).toContainText(

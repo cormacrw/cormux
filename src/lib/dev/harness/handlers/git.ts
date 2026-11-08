@@ -19,9 +19,24 @@ const STACK_STATS: Record<string, [number, number, number, number]> = {
 const STACK_PRS: Record<string, number> = { 'feat/oauth-api': 101 }
 // Branches origin doesn't have at the same commit, so deleting them asks first.
 const UNPUSHED_BRANCHES = ['feat/oauth-api']
+// What holds each branch, as the core's `BranchHolds` answers for the fixture repo.
+const BRANCH_HOLDS: Record<string, BranchHold> = {
+  main: { kind: 'defaultBranch' },
+  'feat/oauth-login': { kind: 'checkedOutBy', workspaces: ['OAuth login'] },
+}
+// Why Add branch can't add, by the checked-out branch, as the core answers for the full stack.
+const STACK_ADD_BLOCKS: Record<string, string> = {
+  'feat/oauth-api': 'New branches go on top. Check out feat/oauth-ui first.',
+  'feat/oauth-login': 'New branches go on top. Check out feat/oauth-ui first.',
+}
+// Each stacked branch's PR base, as the core drafts it: the branch below it.
+const STACK_PR_BASES: Record<string, string> = {
+  'feat/oauth-api': 'main',
+  'feat/oauth-login': 'feat/oauth-api',
+  'feat/oauth-ui': 'feat/oauth-login',
+}
 
 export function gitHandlers({
-  db,
   scenario,
   controls,
   findWorkspace,
@@ -51,26 +66,6 @@ export function gitHandlers({
 
   const REPO_HEAD = 'main'
 
-  /** Holds by the core's `BranchHolds`: the default branch, live workspaces' branches, the head. */
-  const holdOf = (
-    repoId: string,
-    name: string,
-    exceptWorkspaceId?: string,
-  ): BranchHold | null => {
-    const repo = db.snapshot.persisted.repos.find((row) => row.id === repoId)
-    if (name === repo?.defaultBranch) return { kind: 'defaultBranch' }
-    const names = db.snapshot.persisted.workspaces
-      .filter(
-        (row) =>
-          row.repoId === repoId &&
-          row.branch === name &&
-          row.id !== exceptWorkspaceId,
-      )
-      .map((row) => row.name)
-    if (names.length) return { kind: 'checkedOutBy', workspaces: names }
-    return name === REPO_HEAD ? { kind: 'repoHead' } : null
-  }
-
   const setFixtureBranch = (workspaceId: string, branch: string) => {
     const { row, record } = findWorkspace(workspaceId)
     if (row) row.branch = branch
@@ -91,6 +86,7 @@ export function gitHandlers({
       message: null,
       installCommand: null,
       branches: [],
+      addBlock: null,
     }
     if (stackMode === 'unavailable') {
       return {
@@ -98,6 +94,7 @@ export function gitHandlers({
         status: 'unavailable',
         message: "The gh-stack extension isn't installed.",
         installCommand: 'gh extension install github/gh-stack',
+        addBlock: "The gh-stack extension isn't installed.",
       }
     }
     if (stackMode === 'remote' && !stackBranches.includes(current)) {
@@ -129,11 +126,7 @@ export function gitHandlers({
         merged: false,
         queued: false,
         needsRebase: name === 'feat/oauth-ui',
-        hold: holdOf(
-          findWorkspace(workspaceId).row?.repoId ?? '',
-          name,
-          workspaceId,
-        ),
+        hold: null,
         pr: number
           ? {
               number,
@@ -143,7 +136,12 @@ export function gitHandlers({
           : null,
       }
     })
-    return { ...base, status: 'stacked', branches }
+    return {
+      ...base,
+      status: 'stacked',
+      branches,
+      addBlock: STACK_ADD_BLOCKS[current] ?? null,
+    }
   }
 
   return {
@@ -154,13 +152,8 @@ export function gitHandlers({
       return null
     },
     add_stack_branch: ({ input }: Input<'add_stack_branch'>) => {
-      // A stand-in for the core's refusals: git's ref rules, enough for a typo'd name.
-      if (/\s|\.\.|\/\/|^\/|\/$/.test(input.branch.trim()))
-        throw {
-          kind: 'Invalid',
-          message:
-            'Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.',
-        }
+      const refused = scenario.refusedBranches?.[input.branch.trim()]
+      if (refused) throw { kind: 'Invalid', message: refused }
       const current = currentBranch(input.workspaceId)
       if (!stackBranches.includes(current) && current !== 'main')
         stackBranches.push(current)
@@ -171,37 +164,36 @@ export function gitHandlers({
     push_stack: () => null,
     sync_stack: () => null,
     default_pr_prompt: () => 'Write the description for this pull request.',
-    // Like the core: a stacked branch's PR targets the branch below it, counted against it.
     draft_pr_why: ({ workspaceId }: { workspaceId: string }) => {
       const branch = currentBranch(workspaceId)
-      const index = stackBranches.indexOf(branch)
-      const [added, deleted, , files] =
-        index >= 0 ? (STACK_STATS[branch] ?? [0, 0, 0, 0]) : [42, 7, 0, 3]
+      const stacked = stackBranches.includes(branch)
+      const [added, deleted, , files] = stacked
+        ? (STACK_STATS[branch] ?? [0, 0, 0, 0])
+        : [42, 7, 0, 3]
       return {
         workspaceId,
         text: 'Lets people sign in with their Google account.',
         fromLlm: false,
-        base:
-          index >= 0
-            ? (stackBranches[index - 1] ?? 'main')
-            : (findWorkspace(workspaceId).record?.base ?? 'main'),
+        base: stacked
+          ? (STACK_PR_BASES[branch] ?? 'main')
+          : (findWorkspace(workspaceId).record?.base ?? 'main'),
         files,
         added,
         deleted,
       }
     },
     get_repo_git: () => [],
-    list_repo_branches: ({ repoId }: { repoId: string }) => ({
+    list_repo_branches: () => ({
       branches: ['main', 'develop', 'feat/oauth-login'].map((name) => ({
         name,
-        hold: holdOf(repoId, name),
+        hold: BRANCH_HOLDS[name] ?? null,
       })),
     }),
-    list_repo_local_branches: ({ repoId }: { repoId: string }) => ({
+    list_repo_local_branches: () => ({
       head: REPO_HEAD,
       branches: localBranches.map((row) => ({
         ...row,
-        hold: holdOf(repoId, row.name),
+        hold: BRANCH_HOLDS[row.name] ?? null,
       })),
     }),
     delete_local_branch: ({

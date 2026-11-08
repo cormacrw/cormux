@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { setScenario } from './harness'
 
 test.describe('bangs', () => {
   test('saved in settings, used in a prompt bar, and started from the palette', async ({
@@ -8,6 +9,20 @@ test.describe('bangs', () => {
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     mkdirSync('e2e/output', { recursive: true })
+    // The core's answers: its name rules are tested in Rust (`settings`).
+    await setScenario(page, {
+      bangSaves: [
+        {
+          names: [''],
+          reply: { error: 'Give the bang a name, like test or review.' },
+        },
+        { names: ['!Fix Tests'], reply: { names: ['fix-tests'] } },
+        {
+          names: ['fix-tests', 'fix-tests'],
+          reply: { error: '!fix-tests already exists.' },
+        },
+      ],
+    })
     await page.goto('/')
 
     const nav = page.getByRole('navigation', { name: 'Sidebar' })

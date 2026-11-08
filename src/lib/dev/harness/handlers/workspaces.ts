@@ -29,11 +29,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       name: input.goal.slice(0, 48),
       // The core drafts a branch from the goal when none is given; any `feat/` name stands in.
       branch: input.branch || `feat/harness-${n}`,
-      base:
-        input.base ||
-        db.snapshot.persisted.repos.find((repo) => repo.id === input.repoId)
-          ?.defaultBranch ||
-        'main',
+      base: input.base ?? 'main',
       worktreePath: `/tmp/cormux-fixture/harness-${n}`,
       createdAtMs: Date.now(),
     })
@@ -41,6 +37,15 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
     db.snapshot.workspaces.push(record)
     db.snapshot.persisted.threads.push(leadThreadFixture(threadId, workspaceId))
     db.snapshot.workspaceOwnThreads.push({ workspaceId, threadId })
+    // A new workspace runs what the fixture workspace runs, and is refused Run as it is.
+    const like = <T extends { workspaceId: string }>(rows: T[]) =>
+      rows
+        .filter((row) => row.workspaceId === WORKSPACE_ID)
+        .map((row) => ({ ...row, workspaceId }))
+    db.snapshot.workspaceRunCommands.push(
+      ...like(db.snapshot.workspaceRunCommands),
+    )
+    db.snapshot.workspaceRunBlocks.push(...like(db.snapshot.workspaceRunBlocks))
     appendEvent(
       db,
       threadId,
@@ -66,16 +71,29 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       workspaceId: string
       command: string
     }) => {
-      const { row } = runtime.findWorkspace(workspaceId)
-      // As the core: no override for a blank command or the repo's own one again.
-      const repo = db.snapshot.persisted.repos.find(
-        (repo) => repo.id === row?.repoId,
-      )
       const typed = command.trim()
-      if (row) {
-        row.runCommand =
-          typed && typed !== repo?.runCommand?.trim() ? typed : null
+      const edit = scenario.runCommandEdits?.[typed]
+      if (!edit) {
+        throw {
+          kind: 'Invalid',
+          message: `the scenario gives no runCommandEdits for "${typed}"`,
+        }
       }
+      const { row } = runtime.findWorkspace(workspaceId)
+      if (row) row.runCommand = edit.run?.source === 'workspace' ? typed : null
+      const snapshot = db.snapshot
+      snapshot.workspaceRunCommands = [
+        ...snapshot.workspaceRunCommands.filter(
+          (run) => run.workspaceId !== workspaceId,
+        ),
+        ...(edit.run ? [{ workspaceId, ...edit.run }] : []),
+      ]
+      snapshot.workspaceRunBlocks = [
+        ...snapshot.workspaceRunBlocks.filter(
+          (block) => block.workspaceId !== workspaceId,
+        ),
+        ...(edit.runBlock ? [{ workspaceId, reason: edit.runBlock }] : []),
+      ]
       emitStateChanged(CHANGE.state)
       return null
     },
@@ -91,18 +109,11 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       runtime.threadEfforts.set(created.threadId, input.effort)
       return created
     },
-    // As the core: the PR's open review workspace, else the fixture workspace as if started.
-    create_review_workspace: ({ input }: Input<'create_review_workspace'>) => {
-      const existing = db.snapshot.persisted.workspaces.find(
-        (row) =>
-          row.kind === 'review' &&
-          row.repoId === input.repoId &&
-          row.prNumber === input.prNumber,
-      )
-      return existing
-        ? { workspaceId: existing.id, created: false }
-        : { workspaceId: WORKSPACE_ID, created: true }
-    },
+    // The fixture workspace stands in for the review workspace the core opens.
+    create_review_workspace: () => ({
+      workspaceId: WORKSPACE_ID,
+      created: true,
+    }),
     get_teardown_preview: ({ workspaceId }: { workspaceId: string }) => ({
       workspaceId,
       workspaceName: 'OAuth login',
@@ -125,7 +136,8 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       controls.openedTerminal = workspaceId
       return null
     },
-    // Run and Stop only move the header's own state; no app is really started.
+    // Run and Stop only move the header's own state; no app is really started, and the
+    // scenario's run block is the core's refusal, which the header already applied.
     control_workspace_app: () => null,
     // The Output panel subscribes when it opens; only `appRunning` prints to it.
     subscribe_pty: ({

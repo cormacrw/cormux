@@ -17,6 +17,12 @@ export const WORKSPACE_ID = 'ws-auth'
 export const LEAD_THREAD_ID = 'th-lead'
 const SCRATCH_THREAD_ID = 'th-scratch-webhook'
 
+/**
+ * Why the core refuses Run in a workspace with no run command. The harness holds the core's
+ * decisions as data (seeded per scenario), never the rules that make them.
+ */
+export const NO_RUN_COMMAND = 'No run command for this workspace.'
+
 export const fixtureEngines: EngineStatus[] = [
   {
     kind: 'claude',
@@ -141,9 +147,15 @@ export function createFixtures() {
     repoRunCommands: [],
     repoCommittedSetups: [],
     workspaceRunCommands: [],
-    repoRemovalBlocks: [],
+    repoRemovalBlocks: [
+      {
+        repoId: REPO_ID,
+        reason: 'my-app has 1 workspace. Tear it down first.',
+      },
+    ],
     workspaceBranchLocks: [],
     workspaceReviewBlocks: [],
+    workspaceRunBlocks: [{ workspaceId: WORKSPACE_ID, reason: NO_RUN_COMMAND }],
     workspaceOwnThreads: [
       { workspaceId: WORKSPACE_ID, threadId: LEAD_THREAD_ID },
     ],

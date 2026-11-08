@@ -1,6 +1,7 @@
 import type {
   ApprovalRow,
   FindingRow,
+  RunCommandSource,
   MenuCommand,
   ResumeThreadSessionInput,
   Snapshot,
@@ -48,8 +49,43 @@ export type HarnessScenario = {
   reviewFindings?: FindingRow[]
   /** Settings as a returning user has them. */
   settings?: Partial<Snapshot['settings']>
-  /** The fixture repo's run command. */
+  /** The fixture repo's run command, which Run then starts in its workspaces. */
   runCommand?: string
+  /**
+   * What the core decides, as its snapshot carries it, over what the fixtures and the fields
+   * above seed. The harness holds the core's decisions as data and never re-derives them, so a
+   * spec that needs a decision to differ sets it here.
+   */
+  decisions?: Partial<
+    Pick<
+      Snapshot,
+      | 'workspaceReviewBlocks'
+      | 'workspaceBranchLocks'
+      | 'workspaceRunBlocks'
+      | 'repoRemovalBlocks'
+    >
+  >
+  /**
+   * What `set_workspace_run_command` resolves each typed command to (trimmed; `''` goes back
+   * to the repo's): what Run then starts, and why Run is refused, if it is.
+   */
+  runCommandEdits?: Record<
+    string,
+    {
+      run: { command: string; source: RunCommandSource } | null
+      runBlock: string | null
+    }
+  >
+  /**
+   * How `update_settings` answers a list of bangs whose names, as sent, are `names`: the names
+   * it saved them under, or why it refused. A list no entry names is saved as sent.
+   */
+  bangSaves?: {
+    names: string[]
+    reply: { names: string[] } | { error: string }
+  }[]
+  /** Branch names `add_stack_branch` refuses, and why. */
+  refusedBranches?: Record<string, string>
   /** The usage the Lead's engine reported. */
   leadUsage?: {
     usedTokens: number | null

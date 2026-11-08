@@ -11,7 +11,16 @@ async function openOutput(page: import('@playwright/test').Page) {
 test('Output: override the repo’s run command for one workspace, then go back to it', async ({
   page,
 }) => {
-  await setScenario(page, { runCommand: 'pnpm dev' })
+  await setScenario(page, {
+    runCommand: 'pnpm dev',
+    runCommandEdits: {
+      'pnpm dev --port 4000': {
+        run: { command: 'pnpm dev --port 4000', source: 'workspace' },
+        runBlock: null,
+      },
+      '': { run: { command: 'pnpm dev', source: 'repo' }, runBlock: null },
+    },
+  })
   await openOutput(page)
   const command = page.locator('[data-od-id="run-command"]')
   await expect(command).toHaveText(/^\s*pnpm dev\s*$/)
@@ -52,6 +61,14 @@ test('Output: override the repo’s run command for one workspace, then go back 
 test('Output: a workspace can have a run command when its repo has none', async ({
   page,
 }) => {
+  await setScenario(page, {
+    runCommandEdits: {
+      'make serve': {
+        run: { command: 'make serve', source: 'workspace' },
+        runBlock: null,
+      },
+    },
+  })
   await openOutput(page)
   await expect(page.getByText(/No run command for/)).toBeVisible()
   await page.getByRole('button', { name: 'Just for this workspace' }).click()
