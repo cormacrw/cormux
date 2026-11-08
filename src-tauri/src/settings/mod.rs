@@ -11,7 +11,7 @@ use serde_json::Value;
 use specta::Type;
 
 use crate::engines::EngineKind;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::store::Store;
 
 /// Scratch macros, which bangs replaced; read while no bangs are saved.
@@ -162,13 +162,17 @@ impl Settings {
         settings
     }
 
-    /// Saves what `patch` changes, all or nothing.
+    /// Saves what `patch` changes, all or nothing. Bang names are tidied into bang shape and
+    /// must be there and unique.
     pub fn update(store: &Store, mut patch: SettingsPatch) -> Result<()> {
         for path in [&mut patch.worktree_root, &mut patch.terminal_app]
             .into_iter()
             .flatten()
         {
             *path = path.trim().to_string();
+        }
+        if let Some(bangs) = &mut patch.bangs {
+            check_bangs(bangs)?;
         }
         let fields = match serde_json::to_value(&patch) {
             Ok(Value::Object(fields)) => fields,
@@ -246,6 +250,23 @@ fn parse_bangs(raw: Option<&String>) -> Option<Vec<Bang>> {
     )
 }
 
+fn check_bangs(bangs: &mut [Bang]) -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    for bang in bangs {
+        bang.name = bang_name(&bang.name);
+        if bang.name.is_empty() {
+            return Err(Error::Invalid(
+                "Give the bang a name, like test or review.".into(),
+            ));
+        }
+        if !seen.insert(bang.name.clone()) {
+            return Err(Error::Invalid(format!("!{} already exists.", bang.name)));
+        }
+    }
+    Ok(())
+}
+
+/// Bang shape: no `!`, lowercase, spaces as `-`, and only letters, digits, `-` and `_`.
 fn bang_name(raw: &str) -> String {
     let mut name = String::new();
     let mut in_space = false;
@@ -273,6 +294,41 @@ mod tests {
     fn nothing_stored_reads_as_the_defaults() {
         let store = Store::in_memory().unwrap();
         assert_eq!(Settings::load(&store), Settings::default());
+    }
+
+    /// Bug: the core saved any bang list, and only one Svelte component kept names unique, so
+    /// two drafts renamed alike were both saved.
+    #[test]
+    fn bang_names_are_tidied_and_must_be_there_and_unique() {
+        let store = Store::in_memory().unwrap();
+        let bang = |id: &str, name: &str| Bang {
+            id: id.into(),
+            name: name.into(),
+            prompt: "p".into(),
+        };
+        let save = |bangs: Vec<Bang>| {
+            Settings::update(
+                &store,
+                SettingsPatch {
+                    bangs: Some(bangs),
+                    ..Default::default()
+                },
+            )
+        };
+
+        save(vec![bang("a", " !Fix  Tests "), bang("b", "lint")]).unwrap();
+        let names: Vec<String> = Settings::load(&store)
+            .bangs
+            .into_iter()
+            .map(|bang| bang.name)
+            .collect();
+        assert_eq!(names, ["fix-tests", "lint"]);
+
+        let taken = save(vec![bang("a", "fix-tests"), bang("b", "Fix tests")]).unwrap_err();
+        assert_eq!(taken.to_string(), "!fix-tests already exists.");
+        let blank = save(vec![bang("a", " ! ")]).unwrap_err();
+        assert!(matches!(blank, Error::Invalid(_)), "{blank}");
+        assert_eq!(Settings::load(&store).bangs.len(), 2, "nothing saved");
     }
 
     #[test]

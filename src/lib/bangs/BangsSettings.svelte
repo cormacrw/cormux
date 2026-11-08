@@ -9,6 +9,8 @@
   import { Textarea } from '$lib/components/ui/textarea'
   import { resolveDefaultRepoId } from '$lib/settings/default-repo'
   import { bangName, newBangId, type Bang } from '$lib/bangs/bangs'
+  import { commands } from '$lib/ipc'
+  import { coreErrorText } from '$lib/core/core-error'
   import { repos } from '$lib/state'
   import { settings } from '$lib/settings/store.svelte'
   import { cn } from '$lib/utils'
@@ -16,6 +18,8 @@
 
   let nameDraft = $state('')
   let nameError = $state<string | null>(null)
+  /** Why the core refused the last edit to an open bang; its name rules are the core's. */
+  let editError = $state<string | null>(null)
 
   /** Edits live here so a snapshot refresh mid-typing can't overwrite them. */
   let drafts = $state<Record<string, { name: string; prompt: string }>>({})
@@ -42,18 +46,18 @@
   function withDrafts(): Bang[] {
     return settings.values.bangs.map((bang) => {
       const draft = drafts[bang.id]
-      if (!draft) return bang
-      // A cleared or taken name keeps the old one rather than leaving it unnamed or doubled.
-      const name = bangName(draft.name)
-      const taken = settings.values.bangs.some(
-        (other) => other.id !== bang.id && other.name === name,
-      )
-      return {
-        ...bang,
-        name: name && !taken ? name : bang.name,
-        prompt: draft.prompt,
-      }
+      return draft ? { ...bang, name: draft.name, prompt: draft.prompt } : bang
     })
+  }
+
+  /** Saves the list as the core takes it, which tidies the names; why it refused, if it did. */
+  async function saveBangs(bangs: Bang[]): Promise<string | null> {
+    const result = await commands.updateSettings({ bangs })
+    if (result.status === 'error') {
+      return coreErrorText(result.error, 'Could not save the bangs')
+    }
+    settings.hydrate(result.data)
+    return null
   }
 
   function flushSave() {
@@ -61,7 +65,9 @@
   }
 
   function scheduleSave() {
-    saves.schedule('bangs', () => void updateSettings({ bangs: withDrafts() }))
+    saves.schedule('bangs', async () => {
+      editError = await saveBangs(withDrafts())
+    })
   }
 
   function toggleConfigure(bang: Bang) {
@@ -87,22 +93,21 @@
 
   async function submitAdd(event: Event) {
     event.preventDefault()
-    const name = bangName(nameDraft)
-    if (!name) {
-      nameError = 'Give the bang a name, like test or review.'
-      document.getElementById('settings-bang-name')?.focus()
-      return
-    }
-    if (settings.values.bangs.some((bang) => bang.name === name)) {
-      nameError = `!${name} already exists.`
-      document.getElementById('settings-bang-name')?.focus()
-      return
-    }
     flushSave()
-    const bang: Bang = { id: newBangId(), name, prompt: '' }
-    await updateSettings({ bangs: [...settings.values.bangs, bang] })
+    const id = newBangId()
+    const error = await saveBangs([
+      ...settings.values.bangs,
+      { id, name: nameDraft, prompt: '' },
+    ])
+    if (error) {
+      nameError = error
+      document.getElementById('settings-bang-name')?.focus()
+      return
+    }
+    const bang = settings.values.bangs.find((saved) => saved.id === id)
     nameDraft = ''
     nameError = null
+    if (!bang) return
     expand(bang)
     await tick()
     document.getElementById(`bang-prompt-${bang.id}`)?.focus()
@@ -221,6 +226,9 @@
       </li>
     {/each}
   </ul>
+  {#if editError}
+    <p class="mt-2 text-xs text-destructive" role="alert">{editError}</p>
+  {/if}
 {/if}
 
 <form

@@ -1,4 +1,5 @@
 import { WORKING_THREAD_STATUSES, type SettingsPatch } from '$lib/ipc/bindings'
+import { bangName } from '$lib/bangs/bangs'
 import { threadActivity } from '../db'
 import { fixtureEngines } from '../fixtures'
 import { CHANGE, type HarnessRuntime } from '../runtime'
@@ -73,6 +74,29 @@ export function coreHandlers({ db, emitStateChanged }: HarnessRuntime) {
     reload_environment: () => null,
     detect_engines: () => fixtureEngines,
     update_settings: ({ patch }: { patch: SettingsPatch }) => {
+      // A stand-in for the core's bang rules: tidied names, there and unique.
+      if (patch.bangs) {
+        patch = {
+          ...patch,
+          bangs: patch.bangs.map((bang) => ({
+            ...bang,
+            name: bangName(bang.name),
+          })),
+        }
+        const names = new Set<string>()
+        for (const { name } of patch.bangs ?? []) {
+          if (!name) {
+            throw {
+              kind: 'Invalid',
+              message: 'Give the bang a name, like test or review.',
+            }
+          }
+          if (names.has(name)) {
+            throw { kind: 'Invalid', message: `!${name} already exists.` }
+          }
+          names.add(name)
+        }
+      }
       const changes = Object.fromEntries(
         Object.entries(patch).filter(([, value]) => value != null),
       )
