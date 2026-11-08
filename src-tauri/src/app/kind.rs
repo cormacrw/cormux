@@ -29,15 +29,3 @@ impl AppKind {
         }
     }
 }
-
-pub fn port_in_use_message(kind: AppKind, port: u16) -> String {
-    match kind {
-        AppKind::Vite => format!("Port {port} is in use, trying another one..."),
-        AppKind::Storybook => {
-            format!("Port {port} is not available, using the next free port")
-        }
-        AppKind::Python => {
-            format!("ERROR:    [Errno 48] Address already in use ({port}), trying the next port")
-        }
-    }
-}

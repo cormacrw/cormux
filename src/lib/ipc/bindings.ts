@@ -995,6 +995,35 @@ export type LocalBranchesResult = {
  * Branch checked out in the repo itself. Empty when detached.
  */
 head: string; branches: LocalBranchRow[] }
+/**
+ * One line of a workspace's log: what a command printed, or what Cormux says about the run.
+ */
+export type LogEntry = { kind: LogKind; text: string }
+export type LogKind = 
+/**
+ * What a command printed.
+ */
+"output" | 
+/**
+ * A command Cormux started.
+ */
+"command" | 
+/**
+ * A point in the run: setup done, the app restarted, stopped or crashed.
+ */
+"marker" | 
+/**
+ * Cormux interrupted the app.
+ */
+"interrupt" | 
+/**
+ * Cormux telling you something about the run.
+ */
+"note" | 
+/**
+ * Cormux telling you something went differently than asked, like a port being taken.
+ */
+"warning"
 export type MediaKind = "image" | "video"
 export type MemorySample = { totalBytes: number }
 /**
@@ -1053,7 +1082,7 @@ path: string | null;
  * The contents of a pasted file, which has no path.
  */
 dataBase64: string | null }
-export type PtyChunk = { workspaceId: string; line: string }
+export type PtyChunk = { workspaceId: string; entry: LogEntry }
 export type PullRequestPayload = { num: number; title: string; 
 /**
  * GitHub login, or [`VIEWER_AUTHOR`] when the viewer authored the PR.

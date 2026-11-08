@@ -8,7 +8,7 @@ use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
 use crate::paths::{expand_tilde, worktrees_root};
-use crate::process::{Exit, SessionId, ShellCommand};
+use crate::process::{Exit, LogKind, SessionId, ShellCommand};
 use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
 use crate::state::AppState;
 use crate::store::types::{ThreadPicks, ThreadRow, WorkspaceRow};
@@ -154,9 +154,10 @@ pub async fn skip_setup(state: &AppState, plan: ProvisionPlan) -> Result<()> {
         .workspaces
         .set_activity(&plan.workspace_id, WorkspaceActivity::SettingUp)
         .await?;
-    state.process.append_log_line(
+    state.process.log(
         &plan.workspace_id,
-        "──── Skipped remaining setup — continuing ────",
+        LogKind::Marker,
+        "Skipped remaining setup — continuing",
     );
     let finished = finish_after_setup(state, &plan, 0).await;
     fail_on_error(state, &plan.workspace_id, finished).await;
@@ -203,8 +204,9 @@ async fn run_plan(state: &AppState, plan: &ProvisionPlan) -> Result<()> {
     crate::changes::watch(state, &workspace)?;
 
     if setup.is_empty() {
-        state.process.append_log_line(
+        state.process.log(
             &plan.workspace_id,
+            LogKind::Note,
             "No setup commands configured for this repo",
         );
     } else if !run_setup_commands(state, &workspace, &repo.name, &setup).await? {
@@ -221,8 +223,9 @@ async fn run_setup_commands(
     setup: &[String],
 ) -> Result<bool> {
     let log_id = &workspace.id;
-    state.process.append_log_line(
+    state.process.log(
         log_id,
+        LogKind::Note,
         format!(
             "Running {} setup command{} from {repo_name} settings",
             setup.len(),
@@ -240,9 +243,10 @@ async fn run_setup_commands(
         let started = Instant::now();
         state
             .process
-            .append_log_line(log_id, format!("cmd: {command}"));
-        state.process.append_log_line(
+            .log(log_id, LogKind::Command, command.as_str());
+        state.process.log(
             log_id,
+            LogKind::Note,
             format!("── Command {} of {} ──", index + 1, setup.len()),
         );
 
@@ -266,8 +270,9 @@ async fn run_setup_commands(
             return Ok(false);
         };
 
-        state.process.append_log_line(
+        state.process.log(
             log_id,
+            LogKind::Note,
             format!(
                 "Finished command {} of {} in {:.1}s",
                 index + 1,
@@ -277,9 +282,11 @@ async fn run_setup_commands(
         );
 
         if code != 0 {
-            state
-                .process
-                .append_log_line(log_id, format!("Setup failed: exit code {code}"));
+            state.process.log(
+                log_id,
+                LogKind::Note,
+                format!("Setup failed: exit code {code}"),
+            );
             mark_failed(
                 state,
                 &workspace.id,
@@ -291,9 +298,7 @@ async fn run_setup_commands(
         }
     }
 
-    state
-        .process
-        .append_log_line(log_id, "──── Worktree ready ────");
+    state.process.log(log_id, LogKind::Marker, "Worktree ready");
     Ok(true)
 }
 

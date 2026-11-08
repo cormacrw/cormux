@@ -1,5 +1,7 @@
+import type { LogEntry, LogKind } from '$lib/ipc/bindings'
+
 /** Ids only ever grow, so a row keeps its element as older lines fall off the top. */
-export type OutputLine = { id: number; text: string }
+export type OutputLine = { id: number } & LogEntry
 
 export const OUTPUT_LINE_CAP = 500
 
@@ -12,18 +14,20 @@ export function appendOutputLines(
 
 type OutputLineStyle = 'cmd' | 'out' | 'dim' | 'ok' | 'warn' | 'sep' | 'blank'
 
-export function classifyOutputLine(raw: string): OutputLineStyle {
-  const line = raw.trimEnd()
+const STYLE_OF_KIND: Record<Exclude<LogKind, 'output'>, OutputLineStyle> = {
+  command: 'cmd',
+  marker: 'sep',
+  interrupt: 'dim',
+  note: 'out',
+  warning: 'warn',
+}
+
+/** Cormux's own lines by their kind; a command's output by what common dev tools print. */
+export function classifyOutputLine(entry: LogEntry): OutputLineStyle {
+  if (entry.kind !== 'output') return STYLE_OF_KIND[entry.kind]
+  const line = entry.text.trimEnd()
   if (!line.trim()) return 'blank'
-  if (line.startsWith('> ') || line.startsWith('cmd:')) return 'cmd'
-  if (line.includes('────')) return 'sep'
-  if (
-    /port \d+ is in use/i.test(line) ||
-    /not available, using the next free port/i.test(line) ||
-    /Address already in use/i.test(line)
-  ) {
-    return 'warn'
-  }
+  if (/port \d+ is in use/i.test(line)) return 'warn'
   if (
     /^Done in /i.test(line) ||
     /VITE v/i.test(line) ||
@@ -31,14 +35,15 @@ export function classifyOutputLine(raw: string): OutputLineStyle {
   ) {
     return 'ok'
   }
-  if (
-    line === '^C' ||
-    /\[vite\].*hmr update/i.test(line) ||
-    /reloading/i.test(line)
-  ) {
+  if (/\[vite\].*hmr update/i.test(line) || /reloading/i.test(line)) {
     return 'dim'
   }
   return 'out'
+}
+
+/** A marker is drawn as a rule with its words in the middle. */
+export function outputLineText(entry: LogEntry): string {
+  return entry.kind === 'marker' ? `──── ${entry.text} ────` : entry.text
 }
 
 export const OUTPUT_LINE_CLASS: Record<OutputLineStyle, string> = {

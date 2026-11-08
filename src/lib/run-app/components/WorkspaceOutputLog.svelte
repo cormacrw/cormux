@@ -3,6 +3,7 @@
   import {
     OUTPUT_LINE_CLASS,
     classifyOutputLine,
+    outputLineText,
     type OutputLine,
   } from '$lib/run-app/output-log'
 
@@ -30,13 +31,13 @@
   onscroll={onScroll}
 >
   {#each lines as line (line.id)}
-    {@const style = classifyOutputLine(line.text)}
+    {@const style = classifyOutputLine(line)}
     {#if style === 'blank'}
       <div class="h-5" aria-hidden="true"></div>
     {:else}
       <div class={`whitespace-pre-wrap break-all ${OUTPUT_LINE_CLASS[style]}`}>
         <!-- eslint-disable-next-line svelte/no-at-html-tags -- ansiLineToHtml escapes the line first -->
-        {@html ansiLineToHtml(line.text)}
+        {@html ansiLineToHtml(outputLineText(line))}
       </div>
     {/if}
   {/each}

@@ -116,7 +116,7 @@
     const id = workspaceId
     return subscribePty(id, (chunk) => {
       if (chunk.workspaceId !== id) return
-      pending.push({ id: nextLineId++, text: chunk.line })
+      pending.push({ id: nextLineId++, ...chunk.entry })
       if (pending.length > OUTPUT_LINE_CAP) pending.shift()
       if (workspaceUi.outputVisible) {
         flushFrame ??= requestAnimationFrame(flushLines)

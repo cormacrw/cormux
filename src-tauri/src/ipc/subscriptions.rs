@@ -12,6 +12,7 @@ use tokio::sync::{broadcast, watch};
 
 use crate::error::Result;
 use crate::git::WorktreeDiff;
+use crate::process::LogEntry;
 use crate::state::AppState;
 use crate::transcript::StreamedEvent;
 
@@ -19,7 +20,7 @@ use crate::transcript::StreamedEvent;
 #[serde(rename_all = "camelCase")]
 pub struct PtyChunk {
     pub workspace_id: String,
-    pub line: String,
+    pub entry: LogEntry,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -193,7 +194,7 @@ fn stream_pty(
             for line in lines.drain(..) {
                 let chunk = PtyChunk {
                     workspace_id: workspace_id.clone(),
-                    line,
+                    entry: line,
                 };
                 // The webview that asked is gone (a reload), so nothing will cancel this.
                 if channel.send(chunk).is_err() {

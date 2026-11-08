@@ -14,6 +14,8 @@ use std::thread;
 use std::time::Duration;
 
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use tokio::sync::{Notify, RwLock, watch};
 
 use crate::error::{Error, Result};
@@ -44,6 +46,43 @@ pub struct ProcessSupervisor {
     activity: Arc<Notify>,
 }
 
+/// One line of a workspace's log: what a command printed, or what Cormux says about the run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct LogEntry {
+    pub kind: LogKind,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LogKind {
+    /// What a command printed.
+    Output,
+    /// A command Cormux started.
+    Command,
+    /// A point in the run: setup done, the app restarted, stopped or crashed.
+    Marker,
+    /// Cormux interrupted the app.
+    Interrupt,
+    /// Cormux telling you something about the run.
+    Note,
+    /// Cormux telling you something went differently than asked, like a port being taken.
+    Warning,
+}
+
+impl LogEntry {
+    pub fn new(kind: LogKind, text: impl Into<String>) -> Self {
+        Self {
+            kind,
+            text: text.into(),
+        }
+    }
+
+    fn is_blank_output(&self) -> bool {
+        self.kind == LogKind::Output && is_blank(&self.text)
+    }
+}
+
 /// A session's progress: lines printed so far, and its exit code once it has exited and its
 /// output has been read to the end.
 #[derive(Debug, Clone, Copy, Default)]
@@ -54,9 +93,9 @@ struct SessionState {
 
 /// A buffer of output lines: a session's, or a workspace log.
 struct Lines {
-    ring: Mutex<VecDeque<String>>,
+    ring: Mutex<VecDeque<LogEntry>>,
     /// Lines not yet streamed to the Output tab; only workspace logs keep them.
-    pending: Option<Mutex<Vec<String>>>,
+    pending: Option<Mutex<Vec<LogEntry>>>,
     fragment: Mutex<String>,
     /// The tail of the last read that was only part of a character; the next read finishes it.
     partial: Mutex<Vec<u8>>,
@@ -177,9 +216,10 @@ impl ProcessSupervisor {
         lines
     }
 
-    /// Adds a line to a workspace's log.
-    pub fn append_log_line(&self, workspace_id: &str, line: impl Into<String>) {
-        self.workspace_log(workspace_id).push_line(line.into());
+    /// Adds Cormux's own line to a workspace's log.
+    pub fn log(&self, workspace_id: &str, kind: LogKind, text: impl Into<String>) {
+        self.workspace_log(workspace_id)
+            .push_entry(LogEntry::new(kind, text));
     }
 
     /// Runs `command` in the user's login shell until it exits, or until `timeout` passes and
@@ -336,12 +376,18 @@ impl ProcessSupervisor {
             .lock()
             .unwrap()
             .get(id)
-            .map(|app| app.lines.snapshot().join("\n"))
+            .map(|app| {
+                let ring = app.lines.ring.lock().unwrap();
+                ring.iter()
+                    .map(|entry| entry.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
             .unwrap_or_default()
     }
 
     /// A workspace log's lines added since the last call.
-    pub fn drain_pending(&self, workspace_id: &str) -> Vec<String> {
+    pub fn drain_pending(&self, workspace_id: &str) -> Vec<LogEntry> {
         self.logs
             .lock()
             .unwrap()
@@ -352,7 +398,7 @@ impl ProcessSupervisor {
     }
 
     /// The buffered lines of a workspace log, marking them all as delivered.
-    pub fn take_log_snapshot(&self, workspace_id: &str) -> Vec<String> {
+    pub fn take_log_snapshot(&self, workspace_id: &str) -> Vec<LogEntry> {
         let logs = self.logs.lock().unwrap();
         let Some(lines) = logs.get(workspace_id) else {
             return Vec::new();
@@ -362,6 +408,15 @@ impl ProcessSupervisor {
             pending.lock().unwrap().clear();
         }
         ring.iter().cloned().collect()
+    }
+
+    /// A workspace log's texts, for tests.
+    #[cfg(test)]
+    pub fn log_texts(&self, workspace_id: &str) -> Vec<String> {
+        self.take_log_snapshot(workspace_id)
+            .into_iter()
+            .map(|entry| entry.text)
+            .collect()
     }
 
     pub fn was_killed(&self, id: &SessionId) -> bool {
@@ -529,10 +584,6 @@ impl Lines {
         }
     }
 
-    fn snapshot(&self) -> Vec<String> {
-        self.ring.lock().unwrap().iter().cloned().collect()
-    }
-
     /// Reads land in 4 KiB pieces that can split a multi-byte character (an arrow or an accent
     /// in a build banner), so the bytes of an unfinished one wait for the next read instead of
     /// turning into replacement characters.
@@ -576,16 +627,16 @@ impl Lines {
             if line.ends_with('\r') {
                 line.pop();
             }
-            self.push_line(line);
+            self.push_entry(LogEntry::new(LogKind::Output, line));
         }
         keep_tail(&mut fragment, FRAGMENT_CAP);
     }
 
-    fn push_line(&self, line: String) {
+    fn push_entry(&self, line: LogEntry) {
         {
             let mut ring = self.ring.lock().unwrap();
             // Dev servers clear the screen by printing a screenful of newlines.
-            if is_blank(&line) && ring.back().is_some_and(|last| is_blank(last)) {
+            if line.is_blank_output() && ring.back().is_some_and(LogEntry::is_blank_output) {
                 return;
             }
             if ring.len() == RING_CAP {
@@ -594,7 +645,7 @@ impl Lines {
             ring.push_back(line.clone());
         }
         if let Some(forward) = &self.forward {
-            forward.push_line(line.clone());
+            forward.push_entry(line.clone());
         }
         if let Some(pending) = &self.pending {
             // Nobody drains this until the Output tab opens, and the ring is all it replays.
@@ -813,7 +864,7 @@ mod tests {
     fn caps_what_a_log_can_buffer() {
         let proc = supervisor();
         for line in 0..RING_CAP * 3 {
-            proc.append_log_line("capped", line.to_string());
+            proc.log("capped", LogKind::Output, line.to_string());
         }
         assert!(proc.drain_pending("capped").len() <= RING_CAP * 2);
         assert_eq!(proc.take_log_snapshot("capped").len(), RING_CAP);
@@ -826,7 +877,7 @@ mod tests {
     #[tokio::test]
     async fn a_command_runs_to_its_exit_with_every_line_in_the_workspace_log() {
         let proc = supervisor();
-        proc.append_log_line("ws", "cmd: count");
+        proc.log("ws", LogKind::Output, "cmd: count");
         let mut command =
             shell("for i in 1 2 3; do echo line $i; done; echo \"$HARNESS_BASE\"; exit 3");
         command.env.push(("HARNESS_BASE".into(), "develop".into()));
@@ -843,7 +894,7 @@ mod tests {
 
         assert_eq!(exit, Exit::Code(3));
         assert_eq!(
-            proc.take_log_snapshot("ws"),
+            proc.log_texts("ws"),
             ["cmd: count", "line 1", "line 2", "line 3", "develop"]
         );
     }
@@ -914,16 +965,13 @@ mod tests {
     #[test]
     fn a_character_split_across_reads_stays_whole() {
         let proc = supervisor();
-        proc.append_log_line("split", "warm up");
+        proc.log("split", LogKind::Output, "warm up");
         let lines = proc.logs.lock().unwrap().get("split").unwrap().clone();
         let text = "➜  Local: ready\n".as_bytes();
         // The arrow is three bytes; cut it in the middle.
         lines.push_bytes(&text[..2]);
         lines.push_bytes(&text[2..]);
-        assert_eq!(
-            proc.take_log_snapshot("split"),
-            vec!["warm up", "➜  Local: ready"]
-        );
+        assert_eq!(proc.log_texts("split"), vec!["warm up", "➜  Local: ready"]);
         // Invalid bytes are replaced rather than waited for; a cut-off tail still shows at EOF.
         assert_eq!(complete_utf8_len(b"ok\xff"), 3);
         assert_eq!(complete_utf8_len("é".as_bytes()), 2);
@@ -934,19 +982,16 @@ mod tests {
         lines.push_bytes(&"end é".as_bytes()[..5]);
         lines.finish_bytes();
         lines.push_bytes(b"\n");
-        assert_eq!(
-            proc.take_log_snapshot("split").last().unwrap(),
-            "end \u{fffd}"
-        );
+        assert_eq!(proc.log_texts("split").last().unwrap(), "end \u{fffd}");
     }
 
     #[test]
     fn collapses_runs_of_blank_lines() {
         let proc = supervisor();
         for line in ["a", "", "", "\x1b[1;1H\x1b[0J", "b"] {
-            proc.append_log_line("blank-runs", line);
+            proc.log("blank-runs", LogKind::Output, line);
         }
-        assert_eq!(proc.take_log_snapshot("blank-runs"), vec!["a", "", "b"]);
+        assert_eq!(proc.log_texts("blank-runs"), vec!["a", "", "b"]);
         assert!(proc.drain_pending("blank-runs").is_empty());
     }
 
