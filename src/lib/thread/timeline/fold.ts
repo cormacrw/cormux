@@ -3,7 +3,7 @@ import type {
   TimelineStep,
   TranscriptEvent,
 } from '$lib/ipc/bindings'
-import { memoByText } from '../memo'
+import { memoByText } from '$lib/memo'
 import { summarizeRun } from '../reply/blocks/run'
 import type {
   RunStep,

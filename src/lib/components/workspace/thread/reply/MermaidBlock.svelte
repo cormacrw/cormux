@@ -1,6 +1,6 @@
 <script lang="ts" module>
   import DOMPurify from 'dompurify'
-  import { LruCache } from '$lib/thread/memo'
+  import { LruCache } from '$lib/memo'
 
   let renders = 0
 

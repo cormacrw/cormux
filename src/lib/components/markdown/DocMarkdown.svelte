@@ -1,7 +1,13 @@
+<script lang="ts" module>
+  import { markdownRenderer } from '$lib/markdown/render'
+
+  // Images become their alt text: a document has no worktree to resolve local media in.
+  const documents = markdownRenderer()
+</script>
+
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
-  import { renderRichMarkdown } from '$lib/thread/sanitize-markdown'
   import {
     addCopyButtons,
     copyClicked,
@@ -12,7 +18,7 @@
   /** A document (a task description), so headings and checklists render too. */
   let { text }: { text: string } = $props()
 
-  const html = $derived(renderRichMarkdown(text))
+  const html = $derived(documents.rich(text))
   const clipboard = new CopyFeedback()
   let root: HTMLDivElement | undefined = $state()
 

@@ -16,7 +16,7 @@
     mediaKindForSource,
   } from '$lib/thread/reply/media'
   import { parseProse, type ReplySegment } from '$lib/thread/reply/parse'
-  import { renderSanitizedMarkdown } from '$lib/thread/sanitize-markdown'
+  import { replyMarkdown } from '$lib/thread/reply/render-markdown'
   import MediaCompare from './MediaCompare.svelte'
   import ReplyBlock from './ReplyBlock.svelte'
   import ThreadMedia from './ThreadMedia.svelte'
@@ -49,12 +49,12 @@
     parseProse(text, { streaming }).flatMap((segment, index, all): Part[] => {
       if (segment.kind !== 'text') return [segment]
       if (!streaming) {
-        return [{ kind: 'html', html: renderSanitizedMarkdown(segment.raw) }]
+        return [{ kind: 'html', html: replyMarkdown.chat(segment.raw) }]
       }
       const newest = index === all.length - 1 ? segment.blocks.length - 1 : -1
       return segment.blocks.map((raw, at) => ({
         kind: 'html',
-        html: renderSanitizedMarkdown(raw, at === newest),
+        html: replyMarkdown.chat(raw, at === newest),
       }))
     }),
   )

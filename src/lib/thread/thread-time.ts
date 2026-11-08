@@ -1,4 +1,4 @@
-import { LruCache } from './memo'
+import { LruCache } from '$lib/memo'
 
 /** `YYYY-MM-DD HH:MM:SS` from SQLite is UTC. */
 export function eventCreatedAtMs(createdAt: string): number {
