@@ -242,7 +242,8 @@ async fn run_plan(state: &AppState, plan: &ProvisionPlan, run: &SetupRun) -> Res
 }
 
 /// One step teardown waits for: the worktree is there and watched once it's done, unless the
-/// run was over before it began.
+/// run was over before it began. A new branch's thread says so once git has made it; a PR's
+/// review says what it checked out itself.
 async fn make_worktree(
     state: &AppState,
     plan: &ProvisionPlan,
@@ -254,6 +255,15 @@ async fn make_worktree(
     };
     if !workspace.worktree().exists() {
         crate::workspace_git::add_worktree(state, workspace, plan.checkout).await?;
+        if let Checkout::NewBranch = plan.checkout {
+            let step = TimelineStep::WorktreeCreated {
+                branch: workspace.branch.clone(),
+                base: workspace.base.clone(),
+            };
+            if let Err(error) = state.transcript.record_step(&plan.thread_id, step) {
+                log::warn!("could not record the worktree step: {error}");
+            }
+        }
     }
     crate::changes::watch(state, workspace)
 }
@@ -753,6 +763,32 @@ mod tests {
         std::fs::create_dir_all(workspace.worktree()).unwrap();
         let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
         (state, dir, id, thread_id)
+    }
+
+    /// Bug: the step was recorded before setup ran, so a worktree git couldn't make still read
+    /// as created (and one a retry made was never recorded).
+    #[tokio::test]
+    async fn a_worktree_git_cannot_make_is_not_recorded_as_created() {
+        let (state, _recording, _dir, id) = provisioning_workspace().await;
+        let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
+
+        run(&state, plan(&id, &thread_id, None)).await;
+
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().status,
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+        let steps = state
+            .store
+            .thread_event_page(&thread_id, None, None, None)
+            .unwrap()
+            .events;
+        assert!(
+            !steps
+                .iter()
+                .any(|event| event.payload.contains("worktreeCreated")),
+            "{steps:?}"
+        );
     }
 
     /// Bug: setting the thread idle after the workspace re-derived its status, so a workspace

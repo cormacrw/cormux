@@ -12,7 +12,6 @@ use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::ThreadPicks;
-use crate::timeline::TimelineStep;
 use crate::transcript::Transcript;
 use crate::workspace_git::Checkout;
 use crate::workspaces::WorkspaceRecord;
@@ -145,15 +144,6 @@ pub async fn start_workspace(
         let state = state_bg;
         if auto_named && let Err(error) = name_branch(&state, &plan.workspace_id, &goal).await {
             log::warn!("keeping the drafted branch {draft_branch}: {error}");
-        }
-        if let Ok(workspace) = state.workspaces.get(&plan.workspace_id).await {
-            let step = TimelineStep::WorktreeCreated {
-                branch: workspace.branch,
-                base: workspace.base,
-            };
-            if let Err(error) = state.transcript.record_step(&plan.thread_id, step) {
-                log::warn!("could not record the worktree step: {error}");
-            }
         }
         crate::provisioning::run(&state, plan).await;
     });
@@ -913,7 +903,7 @@ esac
         transcript
             .record_step(
                 "t1",
-                TimelineStep::SessionStarted {
+                crate::timeline::TimelineStep::SessionStarted {
                     ended_session: Some("s1".into()),
                 },
             )
