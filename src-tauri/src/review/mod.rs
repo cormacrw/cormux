@@ -153,6 +153,7 @@ pub async fn create_review_workspace(
 
     let engine = crate::settings::Settings::load(&state.store).default_engine_name();
     let branch = review_branch(state, &input.repo_id, pr.num).await?;
+    let user_message = user_review_message(&pr);
     let created = crate::provisioning::create(
         state,
         WorkspaceSpec {
@@ -165,32 +166,29 @@ pub async fn create_review_workspace(
             engine: engine.clone(),
             parent_thread_id: None,
             picks: Default::default(),
+            setup_message: user_message.clone(),
+        },
+        |created| {
+            state
+                .transcript
+                .append(&created.thread_id, TranscriptEvent::briefing(&user_message))?;
+            state.transcript.record_step(
+                &created.thread_id,
+                TimelineStep::PrCheckedOut {
+                    number: pr.num,
+                    head: pr.head.clone(),
+                    base: pr.base.clone(),
+                    files_changed: pr.files,
+                },
+            )?;
+            state
+                .store
+                .set_review_status(&created.workspace.id, ReviewStatus::Running)
         },
     )
     .await?;
     let workspace_id = created.workspace.id.clone();
     let thread_id = created.thread_id.clone();
-
-    let user_message = user_review_message(&pr);
-    state
-        .store
-        .set_setup_message(&workspace_id, &user_message)?;
-    state
-        .transcript
-        .append(&thread_id, TranscriptEvent::briefing(&user_message))?;
-    state.transcript.record_step(
-        &thread_id,
-        TimelineStep::PrCheckedOut {
-            number: pr.num,
-            head: pr.head.clone(),
-            base: pr.base.clone(),
-            files_changed: pr.files,
-        },
-    )?;
-
-    state
-        .store
-        .set_review_status(&workspace_id, ReviewStatus::Running)?;
 
     state.out.changed();
 

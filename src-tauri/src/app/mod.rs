@@ -602,7 +602,9 @@ mod tests {
                 engine: "claude".into(),
                 parent_thread_id: None,
                 picks: Default::default(),
+                setup_message: String::new(),
             },
+            |_| Ok(()),
         )
         .await
         .unwrap();

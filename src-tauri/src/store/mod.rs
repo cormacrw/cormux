@@ -173,6 +173,7 @@ impl Store {
         workspace: &WorkspaceRow,
         thread: &ThreadRow,
         picks: &ThreadPicks,
+        setup_message: &str,
     ) -> Result<()> {
         self.with_tx(|conn| {
             write_workspace(conn, workspace)?;
@@ -180,6 +181,10 @@ impl Store {
             conn.execute(
                 "UPDATE threads SET model = ?1, effort = ?2 WHERE id = ?3",
                 rusqlite::params![picks.model, picks.effort, thread.id],
+            )?;
+            conn.execute(
+                "UPDATE workspaces SET setup_message = ?1 WHERE id = ?2",
+                rusqlite::params![setup_message, workspace.id],
             )?;
             Ok(())
         })

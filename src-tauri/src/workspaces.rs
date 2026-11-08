@@ -166,6 +166,7 @@ impl Workspaces {
         row: WorkspaceRow,
         thread: &ThreadRow,
         picks: &ThreadPicks,
+        setup_message: &str,
         repo: &RepoRecord,
     ) -> Result<WorkspaceRecord> {
         let mut inner = self.inner.write().await;
@@ -175,7 +176,7 @@ impl Workspaces {
             std::fs::create_dir_all(parent)?;
         }
         self.store
-            .insert_workspace_with_thread(&row, thread, picks)?;
+            .insert_workspace_with_thread(&row, thread, picks, setup_message)?;
         let record = WorkspaceRecord::from_row(&row, repo);
         inner.records.insert(row.id.clone(), record.clone());
         Ok(record)
@@ -837,6 +838,7 @@ mod tests {
                 row("w", "feat/draft", "release", root),
                 &ThreadRow::new("t", "w", ThreadRole::Lead, "claude"),
                 &Default::default(),
+                "",
                 &repo,
             )
             .await
@@ -896,6 +898,7 @@ mod tests {
                 row("w2", "feat-draft", "main", root.path()),
                 &ThreadRow::new("t2", "w2", ThreadRole::Lead, "claude"),
                 &Default::default(),
+                "",
                 &repo,
             )
             .await

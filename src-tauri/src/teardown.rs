@@ -281,6 +281,7 @@ mod tests {
                 row,
                 &ThreadRow::new("t", "w", ThreadRole::Lead, "claude"),
                 &Default::default(),
+                "",
                 &repo,
             )
             .await

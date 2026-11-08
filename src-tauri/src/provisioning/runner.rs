@@ -32,6 +32,8 @@ pub struct WorkspaceSpec {
     pub parent_thread_id: Option<String>,
     /// What its thread starts on, stored with it, since the engine reads it when it launches.
     pub picks: ThreadPicks,
+    /// The message its first turn starts from, kept so a retried setup starts from it again.
+    pub setup_message: String,
 }
 
 pub struct Created {
@@ -55,8 +57,14 @@ pub struct ProvisionPlan {
 }
 
 /// Records the workspace and its thread, having checked everything that can be checked before
-/// anything is written: the repo, the refs and the worktree folder. Nothing is notified.
-pub async fn create(state: &AppState, spec: WorkspaceSpec) -> Result<Created> {
+/// anything is written: the repo, the refs and the worktree folder. Then `first_records`, the
+/// caller's own first writes for it; once the workspace is recorded, a step that fails fails its
+/// setup, leaving it to retry or tear down. Nothing else is notified.
+pub async fn create(
+    state: &AppState,
+    spec: WorkspaceSpec,
+    first_records: impl FnOnce(&Created) -> Result<()>,
+) -> Result<Created> {
     let repo = state.store.repo(&spec.repo_id)?;
     // Before any git call: `base` can come from an agent's `create_thread` call.
     crate::workspace_git::check_branch_name(&repo, &spec.branch)?;
@@ -96,16 +104,21 @@ pub async fn create(state: &AppState, spec: WorkspaceSpec) -> Result<Created> {
     };
     state
         .workspaces
-        .register(row, &thread, &spec.picks, &repo)
+        .register(row, &thread, &spec.picks, &spec.setup_message, &repo)
         .await?;
-    let workspace = state
+    let created = state
         .workspaces
         .set_activity(&workspace_id, WorkspaceActivity::SettingUp)
-        .await?;
-    Ok(Created {
-        workspace,
-        thread_id,
-    })
+        .await
+        .map(|workspace| Created {
+            workspace,
+            thread_id,
+        })
+        .and_then(|created| first_records(&created).map(|()| created));
+    if let Err(error) = &created {
+        mark_failed(state, &workspace_id, None, None, &error.to_string()).await;
+    }
+    created
 }
 
 pub fn start(state: &AppState, plan: ProvisionPlan) {
@@ -432,11 +445,6 @@ fn write_intro(state: &AppState, workspace: &WorkspaceRecord, intro: &Intro) -> 
     Ok(())
 }
 
-/// Fails a recorded workspace's setup before it ran, so it can be retried or torn down.
-pub async fn fail(state: &AppState, workspace_id: &str, message: &str) {
-    mark_failed(state, workspace_id, None, None, message).await;
-}
-
 /// Only a workspace still setting up fails: one being torn down stopped its own setup, and a run
 /// that teardown cancelled or a newer run replaced is left alone.
 async fn mark_failed(
@@ -516,6 +524,20 @@ mod tests {
         tempfile::TempDir,
         String,
     ) {
+        let (state, recording, fake, dir, created) = creating("", |_| Ok(())).await;
+        (state, recording, fake, dir, created.unwrap().workspace.id)
+    }
+
+    async fn creating(
+        setup_message: &str,
+        first_records: impl FnOnce(&Created) -> Result<()>,
+    ) -> (
+        AppState,
+        std::sync::Arc<crate::feedback::RecordingOutput>,
+        crate::thread_runtime::fake::FakeEngines,
+        tempfile::TempDir,
+        Result<Created>,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("app");
         std::fs::create_dir(&repo).unwrap();
@@ -549,11 +571,39 @@ mod tests {
                 engine: "claude".into(),
                 parent_thread_id: None,
                 picks: Default::default(),
+                setup_message: setup_message.into(),
             },
+            first_records,
         )
-        .await
-        .unwrap();
-        (state, recording, fake, dir, created.workspace.id)
+        .await;
+        (state, recording, fake, dir, created)
+    }
+
+    #[tokio::test]
+    async fn a_workspace_is_recorded_with_the_message_it_starts_from() {
+        let (state, _recording, _fake, _dir, created) = creating("Fix it", |_| Ok(())).await;
+        let id = created.unwrap().workspace.id;
+        assert_eq!(
+            state.store.setup_message(&id).unwrap().as_deref(),
+            Some("Fix it")
+        );
+    }
+
+    /// Bug: a review whose first records failed to write was left provisioning with no setup
+    /// run, so neither Retry nor Skip took it.
+    #[tokio::test]
+    async fn a_first_record_that_fails_fails_the_setup() {
+        let (state, recording, _fake, _dir, created) =
+            creating("Review it", |_| Err(Error::Workspace("disk full".into()))).await;
+
+        assert!(created.is_err());
+        let row = state.store.live_workspaces().unwrap().pop().unwrap();
+        assert_eq!(row.status, WorkspaceLifecycle::ProvisioningFailed);
+        assert_eq!(
+            state.store.setup_message(&row.id).unwrap().as_deref(),
+            Some("Review it")
+        );
+        assert_eq!(recording.toasts(), ["workspace: disk full"]);
     }
 
     #[tokio::test]

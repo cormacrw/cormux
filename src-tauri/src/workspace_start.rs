@@ -116,28 +116,21 @@ pub async fn start_workspace(
                 model: input.model.clone(),
                 effort: input.effort.clone(),
             },
+            setup_message: shown.clone(),
         },
-    )
-    .await?;
-    let workspace_id = created.workspace.id.clone();
-    let thread_id = created.thread_id.clone();
-    let recorded = state
-        .store
-        .set_setup_message(&workspace_id, &shown)
-        .and_then(|()| {
+        |created| {
             if shown.is_empty() {
                 return Ok(());
             }
             state
                 .transcript
-                .record_user_message(&thread_id, &shown)
+                .record_user_message(&created.thread_id, &shown)
                 .map(drop)
-        });
-    if let Err(error) = recorded {
-        // Recorded already: failing its setup leaves it to retry or tear down.
-        crate::provisioning::fail(state, &workspace_id, &error.to_string()).await;
-        return Err(error);
-    }
+        },
+    )
+    .await?;
+    let workspace_id = created.workspace.id.clone();
+    let thread_id = created.thread_id.clone();
 
     state.out.changed();
 

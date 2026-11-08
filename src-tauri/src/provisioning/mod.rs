@@ -3,7 +3,7 @@
 
 mod runner;
 
-pub use runner::{ProvisionPlan, WorkspaceSpec, create, fail, retry, run, skip_setup, start};
+pub use runner::{ProvisionPlan, WorkspaceSpec, create, retry, run, skip_setup, start};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,19 +15,9 @@ use tokio::sync::OwnedMutexGuard;
 use crate::error::Result;
 use crate::store::Store;
 
-/// The message a workspace was started with, kept with it at creation: a retried setup starts its
-/// first turn from it again.
+/// The message a workspace was started with, recorded with it (`WorkspaceSpec::setup_message`): a
+/// retried setup starts its first turn from it again.
 impl Store {
-    pub fn set_setup_message(&self, workspace_id: &str, message: &str) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE workspaces SET setup_message = ?1 WHERE id = ?2",
-                [message, workspace_id],
-            )?;
-            Ok(())
-        })
-    }
-
     pub fn setup_message(&self, workspace_id: &str) -> Result<Option<String>> {
         self.with_read(|conn| {
             Ok(conn
