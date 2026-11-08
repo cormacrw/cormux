@@ -2,6 +2,7 @@
   import { switchConversation } from '$lib/thread/actions'
   import { plural, pluralWord } from '$lib/format/plural'
   import { onDestroy } from 'svelte'
+  import { startsOver } from '$lib/core/owner-scoped'
   import { Button } from '$lib/components/ui/button'
   import { entities, prs, workspaceUi } from '$lib/state'
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
@@ -69,7 +70,7 @@
 
   // The greeting offers the earlier conversations the core lists. A resumed conversation can
   // start further back than what's loaded, so it reads back to where it starts.
-  let earlier: ConversationSummary[] = $state([])
+  let earlier = $derived<ConversationSummary[]>(startsOver(threadId, []))
   $effect(() => {
     if (!showHero) return
     // Read again for each conversation the greeting stands in for.

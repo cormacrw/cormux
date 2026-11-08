@@ -94,3 +94,35 @@ export function rowCheckboxState(
   if (row.status === 'dismissed') return { checked: false, disabled: true }
   return { checked: selected.has(row.id), disabled: false }
 }
+
+/**
+ * The picks still standing once a workspace's findings change. Picks of findings that are gone
+ * go too, and a workspace none of whose findings remain (a new review replaced them) goes back
+ * to the default selection.
+ */
+export function prunePicks(
+  picked: Record<string, Set<string>>,
+  before: FindingRow[],
+  after: FindingRow[],
+): Record<string, Set<string>> {
+  const remaining = new Set(after.map((row) => row.id))
+  const next: Record<string, Set<string>> = {}
+  let changed = false
+  for (const [workspaceId, ids] of Object.entries(picked)) {
+    const replaced = !before.some(
+      (row) => row.workspaceId === workspaceId && remaining.has(row.id),
+    )
+    if (replaced) {
+      changed = true
+      continue
+    }
+    const kept = [...ids].filter((id) => remaining.has(id))
+    if (kept.length === ids.size) {
+      next[workspaceId] = ids
+    } else {
+      changed = true
+      next[workspaceId] = new Set(kept)
+    }
+  }
+  return changed ? next : picked
+}

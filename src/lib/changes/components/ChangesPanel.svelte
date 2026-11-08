@@ -6,6 +6,7 @@
   import { afterPaint } from '$lib/changes/mount-queue'
   import { commands } from '$lib/ipc'
   import { coreErrorText } from '$lib/core/core-error'
+  import { startsOver } from '$lib/core/owner-scoped'
   import {
     commentBranch,
     diffComments,
@@ -138,7 +139,7 @@
     commentBranch(workspaceDiff.target(workspace.id), workspace.branch),
   )
   const comments = $derived(diffComments.forBranch(workspace.id, commentScope))
-  let sending = $state(false)
+  let sending = $derived(startsOver(workspaceId, false))
   // The agent works on the checked-out branch, so comments on another level wait until it's checked out.
   const offBranch = $derived(
     commentScope !== null && commentScope !== workspace.branch,
@@ -146,16 +147,18 @@
 
   async function sendComments() {
     if (!comments.length || sending || offBranch) return
+    const id = workspaceId
+    const threadId = thread.id
     sending = true
     const sent = comments
-    diffComments.clear(workspace.id, commentScope)
-    if (await sendToThread(thread.id, formatCommentsForAgent(sent))) {
-      // Show the conversation so the agent's reply is in view.
-      openWorkspaceThread(workspace.id, thread.id)
+    diffComments.clear(id, commentScope)
+    if (await sendToThread(threadId, formatCommentsForAgent(sent))) {
+      // Show the conversation so the agent's reply is in view, unless you've moved on.
+      if (id === workspaceId) openWorkspaceThread(id, threadId)
     } else {
-      for (const comment of sent) diffComments.add(workspace.id, comment)
+      for (const comment of sent) diffComments.add(id, comment)
     }
-    sending = false
+    if (id === workspaceId) sending = false
   }
 </script>
 

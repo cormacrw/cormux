@@ -24,6 +24,7 @@
   import type { FindingRow } from '$lib/ipc/bindings'
   import { cn } from '$lib/utils'
   import { coreErrorText } from '$lib/core/core-error'
+  import { startsOver } from '$lib/core/owner-scoped'
 
   let {
     workspaceId,
@@ -34,8 +35,8 @@
   } = $props()
 
   let bodyEl: HTMLDivElement | undefined = $state()
-  let sending = $state(false)
-  let sendError = $state<string | null>(null)
+  let sending = $derived(startsOver(workspaceId, false))
+  let sendError = $derived<string | null>(startsOver(workspaceId, null))
 
   const workspace = $derived(workspaces.getById(workspaceId))
   const rows = $derived(findings.forWorkspace(workspaceId))
@@ -68,9 +69,11 @@
   }
 
   async function setDismissed(ids: string[], dismissed: boolean) {
+    const id = workspaceId
     sendError = null
-    const error = await findings.setDismissed(workspaceId, ids, dismissed)
-    if (error) sendError = coreErrorText(error, 'Could not update the findings')
+    const error = await findings.setDismissed(id, ids, dismissed)
+    if (error && id === workspaceId)
+      sendError = coreErrorText(error, 'Could not update the findings')
   }
 
   const dismissedCount = $derived(
@@ -79,9 +82,11 @@
 
   async function sendFindings() {
     if (!liveThread || sending) return
+    const id = workspaceId
     sending = true
     sendError = null
-    const error = await findings.sendSelected(workspaceId)
+    const error = await findings.sendSelected(id)
+    if (id !== workspaceId) return
     sending = false
     if (error) sendError = coreErrorText(error, 'Could not send findings')
   }

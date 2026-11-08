@@ -81,7 +81,7 @@
     untrack(() => {
       changesMounted = changesArmed = gitVisible
       outputMounted = outputArmed = outputVisible
-      findingsShown = false
+      findingsShown = findingsArmed = findingsTabActive
     })
   })
   // Holds its panel while it slides away.

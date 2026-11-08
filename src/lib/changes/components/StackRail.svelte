@@ -37,6 +37,7 @@
     syncStack,
   } from '$lib/workspace/git-actions'
   import { cn } from '$lib/utils'
+  import { startsOver } from '$lib/core/owner-scoped'
 
   let { workspace, repoId }: { workspace: Workspace; repoId: string } = $props()
 
@@ -69,20 +70,23 @@
   // Without a stack the checked-out branch still gets a level of its own.
   const soloBranch = $derived(!!stack && !stacked && workspace.branch !== trunk)
 
-  let busy = $state<'push' | 'sync' | null>(null)
-  let switchingTo = $state<string | null>(null)
-  let adding = $state(false)
-  let creating = $state(false)
-  let newBranch = $state('')
-  let addError = $state<string | null>(null)
+  // The tray stays mounted across workspaces; what's under way belongs to the one it started in.
+  const workspaceId = $derived(workspace.id)
+  let busy = $derived<'push' | 'sync' | null>(startsOver(workspaceId, null))
+  let switchingTo = $derived<string | null>(startsOver(workspaceId, null))
+  let adding = $derived(startsOver(workspaceId, false))
+  let creating = $derived(startsOver(workspaceId, false))
+  let newBranch = $derived(startsOver(workspaceId, ''))
+  let addError = $derived<string | null>(startsOver(workspaceId, null))
   let addInput = $state<HTMLInputElement | null>(null)
 
   async function select(next: DiffTarget | null) {
     if (sameDiffTarget(next, shownTarget)) return
+    const id = workspaceId
     await workspaceDiff.fetch(
-      workspace.id,
+      id,
       async () => {
-        const result = await commands.setWorkspaceDiffTarget(workspace.id, next)
+        const result = await commands.setWorkspaceDiffTarget(id, next)
         if (result.status === 'error') toastCoreError(result.error)
         return result.status === 'ok'
       },
@@ -104,18 +108,20 @@
 
   async function checkout(name: string) {
     if (locked || switchingTo) return
+    const id = workspaceId
     switchingTo = name
-    await switchWorkspaceBranch(workspace.id, name)
-    switchingTo = null
+    await switchWorkspaceBranch(id, name)
+    if (id === workspaceId) switchingTo = null
   }
 
   async function runRemote(action: 'push' | 'sync') {
     if (busy) return
+    const id = workspaceId
     busy = action
-    const ok = await (action === 'push' ? pushStack : syncStack)(workspace.id)
-    busy = null
+    const ok = await (action === 'push' ? pushStack : syncStack)(id)
+    if (id === workspaceId) busy = null
     // A branch switch reloads the stack on its own; rebases and pushes don't.
-    if (ok) await loadStack(workspace.id)
+    if (ok) await loadStack(id)
   }
 
   async function openAdd() {
@@ -132,8 +138,10 @@
   }
 
   async function submitAdd() {
+    const id = workspaceId
     creating = true
-    const { added, refused } = await addStackBranch(workspace.id, newBranch)
+    const { added, refused } = await addStackBranch(id, newBranch)
+    if (id !== workspaceId) return
     creating = false
     if (added) closeAdd()
     else addError = refused

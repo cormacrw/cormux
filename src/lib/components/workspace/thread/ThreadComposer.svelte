@@ -37,6 +37,8 @@
     switchConversation,
   } from '$lib/thread/actions'
   import { onMount, tick } from 'svelte'
+  import { SvelteSet } from 'svelte/reactivity'
+  import { startsOver } from '$lib/core/owner-scoped'
   import {
     composerMayTakeFocus,
     isEditable,
@@ -114,10 +116,10 @@
 
   let inputEl = $state<HTMLTextAreaElement | null>(null)
   let composing = $state(false)
-  /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
-  let historyIndex = $state<number | null>(null)
 
   const draftId = $derived(thread?.id ?? newThread?.draftKey ?? '')
+  /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
+  let historyIndex = $derived<number | null>(startsOver(draftId, null))
   const draft = $derived(composerDrafts.textFor(draftId))
   const threadStatus = $derived(thread?.status ?? 'idle')
   const showPause = $derived(composerShowsPauseControl(threadStatus))
@@ -128,8 +130,9 @@
   const usageTooltip = $derived(thread ? usageDetail(thread.usage) : undefined)
   const view = $derived(thread ? threadTimeline.threadView(thread.id) : null)
   const attachments = $derived(composerDrafts.attachmentsFor(draftId))
-  // Between Send and the core taking the message, which can mean starting the agent first.
-  let sending = $state(false)
+  // Drafts between Send and the core taking the message, which can mean starting the agent first.
+  const sendingDrafts = new SvelteSet<string>()
+  const sending = $derived(sendingDrafts.has(draftId))
   const canSend = $derived(
     !disabled &&
       !sending &&
@@ -139,13 +142,15 @@
 
   // Typing `/` opens the skill picker, `@` the repos set up in Cormux (the folder goes in on
   // send), `#` your sprint tasks, and `!` your bangs (picking one puts its prompt in).
-  let skills = $state<Skill[] | null>(null)
-  let skillsThreadId: string | null = null
-  let pickerIndex = $state(0)
+  // A new thread's skills come from the repo it will start in.
+  const skillsOwner = $derived(newThread?.listSkills ?? draftId)
+  let skills = $derived<Skill[] | null>(startsOver(skillsOwner, null))
+  let skillsAsked = $derived(startsOver(skillsOwner, false))
+  let pickerIndex = $derived(startsOver(draftId, 0))
   /** Esc hides the picker until the draft changes. */
-  let pickerDismissed = $state(false)
+  let pickerDismissed = $derived(startsOver(draftId, false))
   /** Where the caret is in the draft; the picker follows the trigger word it's in. */
-  let caret = $state(0)
+  let caret = $derived(startsOver(draftId, 0))
   const sprintTasks = $derived(clickup.mine?.tasks ?? [])
   const picker = $derived(
     pickerAt(draft, caret, {
@@ -197,24 +202,16 @@
   const pickerOpen = $derived(!pickerDismissed && pickerOptions.length > 0)
 
   $effect(() => {
-    void draftId
-    void newThread?.listSkills
-    historyIndex = null
-    skills = null
-    skillsThreadId = null
-  })
-
-  $effect(() => {
-    if (picker?.kind !== 'skill' || skillsThreadId === draftId) return
-    const threadId = draftId
-    skillsThreadId = threadId
+    if (picker?.kind !== 'skill' || skillsAsked) return
+    const owner = skillsOwner
+    skillsAsked = true
     const read = newThread
       ? newThread.listSkills()
-      : commands.listThreadSkills(threadId)
+      : commands.listThreadSkills(draftId)
     void read.then((result) => {
       if (result.status === 'error')
         toastCoreError(result.error, 'Could not read the skills')
-      if (draftId === threadId)
+      if (skillsOwner === owner)
         skills = result.status === 'ok' ? result.data : []
     })
   })
@@ -356,13 +353,13 @@
       inputEl?.focus()
     })
     onSent?.()
-    sending = true
+    sendingDrafts.add(threadId)
     const outgoing = await expandMessage(text)
     const sent = await (
       newThread
         ? newThread.start(outgoing, stay, attached)
         : sendToThread(threadId, outgoing, attached)
-    ).finally(() => (sending = false))
+    ).finally(() => sendingDrafts.delete(threadId))
     if (!sent) {
       composerDrafts.setFor(threadId, text)
       if (attached.length) composerDrafts.addAttachments(threadId, attached)
