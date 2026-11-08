@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
+use crate::store::types::ThreadRow;
 use crate::store::{Store, query_all};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -207,6 +208,21 @@ impl Store {
             }
             Ok(())
         })
+    }
+
+    /// The threads holding a batch of findings to fix.
+    pub fn threads_with_findings_batch(&self) -> Result<Vec<ThreadRow>> {
+        let ids: Vec<String> = self.with_read(|conn| {
+            Ok(conn
+                .prepare_cached("SELECT id FROM threads WHERE findings_batch IS NOT NULL")?
+                .query_map([], |row| row.get(0))?
+                .collect::<rusqlite::Result<_>>()?)
+        })?;
+        let mut threads = Vec::with_capacity(ids.len());
+        for id in ids {
+            threads.extend(self.thread_by_id(&id)?);
+        }
+        Ok(threads)
     }
 
     /// The findings `thread_id` was last sent to fix, which it works through as one batch; none

@@ -106,6 +106,16 @@ impl Turns {
     }
 }
 
+/// Where a paused thread began holding what it's sent: the messages saved after its pause. None
+/// for a thread that isn't paused, which holds nothing. Holding is in memory, so after a quit
+/// this is what the last run held and never sent.
+pub fn holding_after(store: &crate::store::Store, thread: &ThreadRow) -> Result<Option<i64>> {
+    if thread.status != ThreadStatus::Paused {
+        return Ok(None);
+    }
+    store.last_step_seq(&thread.id, &TimelineStep::AgentPaused)
+}
+
 pub fn thread_row(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
     state
         .store

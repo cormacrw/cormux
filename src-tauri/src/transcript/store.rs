@@ -242,6 +242,28 @@ impl Store {
         })
     }
 
+    /// The newest `seq` of the thread's steps of `step`'s kind, if it has one.
+    pub fn last_step_seq(
+        &self,
+        thread_id: &str,
+        step: &crate::timeline::TimelineStep,
+    ) -> Result<Option<i64>> {
+        let kind = serde_json::to_value(step)
+            .map_err(|error| crate::error::Error::Store(error.to_string()))?["kind"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        self.with_read(|conn| {
+            Ok(conn
+                .prepare_cached(&format!(
+                    "SELECT MAX(seq) FROM thread_events
+                     WHERE thread_id = ?1 AND kind = '{TOOL}'
+                       AND CASE WHEN json_valid(payload) THEN json_extract(payload, '$.step.kind') END = ?2"
+                ))?
+                .query_row(rusqlite::params![thread_id, kind], |row| row.get(0))?)
+        })
+    }
+
     /// Hands the thread's rows (only those of `kind`, if given) to `visit` as `(seq, kind,
     /// payload)`, oldest or newest first, until it returns false.
     pub fn visit_events(

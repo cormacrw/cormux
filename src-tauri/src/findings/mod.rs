@@ -206,6 +206,25 @@ pub fn start(state: &AppState) {
         });
 }
 
+/// Findings sent to a thread paused at a quit were held, and the hold didn't survive it: they
+/// are open again, as if the message had been dropped. Runs before
+/// `workspaces::restore_after_quit` stops reading the thread as paused.
+pub fn on_restart(store: &crate::store::Store) -> Result<()> {
+    for thread in store.threads_with_findings_batch()? {
+        let (Some(batch), Some(paused_at)) = (
+            store.findings_batch(&thread.id)?,
+            crate::turn::holding_after(store, &thread)?,
+        ) else {
+            continue;
+        };
+        if batch.message_seq > paused_at {
+            store.reopen_findings(&batch.ids, &thread.id)?;
+            store.set_findings_batch(&thread.id, None)?;
+        }
+    }
+    Ok(())
+}
+
 fn reopen_dropped(state: &AppState, thread_id: &str, message_seqs: &[i64]) -> Result<()> {
     let Some(batch) = state.store.findings_batch(thread_id)? else {
         return Ok(());

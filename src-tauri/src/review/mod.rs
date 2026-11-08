@@ -359,6 +359,24 @@ async fn on_reviewer_turn_end(
     complete_review(state, &workspace, thread_id, found).await
 }
 
+/// A branch review whose turn was in flight at a quit ends as a stopped one does (see
+/// [`on_reviewer_turn_end`]). Runs before `workspaces::restore_after_quit` stops reading the turn
+/// as in flight.
+pub fn on_restart(store: &Store) -> Result<()> {
+    for workspace_id in store.running_reviews()? {
+        let lead = store
+            .workspace_by_id(&workspace_id)?
+            .is_some_and(|workspace| workspace.kind == WorkspaceKind::Lead);
+        let in_flight = store
+            .own_thread(&workspace_id)?
+            .is_some_and(|thread| thread.status.is_mid_turn());
+        if lead && in_flight {
+            store.end_unfinished_review(&workspace_id)?;
+        }
+    }
+    Ok(())
+}
+
 /// Why the workspace's own thread can't review its branch now, or `None` when it can. The one
 /// rule: the snapshot carries it for the header and menu, and `start_branch_review` enforces it.
 pub fn review_block(

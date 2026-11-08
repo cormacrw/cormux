@@ -66,6 +66,19 @@ impl Store {
         })
     }
 
+    /// The live workspaces whose review is running.
+    pub fn running_reviews(&self) -> Result<Vec<String>> {
+        self.with_read(|conn| {
+            Ok(conn
+                .prepare_cached(
+                    "SELECT workspace_id FROM review_state
+                     WHERE status = ?1 AND workspace_id IN (SELECT id FROM live_workspaces)",
+                )?
+                .query_map([ReviewStatus::Running.as_str()], |row| row.get(0))?
+                .collect::<rusqlite::Result<_>>()?)
+        })
+    }
+
     pub fn set_review_status(&self, workspace_id: &str, status: ReviewStatus) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(

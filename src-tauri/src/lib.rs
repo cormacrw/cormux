@@ -62,8 +62,14 @@ use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_specta::Event;
 use window_activity::WindowActivity;
 
-/// What each owner puts back after a quit.
-const ON_RESTART: &[state::OnRestart] = &[approvals::on_restart, workspaces::restore_after_quit];
+/// What each owner puts back after a quit, in order: owners that read which turns were in flight
+/// go before `workspaces::restore_after_quit` ends them.
+const ON_RESTART: &[state::OnRestart] = &[
+    approvals::on_restart,
+    review::on_restart,
+    findings::on_restart,
+    workspaces::restore_after_quit,
+];
 
 /// The features that react to what happens in the core; the bus hands each event to them in
 /// `bus::Listener` order.
@@ -182,7 +188,7 @@ mod tests {
     use super::*;
     use crate::engines::{AgentEvent, EngineCommand, MessageRole};
     use crate::model::ApprovalStatus;
-    use crate::model::{ThreadRole, ThreadStatus, WorkspaceLifecycle};
+    use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
     use crate::store::Store;
     use crate::store::fixtures;
     use crate::store::types::{ThreadRow, WorkspaceRow};
@@ -253,6 +259,108 @@ mod tests {
             WorkspaceLifecycle::ProvisioningFailed
         );
         assert_eq!(status("torn-empty"), WorkspaceLifecycle::Ready);
+    }
+
+    /// Bug: a quit mid branch review left it running for good, so every later Lead turn was
+    /// read as its reply.
+    #[test]
+    fn a_restart_ends_a_branch_review_whose_turn_was_in_flight() {
+        let store = Store::in_memory().unwrap();
+        store.upsert_repo(&fixtures::repo("r1")).unwrap();
+        for (workspace, kind, thread, status) in [
+            (
+                "reviewing",
+                WorkspaceKind::Lead,
+                "lead",
+                ThreadStatus::Running,
+            ),
+            (
+                "asked-again",
+                WorkspaceKind::Lead,
+                "waiting",
+                ThreadStatus::Idle,
+            ),
+            (
+                "pr",
+                WorkspaceKind::PrReview,
+                "reviewer",
+                ThreadStatus::Running,
+            ),
+        ] {
+            store
+                .insert_workspace(&WorkspaceRow {
+                    kind,
+                    ..fixtures::workspace(workspace, WorkspaceLifecycle::Running)
+                })
+                .unwrap();
+            store.seed_thread(thread, workspace, status);
+            store
+                .set_review_status(workspace, review::ReviewStatus::Running)
+                .unwrap();
+        }
+
+        restart(&store);
+
+        let review = |id: &str| store.review(id).unwrap().unwrap().status;
+        assert_eq!(review("reviewing"), None);
+        assert_eq!(review("asked-again"), Some(review::ReviewStatus::Running));
+        assert_eq!(review("pr"), Some(review::ReviewStatus::Running));
+    }
+
+    /// Bug: findings held for a thread paused at a quit stayed sent to a message that never
+    /// reached it.
+    #[test]
+    fn a_restart_reopens_findings_a_paused_thread_held() {
+        let store = Store::in_memory().unwrap();
+        let transcript = transcript::Transcript::new(store.clone());
+        store.seed_workspace("w", WorkspaceLifecycle::Paused);
+        store.seed_thread("held", "w", ThreadStatus::Paused);
+        store.seed_thread("taken", "w", ThreadStatus::Paused);
+        let found = |title: &str| findings::ReviewFinding {
+            severity: findings::FindingSeverity::Blocking,
+            title: title.into(),
+            file: None,
+            line: None,
+            explanation: String::new(),
+        };
+        findings::record_review(&store, "w", vec![found("a"), found("b")]).unwrap();
+        let ids: Vec<String> = store
+            .findings_for_workspace("w")
+            .unwrap()
+            .into_iter()
+            .map(|finding| finding.id)
+            .collect();
+        let send = |thread: &str, id: &String| {
+            let seq = transcript.record_user_message(thread, "Fix").unwrap();
+            store
+                .mark_findings_sent(std::slice::from_ref(id), thread)
+                .unwrap();
+            store
+                .set_findings_batch(
+                    thread,
+                    Some(&findings::FindingsBatch {
+                        ids: vec![id.clone()],
+                        message_seq: seq,
+                    }),
+                )
+                .unwrap();
+        };
+        transcript
+            .record_step("held", timeline::TimelineStep::AgentPaused)
+            .unwrap();
+        send("held", &ids[0]);
+        send("taken", &ids[1]);
+        transcript
+            .record_step("taken", timeline::TimelineStep::AgentPaused)
+            .unwrap();
+
+        restart(&store);
+
+        let finding = |id: &String| store.finding_by_id(id).unwrap().unwrap().status;
+        assert_eq!(finding(&ids[0]), findings::FindingStatus::Open);
+        assert!(store.findings_batch("held").unwrap().is_none());
+        assert_eq!(finding(&ids[1]), findings::FindingStatus::Sent);
+        assert!(store.findings_batch("taken").unwrap().is_some());
     }
 
     /// The order the app starts its listeners in is the bus's: a Lead whose branch review ends
