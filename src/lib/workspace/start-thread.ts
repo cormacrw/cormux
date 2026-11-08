@@ -30,7 +30,7 @@ export async function startThread(input: {
     name: '',
     branch: '',
     base: repos.defaultBranch(repoId),
-    engine: settings.defaultEngine,
+    engine: settings.values.defaultEngine,
     goal: prompt,
     model: input.model ?? null,
     effort: input.effort ?? null,

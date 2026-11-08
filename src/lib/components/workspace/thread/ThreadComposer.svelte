@@ -153,7 +153,7 @@
       skills,
       repos: repos.items,
       tasks: sprintTasks,
-      bangs: settings.bangs,
+      bangs: settings.values.bangs,
     }),
   )
   const pickerOptions = $derived.by(() => {

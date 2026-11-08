@@ -9,10 +9,10 @@ import { startThread } from '$lib/workspace/start-thread'
  * `extra` is what was typed after `!name` in the palette, added to the prompt.
  */
 export async function runBang(bangId: string, extra = '') {
-  const bang = settings.bangs.find((row) => row.id === bangId)
+  const bang = settings.values.bangs.find((row) => row.id === bangId)
   if (!bang) return
   await startThread({
-    repoId: resolveDefaultRepoId(repos.items, settings.defaultRepo),
+    repoId: resolveDefaultRepoId(repos.items, settings.values.defaultRepo),
     prompt: bangPromptWithExtra(bang.prompt, extra),
   })
 }

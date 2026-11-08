@@ -20,11 +20,11 @@ import { runBang } from './actions'
 export function buildPaletteCommands(): PaletteCommand[] {
   return buildPaletteCommandsFromState(
     {
-      reduceMotion: settings.reduceMotion,
+      reduceMotion: settings.values.reduceMotion,
       clickupConfigured: clickup.configured,
       workspaces: workspaces.liveItems,
       scratches: scratches.items,
-      bangs: settings.bangs,
+      bangs: settings.values.bangs,
       threads: threads.agents,
       repos: repos.items,
       pullRequests: prs.items,
@@ -40,7 +40,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       openSettings: () => openSettings(),
       openWorkspace: (id, threadId) => openWorkspace(id, { threadId }),
       toggleReduceMotion: () =>
-        updateSettings({ reduceMotion: !settings.reduceMotion }),
+        updateSettings({ reduceMotion: !settings.values.reduceMotion }),
       openSettingsSection: (section) => openSettings({ section }),
       openWorkspaceThread,
       openWorkspaceFindings,

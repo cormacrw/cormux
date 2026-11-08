@@ -58,7 +58,7 @@
 
   // Experimental: empty unless References is on in Settings.
   const threadEntities = $derived(
-    settings.experimentalReferences ? entities.forThread(thread.id) : [],
+    settings.values.experimentalReferences ? entities.forThread(thread.id) : [],
   )
 
   const AGENTS_SHOWN = 4

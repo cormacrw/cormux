@@ -52,7 +52,7 @@
       if (!items.some((row) => row.id === repoId)) {
         repoId = resolveDefaultRepoId(
           items,
-          readPref(LAST_REPO_KEY) || settings.defaultRepo,
+          readPref(LAST_REPO_KEY) || settings.values.defaultRepo,
         )
       }
     })

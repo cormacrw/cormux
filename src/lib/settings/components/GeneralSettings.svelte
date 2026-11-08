@@ -15,11 +15,11 @@
 
   let reloadingEnv = $state(false)
   // Follows the saved setting, and holds edits until they're committed.
-  let worktreeDraft = $derived(settings.worktreeRoot)
-  let terminalDraft = $derived(settings.terminalApp)
+  let worktreeDraft = $derived(settings.values.worktreeRoot)
+  let terminalDraft = $derived(settings.values.terminalApp)
 
   const defaultRepoId = $derived(
-    resolveDefaultRepoId(repos.items, settings.defaultRepo),
+    resolveDefaultRepoId(repos.items, settings.values.defaultRepo),
   )
   const defaultRepoName = $derived(
     repos.items.find((repo) => repo.id === defaultRepoId)?.name ?? '',
@@ -34,7 +34,7 @@
   }
 
   async function commitWorktreeRoot() {
-    if (worktreeDraft.trim() === settings.worktreeRoot.trim()) return
+    if (worktreeDraft.trim() === settings.values.worktreeRoot.trim()) return
     await updateSettings({ worktreeRoot: worktreeDraft })
   }
 </script>
@@ -89,7 +89,7 @@
           spellcheck={false}
           onchange={() => void commitWorktreeRoot()}
         />
-        {#if hasWorkspaces && worktreeDraft.trim() !== settings.worktreeRoot.trim()}
+        {#if hasWorkspaces && worktreeDraft.trim() !== settings.values.worktreeRoot.trim()}
           <Alert variant="destructive" class="py-2">
             <AlertDescription class="text-xs">
               Existing workspaces keep their current folders. Changing this only
@@ -114,7 +114,7 @@
         bind:value={terminalDraft}
         spellcheck={false}
         onchange={() => {
-          if (terminalDraft.trim() !== settings.terminalApp)
+          if (terminalDraft.trim() !== settings.values.terminalApp)
             void updateSettings({ terminalApp: terminalDraft })
         }}
       />
@@ -127,7 +127,7 @@
   >
     {#snippet control()}
       <Switch
-        checked={settings.reduceMotion}
+        checked={settings.values.reduceMotion}
         onCheckedChange={(next) => void updateSettings({ reduceMotion: next })}
         aria-label="Reduce motion"
       />

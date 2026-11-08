@@ -13,7 +13,7 @@
   >
     {#snippet control()}
       <Switch
-        checked={settings.notifyApprovals}
+        checked={settings.values.notifyApprovals}
         onCheckedChange={(next) =>
           void updateSettings({ notifyApprovals: next })}
         aria-label="Approval requests"
@@ -27,7 +27,7 @@
   >
     {#snippet control()}
       <Switch
-        checked={settings.notifyReviewFinished}
+        checked={settings.values.notifyReviewFinished}
         onCheckedChange={(next) =>
           void updateSettings({ notifyReviewFinished: next })}
         aria-label="Finished reviews"
