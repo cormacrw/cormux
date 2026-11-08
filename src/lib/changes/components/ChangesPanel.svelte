@@ -6,6 +6,7 @@
   import { afterPaint } from '$lib/changes/mount-queue'
   import { commands } from '$lib/ipc'
   import { coreErrorText } from '$lib/core/core-error'
+  import { startsOver } from '$lib/core/owner-scoped'
   import {
     commentBranch,
     diffComments,
@@ -19,7 +20,7 @@
   import { openWorkspaceThread } from '$lib/nav/open'
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import { formatChangeCounts } from '$lib/changes/diff-totals'
-  import { revealDiffLine } from '$lib/changes/reveal-line'
+  import { revealDiffLine, scrollWithin } from '$lib/changes/reveal-line'
   import { Button } from '$lib/components/ui/button'
   import * as ToggleGroup from '$lib/components/ui/toggle-group'
   import { diffTargetLabel } from '$lib/changes/stack'
@@ -106,18 +107,21 @@
   $effect(() => {
     const reveal = nav.route.view === 'workspace' ? nav.route.reveal : null
     const target = reveal && files.find((file) => file.path === reveal.path)
-    if (!reveal || !target) return
+    // Waits for the list to mount, which a first open of the panel holds back a frame.
+    const scroller = scrollEl
+    if (!reveal || !target || !scroller) return
     const { path, line } = reveal
     untrack(() => {
       nav.take('workspace', 'reveal')
       if (changesUi.isCollapsed(target)) changesUi.setCollapsed([target], false)
     })
     void tick().then(() => {
-      const fileEl = scrollEl?.querySelector(
+      const fileEl = scroller.querySelector(
         `[data-diff-path="${CSS.escape(path)}"]`,
       )
-      fileEl?.scrollIntoView({ block: 'start' })
-      if (fileEl && line != null) revealDiffLine(fileEl, line)
+      if (!fileEl) return
+      scrollWithin(scroller, fileEl, 'start')
+      if (line != null) revealDiffLine(scroller, fileEl, line)
     })
   })
 
@@ -138,7 +142,7 @@
     commentBranch(workspaceDiff.target(workspace.id), workspace.branch),
   )
   const comments = $derived(diffComments.forBranch(workspace.id, commentScope))
-  let sending = $state(false)
+  let sending = $derived(startsOver(workspaceId, false))
   // The agent works on the checked-out branch, so comments on another level wait until it's checked out.
   const offBranch = $derived(
     commentScope !== null && commentScope !== workspace.branch,
@@ -146,16 +150,18 @@
 
   async function sendComments() {
     if (!comments.length || sending || offBranch) return
+    const id = workspaceId
+    const threadId = thread.id
     sending = true
     const sent = comments
-    diffComments.clear(workspace.id, commentScope)
-    if (await sendToThread(thread.id, formatCommentsForAgent(sent))) {
-      // Show the conversation so the agent's reply is in view.
-      openWorkspaceThread(workspace.id, thread.id)
+    diffComments.clear(id, commentScope)
+    if (await sendToThread(threadId, formatCommentsForAgent(sent))) {
+      // Show the conversation so the agent's reply is in view, unless you've moved on.
+      if (id === workspaceId) openWorkspaceThread(id, threadId)
     } else {
-      for (const comment of sent) diffComments.add(workspace.id, comment)
+      for (const comment of sent) diffComments.add(id, comment)
     }
-    sending = false
+    if (id === workspaceId) sending = false
   }
 </script>
 

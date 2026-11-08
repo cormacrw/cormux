@@ -2,12 +2,17 @@
   import { switchConversation } from '$lib/thread/actions'
   import { plural, pluralWord } from '$lib/format/plural'
   import { onDestroy } from 'svelte'
+  import { startsOver } from '$lib/core/owner-scoped'
   import { Button } from '$lib/components/ui/button'
   import { entities, prs, workspaceUi } from '$lib/state'
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
-  import { openWorkspace, revealFileInWorkspace } from '$lib/nav/open'
+  import {
+    openWorkspace,
+    openWorkspaceFindings,
+    revealFileInWorkspace,
+  } from '$lib/nav/open'
   import { wordmark } from '$lib/background/wordmark.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
@@ -49,6 +54,10 @@
     findPr: (repoFullName, num) => prs.find(repoFullName, num),
     revealFile: (path, line = null) =>
       revealFileInWorkspace(workspace.id, threadId, path, line),
+    get workspaceId() {
+      return workspace.id
+    },
+    openFindings: () => openWorkspaceFindings(workspace.id, threadId),
   }
   const view = $derived(threadTimeline.threadView(threadId))
   const live = $derived(view.live)
@@ -69,7 +78,7 @@
 
   // The greeting offers the earlier conversations the core lists. A resumed conversation can
   // start further back than what's loaded, so it reads back to where it starts.
-  let earlier: ConversationSummary[] = $state([])
+  let earlier = $derived<ConversationSummary[]>(startsOver(threadId, []))
   $effect(() => {
     if (!showHero) return
     // Read again for each conversation the greeting stands in for.
@@ -267,9 +276,8 @@
 
   /* Short of a gutter that fits it, the conversation and prompt bar move over to make room. */
   @container thread (min-width: 900px) and (max-width: 1319px) {
-    [data-references='true'] :global(#thread-scroll),
-    [data-references='true'] :global(.composer-wrap) {
-      padding-right: 280px;
+    [data-references='true'] > :global(*) {
+      --references-gutter: 280px;
     }
   }
 

@@ -4,6 +4,7 @@ import type {
   ApprovalRow,
   ConversationSummary,
   StreamedEvent,
+  TranscriptEvent,
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc/bindings'
 import type { CoreError } from '$lib/ipc'
@@ -174,6 +175,25 @@ class ThreadTimelineStore {
     const older = { ...this.olderByThread }
     delete older[threadId]
     this.olderByThread = older
+    this.clearCurrentTool(threadId)
+    if (threadId in this.historyGeneration) {
+      const generations = { ...this.historyGeneration }
+      delete generations[threadId]
+      this.historyGeneration = generations
+    }
+  }
+
+  private clearCurrentTool(threadId: string) {
+    if (!(threadId in this.currentToolByThread)) return
+    const next = { ...this.currentToolByThread }
+    delete next[threadId]
+    this.currentToolByThread = next
+  }
+
+  /** A turn that ended while the thread was off screen arrives by a read, not the stream. */
+  private readEvents(threadId: string, events: TimedEvent[]) {
+    if (events.some(({ event }) => endsTurn(event)))
+      this.clearCurrentTool(threadId)
   }
 
   /** Brings the thread up to the store's latest. */
@@ -213,6 +233,7 @@ class ThreadTimelineStore {
       return
     }
     const page = result.data
+    this.readEvents(threadId, page.events)
     history.newestSeq = page.newestSeq ?? 0
     history.oldestSeq = page.oldestSeq ?? 0
     this.eventsByThread = {
@@ -244,6 +265,7 @@ class ThreadTimelineStore {
       if (!result.data.hasNewer) break
     }
     history.newestSeq = newest
+    this.readEvents(threadId, fetched)
     const shown = this.eventsByThread[threadId] ?? []
     const merged = mergeSaved(shown, fetched)
     if (merged !== shown) {
@@ -403,7 +425,7 @@ class ThreadTimelineStore {
       if (event.type === 'currentTool' || event.type === 'toolCallUpdate') {
         liveTool = event.title ?? liveTool
       }
-      if (event.type === 'turnEnd' || event.type === 'engineExited') {
+      if (endsTurn(event)) {
         ended = true
         liveTool = null
       }
@@ -414,12 +436,12 @@ class ThreadTimelineStore {
         [threadId]: liveTool,
       }
     }
-    if (ended && !liveTool) {
-      const next = { ...this.currentToolByThread }
-      delete next[threadId]
-      this.currentToolByThread = next
-    }
+    if (ended && !liveTool) this.clearCurrentTool(threadId)
   }
+}
+
+function endsTurn(event: TranscriptEvent) {
+  return event.type === 'turnEnd' || event.type === 'engineExited'
 }
 
 function isUserMessage({ event }: StreamedEvent) {

@@ -25,7 +25,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       workspaces: workspaces.liveItems,
       scratches: scratches.items,
       bangs: settings.values.bangs,
-      threads: threads.agents,
+      threads: threads.items,
       repos: repos.items,
       pullRequests: prs.items,
       appControlsFor: appControls,

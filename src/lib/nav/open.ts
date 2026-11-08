@@ -47,9 +47,3 @@ export function revealFileInWorkspace(
     reveal: { path, line },
   })
 }
-
-/** The same, in the workspace that's open. */
-export function revealInChanges(path: string, line: number | null = null) {
-  if (nav.workspaceId)
-    revealFileInWorkspace(nav.workspaceId, nav.threadId, path, line)
-}

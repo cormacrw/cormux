@@ -29,6 +29,8 @@ export type HarnessScenario = {
   slow?: Partial<Record<WireCommand, number>>
   /** Commands that answer with a core error carrying this message, for a test of the failure. */
   failing?: Partial<Record<WireCommand, string>>
+  /** Branch diffs take this many milliseconds to compute, so a quick switch back overtakes one. */
+  slowBranchDiff?: number
   /** URL `?bigDiff=N`: N long TypeScript files, to see how Changes copes with a big diff. */
   bigDiff?: number
   /**
@@ -62,6 +64,10 @@ export type HarnessScenario = {
   /** The workspace whose teardown preview reports nothing to lose. */
   cleanTeardown?: string
   fullscreen?: boolean
+  /** Another Lead workspace, "Billing fix" (`ws-billing`), for anything across workspaces. */
+  secondWorkspace?: boolean
+  /** An older Reviewer thread in the fixture workspace, retired behind the Lead. */
+  retiredThread?: boolean
 }
 
 /** `window.__HARNESS__`: what tests read back from a running session, and how they drive it. */

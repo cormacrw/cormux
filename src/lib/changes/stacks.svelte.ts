@@ -1,5 +1,6 @@
 import { commands, type CoreError } from '$lib/ipc'
 import type { StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
+import { latestRequests } from '$lib/core/owner-scoped'
 
 class StacksStore {
   byWorkspace = $state<Record<string, WorkspaceStack>>({})
@@ -15,9 +16,14 @@ class StacksStore {
     )
   }
 
+  private readonly loads = latestRequests()
+
+  /** Reads the stack again; a reply that a newer read overtook is dropped. */
   async load(workspaceId: string): Promise<CoreError | null> {
+    const isLatest = this.loads(workspaceId)
     this.loading[workspaceId] = true
     const result = await commands.getWorkspaceStack(workspaceId)
+    if (!isLatest()) return null
     this.loading[workspaceId] = false
     if (result.status === 'error') return result.error
     this.byWorkspace[workspaceId] = result.data

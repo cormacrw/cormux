@@ -7,6 +7,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { commands } from '$lib/ipc'
+  import { latestRequests, startsOver } from '$lib/core/owner-scoped'
   import type { ModelOption, ThreadModels } from '$lib/ipc/bindings'
   import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
@@ -23,6 +24,7 @@
       shortcut: 'pickModel' as const,
       title: `Model for this thread (${shortcutLabel('pickModel')})`,
       failure: 'Could not change the model',
+      readFailure: 'Could not read the models',
       listEngine: commands.engineModels,
       listThread: commands.threadModels,
       setThread: commands.setThreadModel,
@@ -32,6 +34,7 @@
       shortcut: 'pickEffort' as const,
       title: `Effort for this thread (${shortcutLabel('pickEffort')})`,
       failure: 'Could not change the effort',
+      readFailure: 'Could not read the effort levels',
       listEngine: commands.engineEfforts,
       listThread: commands.threadEfforts,
       setThread: commands.setThreadEffort,
@@ -54,7 +57,8 @@
 
   const config = $derived(KINDS[kind])
 
-  let models = $state<ThreadModels | null>(null)
+  let models = $derived<ThreadModels | null>(startsOver(threadId, null))
+  const loads = latestRequests<string | null>()
   let open = $state(false)
   let trigger = $state<HTMLElement | null>(null)
   let content = $state<HTMLElement | null>(null)
@@ -97,15 +101,21 @@
   })
 
   async function load(forThread: string | null) {
-    if (forThread === null) {
-      const listed = await config.listEngine()
-      if (listed.status === 'ok') {
-        models = { current: draftValue, options: listed.data }
-      }
-      return
-    }
-    const result = await config.listThread(forThread)
-    if (result.status === 'ok' && forThread === threadId) models = result.data
+    const isLatest = loads(forThread)
+    const result =
+      forThread === null
+        ? await config.listEngine().then((listed) =>
+            listed.status === 'ok'
+              ? {
+                  status: 'ok' as const,
+                  data: { current: draftValue, options: listed.data },
+                }
+              : listed,
+          )
+        : await config.listThread(forThread)
+    if (!isLatest() || forThread !== threadId) return
+    if (result.status === 'ok') models = result.data
+    else toastCoreError(result.error, config.readFailure)
   }
 
   async function pick(value: string) {
@@ -114,6 +124,8 @@
     const previous = models.current
     const next = value === DEFAULT ? null : value
     if (next === previous) return
+    // A read already under way predates the pick.
+    void loads(forThread)
     models = { ...models, current: next }
     if (forThread === null) {
       draftValue = next

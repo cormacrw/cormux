@@ -13,6 +13,16 @@
   } from '$lib/primitives/slide-out'
   import { onEscape } from '$lib/keyboard/escape'
 
+  let {
+    focusTask,
+    isTaskCard,
+  }: {
+    /** Back to the task's card on the board. */
+    focusTask: (taskId: string) => void
+    /** Whether a click landed on a task card, which opens that task rather than closing this. */
+    isTaskCard: (target: Element) => boolean
+  } = $props()
+
   const WIDTH_KEY = 'cormux-task-flyout-width'
 
   let width = $state(readPaneWidth(WIDTH_KEY, 340, 440))
@@ -24,7 +34,7 @@
     const id = clickup.selectedTaskId
     clickup.select(null)
     if (!id) return
-    document.querySelector<HTMLElement>(`[data-task-id="${id}"]`)?.focus()
+    focusTask(id)
   }
 
   $effect(() =>
@@ -46,8 +56,9 @@
     const target = event.target
     if (!(target instanceof Element) || flyoutEl?.contains(target)) return
     if (
+      isTaskCard(target) ||
       target.closest(
-        `[data-task-id], ${overlaySelector()}, [data-bits-floating-content-wrapper]`,
+        `${overlaySelector()}, [data-bits-floating-content-wrapper]`,
       )
     )
       return
@@ -70,7 +81,7 @@
     title="Drag to resize"
     data-od-id="task-flyout-resize"
     use:resizeEdge={{
-      bounds: () => flyoutEl?.closest('.main-area')?.getBoundingClientRect(),
+      bounds: () => flyoutEl?.offsetParent?.getBoundingClientRect(),
       min: 340,
       reserve: 332,
       onResize: (next) => (width = next),

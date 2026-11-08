@@ -26,6 +26,8 @@
     diffFile: () => undefined,
     findPr: (repoFullName, num) => prs.find(repoFullName, num),
     revealFile: undefined,
+    workspaceId: undefined,
+    openFindings: undefined,
   }
 
   $effect(() => {

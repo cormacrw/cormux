@@ -5,6 +5,7 @@
   import CircleDashed from '@lucide/svelte/icons/circle-dashed'
   import Flag from '@lucide/svelte/icons/flag'
   import TaskActions from './TaskActions.svelte'
+  import type { Action } from 'svelte/action'
 
   let {
     task,
@@ -13,6 +14,7 @@
     ghost = false,
     onSelect,
     onPointerDown,
+    track,
   }: {
     task: ClickupTask
     selected?: boolean
@@ -22,7 +24,12 @@
     ghost?: boolean
     onSelect?: () => void
     onPointerDown?: (event: PointerEvent) => void
+    /** Put on the card's button with the task's id, for the board to reach it. */
+    track?: Action<HTMLElement, string>
   } = $props()
+
+  const trackButton: Action<HTMLElement, string> = (node, id) =>
+    track?.(node, id)
 
   const unpointed = $derived(task.points == null)
   const ref = $derived(taskRef(task))
@@ -60,6 +67,7 @@
         ? 'no sprint points'
         : `${formatPoints(task.points!)} points`}"
       data-task-id={task.id}
+      use:trackButton={task.id}
       onclick={onSelect}
     ></button>
     <TaskActions

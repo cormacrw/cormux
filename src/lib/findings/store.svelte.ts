@@ -5,6 +5,7 @@ import { commands, type CoreError } from '$lib/ipc'
 import {
   applyQuickSelect,
   defaultSelectedIds,
+  prunePicks,
   type QuickSelectMode,
   setGroupSelection,
   toggleFinding,
@@ -38,6 +39,7 @@ export class FindingsStore {
   })
 
   hydrate(items: FindingRow[]) {
+    this.picked = prunePicks(this.picked, this.items, items)
     this.items = reuseRows(this.items, items)
   }
 

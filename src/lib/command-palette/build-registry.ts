@@ -35,6 +35,7 @@ type PaletteRegistryState = {
   workspaces: Workspace[]
   scratches: Scratch[]
   bangs: Bang[]
+  /** Retired threads too: the palette is one of the two ways back into them. */
   threads: Thread[]
   repos: RepoRecord[]
   pullRequests: PullRequest[]
@@ -124,7 +125,10 @@ export function buildPaletteCommandsFromState(
       id: `ws-open-${workspace.id}`,
       group: 'Workspaces',
       label: `Open ${workspace.name}`,
-      meta: workspaceCardMetaText(workspace, wsThreads),
+      meta: workspaceCardMetaText(
+        workspace,
+        wsThreads.filter((thread) => !thread.retired),
+      ),
       icon: 'workspace',
       run: () => actions.openWorkspace(workspace.id),
     })

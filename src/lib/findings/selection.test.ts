@@ -4,6 +4,7 @@ import {
   applyQuickSelect,
   defaultSelectedIds,
   groupCheckboxState,
+  prunePicks,
   rowCheckboxState,
   selectedSummary,
   setGroupSelection,
@@ -73,5 +74,33 @@ describe('findings selection', () => {
   it('summarises selected blocking count', () => {
     const selected = new Set(['b1', 's1'])
     expect(selectedSummary(rows, selected)).toEqual({ total: 2, blocking: 1 })
+  })
+})
+
+describe('prunePicks', () => {
+  const blocking = row({ id: 'f1', severity: 'blocking', status: 'open' })
+  const nit = row({ id: 'f2', severity: 'nit', status: 'open' })
+
+  it('goes back to the default once a new review replaces the findings', () => {
+    const next = prunePicks(
+      { w1: new Set() },
+      [blocking, nit],
+      [row({ id: 'f3', severity: 'blocking', status: 'open' })],
+    )
+    expect(next).toEqual({})
+  })
+
+  it('drops picks of findings that are gone and keeps the rest', () => {
+    const next = prunePicks(
+      { w1: new Set(['f1', 'f2']) },
+      [blocking, nit],
+      [nit],
+    )
+    expect(next).toEqual({ w1: new Set(['f2']) })
+  })
+
+  it('keeps an empty pick while its findings remain, as the same object', () => {
+    const picked = { w1: new Set<string>() }
+    expect(prunePicks(picked, [blocking], [blocking])).toBe(picked)
   })
 })

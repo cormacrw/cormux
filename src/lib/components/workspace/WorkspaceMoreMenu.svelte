@@ -44,11 +44,9 @@
   }
 
   $effect(() => {
-    if (open) {
-      claimWorkspacePopover(popoverHandle)
-    } else {
-      releaseWorkspacePopover(popoverHandle)
-    }
+    if (!open) return
+    claimWorkspacePopover(popoverHandle)
+    return () => releaseWorkspacePopover(popoverHandle)
   })
 
   function closeAndRun(action: () => void) {

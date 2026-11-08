@@ -8,7 +8,7 @@
   import { Checkbox } from '$lib/components/ui/checkbox'
   import { threads, workspaceUi, workspaces } from '$lib/state'
   import { findings } from '$lib/findings/store.svelte'
-  import { openWorkspaceThread, revealInChanges } from '$lib/nav/open'
+  import { openWorkspaceThread, revealFileInWorkspace } from '$lib/nav/open'
   import { engineDisplayName } from '$lib/engine/engines'
   import { selectionSummaryText } from '$lib/findings/format'
   import {
@@ -24,18 +24,22 @@
   import type { FindingRow } from '$lib/ipc/bindings'
   import { cn } from '$lib/utils'
   import { coreErrorText } from '$lib/core/core-error'
+  import { startsOver } from '$lib/core/owner-scoped'
 
   let {
     workspaceId,
+    threadId,
     headingRef = $bindable(),
   }: {
     workspaceId: string
+    /** The thread shown under the panel, which a finding's file opens beside. */
+    threadId: string
     headingRef?: HTMLHeadingElement | undefined
   } = $props()
 
   let bodyEl: HTMLDivElement | undefined = $state()
-  let sending = $state(false)
-  let sendError = $state<string | null>(null)
+  let sending = $derived(startsOver(workspaceId, false))
+  let sendError = $derived<string | null>(startsOver(workspaceId, null))
 
   const workspace = $derived(workspaces.getById(workspaceId))
   const rows = $derived(findings.forWorkspace(workspaceId))
@@ -64,13 +68,15 @@
 
   function openLocation(row: FindingRow) {
     if (!row.file) return
-    revealInChanges(row.file, row.line)
+    revealFileInWorkspace(workspaceId, threadId, row.file, row.line)
   }
 
   async function setDismissed(ids: string[], dismissed: boolean) {
+    const id = workspaceId
     sendError = null
-    const error = await findings.setDismissed(workspaceId, ids, dismissed)
-    if (error) sendError = coreErrorText(error, 'Could not update the findings')
+    const error = await findings.setDismissed(id, ids, dismissed)
+    if (error && id === workspaceId)
+      sendError = coreErrorText(error, 'Could not update the findings')
   }
 
   const dismissedCount = $derived(
@@ -79,9 +85,11 @@
 
   async function sendFindings() {
     if (!liveThread || sending) return
+    const id = workspaceId
     sending = true
     sendError = null
-    const error = await findings.sendSelected(workspaceId)
+    const error = await findings.sendSelected(id)
+    if (id !== workspaceId) return
     sending = false
     if (error) sendError = coreErrorText(error, 'Could not send findings')
   }
@@ -96,6 +104,12 @@
     if (bodyEl) bodyEl.scrollTop = 0
   })
 </script>
+
+{#snippet failure()}
+  {#if sendError}
+    <p class="text-xs text-destructive">{sendError}</p>
+  {/if}
+{/snippet}
 
 <div
   id="findings-panel"
@@ -364,6 +378,7 @@
             No findings to send.
           {/if}
         </p>
+        {@render failure()}
         {#if rows.length && dismissedCount < rows.length && liveThread}
           <span class="grow"></span>
           <Button variant="secondary" onclick={goToTargetThread}>
@@ -376,9 +391,7 @@
           {barSummary}
         </p>
         <span class="grow"></span>
-        {#if sendError}
-          <p class="text-xs text-destructive">{sendError}</p>
-        {/if}
+        {@render failure()}
         <Button
           variant="outline"
           data-od-id="findings-dismiss-selected"

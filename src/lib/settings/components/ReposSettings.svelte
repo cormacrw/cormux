@@ -59,8 +59,8 @@
   function revealRepo(repoId: string, field?: RepoField) {
     setExpanded(repoId, true)
     if (!field) return
-    void tick().then(async () => {
-      await scrollRepoIntoView(repoId)
+    void tick().then(() => {
+      scrollRepoIntoView(repoId)
       const id = field === 'setup' ? `setup-${repoId}` : `run-${repoId}`
       document.getElementById(id)?.focus()
     })
@@ -77,7 +77,7 @@
     })
   })
 
-  async function scrollRepoIntoView(repoId: string) {
+  function scrollRepoIntoView(repoId: string) {
     const key = repoDomKey(repoId)
     const el = document.querySelector(`[data-od-id="settings-repo-${key}"]`)
     el?.scrollIntoView({

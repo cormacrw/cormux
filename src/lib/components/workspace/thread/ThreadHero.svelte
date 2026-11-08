@@ -14,6 +14,10 @@
   import { heroLine } from '$lib/thread/conversations'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import History from '@lucide/svelte/icons/history'
+  import {
+    conversationPart,
+    greetingPart,
+  } from '$lib/thread/conversation-motion'
 
   let {
     greeting,
@@ -32,6 +36,7 @@
   } = $props()
 
   const line = $derived(heroLine(greeting))
+  const part = conversationPart()
 
   let resuming = $state(false)
 
@@ -58,7 +63,8 @@
 </script>
 
 <div
-  data-conversation-part
+  use:part
+  use:greetingPart
   class="thread-hero mt-auto -mb-2 flex w-[min(var(--thread-column),calc(100cqw-8px))] flex-col gap-5 self-center pt-10 pb-10"
   data-od-id="thread-hero"
 >
@@ -136,6 +142,11 @@
 </div>
 
 <style>
+  /* Sending the first prompt: it falls out of view (the transition is in app.css). */
+  .thread-hero {
+    view-transition-name: thread-hero;
+  }
+
   .thread-hero h2,
   .hero-who,
   .thread-hero section {

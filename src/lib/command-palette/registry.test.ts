@@ -6,6 +6,22 @@ import { appControlsFor } from '$lib/run-app/controls'
 import { buildPaletteCommandsFromState } from './build-registry'
 
 const noop = () => {}
+const actions = {
+  openNewThread: noop,
+  openScratch: noop,
+  runBang: noop,
+  openRepo: noop,
+  reviewPullRequest: noop,
+  openSprint: noop,
+  openSettings: noop,
+  openWorkspace: noop,
+  toggleReduceMotion: noop,
+  openSettingsSection: noop,
+  openWorkspaceThread: noop,
+  openWorkspaceFindings: noop,
+  controlApp: noop,
+  pullWorkspace: noop,
+}
 
 describe('buildPaletteCommandsFromState', () => {
   it('includes core action and workspace commands', () => {
@@ -53,22 +69,7 @@ describe('buildPaletteCommandsFromState', () => {
             runCommand: 'pnpm dev',
           }),
       },
-      {
-        openNewThread: noop,
-        openScratch: noop,
-        runBang: noop,
-        openRepo: noop,
-        reviewPullRequest: noop,
-        openSprint: noop,
-        openSettings: noop,
-        openWorkspace: noop,
-        toggleReduceMotion: noop,
-        openSettingsSection: noop,
-        openWorkspaceThread: noop,
-        openWorkspaceFindings: noop,
-        controlApp: noop,
-        pullWorkspace: noop,
-      },
+      actions,
     ).map((c) => c.label)
 
     expect(labels).toContain('New thread')
@@ -83,5 +84,33 @@ describe('buildPaletteCommandsFromState', () => {
     expect(labels).toContain('Run app in Auth')
     expect(labels).toContain('Pull 2 commits from main into Auth')
     expect(labels).toContain('Open Findings in Auth')
+  })
+
+  it("offers a workspace's retired threads, not its live one", () => {
+    const labels = buildPaletteCommandsFromState(
+      {
+        reduceMotion: false,
+        clickupConfigured: false,
+        workspaces: [workspaceFixture()],
+        scratches: [],
+        bangs: [],
+        threads: [
+          threadFixture({ id: 'th-old', role: 'Reviewer', retired: true }),
+          threadFixture(),
+        ],
+        repos: [],
+        pullRequests: [],
+        appControlsFor: () =>
+          appControlsFor({
+            appStatus: 'stopped',
+            lifecycle: 'idle',
+            runCommand: '',
+          }),
+      },
+      actions,
+    ).map((c) => c.label)
+
+    expect(labels).toContain('Open Reviewer in Auth')
+    expect(labels).not.toContain('Open Lead in Auth')
   })
 })

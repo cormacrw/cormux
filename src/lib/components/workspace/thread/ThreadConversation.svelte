@@ -26,7 +26,10 @@
   import type { ClassValue } from 'svelte/elements'
   import { createVirtualizer } from '@tanstack/svelte-virtual'
   import { Button } from '$lib/components/ui/button'
-  import { enterConversation } from '$lib/thread/conversation-motion'
+  import {
+    enterConversation,
+    provideConversation,
+  } from '$lib/thread/conversation-motion'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { newestAgentAnnouncement } from '$lib/thread/announce'
   import { createEntryScope } from '$lib/thread/entering'
@@ -71,6 +74,8 @@
     /** Beside the scrolling conversation. */
     aside?: Snippet
   } = $props()
+
+  const part = provideConversation()
 
   const view = $derived(threadTimeline.threadView(threadId))
   const conversationId = $derived(view.conversation.id)
@@ -201,6 +206,12 @@
     findPr: (repoFullName, num) => source.findPr(repoFullName, num),
     get revealFile() {
       return source.revealFile
+    },
+    get workspaceId() {
+      return source.workspaceId
+    },
+    get openFindings() {
+      return source.openFindings
     },
     get scratch() {
       return scratch
@@ -428,6 +439,7 @@
     id="thread-scroll"
     bind:this={scrollEl}
     class="@container min-h-0 flex-1 overflow-y-auto"
+    style:padding-right="var(--references-gutter, 0)"
     data-od-id={odId}
   >
     <div
@@ -443,7 +455,7 @@
       {:else if showHero}
         {@render hero?.(nowMs)}
       {:else if intro}
-        <div data-conversation-part>
+        <div use:part>
           {@render intro(nowMs)}
         </div>
       {/if}
@@ -466,7 +478,7 @@
         class={['space-y-2', intro && 'mt-4', showHero && 'hidden']}
         aria-label="Conversation"
         id="timeline"
-        data-conversation-part
+        use:part
       >
         {#if useVirtual}
           <div
