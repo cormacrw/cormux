@@ -3,7 +3,9 @@
   import { Button } from '$lib/components/ui/button'
   import {
     app,
+    entities,
     findings,
+    settings,
     threadTimeline,
     threads,
     workspaceUi,
@@ -30,6 +32,7 @@
   import ThreadFind from './ThreadFind.svelte'
   import ThreadHero from './ThreadHero.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
+  import ThreadReferences from './ThreadReferences.svelte'
   import TimelineMessages from './TimelineMessages.svelte'
 
   let {
@@ -59,6 +62,10 @@
   let focusComposer = $state<(() => void) | null>(null)
 
   const workspaceFindings = $derived(findings.forWorkspace(workspace.id))
+  // Experimental: empty unless References is on in Settings.
+  const threadEntities = $derived(
+    settings.experimentalReferences ? entities.forThread(thread.id) : [],
+  )
 
   const items = $derived(
     threadTimeline.itemsForThread(
@@ -369,6 +376,7 @@
   id="thread-panel"
   data-od-id="thread-panel"
   class="relative flex min-h-0 flex-1 flex-col"
+  data-references={threadEntities.length > 0}
 >
   <ThreadFind
     {rows}
@@ -380,115 +388,123 @@
       pinnedToBottom = false
     }}
   />
-  <div
-    id="thread-scroll"
-    bind:this={scrollEl}
-    class="@container min-h-0 flex-1 overflow-y-auto"
-  >
+  <div class="relative flex min-h-0 flex-1 flex-col">
+    {#if threadEntities.length}
+      <!-- Docks in the gutter beside the conversation, above the prompt bar. -->
+      <div class="references-dock">
+        <ThreadReferences entities={threadEntities} />
+      </div>
+    {/if}
     <div
-      bind:this={contentEl}
-      class={[
-        'mx-auto w-full max-w-[760px] px-4 pt-3 select-text',
-        // The greeting sits at the bottom, its box reaching down to the prompt
-        // bar so it can fall away behind it (see ThreadHero).
-        showHero
-          ? 'flex min-h-full flex-col overflow-clip'
-          : live
-            ? 'pb-14'
-            : 'pb-4',
-      ]}
-      style:padding-bottom={live && !showHero && liveStatusHeight
-        ? `calc(${liveStatusHeight}px + 1.75rem)`
-        : undefined}
+      id="thread-scroll"
+      bind:this={scrollEl}
+      class="@container min-h-0 flex-1 overflow-y-auto"
     >
-      {#if !loaded}
-        <!-- Reads in a moment; a greeting here would flash before the conversation. -->
-      {:else if showHero}
-        <ThreadHero
-          {thread}
-          {workspace}
-          {conversationId}
-          earlier={conversations.earlier}
-          {nowMs}
-        />
-      {:else}
-        <div data-conversation-part>
-          <ThreadIntro {thread} {workspace} {nowMs} />
-        </div>
-      {/if}
-
-      {#if hasOlder && !showHero}
-        <div class="mt-3 flex justify-center">
-          <Button
-            variant="ghost"
-            size="sm"
-            data-od-id="thread-show-earlier"
-            disabled={loadingOlder}
-            onclick={showEarlier}
-          >
-            Show earlier messages
-          </Button>
-        </div>
-      {/if}
-
-      <ol
-        class={['mt-4 space-y-2', showHero && 'hidden']}
-        aria-label="Conversation"
-        id="timeline"
-        data-conversation-part
+      <div
+        bind:this={contentEl}
+        class={[
+          'mx-auto w-full max-w-[760px] px-4 pt-3 select-text',
+          // The greeting sits at the bottom, its box reaching down to the prompt
+          // bar so it can fall away behind it (see ThreadHero).
+          showHero
+            ? 'flex min-h-full flex-col overflow-clip'
+            : live
+              ? 'pb-14'
+              : 'pb-4',
+        ]}
+        style:padding-bottom={live && !showHero && liveStatusHeight
+          ? `calc(${liveStatusHeight}px + 1.75rem)`
+          : undefined}
       >
-        {#if useVirtual}
-          <div
-            style={`height: ${$virtualizer.getTotalSize()}px; position: relative;`}
-          >
-            {#each $virtualizer.getVirtualItems() as virtualRow (virtualRow.key)}
-              {@const row = rows[virtualRow.index]}
-              <div
-                data-index={virtualRow.index}
-                use:measureRow
-                class="pb-2"
-                style={`position: absolute; top: 0; left: 0; width: 100%; transform: translateY(${virtualRow.start}px);`}
-              >
-                {#if row}
-                  <TimelineMessages
-                    rows={[row]}
-                    engine={engineDisplayName(thread.engine)}
-                    workspaceId={workspace.id}
-                    findings={workspaceFindings}
-                    {nowMs}
-                    liveTitle={liveRowTitle}
-                    liveSubtitle={liveRowSubtitle}
-                    paused={thread.paused}
-                    {entries}
-                    liveReplyId={typingReplyId}
-                    {activeThoughtId}
-                    {activeRunId}
-                    onOpenFindings={openFindingsTab}
-                    onFocusComposer={() => focusComposer?.()}
-                  />
-                {/if}
-              </div>
-            {/each}
-          </div>
-        {:else}
-          <TimelineMessages
-            {rows}
-            engine={engineDisplayName(thread.engine)}
-            workspaceId={workspace.id}
-            findings={workspaceFindings}
+        {#if !loaded}
+          <!-- Reads in a moment; a greeting here would flash before the conversation. -->
+        {:else if showHero}
+          <ThreadHero
+            {thread}
+            {workspace}
+            {conversationId}
+            earlier={conversations.earlier}
             {nowMs}
-            liveTitle={liveRowTitle}
-            liveSubtitle={liveRowSubtitle}
-            paused={thread.paused}
-            {entries}
-            liveReplyId={typingReplyId}
-            {activeThoughtId}
-            {activeRunId}
-            onOpenFindings={openFindingsTab}
-            onFocusComposer={() => focusComposer?.()}
           />
+        {:else}
+          <div data-conversation-part>
+            <ThreadIntro {thread} {workspace} {nowMs} />
+          </div>
         {/if}
-      </ol>
+
+        {#if hasOlder && !showHero}
+          <div class="mt-3 flex justify-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              data-od-id="thread-show-earlier"
+              disabled={loadingOlder}
+              onclick={showEarlier}
+            >
+              Show earlier messages
+            </Button>
+          </div>
+        {/if}
+
+        <ol
+          class={['mt-4 space-y-2', showHero && 'hidden']}
+          aria-label="Conversation"
+          id="timeline"
+          data-conversation-part
+        >
+          {#if useVirtual}
+            <div
+              style={`height: ${$virtualizer.getTotalSize()}px; position: relative;`}
+            >
+              {#each $virtualizer.getVirtualItems() as virtualRow (virtualRow.key)}
+                {@const row = rows[virtualRow.index]}
+                <div
+                  data-index={virtualRow.index}
+                  use:measureRow
+                  class="pb-2"
+                  style={`position: absolute; top: 0; left: 0; width: 100%; transform: translateY(${virtualRow.start}px);`}
+                >
+                  {#if row}
+                    <TimelineMessages
+                      rows={[row]}
+                      engine={engineDisplayName(thread.engine)}
+                      workspaceId={workspace.id}
+                      findings={workspaceFindings}
+                      {nowMs}
+                      liveTitle={liveRowTitle}
+                      liveSubtitle={liveRowSubtitle}
+                      paused={thread.paused}
+                      {entries}
+                      liveReplyId={typingReplyId}
+                      {activeThoughtId}
+                      {activeRunId}
+                      onOpenFindings={openFindingsTab}
+                      onFocusComposer={() => focusComposer?.()}
+                    />
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <TimelineMessages
+              {rows}
+              engine={engineDisplayName(thread.engine)}
+              workspaceId={workspace.id}
+              findings={workspaceFindings}
+              {nowMs}
+              liveTitle={liveRowTitle}
+              liveSubtitle={liveRowSubtitle}
+              paused={thread.paused}
+              {entries}
+              liveReplyId={typingReplyId}
+              {activeThoughtId}
+              {activeRunId}
+              onOpenFindings={openFindingsTab}
+              onFocusComposer={() => focusComposer?.()}
+            />
+          {/if}
+        </ol>
+      </div>
     </div>
   </div>
 
@@ -601,6 +617,41 @@
 </div>
 
 <style>
+  #thread-panel {
+    container: thread / inline-size;
+  }
+
+  /* Hidden until the pane is wide enough to hold it beside a readable conversation. */
+  .references-dock {
+    display: none;
+    position: absolute;
+    top: 0.75rem;
+    right: 1.25rem;
+    bottom: 0.75rem;
+    z-index: 5;
+    width: 248px;
+    flex-direction: column;
+    pointer-events: none;
+  }
+
+  .references-dock > :global(*) {
+    pointer-events: auto;
+  }
+
+  @container thread (min-width: 900px) {
+    .references-dock {
+      display: flex;
+    }
+  }
+
+  /* Short of a gutter that fits it, the conversation and prompt bar move over to make room. */
+  @container thread (min-width: 900px) and (max-width: 1319px) {
+    [data-references='true'] :global(#thread-scroll),
+    [data-references='true'] :global(.composer-wrap) {
+      padding-right: 280px;
+    }
+  }
+
   /* Floats in a beat after a send, once a first prompt's greeting has fallen away. */
   .live-status {
     animation: live-status-in var(--dur-med) var(--ease-out-snappy) 400ms

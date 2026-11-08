@@ -126,6 +126,7 @@ export function seedFixtures(scenario: HarnessScenario) {
   }
   if (scenario.runCommand) persisted.repos[0]!.runCommand = scenario.runCommand
   if (scenario.leadUsage) seedLeadUsage(scenario.leadUsage)
+  if (scenario.entities) persisted.entities = scenario.entities
   if (scenario.pullRequests) {
     persisted.pullRequests = scenario.pullRequests
     fixtureSnapshot.githubAuthConfigured = true

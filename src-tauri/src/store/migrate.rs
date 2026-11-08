@@ -114,6 +114,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "021_thread_effort",
         sql: include_str!("../../migrations/021_thread_effort.sql"),
     },
+    Migration {
+        version: 22,
+        name: "022_thread_entities",
+        sql: include_str!("../../migrations/022_thread_entities.sql"),
+    },
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -197,7 +202,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 21);
+        assert_eq!(version, 22);
 
         for expected in [
             "approvals",
@@ -209,6 +214,7 @@ mod tests {
             "scratches",
             "settings",
             "sprint_plan",
+            "thread_entities",
             "thread_events",
             "threads",
             "todos",

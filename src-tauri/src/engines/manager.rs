@@ -523,6 +523,7 @@ impl EngineRegistry {
         events: broadcast::Sender<StreamedEvent>,
         session_id: Arc<Mutex<Option<String>>>,
     ) -> Result<(mpsc::UnboundedSender<EngineCommand>, Option<u32>)> {
+        let references = crate::mcp::references_enabled(&self.store);
         let (binary, extra_args, use_default_args) = if let Some(argv) = &spec.override_argv {
             let mut argv = argv.clone();
             let binary = PathBuf::from(argv.remove(0));
@@ -531,7 +532,12 @@ impl EngineRegistry {
             let binary = detect::resolve_binary(&env, spec.kind.binaries())
                 .unwrap_or_else(|| PathBuf::from("claude"));
             // Nothing in the app could take a session back out of plan mode.
-            let extra = vec!["--disallowedTools".into(), "EnterPlanMode".into()];
+            // So does the References tool while that experiment is off.
+            let mut disallowed = vec!["EnterPlanMode"];
+            if !references {
+                disallowed.push(crate::mcp::ATTACH_ENTITY_TOOL);
+            }
+            let extra = vec!["--disallowedTools".into(), disallowed.join(",")];
             (binary, extra, true)
         };
 
@@ -545,6 +551,7 @@ impl EngineRegistry {
             use_default_args,
             // A read-only scratch has no workspace to start threads from.
             orchestrate: use_default_args && !spec.read_only,
+            references,
             env: Some(env.vars().clone()),
         };
         if options.env.as_ref().is_some_and(|vars| vars.is_empty()) {

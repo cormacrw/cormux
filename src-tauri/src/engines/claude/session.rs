@@ -35,6 +35,8 @@ pub struct SpawnOptions {
     pub use_default_args: bool,
     /// Give the session the Cormux MCP server, which `run_claude` answers.
     pub orchestrate: bool,
+    /// Offer the experimental References panel's `attach_entity` tool, and say what it's for.
+    pub references: bool,
     pub env: Option<HashMap<String, String>>,
 }
 
@@ -49,6 +51,7 @@ impl Default for SpawnOptions {
             extra_args: Vec::new(),
             use_default_args: true,
             orchestrate: false,
+            references: false,
             env: None,
         }
     }
@@ -76,6 +79,7 @@ impl ClaudeSession {
                 options.model.as_deref(),
                 options.effort.as_deref(),
                 options.orchestrate,
+                options.references,
             )
         } else {
             Vec::new()
@@ -632,7 +636,7 @@ mod tests {
         assert!(saw_error_result);
 
         // Resume is a new process with --resume <id>; prove the argv and a second init.
-        let resume_args = crate::engines::claude_argv(host.session_id(), None, None, false);
+        let resume_args = crate::engines::claude_argv(host.session_id(), None, None, false, false);
         assert!(resume_args.windows(2).any(|w| w == ["--resume", "sess-1"]));
 
         let (host2_out, _mock2_in) = duplex(4096);

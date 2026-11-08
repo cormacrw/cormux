@@ -33,6 +33,8 @@ export class SettingsStore {
   /** Preferred repo id; resolve with `resolveDefaultRepoId` since it may be removed. */
   defaultRepo = $state('')
   teardownAfterMerge = $state(true)
+  /** Experimental: agents pin PRs, tickets and docs to a panel beside the thread. */
+  experimentalReferences = $state(false)
   worktreeRoot = $state(DEFAULT_WORKTREE_ROOT)
   notifyApprovals = $state(true)
   notifyReviewFinished = $state(true)
@@ -73,6 +75,11 @@ export class SettingsStore {
         rows,
         'teardownAfterMerge',
         true,
+      )
+      this.experimentalReferences = readBooleanSetting(
+        rows,
+        'experimentalReferences',
+        false,
       )
       this.worktreeRoot = readStringSetting(
         rows,
@@ -141,6 +148,11 @@ export class SettingsStore {
   async setTeardownAfterMerge(next: boolean) {
     this.teardownAfterMerge = next
     await this.persist('teardownAfterMerge', next ? 'true' : 'false')
+  }
+
+  async setExperimentalReferences(next: boolean) {
+    this.experimentalReferences = next
+    await this.persist('experimentalReferences', next ? 'true' : 'false')
   }
 
   async setWorktreeRoot(path: string) {

@@ -78,6 +78,7 @@ export const fixtureSnapshot: Snapshot = {
     threadActivity: [],
     approvals: [],
     findings: [],
+    entities: [],
     pullRequests: [],
   },
   workspaces: [

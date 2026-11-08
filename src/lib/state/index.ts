@@ -16,6 +16,7 @@ import { prs } from './prs.svelte'
 import { repos } from './repos.svelte'
 import { settings } from './settings.svelte'
 import { findings } from './findings.svelte'
+import { entities } from './entities.svelte'
 import { threadTimeline } from './thread-timeline.svelte'
 import { threads, type Thread } from './threads.svelte'
 import { scratches, scratchFromRow } from './scratches.svelte'
@@ -47,6 +48,7 @@ export { workspaceUi } from './workspace-ui.svelte'
 export { workspaceDiff } from './workspace-diff.svelte'
 export { workspaces } from './workspaces.svelte'
 export { findings } from './findings.svelte'
+export { entities } from './entities.svelte'
 export { switcher } from './switcher.svelte'
 export { threadTimeline } from './thread-timeline.svelte'
 
@@ -305,6 +307,7 @@ export function hydrateFromSnapshot(
     refreshWatched: options.refreshThreads ?? true,
   })
   findings.hydrate(snapshot.persisted.findings)
+  entities.hydrate(snapshot.persisted.entities)
   repos.hydrate(snapshot.persisted.repos)
   workspaceRecords.hydrate(models.records)
   workspaceRecords.applyGitStats(snapshot.workspaceGit ?? [])

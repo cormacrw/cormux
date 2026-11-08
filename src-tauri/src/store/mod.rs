@@ -9,8 +9,8 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::error::{Error, Result};
 use crate::workspace::{ThreadStatus, WorkspaceLifecycle, status_from_threads};
 use types::{
-    ApprovalRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow, SettingRow,
-    ThreadActivityRow, ThreadEventPage, ThreadEventRow, ThreadRow, WorkspaceRow,
+    ApprovalRow, EntityRow, FindingRow, PersistedSnapshot, PrRow, RepoRecord, ScratchRow,
+    SettingRow, ThreadActivityRow, ThreadEventPage, ThreadEventRow, ThreadRow, WorkspaceRow,
 };
 
 const STATEMENT_CACHE: usize = 64;
@@ -731,6 +731,21 @@ impl Store {
         })
     }
 
+    /// Attaches `url` to the thread, or renames it if it's already attached.
+    pub fn attach_entity(&self, thread_id: &str, name: &str, url: &str) -> Result<EntityRow> {
+        self.with_conn(|conn| {
+            Ok(conn.query_row(
+                &format!(
+                    "INSERT INTO thread_entities (thread_id, name, url) VALUES (?1, ?2, ?3)
+                     ON CONFLICT(thread_id, url) DO UPDATE SET name = excluded.name
+                     RETURNING {ENTITY_FIELDS}"
+                ),
+                rusqlite::params![thread_id, name, url],
+                row_to_entity,
+            )?)
+        })
+    }
+
     pub fn upsert_thread(&self, thread: &ThreadRow) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -1272,6 +1287,23 @@ impl Store {
                     ),
                     row_to_finding,
                 )?,
+                entities: query_all(
+                    conn,
+                    &format!(
+                        "SELECT {ENTITY_FIELDS} FROM thread_entities
+                         WHERE thread_id IN (
+                            SELECT t.id FROM threads t
+                            WHERE t.closed_at IS NULL AND (
+                                t.workspace_id IN (
+                                    SELECT id FROM workspaces WHERE archived_at IS NULL
+                                )
+                                OR t.id IN (SELECT thread_id FROM scratches)
+                            )
+                         )
+                         ORDER BY id"
+                    ),
+                    row_to_entity,
+                )?,
                 pull_requests: query_all(conn, PR_COLUMNS, row_to_pr)?,
             })
         })
@@ -1287,6 +1319,18 @@ fn tune(conn: &Connection) -> Result<()> {
     conn.pragma_update(None, "temp_store", "MEMORY")?;
     conn.set_prepared_statement_cache_capacity(STATEMENT_CACHE);
     Ok(())
+}
+
+const ENTITY_FIELDS: &str = "id, thread_id, name, url, created_at";
+
+fn row_to_entity(row: &rusqlite::Row<'_>) -> rusqlite::Result<EntityRow> {
+    Ok(EntityRow {
+        id: row.get(0)?,
+        thread_id: row.get(1)?,
+        name: row.get(2)?,
+        url: row.get(3)?,
+        created_at: row.get(4)?,
+    })
 }
 
 const PR_COLUMNS: &str = "SELECT id, repo_id, number, title, payload FROM pr_cache";

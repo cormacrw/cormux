@@ -138,6 +138,18 @@ pub struct FindingRow {
     pub sent_to_thread_id: Option<String>,
 }
 
+/// Something a thread's agent linked to its work with `attach_entity`: a PR, a ticket, a doc.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityRow {
+    pub id: i64,
+    pub thread_id: String,
+    pub name: String,
+    pub url: String,
+    /// SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PrRow {
@@ -179,5 +191,7 @@ pub struct PersistedSnapshot {
     pub thread_activity: Vec<ThreadActivityRow>,
     pub approvals: Vec<ApprovalRow>,
     pub findings: Vec<FindingRow>,
+    /// The open threads' attached entities, oldest first.
+    pub entities: Vec<EntityRow>,
     pub pull_requests: Vec<PrRow>,
 }

@@ -882,6 +882,14 @@ export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boo
 export type EngineKind = "claude"
 export type EngineStatus = { kind: EngineKind; installed: boolean; binary: string | null; version: string | null; signedIn: boolean | null }
 /**
+ * Something a thread's agent linked to its work with `attach_entity`: a PR, a ticket, a doc.
+ */
+export type EntityRow = { id: number; threadId: string; name: string; url: string; 
+/**
+ * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+ */
+createdAt: string }
+/**
  * Shared error type for the Rust core. Serialised as a tagged union so the
  * generated TypeScript bindings stay in lockstep with Rust.
  */
@@ -924,7 +932,11 @@ scratches: ScratchRow[];
 /**
  * When each thread last moved; threads that never have are left out.
  */
-threadActivity: ThreadActivityRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
+threadActivity: ThreadActivityRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; 
+/**
+ * The open threads' attached entities, oldest first.
+ */
+entities: EntityRow[]; pullRequests: PrRow[] }
 export type PlanStep = { content: string; status: string }
 export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
 export type PromptAttachment = { name: string; 

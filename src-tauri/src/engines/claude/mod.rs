@@ -32,6 +32,7 @@ pub fn claude_argv(
     model: Option<&str>,
     effort: Option<&str>,
     orchestrate: bool,
+    references: bool,
 ) -> Vec<String> {
     let mut brief = format!(
         "{}\n\n{}",
@@ -41,6 +42,10 @@ pub fn claude_argv(
     if orchestrate {
         brief.push_str("\n\n");
         brief.push_str(crate::mcp::ORCHESTRATION_INSTRUCTION);
+        if references {
+            brief.push_str("\n\n");
+            brief.push_str(crate::mcp::REFERENCES_INSTRUCTION);
+        }
     }
     let mut args = vec![
         "-p".into(),
@@ -84,7 +89,7 @@ mod tests {
 
     #[test]
     fn argv_includes_print_and_stdio_permission_tool() {
-        let args = claude_argv(None, None, None, false);
+        let args = claude_argv(None, None, None, false, false);
         assert!(args.contains(&"-p".into()));
         assert!(
             args.windows(2)
@@ -95,7 +100,7 @@ mod tests {
 
     #[test]
     fn argv_tells_claude_the_thread_renders_media() {
-        let args = claude_argv(None, None, None, false);
+        let args = claude_argv(None, None, None, false, false);
         let at = args
             .iter()
             .position(|arg| arg == "--append-system-prompt")
@@ -106,7 +111,7 @@ mod tests {
 
     #[test]
     fn orchestrating_threads_get_the_cormux_server_and_its_brief() {
-        let args = claude_argv(None, None, None, true);
+        let args = claude_argv(None, None, None, true, false);
         let at = args.iter().position(|arg| arg == "--mcp-config").unwrap();
         assert!(args[at + 1].contains(r#""type":"sdk""#));
         let at = args.iter().position(|arg| arg == "--allowedTools").unwrap();
@@ -117,25 +122,40 @@ mod tests {
             .position(|arg| arg == "--append-system-prompt")
             .unwrap();
         assert!(args[at + 1].contains("create_thread"));
+        assert!(!args[at + 1].contains("attach_entity"));
+    }
+
+    #[test]
+    fn references_adds_its_brief_only_when_on() {
+        let brief = |references| {
+            let args = claude_argv(None, None, None, true, references);
+            let at = args
+                .iter()
+                .position(|arg| arg == "--append-system-prompt")
+                .unwrap();
+            args[at + 1].clone()
+        };
+        assert!(brief(true).contains(crate::mcp::REFERENCES_INSTRUCTION));
+        assert!(!brief(false).contains("attach_entity"));
     }
 
     #[test]
     fn argv_resume_appends_session_id() {
-        let args = claude_argv(Some("sess-1"), None, None, false);
+        let args = claude_argv(Some("sess-1"), None, None, false, false);
         assert!(args.windows(2).any(|w| w == ["--resume", "sess-1"]));
         assert!(!args.contains(&"--model".into()));
     }
 
     #[test]
     fn argv_model_appends_flag() {
-        let args = claude_argv(None, Some("opus"), None, false);
+        let args = claude_argv(None, Some("opus"), None, false, false);
         assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
         assert!(!args.contains(&"--effort".into()));
     }
 
     #[test]
     fn argv_effort_appends_flag() {
-        let args = claude_argv(None, None, Some("high"), false);
+        let args = claude_argv(None, None, Some("high"), false, false);
         assert!(args.windows(2).any(|w| w == ["--effort", "high"]));
     }
 }

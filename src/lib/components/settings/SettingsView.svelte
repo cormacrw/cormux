@@ -11,6 +11,7 @@
   import ReposSettings from '$lib/components/settings/ReposSettings.svelte'
   import BangsSettings from '$lib/components/settings/BangsSettings.svelte'
   import ShortcutsSettings from '$lib/components/settings/ShortcutsSettings.svelte'
+  import ExperimentalSettings from '$lib/components/settings/ExperimentalSettings.svelte'
   import SettingsSectionHead from '$lib/components/settings/SettingsSectionHead.svelte'
   import SettingsSectionNav from '$lib/components/settings/SettingsSectionNav.svelte'
   import {
@@ -75,7 +76,7 @@
     const root = scrollRoot
     if (!root) return
     const atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 8
-    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'shortcuts'
+    const last = SETTINGS_SECTIONS.at(-1)?.id ?? 'experimental'
     if (atBottom) {
       activeSection = last
       return
@@ -294,6 +295,24 @@
           />
           <div class="mt-4">
             <ShortcutsSettings />
+          </div>
+        </section>
+
+        <section
+          use:bindSection={'experimental'}
+          id={settingsSectionDomId('experimental')}
+          class="set-sec scroll-mt-6 outline-none"
+          tabindex="-1"
+          aria-labelledby="settings-experimental-h"
+          data-od-id="settings-experimental"
+        >
+          <SettingsSectionHead
+            id="settings-experimental-h"
+            title="Experimental"
+            description="Features still taking shape. They may change or go away."
+          />
+          <div class="mt-4">
+            <ExperimentalSettings />
           </div>
         </section>
       </div>

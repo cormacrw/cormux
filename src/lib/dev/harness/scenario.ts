@@ -46,6 +46,8 @@ export type HarnessScenario = {
     contextSize: number | null
     costUsd: number | null
   }
+  /** Links agents pinned with `attach_entity`. */
+  entities?: Snapshot['persisted']['entities']
   /** Synced PRs; this also flips GitHub to connected. */
   pullRequests?: Snapshot['persisted']['pullRequests']
   /** A stored ClickUp key and a picked sprint folder. */

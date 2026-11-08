@@ -58,6 +58,7 @@ Every spec follows the same outline:
 - [13 · Approvals](13-approvals.md)
 - [27 · Plan mode](27-plan-mode.md)
 - [28 · Task draft cards](28-task-draft-cards.md)
+- [29 · Thread references](29-thread-references.md)
 - [14 · Changes panel and diff review](14-changes-panel.md)
 - [15 · Run app and Output tab](15-run-app-and-output.md)
 - [16 · Branch switching](16-branch-switching.md)
