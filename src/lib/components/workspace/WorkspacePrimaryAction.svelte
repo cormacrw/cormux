@@ -9,7 +9,6 @@
     branchPullRequest,
     primaryPrActionLabel,
   } from '$lib/create-pr/pr-header'
-  import { reviewSubmitted as isReviewSubmitted } from '$lib/review/workspace-settings'
   import {
     prs,
     settings,
@@ -29,7 +28,7 @@
   const reviewSubmitted = $derived(
     workspace.kind === 'review' &&
       (workspace.activityText.toLowerCase().includes('review submitted') ||
-        isReviewSubmitted(settings.rows, workspace.id)),
+        settings.reviewSubmitted(workspace.id)),
   )
 
   const record = $derived(workspaceRecords.getRecord(workspace.id))

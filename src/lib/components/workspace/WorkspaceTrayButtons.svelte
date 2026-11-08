@@ -2,7 +2,6 @@
   import ChangeCounts from '$lib/components/workspace/ChangeCounts.svelte'
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
-  import { reviewReady } from '$lib/review/workspace-settings'
   import {
     findings,
     settings,
@@ -32,7 +31,7 @@
   const showFindings = $derived(
     showFindingsTab({
       workspaceKind: workspace.kind,
-      reviewReady: reviewReady(settings.rows, workspace.id),
+      reviewReady: settings.reviewReady(workspace.id),
       hasFindings: findings.hasReviewFindings(workspace.id),
     }),
   )
