@@ -60,7 +60,7 @@ const STEP_ROW: Record<TimelineStep['kind'], 'divider' | 'run'> = {
   legacy: 'divider',
 }
 
-/** A kind this build doesn't know (the store outlived a downgrade) sits between turns. */
+/** A legacy step (saved by an older build with only its title) says itself whether it joins a run. */
 function joinsRun(step: TimelineStep): boolean {
   if (step.kind === 'legacy') return step.run
   return STEP_ROW[step.kind] === 'run'
@@ -190,7 +190,7 @@ function foldMessage(
     last.text += text
     last.seq = seq
   } else {
-    const id = kind === 'user' ? `user-${seq}` : `thought-${seq}`
+    const id = `${kind}-${seq}`
     state.items.push({ kind, id, text, seq, atMs })
   }
   state.sealMessage = false

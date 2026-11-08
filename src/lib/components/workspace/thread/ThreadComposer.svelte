@@ -577,7 +577,6 @@
           aria-selected={index === pickerIndex}
           class="flex min-w-0 cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm aria-selected:bg-muted"
           onmousedown={(event) => {
-            // Keep focus in the composer.
             event.preventDefault()
             option.choose(option)
           }}

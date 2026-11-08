@@ -475,10 +475,10 @@ describe('item ids', () => {
   it('come from where the store saved each item and from tool call ids', () => {
     expect(items(events).map((item) => item.id)).toEqual([
       'user-1',
-      'thought-2',
+      'reply-2',
       'user-4',
       'run-toolu_9',
-      'thought-6',
+      'reply-6',
     ])
   })
 
