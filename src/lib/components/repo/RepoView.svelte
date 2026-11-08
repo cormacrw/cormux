@@ -10,6 +10,7 @@
   import { commands } from '$lib/ipc'
   import type { LocalBranchRow } from '$lib/ipc/bindings'
   import { coreErrorText } from '$lib/core/core-error'
+  import { startsOver } from '$lib/core/owner-scoped'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
@@ -21,12 +22,13 @@
   import { openUrl } from '@tauri-apps/plugin-opener'
 
   let titleEl = $state<HTMLHeadingElement | null>(null)
-  let branches = $state<LocalBranchRow[]>([])
-  let loading = $state(true)
-  let loadError = $state<string | null>(null)
-  let deleting = $state<string | null>(null)
+  // Each repo's list starts over, so a Delete never names another repo's branch.
+  let branches = $derived<LocalBranchRow[]>(startsOver(nav.repoId, []))
+  let loading = $derived(startsOver(nav.repoId, true))
+  let loadError = $derived<string | null>(startsOver(nav.repoId, null))
+  let deleting = $derived<string | null>(startsOver(nav.repoId, null))
   /** A branch origin doesn't have as it is locally, awaiting a confirmed delete. */
-  let unpushed = $state<string | null>(null)
+  let unpushed = $derived<string | null>(startsOver(nav.repoId, null))
   shellDialogs.hold(() => unpushed != null)
   // Held after close so the copy doesn't change while the dialog animates out.
   let unpushedShown = $state('')
@@ -83,6 +85,7 @@
     if (!id || deleting) return
     deleting = name
     const result = await commands.deleteLocalBranch(id, name, force)
+    if (id !== nav.repoId) return
     deleting = null
     unpushed = null
     if (result.status === 'error') {

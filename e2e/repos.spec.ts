@@ -114,4 +114,39 @@ test.describe('repos', () => {
       .click()
     await expect(api).toHaveCount(0)
   })
+
+  test("a repo's page never shows the previous repo's branches", async ({
+    page,
+  }) => {
+    await setScenario(page, {
+      secondRepo: true,
+      slow: { list_repo_local_branches: 1500 },
+    })
+    await page.goto('/')
+    const palette = page.getByRole('dialog')
+    const pageRoot = page.locator('[data-od-id="repo-page"]')
+    const openRepo = async (name: string) => {
+      await page
+        .getByRole('button', { name: /Search or run a command/ })
+        .click()
+      await palette.locator('input').fill(`Open ${name}`)
+      await palette
+        .getByRole('option', { name: new RegExp(`^Open ${name}`) })
+        .first()
+        .click()
+      await expect(pageRoot.getByRole('heading', { name })).toBeVisible()
+    }
+
+    await openRepo('my-app')
+    const colors = pageRoot.locator('[data-od-id="repo-branch-feat/colors"]')
+    await expect(colors).toHaveCount(1)
+
+    // While api's branches load, my-app's Delete buttons must not be on its page.
+    await openRepo('api')
+    await expect(pageRoot.getByText('Reading branches…')).toBeVisible()
+    await expect(pageRoot.locator('[data-od-id^="repo-branch-"]')).toHaveCount(
+      0,
+    )
+    await expect(colors).toHaveCount(1)
+  })
 })
