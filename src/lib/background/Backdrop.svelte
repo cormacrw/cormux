@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
   import { appearance } from '$lib/state/appearance.svelte'
-  import { wordmark } from './wordmark.svelte'
+  import { GLIDE_FALL_MS, GLIDE_RISE_MS, wordmark } from './wordmark.svelte'
 
   /** Rising from bottom left to top right. */
   const TILT_DEG = -20
@@ -45,18 +45,6 @@
     }
   })
 
-  // The glide's durations live in the CSS below; the wordmark's glide lasts the slower one.
-  $effect(() => {
-    if (!area) return
-    const style = getComputedStyle(area)
-    const slowest = Math.max(
-      ...['--glide-rise', '--glide-fall'].map(
-        (name) => parseFloat(style.getPropertyValue(name)) || 0,
-      ),
-    )
-    if (slowest > 0) wordmark.glideMs = slowest
-  })
-
   $effect(() => {
     if (!area) return
     const observer = new ResizeObserver(fit)
@@ -71,6 +59,8 @@
       class="wordmark-area"
       class:away={wordmark.away}
       class:gliding={wordmark.gliding}
+      style:--glide-rise="{GLIDE_RISE_MS}ms"
+      style:--glide-fall="{GLIDE_FALL_MS}ms"
       bind:this={area}
     >
       <span
@@ -103,10 +93,7 @@
   }
 
   /* The content area, right of the sidebar at whatever width it's been dragged to, plus a little room. */
-  /* The glide's two moves, in ms (the script reads these back). */
   .wordmark-area {
-    --glide-rise: 1200ms;
-    --glide-fall: 420ms;
     position: absolute;
     inset: 0 0 0 calc(var(--sidebar-w) + 8px);
   }
