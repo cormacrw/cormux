@@ -3,7 +3,7 @@ import {
   openWorkspace,
   openWorkspaceFindings,
   openWorkspaceThread,
-} from '$lib/workspace/open'
+} from '$lib/nav/open'
 import type { ToastPayload } from './toast-payload'
 
 export type ToastTarget = Pick<

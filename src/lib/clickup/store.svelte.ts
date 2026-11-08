@@ -5,11 +5,13 @@ import type {
 } from '$lib/ipc/bindings'
 import { commands, type CoreError } from '$lib/ipc'
 import { onSnapshot } from '$lib/core/sync'
+import { coalesce } from '$lib/core/coalesce'
 import { coreErrorText } from '$lib/core/core-error'
 import { deepEqual } from '$lib/deep-equal'
 import { settings } from '$lib/settings/store.svelte'
 import {
   assignedToMe,
+  sameStatus,
   sprintLanes,
   sprintProgress,
   statusKey,
@@ -18,8 +20,13 @@ import {
   withTaskStatus,
 } from './board'
 
-/** A write ClickUp refused, and what was being tried. */
-export type ClickupWriteError = { error: CoreError; doing: string }
+import type { ClickupWriteError } from './write-error'
+
+/**
+ * How long after the last write the board reloads, so it picks up what ClickUp did in
+ * response (automations that assign or move tasks) without racing the write itself.
+ */
+const SETTLE_MS = 800
 
 /**
  * The current ClickUp sprint. Every ClickUp surface hides unless an API key is stored;
@@ -40,8 +47,6 @@ export class ClickupStore {
   private writes = 0
   /** Writes still waiting on ClickUp; a refresh that lands meanwhile is stale. */
   private inFlight = 0
-  /** A refresh asked for while one was running, run once that one finishes. */
-  private refreshQueued = false
   private settleTimer: ReturnType<typeof setTimeout> | undefined
 
   readonly ready = $derived(this.configured && this.folderId !== '')
@@ -78,20 +83,18 @@ export class ClickupStore {
 
   async refresh() {
     if (!this.ready) return
-    if (this.loading) {
-      this.refreshQueued = true
-      return
-    }
     this.loading = true
+    try {
+      await this.load()
+    } finally {
+      this.loading = false
+    }
+  }
+
+  private load = coalesce(async () => {
     const writes = this.writes
     const folderId = this.folderId
     const result = await commands.clickupBoard()
-    this.loading = false
-    if (this.refreshQueued) {
-      this.refreshQueued = false
-      void this.refresh()
-      return
-    }
     if (
       writes !== this.writes ||
       this.inFlight > 0 ||
@@ -105,12 +108,9 @@ export class ClickupStore {
     }
     this.error = null
     this.board = result.data
-  }
+  })
 
-  /**
-   * Reloads shortly after the last write settles, so the board picks up what ClickUp did
-   * in response (automations that assign or move tasks) without racing the write itself.
-   */
+  /** Runs a write, then reloads once SETTLE_MS pass with no other write. */
   private async write<T>(run: () => Promise<T>): Promise<T> {
     this.writes += 1
     this.inFlight += 1
@@ -119,7 +119,7 @@ export class ClickupStore {
     } finally {
       this.inFlight -= 1
       clearTimeout(this.settleTimer)
-      this.settleTimer = setTimeout(() => void this.refresh(), 800)
+      this.settleTimer = setTimeout(() => void this.refresh(), SETTLE_MS)
     }
   }
 
@@ -181,7 +181,8 @@ export class ClickupStore {
     const board = this.board
     const status = board?.statuses.find((row) => row.name === statusName)
     const task = board?.tasks.find((row) => row.id === taskId)
-    if (!board || !status || !task || task.status === status.name) return null
+    if (!board || !status || !task || sameStatus(task.status, status.name))
+      return null
     this.board = withTaskStatus(board, taskId, status)
     this.patchDetail(taskId, { status: status.name, statusColor: status.color })
     const result = await this.write(() =>
@@ -220,12 +221,7 @@ export class ClickupStore {
       commands.setClickupTaskPoints(taskId, points),
     )
     if (result.status === 'error') {
-      this.board = this.board && {
-        ...this.board,
-        tasks: this.board.tasks.map((row) =>
-          row.id === taskId ? { ...row, points: task.points } : row,
-        ),
-      }
+      this.board = this.board && withTaskPoints(this.board, taskId, task.points)
       this.patchDetail(taskId, { points: task.points })
       return { error: result.error, doing: 'Could not set sprint points' }
     }

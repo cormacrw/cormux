@@ -24,8 +24,9 @@ function toResolved(media: ThreadMedia): ResolvedMedia | null {
 
 /**
  * Asks the core to copy the referenced file into its media folder and say how
- * to show it. Cached per source and workdir, so re-renders and re-opens of a
- * thread resolve each file once. A null result means it isn't showable media.
+ * to show it. A file it found is cached per source and workdir, so re-renders and
+ * re-opens of a thread resolve it once. A null result means it isn't showable media
+ * (yet: it's asked again next time), and a failure is logged rather than kept.
  */
 export function resolveLocalMedia(
   source: string,
@@ -34,12 +35,26 @@ export function resolveLocalMedia(
   const key = `${workdir ?? ''}\0${source}`
   const cached = resolvedCache.get(key)
   if (cached) return cached
+  const forget = () => {
+    if (resolvedCache.get(key) === pending) resolvedCache.delete(key)
+  }
   const pending = commands
     .resolveThreadMedia(source, workdir ?? null)
-    .then((result) =>
-      result.status === 'ok' && result.data ? toResolved(result.data) : null,
-    )
-    .catch(() => null)
+    .then((result) => {
+      if (result.status === 'error') {
+        console.warn(`could not resolve media ${source}`, result.error)
+        return null
+      }
+      return result.data ? toResolved(result.data) : null
+    })
+    .catch((error: unknown) => {
+      console.warn(`could not resolve media ${source}`, error)
+      return null
+    })
+    .then((resolved) => {
+      if (!resolved) forget()
+      return resolved
+    })
   resolvedCache.set(key, pending)
   return pending
 }

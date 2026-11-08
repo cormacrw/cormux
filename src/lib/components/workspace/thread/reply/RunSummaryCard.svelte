@@ -13,7 +13,7 @@
   const ok = $derived(runSucceeded(summary))
 </script>
 
-<details class="reply-card group/run" data-od-id="reply-run" data-reply-block>
+<details class="reply-card group/run" data-od-id="reply-run">
   <summary class="reply-card-head cursor-pointer select-none">
     {#if ok}
       <Check class="size-3.5 shrink-0 text-success" aria-hidden="true" />
@@ -27,7 +27,7 @@
     class="max-h-72 overflow-auto border-t border-border px-3 py-2 font-mono text-(length:--code-font-size) whitespace-pre-wrap">{data.output}</pre>
 </details>
 {#if summary.failures.length}
-  <ul class="reply-run-failures" data-reply-block>
+  <ul class="reply-run-failures">
     {#each summary.failures as failure (failure)}
       <li class="truncate font-mono" title={failure}>{failure}</li>
     {/each}

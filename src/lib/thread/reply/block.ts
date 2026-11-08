@@ -4,13 +4,13 @@ import type { Token } from 'marked'
  * Where a block sits in a reply: a top-level markdown token (a fenced block, display math), or
  * a `<name>…</name>` tag the agent appends as data (see `tag-block.ts`).
  */
-export type BlockMatch = TokenMatch | { tag: string }
+type BlockMatch = TokenMatch | { tag: string }
 
 /** The block's body when `token` is one, else null. */
 type TokenMatch = { token: (token: Token) => string | null }
 
 /** A reply block that renders as a component. `parse` returning null leaves it as prose. */
-export type BlockDef<K extends string, D> = {
+type BlockDef<K extends string, D> = {
   kind: K
   match: BlockMatch
   parse: (body: string) => D | null

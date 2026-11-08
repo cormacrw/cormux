@@ -1,8 +1,6 @@
 <!--
-  Display-only view of work an agent scoped but has not created yet, parsed
-  from the reply's <cormux-tasks> block (see the optional cormux-task-cards
-  skill): epics with their scope first, tasks under each epic, subtasks
-  under each task. Creating stays with the agent in chat.
+  Draws a reply's <cormux-tasks> block (thread/reply/blocks/tasks.ts) as its hierarchy.
+  Display only: creating the tasks stays with the agent in chat.
 -->
 <script lang="ts">
   import { plural } from '$lib/format/plural'
@@ -144,11 +142,7 @@
 {/snippet}
 
 {#if drafts.length}
-  <div
-    class="mt-5 max-w-[42rem] px-1 pt-2 pb-10"
-    data-od-id="task-draft-cards"
-    data-reply-block
-  >
+  <div class="mt-5 max-w-[42rem] px-1 pt-2 pb-10" data-od-id="task-draft-cards">
     <div class="border-b border-border pb-4">
       <p
         class="flex items-center gap-2.5 text-lg font-semibold text-foreground"

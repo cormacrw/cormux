@@ -1,4 +1,4 @@
-import { openWorkspace } from '$lib/workspace/open'
+import { openWorkspace } from '$lib/nav/open'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
 import { showToast } from '$lib/feedback/show-toast'
 import { commands } from '$lib/ipc'

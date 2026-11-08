@@ -1,5 +1,5 @@
 import { updateSettings } from '$lib/settings/actions'
-import { openWorkspace } from '$lib/workspace/open'
+import { openWorkspace } from '$lib/nav/open'
 import { navigate } from '$lib/core/nav.svelte'
 import { reviewPullRequest } from '$lib/review/start-review'
 import { appControls, controlApp } from '$lib/run-app/actions'
@@ -12,7 +12,7 @@ import { prs } from '$lib/state/prs.svelte'
 import { threads } from '$lib/state/threads.svelte'
 import { workspaces } from '$lib/state/workspaces.svelte'
 import { pullWorkspace } from '$lib/workspace/git-actions'
-import { openWorkspaceFindings, openWorkspaceThread } from '$lib/workspace/open'
+import { openWorkspaceFindings, openWorkspaceThread } from '$lib/nav/open'
 import type { PaletteCommand } from './types'
 import { buildPaletteCommandsFromState } from './build-registry'
 import { runBang } from './actions'
@@ -33,7 +33,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
     {
       openNewThread: () => navigate({ view: 'newThread' }),
       openScratch: (id) => navigate({ view: 'scratch', scratchId: id }),
-      runBang: (id, extra) => void runBang(id, extra),
+      runBang: (id) => void runBang(id),
       openRepo: (id) => navigate({ view: 'repo', repoId: id }),
       reviewPullRequest,
       openSprint: () => navigate({ view: 'sprint' }),

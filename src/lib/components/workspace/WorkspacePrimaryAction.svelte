@@ -1,8 +1,6 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button'
-  import { Kbd } from '$lib/components/ui/kbd'
-  import CommandIcon from '@lucide/svelte/icons/command'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import ShortcutKbd from '$lib/primitives/ShortcutKbd.svelte'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
@@ -46,7 +44,7 @@
   )
 
   function onKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'primaryAction')) return
+    if (!shellDialogs.allows(event, 'primaryAction')) return
     event.preventDefault()
     if (!primaryDisabled) onPrimaryClick()
   }
@@ -78,7 +76,7 @@
   >
     <GitPullRequest class="size-4" aria-hidden="true" />
     Submit review
-    <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />P</Kbd>
+    <ShortcutKbd id="primaryAction" />
   </Button>
 {:else if branchPr}
   <Button
@@ -92,6 +90,6 @@
   >
     <GitPullRequest class="size-4" aria-hidden="true" />
     {prLabel}
-    <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />P</Kbd>
+    <ShortcutKbd id="primaryAction" />
   </Button>
 {/if}

@@ -5,7 +5,7 @@ type Loader = () => Promise<{ default: Component }>
 
 // Everything off the first screen, so startup only parses what it paints.
 export const loadSettings = () =>
-  import('../../settings/components/SettingsView.svelte')
+  import('../../settings-page/SettingsView.svelte')
 export const loadRepo = () => import('../repo/RepoView.svelte')
 export const loadScratch = () => import('../scratch/ScratchView.svelte')
 export const loadSprint = () =>

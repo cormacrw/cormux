@@ -2,6 +2,7 @@
   import { openSettings } from '$lib/settings/open'
   import { navigate } from '$lib/core/nav.svelte'
   import { windowDrag } from '$lib/primitives/window-drag'
+  import { readPref, writePref } from '$lib/primitives/local-pref'
   import { onMount } from 'svelte'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { isDevBuild } from '$lib/build-mode'
@@ -11,7 +12,7 @@
   import { memory } from '$lib/state'
   import { nav } from '$lib/core/nav.svelte'
   import { clickup } from '$lib/clickup/store.svelte'
-  import { palette } from '$lib/state/palette.svelte'
+  import { palette } from '$lib/command-palette/store.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import { cubicOut } from 'svelte/easing'
   import { flip } from 'svelte/animate'
@@ -36,23 +37,11 @@
   let fullscreen = $state(false)
 
   // Working threads are out of the way until you ask to see them.
-  let workingOpen = $state(rememberedWorkingOpen())
-
-  function rememberedWorkingOpen() {
-    try {
-      return globalThis.localStorage?.getItem(WORKING_OPEN_KEY) === 'true'
-    } catch {
-      return false
-    }
-  }
+  let workingOpen = $state(readPref(WORKING_OPEN_KEY) === 'true')
 
   function toggleWorking() {
     workingOpen = !workingOpen
-    try {
-      globalThis.localStorage?.setItem(WORKING_OPEN_KEY, String(workingOpen))
-    } catch {
-      // Optional: the section just starts collapsed next time.
-    }
+    writePref(WORKING_OPEN_KEY, String(workingOpen))
   }
 
   const threadRows = $derived(sidebarWorkspaces.sections.threads)
@@ -102,7 +91,7 @@
 
 <nav
   class="sidebar-nav grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-3.5 pb-3.5"
-  aria-label="Harness"
+  aria-label="Sidebar"
 >
   <div
     class={fullscreen ? 'titlebar h-3.5' : 'titlebar h-[52px]'}
@@ -178,7 +167,7 @@
       {#if sidebarWorkspaces.items.length === 0}
         <p class="px-2 py-1.5 text-xs text-muted-foreground">No threads yet</p>
       {:else}
-        <!-- What needs you first; ⌘1–⌘9 follow this order (sidebar-workspaces.svelte.ts). -->
+        <!-- What needs you first; ⌘1–⌘9 follow this order (thread-list-store.svelte.ts). -->
         <ul
           class="grid list-none gap-1 p-0"
           aria-labelledby="side-threads-label"

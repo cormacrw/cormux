@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { basename } from '$lib/thread/timeline/step-text'
+  import DiffCounts from './DiffCounts.svelte'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import { editedPaths, toolRunSummary } from '$lib/thread/tool-run-summary'
   import type { TimelineItem } from '$lib/thread/timeline-types'
-  import { revealInChanges } from '$lib/workspace/open'
   import type { RowContext } from './context'
   import Fold from './Fold.svelte'
   import RowShell from './RowShell.svelte'
@@ -51,12 +52,12 @@
               class="file-ref"
               title={path}
               aria-label="View diff for {path}"
-              onclick={() => revealInChanges(path)}
+              disabled={!ctx.revealFile}
+              onclick={() => ctx.revealFile?.(path)}
             >
-              {path.split('/').pop()}
+              {basename(path)}
               {#if file}
-                <span class="text-success">+{file.added}</span>
-                <span class="text-destructive">−{file.deleted}</span>
+                <DiffCounts {file} />
               {/if}
             </button>
           </li>

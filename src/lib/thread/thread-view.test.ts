@@ -26,7 +26,6 @@ const running: ThreadMeta = {
   paused: false,
   activity: 'Working',
   lead: true,
-  scratch: false,
 }
 
 function sources(extra: Partial<ViewSources> = {}): ViewSources {
@@ -74,7 +73,7 @@ describe('a thread view', () => {
     expect(view.activeIds).toEqual({ reply: null, thought: null, run: null })
   })
 
-  it('tells a paused agent, a worktree being set up and a scratch apart', () => {
+  it('tells a paused agent and a worktree being set up apart', () => {
     const live = (
       meta: Partial<ThreadMeta>,
       currentTool: string | null = null,
@@ -93,10 +92,6 @@ describe('a thread view', () => {
     expect(live({ status: 'provisioning', lead: false })?.subtitle).toBe(
       'Joining the worktree',
     )
-    expect(live({ scratch: true })).toMatchObject({
-      title: 'Reading the repo…',
-      subtitle: 'Finding the files this question names',
-    })
   })
 
   it('hands back the same view while nothing it shows changed', () => {

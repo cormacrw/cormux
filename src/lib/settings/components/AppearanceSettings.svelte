@@ -18,7 +18,7 @@
     codeFontStack,
     type CodeFontId,
     type ThemeId,
-  } from '$lib/state/appearance.svelte'
+  } from '$lib/state/appearance-tokens'
   import { appearance } from '$lib/state'
 
   function sizeLabel(size: number, fallback: number) {

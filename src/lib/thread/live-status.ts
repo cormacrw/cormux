@@ -8,14 +8,12 @@ export type LiveStatus = {
   agents: RunningAgent[]
 }
 
-export type LiveInput = {
+type LiveInput = {
   status: string
   paused: boolean
   activity: string
   /** The workspace's own Lead, which sets up the worktree rather than joining it. */
   lead: boolean
-  /** A scratch only reads the repo, and says so. */
-  scratch: boolean
   /** The tool the agent is in, as it last reported. */
   currentTool: string | null
   agents: RunningAgent[]
@@ -26,11 +24,7 @@ export function liveStatus(input: LiveInput): LiveStatus | null {
   const working = status === 'provisioning' || status === 'running'
   if (!working && !(status === 'paused' && paused)) return null
   return {
-    title: paused
-      ? 'Paused by you'
-      : input.scratch
-        ? 'Reading the repo…'
-        : input.activity,
+    title: paused ? 'Paused by you' : input.activity,
     subtitle: liveSubtitle(input),
     paused,
     agents: input.agents,
@@ -39,13 +33,10 @@ export function liveStatus(input: LiveInput): LiveStatus | null {
 
 function liveSubtitle(input: LiveInput): string {
   if (input.paused) return 'Resume to let the agent continue.'
-  if (input.status === 'provisioning' && !input.scratch) {
+  if (input.status === 'provisioning') {
     return input.lead ? 'Setting up the worktree' : 'Joining the worktree'
   }
-  if (input.currentTool) return input.currentTool
-  return input.scratch
-    ? 'Finding the files this question names'
-    : input.activity
+  return input.currentTool ?? input.activity
 }
 
 /** The items still being written while the agent works: whichever one it is in last. */

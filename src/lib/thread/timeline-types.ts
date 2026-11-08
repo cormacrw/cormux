@@ -24,7 +24,7 @@ export type ToolStep = {
 }
 
 /** Something the core did that sits among the agent's tool steps (findings sent or fixed). */
-export type CoreStep = {
+type CoreStep = {
   kind: 'step'
   id: string
   step: TimelineStep

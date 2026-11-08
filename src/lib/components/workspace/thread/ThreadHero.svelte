@@ -2,8 +2,8 @@
   An empty conversation: a big greeting just above the prompt bar instead of
   the last conversation's messages, with a card to resume an earlier
   conversation. Under the greeting: the agent, and the
-  branch and workspace it works in. As wide as the prompt bar (760px, or the
-  thread column less the bar's 4px sides), so the two line up. Its box runs
+  branch and workspace it works in. As wide as the prompt bar (--thread-column, or
+  the thread column less the bar's 4px sides), so the two line up. Its box runs
   down to the bar's top edge (past the bar's 8px top padding), so sending the
   first prompt drops it out of view right behind the bar.
 -->
@@ -60,7 +60,7 @@
 
 <div
   data-conversation-part
-  class="thread-hero mt-auto -mb-2 flex w-[min(760px,calc(100cqw-8px))] flex-col gap-5 self-center pt-10 pb-10"
+  class="thread-hero mt-auto -mb-2 flex w-[min(var(--thread-column),calc(100cqw-8px))] flex-col gap-5 self-center pt-10 pb-10"
   data-od-id="thread-hero"
 >
   <h2

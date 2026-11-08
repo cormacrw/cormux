@@ -95,7 +95,7 @@ test('the panel is off until turned on in Settings › Experimental', async ({
   await expect(panel).toHaveCount(0)
 
   await page
-    .getByRole('navigation', { name: 'Harness' })
+    .getByRole('navigation', { name: 'Sidebar' })
     .getByRole('button', { name: /Settings/ })
     .click()
   const section = page.locator('[data-od-id="settings-experimental"]')

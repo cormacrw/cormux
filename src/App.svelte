@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import PlaceSwitcher from '$lib/components/shell/PlaceSwitcher.svelte'
+  import PlaceSwitcher from '$lib/switcher/PlaceSwitcher.svelte'
   import { trackKeyboardInput } from '$lib/keyboard/focus-home'
   import { switcher } from '$lib/switcher/store.svelte'
   import { currentPlace, handleSwitcherKeyup } from '$lib/switcher/navigate'
@@ -8,9 +8,9 @@
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
   import Backdrop from '$lib/background/Backdrop.svelte'
-  import CommandPalette from '$lib/components/shell/CommandPalette.svelte'
+  import CommandPalette from '$lib/command-palette/CommandPalette.svelte'
   import { bindNativeMenu } from '$lib/components/shell/menu'
-  import { handleGlobalKeydown } from '$lib/keyboard/global-shortcuts'
+  import { handleGlobalKeydown } from '$lib/components/shell/global-shortcuts'
   import { installOverlayFailsafe } from '$lib/overlay-failsafe'
   import { events } from '$lib/ipc'
   import { listenForStateChanges, refreshSnapshot } from '$lib/core/sync'
@@ -41,8 +41,8 @@
     preloadLazyViews,
   } from '$lib/components/shell/lazy-views'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
-  import { setHarnessWindowFocused } from '$lib/feedback/supervision'
-  import { openNotifiedTarget } from '$lib/feedback/os-notifications'
+  import { installSupervision } from '$lib/feedback/supervision'
+  import { installClickupSync } from '$lib/clickup/sync'
   import * as Tooltip from '$lib/components/ui/tooltip'
   import type { ShellDialogId } from '$lib/state/shell-dialogs.svelte'
 
@@ -52,7 +52,13 @@
   const FONT_WAIT_MS = 300
 
   onMount(() => {
-    let unlisten: (() => void) | undefined
+    const stops: (() => void)[] = []
+    let disposed = false
+    // Each listener registers after an await; one that lands after unmount stops at once.
+    const keep = (stop: () => void) => {
+      if (disposed) stop()
+      else stops.push(stop)
+    }
 
     void (async () => {
       try {
@@ -85,33 +91,22 @@
       if (idle) idle(preloadLazyViews, { timeout: 3000 })
       else window.setTimeout(preloadLazyViews, 1000)
 
-      const unlistenMenu = await bindNativeMenu()
-      const unlistenFeedback = await bindFeedbackEvents()
       const win = getCurrentWindow()
-      const unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
-        setHarnessWindowFocused(focused)
-        if (focused) {
-          openNotifiedTarget()
-          void clickup.refresh()
-        }
-      })
-      setHarnessWindowFocused(await win.isFocused())
-      const unlistenState = await listenForStateChanges()
-      const unlistenMemory = await events.memorySampled.listen(({ payload }) =>
-        memory.hydrate(payload.sample),
+      keep(await bindNativeMenu())
+      keep(await bindFeedbackEvents())
+      keep(await installSupervision(win))
+      keep(await installClickupSync(win))
+      keep(await listenForStateChanges())
+      keep(
+        await events.memorySampled.listen(({ payload }) =>
+          memory.hydrate(payload.sample),
+        ),
       )
-
-      unlisten = () => {
-        unlistenMenu()
-        unlistenFeedback()
-        unlistenFocus()
-        unlistenState()
-        unlistenMemory()
-      }
     })()
 
     return () => {
-      unlisten?.()
+      disposed = true
+      for (const stop of stops) stop()
     }
   })
 
@@ -133,16 +128,6 @@
       sprint: clickup.configured,
     })
     if (!live) untrack(() => navigate(NEW_THREAD))
-  })
-
-  // Teammates move tasks in ClickUp too, so the sprint refreshes every couple of minutes.
-  // Regaining focus refreshes it anyway, so a window in the background can skip its turns.
-  $effect(() => {
-    if (!clickup.ready) return
-    const id = window.setInterval(() => {
-      if (document.hasFocus()) void clickup.refresh()
-    }, 120_000)
-    return () => window.clearInterval(id)
   })
 
   onMount(() => {

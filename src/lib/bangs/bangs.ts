@@ -1,7 +1,7 @@
 /**
  * Bangs: a short name like `!test` that stands for a saved prompt. Typed in any
  * prompt bar it becomes the prompt; typed in the command palette it starts a
- * scratch with it. Managed in Settings › Bangs.
+ * thread with it. Managed in Settings › Bangs.
  */
 import type { Bang } from '$lib/ipc/bindings'
 export type { Bang }
@@ -16,7 +16,6 @@ export function bangName(raw: string): string {
     .replace(/[^a-z0-9_-]/g, '')
 }
 
-/** Only bangs with a name and a prompt can be used. */
 export function isUsableBang(bang: Bang) {
   return bang.name.length > 0 && bang.prompt.trim().length > 0
 }
@@ -49,36 +48,6 @@ export function bangPreview(prompt: string, length = 48) {
   return flat.length > length ? `${flat.slice(0, length).trimEnd()}…` : flat
 }
 
-type BangToken = { start: number; end: number; query: string }
-
-/** The `!word` the caret is in, if it starts the draft or follows a space. */
-export function bangToken(draft: string, caret: number): BangToken | null {
-  const match = /(^|\s)!([\w-]*)$/.exec(draft.slice(0, caret))
-  if (!match) return null
-  const rest = /^\S*/.exec(draft.slice(caret))?.[0] ?? ''
-  if (!/^[\w-]*$/.test(rest)) return null
-  return {
-    start: match.index + (match[1]?.length ?? 0),
-    end: caret + rest.length,
-    query: match[2] ?? '',
-  }
-}
-
-/** The draft with the `!word` replaced by the bang's prompt, and the caret after it. */
-export function insertBang(
-  draft: string,
-  token: BangToken,
-  bang: Bang,
-): { text: string; caret: number } {
-  const prompt = bang.prompt.trim()
-  const rest = draft.slice(token.end)
-  const gap = rest === '' || /^\s/.test(rest) ? '' : ' '
-  return {
-    text: draft.slice(0, token.start) + prompt + gap + rest,
-    caret: token.start + prompt.length + gap.length,
-  }
-}
-
 /** On send: any whole `!name` left in a message becomes its bang's prompt. */
 export function expandBangs(text: string, bangs: Bang[]): string {
   return text.replace(
@@ -104,7 +73,6 @@ export function paletteBang(
   return bang ? { bang, extra: (match[2] ?? '').trim() } : null
 }
 
-/** A bang's prompt with what was typed after it in the palette. */
 export function bangPromptWithExtra(prompt: string, extra: string) {
   const base = prompt.trim()
   const more = extra.trim()

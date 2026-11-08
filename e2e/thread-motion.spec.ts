@@ -53,7 +53,7 @@ test('only new rows pop in, and a new reply types out', async ({ page }) => {
   // Reloading the turn from the store once it ends replays nothing.
   await expect(
     page
-      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('navigation', { name: 'Sidebar' })
       .getByRole('button', { name: /^OAuth login,/ }),
   ).toBeVisible({ timeout: 5000 })
   expect(await popping(page)).toEqual([])

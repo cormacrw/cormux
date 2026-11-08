@@ -7,7 +7,6 @@
     registerPopoverCloser,
     releaseWorkspacePopover,
   } from '$lib/keyboard/popover-registry'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
   import { shellDialogs, workspaceUi } from '$lib/state'
   import {
@@ -71,7 +70,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'moreActions')) return
+    if (!shellDialogs.allows(event, 'moreActions')) return
     event.preventDefault()
     open = !open
   }
@@ -102,7 +101,7 @@
   <DropdownMenu.Content align="end" id="ws-more" class="w-60">
     <DropdownMenu.Group>
       <DropdownMenu.Item
-        onclick={() => closeAndRun(() => workspaceUi.toggleOutputTab())}
+        onclick={() => closeAndRun(() => workspaceUi.toggleTray('output'))}
       >
         <Terminal class="size-4" aria-hidden="true" />
         Output

@@ -21,7 +21,7 @@
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Terminal from '@lucide/svelte/icons/terminal'
 
-  // What used to be tabs: the panels that slide out over the workspace's one conversation.
+  // A button for each panel that slides out over the conversation: Findings, Git and Output.
   let { workspace }: { workspace: Workspace } = $props()
 
   const showFindings = $derived(
@@ -85,7 +85,7 @@
     title="Git ({shortcutLabel('toggleGit')})"
     id="tray-changes"
     data-od-id="tray-changes"
-    onclick={() => workspaceUi.toggleGit()}
+    onclick={() => workspaceUi.toggleTray('changes')}
   >
     <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
     <span aria-hidden="true">Git</span>
@@ -108,7 +108,7 @@
     title="Output ({shortcutLabel('toggleOutput')})"
     id="tray-output"
     data-od-id="tray-output"
-    onclick={() => workspaceUi.toggleOutputTab()}
+    onclick={() => workspaceUi.toggleTray('output')}
   >
     <Terminal class="size-3.5 shrink-0" aria-hidden="true" />
     <span aria-hidden="true">Output</span>

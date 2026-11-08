@@ -2,7 +2,7 @@
   import * as Select from '$lib/components/ui/select'
   import { nav } from '$lib/core/nav.svelte'
   import { threads } from '$lib/state'
-  import { showThread } from '$lib/workspace/open'
+  import { showThread } from '$lib/nav/open'
   import History from '@lucide/svelte/icons/history'
 
   // Threads from before a workspace had just one. They're kept to read; most workspaces have none.

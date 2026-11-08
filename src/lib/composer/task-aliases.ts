@@ -1,60 +1,23 @@
 import { taskRef } from '$lib/clickup/board'
 import type { ClickupTask } from '$lib/ipc/bindings'
+import { escapeRegExp, prefixFirst } from './match'
 
-const MAX_SHOWN = 8
 /** A long description is cut here, so one task can't swamp the message. */
 const DESCRIPTION_LIMIT = 2000
 
 type AliasTask = Pick<ClickupTask, 'id' | 'customId' | 'name' | 'url'>
-
-/** A `#ref` word in the draft: where it starts and ends, and what's typed before the caret. */
-type TaskToken = { start: number; end: number; query: string }
-
-/** The `#` word the caret is in, when it starts the draft or follows whitespace, or null. */
-export function taskToken(draft: string, caret: number): TaskToken | null {
-  const match = /(^|\s)#([\w-]*)$/.exec(draft.slice(0, caret))
-  if (!match) return null
-  const rest = /^\S*/.exec(draft.slice(caret))?.[0] ?? ''
-  if (!/^[\w-]*$/.test(rest)) return null
-  return {
-    start: match.index + (match[1]?.length ?? 0),
-    end: caret + rest.length,
-    query: match[2] ?? '',
-  }
-}
-
-/** The draft with `token` replaced by `#ref `, and where the caret goes after it. */
-export function insertTaskAlias(
-  draft: string,
-  token: TaskToken,
-  ref: string,
-): { text: string; caret: number } {
-  const rest = draft.slice(token.end)
-  const inserted = `#${ref}${/^\s/.test(rest) ? '' : ' '}`
-  return {
-    text: draft.slice(0, token.start) + inserted + rest,
-    caret: token.start + ref.length + 2,
-  }
-}
 
 /** References starting with the query first, then names containing it. */
 export function filterTasks<T extends AliasTask>(
   tasks: T[],
   query: string,
 ): T[] {
-  const needle = query.toLowerCase()
-  const starts = tasks.filter((task) =>
-    taskRef(task).toLowerCase().startsWith(needle),
+  return prefixFirst(
+    tasks,
+    query,
+    (task, needle) => taskRef(task).toLowerCase().startsWith(needle),
+    (task, needle) => task.name.toLowerCase().includes(needle),
   )
-  const contains = tasks.filter(
-    (task) =>
-      !starts.includes(task) && task.name.toLowerCase().includes(needle),
-  )
-  return [...starts, ...contains].slice(0, MAX_SHOWN)
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**

@@ -17,7 +17,6 @@ export class CopyFeedback {
     this.#timer = setTimeout(() => (this.copied = null), SHOW_MS)
   }
 
-  /** For `onDestroy`. */
   dispose() {
     clearTimeout(this.#timer)
   }

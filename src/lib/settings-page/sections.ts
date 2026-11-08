@@ -1,18 +1,19 @@
 import type { Component } from 'svelte'
-import AgentsSettings from './AgentsSettings.svelte'
-import AppearanceSettings from './AppearanceSettings.svelte'
-import BangsSettings from '../../bangs/BangsSettings.svelte'
-import ClickupSettings from '../../clickup/components/ClickupSettings.svelte'
-import ExperimentalSettings from './ExperimentalSettings.svelte'
-import GeneralSettings from './GeneralSettings.svelte'
-import GithubSettings from './GithubSettings.svelte'
-import NotificationsSettings from './NotificationsSettings.svelte'
-import PromptsSettings from './PromptsSettings.svelte'
-import ReposSettings from './ReposSettings.svelte'
-import ShortcutsSettings from './ShortcutsSettings.svelte'
+import type { SettingsSectionId } from '$lib/core/route'
+import AgentsSettings from '$lib/settings/components/AgentsSettings.svelte'
+import AppearanceSettings from '$lib/settings/components/AppearanceSettings.svelte'
+import BangsSettings from '$lib/bangs/BangsSettings.svelte'
+import ClickupSettings from '$lib/clickup/components/ClickupSettings.svelte'
+import ExperimentalSettings from '$lib/settings/components/ExperimentalSettings.svelte'
+import GeneralSettings from '$lib/settings/components/GeneralSettings.svelte'
+import GithubSettings from '$lib/settings/components/GithubSettings.svelte'
+import NotificationsSettings from '$lib/settings/components/NotificationsSettings.svelte'
+import PromptsSettings from '$lib/settings/components/PromptsSettings.svelte'
+import ReposSettings from '$lib/settings/components/ReposSettings.svelte'
+import ShortcutsSettings from '$lib/settings/components/ShortcutsSettings.svelte'
 
 type SettingsSection = {
-  id: string
+  id: SettingsSectionId
   label: string
   description: string
   component: Component
@@ -99,8 +100,9 @@ export const SETTINGS_SECTIONS = [
   },
 ] as const satisfies readonly SettingsSection[]
 
-export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id']
-
-export const SETTINGS_SECTION_IDS: SettingsSectionId[] = SETTINGS_SECTIONS.map(
-  (section) => section.id,
-)
+// Every section a route can name is on the page; this stops compiling when one isn't.
+true satisfies [
+  Exclude<SettingsSectionId, (typeof SETTINGS_SECTIONS)[number]['id']>,
+] extends [never]
+  ? true
+  : false

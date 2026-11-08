@@ -37,6 +37,13 @@ export class PrsStore {
   forBranch(repoId: string, branch: string) {
     return prForBranch(this.items, repoId, branch)
   }
+
+  /** The pull request `repoFullName#num`, if Cormux knows it. */
+  find(repoFullName: string, num: number) {
+    return this.items.find(
+      (pr) => pr.repoFullName === repoFullName && pr.num === num,
+    )
+  }
 }
 
 function pullRequestFromRow(row: PrRow): PullRequest {

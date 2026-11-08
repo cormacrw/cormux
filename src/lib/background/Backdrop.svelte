@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
   import { appearance } from '$lib/state/appearance.svelte'
+  import { wordmark } from './wordmark.svelte'
 
   /** Rising from bottom left to top right. */
   const TILT_DEG = -20
@@ -56,8 +57,8 @@
   {#if appearance.showWordmark}
     <div
       class="wordmark-area"
-      class:away={appearance.wordmarkAway}
-      class:gliding={appearance.wordmarkGliding}
+      class:away={wordmark.away}
+      class:gliding={wordmark.gliding}
       bind:this={area}
     >
       <span

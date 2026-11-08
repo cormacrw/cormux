@@ -1,8 +1,6 @@
 <script lang="ts">
-  import {
-    SETTINGS_SECTIONS,
-    type SettingsSectionId,
-  } from '$lib/settings/components/sections'
+  import { SETTINGS_SECTIONS } from './sections'
+  import type { SettingsSectionId } from '$lib/core/route'
   import { cn } from '$lib/utils'
 
   let {

@@ -1,26 +1,13 @@
-import { overlayOpen } from '$lib/keyboard/focus-home'
+import { readPref, writePref } from './local-pref'
 
 /** A pane width saved under `key`, or `fallback` when none is saved (or it's under `min`). */
 export function readPaneWidth(key: string, min: number, fallback: number) {
-  try {
-    const stored = Number(globalThis.localStorage?.getItem(key))
-    return stored >= min ? stored : fallback
-  } catch {
-    return fallback
-  }
+  const stored = Number(readPref(key))
+  return stored >= min ? stored : fallback
 }
 
 export function savePaneWidth(key: string, width: number) {
-  try {
-    globalThis.localStorage?.setItem(key, String(width))
-  } catch {
-    // Optional; the width holds for this session.
-  }
-}
-
-/** Esc closes a slide-out, unless something already took the key or an overlay wants it. */
-export function escClosesSlideOut(event: KeyboardEvent) {
-  return event.key === 'Escape' && !event.defaultPrevented && !overlayOpen()
+  writePref(key, String(width))
 }
 
 type ResizeEdgeOptions = {

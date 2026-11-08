@@ -43,6 +43,7 @@
     live = false,
     workdir,
     findPr,
+    revealFile,
   }: {
     text: string
     entries: EntryScope | undefined
@@ -52,6 +53,7 @@
     /** The thread's worktree, so media the reply references can resolve and render. */
     workdir?: string
     findPr?: FindPullRequest
+    revealFile?: (path: string, line?: number | null) => void
   } = $props()
 
   const order = takeOrder()
@@ -126,4 +128,5 @@
   streaming={isTyping || live}
   {workdir}
   {findPr}
+  {revealFile}
 />

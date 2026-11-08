@@ -5,7 +5,7 @@
   import { Button } from '$lib/components/ui/button/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
   import { Textarea } from '$lib/components/ui/textarea/index.js'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import { formatPrRouteLine } from '$lib/create-pr/route-line'
   import { coreErrorText } from '$lib/core/core-error'

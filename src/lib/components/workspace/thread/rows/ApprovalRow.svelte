@@ -25,6 +25,5 @@
     nowMs={ctx.nowMs}
     timeLabel={formatThreadTime(item.atMs)}
     timeTitle={formatThreadTimeTitle(item.atMs)}
-    onFocusComposer={ctx.onFocusComposer}
   />
 </RowShell>

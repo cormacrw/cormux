@@ -38,6 +38,7 @@
         text={item.text}
         workdir={ctx.workdir}
         findPr={ctx.findPr}
+        revealFile={ctx.revealFile}
       />
     </div>
   </Fold>

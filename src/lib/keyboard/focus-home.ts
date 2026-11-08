@@ -26,18 +26,33 @@ export function isEditable(element: Element | null): boolean {
   return element instanceof HTMLElement && element.isContentEditable
 }
 
+/** The roles a dialog, menu or list renders while it's up. */
+const OVERLAY_ROLES = ['dialog', 'alertdialog', 'menu', 'listbox']
+
+/** A selector for any overlay, each role narrowed by `state` (`[data-state="open"]`, say). */
+export function overlaySelector(state = ''): string {
+  return OVERLAY_ROLES.map((role) => `[role="${role}"]${state}`).join(', ')
+}
+
 // A layer on its way out (`data-state="closed"`) no longer counts. The composer's own
 // picker isn't an overlay: it sits in the prompt and handles its keys itself.
-const OPEN_OVERLAY = ['dialog', 'alertdialog', 'menu', 'listbox']
-  .map(
-    (role) =>
-      `[role="${role}"]:not([data-state="closed"]):not(#composer-picker)`,
-  )
-  .join(', ')
+const OPEN_OVERLAY = overlaySelector(
+  ':not([data-state="closed"]):not(#composer-picker)',
+)
 
 /** An open dialog, menu or list holds the keyboard for now: focus and Esc are its own. */
 export function overlayOpen(): boolean {
   return !!document.querySelector(OPEN_OVERLAY)
+}
+
+/** The composer's textarea. */
+export const PROMPT_ID = 'composer-input'
+
+/** Puts focus in the conversation's prompt; false when none is on screen. */
+export function focusPrompt(): boolean {
+  const prompt = document.getElementById(PROMPT_ID)
+  prompt?.focus()
+  return prompt != null
 }
 
 /**
@@ -48,7 +63,7 @@ export function focusPromptAfterPicker() {
   const nextPicker = document.querySelector(
     '[role="menu"][data-state="open"], [data-slot="select-content"][data-state="open"]',
   )
-  if (!nextPicker) document.getElementById('composer-input')?.focus()
+  if (!nextPicker) focusPrompt()
 }
 
 /**

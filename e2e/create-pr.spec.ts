@@ -24,7 +24,9 @@ test('Create PR drafts a description with no extra options', async ({
   await expect(dialog.getByLabel('Description')).toHaveValue(
     'Lets people sign in with their Google account.',
   )
-  await expect(dialog).toContainText('feat/oauth-login → feat/oauth-api · 3 files')
+  await expect(dialog).toContainText(
+    'feat/oauth-login → feat/oauth-api · 3 files',
+  )
   await expect(dialog.getByRole('checkbox')).toHaveCount(0)
   const box = await dialog.boundingBox()
   expect(box?.width).toBeGreaterThan(800)

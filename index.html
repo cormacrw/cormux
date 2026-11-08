@@ -7,7 +7,9 @@
     <!-- Apply Settings > Appearance before app.css loads so boot doesn't flash. -->
     <script>
       {
-        // Keys and values match mode-watcher and src/lib/state/appearance.svelte.ts.
+        // The mode key is mode-watcher's; the rest come from appearance-tokens.ts, put in
+        // at build time (vite.config.ts).
+        const tokens = __APPEARANCE_TOKENS__
         const read = (key) => {
           try {
             return localStorage.getItem(key)
@@ -25,20 +27,12 @@
         ) {
           root.classList.add('dark')
         }
-        // Ids match THEMES in appearance.svelte.ts; Blue is the default, Neutral has no attribute.
-        const theme = read('cormux-theme') || 'blue'
+        // Neutral has no attribute.
+        const theme = read(tokens.keys.theme) || tokens.defaultTheme
         if (theme !== 'neutral') root.dataset.palette = theme
         // First paint in the theme's own gradient, matching Backdrop.svelte and
         // the theme tokens in app.css, rather than a flat grey until styles load.
-        const palettes = {
-          blue: [262, 1],
-          violet: [292, 1],
-          pink: [345, 1],
-          red: [22, 0.5],
-          orange: [50, 0.5],
-          green: [155, 0.35],
-          teal: [200, 1],
-        }
+        const palettes = tokens.palettes
         const isDark = root.classList.contains('dark')
         const [hue, strength] = palettes[theme] ?? [265, 0]
         const base = palettes[theme]
@@ -56,24 +50,16 @@
             ? 'oklch(0.2 0.015 265)'
             : 'oklch(0.975 0.006 265)'
         root.style.background = `radial-gradient(120% 110% at 90% -10%, ${high}, transparent 70%) fixed, ${base}`
-        const uiSize = Number(read('cormux-ui-font-size'))
-        if (uiSize >= 14 && uiSize <= 18) root.style.fontSize = uiSize + 'px'
-        const codeSize = Number(read('cormux-code-font-size'))
-        if (codeSize >= 11 && codeSize <= 16) {
+        const uiSize = Number(read(tokens.keys.uiFontSize))
+        if (tokens.uiFontSizes.includes(uiSize)) {
+          root.style.fontSize = uiSize + 'px'
+        }
+        const codeSize = Number(read(tokens.keys.codeFontSize))
+        if (tokens.codeFontSizes.includes(codeSize)) {
           root.style.setProperty('--code-font-size', codeSize + 'px')
         }
-        // Ids and stacks match CODE_FONTS in appearance.svelte.ts.
-        const codeFonts = {
-          jetbrains:
-            "'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace",
-          system: "ui-monospace, 'SF Mono', Menlo, monospace",
-          geist:
-            "'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace",
-        }
-        const codeFont = read('cormux-code-font')
-        if (codeFont && codeFonts[codeFont]) {
-          root.style.setProperty('--code-font-family', codeFonts[codeFont])
-        }
+        const codeFont = tokens.codeFonts[read(tokens.keys.codeFont)]
+        if (codeFont) root.style.setProperty('--code-font-family', codeFont)
       }
     </script>
     <style>

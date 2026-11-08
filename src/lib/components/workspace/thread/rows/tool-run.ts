@@ -54,7 +54,7 @@ export function isQuiet(step: RunStep): boolean {
 
 export function stepChips(step: RunStep, scratch: boolean): Chip[] {
   if (step.kind === 'tool' && step.role.kind === 'edit') return []
-  // A scratch runs on the main checkout in the engine's read-only mode.
+  // Steps a scratch took, back when scratches ran, are marked as its reads.
   if (step.autoApproved) return [scratch ? SCRATCH : AUTO_APPROVED]
   if (step.kind === 'step') return []
   if (scratch && (step.role.kind === 'read' || step.role.kind === 'search')) {
@@ -77,7 +77,7 @@ export function newChips(
   )
 }
 
-export type StepSegment = { id: string; quiet: boolean; steps: RunStep[] }
+type StepSegment = { id: string; quiet: boolean; steps: RunStep[] }
 
 // A run's steps array is replaced only when the run changes, so its segments are kept with it.
 const segmentsByRun = new WeakMap<RunStep[], StepSegment[]>()

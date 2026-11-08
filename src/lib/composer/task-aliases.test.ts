@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  expandTaskAliases,
-  filterTasks,
-  insertTaskAlias,
-  taskContext,
-  taskToken,
-} from './task-aliases'
+import { expandTaskAliases, filterTasks, taskContext } from './task-aliases'
 
 const tasks = [
   {
@@ -23,23 +17,6 @@ const tasks = [
 ]
 
 describe('task aliases', () => {
-  it('finds the # word the caret is in', () => {
-    expect(taskToken('work on #eng', 12)).toEqual({
-      start: 8,
-      end: 12,
-      query: 'eng',
-    })
-    expect(taskToken('#', 1)).toEqual({ start: 0, end: 1, query: '' })
-    expect(taskToken('issue#12', 8)).toBeNull()
-    expect(taskToken('# Heading', 9)).toBeNull()
-  })
-
-  it('inserts the reference with a space after it', () => {
-    expect(
-      insertTaskAlias('do #en', { start: 3, end: 6, query: 'en' }, 'ENG-123'),
-    ).toEqual({ text: 'do #ENG-123 ', caret: 12 })
-  })
-
   it('matches the custom ID or ClickUp’s own, then the name', () => {
     expect(filterTasks(tasks, 'eng').map((task) => task.id)).toEqual([
       '86b1x2k',

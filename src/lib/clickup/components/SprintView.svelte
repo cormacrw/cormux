@@ -8,6 +8,7 @@
   import {
     daysLeft,
     formatPoints,
+    sameStatus,
     sprintRange,
     sprintTotals,
     statusLabel,
@@ -22,6 +23,7 @@
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import SprintTaskCard from './SprintTaskCard.svelte'
+  import TaskFlyout from './TaskFlyout.svelte'
 
   /** Pointer travel before a press becomes a drag, so a click still selects. */
   const DRAG_THRESHOLD = 4
@@ -31,14 +33,16 @@
   let boardEl: HTMLDivElement | undefined = $state()
 
   $effect(() => {
-    if (nav.view !== 'sprint') return
     void nav.arrivals
     if (!clickup.selectedTaskId) title?.focus()
   })
 
   $effect(() => {
-    if (nav.view === 'sprint' && !clickup.board) void clickup.refresh()
+    if (!clickup.board) void clickup.refresh()
   })
+
+  // The open task belongs to this page: leaving it closes the flyout.
+  $effect(() => () => clickup.select(null))
 
   const sprint = $derived(clickup.board?.sprint ?? null)
   const totals = $derived(sprintTotals(clickup.mine?.tasks ?? []))
@@ -357,7 +361,7 @@
           {@const isTarget =
             drag?.active &&
             overLane === lane.status.name &&
-            drag.task.status.toLowerCase() !== lane.status.name.toLowerCase()}
+            !sameStatus(drag.task.status, lane.status.name)}
           <section
             class={cn(
               'group/lane flex max-h-full w-[272px] shrink-0 flex-col rounded-xl border border-transparent bg-muted/40 transition-colors',
@@ -443,6 +447,9 @@
     </div>
   {/if}
 </section>
+
+<!-- A task opened here slides out over the page. -->
+<TaskFlyout />
 
 {#if drag?.active}
   <div

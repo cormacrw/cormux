@@ -292,11 +292,14 @@ src/
     ipc/          generated bindings, channel helpers
     core/         sync (snapshot refresh, version guard, state events), nav (one Route and navigate)
     state/        cross-cutting rune stores: workspaces, threads, repos, scratches, prs, workspace UI
-    <feature>/    a feature's logic, store, actions and components together:
-                  changes, run-app, clickup, settings, bangs, thread, composer, findings, …
+    nav/          opening a place: a workspace on a thread or panel, Changes at a file
+    <feature>/    a feature's logic, store, actions and components together: changes, run-app,
+                  clickup, settings, bangs, thread, composer, findings, command-palette,
+                  switcher (Ctrl+Tab), sidebar, …
+    settings-page/ the Settings page: composes each feature's settings panel
     components/
       ui/         shadcn-svelte components (generated, owned by the repo)
-      shell/      sidebar, palette, switcher, lazy views
+      shell/      app shell, lazy views, and the app's input routers: menu bar and keyboard
       workspace/  header, conversation, composer, approvals, findings
 ```
 

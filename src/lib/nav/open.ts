@@ -36,13 +36,22 @@ export function showThread(threadId: string) {
   if (workspaceId) openWorkspace(workspaceId, { threadId })
 }
 
-/** Opens the open workspace's Changes at a file, and at a line of it when given. */
-export function revealInChanges(path: string, line: number | null = null) {
-  const workspaceId = nav.workspaceId
-  if (!workspaceId) return
+/** Opens a workspace's Changes at a file, and at a line of it when given, on `threadId`. */
+export function revealFileInWorkspace(
+  workspaceId: string,
+  threadId: string | null,
+  path: string,
+  line: number | null = null,
+) {
   openWorkspace(workspaceId, {
-    threadId: nav.threadId,
+    threadId,
     panel: 'changes',
     reveal: { path, line },
   })
+}
+
+/** The same, in the workspace that's open. */
+export function revealInChanges(path: string, line: number | null = null) {
+  if (nav.workspaceId)
+    revealFileInWorkspace(nav.workspaceId, nav.threadId, path, line)
 }

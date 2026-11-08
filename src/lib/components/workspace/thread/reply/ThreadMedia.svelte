@@ -44,7 +44,6 @@
 
 {#if resolved === undefined}
   <div
-    data-reply-block
     class="my-2 flex h-24 max-w-[42rem] items-center justify-center rounded-lg border border-border bg-muted/40 text-xs text-muted-foreground"
     aria-label="Loading {fileName}"
   >
@@ -52,14 +51,13 @@
   </div>
 {:else if resolved === null}
   <p
-    data-reply-block
     class="my-2 inline-flex max-w-[42rem] items-center gap-1.5 text-xs text-muted-foreground"
   >
     <FileWarning class="size-3.5 shrink-0" aria-hidden="true" />
     <span class="truncate" title={source}>{fileName} isn't available</span>
   </p>
 {:else if resolved.kind === 'image'}
-  <figure class="my-2 max-w-[42rem]" data-reply-block>
+  <figure class="my-2 max-w-[42rem]">
     <button
       type="button"
       class="block w-full cursor-zoom-in overflow-hidden rounded-lg border border-border"
@@ -88,7 +86,7 @@
     />
   {/if}
 {:else}
-  <figure class="my-2 max-w-[42rem]" data-reply-block>
+  <figure class="my-2 max-w-[42rem]">
     <video
       src={resolved.url}
       controls

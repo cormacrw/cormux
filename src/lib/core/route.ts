@@ -4,6 +4,20 @@ export type WorkspacePanel = 'thread' | 'findings' | 'changes' | 'output'
 /** In Settings › Repositories, which field of the repo to focus. */
 export type RepoField = 'runCommand' | 'setup'
 
+/** A section of Settings a route can scroll to (the page lists them in `settings-page/sections.ts`). */
+export type SettingsSectionId =
+  | 'appearance'
+  | 'general'
+  | 'agents'
+  | 'prompts'
+  | 'github'
+  | 'clickup'
+  | 'repos'
+  | 'bangs'
+  | 'notifications'
+  | 'shortcuts'
+  | 'experimental'
+
 /**
  * Where the app is. Optional fields are one-shot intents: the view they open takes each once
  * (`nav.take`), so coming back to the same place later doesn't repeat them.
@@ -21,12 +35,12 @@ export type Route =
   | { view: 'scratch'; scratchId: string }
   | {
       view: 'settings'
-      section?: string
+      section?: SettingsSectionId
       /** A repo to expand in Settings › Repositories, focusing `field` when given. */
       repoId?: string
       field?: RepoField
     }
-  | { view: 'sprint'; taskId?: string }
+  | { view: 'sprint' }
   | { view: 'repo'; repoId: string }
 
 export type View = Route['view']
@@ -34,7 +48,7 @@ export type View = Route['view']
 export const NEW_THREAD: Route = { view: 'newThread' }
 
 /** What a route needs to still make sense; the stores answer, so this module imports none. */
-export type RouteLookups = {
+type RouteLookups = {
   workspace: (id: string) => boolean
   scratch: (id: string) => boolean
   repo: (id: string) => boolean

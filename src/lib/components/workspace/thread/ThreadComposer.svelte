@@ -1,12 +1,46 @@
+<script lang="ts" module>
+  import type { Snippet } from 'svelte'
+  import type { ComposerAttachment } from '$lib/composer/attachments'
+  import type { Skill } from '$lib/ipc/bindings'
+  import type { Thread } from '$lib/state/threads.svelte'
+
+  /** Who a message goes to: a thread, or a new one that the first message starts. */
+  export type ComposerTarget =
+    | { thread: Thread }
+    | {
+        /** Where the draft is kept until the thread exists. */
+        draftKey: string
+        /** The repo it will start in, for the placeholder; null with none to pick. */
+        repoName: string | null
+        /**
+         * Starts the thread with the message; resolves false to put the draft back. `stay` is
+         * ⌘↵: send it off without leaving.
+         */
+        start: (
+          text: string,
+          stay: boolean,
+          attachments: ComposerAttachment[],
+        ) => Promise<boolean>
+        /** The `/` picker's skills, read from the repo it will start in. */
+        listSkills: () => Promise<Skill[]>
+        /** Its own repo, model and effort pickers, at the start of the footer. */
+        pickers: Snippet
+      }
+</script>
+
 <script lang="ts">
   import {
     sendToThread,
     stopThread,
     switchConversation,
   } from '$lib/thread/actions'
-  import type { Snippet } from 'svelte'
   import { onMount, tick } from 'svelte'
-  import { composerMayTakeFocus, isEditable } from '$lib/keyboard/focus-home'
+  import {
+    composerMayTakeFocus,
+    isEditable,
+    PROMPT_ID,
+  } from '$lib/keyboard/focus-home'
+  import { onEscape } from '$lib/keyboard/escape'
   import { nav } from '$lib/core/nav.svelte'
   import { getCurrentWebview } from '@tauri-apps/api/webview'
   import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
@@ -15,7 +49,6 @@
     attachmentFromFile,
     attachmentFromPath,
     isImageName,
-    type ComposerAttachment,
   } from '$lib/composer/attachments'
   import { Textarea } from '$lib/components/ui/textarea'
   import {
@@ -24,36 +57,16 @@
   } from '$lib/composer/can-pause'
   import { stepPromptHistory } from '$lib/composer/prompt-history'
   import { commands } from '$lib/ipc'
-  import type { Skill } from '$lib/ipc/bindings'
   import {
-    filterSkills,
-    insertSkill,
-    skillToken,
-  } from '$lib/composer/skill-picker'
-  import {
-    filterRepos,
-    insertRepoAlias,
-    repoAlias,
-    repoToken,
-  } from '$lib/composer/repo-aliases'
-  import {
-    filterTasks,
-    insertTaskAlias,
-    taskToken,
-  } from '$lib/composer/task-aliases'
+    pickerAt,
+    replaceWord,
+    type TriggerWord,
+  } from '$lib/composer/triggers'
   import { expandMessage } from '$lib/composer/expand-message'
-  import {
-    bangPreview,
-    bangToken,
-    filterBangs,
-    insertBang,
-    type Bang,
-  } from '$lib/bangs/bangs'
+  import { bangPreview } from '$lib/bangs/bangs'
   import Zap from '@lucide/svelte/icons/zap'
-  import { taskRef } from '$lib/clickup/board'
   import { clickup } from '$lib/clickup/store.svelte'
   import { repos } from '$lib/state/repos.svelte'
-  import type { RepoRecord } from '$lib/ipc/bindings'
   import { coreErrorText } from '$lib/core/core-error'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/composer/drafts-store.svelte'
@@ -63,7 +76,6 @@
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
-  import type { Thread } from '$lib/state/threads.svelte'
   import ThreadOptionPicker from './ThreadOptionPicker.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -78,56 +90,33 @@
   import Square from '@lucide/svelte/icons/square'
 
   let {
-    thread,
-    draftKey = '',
+    target,
     onSent,
     status,
-    // eslint-disable-next-line no-useless-assignment -- bindable, set by the effect below
-    focusComposer = $bindable(),
-    inputLabel = 'Message the agent',
-    placeholder,
-    sendLabel = 'Send to agent',
-    newSession = false,
-    onSubmit,
-    pickers,
-    listSkills,
-    disabled = false,
   }: {
-    /** The thread it talks to; none on the new thread page, where `onSubmit` takes the message. */
-    thread?: Thread
-    /** Where the draft is kept while there's no thread. */
-    draftKey?: string
+    target: ComposerTarget
     onSent?: () => void
     /** What the agent is doing, floated just above the prompt bar. */
     status?: Snippet
-    focusComposer?: (() => void) | null
-    inputLabel?: string
-    placeholder?: string
-    sendLabel?: string
-    /** Show the New session button (a thread that's already running). */
-    newSession?: boolean
-    /**
-     * Takes the message instead of the thread, for a composer whose thread doesn't exist yet.
-     * Resolves false to put the draft back. `stay` is ⌘↵: send it off without leaving.
-     */
-    onSubmit?: (
-      text: string,
-      stay: boolean,
-      attachments: ComposerAttachment[],
-    ) => Promise<boolean>
-    /** Controls for the start of the footer, before anything else. */
-    pickers?: Snippet
-    /** Reads the `/` picker's skills, for a composer whose thread doesn't exist yet. */
-    listSkills?: () => Promise<Skill[]>
-    disabled?: boolean
   } = $props()
+
+  const thread = $derived('thread' in target ? target.thread : undefined)
+  const newThread = $derived('thread' in target ? undefined : target)
+  const disabled = $derived(newThread?.repoName === null)
+  const placeholder = $derived(
+    thread
+      ? `Message ${thread.role}…`
+      : newThread?.repoName
+        ? `What should we do in ${newThread.repoName}?`
+        : 'Add a repo to start a thread',
+  )
 
   let inputEl = $state<HTMLTextAreaElement | null>(null)
   let composing = $state(false)
   /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
   let historyIndex = $state<number | null>(null)
 
-  const draftId = $derived(thread?.id ?? draftKey)
+  const draftId = $derived(thread?.id ?? newThread?.draftKey ?? '')
   const draft = $derived(composerDrafts.textFor(draftId))
   const threadStatus = $derived(thread?.status ?? 'idle')
   const showPause = $derived(composerShowsPauseControl(threadStatus))
@@ -149,100 +138,68 @@
   )
   let draggingFiles = $state(false)
 
-  // Typing `/` anywhere opens the skill picker.
+  // Typing `/` opens the skill picker, `@` the repos set up in Cormux (the folder goes in on
+  // send), `#` your sprint tasks, and `!` your bangs (picking one puts its prompt in).
   let skills = $state<Skill[] | null>(null)
   let skillsThreadId: string | null = null
   let pickerIndex = $state(0)
   /** Esc hides the picker until the draft changes. */
   let pickerDismissed = $state(false)
-  /** Where the caret is in the draft; the picker follows the `/` or `@` word it's in. */
+  /** Where the caret is in the draft; the picker follows the trigger word it's in. */
   let caret = $state(0)
-  const token = $derived(skillToken(draft, Math.min(caret, draft.length)))
-  const query = $derived(token?.query ?? null)
-  const skillMatches = $derived(
-    query !== null && skills ? filterSkills(skills, query) : [],
-  )
-  // Typing `@` offers the repos set up in Cormux; `@alias` becomes the repo's folder on send.
-  const repoWord = $derived(
-    token ? null : repoToken(draft, Math.min(caret, draft.length)),
-  )
-  const repoMatches = $derived(
-    repoWord ? filterRepos(repos.items, repoWord.query) : [],
-  )
-  // Typing `#` offers your sprint tasks; `#ref` becomes the task on send.
   const sprintTasks = $derived(clickup.mine?.tasks ?? [])
-  const taskWord = $derived(
-    token || repoWord || !sprintTasks.length
-      ? null
-      : taskToken(draft, Math.min(caret, draft.length)),
+  const picker = $derived(
+    pickerAt(draft, caret, {
+      skills,
+      repos: repos.items,
+      tasks: sprintTasks,
+      bangs: settings.bangs,
+    }),
   )
-  const taskMatches = $derived(
-    taskWord ? filterTasks(sprintTasks, taskWord.query) : [],
-  )
-  // Typing `!` offers your bangs (Settings › Bangs); picking one puts its prompt in.
-  const bangWord = $derived(
-    token || repoWord || taskWord || !settings.bangs.length
-      ? null
-      : bangToken(draft, Math.min(caret, draft.length)),
-  )
-  const bangMatches = $derived(
-    bangWord ? filterBangs(settings.bangs, bangWord.query) : [],
-  )
-  type PickerOption = {
-    key: string
-    label: string
-    detail: string
-    badge: string | null
-    kind: 'skill' | 'repo' | 'task' | 'bang'
-    choose: () => void
-  }
-  const pickerOptions = $derived.by((): PickerOption[] => {
-    if (query !== null)
-      return skillMatches.map((skill) => ({
-        key: skill.name,
-        label: `/${skill.name}`,
-        detail: skill.description,
-        badge:
-          skill.source === 'project'
-            ? 'repo'
-            : skill.source === 'plugin'
-              ? 'plugin'
-              : null,
-        kind: 'skill' as const,
-        choose: () => chooseSkill(skill),
-      }))
-    if (bangWord)
-      return bangMatches.map((bang) => ({
-        key: bang.id,
-        label: `!${bang.name}`,
-        detail: bangPreview(bang.prompt, 80),
-        badge: null,
-        kind: 'bang' as const,
-        choose: () => chooseBang(bang),
-      }))
-    if (taskWord)
-      return taskMatches.map((task) => ({
-        key: task.id,
-        label: `#${taskRef(task)}`,
-        detail: task.name,
-        badge: task.status,
-        kind: 'task' as const,
-        choose: () => chooseTask(task),
-      }))
-    return repoMatches.map((repo) => ({
-      key: repo.id,
-      label: `@${repoAlias(repo)}`,
-      detail: repo.path,
-      badge: null,
-      kind: 'repo' as const,
-      choose: () => chooseRepo(repo),
-    }))
+  const pickerOptions = $derived.by(() => {
+    if (!picker) return []
+    const base = { kind: picker.kind, choose: chooseFrom(picker.word) }
+    switch (picker.kind) {
+      case 'skill':
+        return picker.options.map((option) => ({
+          ...base,
+          ...option,
+          detail: option.item.description,
+          badge:
+            option.item.source === 'project'
+              ? 'repo'
+              : option.item.source === 'plugin'
+                ? 'plugin'
+                : null,
+        }))
+      case 'bang':
+        return picker.options.map((option) => ({
+          ...base,
+          ...option,
+          detail: bangPreview(option.item.prompt, 80),
+          badge: null,
+        }))
+      case 'task':
+        return picker.options.map((option) => ({
+          ...base,
+          ...option,
+          detail: option.item.name,
+          badge: option.item.status,
+        }))
+      case 'repo':
+        return picker.options.map((option) => ({
+          ...base,
+          ...option,
+          detail: option.item.path,
+          badge: null,
+        }))
+    }
   })
   const pickerOpen = $derived(!pickerDismissed && pickerOptions.length > 0)
 
   $effect(() => {
     void draftId
-    void listSkills
+    void newThread?.listSkills
     historyIndex = null
     skills = null
     skillsThreadId = null
@@ -251,37 +208,27 @@
 
   // Read the skill folders when the picker is first wanted, once per thread.
   $effect(() => {
-    if (query === null || skillsThreadId === draftId) return
+    if (picker?.kind !== 'skill' || skillsThreadId === draftId) return
     const threadId = draftId
     skillsThreadId = threadId
-    if (listSkills) {
-      void listSkills().then((found) => (skills = found))
-      return
-    }
-    void commands.listThreadSkills(threadId).then((result) => {
-      if (draftId !== threadId) return
-      skills = result.status === 'ok' ? result.data : []
-    })
+    const read = newThread
+      ? newThread.listSkills()
+      : commands
+          .listThreadSkills(threadId)
+          .then((result) => (result.status === 'ok' ? result.data : []))
+    void read
+      .catch((error: unknown) => {
+        console.warn('could not read skills', error)
+        return []
+      })
+      .then((found) => {
+        if (draftId === threadId) skills = found
+      })
   })
 
-  function chooseSkill(skill: Skill) {
-    if (!token) return
-    applyPick(insertSkill(draft, token, skill.name))
-  }
-
-  function chooseRepo(repo: RepoRecord) {
-    if (!repoWord) return
-    applyPick(insertRepoAlias(draft, repoWord, repoAlias(repo)))
-  }
-
-  function chooseBang(bang: Bang) {
-    if (!bangWord) return
-    applyPick(insertBang(draft, bangWord, bang))
-  }
-
-  function chooseTask(task: (typeof sprintTasks)[number]) {
-    if (!taskWord) return
-    applyPick(insertTaskAlias(draft, taskWord, taskRef(task)))
+  function chooseFrom(word: TriggerWord) {
+    return (option: { insert: string; as: 'word' | 'text' }) =>
+      applyPick(replaceWord(draft, word, option.insert, option.as))
   }
 
   function applyPick(next: { text: string; caret: number }) {
@@ -309,7 +256,8 @@
       (event.key === 'Enter' && !event.shiftKey) ||
       event.key === 'Tab'
     ) {
-      pickerOptions[pickerIndex]?.choose()
+      const option = pickerOptions[pickerIndex]
+      option?.choose(option)
     } else if (event.key === 'Escape') {
       pickerDismissed = true
     } else {
@@ -319,13 +267,20 @@
     return true
   }
 
+  // Fits the box to text put in the draft from outside too (a picked task).
   $effect(() => {
-    // Fits the box too, for text put in the draft from outside (a picked task).
-    focusComposer = () => {
-      fitHeight()
-      inputEl?.focus()
-    }
+    void draft
+    fitHeight()
   })
+
+  // Esc stops the agent once nothing in front of it (a popover, a slide-out) wanted the key.
+  $effect(() =>
+    onEscape('agent', () => {
+      if (threadStatus !== 'running') return false
+      stopTurn()
+      return true
+    }),
+  )
 
   /** Puts focus back in the prompt, unless the user is busy somewhere else. */
   function takeFocus() {
@@ -412,8 +367,8 @@
     sending = true
     const outgoing = await expandMessage(text)
     const sent = await (
-      onSubmit
-        ? onSubmit(outgoing, stay, attached)
+      newThread
+        ? newThread.start(outgoing, stay, attached)
         : sendToThread(threadId, outgoing, attached)
     ).finally(() => (sending = false))
     if (!sent) {
@@ -479,7 +434,6 @@
 
   // In the app, files dropped from Finder arrive as paths through Tauri, not as a browser drop.
   onMount(() => {
-    if (document.documentElement.dataset.cormuxHarness === 'browser') return
     let unlisten: (() => void) | undefined
     let gone = false
     void getCurrentWebview()
@@ -578,38 +532,6 @@
     })
   }
 
-  // ⌘↵ anywhere jumps to the composer; dialogs and the diff comment box handle it first.
-  function onWindowKeydown(event: KeyboardEvent) {
-    typeToFocus(event)
-    // Esc stops the agent, unless a dialog, popover or inline editor took it first.
-    if (
-      event.key === 'Escape' &&
-      threadStatus === 'running' &&
-      !event.defaultPrevented &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.altKey &&
-      !event.shiftKey &&
-      !shellDialogs.anyOpen()
-    ) {
-      event.preventDefault()
-      void stopTurn()
-      return
-    }
-    if (
-      event.key !== 'Enter' ||
-      !(event.metaKey || event.ctrlKey) ||
-      event.shiftKey ||
-      event.altKey ||
-      event.defaultPrevented ||
-      shellDialogs.anyOpen()
-    ) {
-      return
-    }
-    event.preventDefault()
-    inputEl?.focus()
-  }
-
   function onCompositionStart() {
     composing = true
   }
@@ -619,7 +541,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} onfocus={onWindowFocus} />
+<svelte:window onkeydown={typeToFocus} onfocus={onWindowFocus} />
 
 <div
   class="composer-wrap sticky bottom-0 z-10 px-1 pt-2 pb-4"
@@ -627,7 +549,7 @@
 >
   {#if status && !pickerOpen}
     <div
-      class="pointer-events-none absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-[760px]"
+      class="pointer-events-none absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-(--thread-column)"
     >
       {@render status()}
     </div>
@@ -645,7 +567,7 @@
           : shownKind === 'bang'
             ? 'Bangs'
             : 'Skills'}
-      class="composer-picker absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-background-solid p-1 text-popover-foreground shadow-lg"
+      class="composer-picker absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-(--thread-column) flex-col gap-0.5 rounded-xl border border-border/80 bg-background-solid p-1 text-popover-foreground shadow-lg"
       data-od-id="{shownKind}-picker"
     >
       {#each pickerOptions as option, index (option.key)}
@@ -657,7 +579,7 @@
           onmousedown={(event) => {
             // Keep focus in the composer.
             event.preventDefault()
-            option.choose()
+            option.choose(option)
           }}
           onpointermove={(event) => {
             // Only a pointer that really moved: the list opening, or sliding in
@@ -703,7 +625,7 @@
     </ul>
   {/if}
   <form
-    class="composer glass-pane @container mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-[18px] transition-[border-color,box-shadow] duration-(--dur-fast) focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25"
+    class="composer glass-pane @container mx-auto flex max-w-(--thread-column) flex-col overflow-hidden rounded-[18px] transition-[border-color,box-shadow] duration-(--dur-fast) focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25"
     id="composer"
     data-od-id="composer"
     class:composer-dropping={draggingFiles}
@@ -782,14 +704,16 @@
         {/each}
       </ul>
     {/if}
-    <label class="sr-only" for="composer-input">{inputLabel}</label>
+    <label class="sr-only" for={PROMPT_ID}
+      >{thread ? 'Message the agent' : 'Start a new thread'}</label
+    >
     <Textarea
       bind:ref={inputEl}
-      id="composer-input"
+      id={PROMPT_ID}
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      placeholder={placeholder ?? `Message ${thread?.role ?? 'the agent'}…`}
+      {placeholder}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'composer-picker' : undefined}
@@ -818,11 +742,12 @@
         id="composer-meta"
         data-od-id="composer-meta"
       >
-        {@render pickers?.()}
         <!-- A new thread brings its own model and effort pickers: there's no thread to set yet. -->
-        {#if !onSubmit}
-          <ThreadOptionPicker kind="model" threadId={thread?.id ?? null} />
-          <ThreadOptionPicker kind="effort" threadId={thread?.id ?? null} />
+        {#if thread}
+          <ThreadOptionPicker kind="model" threadId={thread.id} />
+          <ThreadOptionPicker kind="effort" threadId={thread.id} />
+        {:else if newThread}
+          {@render newThread.pickers()}
         {/if}
         <Button
           type="button"
@@ -861,7 +786,7 @@
             {pauseLabel}
           </Button>
         {/if}
-        {#if newSession}
+        {#if thread}
           <Button
             type="button"
             variant="ghost"
@@ -869,7 +794,7 @@
             data-od-id="composer-new-session"
             title="Start a new session; the agent forgets this conversation"
             disabled={!view?.canClearSession}
-            onclick={() => thread && void switchConversation(thread.id, 'new')}
+            onclick={() => void switchConversation(thread.id, 'new')}
           >
             New session
             <kbd
@@ -904,7 +829,7 @@
           data-od-id="composer-stop"
           title="Stop (Esc)"
           aria-label="Stop"
-          onclick={() => void stopTurn()}
+          onclick={stopTurn}
         >
           <Square class="size-3 fill-current" aria-hidden="true" />
         </Button>
@@ -915,7 +840,7 @@
         size="icon-sm"
         class="composer-send size-8 shrink-0 rounded-lg"
         data-od-id="composer-send"
-        aria-label={sendLabel}
+        aria-label={thread ? 'Send to agent' : 'Start thread'}
         aria-busy={sending}
         disabled={!canSend}
         onmousedown={(event) => {

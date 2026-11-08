@@ -3,11 +3,12 @@
   import { plural, pluralWord } from '$lib/format/plural'
   import { onDestroy } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-  import { entities } from '$lib/state'
+  import { entities, prs, workspaceUi } from '$lib/state'
+  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
-  import { openWorkspace } from '$lib/workspace/open'
-  import { appearance } from '$lib/state/appearance.svelte'
+  import { openWorkspace, revealFileInWorkspace } from '$lib/nav/open'
+  import { wordmark } from '$lib/background/wordmark.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { engineDisplayName } from '$lib/engine/engines'
@@ -19,6 +20,7 @@
   import ThreadHero from './ThreadHero.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
   import ThreadReferences from './ThreadReferences.svelte'
+  import type { ConversationSource } from './rows/context'
 
   let {
     workspace,
@@ -29,11 +31,29 @@
   } = $props()
 
   const threadId = $derived(thread.id)
+
+  // By path, so each edit step's `+n −m` is one lookup rather than a scan of the diff.
+  const diffFileByPath = $derived(
+    new Map(
+      (workspaceDiff.filesByWorkspace[workspace.id] ?? []).map((file) => [
+        file.path,
+        file,
+      ]),
+    ),
+  )
+  const source: ConversationSource = {
+    get workdir() {
+      return workspace.worktreePath
+    },
+    diffFile: (path) => diffFileByPath.get(path),
+    findPr: (repoFullName, num) => prs.find(repoFullName, num),
+    revealFile: (path, line = null) =>
+      revealFileInWorkspace(workspace.id, threadId, path, line),
+  }
   const view = $derived(threadTimeline.threadView(threadId))
   const live = $derived(view.live)
   // An empty conversation shows a greeting instead of the last one's messages.
   const showHero = $derived(view.loaded && view.items.length === 0)
-  let focusComposer = $state<(() => void) | null>(null)
   let conversation: ThreadConversation | undefined = $state()
 
   // Experimental: empty unless References is on in Settings.
@@ -45,10 +65,8 @@
   // The live status floats over the end of the timeline, which leaves room for all of it.
   let liveStatusHeight = $state(0)
 
-  // The backdrop's wordmark is away while a conversation's going (it only
-  // animates when one starts or is cleared; see glideWordmark).
   $effect(() => {
-    if (view.loaded) appearance.wordmarkAway = !showHero
+    if (view.loaded) wordmark.showConversation(!showHero)
   })
 
   // The greeting offers earlier conversations to resume, however far back they are.
@@ -56,7 +74,7 @@
     if (showHero && view.hasOlder) void threadTimeline.loadOlder(threadId)
   })
 
-  onDestroy(() => appearance.resetWordmark())
+  onDestroy(() => wordmark.reset())
 </script>
 
 <div
@@ -70,7 +88,8 @@
     {threadId}
     role={thread.role}
     engine={engineDisplayName(thread.engine)}
-    workspaceId={workspace.id}
+    {source}
+    shown={workspaceUi.activeTab === 'thread'}
     contentClass={[
       'pt-3',
       // The greeting sits at the bottom, its box reaching down to the prompt
@@ -84,7 +103,6 @@
     padBottom={live && !showHero && liveStatusHeight
       ? `calc(${liveStatusHeight}px + 1.75rem)`
       : undefined}
-    onFocusComposer={() => focusComposer?.()}
   >
     {#snippet aside()}
       {#if threadEntities.length}
@@ -188,7 +206,7 @@
   {#if thread.retired}
     <div class="px-1 pt-2 pb-4">
       <p
-        class="glass-pane mx-auto flex max-w-[760px] items-center justify-between gap-3 rounded-[18px] px-4 py-3 text-sm text-muted-foreground"
+        class="glass-pane mx-auto flex max-w-(--thread-column) items-center justify-between gap-3 rounded-[18px] px-4 py-3 text-sm text-muted-foreground"
         data-od-id="thread-read-only"
       >
         This earlier thread is read-only.
@@ -203,10 +221,8 @@
     </div>
   {:else}
     <ThreadComposer
-      {thread}
-      newSession
+      target={{ thread }}
       status={live ? liveStatus : undefined}
-      bind:focusComposer
       onSent={() => conversation?.followEnd()}
     />
   {/if}

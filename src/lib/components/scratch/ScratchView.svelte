@@ -2,12 +2,11 @@
   import { windowDrag } from '$lib/primitives/window-drag'
   import { tick } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-  import { Kbd } from '$lib/components/ui/kbd'
-  import CommandIcon from '@lucide/svelte/icons/command'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import ShortcutKbd from '$lib/primitives/ShortcutKbd.svelte'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import ThreadConversation from '$lib/components/workspace/thread/ThreadConversation.svelte'
-  import { repos, scratches, shellDialogs } from '$lib/state'
+  import { prs, repos, scratches, shellDialogs } from '$lib/state'
+  import type { ConversationSource } from '$lib/components/workspace/thread/rows/context'
   import { nav } from '$lib/core/nav.svelte'
   import type { Scratch } from '$lib/state/scratches.svelte'
   import { engineDisplayName } from '$lib/engine/engines'
@@ -16,11 +15,18 @@
     nav.scratchId ? scratches.getById(nav.scratchId) : undefined,
   )
   const repo = $derived(scratch ? repos.getById(scratch.repoId) : undefined)
-  // A removed repo falls back to its id.
   const repoPath = $derived(repo?.path ?? scratch?.repoId ?? '')
   const engineName = $derived(engineDisplayName(scratch?.engine ?? 'claude'))
 
   let headingEl = $state<HTMLHeadingElement | null>(null)
+
+  // No worktree and no Changes to open: file references stay plain text.
+  const source: ConversationSource = {
+    workdir: undefined,
+    diffFile: () => undefined,
+    findPr: (repoFullName, num) => prs.find(repoFullName, num),
+    revealFile: undefined,
+  }
 
   $effect(() => {
     if (nav.view !== 'scratch') return
@@ -29,7 +35,7 @@
   })
 
   function onKeydown(event: KeyboardEvent) {
-    if (!scratch || !isHeaderShortcut(event, 'deleteScratch')) return
+    if (!scratch || !shellDialogs.allows(event, 'deleteScratch')) return
     event.preventDefault()
     shellDialogs.open('endScratch', { scratchId: scratch.id })
   }
@@ -77,7 +83,7 @@
             shellDialogs.open('endScratch', { scratchId: scratch.id })}
         >
           Delete
-          <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />E</Kbd>
+          <ShortcutKbd id="deleteScratch" />
         </Button>
       </div>
     </header>
@@ -86,9 +92,8 @@
       threadId={scratch.threadId}
       role=""
       engine={engineName}
-      workspaceId={null}
+      {source}
       scratch
-      liveInline
       odId="session-thread"
       contentClass="pb-4 pt-6"
     />

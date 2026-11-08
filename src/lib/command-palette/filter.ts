@@ -14,7 +14,7 @@ function haystack(command: PaletteCommand): string {
   return text
 }
 
-/** Case-insensitive substring match on label and meta (spec §02). */
+/** Case-insensitive substring match on label and meta (product/features/02-command-palette-and-shortcuts.md). */
 export function filterCommands(
   commands: PaletteCommand[],
   query: string,

@@ -5,7 +5,7 @@ test('deleting a workspace takes its agents out of the sidebar with it', async (
   page,
 }) => {
   await page.goto('/')
-  const sidebar = page.getByRole('navigation', { name: 'Harness' })
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' })
   const row = sidebar.getByRole('button', {
     name: /^OAuth login,/,
   })

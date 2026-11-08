@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { openWorkspace } from '$lib/workspace/open'
+  import { openWorkspace } from '$lib/nav/open'
   import { nav, navigate } from '$lib/core/nav.svelte'
   import { windowDrag } from '$lib/primitives/window-drag'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import { Badge } from '$lib/components/ui/badge'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
   import type { LocalBranchRow } from '$lib/ipc/bindings'

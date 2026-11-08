@@ -7,6 +7,7 @@
   import { commands } from '$lib/ipc'
   import { coreErrorText } from '$lib/core/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { focusPrompt } from '$lib/keyboard/focus-home'
   import { cn } from '$lib/utils'
   import type { TimelineItem } from '$lib/thread/timeline-types'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
@@ -20,13 +21,11 @@
     nowMs,
     timeLabel,
     timeTitle,
-    onFocusComposer,
   }: {
     item: ApprovalItem
     nowMs: number
     timeLabel: string
     timeTitle: string
-    onFocusComposer?: () => void
   } = $props()
 
   let cardEl: HTMLDivElement | undefined = $state()
@@ -63,8 +62,7 @@
       denyReason = ''
       // Back to the prompt once it's answered; the card itself if there's no composer.
       queueMicrotask(() => {
-        if (onFocusComposer) onFocusComposer()
-        else cardEl?.focus({ preventScroll: true })
+        if (!focusPrompt()) cardEl?.focus({ preventScroll: true })
       })
     }
   }

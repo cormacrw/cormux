@@ -2,7 +2,7 @@
   import { refreshSnapshot } from '$lib/core/sync'
   import { navigate } from '$lib/core/nav.svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import { showToast } from '$lib/feedback/show-toast'
   import { toastCoreError } from '$lib/feedback/wire-feedback'

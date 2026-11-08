@@ -10,7 +10,7 @@
   import * as Select from '$lib/components/ui/select'
   import { threads, workspaceUi, workspaces } from '$lib/state'
   import { findings } from '$lib/findings/store.svelte'
-  import { openWorkspaceThread, revealInChanges } from '$lib/workspace/open'
+  import { openWorkspaceThread, revealInChanges } from '$lib/nav/open'
   import { engineDisplayName } from '$lib/engine/engines'
   import { selectionSummaryText } from '$lib/findings/format'
   import {

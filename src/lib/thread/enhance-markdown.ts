@@ -7,7 +7,7 @@ const BLOCK = '[data-reply-block]'
 type Checks = 'pass' | 'fail' | 'running' | 'none'
 
 /** What a PR card shows of a pull request Cormux knows. */
-export type PullRequestCard = { title: string; checks: Checks; review: string }
+type PullRequestCard = { title: string; checks: Checks; review: string }
 
 export type FindPullRequest = (
   repoFullName: string,
@@ -58,9 +58,13 @@ function replaceMatches(node: Text, matches: Match[]) {
   node.replaceWith(parts)
 }
 
-function textMatches(text: string, workdir?: string): Match[] {
+function textMatches(
+  text: string,
+  workdir: string | undefined,
+  fileRefs: boolean,
+): Match[] {
   return [
-    ...findFileRefs(text).map((ref) => ({
+    ...(fileRefs ? findFileRefs(text) : []).map((ref) => ({
       index: ref.index,
       length: ref.length,
       make: () => {
@@ -102,16 +106,19 @@ function githubCard(link: HTMLAnchorElement, findPr?: FindPullRequest) {
 }
 
 /**
- * The inline parts of a finished reply that markdown can't express: clickable file references,
- * PR and commit cards, and math. Runs on the rendered DOM, so sanitising has already happened
- * and everything it adds is built from text nodes, never parsed as HTML.
+ * The inline parts of a finished reply that markdown can't express: clickable file references
+ * (with `fileRefs`, where there are Changes to open them in), PR and commit cards, and math.
+ * Runs on the rendered DOM, so sanitising has already happened and everything it adds is built
+ * from text nodes, never parsed as HTML.
  */
 export function enhanceMarkdown(
   root: HTMLElement,
-  options: { workdir?: string; findPr?: FindPullRequest },
+  options: { workdir?: string; findPr?: FindPullRequest; fileRefs: boolean },
 ) {
-  const { workdir, findPr } = options
-  for (const code of root.querySelectorAll('code:not(pre code)')) {
+  const { workdir, findPr, fileRefs } = options
+  for (const code of fileRefs
+    ? root.querySelectorAll('code:not(pre code)')
+    : []) {
     if (code.closest(`a, .file-ref, ${BLOCK}`)) continue
     const ref = wholeFileRef(code.textContent ?? '')
     if (!ref) continue
@@ -124,6 +131,11 @@ export function enhanceMarkdown(
     const href = link.getAttribute('href') ?? ''
     if (/^[a-z][a-z0-9+.-]*:|^#/i.test(href)) githubCard(link, findPr)
     else if (wholeFileRef(href)) {
+      // With nowhere to open it, a link to a file would only try a bogus URL.
+      if (!fileRefs) {
+        link.removeAttribute('href')
+        continue
+      }
       const ref = wholeFileRef(href)!
       link.dataset.path = worktreePath(ref.path, workdir)
       if (ref.line !== null) link.dataset.line = String(ref.line)
@@ -142,7 +154,7 @@ export function enhanceMarkdown(
   const nodes: Text[] = []
   while (walker.nextNode()) nodes.push(walker.currentNode as Text)
   for (const node of nodes) {
-    const matches = textMatches(node.data, workdir)
+    const matches = textMatches(node.data, workdir, fileRefs)
     if (matches.length) replaceMatches(node, matches)
   }
 }

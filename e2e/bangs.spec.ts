@@ -10,7 +10,7 @@ test.describe('bangs', () => {
     mkdirSync('e2e/output', { recursive: true })
     await page.goto('/')
 
-    const nav = page.getByRole('navigation', { name: 'Harness' })
+    const nav = page.getByRole('navigation', { name: 'Sidebar' })
     await nav.getByRole('button', { name: /Settings/ }).click()
     const section = page.locator('[data-od-id="settings-bangs"]')
     await expect(section.getByRole('heading', { name: 'Bangs' })).toBeVisible()

@@ -1,6 +1,6 @@
 import { commands } from '$lib/ipc'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
-import { openWorkspaceThread } from './open'
+import { openWorkspaceThread } from '$lib/nav/open'
 
 export async function openWorkspaceTerminal(workspaceId: string) {
   const result = await commands.openWorkspaceTerminal(workspaceId)

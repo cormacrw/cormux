@@ -1,8 +1,9 @@
 import { toastCoreError } from '$lib/feedback/wire-feedback'
-import { clickup, type ClickupWriteError } from './store.svelte'
+import { clickup } from './store.svelte'
+import { writeErrorText, type ClickupWriteError } from './write-error'
 
 function toastFailure(failure: ClickupWriteError | null) {
-  if (failure) toastCoreError(failure.error, failure.doing)
+  if (failure) toastCoreError(writeErrorText(failure))
 }
 
 export async function moveTask(taskId: string, statusName: string) {
