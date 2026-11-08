@@ -90,8 +90,6 @@ function seedReviewFindings(findings: HarnessScenario['reviewFindings']) {
       submitted: false,
     },
   ]
-  // As the core sends it for the timeline, beside the typed review.
-  persisted.settings = [{ key: 'review:ws-auth/status', value: 'ready' }]
 }
 
 function seedLeadUsage(usage: NonNullable<HarnessScenario['leadUsage']>) {

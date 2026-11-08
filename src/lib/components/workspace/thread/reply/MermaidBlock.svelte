@@ -1,24 +1,15 @@
 <script lang="ts" module>
   import DOMPurify from 'dompurify'
+  import { LruCache } from '$lib/thread/memo'
 
   let renders = 0
 
   // A virtual list unmounts rows off screen; coming back shouldn't redraw or change height.
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- a cache, nothing renders it
-  const drawn = new Map<string, string>()
-  const DRAWN_LIMIT = 50
+  const drawn = new LruCache<string, string>(50)
 
   function drawnKey(code: string) {
     const dark = document.documentElement.classList.contains('dark')
     return `${dark ? 'dark' : 'light'}\u0000${code}`
-  }
-
-  function remember(key: string, svg: string) {
-    drawn.delete(key)
-    drawn.set(key, svg)
-    if (drawn.size > DRAWN_LIMIT) {
-      drawn.delete(drawn.keys().next().value as string)
-    }
   }
 </script>
 
@@ -65,7 +56,7 @@
           // Its colours and label text live in a <style> scoped to the diagram.
           ADD_TAGS: ['style'],
         })
-        remember(key, clean)
+        drawn.set(key, clean)
         svg = clean
       } catch {
         if (!stale) failed = true

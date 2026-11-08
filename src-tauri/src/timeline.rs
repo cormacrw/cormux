@@ -49,7 +49,8 @@ impl BranchChange {
     }
 }
 
-/// Something the core did in a thread. New kinds need a row in the UI's `STEP_PRESENTATION`.
+/// Something the core did in a thread. A new kind fails `pnpm check` until the UI's `STEP_ROW`
+/// (`src/lib/thread/timeline/fold.ts`) and `rows/step-icons.ts` give it a row.
 /// Fields stay snake_case, like `AgentEvent`'s: specta exports them as written.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]

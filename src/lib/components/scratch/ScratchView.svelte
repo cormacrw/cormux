@@ -1,31 +1,15 @@
 <script lang="ts">
   import { windowDrag } from '$lib/primitives/window-drag'
-  import { onMount, tick, untrack } from 'svelte'
+  import { tick } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import { Kbd } from '$lib/components/ui/kbd'
   import CommandIcon from '@lucide/svelte/icons/command'
   import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
-  import TimelineMessages from '$lib/components/workspace/thread/TimelineMessages.svelte'
-  import ThreadFind from '$lib/components/workspace/thread/ThreadFind.svelte'
-  import {
-    app,
-    repos,
-    scratches,
-    shellDialogs,
-    threadTimeline,
-    threads,
-  } from '$lib/state'
+  import ThreadConversation from '$lib/components/workspace/thread/ThreadConversation.svelte'
+  import { app, repos, scratches, shellDialogs, threads } from '$lib/state'
   import type { Scratch } from '$lib/state/scratches.svelte'
   import { engineDisplayName } from '$lib/engine/engines'
-  import { newestAgentAnnouncement } from '$lib/thread/announce'
-  import {
-    createEntryScope,
-    liveReplyId,
-    liveRunId,
-    liveThoughtId,
-  } from '$lib/thread/entering'
-  import { buildTimelineRows } from '$lib/thread/timeline-rows'
 
   const scratch = $derived<Scratch | undefined>(
     app.scratchId ? scratches.getById(app.scratchId) : undefined,
@@ -38,118 +22,12 @@
   const repoPath = $derived(repo?.path ?? scratch?.repoId ?? '')
   const engineName = $derived(engineDisplayName(scratch?.engine ?? 'claude'))
 
-  const items = $derived(
-    thread
-      ? threadTimeline.itemsForThread(
-          thread.id,
-          {
-            status: thread.status,
-            paused: thread.paused,
-            role: '',
-            workspaceId: thread.workspaceId,
-            scratch: true,
-          },
-          0,
-        )
-      : [],
-  )
-  const rows = $derived(buildTimelineRows(items, '', engineName))
-
-  const liveTitle = $derived(
-    thread?.paused ? 'Paused by you' : 'Reading the repo…',
-  )
-  const liveSubtitle = $derived(
-    thread?.paused
-      ? 'Resume to let the agent continue.'
-      : ((thread && threadTimeline.currentToolByThread[thread.id]) ??
-          'Finding the files this question names'),
-  )
-
   let headingEl = $state<HTMLHeadingElement | null>(null)
-  let scrollEl = $state<HTMLElement | null>(null)
-  let contentEl = $state<HTMLElement | null>(null)
-  // Off once the reader scrolls up; back on when they return to the end.
-  let pinnedToBottom = true
-  let announceText = $state('')
-  let nowMs = $state(Date.now())
-  let prevItemCount = 0
-  let prevThreadId: string | null = null
-  let scrollToEnd = $state(true)
 
   $effect(() => {
     if (app.focusTarget !== 'scratch') return
     void app.focusGeneration
     void tick().then(() => headingEl?.focus())
-  })
-
-  // Snapshot what the scratch already shows when it opens; only rows after that animate.
-  // The thread object is replaced on every status change, so depend on the id alone.
-  const threadId = $derived(thread?.id)
-  const entries = $derived.by(() => {
-    void threadId
-    // Rows read from the store were already there.
-    void (threadId && threadTimeline.isLoaded(threadId))
-    return untrack(() => createEntryScope(rows))
-  })
-
-  // Only items added while this scratch is on screen get announced.
-  $effect(() => {
-    const count = items.length
-    const id = thread?.id ?? null
-    if (id !== prevThreadId) {
-      prevThreadId = id
-      prevItemCount = count
-      scrollToEnd = true
-      return
-    }
-    if (count > prevItemCount) {
-      const text = newestAgentAnnouncement(items, engineName)
-      if (text) announceText = text
-      scrollToEnd = true
-    }
-    prevItemCount = count
-  })
-
-  $effect(() => {
-    if (!scrollToEnd || !scrollEl) return
-    const element = scrollEl
-    queueMicrotask(() => {
-      element.scrollTop = element.scrollHeight
-      pinnedToBottom = true
-      scrollToEnd = false
-    })
-  })
-
-  // A reply typing out grows its row without adding one, so follow the content's height too.
-  $effect(() => {
-    const scroller = scrollEl
-    const content = contentEl
-    if (!scroller || !content) return
-    const observer = new ResizeObserver(() => {
-      if (pinnedToBottom) scroller.scrollTop = scroller.scrollHeight
-    })
-    observer.observe(content)
-    return () => observer.disconnect()
-  })
-
-  function onThreadScroll() {
-    if (!scrollEl) return
-    const gap =
-      scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
-    pinnedToBottom = gap < 80
-  }
-
-  $effect(() => {
-    const id = thread?.id
-    if (!id) return
-    return threadTimeline.watch(id)
-  })
-
-  onMount(() => {
-    const timer = setInterval(() => {
-      nowMs = Date.now()
-    }, 60_000)
-    return () => clearInterval(timer)
   })
 
   function onKeydown(event: KeyboardEvent) {
@@ -206,49 +84,16 @@
       </div>
     </header>
 
-    <div class="relative flex min-h-0 flex-1 flex-col">
-      <ThreadFind
-        {rows}
-        {contentEl}
-        onScrollAway={() => {
-          pinnedToBottom = false
-        }}
-      />
-      <div
-        bind:this={scrollEl}
-        class="min-h-0 flex-1 overflow-y-auto"
-        data-od-id="session-thread"
-        onscroll={onThreadScroll}
-      >
-        <div
-          bind:this={contentEl}
-          class="mx-auto w-full max-w-[760px] px-4 pb-4 pt-6 select-text"
-        >
-          <ol class="space-y-2" aria-label="Conversation">
-            <TimelineMessages
-              {rows}
-              engine={engineName}
-              workspaceId={scratch.id}
-              findings={[]}
-              {nowMs}
-              {liveTitle}
-              {liveSubtitle}
-              paused={thread.paused}
-              {entries}
-              liveReplyId={liveReplyId(items)}
-              activeThoughtId={liveThoughtId(items)}
-              activeRunId={liveRunId(items)}
-              onOpenFindings={() => {}}
-              onFocusComposer={() => {}}
-            />
-          </ol>
-        </div>
-      </div>
-    </div>
-
-    <div id="sess-announce" class="sr-only" aria-live="polite">
-      {announceText}
-    </div>
+    <ThreadConversation
+      threadId={thread.id}
+      role=""
+      engine={engineName}
+      workspaceId={null}
+      scratch
+      liveInline
+      odId="session-thread"
+      contentClass="pb-4 pt-6"
+    />
 
     <p
       class="px-5 py-3 text-center text-xs text-muted-foreground"

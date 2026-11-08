@@ -17,10 +17,7 @@
     composerPauseLabel,
     composerShowsPauseControl,
   } from '$lib/composer/can-pause'
-  import {
-    promptHistory,
-    stepPromptHistory,
-  } from '$lib/composer/prompt-history'
+  import { stepPromptHistory } from '$lib/composer/prompt-history'
   import { commands } from '$lib/ipc'
   import type { Skill } from '$lib/ipc/bindings'
   import {
@@ -52,15 +49,13 @@
   import { clickup } from '$lib/state/clickup.svelte'
   import { repos } from '$lib/state/repos.svelte'
   import type { RepoRecord } from '$lib/ipc/bindings'
+  import { coreErrorText } from '$lib/feedback/core-error'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/state/composer-drafts.svelte'
   import { settings } from '$lib/state/settings.svelte'
   import { contextPercent, usageSummary } from '$lib/usage/usage'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
-  import { sendThreadMessage } from '$lib/thread/send-message'
-  import { hasSessionToClear } from '$lib/thread/new-session'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
-  import { startNewSession } from '$lib/thread/start-new-session'
   import { threadTimeline } from '$lib/state/thread-timeline.svelte'
   import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
@@ -79,6 +74,7 @@
 
   let {
     thread,
+    draftKey = '',
     onSent,
     status,
     // eslint-disable-next-line no-useless-assignment -- bindable, set by the effect below
@@ -92,7 +88,10 @@
     listSkills,
     disabled = false,
   }: {
-    thread: Thread
+    /** The thread it talks to; none on the new thread page, where `onSubmit` takes the message. */
+    thread?: Thread
+    /** Where the draft is kept while there's no thread. */
+    draftKey?: string
     onSent?: () => void
     /** What the agent is doing, floated just above the prompt bar. */
     status?: Snippet
@@ -123,18 +122,23 @@
   /** Which past prompt ↑/↓ recalled into the composer; null when not cycling. */
   let historyIndex = $state<number | null>(null)
 
-  const draft = $derived(composerDrafts.textFor(thread.id))
-  const showPause = $derived(composerShowsPauseControl(thread.status))
-  const threadId = $derived(thread.id)
-  const pauseLabel = $derived(composerPauseLabel(thread.status, thread.paused))
-  const isPaused = $derived(thread.status === 'paused' || thread.paused)
-  // Only how full the context is; tokens and cost are in the thread tab's tooltip.
-  const contextFill = $derived(contextPercent(thread.usage))
-  const usageDetail = $derived(usageSummary(thread.usage).detail)
-  const canStartNewSession = $derived(
-    hasSessionToClear(threadTimeline.eventsByThread[thread.id] ?? []),
+  const draftId = $derived(thread?.id ?? draftKey)
+  const draft = $derived(composerDrafts.textFor(draftId))
+  const threadStatus = $derived(thread?.status ?? 'idle')
+  const showPause = $derived(composerShowsPauseControl(threadStatus))
+  const pauseLabel = $derived(
+    composerPauseLabel(threadStatus, thread?.paused ?? false),
   )
-  const attachments = $derived(composerDrafts.attachmentsFor(thread.id))
+  const isPaused = $derived(
+    threadStatus === 'paused' || Boolean(thread?.paused),
+  )
+  // Only how full the context is; tokens and cost are in the thread tab's tooltip.
+  const contextFill = $derived(thread ? contextPercent(thread.usage) : null)
+  const usageDetail = $derived(
+    thread ? usageSummary(thread.usage).detail : undefined,
+  )
+  const view = $derived(thread ? threadTimeline.threadView(thread.id) : null)
+  const attachments = $derived(composerDrafts.attachmentsFor(draftId))
   // Between Send and the core taking the message, which can mean starting the agent first.
   let sending = $state(false)
   const canSend = $derived(
@@ -236,7 +240,7 @@
   const pickerOpen = $derived(!pickerDismissed && pickerOptions.length > 0)
 
   $effect(() => {
-    void threadId
+    void draftId
     void listSkills
     historyIndex = null
     skills = null
@@ -246,15 +250,15 @@
 
   // Read the skill folders when the picker is first wanted, once per thread.
   $effect(() => {
-    if (query === null || skillsThreadId === thread.id) return
-    const threadId = thread.id
+    if (query === null || skillsThreadId === draftId) return
+    const threadId = draftId
     skillsThreadId = threadId
     if (listSkills) {
       void listSkills().then((found) => (skills = found))
       return
     }
     void commands.listThreadSkills(threadId).then((result) => {
-      if (thread.id !== threadId) return
+      if (draftId !== threadId) return
       skills = result.status === 'ok' ? result.data : []
     })
   })
@@ -280,7 +284,7 @@
   }
 
   function applyPick(next: { text: string; caret: number }) {
-    composerDrafts.setFor(thread.id, next.text)
+    composerDrafts.setFor(draftId, next.text)
     caret = next.caret
     pickerIndex = 0
     queueMicrotask(() => {
@@ -331,7 +335,7 @@
   // Opening a conversation, switching threads, or coming back to one puts
   // focus in the prompt, ready to type.
   $effect(() => {
-    void threadId
+    void draftId
     void app.focusGeneration
     void tick().then(takeFocus)
   })
@@ -380,7 +384,7 @@
 
   function onInput(event: Event) {
     const target = event.currentTarget as HTMLTextAreaElement
-    composerDrafts.setFor(thread.id, target.value)
+    composerDrafts.setFor(draftId, target.value)
     caret = target.selectionStart
     historyIndex = null
     pickerDismissed = false
@@ -392,7 +396,7 @@
     const text = draft.trim()
     if (!canSend) return
     // The composer is reused across thread tabs, so pin the id before awaiting.
-    const threadId = thread.id
+    const threadId = draftId
     const attached = attachments
     composerDrafts.setFor(threadId, '')
     if (attached.length) composerDrafts.setAttachments(threadId, [])
@@ -409,7 +413,7 @@
     const sent = await (
       onSubmit
         ? onSubmit(outgoing, stay, attached)
-        : sendThreadMessage(threadId, outgoing, attached)
+        : threadTimeline.send(threadId, outgoing, attached)
     ).finally(() => (sending = false))
     if (!sent) {
       composerDrafts.setFor(threadId, text)
@@ -418,7 +422,7 @@
   }
 
   async function attachFiles(files: File[]) {
-    const threadId = thread.id
+    const threadId = draftId
     for (const file of files) {
       try {
         composerDrafts.addAttachments(threadId, [
@@ -452,7 +456,7 @@
 
   /** Files from the picker or a Finder drop; images get their thumbnail from the core. */
   function attachPaths(paths: string[]) {
-    const threadId = thread.id
+    const threadId = draftId
     const added = paths.map(attachmentFromPath)
     composerDrafts.addAttachments(threadId, added)
     for (const attachment of added) {
@@ -500,30 +504,25 @@
     }
   })
 
-  async function stopTurn() {
+  function stopTurn() {
+    if (!thread) return
     void tick().then(takeFocus)
-    const result = await commands.cancelThreadTurn(thread.id)
-    if (result.status === 'error') {
-      showToast({
-        tone: 'bad',
-        parts: [
-          {
-            type: 'text',
-            value:
-              typeof result.error.message === 'string'
-                ? result.error.message
-                : 'Could not stop the agent',
-          },
-        ],
-      })
-    }
+    void threadTimeline.stop(thread.id)
   }
 
   async function togglePause() {
-    if (isPaused) {
-      await commands.resumeThread(thread.id)
-    } else {
-      await commands.pauseThread(thread.id)
+    if (!thread) return
+    const result = isPaused
+      ? await commands.resumeThread(thread.id)
+      : await commands.pauseThread(thread.id)
+    if (result.status === 'error') {
+      const fallback = isPaused
+        ? 'Could not resume the agent'
+        : 'Could not pause the agent'
+      showToast({
+        tone: 'bad',
+        parts: [{ type: 'text', value: coreErrorText(result.error, fallback) }],
+      })
     }
   }
 
@@ -552,9 +551,7 @@
   // recalled prompt is untouched and the caret is on its first (↑) or last (↓) line.
   function recallPrompt(event: KeyboardEvent) {
     const target = event.currentTarget as HTMLTextAreaElement
-    const prompts = promptHistory(
-      threadTimeline.eventsByThread[thread.id] ?? [],
-    )
+    const prompts = view?.promptHistory ?? []
     const older = event.key === 'ArrowUp'
     if (draft !== '') {
       if (historyIndex === null || draft !== prompts[historyIndex]) return
@@ -573,7 +570,7 @@
     event.preventDefault()
     historyIndex = next
     const text = next === null ? '' : (prompts[next] ?? '')
-    composerDrafts.setFor(thread.id, text)
+    composerDrafts.setFor(draftId, text)
     queueMicrotask(() => {
       fitHeight()
       target.setSelectionRange(text.length, text.length)
@@ -586,7 +583,7 @@
     // Esc stops the agent, unless a dialog, popover or inline editor took it first.
     if (
       event.key === 'Escape' &&
-      thread.status === 'running' &&
+      threadStatus === 'running' &&
       !event.defaultPrevented &&
       !event.metaKey &&
       !event.ctrlKey &&
@@ -750,7 +747,7 @@
                 class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground"
                 aria-label="Remove {attachment.name}"
                 onclick={() =>
-                  composerDrafts.removeAttachment(thread.id, attachment.id)}
+                  composerDrafts.removeAttachment(draftId, attachment.id)}
               >
                 <X class="size-3" aria-hidden="true" />
               </button>
@@ -775,7 +772,7 @@
                 class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
                 aria-label="Remove {attachment.name}"
                 onclick={() =>
-                  composerDrafts.removeAttachment(thread.id, attachment.id)}
+                  composerDrafts.removeAttachment(draftId, attachment.id)}
               >
                 <X class="size-3" aria-hidden="true" />
               </button>
@@ -791,7 +788,7 @@
       data-od-id="composer-input"
       rows={1}
       autocomplete="off"
-      placeholder={placeholder ?? `Message ${thread.role}…`}
+      placeholder={placeholder ?? `Message ${thread?.role ?? 'the agent'}…`}
       class="max-h-[200px] min-h-[48px] resize-none border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
       value={draft}
       aria-controls={pickerOpen ? 'composer-picker' : undefined}
@@ -823,8 +820,8 @@
         {@render pickers?.()}
         <!-- A new thread brings its own model and effort pickers: there's no thread to set yet. -->
         {#if !onSubmit}
-          <ThreadOptionPicker kind="model" {thread} />
-          <ThreadOptionPicker kind="effort" {thread} />
+          <ThreadOptionPicker kind="model" threadId={thread?.id ?? null} />
+          <ThreadOptionPicker kind="effort" threadId={thread?.id ?? null} />
         {/if}
         <Button
           type="button"
@@ -870,8 +867,10 @@
             size="xs"
             data-od-id="composer-new-session"
             title="Start a new session; the agent forgets this conversation"
-            disabled={!canStartNewSession}
-            onclick={() => void startNewSession(thread.id)}
+            disabled={!view?.canClearSession}
+            onclick={() =>
+              thread &&
+              void threadTimeline.switchConversation(thread.id, 'new')}
           >
             New session
             <kbd
@@ -897,7 +896,7 @@
         <kbd class="rounded border border-border/60 px-1">!</kbd> bangs
       </span>
 
-      {#if thread.status === 'running'}
+      {#if threadStatus === 'running'}
         <Button
           type="button"
           variant="secondary"

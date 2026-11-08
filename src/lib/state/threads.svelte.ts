@@ -1,5 +1,6 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
+import type { ThreadRole } from '$lib/ipc/bindings'
 import type { ThreadUsage } from '$lib/usage/usage'
 import { reuseRows } from './reuse-rows'
 import { workspaces } from './workspaces.svelte'
@@ -7,7 +8,10 @@ import { workspaces } from './workspaces.svelte'
 export type Thread = {
   id: string
   workspaceId: string
+  /** Display text: `Lead`, `Reviewer`, or what an agent named it. */
   role: string
+  /** Set on the workspace's own Lead or Reviewer. */
+  ownRole?: ThreadRole | null
   engine: string
   status: string
   paused: boolean

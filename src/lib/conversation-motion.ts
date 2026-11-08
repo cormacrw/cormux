@@ -1,6 +1,5 @@
 import { tick } from 'svelte'
 import { prefersReducedMotion } from '$lib/motion'
-import { appearance } from '$lib/state/appearance.svelte'
 
 /** What a thread shows of its conversation: the intro or greeting, and the timeline. */
 const PARTS = '#thread-scroll [data-conversation-part]'
@@ -45,12 +44,15 @@ export function enterConversation() {
 /**
  * The first prompt in an empty conversation: the greeting falls away as the
  * message pops in (styles in app.css). Plain update where unsupported. An update
- * that returns a promise holds the old screen until it settles.
+ * that returns a promise holds the old screen until it settles. `onGreetingLeaves`
+ * runs as the greeting starts to go, for whatever goes with it.
  */
-export function firstPromptTransition(update: () => void | Promise<void>) {
+export function firstPromptTransition(
+  update: () => void | Promise<void>,
+  onGreetingLeaves: () => void,
+) {
   const greeting = document.querySelector('[data-od-id="thread-hero"]')
-  // The backdrop's wordmark falls away with the greeting.
-  if (greeting) appearance.glideWordmark()
+  if (greeting) onGreetingLeaves()
   if (
     !greeting ||
     prefersReducedMotion() ||

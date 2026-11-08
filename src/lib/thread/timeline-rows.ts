@@ -17,7 +17,7 @@ function itemRow(item: TimelineItem): ItemRow {
 }
 
 function speakerRow(
-  item: Exclude<TimelineItem, { kind: 'live' | 'event' }>,
+  item: TimelineItem,
   role: string,
   engine: string,
 ): SpeakerRow {
@@ -35,25 +35,25 @@ function speakerRow(
   return row
 }
 
+/** The items, with a line naming the agent wherever it starts speaking. */
 export function buildTimelineRows(
   items: TimelineItem[],
   role: string,
   engine: string,
 ): TimelineRow[] {
   const rows: TimelineRow[] = []
-  let prevSpeaker: 'user' | 'agent' | null = null
+  let agentSpeaking = false
 
   for (const item of items) {
     // App events sit between turns, so they neither start nor break an agent's turn.
-    if (item.kind === 'live' || item.kind === 'event') {
+    if (item.kind === 'event') {
       rows.push(itemRow(item))
       continue
     }
-    if (item.kind !== 'user' && prevSpeaker !== 'agent') {
+    if (item.kind !== 'user' && !agentSpeaking) {
       rows.push(speakerRow(item, role, engine))
-      prevSpeaker = 'agent'
     }
-    if (item.kind === 'user') prevSpeaker = 'user'
+    agentSpeaking = item.kind !== 'user'
     rows.push(itemRow(item))
   }
 

@@ -22,21 +22,9 @@ use crate::transcript::ThreadActivityRow;
 use crate::workspace_git::WorkspaceGitRuntime;
 use crate::workspaces::WorkspaceRecord;
 
-/// A `review:<workspace>/status` row in the shape the settings table once held it. Only the
-/// timeline still reads these; it moves to `PersistedSnapshot::reviews` with the timeline's
-/// rework, and then this goes.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SettingRow {
-    pub key: String,
-    pub value: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedSnapshot {
-    /// Each review's status as a legacy settings row; see `SettingRow`.
-    pub settings: Vec<SettingRow>,
     pub reviews: Vec<ReviewRow>,
     pub repos: Vec<RepoRecord>,
     pub workspaces: Vec<WorkspaceRow>,
@@ -76,18 +64,8 @@ pub struct Snapshot {
 /// The stored rows, read in one transaction.
 fn persisted(store: &crate::store::Store) -> Result<PersistedSnapshot> {
     store.read_consistent(|conn| {
-        let reviews = crate::review::live_in(conn)?;
         Ok(PersistedSnapshot {
-            settings: reviews
-                .iter()
-                .filter_map(|review| {
-                    Some(SettingRow {
-                        key: format!("review:{}/status", review.workspace_id),
-                        value: review.status?.as_str().into(),
-                    })
-                })
-                .collect(),
-            reviews,
+            reviews: crate::review::live_in(conn)?,
             repos: crate::store::repos_in(conn)?,
             workspaces: crate::store::live_workspaces_in(conn)?,
             threads: crate::store::workspace_threads_in(conn)?,
@@ -185,8 +163,10 @@ mod tests {
 
         let snap = read(&store);
         assert_eq!(snap.reviews.len(), 1);
-        assert_eq!(snap.settings[0].key, "review:w1/status");
-        assert_eq!(snap.settings[0].value, "ready");
+        assert_eq!(
+            snap.reviews[0].status,
+            Some(crate::review::ReviewStatus::Ready)
+        );
         assert_eq!(snap.repos[0].id, "r1");
         let ids = |rows: Vec<String>| rows;
         assert_eq!(

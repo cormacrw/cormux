@@ -7,8 +7,6 @@ import { palette } from '$lib/state/palette.svelte'
 import { threadFind } from '$lib/state/thread-find.svelte'
 import { handleSwitcherKeydown } from '$lib/switcher/navigate'
 import { threadTimeline } from '$lib/state/thread-timeline.svelte'
-import { hasSessionToClear } from '$lib/thread/new-session'
-import { startNewSession } from '$lib/thread/start-new-session'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
 import { sidebarWorkspaces } from '$lib/state/sidebar-workspaces.svelte'
@@ -98,8 +96,8 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
   ) {
     event.preventDefault()
     const threadId = app.threadId
-    if (hasSessionToClear(threadTimeline.eventsByThread[threadId] ?? [])) {
-      void startNewSession(threadId)
+    if (threadTimeline.threadView(threadId).canClearSession) {
+      void threadTimeline.switchConversation(threadId, 'new')
     }
     return
   }

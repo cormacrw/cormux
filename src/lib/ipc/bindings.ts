@@ -1043,11 +1043,7 @@ export type ModelOption = {
  * What the engine is told: a `--model` alias or `--effort` level for Claude.
  */
 id: string; label: string }
-export type PersistedSnapshot = { 
-/**
- * Each review's status as a legacy settings row; see `SettingRow`.
- */
-settings: SettingRow[]; reviews: ReviewRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
+export type PersistedSnapshot = { reviews: ReviewRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
 /**
  * Newest first.
  */
@@ -1173,12 +1169,6 @@ export type SetRepoDefaultBranchInput = { repoId: string; defaultBranch: string 
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }
 export type SetRepoSingleInstanceInput = { repoId: string; singleInstance: boolean }
-/**
- * A `review:<workspace>/status` row in the shape the settings table once held it. Only the
- * timeline still reads these; it moves to `PersistedSnapshot::reviews` with the timeline's
- * rework, and then this goes.
- */
-export type SettingRow = { key: string; value: string }
 export type Settings = { reduceMotion: boolean; 
 /**
  * Approve every tool request without asking. Questions still wait for the user.
@@ -1368,7 +1358,8 @@ parentThreadId: string | null }
  */
 export type ThreadStatus = "provisioning" | "running" | "paused" | "idle"
 /**
- * Something the core did in a thread. New kinds need a row in the UI's `STEP_PRESENTATION`.
+ * Something the core did in a thread. A new kind fails `pnpm check` until the UI's `STEP_ROW`
+ * (`src/lib/thread/timeline/fold.ts`) and `rows/step-icons.ts` give it a row.
  * Fields stay snake_case, like `AgentEvent`'s: specta exports them as written.
  */
 export type TimelineStep = { kind: "agentStopped" } | { kind: "agentPaused" } | { kind: "agentResumed" } | 

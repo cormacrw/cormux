@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TranscriptEvent } from '$lib/ipc/bindings'
-import {
-  TimelineBuilder,
-  mapEventsToTimeline,
-  type MapTimelineInput,
-} from './map-events-to-timeline'
+import { TimelineBuilder } from './builder'
+import { foldTimeline, type FoldInput } from './fold'
 
 type ToolCall = Extract<TranscriptEvent, { type: 'toolCall' }>
 
@@ -80,12 +77,11 @@ const SCRIPT: TranscriptEvent[] = [
   agent('after'),
 ]
 
-function input(count: number): MapTimelineInput {
+function input(count: number): FoldInput {
   return {
     events: rows.slice(0, count),
     approvals: [],
-    findingsReady: false,
-    showLive: count % 2 === 0,
+    findingsFor: null,
   }
 }
 
@@ -99,16 +95,14 @@ describe('TimelineBuilder', () => {
   it('matches a full rebuild after every event', () => {
     const builder = new TimelineBuilder()
     for (let count = 0; count <= rows.length; count += 1) {
-      expect(builder.build(input(count))).toEqual(
-        mapEventsToTimeline(input(count)),
-      )
+      expect(builder.build(input(count))).toEqual(foldTimeline(input(count)))
     }
   })
 
   it('keeps the objects of rows that did not change', () => {
     const builder = new TimelineBuilder()
-    const before = builder.build(input(4))
-    const after = builder.build(input(5))
+    const before = builder.build(input(4)).items
+    const after = builder.build(input(5)).items
     expect(after[0]).toBe(before[0])
     expect(after.find((item) => item.kind === 'thought')).toBe(
       before.find((item) => item.kind === 'thought'),
@@ -134,13 +128,12 @@ describe('TimelineBuilder', () => {
       event,
     }))
     for (let count = 3; count <= entries.length; count += 1) {
-      const next: MapTimelineInput = {
+      const next: FoldInput = {
         events: entries.slice(0, count),
         approvals: [],
-        findingsReady: false,
-        showLive: false,
+        findingsFor: null,
       }
-      expect(builder.build(next)).toEqual(mapEventsToTimeline(next))
+      expect(builder.build(next)).toEqual(foldTimeline(next))
     }
   })
 
@@ -166,14 +159,17 @@ describe('TimelineBuilder', () => {
       status,
       payload: '',
     })
-    const base = { events, findingsReady: false, showLive: false }
+    const base = { events, findingsFor: null }
     const builder = new TimelineBuilder()
     builder.build({ ...base, approvals: [row('pending')] as never })
     const items = builder.build({
       ...base,
       approvals: [row('approved')] as never,
     })
-    expect(items[0]).toMatchObject({ kind: 'approval', state: 'approved' })
+    expect(items.items[0]).toMatchObject({
+      kind: 'approval',
+      state: 'approved',
+    })
   })
 })
 
@@ -186,18 +182,15 @@ describe('running subagents', () => {
     })
 
   const live = (events: TranscriptEvent[]) => {
-    const items = mapEventsToTimeline({
+    return foldTimeline({
       events: events.map((event, index) => ({
         seq: index + 1,
         atMs: index + 1,
         event,
       })),
       approvals: [],
-      findingsReady: false,
-      showLive: true,
-    })
-    const last = items.at(-1)
-    return last?.kind === 'live' ? last.agents : []
+      findingsFor: null,
+    }).agents
   }
 
   it('lists an agent at work with the last thing it did', () => {
@@ -236,19 +229,17 @@ describe('running subagents', () => {
   })
 
   it('marks the agent step itself as running', () => {
-    const items = mapEventsToTimeline({
+    const { items } = foldTimeline({
       events: [user('go'), agentCall('a')].map((event, index) => ({
         seq: index + 1,
         event,
       })),
       approvals: [],
-      findingsReady: false,
-      showLive: false,
+      findingsFor: null,
     })
     const run = items.find((item) => item.kind === 'toolRun')
     expect(run?.kind === 'toolRun' && run.steps[0]).toMatchObject({
-      icon: 'agent',
-      agent: true,
+      role: { kind: 'subagent' },
       status: 'inProgress',
       detail: 'Explore the auth flow',
     })
@@ -272,13 +263,12 @@ describe('running subagents', () => {
       event,
     }))
     for (let count = 1; count <= entries.length; count += 1) {
-      const next: MapTimelineInput = {
+      const next: FoldInput = {
         events: entries.slice(0, count),
         approvals: [],
-        findingsReady: false,
-        showLive: true,
+        findingsFor: null,
       }
-      expect(builder.build(next)).toEqual(mapEventsToTimeline(next))
+      expect(builder.build(next)).toEqual(foldTimeline(next))
     }
   })
 })

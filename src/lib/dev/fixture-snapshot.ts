@@ -33,7 +33,6 @@ export const fixtureSnapshot: Snapshot = {
     clickupHiddenStatuses: [],
   },
   persisted: {
-    settings: [],
     reviews: [],
     repos: [
       {
