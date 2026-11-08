@@ -320,8 +320,7 @@ async fn on_branch_changed(
 ) -> Result<()> {
     let updated = state.workspaces.set_branch(&workspace.id, branch).await?;
     state.workspaces.set_pr(&workspace.id, None, None)?;
-    refresh_stats(state, &updated).await;
-    refresh_diff(state, &updated).await;
+    refresh(state, &updated).await;
     record_in_own_thread(
         state,
         &workspace.id,
@@ -340,7 +339,6 @@ async fn on_branch_changed(
             ToastPart::code(branch),
         ],
     );
-    state.out.repo_git_moved();
     Ok(())
 }
 
@@ -418,49 +416,66 @@ pub async fn switch_branch(state: &AppState, workspace_id: &str, branch: &str) -
     if workspace.branch == branch {
         return Ok(());
     }
-    state.workspaces.can_switch_branch(workspace_id).await?;
-    let _moving = state.workspace_git.hold_branch(workspace_id);
-    state.git.switch(&workspace.worktree(), branch).await?;
     let change = BranchChange::CheckedOut {
         previous: workspace.branch.clone(),
     };
-    on_branch_changed(state, &workspace, branch, change).await
+    move_branch(state, workspace_id, change, |worktree| async move {
+        state.git.switch(&worktree, branch).await
+    })
+    .await
 }
 
 pub async fn create_branch(state: &AppState, workspace_id: &str, branch: &str) -> Result<()> {
     let branch = branch.trim();
     let workspace = state.workspaces.get(workspace_id).await?;
     check_new_branch(state, &workspace, branch).await?;
-    state.workspaces.can_switch_branch(workspace_id).await?;
-    let _moving = state.workspace_git.hold_branch(workspace_id);
-    state
-        .git
-        .switch_new_branch(&workspace.worktree(), branch, "HEAD")
-        .await?;
     let change = BranchChange::Created {
         previous: workspace.branch.clone(),
     };
-    on_branch_changed(state, &workspace, branch, change).await
+    move_branch(state, workspace_id, change, |worktree| async move {
+        state.git.switch_new_branch(&worktree, branch, "HEAD").await
+    })
+    .await
 }
 
-/// Brings the workspace in line with whatever branch an outside tool (`gh stack`, a terminal)
-/// left checked out, and refreshes its counts and diff. Returns the branch.
-pub async fn adopt_checked_out_branch(
+/// One of Cormux's own branch moves, `op` run in the workspace's worktree: refused while the
+/// branch is locked (see `Workspaces::branch_lock`) and kept from the branch watcher while it
+/// runs. Whether `op` succeeds or not, the workspace then follows whatever it left checked out,
+/// since a git or gh-stack command can move the branch and still fail. `op`'s error comes first.
+pub async fn move_branch<T, Op>(
     state: &AppState,
     workspace_id: &str,
     change: BranchChange,
-) -> Result<String> {
+    op: impl FnOnce(PathBuf) -> Op,
+) -> Result<T>
+where
+    Op: Future<Output = Result<T>>,
+{
+    state.workspaces.can_switch_branch(workspace_id).await?;
+    let _moving = state.workspace_git.hold_branch(workspace_id);
+    let worktree = state.workspaces.get(workspace_id).await?.worktree();
+    let done = op(worktree).await;
+    let adopted = adopt_checked_out_branch(state, workspace_id, change).await;
+    let value = done?;
+    adopted?;
+    Ok(value)
+}
+
+/// Brings the workspace in line with the branch checked out in its worktree, and refreshes its
+/// counts and diff.
+async fn adopt_checked_out_branch(
+    state: &AppState,
+    workspace_id: &str,
+    change: BranchChange,
+) -> Result<()> {
     let workspace = state.workspaces.get(workspace_id).await?;
     let branch = state.git.current_branch(&workspace.worktree()).await?;
     // Empty while HEAD is detached (mid-rebase): the record keeps its branch.
     if !branch.is_empty() && branch != workspace.branch {
-        on_branch_changed(state, &workspace, &branch, change).await?;
-        return Ok(branch);
+        return on_branch_changed(state, &workspace, &branch, change).await;
     }
-    refresh_stats(state, &workspace).await;
-    refresh_diff(state, &workspace).await;
-    state.out.repo_git_moved();
-    Ok(workspace.branch)
+    refresh(state, &workspace).await;
+    Ok(())
 }
 
 async fn adopt_outside_checkouts(state: &AppState) {
@@ -539,8 +554,7 @@ pub async fn pull(state: &AppState, workspace_id: &str) -> Result<()> {
         Err(error) => return Err(error),
     }
 
-    refresh_stats(state, &workspace).await;
-    refresh_diff(state, &workspace).await;
+    refresh(state, &workspace).await;
     record_in_own_thread(
         state,
         workspace_id,
@@ -563,17 +577,21 @@ pub async fn pull(state: &AppState, workspace_id: &str) -> Result<()> {
             ToastPart::code(&base),
         ],
     );
-    state.out.repo_git_moved();
     Ok(())
 }
 
 pub async fn abort_conflict(state: &AppState, workspace_id: &str) -> Result<()> {
     let workspace = state.workspaces.get(workspace_id).await?;
     state.git.abort_merge(&workspace.worktree()).await?;
-    refresh_stats(state, &workspace).await;
-    refresh_diff(state, &workspace).await;
-    state.out.repo_git_moved();
+    refresh(state, &workspace).await;
     Ok(())
+}
+
+/// After the worktree's commits moved: the workspace's counts and diff, and the repo's.
+async fn refresh(state: &AppState, workspace: &WorkspaceRecord) {
+    refresh_stats(state, workspace).await;
+    refresh_diff(state, workspace).await;
+    state.out.repo_git_moved();
 }
 
 async fn refresh_diff(state: &AppState, workspace: &WorkspaceRecord) {

@@ -21,7 +21,7 @@ use crate::git::ShortStat;
 use crate::github::gh::{GhFailure, NOT_INSTALLED};
 use crate::state::AppState;
 use crate::timeline::BranchChange;
-use crate::workspace_git::adopt_checked_out_branch;
+use crate::workspace_git::move_branch;
 use crate::workspaces::WorkspaceRecord;
 
 /// How long GitHub's "no stack has this branch" stands before asking again.
@@ -346,10 +346,9 @@ async fn needs_rebase(state: &AppState, worktree: &Path, base: &str, branch: &st
 
 /// The workspace's stack. When its branch reads as unstacked, a stack made in another worktree
 /// or on GitHub is set up here first (`gh stack init`/`checkout`), which writes to the
-/// worktree: the workspace record follows whatever branch that leaves checked out. That switches
-/// branches, so it waits while the branch is locked (an agent working, or setup running).
+/// worktree: a branch move, so the workspace record follows whatever branch that leaves checked
+/// out, and it waits while the branch is locked (an agent working, or setup running).
 pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<WorkspaceStack> {
-    let _moving = state.workspace_git.hold_branch(workspace_id);
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
     let solo_needs_rebase = record.branch != record.base && {
@@ -377,36 +376,39 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
                     .map(|_| format!("This branch is in a stack from another worktree. {reason}"));
                 return Ok(empty(StackStatus::NotStacked, message));
             }
-            if !adopt_local_stack(state, &worktree, &record.branch).await {
+            let change = BranchChange::CheckedOutOutside {
+                previous: record.branch.clone(),
+            };
+            let record = &record;
+            let unstacked = move_branch(state, workspace_id, change, |worktree| async move {
+                if adopt_local_stack(state, &worktree, &record.branch).await {
+                    return Ok(None);
+                }
                 if state
                     .stacks
                     .recently_unstacked(workspace_id, &record.branch)
                 {
-                    return Ok(empty(StackStatus::NotStacked, None));
+                    return Ok(Some(None));
                 }
-                match checkout_remote_stack(state, &worktree, &record.branch, &record.base).await {
-                    RemoteStack::CheckedOut => {}
-                    RemoteStack::None => {
-                        state
-                            .stacks
-                            .remember_unstacked(workspace_id, &record.branch);
-                        return Ok(empty(StackStatus::NotStacked, None));
-                    }
-                    RemoteStack::Failed(message) => {
-                        return Ok(empty(StackStatus::NotStacked, Some(message)));
-                    }
-                }
-            }
-            // Setting the stack up switches branches and back; keep the record on whatever
-            // that left checked out.
-            adopt_checked_out_branch(
-                state,
-                workspace_id,
-                BranchChange::CheckedOutOutside {
-                    previous: record.branch.clone(),
-                },
-            )
+                Ok(
+                    match checkout_remote_stack(state, &worktree, &record.branch, &record.base)
+                        .await
+                    {
+                        RemoteStack::CheckedOut => None,
+                        RemoteStack::None => {
+                            state
+                                .stacks
+                                .remember_unstacked(workspace_id, &record.branch);
+                            Some(None)
+                        }
+                        RemoteStack::Failed(message) => Some(Some(message)),
+                    },
+                )
+            })
             .await?;
+            if let Some(message) = unstacked {
+                return Ok(empty(StackStatus::NotStacked, message));
+            }
             match view(state, &worktree).await? {
                 View::Stacked(json) => json,
                 _ => return Ok(empty(StackStatus::NotStacked, None)),
@@ -712,86 +714,85 @@ async fn checkout_remote_stack(
 /// checked-out branch is adopted as the bottom and the new branch goes on top of it.
 pub async fn add_branch(state: &AppState, workspace_id: &str, branch: &str) -> Result<()> {
     let name = branch.trim();
-    let record = workspace_record(state, workspace_id).await?;
-    let worktree = PathBuf::from(&record.worktree_path);
-    crate::workspace_git::check_new_branch(state, &record, name).await?;
-    state.workspaces.can_switch_branch(workspace_id).await?;
-    let _moving = state.workspace_git.hold_branch(workspace_id);
-
-    match view(state, &worktree).await? {
-        View::Unavailable(unavailable) => return Err(Error::Git(unavailable.text())),
-        View::Stacked(json) => {
-            if let Some(reason) = json.add_block() {
-                return Err(Error::Git(reason));
+    let record = &workspace_record(state, workspace_id).await?;
+    crate::workspace_git::check_new_branch(state, record, name).await?;
+    let change = BranchChange::AddedToStack {
+        on_top_of: record.branch.clone(),
+    };
+    move_branch(state, workspace_id, change, |worktree| async move {
+        match view(state, &worktree).await? {
+            View::Unavailable(unavailable) => Err(Error::Git(unavailable.text())),
+            View::Stacked(json) => {
+                if let Some(reason) = json.add_block() {
+                    return Err(Error::Git(reason));
+                }
+                run(state, &worktree, &["add", name], "Adding the branch").await
             }
-            run(state, &worktree, &["add", name], "Adding the branch").await?;
+            View::NotStacked if record.branch == record.base => {
+                run(
+                    state,
+                    &worktree,
+                    &["init", "--base", &record.base, name],
+                    "Starting the stack",
+                )
+                .await
+            }
+            View::NotStacked => {
+                run(
+                    state,
+                    &worktree,
+                    &["init", "--base", &record.base, &record.branch],
+                    "Starting the stack",
+                )
+                .await?;
+                run(state, &worktree, &["add", name], "Adding the branch").await
+            }
         }
-        View::NotStacked if record.branch == record.base => {
-            run(
-                state,
-                &worktree,
-                &["init", "--base", &record.base, name],
-                "Starting the stack",
-            )
-            .await?;
-        }
-        View::NotStacked => {
-            run(
-                state,
-                &worktree,
-                &["init", "--base", &record.base, &record.branch],
-                "Starting the stack",
-            )
-            .await?;
-            run(state, &worktree, &["add", name], "Adding the branch").await?;
-        }
-    }
-
-    adopt_checked_out_branch(
-        state,
-        workspace_id,
-        BranchChange::AddedToStack {
-            on_top_of: record.branch.clone(),
-        },
-    )
-    .await?;
-    Ok(())
+    })
+    .await
 }
 
 /// Push every unmerged branch in the stack (`--force-with-lease` per branch). Pull
 /// requests stay manual: this never opens or edits one.
 pub async fn push(state: &AppState, workspace_id: &str) -> Result<()> {
-    let record = workspace_record(state, workspace_id).await?;
-    let worktree = PathBuf::from(&record.worktree_path);
-    let output = gh_stack(state, &worktree, &["push", "--remote", "origin"]).await?;
-    if !output.status.success() {
-        return Err(failure(&output, "Push"));
-    }
-    adopt_checked_out_branch(state, workspace_id, BranchChange::StackPushed).await?;
+    move_branch(
+        state,
+        workspace_id,
+        BranchChange::StackPushed,
+        |worktree| async move {
+            let output = gh_stack(state, &worktree, &["push", "--remote", "origin"]).await?;
+            if !output.status.success() {
+                return Err(failure(&output, "Push"));
+            }
+            Ok(())
+        },
+    )
+    .await?;
     toast(state, workspace_id, "Pushed the stack");
     Ok(())
 }
 
 /// Fetch, rebase onto the trunk, push, and refresh pull request state.
 pub async fn sync(state: &AppState, workspace_id: &str) -> Result<()> {
-    let record = workspace_record(state, workspace_id).await?;
-    state.workspaces.can_switch_branch(workspace_id).await?;
-    let _moving = state.workspace_git.hold_branch(workspace_id);
-    let worktree = PathBuf::from(&record.worktree_path);
-    let output = gh_stack(state, &worktree, &["sync", "--remote", "origin"]).await?;
-    let result = if !output.status.success() {
-        Err(failure(&output, "Sync"))
-    } else if sync_aborted(&output) {
-        // Without a terminal, a divergence makes no changes and still exits 0.
-        Err(Error::Git(
-            "Sync stopped: the stack on GitHub and this worktree have diverged. Run `gh stack sync` in a terminal to choose which to keep.".into(),
-        ))
-    } else {
-        Ok(())
-    };
-    // A sync can rebase the checked-out branch even when it fails partway.
-    adopt_checked_out_branch(state, workspace_id, BranchChange::StackSynced).await?;
-    result?;
+    move_branch(
+        state,
+        workspace_id,
+        BranchChange::StackSynced,
+        |worktree| async move {
+            let output = gh_stack(state, &worktree, &["sync", "--remote", "origin"]).await?;
+            if !output.status.success() {
+                Err(failure(&output, "Sync"))
+            } else if sync_aborted(&output) {
+                // Without a terminal, a divergence makes no changes and still exits 0.
+                Err(Error::Git(
+                    "Sync stopped: the stack on GitHub and this worktree have diverged. Run `gh stack sync` in a terminal to choose which to keep.".into(),
+                ))
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .await?;
     toast(state, workspace_id, "Synced the stack with GitHub");
     Ok(())
 }
@@ -1352,6 +1353,40 @@ mod tests {
         sync(&state, "w").await.unwrap();
         assert_eq!(recording.toasts(), ["Synced the stack with GitHub"]);
         assert_eq!(fake.calls(), vec!["stack sync --remote origin"; 4]);
+    }
+
+    /// Bug: pushing the stack skipped the branch lock and the watcher's hold, so `gh stack push`
+    /// ran under a working agent, as no other branch move does.
+    #[tokio::test]
+    async fn pushing_the_stack_waits_while_an_agent_works() {
+        let fake = FakeGh::new();
+        let (state, recording) = state_on(fake.env()).await;
+        let (_dir, repo, worktree) = repo_and_worktree();
+        state
+            .store
+            .upsert_repo(&RepoRecord {
+                path: repo.to_string_lossy().to_string(),
+                ..crate::store::fixtures::repo("r1")
+            })
+            .unwrap();
+        state
+            .store
+            .insert_workspace(&WorkspaceRow {
+                branch: "feat/a".into(),
+                worktree_path: worktree.to_string_lossy().to_string(),
+                ..crate::store::fixtures::workspace("w", WorkspaceLifecycle::Running)
+            })
+            .unwrap();
+        state
+            .store
+            .seed_thread("t", "w", crate::model::ThreadStatus::Running);
+        fake.reply("push", exits(0, "", ""));
+
+        let error = push(&state, "w").await.unwrap_err();
+
+        assert!(error.to_string().contains("Pause or stop"), "{error}");
+        assert!(fake.calls().is_empty(), "{:?}", fake.calls());
+        assert!(recording.toasts().is_empty());
     }
 
     /// A stack made in the main checkout shows up in a workspace on one of its branches.
