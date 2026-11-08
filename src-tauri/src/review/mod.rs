@@ -140,7 +140,8 @@ pub async fn create_review_workspace(
     {
         // The PR may have been retargeted since.
         if existing.base != pr.base {
-            state.workspaces.set_base(&existing.id, &pr.base).await?;
+            let moved = state.workspaces.set_base(&existing.id, &pr.base).await?;
+            crate::changes::base_moved(state, &moved, &existing.base).await?;
             state.out.changed();
         }
         return Ok(CreateReviewWorkspaceResult {
@@ -1235,5 +1236,50 @@ mod tests {
         );
         assert_eq!(state.workspaces.get("w2").await.unwrap().base, "release");
         assert!(!recording.state_changes().is_empty());
+    }
+
+    /// Bug: the Changes panel's target was set once, so a retargeted PR's review kept
+    /// diffing against the old base until a restart.
+    #[tokio::test]
+    async fn a_retargeted_reviews_changes_follow_the_new_base_unless_the_user_moved_them() {
+        for picked_by_user in [false, true] {
+            let (state, _recording, _fake) = workspace(ThreadStatus::Idle);
+            let review = WorkspaceRow::new(
+                WorkspaceKind::PrReview,
+                "w2",
+                "r1",
+                "PR #7 Review",
+                "feat/pr",
+                "main",
+                std::env::temp_dir()
+                    .join("cormux-review-retarget")
+                    .display()
+                    .to_string(),
+            )
+            .with_pr(7, None);
+            state.store.insert_workspace(&review).unwrap();
+            state.store.upsert_pr(&pr(7, "feat/pr")).unwrap();
+            let mut retargeted = pr(7, "feat/pr");
+            retargeted.base = "release".into();
+            crate::changes::load(&state, "w2").await.unwrap();
+            if picked_by_user {
+                state.diffs.set_diff_target("w2", None);
+            }
+            state.store.upsert_pr(&retargeted).unwrap();
+
+            create_review_workspace(
+                &state,
+                CreateReviewWorkspaceInput {
+                    repo_id: "r1".into(),
+                    pr_number: 7,
+                },
+            )
+            .await
+            .unwrap();
+
+            let expected =
+                (!picked_by_user).then(|| crate::git::DiffTarget::head_against("release"));
+            assert_eq!(state.diffs.diff_target("w2"), expected);
+        }
     }
 }

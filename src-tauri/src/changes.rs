@@ -24,6 +24,23 @@ pub fn watch(state: &AppState, workspace: &WorkspaceRecord) -> Result<()> {
     Ok(())
 }
 
+/// The workspace's base moved from `from` (its pull request was retargeted). A panel still on
+/// the branch against the old base follows it; one the user pointed elsewhere stays.
+pub async fn base_moved(state: &AppState, workspace: &WorkspaceRecord, from: &str) -> Result<()> {
+    if state.diffs.diff_target(&workspace.id) != Some(DiffTarget::head_against(from)) {
+        return Ok(());
+    }
+    state.diffs.set_diff_target(
+        &workspace.id,
+        Some(DiffTarget::head_against(workspace.base.clone())),
+    );
+    let worktree = Path::new(&workspace.worktree_path);
+    if worktree.exists() {
+        state.diffs.compute(&workspace.id, worktree).await?;
+    }
+    Ok(())
+}
+
 /// A workspace from an earlier launch has no watcher until something asks for its diff.
 pub async fn load(state: &AppState, workspace_id: &str) -> Result<WorkspaceRecord> {
     let workspace = state.workspaces.get(workspace_id).await?;
