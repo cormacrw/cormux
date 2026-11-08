@@ -106,15 +106,23 @@ impl BranchHolds {
             return Some(BranchHold::DefaultBranch);
         }
         let workspaces: Vec<String> = self
-            .live
-            .iter()
-            .filter(|row| row.repo_id == self.repo.id && row.branch == branch)
+            .checked_out()
+            .filter(|row| row.branch == branch)
             .map(|row| row.name.clone())
             .collect();
         if !workspaces.is_empty() {
             return Some(BranchHold::CheckedOutBy { workspaces });
         }
         (!self.head.is_empty() && self.head == branch).then_some(BranchHold::RepoHead)
+    }
+
+    fn checked_out(&self) -> impl Iterator<Item = &crate::store::types::WorkspaceRow> {
+        self.live.iter().filter(|row| row.repo_id == self.repo.id)
+    }
+
+    /// The branches live workspaces have checked out.
+    pub fn checked_out_names(&self) -> impl Iterator<Item = &str> {
+        self.checked_out().map(|row| row.branch.as_str())
     }
 
     /// The default branch stays in the repo checkout. Git lets a branch be checked out in one
@@ -532,16 +540,21 @@ async fn checkout_env(state: &AppState, repo: &RepoRecord, repo_path: &Path) -> 
     }
 }
 
+/// The repo's local branches and `origin`'s, a name in both listed twice.
+pub async fn branch_names(state: &AppState, repo_path: &Path) -> Result<Vec<String>> {
+    let (mut local, remote) = tokio::try_join!(
+        state.git.list_local_branches(repo_path),
+        state.git.list_remote_branches(repo_path, "origin"),
+    )?;
+    local.extend(remote);
+    Ok(local)
+}
+
 pub async fn list_branches(state: &AppState, repo_id: &str) -> Result<RepoBranchesResult> {
     let repo = state.store.repo(repo_id)?;
     let repo_path = expand_tilde(&repo.path);
     // Branches that only exist on GitHub can be checked out too; `git switch` tracks them.
-    let (local, remote) = tokio::try_join!(
-        state.git.list_local_branches(&repo_path),
-        state.git.list_remote_branches(&repo_path, "origin"),
-    )?;
-    let mut names = local;
-    names.extend(remote);
+    let mut names = branch_names(state, &repo_path).await?;
     names.sort();
     names.dedup();
     let holds = BranchHolds::read(state, repo).await?;

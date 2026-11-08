@@ -351,12 +351,21 @@ async fn on_branch_changed(
 /// stays in the repo checkout, and a name git takes. Refusals are `Error::Invalid`, worded for
 /// the field the name was typed in.
 pub fn check_branch_name(repo: &RepoRecord, name: &str) -> Result<()> {
+    ensure_named(name)?;
+    BranchHolds::of_repo(repo.clone()).ensure_not_default(name)?;
+    ensure_ref_name(name)
+}
+
+fn ensure_named(name: &str) -> Result<()> {
     if name.trim().is_empty() {
         return Err(Error::Invalid(
             "Add a branch name, e.g. feat/oauth-login.".into(),
         ));
     }
-    BranchHolds::of_repo(repo.clone()).ensure_not_default(name)?;
+    Ok(())
+}
+
+fn ensure_ref_name(name: &str) -> Result<()> {
     crate::git::validate_ref_name(name, "branch").map_err(|_| {
         Error::Invalid(
             "Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.".into(),
@@ -371,14 +380,8 @@ pub async fn check_new_branch(
     workspace: &WorkspaceRecord,
     name: &str,
 ) -> Result<()> {
-    if name.trim().is_empty() {
-        return check_branch_name(&state.store.repo(&workspace.repo_id)?, name);
-    }
-    crate::git::validate_ref_name(name, "branch").map_err(|_| {
-        Error::Invalid(
-            "Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.".into(),
-        )
-    })?;
+    ensure_named(name)?;
+    ensure_ref_name(name)?;
     let local = state.git.list_local_branches(&workspace.worktree()).await?;
     if name == workspace.base || local.iter().any(|branch| branch == name) {
         return Err(Error::Invalid(format!(
@@ -403,20 +406,12 @@ pub async fn taken_branches(
     repo_path: &Path,
     except_workspace: Option<&str>,
 ) -> Result<Vec<String>> {
-    let (local, remote) = tokio::try_join!(
-        state.git.list_local_branches(repo_path),
-        state.git.list_remote_branches(repo_path, "origin"),
-    )?;
-    let mut taken = local;
-    taken.extend(remote);
-    taken.extend(
-        state
-            .store
-            .live_workspaces()?
-            .into_iter()
-            .filter(|row| row.repo_id == repo_id && Some(row.id.as_str()) != except_workspace)
-            .map(|row| row.branch),
-    );
+    let mut taken = crate::repos::branch_names(state, repo_path).await?;
+    let mut holds = BranchHolds::recorded(state, state.store.repo(repo_id)?)?;
+    if let Some(workspace_id) = except_workspace {
+        holds = holds.seen_from(workspace_id);
+    }
+    taken.extend(holds.checked_out_names().map(str::to_string));
     Ok(taken)
 }
 
