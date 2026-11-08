@@ -277,6 +277,7 @@
           >
             <WorkspaceFindingsPanel
               workspaceId={workspace.id}
+              threadId={activeThread.id}
               bind:headingRef={findingsHeading}
             />
           </div>

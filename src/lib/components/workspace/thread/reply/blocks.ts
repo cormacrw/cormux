@@ -13,6 +13,8 @@ type BlockProps<K extends BlockKind> = {
   data: Extract<ReplyBlock, { kind: K }>['data']
   /** The thread's worktree, for blocks that point at its files. */
   workdir?: string
+  /** Opens a file in Changes; without it, a block's files aren't links. */
+  revealFile?: (path: string, line?: number | null) => void
 }
 
 export const BLOCK_COMPONENTS: {

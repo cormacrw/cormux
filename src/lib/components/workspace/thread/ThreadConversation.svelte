@@ -202,6 +202,12 @@
     get revealFile() {
       return source.revealFile
     },
+    get workspaceId() {
+      return source.workspaceId
+    },
+    get openFindings() {
+      return source.openFindings
+    },
     get scratch() {
       return scratch
     },

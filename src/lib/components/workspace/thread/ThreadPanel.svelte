@@ -8,7 +8,11 @@
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
-  import { openWorkspace, revealFileInWorkspace } from '$lib/nav/open'
+  import {
+    openWorkspace,
+    openWorkspaceFindings,
+    revealFileInWorkspace,
+  } from '$lib/nav/open'
   import { wordmark } from '$lib/background/wordmark.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
@@ -50,6 +54,10 @@
     findPr: (repoFullName, num) => prs.find(repoFullName, num),
     revealFile: (path, line = null) =>
       revealFileInWorkspace(workspace.id, threadId, path, line),
+    get workspaceId() {
+      return workspace.id
+    },
+    openFindings: () => openWorkspaceFindings(workspace.id, threadId),
   }
   const view = $derived(threadTimeline.threadView(threadId))
   const live = $derived(view.live)

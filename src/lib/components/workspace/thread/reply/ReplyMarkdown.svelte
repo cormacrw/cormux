@@ -172,7 +172,7 @@
         {:else if part.kind === 'compare'}
           <MediaCompare before={part.before} after={part.after} {workdir} />
         {:else}
-          <ReplyBlock block={part.block} {workdir} />
+          <ReplyBlock block={part.block} {workdir} {revealFile} />
         {/if}
       </div>
     {/if}

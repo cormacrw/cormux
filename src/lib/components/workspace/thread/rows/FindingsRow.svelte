@@ -2,9 +2,7 @@
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import List from '@lucide/svelte/icons/list'
   import { severitySummary } from '$lib/findings/format'
-  import { nav } from '$lib/core/nav.svelte'
   import { findings } from '$lib/findings/store.svelte'
-  import { openWorkspaceFindings } from '$lib/nav/open'
   import type { TimelineItem } from '$lib/thread/timeline-types'
   import type { RowContext } from './context'
   import RowShell from './RowShell.svelte'
@@ -15,15 +13,10 @@
   }: { item: Extract<TimelineItem, { kind: 'findings' }>; ctx: RowContext } =
     $props()
 
-  // A row only shows in the open thread, whose workspace ran the review.
-  const workspaceId = $derived(nav.workspaceId)
-  const rows = $derived(workspaceId ? findings.forWorkspace(workspaceId) : [])
-
-  function openFindings() {
-    if (workspaceId) {
-      openWorkspaceFindings(workspaceId, nav.threadId ?? undefined)
-    }
-  }
+  // The thread's own workspace ran the review.
+  const rows = $derived(
+    ctx.workspaceId ? findings.forWorkspace(ctx.workspaceId) : [],
+  )
 </script>
 
 <RowShell id={item.id} {ctx} pop>
@@ -36,14 +29,16 @@
     <span class="truncate text-muted-foreground/80"
       >· {rows.length ? severitySummary(rows) : 'No findings'}</span
     >
-    <button
-      type="button"
-      class="inline-flex shrink-0 items-center gap-0.5 font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
-      data-od-id="findings-card-open"
-      onclick={openFindings}
-    >
-      Open findings
-      <ArrowRight class="size-3" aria-hidden="true" />
-    </button>
+    {#if ctx.openFindings}
+      <button
+        type="button"
+        class="inline-flex shrink-0 items-center gap-0.5 font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
+        data-od-id="findings-card-open"
+        onclick={ctx.openFindings}
+      >
+        Open findings
+        <ArrowRight class="size-3" aria-hidden="true" />
+      </button>
+    {/if}
   </div>
 </RowShell>

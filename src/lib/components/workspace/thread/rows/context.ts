@@ -13,6 +13,10 @@ export type ConversationSource = {
   /** Opens a file in Changes; unset where there's no workspace (a scratch), so none are links. */
   readonly revealFile:
     ((path: string, line?: number | null) => void) | undefined
+  /** The workspace the conversation is in, whose review findings its rows count. */
+  readonly workspaceId: string | undefined
+  /** Opens that workspace's Findings beside this thread; unset where there's no workspace. */
+  readonly openFindings: (() => void) | undefined
 }
 
 /** What every row of one conversation shares. Read through getters, so a row only tracks what it reads. */

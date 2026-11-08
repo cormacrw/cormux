@@ -41,7 +41,11 @@
     {/if}
     {#each reply as segment, index (index)}
       {#if segment.kind === 'tagBlock'}
-        <ReplyBlock block={segment.block} workdir={ctx.workdir} />
+        <ReplyBlock
+          block={segment.block}
+          workdir={ctx.workdir}
+          revealFile={ctx.revealFile}
+        />
       {/if}
     {/each}
     <!-- Under the reply, not over it, so it never covers the last words of a line. -->

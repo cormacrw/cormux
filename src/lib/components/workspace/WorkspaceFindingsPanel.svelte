@@ -8,7 +8,7 @@
   import { Checkbox } from '$lib/components/ui/checkbox'
   import { threads, workspaceUi, workspaces } from '$lib/state'
   import { findings } from '$lib/findings/store.svelte'
-  import { openWorkspaceThread, revealInChanges } from '$lib/nav/open'
+  import { openWorkspaceThread, revealFileInWorkspace } from '$lib/nav/open'
   import { engineDisplayName } from '$lib/engine/engines'
   import { selectionSummaryText } from '$lib/findings/format'
   import {
@@ -28,9 +28,12 @@
 
   let {
     workspaceId,
+    threadId,
     headingRef = $bindable(),
   }: {
     workspaceId: string
+    /** The thread shown under the panel, which a finding's file opens beside. */
+    threadId: string
     headingRef?: HTMLHeadingElement | undefined
   } = $props()
 
@@ -65,7 +68,7 @@
 
   function openLocation(row: FindingRow) {
     if (!row.file) return
-    revealInChanges(row.file, row.line)
+    revealFileInWorkspace(workspaceId, threadId, row.file, row.line)
   }
 
   async function setDismissed(ids: string[], dismissed: boolean) {
