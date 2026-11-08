@@ -1,6 +1,17 @@
+import type { Route } from '$lib/core/route'
+
 /** Somewhere Ctrl+Tab can take you: a workspace or one of the main pages. */
 export type Place =
   { kind: 'workspace'; id: string } | { kind: 'newThread' } | { kind: 'sprint' }
+
+/** The route as a place the switcher knows, or null (Settings, a scratch, a repo). */
+export function placeOf(route: Route): Place | null {
+  if (route.view === 'workspace')
+    return { kind: 'workspace', id: route.workspaceId }
+  if (route.view === 'newThread' || route.view === 'sprint')
+    return { kind: route.view }
+  return null
+}
 
 const MAIN_PAGES: Place[] = [{ kind: 'newThread' }, { kind: 'sprint' }]
 

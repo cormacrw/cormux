@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import TrayControls from '$lib/components/tray/TrayControls.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Badge } from '$lib/components/ui/badge'
@@ -7,7 +7,7 @@
   import type { WorkspaceAppControlAction } from '$lib/ipc/bindings'
   import { repos, workspaceUi } from '$lib/state'
   import { workspaces } from '$lib/state/workspaces.svelte'
-  import { appControls, controlApp } from '$lib/run-app/actions'
+  import { appControls, controlApp, onLogCleared } from '$lib/run-app/actions'
   import { outputBody } from '$lib/run-app/controls'
   import { appStatusView, isAppUp } from '$lib/run-app/status'
   import { openRepoRunCommand } from '$lib/settings/open'
@@ -49,9 +49,6 @@
   let stickToBottom = $state(true)
 
   const runtime = $derived(workspaces.runtime(workspaceId))
-  // A primitive, so status or git updates to `runtime` (or a rebuilt workspace behind the
-  // `workspaceId` prop) don't wipe the log; only Clear or another workspace does.
-  const logKey = $derived(`${workspaceId}:${runtime.logVersion}`)
   const repo = $derived(repos.getById(repoId))
   const repoCommand = $derived(repos.runCommand(repoId))
   const controls = $derived(appControls(workspaceId))
@@ -72,6 +69,7 @@
   function resetLog() {
     lines = []
     pending = []
+    stickToBottom = true
   }
 
   function flushLines() {
@@ -87,10 +85,15 @@
     }
   }
 
+  // A derived primitive, so a rebuilt workspace behind the `workspaceId` prop doesn't wipe the
+  // log; only Clear or another workspace does.
+  const logWorkspaceId = $derived(workspaceId)
   $effect(() => {
-    void logKey
-    resetLog()
-    stickToBottom = true
+    const id = logWorkspaceId
+    untrack(resetLog)
+    return onLogCleared((cleared) => {
+      if (cleared === id) resetLog()
+    })
   })
 
   $effect(() => {

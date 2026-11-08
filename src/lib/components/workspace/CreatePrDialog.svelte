@@ -88,7 +88,7 @@
       creating = false
       submitError = null
       whyError = false
-      void tick().then(startDraft)
+      void startDraft()
     })
   })
 

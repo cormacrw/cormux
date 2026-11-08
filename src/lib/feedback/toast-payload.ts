@@ -12,8 +12,6 @@ export type ToastPayload = {
   threadId?: string
   /** With `workspaceId`, opens the Findings tab. */
   findings?: boolean
-  /** When set, clicking the toast opens this scratch. */
-  scratchId?: string
 }
 
 export function formatToastPayload(payload: ToastPayload): string {

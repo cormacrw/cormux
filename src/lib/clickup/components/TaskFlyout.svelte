@@ -11,7 +11,7 @@
     resizeEdge,
     savePaneWidth,
   } from '$lib/primitives/slide-out'
-  import { onEscape } from '$lib/keyboard/escape'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
 
   let {
     focusTask,
@@ -38,7 +38,7 @@
   }
 
   $effect(() =>
-    onEscape('slideOut', () => {
+    keyboardLayers.onEscape('slideOut', () => {
       if (!ready) return false
       close()
       return true

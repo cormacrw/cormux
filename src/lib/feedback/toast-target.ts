@@ -1,4 +1,3 @@
-import { navigate } from '$lib/core/nav.svelte'
 import {
   openWorkspace,
   openWorkspaceFindings,
@@ -8,20 +7,17 @@ import type { ToastPayload } from './toast-payload'
 
 export type ToastTarget = Pick<
   ToastPayload,
-  'workspaceId' | 'threadId' | 'findings' | 'scratchId'
+  'workspaceId' | 'threadId' | 'findings'
 >
 
 export function hasToastTarget(target: ToastTarget): boolean {
-  return Boolean(target.workspaceId || target.scratchId)
+  return Boolean(target.workspaceId)
 }
 
 export function openToastTarget(target: ToastTarget) {
-  const { workspaceId, threadId, findings, scratchId } = target
-  if (workspaceId) {
-    if (findings) openWorkspaceFindings(workspaceId, threadId)
-    else if (threadId) openWorkspaceThread(workspaceId, threadId)
-    else openWorkspace(workspaceId)
-    return
-  }
-  if (scratchId) navigate({ view: 'scratch', scratchId })
+  const { workspaceId, threadId, findings } = target
+  if (!workspaceId) return
+  if (findings) openWorkspaceFindings(workspaceId, threadId)
+  else if (threadId) openWorkspaceThread(workspaceId, threadId)
+  else openWorkspace(workspaceId)
 }

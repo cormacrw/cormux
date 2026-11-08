@@ -10,6 +10,8 @@ class WordmarkState {
   private risingEarly = $state(false)
   /** The wordmark animates to its new place instead of jumping there. */
   gliding = $state(false)
+  /** How long a glide lasts: the slower of its two moves, which Backdrop reads from its CSS. */
+  glideMs = 1000
   private glideTimer: ReturnType<typeof setTimeout> | undefined
 
   readonly away = $derived(this.conversationShowing && !this.risingEarly)
@@ -24,10 +26,9 @@ class WordmarkState {
   glide() {
     this.gliding = true
     clearTimeout(this.glideTimer)
-    // Outlasts the slower of the two moves (Backdrop.svelte).
     this.glideTimer = setTimeout(() => {
       this.gliding = false
-    }, 1400)
+    }, this.glideMs)
   }
 
   /** Glides back up ahead of a conversation being cleared; returns the undo for when it isn't. */

@@ -12,10 +12,7 @@
   import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
-  import {
-    claimWorkspacePopover,
-    releaseWorkspacePopover,
-  } from '$lib/keyboard/popover-registry'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
 
   const KINDS = {
@@ -96,8 +93,8 @@
       close: () => (open = false),
       restoreFocus: focusPromptAfterPicker,
     }
-    claimWorkspacePopover(handle)
-    return () => releaseWorkspacePopover(handle)
+    keyboardLayers.claimPopover(handle)
+    return () => keyboardLayers.releasePopover(handle)
   })
 
   async function load(forThread: string | null) {

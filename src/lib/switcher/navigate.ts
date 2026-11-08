@@ -6,16 +6,7 @@ import { switcher } from '$lib/switcher/store.svelte'
 import { threads } from '$lib/state/threads.svelte'
 import { sidebarWorkspaces } from '$lib/sidebar/thread-list-store.svelte'
 import { isShortcut } from '$lib/keyboard/shortcuts'
-import type { Place } from './places'
-
-/** Where the app is, as a place the switcher knows, or null (Settings, a scratch, a repo). */
-export function currentPlace(): Place | null {
-  if (nav.view === 'workspace' && nav.workspaceId)
-    return { kind: 'workspace', id: nav.workspaceId }
-  if (nav.view === 'newThread' || nav.view === 'sprint')
-    return { kind: nav.view }
-  return null
-}
+import { placeOf, type Place } from './places'
 
 function openPlace(place: Place) {
   if (place.kind === 'workspace') {
@@ -41,7 +32,7 @@ export function handleSwitcherKeydown(event: KeyboardEvent): boolean {
   if (isShortcut(event, 'switcher')) {
     event.preventDefault()
     if (shellDialogs.anyOpen()) return true
-    switcher.step(event.shiftKey ? -1 : 1, currentPlace(), {
+    switcher.step(event.shiftKey ? -1 : 1, placeOf(nav.route), {
       workspaceIds: sidebarWorkspaces.ordered.map((workspace) => workspace.id),
       sprintAvailable: clickup.configured,
     })

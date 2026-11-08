@@ -34,14 +34,9 @@
     query.trim() ? findCounterText(current, matches.length) : '',
   )
 
-  // ⌘F opens the bar, or selects what's in it when it's already open. The first run only
-  // records where the counter starts.
-  let seenRequests = threadFind.requests
-  $effect(() => {
-    const requests = threadFind.requests
-    if (requests === seenRequests) return
-    seenRequests = requests
-    untrack(() => {
+  // ⌘F opens the bar, or selects what's in it when it's already open.
+  $effect(() =>
+    threadFind.onRequest(() => {
       if (!open) {
         returnFocus = document.activeElement as HTMLElement | null
         open = true
@@ -50,8 +45,8 @@
         inputEl?.focus()
         inputEl?.select()
       })
-    })
-  })
+    }),
+  )
 
   // A new search starts at the newest match, where the reader usually is.
   $effect(() => {

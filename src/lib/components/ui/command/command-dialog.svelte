@@ -30,7 +30,7 @@
     } = $props()
 </script>
 
-<Dialog.Root bind:open {...restProps}>
+<Dialog.Root bind:open layer="overlay" {...restProps}>
   <Dialog.Header class="sr-only">
     <Dialog.Title>{title}</Dialog.Title>
     <Dialog.Description>{description}</Dialog.Description>

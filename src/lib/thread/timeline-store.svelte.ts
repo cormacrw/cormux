@@ -40,8 +40,6 @@ type ThreadHistory = {
   refreshAgain: boolean
 }
 
-/** Why an action failed: the core's error, or what threw, with what was being tried. */
-
 /** Owns every thread's loaded history, its stream, and the view and actions built on them. */
 class ThreadTimelineStore {
   // Raw, not deep: a long thread holds thousands of events, and reading each through a

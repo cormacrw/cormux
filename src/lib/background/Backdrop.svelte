@@ -45,6 +45,18 @@
     }
   })
 
+  // The glide's durations live in the CSS below; the wordmark's glide lasts the slower one.
+  $effect(() => {
+    if (!area) return
+    const style = getComputedStyle(area)
+    const slowest = Math.max(
+      ...['--glide-rise', '--glide-fall'].map(
+        (name) => parseFloat(style.getPropertyValue(name)) || 0,
+      ),
+    )
+    if (slowest > 0) wordmark.glideMs = slowest
+  })
+
   $effect(() => {
     if (!area) return
     const observer = new ResizeObserver(fit)
@@ -91,7 +103,10 @@
   }
 
   /* The content area, right of the sidebar at whatever width it's been dragged to, plus a little room. */
+  /* The glide's two moves, in ms (the script reads these back). */
   .wordmark-area {
+    --glide-rise: 1200ms;
+    --glide-fall: 420ms;
     position: absolute;
     inset: 0 0 0 calc(var(--sidebar-w) + 8px);
   }
@@ -106,15 +121,15 @@
      pages just shows or hides it. Rising back: moving from the first frame. */
   .wordmark-area.gliding {
     transition:
-      transform 1200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      transform var(--glide-rise) cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 900ms ease-out;
   }
 
   /* Falls with the greeting (thread-hero-out in app.css). */
   .wordmark-area.gliding.away {
     transition:
-      transform 420ms cubic-bezier(0.55, 0, 0.75, 0.3),
-      opacity 0s linear 420ms;
+      transform var(--glide-fall) cubic-bezier(0.55, 0, 0.75, 0.3),
+      opacity 0s linear var(--glide-fall);
   }
 
   .wordmark {

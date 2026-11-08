@@ -57,7 +57,8 @@ test('media an agent references in a reply renders inline', async ({
 
   // The viewer covers the workspace column (header included) but stops at
   // the sidebar, and sits above the workspace header.
-  const host = page.locator('[data-media-lightbox-host]')
+  const host = viewer.locator('xpath=..')
+  await expect(host.locator('[data-od-id="ws-header"]')).toHaveCount(1)
   const viewerBox = await viewer.boundingBox()
   const hostBox = await host.boundingBox()
   expect(viewerBox).toEqual(hostBox)

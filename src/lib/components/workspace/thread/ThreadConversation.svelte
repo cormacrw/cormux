@@ -47,7 +47,6 @@
     engine,
     source,
     shown = true,
-    scratch = false,
     odId,
     contentClass,
     padBottom,
@@ -63,7 +62,6 @@
     source: ConversationSource
     /** On screen rather than under a slide-out; coming back lands on the newest message. */
     shown?: boolean
-    scratch?: boolean
     odId?: string
     contentClass?: ClassValue
     padBottom?: string
@@ -214,7 +212,7 @@
       return source.openFindings
     },
     get scratch() {
-      return scratch
+      return source.workspaceId === undefined
     },
   }
 
@@ -257,7 +255,7 @@
   /** Back to the newest message, and following it again. */
   export function followEnd() {
     pinnedToBottom = true
-    queueMicrotask(() => {
+    void tick().then(() => {
       if (scrollEl) scrollTo(scrollEl)
       keepFollowing()
     })

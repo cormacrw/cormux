@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { approvalResolvedChip } from '$lib/approvals/payload'
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
@@ -62,7 +63,7 @@
     // the card as it was, reason and all, to try again.
     denying = false
     denyReason = ''
-    queueMicrotask(() => {
+    void tick().then(() => {
       if (!focusPrompt()) cardEl?.focus({ preventScroll: true })
     })
   }

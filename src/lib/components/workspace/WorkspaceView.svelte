@@ -12,11 +12,11 @@
   import WorkspaceOutputPanel from '../../run-app/components/WorkspaceOutputPanel.svelte'
   import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
-  import { MEDIA_HOST_ATTR } from './thread/reply/MediaLightbox.svelte'
+  import { provideMediaHost } from './thread/reply/media-host'
   import ChangesPanel from '../../changes/components/ChangesPanel.svelte'
   import { resizeEdge } from '$lib/primitives/slide-out'
   import { focusPrompt } from '$lib/keyboard/focus-home'
-  import { onEscape } from '$lib/keyboard/escape'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
 
   const workspace = $derived(
     nav.workspaceId ? workspaces.getById(nav.workspaceId) : undefined,
@@ -31,17 +31,20 @@
   )
 
   let workspaceTitle: HTMLHeadingElement | undefined = $state()
+  let sectionEl: HTMLElement | undefined = $state()
+  provideMediaHost(() => sectionEl)
   let renameWorkspaceId = $state<string | null>(null)
   let findingsHeading: HTMLHeadingElement | undefined = $state()
 
   // Opening a workspace on a thread leaves focus to its composer, ready to type; other
   // panels focus the title.
-  $effect(() => {
-    if (nav.view !== 'workspace') return
-    void nav.arrivals
-    if (untrack(() => workspaceUi.activeTab) !== 'thread')
-      workspaceTitle?.focus()
-  })
+  $effect(() =>
+    nav.onArrival(() => {
+      if (nav.view !== 'workspace') return
+      if (untrack(() => workspaceUi.activeTab) !== 'thread')
+        workspaceTitle?.focus()
+    }),
+  )
 
   const provisioning = $derived(
     workspace ? isWorkspaceProvisioning(workspace.lifecycle) : false,
@@ -110,7 +113,7 @@
 
   // Esc slides Git, Output or Findings away from anywhere in the workspace.
   $effect(() =>
-    onEscape('slideOut', () => {
+    keyboardLayers.onEscape('slideOut', () => {
       if (!slideOut) return false
       dismissSlideOut()
       return true
@@ -160,10 +163,7 @@
   })
 </script>
 
-<section
-  class="relative flex min-h-0 flex-1 flex-col"
-  {...{ [MEDIA_HOST_ATTR]: '' }}
->
+<section bind:this={sectionEl} class="relative flex min-h-0 flex-1 flex-col">
   {#if workspace}
     <RenameWorkspaceDialog bind:workspaceId={renameWorkspaceId} />
     <WorkspaceHeader

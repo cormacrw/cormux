@@ -17,10 +17,7 @@
   import { focusPrompt, focusPromptAfterPicker } from '$lib/keyboard/focus-home'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
-  import {
-    claimWorkspacePopover,
-    releaseWorkspacePopover,
-  } from '$lib/keyboard/popover-registry'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
   import { resolveDefaultRepoId } from '$lib/settings/default-repo'
   import { repos } from '$lib/state'
   import { wordmark } from '$lib/background/wordmark.svelte'
@@ -52,12 +49,13 @@
     })
   })
 
-  $effect(() => {
-    if (nav.view !== 'newThread') return
-    void nav.arrivals
-    if (repos.items.length) focusPrompt()
-    else titleEl?.focus()
-  })
+  $effect(() =>
+    nav.onArrival(() => {
+      if (nav.view !== 'newThread') return
+      if (repos.items.length) focusPrompt()
+      else titleEl?.focus()
+    }),
+  )
 
   $effect(() => {
     if (!repoOpen) return
@@ -65,8 +63,8 @@
       close: () => (repoOpen = false),
       restoreFocus: focusPromptAfterPicker,
     }
-    claimWorkspacePopover(handle)
-    return () => releaseWorkspacePopover(handle)
+    keyboardLayers.claimPopover(handle)
+    return () => keyboardLayers.releasePopover(handle)
   })
 
   function onWindowKeydown(event: KeyboardEvent) {
