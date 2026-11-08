@@ -1,13 +1,12 @@
-// The app's keyboard router, beside `menu.ts` (the menu bar's). Buttons on screen handle
-// their own shortcuts through `shellDialogs.allows`; this handles the ones with no button.
+// The app's keyboard router, beside `menu.ts` (the menu bar's); keys both have go through
+// `runShellCommand`. Buttons on screen handle their own shortcuts through
+// `shellDialogs.allows`; this handles the ones with no button.
 import { openWorkspace } from '$lib/nav/open'
-import { openSettings } from '$lib/settings/open'
-import { nav, navigate } from '$lib/core/nav.svelte'
+import { nav } from '$lib/core/nav.svelte'
 import { switchConversation } from '$lib/thread/actions'
 import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
 import { focusPrompt, overlayOpen } from '$lib/keyboard/focus-home'
 import { runEscape } from '$lib/keyboard/escape'
-import { palette } from '$lib/command-palette/store.svelte'
 import { threadFind } from '$lib/thread/find-store.svelte'
 import { handleSwitcherKeydown } from '$lib/switcher/navigate'
 import { threadTimeline } from '$lib/thread/timeline-store.svelte'
@@ -15,13 +14,14 @@ import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
 import { sidebarWorkspaces } from '$lib/sidebar/thread-list-store.svelte'
 import { isShortcut } from '$lib/keyboard/shortcuts'
+import { runShellCommand } from './shell-commands'
 
 export function handleGlobalKeydown(event: KeyboardEvent) {
   if (handleSwitcherKeydown(event)) return
 
   if (isShortcut(event, 'palette')) {
     event.preventDefault()
-    palette.toggle()
+    runShellCommand('palette')
     return
   }
 
@@ -50,13 +50,13 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
 
   if (isShortcut(event, 'newThread')) {
     event.preventDefault()
-    if (!gated) navigate({ view: 'newThread' })
+    runShellCommand('newThread')
     return
   }
 
   if (isShortcut(event, 'settings')) {
     event.preventDefault()
-    if (!gated) openSettings()
+    runShellCommand('settings')
     return
   }
 

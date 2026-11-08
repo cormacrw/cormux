@@ -1,6 +1,7 @@
 import type {
   ApprovalRow,
   FindingRow,
+  MenuCommand,
   ResumeThreadSessionInput,
   Snapshot,
   ThreadStatus,
@@ -95,6 +96,8 @@ export type HarnessControls = {
   agentEvents: (events: object[]) => void
   /** Puts a workspace's app up on :5173, printing `lines` to an open Output. */
   appRunning: (workspaceId: string, lines: string[]) => void
+  /** Picks a menu bar item, as the native menu reports it. */
+  chooseMenu: (command: MenuCommand) => void
   /** Commits the uncommitted diff, as the watcher reports it. */
   commit: () => void
   /** Raises a toast of any tone. Set just after install: wait for it with `waitForFunction`. */
