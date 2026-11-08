@@ -1,33 +1,12 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use crate::engines::{AgentEvent, ToolKind};
+pub use crate::engines::AgentQuestion;
+use crate::engines::{AgentEvent, ToolRole};
 
 /// The `tool` an approval row carries when an agent is asking rather than seeking permission.
 pub const QUESTION_TOOL: &str = "question";
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QuestionOption {
-    pub label: String,
-    #[serde(default)]
-    pub description: String,
-}
-
-/// One question from an `AskUserQuestion` call, in the shape the tool's input uses.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentQuestion {
-    pub question: String,
-    #[serde(default)]
-    pub header: String,
-    #[serde(default)]
-    pub options: Vec<QuestionOption>,
-    #[serde(default)]
-    pub multi_select: bool,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,39 +47,33 @@ impl Default for ApprovalPayload {
 pub fn payload_from_permission(event: &AgentEvent) -> (ApprovalPayload, String) {
     let AgentEvent::Permission {
         title,
-        tool_name,
-        kind,
+        tool,
+        role,
         detail,
         ..
     } = event
     else {
         return (ApprovalPayload::default(), "other".into());
     };
-
-    let what = detail.clone().unwrap_or_else(|| tool_name.clone());
-    let lower = tool_name.to_lowercase();
-    let tool_key = if lower.contains("bash") || lower.contains("run") {
-        ToolKind::Execute.as_str()
-    } else {
-        kind.as_str()
-    };
     let payload = ApprovalPayload {
         title: title.clone(),
-        what,
-        why: tool_name.clone(),
+        what: detail.clone().unwrap_or_else(|| tool.clone()),
+        why: tool.clone(),
         ..ApprovalPayload::default()
     };
-    (payload, tool_key.into())
+    (payload, tool_key(role).into())
 }
 
-/// The questions in an `AskUserQuestion` call's input. Empty when it doesn't parse, which
-/// leaves the call to the ordinary approval card.
-pub fn questions_from_input(input: &Value) -> Vec<AgentQuestion> {
-    input
-        .get("questions")
-        .cloned()
-        .and_then(|questions| serde_json::from_value(questions).ok())
-        .unwrap_or_default()
+/// The approval row's `tool`: the kind of thing it would do.
+fn tool_key(role: &ToolRole) -> &'static str {
+    match role {
+        ToolRole::Read => "read",
+        ToolRole::Search | ToolRole::WebSearch { .. } => "search",
+        ToolRole::Edit { .. } => "edit",
+        ToolRole::Command { .. } => "execute",
+        ToolRole::Fetch { .. } => "fetch",
+        _ => "other",
+    }
 }
 
 pub fn payload_with_questions(

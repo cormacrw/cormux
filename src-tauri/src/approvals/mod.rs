@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::oneshot;
 
-pub use payload::{QUESTION_TOOL, questions_from_input};
+pub use payload::QUESTION_TOOL;
 pub use record::{
     mark_answered, mark_resolved, record_pending_permission, record_pending_question,
 };

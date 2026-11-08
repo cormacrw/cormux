@@ -29,23 +29,8 @@ pub struct ThreadMedia {
 }
 
 fn media_type(name: &str) -> Option<(&'static str, &'static str)> {
-    // (kind, canonical extension)
-    match Path::new(name)
-        .extension()?
-        .to_str()?
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "png" => Some(("image", "png")),
-        "jpg" | "jpeg" => Some(("image", "jpg")),
-        "gif" => Some(("image", "gif")),
-        "webp" => Some(("image", "webp")),
-        "mp4" => Some(("video", "mp4")),
-        "webm" => Some(("video", "webm")),
-        "mov" => Some(("video", "mov")),
-        "m4v" => Some(("video", "m4v")),
-        _ => None,
-    }
+    let format = crate::media::format_of(name)?;
+    Some((format.kind.as_str(), format.canonical))
 }
 
 /// The file's own bytes must agree with its extension, so a renamed text file is refused.

@@ -15,7 +15,7 @@ use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::git::{BehindUpdate, GitConflictState, RepoFetchTarget, WorkspaceFetchTarget};
 use crate::model::{GitConflictOperation, WorkspaceLifecycle};
 use crate::state::AppState;
-use crate::timeline::{BranchChange, TimelineStep, record_step};
+use crate::timeline::{BranchChange, TimelineStep};
 use crate::workspaces::WorkspaceRecord;
 
 /// How often every repo is fetched and its workspaces recounted.
@@ -513,7 +513,7 @@ pub fn record_in_own_thread(state: &AppState, workspace_id: &str, step: Timeline
         .store
         .own_thread(workspace_id)
         .and_then(|thread| match thread {
-            Some(thread) => record_step(&state.store, &thread.id, step),
+            Some(thread) => state.transcript.record_step(&thread.id, step).map(|_| ()),
             None => Ok(()),
         });
     if let Err(error) = recorded {

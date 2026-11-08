@@ -7,9 +7,9 @@ use std::time::Duration;
 use tauri::ipc::Channel;
 use tokio::sync::{broadcast, watch};
 
-use super::types::{AgentEvent, DiffUpdate, PtyChunk};
-use crate::engines::{EngineRegistry, StreamedEvent};
+use super::types::{DiffUpdate, PtyChunk};
 use crate::state::AppState;
+use crate::transcript::{StreamLagged, StreamedEvent, TranscriptEvent};
 
 /// Live channel subscriptions, so the webview can stop the task feeding a channel.
 #[derive(Clone, Default)]
@@ -71,61 +71,39 @@ impl Drop for SubscriptionHandle {
     }
 }
 
-/// Feeds `channel` a thread's normalised agent events until cancelled. Returns the id to cancel by.
+/// Feeds `channel` everything the thread's transcript gets until cancelled. Returns the id to
+/// cancel by.
 pub fn stream_agent_events(
     state: &AppState,
     subs: &Subscriptions,
     thread_id: String,
     channel: Channel<StreamedEvent>,
 ) -> u32 {
-    let engines = state.engines.clone();
+    let mut rx = state.transcript.subscribe(&thread_id);
     let mut sub = subs.register();
     let id = sub.id;
     tauri::async_runtime::spawn(async move {
-        // A new session replaces the engine, so when one closes wait for the next.
-        while let Some(mut rx) = subscribe_thread(&engines, &thread_id, &mut sub).await {
-            loop {
-                let event = tokio::select! {
-                    _ = sub.stopped() => return,
-                    event = rx.recv() => event,
-                };
-                match event {
-                    Ok(event) => {
-                        let _ = channel.send(event);
-                    }
-                    // Every event is saved before it's sent, so the UI can read back what it missed.
-                    Err(broadcast::error::RecvError::Lagged(missed)) => {
-                        let _ = channel.send(AgentEvent::StreamLagged { missed }.into());
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
+        loop {
+            let event = tokio::select! {
+                _ = sub.stopped() => return,
+                event = rx.recv() => event,
+            };
+            let sent = match event {
+                Ok(event) => channel.send(event),
+                // What was saved can be read back; the signals in between are gone.
+                Err(broadcast::error::RecvError::Lagged(missed)) => channel.send(StreamedEvent {
+                    seq: None,
+                    event: TranscriptEvent::Lagged(StreamLagged::StreamLagged { missed }),
+                }),
+                Err(broadcast::error::RecvError::Closed) => return,
+            };
+            // The webview that asked is gone (a reload), so nothing will cancel this.
+            if sent.is_err() {
+                return;
             }
         }
     });
     id
-}
-
-/// Wait for the thread's engine session to exist, giving up if the subscription is cancelled
-/// first. An idle thread on screen has no engine until its next prompt, so this waits on the
-/// registry's spawn signal rather than polling.
-async fn subscribe_thread(
-    engines: &EngineRegistry,
-    thread_id: &str,
-    sub: &mut SubscriptionHandle,
-) -> Option<broadcast::Receiver<StreamedEvent>> {
-    loop {
-        // Armed before the check, so a spawn landing between the two still wakes this.
-        let spawned = engines.spawned().notified();
-        tokio::pin!(spawned);
-        spawned.as_mut().enable();
-        if let Ok(rx) = engines.subscribe(thread_id) {
-            return Some(rx);
-        }
-        tokio::select! {
-            _ = sub.stopped() => return None,
-            () = spawned => {}
-        }
-    }
 }
 
 /// Feeds `channel` a workspace's run/setup log, from the start, until cancelled.

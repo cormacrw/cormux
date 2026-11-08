@@ -22,15 +22,12 @@ pub struct EngineStatus {
 }
 
 pub async fn detect_engines(env: &ShellEnv) -> Result<Vec<EngineStatus>> {
-    let mut out = Vec::new();
-    for kind in EngineKind::all() {
-        out.push(detect_one(env, *kind).await);
-    }
-    Ok(out)
+    Ok(vec![detect_claude(env).await])
 }
 
-async fn detect_one(env: &ShellEnv, kind: EngineKind) -> EngineStatus {
-    let Some(binary) = resolve_binary(env, kind.binaries()) else {
+async fn detect_claude(env: &ShellEnv) -> EngineStatus {
+    let kind = EngineKind::Claude;
+    let Some(binary) = resolve_binary(env, CLAUDE_BINARY) else {
         return EngineStatus {
             kind,
             installed: false,
@@ -41,9 +38,7 @@ async fn detect_one(env: &ShellEnv, kind: EngineKind) -> EngineStatus {
     };
 
     let version = version_line(env, &binary).await;
-    let signed_in = match kind {
-        EngineKind::Claude => claude_signed_in(env, &binary).await,
-    };
+    let signed_in = claude_signed_in(env, &binary).await;
 
     EngineStatus {
         kind,
@@ -54,20 +49,17 @@ async fn detect_one(env: &ShellEnv, kind: EngineKind) -> EngineStatus {
     }
 }
 
-pub fn resolve_binary(env: &ShellEnv, names: &[&str]) -> Option<PathBuf> {
+pub const CLAUDE_BINARY: &str = "claude";
+
+/// The first `name` on the shell's PATH.
+pub fn resolve_binary(env: &ShellEnv, name: &str) -> Option<PathBuf> {
     let path = env
         .get("PATH")
         .map(ToString::to_string)
         .or_else(|| std::env::var("PATH").ok())?;
-    for dir in path.split(':') {
-        for name in names {
-            let candidate = Path::new(dir).join(name);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    None
+    path.split(':')
+        .map(|dir| Path::new(dir).join(name))
+        .find(|candidate| candidate.is_file())
 }
 
 async fn version_line(env: &ShellEnv, binary: &Path) -> Option<String> {
@@ -123,7 +115,7 @@ mod tests {
     async fn missing_engine_is_not_installed() {
         let dir = tempfile::tempdir().unwrap();
         let env = ShellEnv::from_vars([("PATH".into(), dir.path().display().to_string())]);
-        let status = detect_one(&env, EngineKind::Claude).await;
+        let status = detect_claude(&env).await;
         assert!(!status.installed);
         assert!(status.binary.is_none());
     }
@@ -135,7 +127,7 @@ mod tests {
         std::fs::write(&stub, "#!/bin/sh\necho claude 9.9.9\n").unwrap();
         std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
         let env = ShellEnv::from_vars([("PATH".into(), dir.path().display().to_string())]);
-        let status = detect_one(&env, EngineKind::Claude).await;
+        let status = detect_claude(&env).await;
         assert!(status.installed);
         assert_eq!(status.version.as_deref(), Some("claude 9.9.9"));
     }

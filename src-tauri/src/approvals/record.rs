@@ -7,28 +7,32 @@ use crate::engines::AgentEvent;
 use crate::model::ApprovalStatus;
 use crate::store::Store;
 use crate::store::types::ApprovalRow;
+use crate::transcript::Transcript;
 
 pub fn record_pending_permission(
     store: &Store,
+    transcript: &Transcript,
     thread_id: &str,
     event: &AgentEvent,
 ) -> Result<(), crate::error::Error> {
-    record_pending(store, thread_id, event, |payload| payload)
+    record_pending(store, transcript, thread_id, event, |payload| payload)
 }
 
 pub fn record_pending_question(
     store: &Store,
+    transcript: &Transcript,
     thread_id: &str,
     event: &AgentEvent,
     questions: Vec<AgentQuestion>,
 ) -> Result<(), crate::error::Error> {
-    record_pending(store, thread_id, event, |payload| {
+    record_pending(store, transcript, thread_id, event, |payload| {
         payload_with_questions(payload, questions)
     })
 }
 
 fn record_pending(
     store: &Store,
+    transcript: &Transcript,
     thread_id: &str,
     event: &AgentEvent,
     shape: impl FnOnce(ApprovalPayload) -> ApprovalPayload,
@@ -61,7 +65,7 @@ fn record_pending(
         payload: payload_json,
     })?;
 
-    persist_permission_event(store, thread_id, event)?;
+    transcript.append(thread_id, event.clone())?;
     Ok(())
 }
 
@@ -119,15 +123,4 @@ fn finish(
     };
     store.upsert_approval(&updated)?;
     Ok((updated, payload))
-}
-
-fn persist_permission_event(
-    store: &Store,
-    thread_id: &str,
-    event: &AgentEvent,
-) -> Result<(), crate::error::Error> {
-    let payload = serde_json::to_string(event)
-        .map_err(|error| crate::error::Error::Store(error.to_string()))?;
-    store.append_event(thread_id, "permission", &payload)?;
-    Ok(())
 }

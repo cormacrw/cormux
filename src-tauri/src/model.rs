@@ -223,6 +223,11 @@ impl StopReason {
     pub fn failed(subtype: Option<String>) -> Self {
         Self::Failed(subtype.unwrap_or_else(|| "error".into()))
     }
+
+    /// A turn the user stopped.
+    pub fn cancelled() -> Self {
+        Self::Failed("cancelled".into())
+    }
 }
 
 impl From<String> for StopReason {

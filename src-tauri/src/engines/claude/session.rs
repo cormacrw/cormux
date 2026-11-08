@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 #[cfg(test)]
@@ -15,8 +16,8 @@ use super::protocol::{
     interrupt_request, mcp_response, permission_response, set_effort_request, set_model_request,
     stop_task_request, user_prompt_message,
 };
-use crate::engines::claude_argv;
 use crate::engines::prompt::Prompt;
+use crate::engines::{EngineOutput, HostToolCall};
 use crate::error::{Error, Result};
 
 /// How long the CLI gets to answer the initialize handshake. Once a session is up there is
@@ -25,36 +26,15 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
 pub struct SpawnOptions {
+    /// Names the session in its log lines.
+    pub label: String,
     pub binary: PathBuf,
+    pub args: Vec<String>,
     pub cwd: Option<PathBuf>,
-    pub resume: Option<String>,
-    pub model: Option<String>,
-    pub effort: Option<String>,
-    pub extra_args: Vec<String>,
-    /// When false, only `extra_args` are passed (used by the mock CLI fixture).
-    pub use_default_args: bool,
-    /// Give the session the Cormux MCP server, which `run_claude` answers.
-    pub orchestrate: bool,
-    /// Offer the experimental References panel's `attach_entity` tool, and say what it's for.
-    pub references: bool,
+    /// Replaces the app's environment when given.
     pub env: Option<HashMap<String, String>>,
-}
-
-impl Default for SpawnOptions {
-    fn default() -> Self {
-        Self {
-            binary: PathBuf::from("claude"),
-            cwd: None,
-            resume: None,
-            model: None,
-            effort: None,
-            extra_args: Vec::new(),
-            use_default_args: true,
-            orchestrate: false,
-            references: false,
-            env: None,
-        }
-    }
+    /// MCP servers the host answers itself, named in the initialize handshake.
+    pub sdk_servers: Vec<String>,
 }
 
 const LINE_BUFFER_KEEP: usize = 1024 * 1024;
@@ -71,23 +51,15 @@ pub struct ClaudeSession {
 }
 
 impl ClaudeSession {
-    pub async fn spawn(options: SpawnOptions) -> Result<Self> {
-        let mut args = if options.use_default_args {
-            claude_argv(
-                options.resume.as_deref(),
-                options.model.as_deref(),
-                options.effort.as_deref(),
-                options.orchestrate,
-                options.references,
-            )
-        } else {
-            Vec::new()
-        };
-        args.extend(options.extra_args);
-
+    /// Starts the CLI and waits for it to take the initialize handshake. MCP messages it sends
+    /// meanwhile go to the host through `host`.
+    pub async fn spawn(
+        options: SpawnOptions,
+        host: &mpsc::UnboundedSender<EngineOutput>,
+    ) -> Result<Self> {
         let mut command = Command::new(&options.binary);
         command
-            .args(&args)
+            .args(&options.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -102,9 +74,7 @@ impl ClaudeSession {
                 command.env(key, value);
             }
         }
-        if options.use_default_args {
-            command.env("CLAUDE_CODE_ENTRYPOINT", "sdk-ts");
-        }
+        command.env("CLAUDE_CODE_ENTRYPOINT", "sdk-ts");
         if let Some(cwd) = &options.cwd {
             command.current_dir(cwd);
         }
@@ -124,6 +94,7 @@ impl ClaudeSession {
             .take()
             .ok_or_else(|| Error::Engine("claude stdout missing".into()))?;
         if let Some(stderr) = child.stderr.take() {
+            let label = options.label.clone();
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr);
                 // Bytes, not `read_line`: one non-UTF-8 byte (from a hook or MCP server the
@@ -135,7 +106,7 @@ impl ClaudeSession {
                     match reader.read_until(b'\n', &mut line).await {
                         Ok(0) | Err(_) => break,
                         Ok(_) => log::warn!(
-                            "claude stderr: {}",
+                            "claude stderr ({label}): {}",
                             String::from_utf8_lossy(&line).trim_end()
                         ),
                     }
@@ -151,21 +122,20 @@ impl ClaudeSession {
             next_request_id: 1,
         };
 
-        if options.use_default_args {
-            let sdk_servers = if options.orchestrate {
-                vec![crate::mcp::SERVER_NAME.to_string()]
-            } else {
-                Vec::new()
-            };
-            timeout(HANDSHAKE_TIMEOUT, session.handshake_initialize(sdk_servers))
-                .await
-                .map_err(|_| Error::Engine("timed out waiting for Claude to start".into()))??;
-        }
-
+        timeout(
+            HANDSHAKE_TIMEOUT,
+            session.handshake_initialize(options.sdk_servers, host),
+        )
+        .await
+        .map_err(|_| Error::Engine("timed out waiting for Claude to start".into()))??;
         Ok(session)
     }
 
-    async fn handshake_initialize(&mut self, sdk_servers: Vec<String>) -> Result<()> {
+    async fn handshake_initialize(
+        &mut self,
+        sdk_servers: Vec<String>,
+        host: &mpsc::UnboundedSender<EngineOutput>,
+    ) -> Result<()> {
         let request_id = self.alloc_request_id("init");
         self.write_message(&initialize_request(&request_id, sdk_servers))
             .await?;
@@ -184,10 +154,10 @@ impl ClaudeSession {
                 Some(Event::McpMessage {
                     request_id,
                     message,
-                    ..
+                    server_name,
                 }) => {
-                    self.answer_mcp(&request_id, crate::mcp::handshake_reply(&message))
-                        .await?;
+                    let reply = ask_host(host, server_name, message).await;
+                    self.answer_mcp(&request_id, reply).await?;
                 }
                 Some(_) => continue,
                 None => {
@@ -234,18 +204,16 @@ impl ClaudeSession {
             .await
     }
 
-    pub async fn set_model(&mut self, model: Option<String>) -> Result<String> {
+    pub async fn set_model(&mut self, model: Option<String>) -> Result<()> {
         let request_id = self.alloc_request_id("model");
         self.write_message(&set_model_request(&request_id, model))
-            .await?;
-        Ok(request_id)
+            .await
     }
 
-    pub async fn set_effort(&mut self, effort: Option<String>) -> Result<String> {
+    pub async fn set_effort(&mut self, effort: Option<String>) -> Result<()> {
         let request_id = self.alloc_request_id("effort");
         self.write_message(&set_effort_request(&request_id, effort))
-            .await?;
-        Ok(request_id)
+            .await
     }
 
     /// Cancel safe: `read_until` keeps partial reads in `pending`, so the pump can race this
@@ -324,6 +292,30 @@ impl ClaudeSession {
         let id = format!("{prefix}-{}", self.next_request_id);
         self.next_request_id += 1;
         id
+    }
+}
+
+/// Hands one MCP message to the host and waits for its reply. A host that has gone away gets the
+/// CLI an error rather than a hang.
+pub async fn ask_host(
+    host: &mpsc::UnboundedSender<EngineOutput>,
+    server: String,
+    message: Value,
+) -> Value {
+    let id = message.get("id").cloned();
+    let (respond, reply) = oneshot::channel();
+    let asked = host.send(EngineOutput::HostTool(HostToolCall {
+        server,
+        message,
+        respond,
+    }));
+    match (asked, reply.await) {
+        (Ok(()), Ok(reply)) => reply,
+        _ => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": -32603, "message": "Cormux is not answering" },
+        }),
     }
 }
 
@@ -621,7 +613,10 @@ mod tests {
         assert!(saw_error_result);
 
         // Resume is a new process with --resume <id>; prove the argv and a second init.
-        let resume_args = crate::engines::claude_argv(host.session_id(), None, None, false, false);
+        let resume_args = super::super::argv(&crate::engines::LaunchConfig {
+            resume: host.session_id().map(str::to_string),
+            ..Default::default()
+        });
         assert!(resume_args.windows(2).any(|w| w == ["--resume", "sess-1"]));
 
         let (host2_out, _mock2_in) = duplex(4096);
@@ -647,16 +642,22 @@ mod tests {
         let script =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/engines/claude/mock_claude.py");
         SpawnOptions {
+            label: "mock".into(),
             binary: PathBuf::from("python3"),
-            extra_args: vec![script.to_string_lossy().into_owned()],
-            use_default_args: false,
-            ..SpawnOptions::default()
+            args: vec![script.to_string_lossy().into_owned()],
+            cwd: None,
+            env: None,
+            sdk_servers: Vec::new(),
         }
+    }
+
+    fn host() -> mpsc::UnboundedSender<EngineOutput> {
+        mpsc::unbounded_channel().0
     }
 
     #[tokio::test]
     async fn spawn_mock_cli_covers_control_protocol() {
-        let mut session = ClaudeSession::spawn(mock_python()).await.unwrap();
+        let mut session = ClaudeSession::spawn(mock_python(), &host()).await.unwrap();
 
         assert_eq!(
             session.next_event().await.unwrap(),
@@ -707,19 +708,8 @@ mod tests {
         assert!(saw_ack);
         session.shutdown().await.unwrap();
 
-        let mut resumed = ClaudeSession::spawn(SpawnOptions {
-            resume: Some("sess-1".into()),
-            extra_args: {
-                let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("src/engines/claude/mock_claude.py");
-                vec![script.to_string_lossy().into_owned()]
-            },
-            binary: PathBuf::from("python3"),
-            use_default_args: false,
-            ..SpawnOptions::default()
-        })
-        .await
-        .unwrap();
+        // The mock answers a resumed session the same way.
+        let mut resumed = ClaudeSession::spawn(mock_python(), &host()).await.unwrap();
         assert_eq!(
             resumed.next_event().await.unwrap(),
             Some(Event::Init {
@@ -744,16 +734,26 @@ mod tests {
         let cwd = std::env::temp_dir().join("cormux-cor-42-spike");
         std::fs::create_dir_all(&cwd).unwrap();
 
-        let mut session = ClaudeSession::spawn(SpawnOptions {
-            cwd: Some(cwd.clone()),
-            extra_args: vec![
-                "--max-turns".into(),
-                "4".into(),
-                "--permission-mode".into(),
-                "plan".into(),
-            ],
-            ..SpawnOptions::default()
-        })
+        let live = |resume: Option<String>, extra: &[&str]| {
+            let mut args = super::super::argv(&crate::engines::LaunchConfig {
+                cwd: cwd.clone(),
+                resume,
+                ..Default::default()
+            });
+            args.extend(extra.iter().map(|arg| arg.to_string()));
+            SpawnOptions {
+                label: "live".into(),
+                binary: PathBuf::from("claude"),
+                args,
+                cwd: Some(cwd.clone()),
+                env: None,
+                sdk_servers: Vec::new(),
+            }
+        };
+        let mut session = ClaudeSession::spawn(
+            live(None, &["--max-turns", "4", "--permission-mode", "plan"]),
+            &host(),
+        )
         .await
         .expect("spawn claude");
 
@@ -816,12 +816,10 @@ mod tests {
         let session_id = session_id.unwrap_or_else(|| "unknown".into());
         session.shutdown().await.unwrap();
 
-        let mut resumed = ClaudeSession::spawn(SpawnOptions {
-            cwd: Some(cwd),
-            resume: Some(session_id.clone()),
-            extra_args: vec!["--max-turns".into(), "1".into()],
-            ..SpawnOptions::default()
-        })
+        let mut resumed = ClaudeSession::spawn(
+            live(Some(session_id.clone()), &["--max-turns", "1"]),
+            &host(),
+        )
         .await
         .unwrap();
         eprintln!("resumed {session_id}");

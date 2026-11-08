@@ -13,7 +13,7 @@ use crate::clickup::types::{ClickupBoard, ClickupOption, ClickupTaskDetail};
 use crate::create_pr::{
     CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
 };
-use crate::engines::{EngineKind, StreamedEvent, ThreadModels};
+use crate::engines::ThreadModels;
 use crate::error::{Error, Result};
 use crate::feedback::Change;
 use crate::findings::{DismissWorkspaceFindingsInput, SendWorkspaceFindingsInput};
@@ -27,6 +27,7 @@ use crate::repos::{
 use crate::state::AppState;
 use crate::store::types::RepoRecord;
 use crate::summaries::WorkspaceSummaryResult;
+use crate::transcript::StreamedEvent;
 use crate::turn::{ResumeThreadSessionInput, thread_row};
 use crate::workspace_start::CreateWorkspaceInput;
 use crate::workspaces::RenameWorkspaceInput;
@@ -37,7 +38,15 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let memory = state.metrics.latest();
     let github_auth_configured = state.pr_sync.auth_configured(&state);
 
-    let persisted = state.store.blocking(|store| store.snapshot()).await?;
+    let transcript = state.transcript.clone();
+    let persisted = state
+        .store
+        .blocking(move |store| {
+            let mut snapshot = store.snapshot()?;
+            snapshot.thread_activity = transcript.activity()?;
+            Ok(snapshot)
+        })
+        .await?;
     let workspaces = state
         .workspaces
         .records_for(&persisted.workspaces, &persisted.repos)
@@ -300,7 +309,8 @@ pub fn unsubscribe(id: u32, subs: State<'_, Subscriptions>) -> Result<()> {
 pub async fn detect_engines(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::engines::EngineStatus>> {
-    state.engines.detect().await
+    let env = state.shell_env.read().await.clone();
+    crate::engines::detect_engines(&env).await
 }
 
 #[tauri::command]
@@ -673,7 +683,7 @@ pub async fn send_thread_prompt(
     text: String,
     attachments: Vec<crate::attachments::PromptAttachment>,
     state: State<'_, AppState>,
-) -> Result<()> {
+) -> Result<Option<crate::turn::SentMessage>> {
     crate::turn::submit(&state, &thread_id, text, attachments).await
 }
 
@@ -700,20 +710,15 @@ pub async fn resume_thread(thread_id: String, state: State<'_, AppState>) -> Res
 #[tauri::command]
 #[specta::specta]
 pub async fn thread_models(thread_id: String, state: State<'_, AppState>) -> Result<ThreadModels> {
-    let thread = thread_row(&state, &thread_id)?;
-    state
-        .engines
-        .thread_models(&thread_id, EngineKind::from_name(&thread.engine))
+    thread_row(&state, &thread_id)?;
+    state.engines.thread_models(&thread_id)
 }
 
-/// `None` goes back to the engine's default. A live engine switches before its next turn.
-/// The models an engine offers, for a thread that doesn't exist yet.
+/// The models a new thread can start on.
 #[tauri::command]
 #[specta::specta]
-pub async fn engine_models(engine: String) -> Result<Vec<crate::engines::ModelOption>> {
-    Ok(crate::engines::static_models(EngineKind::from_name(
-        &engine,
-    )))
+pub async fn engine_models() -> Result<Vec<crate::engines::ModelOption>> {
+    Ok(crate::engines::static_models())
 }
 
 #[tauri::command]
@@ -731,19 +736,15 @@ pub async fn set_thread_model(
 #[tauri::command]
 #[specta::specta]
 pub async fn thread_efforts(thread_id: String, state: State<'_, AppState>) -> Result<ThreadModels> {
-    let thread = thread_row(&state, &thread_id)?;
-    state
-        .engines
-        .thread_efforts(&thread_id, EngineKind::from_name(&thread.engine))
+    thread_row(&state, &thread_id)?;
+    state.engines.thread_efforts(&thread_id)
 }
 
-/// The effort levels an engine offers, for a thread that doesn't exist yet.
+/// The effort levels a new thread can start on.
 #[tauri::command]
 #[specta::specta]
-pub async fn engine_efforts(engine: String) -> Result<Vec<crate::engines::ModelOption>> {
-    Ok(crate::engines::static_efforts(EngineKind::from_name(
-        &engine,
-    )))
+pub async fn engine_efforts() -> Result<Vec<crate::engines::ModelOption>> {
+    Ok(crate::engines::static_efforts())
 }
 
 /// `None` goes back to the engine's default. A live engine switches before its next turn.

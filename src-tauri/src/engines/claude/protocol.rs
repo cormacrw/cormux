@@ -103,7 +103,6 @@ pub struct CanUseTool {
     pub tool_name: String,
     pub input: Value,
     pub tool_use_id: Option<String>,
-    pub decision_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -418,10 +417,6 @@ fn decode_control_request(value: &Value) -> Result<Event> {
             input: request.get("input").cloned().unwrap_or(Value::Null),
             tool_use_id: request
                 .get("tool_use_id")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            decision_reason: request
-                .get("decision_reason")
                 .and_then(Value::as_str)
                 .map(str::to_string),
         })),

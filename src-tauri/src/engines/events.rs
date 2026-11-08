@@ -2,83 +2,62 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::model::StopReason;
-use crate::timeline::TimelineStep;
 
-/// Engines Cormux can spawn.
+/// The engine a thread runs on. Claude is the only one; the name is kept on threads and in
+/// settings so a second engine has somewhere to go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum EngineKind {
     Claude,
 }
 
-impl EngineKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-        }
-    }
-
-    /// Candidate binaries on PATH, first match wins.
-    pub fn binaries(self) -> &'static [&'static str] {
-        match self {
-            Self::Claude => &["claude"],
-        }
-    }
-
-    /// A stored engine name; anything unknown is Claude.
-    pub fn from_name(name: &str) -> Self {
-        Self::all()
-            .iter()
-            .copied()
-            .find(|kind| kind.as_str().eq_ignore_ascii_case(name))
-            .unwrap_or(Self::Claude)
-    }
-
-    pub fn all() -> &'static [EngineKind] {
-        &[Self::Claude]
-    }
-}
-
-/// What a tool call does, whichever tool made it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum ToolKind {
+/// What a tool call does, as an engine understands it, so nothing past the adapter reads meaning
+/// from a tool's name or title.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ToolRole {
     Read,
-    Edit,
-    Delete,
-    Move,
     Search,
-    Execute,
-    Think,
-    Fetch,
-    Other,
+    Edit {
+        verb: EditVerb,
+    },
+    /// A shell command; `command` is empty when the engine didn't say which.
+    Command {
+        command: String,
+        description: Option<String>,
+    },
+    Fetch {
+        url: String,
+    },
+    WebSearch {
+        query: String,
+    },
+    Skill {
+        name: String,
+    },
+    /// A tool from an MCP server, both named as words.
+    Mcp {
+        server: String,
+        action: String,
+    },
+    /// Starts a subagent, whose own calls name this one as their parent.
+    Subagent {
+        description: Option<String>,
+    },
+    /// The engine loading the schemas of tools it hasn't used yet.
+    ToolLookup,
+    /// Switching the session into plan mode, which only older threads did.
+    PlanMode,
+    Other {
+        name: String,
+    },
 }
 
-impl ToolKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Read => "read",
-            Self::Edit => "edit",
-            Self::Delete => "delete",
-            Self::Move => "move",
-            Self::Search => "search",
-            Self::Execute => "execute",
-            Self::Think => "think",
-            Self::Fetch => "fetch",
-            Self::Other => "other",
-        }
-    }
-
-    pub fn from_claude_tool(name: &str) -> Self {
-        match name {
-            "Read" | "LS" | "NotebookRead" => Self::Read,
-            "Glob" | "Grep" | "WebSearch" => Self::Search,
-            "Edit" | "Write" | "NotebookEdit" => Self::Edit,
-            "Bash" | "BashOutput" => Self::Execute,
-            "WebFetch" => Self::Fetch,
-            _ => Self::Other,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub enum EditVerb {
+    Edited,
+    Created,
+    Deleted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -93,53 +72,14 @@ pub enum ToolCallStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum MessageRole {
-    User,
     Agent,
     Thought,
-}
-
-/// An event on its way to the UI, with where the store saved it. `seq` is `None` for an event that
-/// isn't saved, or failed to save, so the UI can tell it from rows it has already read back.
-#[derive(Debug, Clone, PartialEq, Serialize, Type)]
-pub struct StreamedEvent {
-    pub seq: Option<i64>,
-    pub event: AgentEvent,
-}
-
-impl AgentEvent {
-    /// The `kind` column of the row this event is saved under; `None` for one that's never saved.
-    pub fn store_kind(&self) -> Option<&'static str> {
-        Some(match self {
-            Self::SessionStarted { .. } => "session",
-            Self::MessageChunk { .. } => "message",
-            Self::ToolCall { .. } | Self::Step { .. } => "tool",
-            Self::Plan { .. } => "plan",
-            Self::Permission { .. } => "permission",
-            Self::ToolCallUpdate { .. } => "tool_update",
-            Self::CurrentTool { .. } => "current_tool",
-            Self::Usage { .. } => "usage",
-            Self::TurnEnd { .. } => "turn_end",
-            Self::EngineExited { .. } => "exit",
-            Self::StreamLagged { .. } => return None,
-        })
-    }
-}
-
-impl From<AgentEvent> for StreamedEvent {
-    fn from(event: AgentEvent) -> Self {
-        Self { seq: None, event }
-    }
 }
 
 /// One internal event every adapter translates into (COR-56).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AgentEvent {
-    /// Never saved: the UI fell behind the stream and dropped `missed` events, which it can
-    /// read back from the store.
-    StreamLagged {
-        missed: u64,
-    },
     SessionStarted {
         session_id: String,
     },
@@ -149,23 +89,18 @@ pub enum AgentEvent {
     },
     ToolCall {
         id: String,
+        /// The command for a `Command`, otherwise the tool as words.
         title: String,
-        name: Option<String>,
-        kind: ToolKind,
+        role: ToolRole,
         status: ToolCallStatus,
         locations: Vec<String>,
         detail: Option<String>,
+        /// Shown as an approval card instead of a step: a question, or a plan asking to start.
+        #[serde(default)]
+        hidden: bool,
         /// The tool call that spawned this one, when a subagent made it.
         #[serde(default)]
         parent_id: Option<String>,
-    },
-    /// Something the core did in the thread rather than the agent; see [`TimelineStep`].
-    Step {
-        id: String,
-        /// Display text only; the kind in `step` decides how the step looks.
-        title: String,
-        detail: Option<String>,
-        step: TimelineStep,
     },
     Plan {
         entries: Vec<PlanStep>,
@@ -174,8 +109,9 @@ pub enum AgentEvent {
         id: String,
         tool_call_id: Option<String>,
         title: String,
-        tool_name: String,
-        kind: ToolKind,
+        /// The tool as words.
+        tool: String,
+        role: ToolRole,
         detail: Option<String>,
         auto_approved: bool,
     },
@@ -183,13 +119,13 @@ pub enum AgentEvent {
     ToolCallUpdate {
         id: String,
         title: Option<String>,
-        kind: Option<ToolKind>,
         status: Option<ToolCallStatus>,
         locations: Vec<String>,
         /// The end of what the tool printed, capped, for summing up test and build runs.
         #[serde(default)]
         output: Option<String>,
     },
+    /// What the agent is waiting on right now, for the thread's live row.
     CurrentTool {
         id: Option<String>,
         title: String,
@@ -216,15 +152,23 @@ pub struct PlanStep {
     pub status: String,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// One question an agent asks the user, in the shape Claude's question tool takes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentQuestion {
+    pub question: String,
+    #[serde(default)]
+    pub header: String,
+    #[serde(default)]
+    pub options: Vec<QuestionOption>,
+    #[serde(default)]
+    pub multi_select: bool,
+}
 
-    #[test]
-    fn claude_tool_names_map_to_kinds() {
-        assert_eq!(ToolKind::from_claude_tool("Read"), ToolKind::Read);
-        assert_eq!(ToolKind::from_claude_tool("Grep"), ToolKind::Search);
-        assert_eq!(ToolKind::from_claude_tool("Bash"), ToolKind::Execute);
-        assert_eq!(ToolKind::from_claude_tool("Write"), ToolKind::Edit);
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionOption {
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
 }

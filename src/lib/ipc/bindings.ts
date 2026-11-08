@@ -61,7 +61,7 @@ async detectEngines() : Promise<Result<EngineStatus[], Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async sendThreadPrompt(threadId: string, text: string, attachments: PromptAttachment[]) : Promise<Result<null, Error>> {
+async sendThreadPrompt(threadId: string, text: string, attachments: PromptAttachment[]) : Promise<Result<SentMessage | null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("send_thread_prompt", { threadId, text, attachments }) };
 } catch (e) {
@@ -131,12 +131,11 @@ async threadModels(threadId: string) : Promise<Result<ThreadModels, Error>> {
 }
 },
 /**
- * `None` goes back to the engine's default. A live engine switches before its next turn.
- * The models an engine offers, for a thread that doesn't exist yet.
+ * The models a new thread can start on.
  */
-async engineModels(engine: string) : Promise<Result<ModelOption[], Error>> {
+async engineModels() : Promise<Result<ModelOption[], Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("engine_models", { engine }) };
+    return { status: "ok", data: await TAURI_INVOKE("engine_models") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -162,11 +161,11 @@ async threadEfforts(threadId: string) : Promise<Result<ThreadModels, Error>> {
 }
 },
 /**
- * The effort levels an engine offers, for a thread that doesn't exist yet.
+ * The effort levels a new thread can start on.
  */
-async engineEfforts(engine: string) : Promise<Result<ModelOption[], Error>> {
+async engineEfforts() : Promise<Result<ModelOption[], Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("engine_efforts", { engine }) };
+    return { status: "ok", data: await TAURI_INVOKE("engine_efforts") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -777,20 +776,15 @@ export type AddRepoInput = { path: string }
 /**
  * One internal event every adapter translates into (COR-56).
  */
-export type AgentEvent = 
-/**
- * Never saved: the UI fell behind the stream and dropped `missed` events, which it can
- * read back from the store.
- */
-{ type: "streamLagged"; missed: number } | { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null; parent_id?: string | null } | 
-/**
- * Something the core did in the thread rather than the agent; see [`TimelineStep`].
- */
-{ type: "step"; id: string; title: string; detail: string | null; step: TimelineStep } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | 
+export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; role: ToolRole; status: ToolCallStatus; locations: string[]; detail: string | null; hidden?: boolean; parent_id?: string | null } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool: string; role: ToolRole; detail: string | null; auto_approved: boolean } | 
 /**
  * Fields an engine fills in after the first `ToolCall`, such as an edit's path.
  */
-{ type: "toolCallUpdate"; id: string; title: string | null; kind: ToolKind | null; status: ToolCallStatus | null; locations: string[]; output?: string | null } | { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
+{ type: "toolCallUpdate"; id: string; title: string | null; status: ToolCallStatus | null; locations: string[]; output?: string | null } | 
+/**
+ * What the agent is waiting on right now, for the thread's live row.
+ */
+{ type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
 export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
 /**
  * How a workspace came to be on another branch.
@@ -809,6 +803,11 @@ export type BranchDeletion = "deleted" |
  * (with `force`) can lose commits.
  */
 "unpushed"
+/**
+ * A prompt the thread was started with that the timeline doesn't show: a review's instructions,
+ * which its checked-out-PR step stands for. Readers of what the user asked still see it.
+ */
+export type Briefing = { type: "briefing"; role: UserRole; text: string }
 /**
  * What the webview has to re-read for a change, besides its snapshot, which it always
  * refetches.
@@ -889,8 +888,10 @@ export type DiffUpdate = { workspaceId: string; diff: WorktreeDiff | null }
  */
 export type DismissWorkspaceFindingsInput = { workspaceId: string; findingIds: string[]; dismissed: boolean }
 export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean }
+export type EditVerb = "Edited" | "Created" | "Deleted"
 /**
- * Engines Cormux can spawn.
+ * The engine a thread runs on. Claude is the only one; the name is kept on threads and in
+ * settings so a second engine has somewhere to go.
  */
 export type EngineKind = "claude"
 export type EngineStatus = { kind: EngineKind; installed: boolean; binary: string | null; version: string | null; signedIn: boolean | null }
@@ -934,7 +935,7 @@ export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[]
  * A fresh memory reading. Carries its own data, so it needs no version or refetch.
  */
 export type MemorySampled = { sample: MemorySample }
-export type MessageRole = "user" | "agent" | "thought"
+export type MessageRole = "agent" | "thought"
 /**
  * One entry in the composer's model or effort picker.
  */
@@ -1001,6 +1002,14 @@ export type ScratchRow = { id: string; repoId: string; title: string; threadId: 
  */
 createdAt: string }
 export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
+/**
+ * A message as the thread shows it, where the transcript saved it.
+ */
+export type SentMessage = { seq: number; 
+/**
+ * The text with any attachments named after it.
+ */
+text: string }
 export type SetRepoDefaultBranchInput = { repoId: string; defaultBranch: string }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }
@@ -1059,10 +1068,19 @@ export type StackStatus =
  */
 export type StateChanged = { version: number; change: Change }
 /**
- * An event on its way to the UI, with where the store saved it. `seq` is `None` for an event that
- * isn't saved, or failed to save, so the UI can tell it from rows it has already read back.
+ * Something the core did in the thread rather than the agent; see [`TimelineStep`].
  */
-export type StreamedEvent = { seq: number | null; event: AgentEvent }
+export type StepEvent = { type: "step"; id: string; title: string; detail: string | null; step: TimelineStep }
+/**
+ * Never saved: the subscriber fell behind the stream and dropped `missed` events, which it can
+ * read back from the store.
+ */
+export type StreamLagged = { type: "streamLagged"; missed: number }
+/**
+ * An event on its way to a subscriber, with where the store saved it: `None` for a signal, or an
+ * event that failed to save.
+ */
+export type StreamedEvent = { seq: number | null; event: TranscriptEvent }
 export type SubmitReviewVerdict = "approve" | "requestChanges" | "comment"
 export type SubmitWorkspaceReviewInput = { workspaceId: string; verdict: SubmitReviewVerdict }
 export type SwitchWorkspaceBranchInput = { workspaceId: string; branch: string }
@@ -1148,9 +1166,40 @@ threadId: string | null }
 export type ToastTone = "ok" | "bad" | "default"
 export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
 /**
- * What a tool call does, whichever tool made it.
+ * What a tool call does, as an engine understands it, so nothing past the adapter reads meaning
+ * from a tool's name or title.
  */
-export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other"
+export type ToolRole = { kind: "read" } | { kind: "search" } | { kind: "edit"; verb: EditVerb } | 
+/**
+ * A shell command; `command` is empty when the engine didn't say which.
+ */
+{ kind: "command"; command: string; description: string | null } | { kind: "fetch"; url: string } | { kind: "webSearch"; query: string } | { kind: "skill"; name: string } | 
+/**
+ * A tool from an MCP server, both named as words.
+ */
+{ kind: "mcp"; server: string; action: string } | 
+/**
+ * Starts a subagent, whose own calls name this one as their parent.
+ */
+{ kind: "subagent"; description: string | null } | 
+/**
+ * The engine loading the schemas of tools it hasn't used yet.
+ */
+{ kind: "toolLookup" } | 
+/**
+ * Switching the session into plan mode, which only older threads did.
+ */
+{ kind: "planMode" } | { kind: "other"; name: string }
+/**
+ * One row of a thread's transcript. The wire form is the stored payload: each variant carries its
+ * own `type`, so they share one union in the UI.
+ */
+export type TranscriptEvent = StepEvent | UserMessage | Briefing | StreamLagged | AgentEvent
+/**
+ * What the user sent, as the thread shows it.
+ */
+export type UserMessage = { type: "messageChunk"; role: UserRole; text: string }
+export type UserRole = "user"
 export type WorkspaceAppControlAction = "run" | "restart" | "stop" | "clear"
 export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; 
 /**

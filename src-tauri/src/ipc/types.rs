@@ -83,5 +83,4 @@ pub struct SetSettingInput {
     pub value: String,
 }
 
-pub use crate::engines::AgentEvent;
 pub use crate::teardown::{TeardownInput, TeardownPreview};

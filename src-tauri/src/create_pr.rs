@@ -63,8 +63,8 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
         .store
         .own_thread(workspace_id)?
         .ok_or_else(|| Error::Workspace(format!("no thread in workspace {workspace_id}")))?;
-    let goal = state.store.first_user_goal(&thread.id)?;
-    let transcript = state.store.transcript_summary(&thread.id, 24)?;
+    let goal = state.transcript.first_user_goal(&thread.id)?;
+    let transcript = state.transcript.raw_tail(&thread.id, 24)?;
     let instructions = pr_prompt(state.store.get_setting(PR_PROMPT_KEY)?);
 
     let (text, from_llm) = draft_why(

@@ -27,14 +27,9 @@ pub struct PromptAttachment {
 
 /// The image type for a file name the model can be shown, if any.
 pub fn image_media_type(name: &str) -> Option<&'static str> {
-    let extension = Path::new(name).extension()?.to_str()?.to_ascii_lowercase();
-    match extension.as_str() {
-        "png" => Some("image/png"),
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "gif" => Some("image/gif"),
-        "webp" => Some("image/webp"),
-        _ => None,
-    }
+    crate::media::format_of(name)
+        .filter(|format| format.kind == crate::media::MediaKind::Image)
+        .map(|format| format.mime)
 }
 
 /// A thumbnail for an image picked or dropped by path, as a data URL; None for anything that

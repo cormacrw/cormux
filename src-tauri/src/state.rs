@@ -5,15 +5,18 @@ use tokio::sync::{RwLock, broadcast};
 
 use crate::app::WorkspaceAppService;
 use crate::clickup::ClickupClient;
+use crate::engines::{ClaudeEngines, Engines};
 use crate::error::Result;
 use crate::feedback::{Notifier, UserOutput};
 use crate::git::{FetchScheduler, LiveDiffEngine};
 use crate::orchestration::ReportQueue;
 use crate::paths::DataDir;
+use crate::thread_runtime::{RuntimeParts, ThreadRuntime};
+use crate::transcript::Transcript;
 use crate::{
-    approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::PrSyncScheduler,
-    llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
-    shell_env::ShellEnv, store::Store, workspace_git::WorkspaceGit, workspaces::Workspaces,
+    approvals::ApprovalBroker, git::Git, github::PrSyncScheduler, llm::LlmClient, mcp::CormuxMcp,
+    metrics::Metrics, process::ProcessSupervisor, shell_env::ShellEnv, store::Store,
+    workspace_git::WorkspaceGit, workspaces::Workspaces,
 };
 
 /// Process-wide core state. The webview never holds this; IPC commands borrow it. A handle to
@@ -37,7 +40,9 @@ pub struct Core {
     pub git: Git,
     pub workspaces: Workspaces,
     pub workspace_git: WorkspaceGit,
-    pub engines: EngineRegistry,
+    /// Each thread's live engine.
+    pub engines: ThreadRuntime,
+    pub transcript: Transcript,
     pub approvals: Arc<ApprovalBroker>,
     pub mcp: CormuxMcp,
     pub process: ProcessSupervisor,
@@ -61,11 +66,20 @@ impl AppState {
     pub fn new(data_dir: DataDir, output: Arc<dyn UserOutput>) -> Result<Self> {
         let store = Store::open(&data_dir.db())?;
         store.reset_interrupted_turns()?;
-        Ok(Self::with_store(data_dir, store, output))
+        let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
+        let engines = Arc::new(ClaudeEngines::new(shell_env.clone()));
+        Ok(Self::with_store(
+            data_dir, store, output, shell_env, engines,
+        ))
     }
 
-    fn with_store(data_dir: DataDir, store: Store, output: Arc<dyn UserOutput>) -> Self {
-        let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
+    fn with_store(
+        data_dir: DataDir,
+        store: Store,
+        output: Arc<dyn UserOutput>,
+        shell_env: Arc<RwLock<ShellEnv>>,
+        engines: Arc<dyn Engines>,
+    ) -> Self {
         let git = Git::new(shell_env.clone());
         let diffs = LiveDiffEngine::new(git.clone());
         let fetch = FetchScheduler::new(git.clone());
@@ -83,15 +97,18 @@ impl AppState {
         let (approval_notify, _) = broadcast::channel(32);
         let (turn_end_notify, _) = broadcast::channel(64);
         let (setup_failed, _) = broadcast::channel(16);
-        let mcp = CormuxMcp::new(store.clone());
-        let engines = EngineRegistry::new(
-            shell_env.clone(),
-            approvals.clone(),
-            store.clone(),
-            mcp.clone(),
-            approval_notify.clone(),
-            turn_end_notify.clone(),
-        );
+        let transcript = Transcript::new(store.clone());
+        let mcp = CormuxMcp::new(store.clone(), transcript.clone());
+        let engines = ThreadRuntime::new(RuntimeParts {
+            engines,
+            approvals: approvals.clone(),
+            store: store.clone(),
+            transcript: transcript.clone(),
+            workspaces: workspaces.clone(),
+            host: mcp.clone(),
+            approval_notify: approval_notify.clone(),
+            turn_end_notify: turn_end_notify.clone(),
+        });
         Self(Arc::new(Core {
             data_dir,
             out,
@@ -100,6 +117,7 @@ impl AppState {
             workspaces,
             workspace_git: WorkspaceGit::default(),
             engines,
+            transcript,
             approvals,
             mcp,
             process,
@@ -121,12 +139,30 @@ impl AppState {
     /// A state whose output is recorded, for tests to assert on.
     #[cfg(test)]
     pub fn recorded(data_dir: DataDir) -> (Self, Arc<crate::feedback::RecordingOutput>) {
+        let (state, recording, _) = Self::faked(data_dir);
+        (state, recording)
+    }
+
+    /// Like `recorded`, with engines the test drives.
+    #[cfg(test)]
+    pub fn faked(
+        data_dir: DataDir,
+    ) -> (
+        Self,
+        Arc<crate::feedback::RecordingOutput>,
+        crate::thread_runtime::fake::FakeEngines,
+    ) {
         let recording = Arc::new(crate::feedback::RecordingOutput::default());
         let store = Store::in_memory().expect("in-memory store");
-        (
-            Self::with_store(data_dir, store, recording.clone()),
-            recording,
-        )
+        let fake = crate::thread_runtime::fake::FakeEngines::default();
+        let state = Self::with_store(
+            data_dir,
+            store,
+            recording.clone(),
+            Arc::new(RwLock::new(ShellEnv::new())),
+            Arc::new(fake.clone()),
+        );
+        (state, recording, fake)
     }
 }
 

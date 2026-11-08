@@ -12,16 +12,14 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::attachments::PromptAttachment;
-use crate::composer::persist_user_message;
+use crate::engines::AgentEvent;
 use crate::engines::prompt::Prompt;
-use crate::engines::{EngineKind, SpawnSpec};
 use crate::error::{Error, Result};
 use crate::feedback::Change;
-use crate::model::{ThreadStatus, WorkspaceLifecycle};
+use crate::model::{StopReason, ThreadStatus};
 use crate::state::AppState;
-use crate::store::Store;
 use crate::store::types::ThreadRow;
-use crate::timeline::{TimelineStep, record_step};
+use crate::timeline::TimelineStep;
 
 /// An earlier conversation to resume in a thread.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -42,6 +40,15 @@ pub fn thread_row(state: &AppState, thread_id: &str) -> Result<ThreadRow> {
         .ok_or_else(|| Error::Store(format!("unknown thread {thread_id}")))
 }
 
+/// A message as the thread shows it, where the transcript saved it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SentMessage {
+    pub seq: i64,
+    /// The text with any attachments named after it.
+    pub text: String,
+}
+
 /// A message into a thread, from the user or another thread: `start`, once the attachments are
 /// read. An empty message is ignored.
 pub async fn submit(
@@ -49,10 +56,10 @@ pub async fn submit(
     thread_id: &str,
     text: String,
     attachments: Vec<PromptAttachment>,
-) -> Result<()> {
+) -> Result<Option<SentMessage>> {
     let text = text.trim().to_string();
     if text.is_empty() && attachments.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     if state
         .store
@@ -70,80 +77,31 @@ pub async fn submit(
     })
     .await
     .map_err(|error| Error::Workspace(error.to_string()))??;
-    start(state, &thread_row(state, thread_id)?, &text, prompt).await
+    let seq = start(state, &thread_row(state, thread_id)?, &text, prompt).await?;
+    Ok(Some(SentMessage { seq, text }))
 }
 
 /// Starts a turn: `shown` goes in the thread for the user to read, `prompt` to the engine. The
 /// engine is started if it isn't running. A paused thread queues the prompt for its resume and
 /// stays paused. If this fails the thread keeps its status, though `shown` stays in the thread.
+/// Returns where `shown` was saved.
 pub async fn start(
     state: &AppState,
     thread: &ThreadRow,
     shown: &str,
     prompt: impl Into<Prompt>,
-) -> Result<()> {
+) -> Result<i64> {
     let held = thread.has_status(ThreadStatus::Paused);
     if !held {
-        ensure_engine(state, thread).await?;
+        state
+            .engines
+            .ensure(&thread.id, &thread.workspace_id)
+            .await?;
     }
-    persist_user_message(&state.store, &thread.id, shown)?;
+    let seq = state.transcript.record_user_message(&thread.id, shown)?;
     send(state, thread, prompt.into(), held).await?;
     state.out.changed(Change::THREADS);
-    Ok(())
-}
-
-/// Starts the thread's engine unless it's running.
-async fn ensure_engine(state: &AppState, thread: &ThreadRow) -> Result<()> {
-    if state.engines.has_thread(&thread.id) {
-        return Ok(());
-    }
-    // Two prompts can race here (a user message and a child's report); only one spawns.
-    let _spawning = state.engines.lock_spawn(&thread.id).await;
-    if state.engines.has_thread(&thread.id) {
-        return Ok(());
-    }
-    spawn_engine(
-        state,
-        &thread.id,
-        &thread.engine,
-        &thread.workspace_id,
-        None,
-    )
-    .await
-}
-
-/// Starts an engine for the thread in its workspace's worktree, sending `prompt` first when
-/// there is one.
-pub async fn spawn_engine(
-    state: &AppState,
-    thread_id: &str,
-    engine: &str,
-    workspace_id: &str,
-    prompt: Option<Prompt>,
-) -> Result<()> {
-    let workspace = state.workspaces.get(workspace_id).await?;
-    if workspace.status == WorkspaceLifecycle::TearingDown {
-        return Err(Error::Workspace(format!(
-            "workspace {workspace_id} is being torn down"
-        )));
-    }
-    let run_everything = crate::approvals::run_everything_from_store(&state.store);
-    state
-        .engines
-        .spawn(SpawnSpec {
-            thread_id: thread_id.to_string(),
-            kind: EngineKind::from_name(engine),
-            cwd: workspace.worktree(),
-            override_argv: None,
-            auto_approve_all: run_everything,
-        })
-        .await?;
-    if let Some(prompt) =
-        prompt.filter(|prompt| !prompt.text.is_empty() || !prompt.images.is_empty())
-    {
-        state.engines.prompt(thread_id, prompt)?;
-    }
-    Ok(())
+    Ok(seq)
 }
 
 async fn send(state: &AppState, thread: &ThreadRow, prompt: Prompt, held: bool) -> Result<()> {
@@ -155,12 +113,30 @@ async fn send(state: &AppState, thread: &ThreadRow, prompt: Prompt, held: bool) 
     Ok(())
 }
 
+/// The thread reads as stopped at once, whatever the engine is still finishing: the turn's end
+/// and the step saying who stopped it go in the transcript now.
 pub async fn stop(state: &AppState, thread_id: &str) {
     let thread = thread_row(state, thread_id).ok();
-    let _ = state.engines.cancel(thread_id);
-    let _ = record_step(&state.store, thread_id, TimelineStep::AgentStopped);
+    if let Err(error) = state.engines.cancel(thread_id) {
+        log::warn!("cancelling {thread_id}'s turn: {error}");
+    }
+    let stopped = AgentEvent::TurnEnd {
+        stop_reason: StopReason::cancelled(),
+        error: None,
+    };
+    if let Err(error) = state.transcript.append(thread_id, stopped) {
+        log::warn!("recording {thread_id}'s stop: {error}");
+    }
+    if let Err(error) = state
+        .transcript
+        .record_step(thread_id, TimelineStep::AgentStopped)
+    {
+        log::warn!("recording {thread_id}'s stop: {error}");
+    }
     // Stopping ends a pause too, and drops whatever queued behind it.
-    let _ = state.engines.release_thread(thread_id);
+    if let Err(error) = state.engines.release_thread(thread_id) {
+        log::warn!("dropping {thread_id}'s queue: {error}");
+    }
     let idled = match &thread {
         Some(thread) => record(state, thread, ThreadStatus::Idle).await,
         None => state.store.set_thread_status(thread_id, ThreadStatus::Idle),
@@ -178,7 +154,9 @@ pub async fn pause(state: &AppState, thread_id: &str) -> Result<()> {
         return Ok(());
     }
     state.engines.hold_thread(thread_id)?;
-    record_step(&state.store, thread_id, TimelineStep::AgentPaused)?;
+    state
+        .transcript
+        .record_step(thread_id, TimelineStep::AgentPaused)?;
     record(state, &thread, ThreadStatus::Paused).await?;
     state.out.changed(Change::THREADS);
     Ok(())
@@ -190,7 +168,9 @@ pub async fn resume(state: &AppState, thread_id: &str) -> Result<()> {
     if !thread.has_status(ThreadStatus::Paused) {
         return Ok(());
     }
-    record_step(&state.store, thread_id, TimelineStep::AgentResumed)?;
+    state
+        .transcript
+        .record_step(thread_id, TimelineStep::AgentResumed)?;
     record(state, &thread, ThreadStatus::Running).await?;
     let prompt = state.engines.release_thread(thread_id)?;
     let _ = state.engines.prompt(thread_id, prompt);
@@ -209,8 +189,7 @@ pub async fn new_session(state: &AppState, thread_id: &str) -> Result<()> {
     let ended = state.store.thread_session(thread_id)?;
     state.engines.discard(thread_id)?;
     state.store.clear_thread_session(thread_id)?;
-    record_step(
-        &state.store,
+    state.transcript.record_step(
         thread_id,
         TimelineStep::SessionStarted {
             ended_session: ended,
@@ -234,8 +213,7 @@ pub async fn resume_session(state: &AppState, input: ResumeThreadSessionInput) -
         Some(session) => state.store.set_thread_session(&thread_id, session)?,
         None => state.store.clear_thread_session(&thread_id)?,
     }
-    record_step(
-        &state.store,
+    state.transcript.record_step(
         &thread_id,
         TimelineStep::SessionResumed {
             conversation: input.conversation_id,
@@ -253,30 +231,10 @@ pub async fn mark_idle(state: &AppState, thread: &ThreadRow) -> Result<()> {
     record(state, thread, ThreadStatus::Idle).await
 }
 
-/// The status half of a turn ending. An engine's pump calls this as the event goes out, so
-/// nobody who hears of the end can read the thread as still running; `ended` follows behind it
-/// and has to repeat it, because an engine that exits doesn't go through the pump's save.
-///
-/// A paused thread stays paused: pausing interrupts the CLI, which answers with a turn end of
-/// its own, and idling the thread then would strand its hold (Resume would do nothing and every
-/// later prompt would queue behind a pause nobody can see).
-pub fn settle(store: &Store, thread_id: &str) -> Result<()> {
-    if is_paused(store, thread_id) {
-        return Ok(());
-    }
-    store.set_thread_status(thread_id, ThreadStatus::Idle)
-}
-
-fn is_paused(store: &Store, thread_id: &str) -> bool {
-    matches!(
-        store.thread_by_id(thread_id),
-        Ok(Some(thread)) if thread.has_status(ThreadStatus::Paused)
-    )
-}
-
 /// Everything a turn ending sets off in the thread, once per engine event (a turn end, or the
-/// engine exiting). Features that react to it (a review reading its findings) listen for the
-/// same event themselves.
+/// engine exiting). The runtime has already idled the thread in the store; this brings the
+/// workspace along, and also covers an engine that exited without ending its turn. Features that
+/// react to it (a review reading its findings) listen for the same event themselves.
 pub async fn ended(state: &AppState, thread_id: &str) {
     if let Err(error) = state.store.deny_stale_approvals(thread_id) {
         log::warn!("denying stale approvals on {thread_id}: {error}");
@@ -322,6 +280,7 @@ async fn record(state: &AppState, thread: &ThreadRow, status: ThreadStatus) -> R
 mod tests {
     use super::*;
     use crate::engines::EngineCommand;
+    use crate::thread_runtime::fake::FakeEngines;
     use std::sync::Arc;
 
     use crate::feedback::RecordingOutput;
@@ -352,14 +311,25 @@ mod tests {
         }
     }
 
-    /// A workspace with one thread in `status` whose engine
-    /// is the receiver returned. `workspace` is the workspace's status to start from.
+    /// A workspace with one thread in `status` and a live engine, whose commands are the
+    /// receiver returned. `workspace` is the workspace's status to start from.
     async fn seeded(
         status: ThreadStatus,
         workspace: WorkspaceLifecycle,
     ) -> (AppState, Engine, Arc<RecordingOutput>) {
-        let (state, recording) =
-            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording, fake) = faked(status, workspace).await;
+        let engine = fake.engine(T);
+        state.engines.ensure(T, W).await.unwrap();
+        (state, engine, recording)
+    }
+
+    /// Like `seeded`, with the engines themselves.
+    async fn faked(
+        status: ThreadStatus,
+        workspace: WorkspaceLifecycle,
+    ) -> (AppState, Arc<RecordingOutput>, FakeEngines) {
+        let (state, recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         state
             .store
             .upsert_repo(&RepoRecord {
@@ -383,13 +353,12 @@ mod tests {
                     "Work",
                     "feat/x",
                     "main",
-                    "/tmp/wt",
+                    std::env::temp_dir().display().to_string(),
                 )
             })
             .unwrap();
         state.store.upsert_thread(&thread(T, status, None)).unwrap();
-        let engine = state.engines.fake_thread(T);
-        (state, engine, recording)
+        (state, recording, fake)
     }
 
     fn thread_status(state: &AppState, id: &str) -> String {
@@ -406,11 +375,12 @@ mod tests {
 
     fn user_messages(state: &AppState, id: &str) -> usize {
         state
-            .store
-            .thread_events_after(id, 0, 100)
+            .transcript
+            .page(id, 0, 100, usize::MAX)
             .unwrap()
+            .entries
             .iter()
-            .filter(|(_, kind, payload)| kind == "message" && payload.contains("\"role\":\"user\""))
+            .filter(|entry| entry.speaker.as_str() == "user")
             .count()
     }
 
@@ -458,9 +428,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_send_leaves_every_status_where_it_was() {
-        let (state, _engine, recording) =
-            seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
-        state.engines.refuse_sends(T);
+        let (state, recording, fake) = faked(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
+        fake.refuse_sends(T);
 
         let row = thread_row(&state, T).unwrap();
         let sent = start(&state, &row, "shown", "prompt").await;
@@ -540,6 +509,57 @@ mod tests {
         assert_eq!(stored_workspace(&state), "idle");
         assert_eq!(live_workspace(&state).await, WorkspaceLifecycle::Idle);
         assert!(workspace_notified(&recording));
+    }
+
+    #[tokio::test]
+    async fn a_sent_message_is_saved_streamed_and_returned_as_the_thread_shows_it() {
+        let (state, _engine, _recording) =
+            seeded(ThreadStatus::Idle, WorkspaceLifecycle::Idle).await;
+        let mut stream = state.transcript.subscribe(T);
+        let pasted = PromptAttachment {
+            name: "notes.txt".into(),
+            path: None,
+            data_base64: Some("aGk=".into()),
+        };
+
+        let sent = submit(&state, T, "Look".into(), vec![pasted])
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(sent.text, "Look\n\nAttached: notes.txt");
+        let streamed = stream.recv().await.unwrap();
+        assert_eq!(streamed.seq, Some(sent.seq));
+        assert_eq!(
+            streamed.event,
+            crate::transcript::TranscriptEvent::user_message(&sent.text)
+        );
+    }
+
+    #[tokio::test]
+    async fn stopping_saves_and_streams_the_turns_end_and_who_stopped_it() {
+        let (state, _engine, _recording) =
+            seeded(ThreadStatus::Running, WorkspaceLifecycle::Running).await;
+        let mut stream = state.transcript.subscribe(T);
+
+        stop(&state, T).await;
+
+        let ended = stream.recv().await.unwrap();
+        assert!(ended.seq.is_some());
+        assert!(matches!(
+            ended.event,
+            crate::transcript::TranscriptEvent::Agent(AgentEvent::TurnEnd { stop_reason, .. })
+                if stop_reason == StopReason::cancelled()
+        ));
+        let step = stream.recv().await.unwrap();
+        assert!(step.seq.is_some());
+        assert!(matches!(
+            step.event,
+            crate::transcript::TranscriptEvent::Step(crate::transcript::StepEvent::Step {
+                step: TimelineStep::AgentStopped,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]
@@ -635,11 +655,11 @@ mod tests {
             .store
             .upsert_thread(&thread("child", ThreadStatus::Running, Some(T)))
             .unwrap();
-        let said = serde_json::json!({ "type": "messageChunk", "role": "agent", "text": "done" });
-        state
-            .store
-            .append_event("child", "message", &said.to_string())
-            .unwrap();
+        let said = AgentEvent::MessageChunk {
+            role: crate::engines::MessageRole::Agent,
+            text: "done".into(),
+        };
+        state.transcript.append("child", said).unwrap();
 
         ended(&state, "child").await;
         assert!(prompts(&mut parent).is_empty());
@@ -654,8 +674,8 @@ mod tests {
 
     async fn with_findings(
         status: ThreadStatus,
-    ) -> (AppState, Engine, Vec<String>, Arc<RecordingOutput>) {
-        let (state, engine, recording) = seeded(status, WorkspaceLifecycle::Idle).await;
+    ) -> (AppState, FakeEngines, Vec<String>, Arc<RecordingOutput>) {
+        let (state, recording, fake) = faked(status, WorkspaceLifecycle::Idle).await;
         let ids = vec!["f1".to_string(), "f2".to_string()];
         for id in &ids {
             state
@@ -674,7 +694,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        (state, engine, ids, recording)
+        (state, fake, ids, recording)
     }
 
     fn finding_status(state: &AppState, id: &str) -> String {
@@ -683,8 +703,8 @@ mod tests {
 
     #[tokio::test]
     async fn findings_that_cant_be_sent_say_so_and_can_be_sent_again() {
-        let (state, _engine, ids, recording) = with_findings(ThreadStatus::Idle).await;
-        state.engines.refuse_sends(T);
+        let (state, fake, ids, recording) = with_findings(ThreadStatus::Idle).await;
+        fake.refuse_sends(T);
 
         let sent = crate::findings::send_workspace_findings(&state, W, T, ids).await;
 
@@ -698,7 +718,8 @@ mod tests {
 
     #[tokio::test]
     async fn sent_findings_start_a_turn() {
-        let (state, mut engine, ids, recording) = with_findings(ThreadStatus::Idle).await;
+        let (state, fake, ids, recording) = with_findings(ThreadStatus::Idle).await;
+        let mut engine = fake.engine(T);
 
         crate::findings::send_workspace_findings(&state, W, T, ids)
             .await
@@ -714,7 +735,9 @@ mod tests {
 
     #[tokio::test]
     async fn findings_sent_to_a_paused_thread_wait_for_its_resume() {
-        let (state, mut engine, ids, _recording) = with_findings(ThreadStatus::Paused).await;
+        let (state, fake, ids, _recording) = with_findings(ThreadStatus::Paused).await;
+        let mut engine = fake.engine(T);
+        state.engines.ensure(T, W).await.unwrap();
 
         crate::findings::send_workspace_findings(&state, W, T, ids)
             .await
@@ -729,7 +752,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_last_finding_fixed_idles_the_workspace_too() {
-        let (state, _engine, ids, _recording) = with_findings(ThreadStatus::Idle).await;
+        let (state, _fake, ids, _recording) = with_findings(ThreadStatus::Idle).await;
         crate::findings::send_workspace_findings(&state, W, T, ids)
             .await
             .unwrap();

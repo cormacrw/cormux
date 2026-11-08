@@ -3,14 +3,12 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::composer::persist_agent_event;
 use crate::engines::AgentEvent;
 use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::state::AppState;
-use crate::store::Store;
 use crate::store::types::FindingRow;
-use crate::timeline::{TimelineStep, record_step};
+use crate::timeline::TimelineStep;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -91,8 +89,7 @@ pub async fn send_workspace_findings(
     )?;
 
     let titles = picked.iter().map(|row| row.title.clone()).collect();
-    record_step(
-        &state.store,
+    state.transcript.record_step(
         thread_id,
         TimelineStep::FindingsReceived {
             count: count as u32,
@@ -107,7 +104,14 @@ pub async fn send_workspace_findings(
             format!("{} · {file}", row.title)
         })
         .unwrap_or_else(|| format!("Fixing {count} findings…"));
-    persist_current_tool(&state.store, thread_id, &live_title)?;
+    // Saved, unlike an engine's: it names the batch for as long as the thread works on it.
+    state.transcript.append(
+        thread_id,
+        AgentEvent::CurrentTool {
+            id: None,
+            title: live_title,
+        },
+    )?;
 
     state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
@@ -208,8 +212,7 @@ async fn on_finding_marked_fixed(state: &AppState, finding_id: &str) -> Result<(
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    record_step(
-        &state.store,
+    state.transcript.record_step(
         &thread_id,
         TimelineStep::FindingsFixed {
             count: count as u32,
@@ -226,12 +229,4 @@ async fn on_finding_marked_fixed(state: &AppState, finding_id: &str) -> Result<(
 
     state.out.changed(Change::THREADS);
     Ok(())
-}
-
-pub fn persist_current_tool(store: &Store, thread_id: &str, title: &str) -> Result<()> {
-    let event = AgentEvent::CurrentTool {
-        id: None,
-        title: title.to_string(),
-    };
-    persist_agent_event(store, thread_id, &event)
 }

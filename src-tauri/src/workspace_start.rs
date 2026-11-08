@@ -5,14 +5,13 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::composer::persist_user_message;
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::feedback::Change;
 use crate::model::WorkspaceKind;
 use crate::provisioning::{ProvisionPlan, SETUP_ACTIVITY, WorkspaceSpec};
 use crate::state::AppState;
-use crate::timeline::{TimelineStep, record_step};
+use crate::timeline::TimelineStep;
 use crate::workspace_git::Checkout;
 use crate::workspaces::WorkspaceRecord;
 
@@ -101,7 +100,7 @@ pub async fn start_workspace(
         state.store.set_thread_effort(&thread_id, Some(effort))?;
     }
     if !shown.is_empty() {
-        persist_user_message(&state.store, &thread_id, &shown)?;
+        state.transcript.record_user_message(&thread_id, &shown)?;
     }
 
     state.out.changed(Change::THREADS);
@@ -110,7 +109,7 @@ pub async fn start_workspace(
         spawn_auto_name(state.clone(), workspace_id.clone(), name, goal.clone());
     }
 
-    let plan = lead_plan(&workspace_id, &thread_id, &input.engine, &goal, prompt);
+    let plan = lead_plan(&workspace_id, &thread_id, &goal, prompt);
     let state_bg = state.clone();
     let draft_branch = input.branch.clone();
     tauri::async_runtime::spawn(async move {
@@ -123,7 +122,7 @@ pub async fn start_workspace(
                 branch: workspace.branch,
                 base: workspace.base,
             };
-            if let Err(error) = record_step(&state.store, &plan.thread_id, step) {
+            if let Err(error) = state.transcript.record_step(&plan.thread_id, step) {
                 log::warn!("could not record the worktree step: {error}");
             }
         }
@@ -142,7 +141,6 @@ pub async fn start_workspace(
 fn lead_plan(
     workspace_id: &str,
     thread_id: &str,
-    engine: &str,
     goal: &str,
     prompt: Option<Prompt>,
 ) -> ProvisionPlan {
@@ -151,7 +149,6 @@ fn lead_plan(
     ProvisionPlan {
         workspace_id: workspace_id.to_string(),
         thread_id: thread_id.to_string(),
-        engine: engine.to_string(),
         checkout: Checkout::NewBranch,
         setup_activity: SETUP_ACTIVITY.into(),
         first_prompt,
@@ -174,16 +171,10 @@ pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<Prov
         .own_thread(&workspace.id)?
         .ok_or_else(|| Error::Workspace(format!("no Lead in workspace {}", workspace.id)))?;
     let goal = state
-        .store
-        .first_message_text(&thread.id)?
+        .transcript
+        .first_message(&thread.id)?
         .unwrap_or_default();
-    Ok(lead_plan(
-        &workspace.id,
-        &thread.id,
-        &thread.engine,
-        &goal,
-        None,
-    ))
+    Ok(lead_plan(&workspace.id, &thread.id, &goal, None))
 }
 
 /// Swaps the drafted branch for Haiku's while nothing on disk uses it yet. The draft stands if
@@ -451,8 +442,8 @@ esac
         assert!(has_step(&f.state, &started.thread_id, "Worktree ready"));
         assert_eq!(
             f.state
-                .store
-                .first_message_text(&started.thread_id)
+                .transcript
+                .first_message(&started.thread_id)
                 .unwrap(),
             None
         );
@@ -488,8 +479,9 @@ esac
             Some("high")
         );
         assert_eq!(
-            store
-                .first_message_text(&started.thread_id)
+            f.state
+                .transcript
+                .first_message(&started.thread_id)
                 .unwrap()
                 .as_deref(),
             Some("Fix the login page")
@@ -517,8 +509,8 @@ esac
 
         assert_eq!(
             f.state
-                .store
-                .first_message_text(&started.thread_id)
+                .transcript
+                .first_message(&started.thread_id)
                 .unwrap()
                 .as_deref(),
             Some("Fix this\n\nAttached: shot.png")

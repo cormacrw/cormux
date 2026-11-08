@@ -12,7 +12,7 @@ use crate::process::ProcessSupervisor;
 use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
-use crate::timeline::{TimelineStep, record_step};
+use crate::timeline::TimelineStep;
 use crate::workspace_git::Checkout;
 use crate::workspaces::WorkspaceRecord;
 
@@ -45,7 +45,6 @@ type SeedSummary = Box<dyn Fn(&WorkspaceRecord) -> String + Send + Sync>;
 pub struct ProvisionPlan {
     pub workspace_id: String,
     pub thread_id: String,
-    pub engine: String,
     pub checkout: Checkout,
     /// Shown while the worktree is made and set up.
     pub setup_activity: String,
@@ -315,14 +314,10 @@ async fn finish_after_setup(
             .set_activity(id, "Starting agent…", 2, None)
             .await?;
         state.out.changed(Change::THREADS);
-        crate::turn::spawn_engine(
-            state,
-            &plan.thread_id,
-            &plan.engine,
-            id,
-            Some(prompt.clone()),
-        )
-        .await?;
+        state
+            .engines
+            .start(&plan.thread_id, id, Some(prompt.clone()))
+            .await?;
     }
 
     let workspace = state.workspaces.get(id).await?;
@@ -331,8 +326,7 @@ async fn finish_after_setup(
         .repo_by_id(&workspace.repo_id)?
         .map(|repo| repo.name)
         .unwrap_or_default();
-    if let Err(error) = record_step(
-        &state.store,
+    if let Err(error) = state.transcript.record_step(
         &plan.thread_id,
         TimelineStep::WorktreeReady {
             repo: repo_name,

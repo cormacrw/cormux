@@ -12,7 +12,6 @@ def emit(obj):
 
 
 SESSION = "sess-1"
-emit({"type": "system", "subtype": "init", "session_id": SESSION})
 
 for raw in sys.stdin:
     line = raw.strip()
@@ -115,6 +114,14 @@ for raw in sys.stdin:
                 "result": "ok",
             }
         )
+    elif kind == "control_request" and msg.get("request", {}).get("subtype") == "initialize":
+        emit(
+            {
+                "type": "control_response",
+                "response": {"subtype": "success", "request_id": msg["request_id"]},
+            }
+        )
+        emit({"type": "system", "subtype": "init", "session_id": SESSION})
     elif kind == "control_request" and msg.get("request", {}).get("subtype") == "interrupt":
         emit(
             {

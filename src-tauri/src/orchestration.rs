@@ -9,7 +9,8 @@ use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::{ThreadRow, WorkspaceRow};
-use crate::timeline::{TimelineStep, record_step};
+use crate::timeline::TimelineStep;
+use crate::transcript::Transcript;
 use crate::workspace_start::CreateWorkspaceInput;
 use crate::workspace_start::start_workspace;
 
@@ -128,7 +129,12 @@ pub fn list_threads(store: &Store, caller_id: &str, scope: Option<&str>) -> Resu
     Ok(json!({ "threads": threads }))
 }
 
-pub fn get_thread(store: &Store, caller_id: &str, id: &str) -> Result<Value> {
+pub fn get_thread(
+    store: &Store,
+    transcript: &Transcript,
+    caller_id: &str,
+    id: &str,
+) -> Result<Value> {
     let caller = caller_thread(store, caller_id)?;
     let (thread, workspace) = visible_thread(store, &caller, id)?;
     let approvals: Vec<String> = store
@@ -141,7 +147,7 @@ pub fn get_thread(store: &Store, caller_id: &str, id: &str) -> Result<Value> {
         "title": workspace.name,
         "status": thread_status(&thread, &workspace),
         "branch": workspace.branch,
-        "lastReply": truncated(&store.last_agent_reply(id)?, REPLY_LIMIT),
+        "lastReply": truncated(&transcript.last_agent_reply(id)?, REPLY_LIMIT),
         "modifiedFiles": workspace.modified_files,
         "prNumber": workspace.pr_number,
         "prUrl": workspace.pr_html_url,
@@ -153,47 +159,22 @@ pub fn get_thread(store: &Store, caller_id: &str, id: &str) -> Result<Value> {
 
 /// The conversation with streamed chunks joined, and tool calls as one line each. `next` is the
 /// `since` for the following page, and is null once this page reached the end.
-pub fn read_thread(store: &Store, caller_id: &str, id: &str, since: i64) -> Result<Value> {
+pub fn read_thread(
+    store: &Store,
+    transcript: &Transcript,
+    caller_id: &str,
+    id: &str,
+    since: i64,
+) -> Result<Value> {
     let caller = caller_thread(store, caller_id)?;
     visible_thread(store, &caller, id)?;
-    let events = store.thread_events_after(id, since, READ_PAGE_EVENTS)?;
-    let full_page = events.len() as i64 == READ_PAGE_EVENTS;
-    let mut entries: Vec<(String, String)> = Vec::new();
-    let mut chars = 0;
-    let mut last_seq = since;
-    let mut cut_short = false;
-    for (seq, kind, payload) in events {
-        if chars >= READ_PAGE_CHARS {
-            cut_short = true;
-            break;
-        }
-        last_seq = seq;
-        let Ok(value) = serde_json::from_str::<Value>(&payload) else {
-            continue;
-        };
-        let text_at = |key: &str| value.get(key).and_then(Value::as_str);
-        let (role, text) = match kind.as_str() {
-            "message" => (
-                text_at("role").unwrap_or("agent").to_string(),
-                text_at("text").unwrap_or(""),
-            ),
-            "tool" => ("tool".to_string(), text_at("title").unwrap_or("")),
-            _ => continue,
-        };
-        chars += text.chars().count();
-        match entries.last_mut() {
-            Some((last_role, last_text)) if *last_role == role && role != "tool" => {
-                last_text.push_str(text);
-            }
-            _ => entries.push((role, text.to_string())),
-        }
-    }
-    let entries: Vec<Value> = entries
+    let page = transcript.page(id, since, READ_PAGE_EVENTS, READ_PAGE_CHARS)?;
+    let entries: Vec<Value> = page
+        .entries
         .into_iter()
-        .map(|(role, text)| json!({ "role": role, "text": text }))
+        .map(|entry| json!({ "role": entry.speaker.as_str(), "text": entry.text }))
         .collect();
-    let more = full_page || cut_short;
-    Ok(json!({ "entries": entries, "next": more.then_some(last_seq) }))
+    Ok(json!({ "entries": entries, "next": page.next }))
 }
 
 /// Why this thread can't start another, if it can't.
@@ -320,11 +301,12 @@ pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) ->
     )
     .await?;
     let title = workspace_title(&state.store, &caller)?;
-    let _ = record_step(
-        &state.store,
+    if let Err(error) = state.transcript.record_step(
         &started.thread_id,
         TimelineStep::StartedByThread { workspace: title },
-    );
+    ) {
+        log::warn!("recording who started {}: {error}", started.thread_id);
+    }
     Ok(json!({ "id": started.thread_id, "base": started.base }))
 }
 
@@ -337,12 +319,14 @@ pub async fn send_to_thread(
     check_can_send(&state.store, caller_id, id)?;
     let caller = caller_thread(&state.store, caller_id)?;
     let title = workspace_title(&state.store, &caller)?;
-    let _ = record_step(
-        &state.store,
-        id,
-        TimelineStep::MessageFromThread { workspace: title },
-    );
-    crate::turn::submit(state, id, text, Vec::new()).await
+    if let Err(error) = state
+        .transcript
+        .record_step(id, TimelineStep::MessageFromThread { workspace: title })
+    {
+        log::warn!("recording a message to {id}: {error}");
+    }
+    crate::turn::submit(state, id, text, Vec::new()).await?;
+    Ok(())
 }
 
 fn workspace_title(store: &Store, thread: &ThreadRow) -> Result<String> {
@@ -446,9 +430,9 @@ pub async fn on_turn_end(state: &AppState, thread_id: &str) -> Result<()> {
     if let Some(child) = state.store.thread_by_id(thread_id)?
         && let Some(parent_id) = child.parent_thread_id.clone()
     {
-        let seq = state.store.last_message_seq(thread_id)?;
+        let seq = state.transcript.last_message_seq(thread_id)?;
         if state.reports.first_sight_of_turn(thread_id, seq) {
-            let reply = truncated(&state.store.last_agent_reply(thread_id)?, REPLY_LIMIT);
+            let reply = truncated(&state.transcript.last_agent_reply(thread_id)?, REPLY_LIMIT);
             let body = if reply.is_empty() {
                 "The thread stopped without replying.".to_string()
             } else {
@@ -574,13 +558,12 @@ async fn deliver(state: &AppState, parent_id: &str) {
     }
     let mut lines = Vec::new();
     for report in &reports {
-        let _ = record_step(
-            &state.store,
-            parent_id,
-            TimelineStep::ReportFromThread {
-                title: report.title.clone(),
-            },
-        );
+        let step = TimelineStep::ReportFromThread {
+            title: report.title.clone(),
+        };
+        if let Err(error) = state.transcript.record_step(parent_id, step) {
+            log::warn!("recording a report to {parent_id}: {error}");
+        }
         lines.push(report.render());
     }
     if let Err(error) = crate::turn::submit(state, parent_id, lines.join("\n\n"), Vec::new()).await
@@ -663,11 +646,28 @@ mod tests {
             .unwrap();
     }
 
+    fn transcript(store: &Store) -> Transcript {
+        Transcript::new(store.clone())
+    }
+
     fn say(store: &Store, thread: &str, role: &str, text: &str) {
-        let payload = json!({ "type": "messageChunk", "role": role, "text": text });
-        store
-            .append_event(thread, "message", &payload.to_string())
-            .unwrap();
+        let transcript = transcript(store);
+        match role {
+            "user" => transcript.record_user_message(thread, text),
+            _ => transcript.append(
+                thread,
+                crate::engines::AgentEvent::MessageChunk {
+                    role: crate::engines::MessageRole::Agent,
+                    text: text.into(),
+                },
+            ),
+        }
+        .unwrap();
+    }
+
+    /// Makes the thread's worktree, so an engine can start in it.
+    fn worktree(id: &str) {
+        std::fs::create_dir_all(format!("/tmp/wt-{id}")).unwrap();
     }
 
     #[test]
@@ -704,8 +704,9 @@ mod tests {
         let store = store();
         add_thread(&store, "parent", "r1", None, "idle");
         add_thread(&store, "elsewhere", "r2", None, "idle");
-        assert!(get_thread(&store, "parent", "elsewhere").is_err());
-        assert!(read_thread(&store, "parent", "elsewhere", 0).is_err());
+        let transcript = transcript(&store);
+        assert!(get_thread(&store, &transcript, "parent", "elsewhere").is_err());
+        assert!(read_thread(&store, &transcript, "parent", "elsewhere", 0).is_err());
     }
 
     #[test]
@@ -718,7 +719,7 @@ mod tests {
         store
             .set_workspace_status("w-child", WorkspaceLifecycle::ProvisioningFailed)
             .unwrap();
-        let thread = get_thread(&store, "parent", "child").unwrap();
+        let thread = get_thread(&store, &transcript(&store), "parent", "child").unwrap();
         assert_eq!(thread["lastReply"], "All done.");
         assert_eq!(thread["status"], FAILED);
     }
@@ -741,11 +742,12 @@ mod tests {
         assert_eq!(threads[0]["status"], "closed");
         assert!(threads[0]["closedAt"].is_string());
 
+        let transcript = transcript(&store);
         assert_eq!(
-            get_thread(&store, "me", "done").unwrap()["status"],
+            get_thread(&store, &transcript, "me", "done").unwrap()["status"],
             "closed"
         );
-        assert!(read_thread(&store, "me", "done", 0).is_ok());
+        assert!(read_thread(&store, &transcript, "me", "done", 0).is_ok());
     }
 
     #[test]
@@ -756,24 +758,21 @@ mod tests {
         say(&store, "child", "user", "Go");
         say(&store, "child", "agent", "On ");
         say(&store, "child", "agent", "it");
-        store
-            .append_event(
-                "child",
-                "tool",
-                &json!({ "title": "Ran tests" }).to_string(),
-            )
+        let transcript = transcript(&store);
+        transcript
+            .record_step("child", TimelineStep::AgentPaused)
             .unwrap();
-        let first = read_thread(&store, "parent", "child", 0).unwrap();
+        let first = read_thread(&store, &transcript, "parent", "child", 0).unwrap();
         assert_eq!(
             first["entries"],
             json!([
                 { "role": "user", "text": "Go" },
                 { "role": "agent", "text": "On it" },
-                { "role": "tool", "text": "Ran tests" },
+                { "role": "tool", "text": "You paused the agent" },
             ])
         );
         assert!(first["next"].is_null());
-        let rest = read_thread(&store, "parent", "child", 3).unwrap();
+        let rest = read_thread(&store, &transcript, "parent", "child", 3).unwrap();
         assert_eq!(rest["entries"].as_array().unwrap().len(), 1);
     }
 
@@ -784,9 +783,10 @@ mod tests {
         add_thread(&store, "child", "r1", Some("parent"), "idle");
         say(&store, "child", "user", &"x".repeat(READ_PAGE_CHARS));
         say(&store, "child", "agent", "second");
-        let first = read_thread(&store, "parent", "child", 0).unwrap();
+        let transcript = transcript(&store);
+        let first = read_thread(&store, &transcript, "parent", "child", 0).unwrap();
         assert_eq!(first["next"], 1);
-        let second = read_thread(&store, "parent", "child", 1).unwrap();
+        let second = read_thread(&store, &transcript, "parent", "child", 1).unwrap();
         assert_eq!(second["entries"][0]["text"], "second");
         assert!(second["next"].is_null());
     }
@@ -931,10 +931,11 @@ mod tests {
 
     #[tokio::test]
     async fn an_idle_parent_is_prompted_with_its_reports_and_the_ui_told() {
-        let (state, recording) =
-            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
-        let mut engine = state.engines.fake_thread("parent");
+        worktree("parent");
+        let mut engine = fake.engine("parent");
 
         deliver(&state, "parent").await;
 
@@ -949,13 +950,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_busy_parent_keeps_its_reports_for_its_own_turn_end() {
-        let (state, recording) =
-            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
         let mut parent = state.store.thread_by_id("parent").unwrap().unwrap();
         parent.status = "running".into();
         state.store.upsert_thread(&parent).unwrap();
-        let mut engine = state.engines.fake_thread("parent");
+        let mut engine = fake.engine("parent");
 
         deliver(&state, "parent").await;
 
@@ -966,11 +967,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_report_that_cannot_be_delivered_waits_for_the_next_try() {
-        let (state, recording) =
-            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         family(&state);
+        worktree("parent");
+        fake.refuse_sends("parent");
 
-        // No engine, and its worktree isn't there to start one in.
         deliver(&state, "parent").await;
 
         assert!(!state.engines.has_thread("parent"));
@@ -980,13 +982,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_turn_end_reports_the_childs_reply_to_its_parent_once() {
-        let (state, recording) =
-            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        let (state, recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         seed(&state.store);
         add_thread(&state.store, "parent", "r1", None, "idle");
         add_thread(&state.store, "child", "r1", Some("parent"), "idle");
         say(&state.store, "child", "agent", "All done.");
-        let mut engine = state.engines.fake_thread("parent");
+        worktree("parent");
+        let mut engine = fake.engine("parent");
 
         on_turn_end(&state, "child").await.unwrap();
 

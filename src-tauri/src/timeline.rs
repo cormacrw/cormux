@@ -1,18 +1,11 @@
-//! What the core itself did in a thread, as the Timeline shows it. Every step the core writes goes
-//! through [`record_step`], typed by what happened, so the UI picks a step's icon and chips from
-//! its kind (`src/lib/thread/timeline-step.ts`) and rewording a title here can't change either.
-//! The title and detail are stored alongside as display text.
-//!
-//! Rows written before this module carry no kind; `src/lib/thread/legacy-steps.ts` reads those.
+//! What the core itself did in a thread, as the Timeline shows it. Each step is typed by what
+//! happened, so the UI picks a step's icon and chips from its kind
+//! (`src/lib/thread/timeline-step.ts`) and rewording a title here can't change either. The title
+//! and detail are stored alongside as display text; `transcript` writes them.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use uuid::Uuid;
-
-use crate::composer::persist_agent_event;
-use crate::engines::AgentEvent;
-use crate::error::Result;
-use crate::store::Store;
 
 /// How a workspace came to be on another branch.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -230,101 +223,20 @@ impl TimelineStep {
     }
 
     /// Steps that can be written twice share an id, and the timeline keeps the first.
-    fn id(&self) -> String {
+    pub fn id(&self) -> String {
         match self {
             Self::PrOpened { number, .. } => format!("pr-open-{number}"),
             Self::SuggestionsSent { approval_id, .. } => format!("review-{approval_id}"),
             _ => format!("step-{}", Uuid::new_v4()),
         }
     }
-
-    fn into_event(self) -> AgentEvent {
-        AgentEvent::Step {
-            id: self.id(),
-            title: self.title(),
-            detail: self.detail(),
-            step: self,
-        }
-    }
-}
-
-/// Saves a step to the thread. The step shows the next time the UI reads the thread, so callers
-/// raise whichever state change their action already does.
-pub fn record_step(store: &Store, thread_id: &str, step: TimelineStep) -> Result<()> {
-    persist_agent_event(store, thread_id, &step.into_event())
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
+    use serde_json::json;
 
     use super::*;
-    use crate::store::types::ThreadRow;
-
-    fn store() -> Store {
-        let store = Store::in_memory().unwrap();
-        store
-            .upsert_thread(&ThreadRow {
-                id: "t1".into(),
-                workspace_id: "w1".into(),
-                title: "Lead".into(),
-                role: Some(crate::model::ThreadRole::Lead),
-                engine: "claude".into(),
-                session_id: None,
-                status: "idle".into(),
-                used_tokens: None,
-                context_size: None,
-                cost_usd: None,
-                transcript_readonly: false,
-                retired: false,
-                parent_thread_id: None,
-            })
-            .unwrap();
-        store
-    }
-
-    fn rows(store: &Store) -> Vec<(String, Value)> {
-        store
-            .thread_events_after("t1", 0, 100)
-            .unwrap()
-            .into_iter()
-            .map(|(_, kind, payload)| (kind, serde_json::from_str(&payload).unwrap()))
-            .collect()
-    }
-
-    #[test]
-    fn a_step_serializes_with_its_kind_and_display_text() {
-        let event = TimelineStep::PrOpened {
-            number: 12,
-            branch: "feat/a".into(),
-            base: "main".into(),
-        }
-        .into_event();
-        assert_eq!(
-            serde_json::to_value(&event).unwrap(),
-            json!({
-                "type": "step",
-                "id": "pr-open-12",
-                "title": "Opened PR #12",
-                "detail": "feat/a → main",
-                "step": { "kind": "prOpened", "number": 12, "branch": "feat/a", "base": "main" },
-            })
-        );
-    }
-
-    #[test]
-    fn a_stored_step_reads_back_as_the_same_event() {
-        let step = TimelineStep::BranchSwitched {
-            branch: "feat/b".into(),
-            change: BranchChange::AddedToStack {
-                on_top_of: "feat/a".into(),
-            },
-        };
-        let event = step.into_event();
-        let text = serde_json::to_string(&event).unwrap();
-        assert!(text.contains(r#""change":{"kind":"addedToStack","on_top_of":"feat/a"}"#));
-        assert_eq!(serde_json::from_str::<AgentEvent>(&text).unwrap(), event);
-    }
 
     #[test]
     fn session_steps_keep_what_resuming_needs() {
@@ -340,38 +252,17 @@ mod tests {
     }
 
     #[test]
-    fn the_writer_saves_a_tool_row_the_transcript_can_read() {
-        let store = store();
-        record_step(&store, "t1", TimelineStep::AgentPaused).unwrap();
-        let rows = rows(&store);
-        assert_eq!(rows.len(), 1);
-        let (kind, payload) = &rows[0];
-        // `read_thread` shows a tool row by its top-level `title`.
-        assert_eq!(kind, "tool");
-        assert_eq!(payload["type"], "step");
-        assert_eq!(payload["title"], "You paused the agent");
-        assert_eq!(payload["step"], json!({ "kind": "agentPaused" }));
-        assert_eq!(payload["detail"], Value::Null);
-    }
-
-    #[test]
     fn only_steps_written_twice_share_an_id() {
-        let store = store();
-        for _ in 0..2 {
-            record_step(&store, "t1", TimelineStep::AgentStopped).unwrap();
-            let sent = TimelineStep::SuggestionsSent {
-                approval_id: "a1".into(),
-                what: "src/a.rs".into(),
-            };
-            record_step(&store, "t1", sent).unwrap();
-        }
-        let ids: Vec<String> = rows(&store)
-            .iter()
-            .map(|(_, payload)| payload["id"].as_str().unwrap().to_string())
-            .collect();
-        assert_ne!(ids[0], ids[2]);
-        assert_eq!(ids[1], "review-a1");
-        assert_eq!(ids[3], "review-a1");
+        assert_ne!(
+            TimelineStep::AgentStopped.id(),
+            TimelineStep::AgentStopped.id()
+        );
+        let sent = || TimelineStep::SuggestionsSent {
+            approval_id: "a1".into(),
+            what: "src/a.rs".into(),
+        };
+        assert_eq!(sent().id(), "review-a1");
+        assert_eq!(sent().id(), sent().id());
     }
 
     /// The words users see today, which the timeline's existing rows also carry.

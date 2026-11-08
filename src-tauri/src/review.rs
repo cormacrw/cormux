@@ -12,7 +12,8 @@ use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::{FindingRow, WorkspaceRow};
-use crate::timeline::{TimelineStep, record_step};
+use crate::timeline::TimelineStep;
+use crate::transcript::TranscriptEvent;
 use crate::workspace_git::Checkout;
 use crate::workspaces::WorkspaceRecord;
 
@@ -192,16 +193,10 @@ pub async fn create_review_workspace(
         &input.author,
         input.author_is_you,
     );
-    // Left untyped on purpose: with no `type` the timeline skips this row, though the store's
-    // message readers use it. A `MessageChunk` here would add a user bubble to every review thread.
-    state.store.append_event(
-        &thread_id,
-        "message",
-        &serde_json::json!({ "role": "user", "text": user_message }).to_string(),
-    )?;
-
-    record_step(
-        &state.store,
+    state
+        .transcript
+        .append(&thread_id, TranscriptEvent::briefing(&user_message))?;
+    state.transcript.record_step(
         &thread_id,
         TimelineStep::PrCheckedOut {
             number: input.pr_number,
@@ -239,7 +234,6 @@ pub async fn create_review_workspace(
     let plan = review_plan(
         &created.workspace,
         &thread_id,
-        &engine,
         &user_message,
         input.pr_number,
         author_label,
@@ -256,7 +250,6 @@ pub async fn create_review_workspace(
 fn review_plan(
     workspace: &WorkspaceRecord,
     thread_id: &str,
-    engine: &str,
     user_message: &str,
     pr_number: i64,
     author: String,
@@ -266,7 +259,6 @@ fn review_plan(
     ProvisionPlan {
         workspace_id: workspace.id.clone(),
         thread_id: thread_id.to_string(),
-        engine: engine.to_string(),
         checkout: Checkout::PullRef(pr_number as u64),
         setup_activity: "Checking out the PR…".into(),
         first_prompt: Some(reviewer_engine_prompt(user_message).into()),
@@ -300,20 +292,15 @@ pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<Prov
         .own_thread(&workspace.id)?
         .ok_or_else(|| Error::Workspace(format!("no Reviewer in workspace {}", workspace.id)))?;
     let message = state
-        .store
-        .first_message_text(&thread.id)?
+        .transcript
+        .first_message(&thread.id)?
         .unwrap_or_default();
     let author = state
         .store
         .get_setting(&review_author_key(&workspace.id))?
         .unwrap_or_else(|| "the author".into());
     Ok(review_plan(
-        workspace,
-        &thread.id,
-        &thread.engine,
-        &message,
-        pr_number,
-        author,
+        workspace, &thread.id, &message, pr_number, author,
     ))
 }
 
@@ -365,7 +352,7 @@ pub async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<(
         return Ok(());
     }
 
-    let reply = state.store.last_agent_reply(thread_id)?;
+    let reply = state.transcript.last_agent_reply(thread_id)?;
     let findings = match crate::findings_block::parse_findings_block(
         &reply,
         &workspace.worktree_path,
@@ -381,8 +368,7 @@ pub async fn on_reviewer_turn_end(state: &AppState, thread_id: &str) -> Result<(
                 }
             };
             log::warn!("review {}: {detail}", workspace.id);
-            record_step(
-                &state.store,
+            state.transcript.record_step(
                 thread_id,
                 TimelineStep::ReviewFindingsUnreadable { reason: detail },
             )?;
@@ -686,8 +672,7 @@ pub async fn submit_workspace_review(
         crate::turn::mark_idle(state, thread).await?;
     }
 
-    record_step(
-        &state.store,
+    state.transcript.record_step(
         &reviewer_thread.id,
         TimelineStep::ReviewSubmitted { number: pr_number },
     )?;
@@ -758,11 +743,12 @@ mod tests {
     use crate::feedback::{Emitted, RecordingOutput};
     use crate::model::{ThreadRole, WorkspaceLifecycle};
     use crate::store::types::{RepoRecord, ThreadRow};
+    use crate::thread_runtime::fake::FakeEngines;
 
     /// A Lead workspace whose thread is in `status`.
-    fn workspace(status: ThreadStatus) -> (AppState, Arc<RecordingOutput>) {
-        let (state, recording) =
-            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+    fn workspace(status: ThreadStatus) -> (AppState, Arc<RecordingOutput>, FakeEngines) {
+        let (state, recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(std::env::temp_dir()));
         state
             .store
             .upsert_repo(&RepoRecord {
@@ -785,7 +771,7 @@ mod tests {
                     "Work",
                     "feat/x",
                     "main",
-                    "/tmp/wt",
+                    std::env::temp_dir().display().to_string(),
                 )
                 .with_status(WorkspaceLifecycle::Ready),
             )
@@ -796,21 +782,17 @@ mod tests {
                 &ThreadRow::new("t1", "w1", ThreadRole::Lead, "claude").with_status(status),
             )
             .unwrap();
-        (state, recording)
+        (state, recording, fake)
     }
 
     /// A branch review in flight, its thread having just said `reply`.
     fn reviewing(reply: &str) -> (AppState, Arc<RecordingOutput>) {
-        let (state, recording) = workspace(ThreadStatus::Idle);
+        let (state, recording, _) = workspace(ThreadStatus::Idle);
         state
             .store
             .set_setting(&review_status_key("w1"), "running")
             .unwrap();
-        let said = serde_json::json!({ "type": "messageChunk", "role": "agent", "text": reply });
-        state
-            .store
-            .append_event("t1", "message", &said.to_string())
-            .unwrap();
+        state.transcript.append("t1", agent_said(reply)).unwrap();
         (state, recording)
     }
 
@@ -851,7 +833,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_finished_pr_review_saves_its_card_summary() {
-        let (state, _recording) = workspace(ThreadStatus::Idle);
+        let (state, _recording, _) = workspace(ThreadStatus::Idle);
         state
             .store
             .insert_workspace(
@@ -879,15 +861,8 @@ mod tests {
             .store
             .set_setting(&review_author_key("pr"), "@ana")
             .unwrap();
-        let said = serde_json::json!({
-            "type": "messageChunk",
-            "role": "agent",
-            "text": "Fine.\n\n<cormux-findings>\n[]\n</cormux-findings>",
-        });
-        state
-            .store
-            .append_event("rt", "message", &said.to_string())
-            .unwrap();
+        let said = agent_said("Fine.\n\n<cormux-findings>\n[]\n</cormux-findings>");
+        state.transcript.append("rt", said).unwrap();
         state.workspaces.rename("pr", "Renamed").await.unwrap();
 
         on_reviewer_turn_end(&state, "rt").await.unwrap();
@@ -915,6 +890,13 @@ mod tests {
         assert!(branch_review_running(&state.store, "w1"));
     }
 
+    fn agent_said(text: &str) -> crate::engines::AgentEvent {
+        crate::engines::AgentEvent::MessageChunk {
+            role: crate::engines::MessageRole::Agent,
+            text: text.into(),
+        }
+    }
+
     fn prompts(engine: &mut tokio::sync::mpsc::UnboundedReceiver<EngineCommand>) -> Vec<String> {
         std::iter::from_fn(|| engine.try_recv().ok())
             .filter_map(|command| match command {
@@ -926,8 +908,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_branch_review_of_a_paused_thread_waits_for_its_resume() {
-        let (state, recording) = workspace(ThreadStatus::Paused);
-        let mut engine = state.engines.fake_thread("t1");
+        let (state, recording, fake) = workspace(ThreadStatus::Paused);
+        let mut engine = fake.engine("t1");
+        state.engines.ensure("t1", "w1").await.unwrap();
 
         let thread_id = start_branch_review(&state, "w1").await.unwrap();
 
@@ -943,9 +926,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_branch_review_the_engine_refuses_never_starts() {
-        let (state, _recording) = workspace(ThreadStatus::Idle);
-        let _engine = state.engines.fake_thread("t1");
-        state.engines.refuse_sends("t1");
+        let (state, _recording, fake) = workspace(ThreadStatus::Idle);
+        fake.refuse_sends("t1");
 
         assert!(start_branch_review(&state, "w1").await.is_err());
         let thread = state.store.thread_by_id("t1").unwrap().unwrap();
@@ -959,8 +941,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_branch_review_is_refused_while_the_thread_is_running() {
-        let (state, _recording) = workspace(ThreadStatus::Running);
-        let mut engine = state.engines.fake_thread("t1");
+        let (state, _recording, fake) = workspace(ThreadStatus::Running);
+        let mut engine = fake.engine("t1");
 
         assert!(start_branch_review(&state, "w1").await.is_err());
         assert!(prompts(&mut engine).is_empty());
