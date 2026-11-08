@@ -9,7 +9,6 @@
   import { Textarea } from '$lib/components/ui/textarea'
   import { resolveDefaultRepoId } from '$lib/settings/default-repo'
   import { newBangId, type Bang } from '$lib/bangs/bangs'
-  import { commands } from '$lib/ipc'
   import { coreErrorText } from '$lib/core/core-error'
   import { repos } from '$lib/state'
   import { settings } from '$lib/settings/store.svelte'
@@ -52,12 +51,8 @@
 
   /** Saves the list as the core takes it, which tidies the names; why it refused, if it did. */
   async function saveBangs(bangs: Bang[]): Promise<string | null> {
-    const result = await commands.updateSettings({ bangs })
-    if (result.status === 'error') {
-      return coreErrorText(result.error, 'Could not save the bangs')
-    }
-    settings.hydrate(result.data)
-    return null
+    const error = await settings.update({ bangs })
+    return error && coreErrorText(error, 'Could not save the bangs')
   }
 
   function flushSave() {

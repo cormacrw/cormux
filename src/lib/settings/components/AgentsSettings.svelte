@@ -120,9 +120,10 @@
     >
       {#snippet control()}
         <Switch
-          checked={settings.values.runEverything}
-          onCheckedChange={(next) =>
-            void updateSettings({ runEverything: next })}
+          bind:checked={
+            () => settings.values.runEverything,
+            (next) => void updateSettings({ runEverything: next })
+          }
           aria-label="Run everything"
         />
       {/snippet}

@@ -279,11 +279,12 @@
             </DropdownMenu.Label>
             {#each clickup.allLanes as lane (lane.status.name)}
               <DropdownMenu.CheckboxItem
-                checked={!clickup.isHidden(lane.status.name)}
+                bind:checked={
+                  () => !clickup.isHidden(lane.status.name),
+                  (checked) => setLaneHidden(lane.status.name, !checked)
+                }
                 closeOnSelect={false}
                 class="data-[state=unchecked]:text-muted-foreground"
-                onCheckedChange={(checked) =>
-                  setLaneHidden(lane.status.name, !checked)}
               >
                 <span
                   class="size-2 shrink-0 rounded-full"
