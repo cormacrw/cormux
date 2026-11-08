@@ -139,6 +139,7 @@ export function createFixtures() {
     clickupConfigured: false,
     workspaceApps: [],
     repoRunCommands: [],
+    repoCommittedSetups: [],
     workspaceRunCommands: [],
     repoRemovalBlocks: [],
     workspaceBranchLocks: [],

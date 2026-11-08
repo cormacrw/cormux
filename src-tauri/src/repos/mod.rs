@@ -289,7 +289,7 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
     };
     let suggested = crate::harness_config::suggest_commands(&toplevel);
     let (setup_commands, run_command) =
-        crate::harness_config::merge_initial_config(committed, suggested);
+        crate::harness_config::initial_commands(committed.as_ref(), suggested);
 
     let name = id.clone();
     let record = RepoRecord {
@@ -883,6 +883,35 @@ mod tests {
         };
         let error = test_setup(&state, input).await.unwrap_err();
         assert!(error.to_string().contains("can't be used"), "{error}");
+    }
+
+    /// Bug: adding a repo copied its committed config into Settings, so a later change to the
+    /// file never took effect and the run command read as the repo's own, not the config's.
+    #[tokio::test]
+    async fn an_added_repo_follows_its_committed_config_live() {
+        let (state, _recording, dir) = fixture();
+        let repo = init_repo(&dir, "app");
+        std::fs::create_dir(repo.join(".cormux")).unwrap();
+        let commit = |setup: &str| {
+            std::fs::write(
+                repo.join(".cormux/config.json"),
+                format!(r#"{{"setupCommands":"{setup}","runCommand":"pnpm dev"}}"#),
+            )
+            .unwrap();
+        };
+        commit("pnpm install");
+
+        let record = add_path(&state, &repo).await.unwrap();
+        assert_eq!(record.setup_commands, "");
+        assert_eq!(record.run_command, None);
+        let run = crate::harness_config::repo_run_command(&record)
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.source, crate::harness_config::RunCommandSource::Config);
+
+        commit("pnpm install --frozen-lockfile");
+        let setup = crate::harness_config::effective_setup(&record.setup_commands, &repo).unwrap();
+        assert_eq!(setup, "pnpm install --frozen-lockfile");
     }
 
     #[test]

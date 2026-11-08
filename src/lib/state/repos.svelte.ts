@@ -1,6 +1,7 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import type {
+  RepoCommittedSetup,
   RepoGitRuntime,
   RepoRecord,
   RepoRemovalBlock,
@@ -23,16 +24,20 @@ export class ReposStore {
   /** Each repo's run command as the core resolves it (its own, else its committed config's). */
   runCommandById = $state.raw<Record<string, RepoRunCommand>>({})
 
+  /** The setup each repo's `.cormux/config.json` commits, which runs where Settings' is blank. */
+  committedSetupById = $state.raw<Record<string, string>>({})
+
   private gitRead = false
 
   /** Why Remove would be refused now, by repo id; the core's own words. */
   removalBlockById = $state.raw<Record<string, string>>({})
 
-  /** `snapshot` replaces the run commands and removal blocks; without it they stay as they are. */
+  /** `snapshot` replaces the commands and removal blocks; without it they stay as they are. */
   hydrate(
     items: RepoRecord[],
     snapshot?: {
       runCommands: RepoRunCommand[]
+      committedSetups: RepoCommittedSetup[]
       removalBlocks: RepoRemovalBlock[]
     },
   ) {
@@ -40,6 +45,9 @@ export class ReposStore {
     if (snapshot) {
       this.runCommandById = Object.fromEntries(
         snapshot.runCommands.map((row) => [row.repoId, row]),
+      )
+      this.committedSetupById = Object.fromEntries(
+        snapshot.committedSetups.map((row) => [row.repoId, row.setupCommands]),
       )
       this.removalBlockById = Object.fromEntries(
         snapshot.removalBlocks.map((row) => [row.repoId, row.reason]),
@@ -81,6 +89,7 @@ export const repos = new ReposStore()
 onSnapshot((snapshot) =>
   repos.hydrate(snapshot.persisted.repos, {
     runCommands: snapshot.repoRunCommands,
+    committedSetups: snapshot.repoCommittedSetups,
     removalBlocks: snapshot.repoRemovalBlocks,
   }),
 )

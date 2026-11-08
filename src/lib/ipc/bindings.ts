@@ -1032,6 +1032,10 @@ export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
 export type RepoBranchesResult = { branches: string[] }
 /**
+ * A repo's committed setup, shown in Settings where its own is blank.
+ */
+export type RepoCommittedSetup = { repoId: string; setupCommands: string }
+/**
  * How far a repo's local default branch is from `origin`, as of the last fetch.
  */
 export type RepoGitRuntime = { repoId: string; behind: number; ahead: number }
@@ -1190,6 +1194,10 @@ clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[];
  * Each repo's run command (its own, else its committed config's), for repos with one.
  */
 repoRunCommands: RepoRunCommand[]; 
+/**
+ * Each repo's committed setup, which runs where Settings leaves its own blank.
+ */
+repoCommittedSetups: RepoCommittedSetup[]; 
 /**
  * What Run starts in each live workspace (its own, else its repo's), for those with one.
  */

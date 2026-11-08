@@ -60,6 +60,8 @@ pub struct Snapshot {
     pub workspace_apps: Vec<WorkspaceAppRuntime>,
     /// Each repo's run command (its own, else its committed config's), for repos with one.
     pub repo_run_commands: Vec<RepoRunCommand>,
+    /// Each repo's committed setup, which runs where Settings leaves its own blank.
+    pub repo_committed_setups: Vec<crate::harness_config::RepoCommittedSetup>,
     /// What Run starts in each live workspace (its own, else its repo's), for those with one.
     pub workspace_run_commands: Vec<WorkspaceRunCommand>,
     /// Repos Remove would refuse now, and why.
@@ -99,6 +101,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let workspace_ids: Vec<String> = workspaces.iter().map(|row| row.id.clone()).collect();
     let workspace_git = state.workspace_git.snapshot(&workspace_ids).await;
     let repo_run_commands = crate::harness_config::repo_run_commands(&persisted.repos);
+    let repo_committed_setups = crate::harness_config::committed_setups(&persisted.repos);
     let repo_removal_blocks = crate::repos::removal_blocks(&persisted.repos, &persisted.workspaces);
     let workspace_run_commands =
         crate::harness_config::workspace_run_commands(&persisted.workspaces, &repo_run_commands);
@@ -116,6 +119,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         clickup_configured: state.clickup.is_configured(),
         workspace_apps: state.apps.snapshot(),
         repo_run_commands,
+        repo_committed_setups,
         workspace_run_commands,
         repo_removal_blocks,
         workspace_branch_locks,

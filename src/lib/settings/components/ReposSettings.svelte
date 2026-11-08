@@ -310,7 +310,8 @@
               spellcheck={false}
               autocomplete="off"
               class="font-mono text-xs"
-              placeholder="pnpm install&#10;cp {repo.path}/.env .env"
+              placeholder={repos.committedSetupById[repo.id] ||
+                `pnpm install\ncp ${repo.path}/.env .env`}
               aria-describedby="repo-setup-hint-{key}"
               value={fieldValue(`setup-${repo.id}`, repo.setupCommands)}
               oninput={(event) =>

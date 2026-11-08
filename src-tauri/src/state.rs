@@ -64,7 +64,13 @@ pub struct Core {
 impl AppState {
     /// Turns that were running when the app last closed are over: no agent survives it.
     pub fn new(data_dir: DataDir, output: Arc<dyn UserOutput>) -> Result<Self> {
-        let store = Store::open(&data_dir.db(), &[crate::transcript::MIGRATION])?;
+        let store = Store::open(
+            &data_dir.db(),
+            &[
+                crate::transcript::MIGRATION,
+                crate::harness_config::MIGRATION,
+            ],
+        )?;
         store.reset_interrupted_turns()?;
         let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
         let engines = Arc::new(ClaudeEngines::new(shell_env.clone()));

@@ -1,12 +1,16 @@
 //! A repo's setup and run commands: what's saved in Settings, what the repo commits in
-//! `.cormux/config.json`, and what Cormux suggests for a repo it hasn't seen.
+//! `.cormux/config.json`, and what Cormux suggests for a repo it hasn't seen. The committed file
+//! is read whenever a command is needed, so a teammate's change to it takes effect; what Settings
+//! saves overrides it field by field, and a blank field follows the file.
 
 use std::path::Path;
 
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
+use crate::store::RustMigration;
 use crate::store::types::{RepoRecord, WorkspaceRow};
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -235,22 +239,95 @@ pub fn suggest_commands(repo_path: &Path) -> SuggestedRepoCommands {
     }
 }
 
-pub fn merge_initial_config(
-    committed: Option<CommittedRepoConfig>,
+/// What a newly added repo saves in Settings: nothing for a field its committed config gives,
+/// so the file stays in charge of it, and the suggestion for a field it doesn't.
+pub fn initial_commands(
+    committed: Option<&CommittedRepoConfig>,
     suggested: SuggestedRepoCommands,
 ) -> (String, Option<String>) {
-    let setup = committed
-        .as_ref()
-        .map(|c| c.setup_commands.trim())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| suggested.setup_commands);
-
-    let run = committed
-        .and_then(|c| c.run_command.filter(|s| !s.trim().is_empty()))
-        .or(suggested.run_command);
-
+    let committed_setup = committed.is_some_and(|c| !c.setup_commands.trim().is_empty());
+    let committed_run = committed.is_some_and(|c| non_blank(c.run_command.as_deref()).is_some());
+    let setup = if committed_setup {
+        String::new()
+    } else {
+        suggested.setup_commands
+    };
+    let run = if committed_run {
+        None
+    } else {
+        suggested.run_command
+    };
     (setup, run)
+}
+
+/// A repo's committed setup, shown in Settings where its own is blank.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCommittedSetup {
+    pub repo_id: String,
+    pub setup_commands: String,
+}
+
+/// The committed setup of each repo whose config has one. A config that can't be read counts as
+/// none here; setting up a workspace reports it.
+pub fn committed_setups(repos: &[RepoRecord]) -> Vec<RepoCommittedSetup> {
+    repos
+        .iter()
+        .filter_map(|repo| {
+            match read_committed_config(&crate::paths::expand_tilde(&repo.path)) {
+                Ok(config) => config,
+                Err(error) => {
+                    log::warn!("setup commands for {}: {error}", repo.id);
+                    None
+                }
+            }
+            .filter(|config| !config.setup_commands.trim().is_empty())
+            .map(|config| RepoCommittedSetup {
+                repo_id: repo.id.clone(),
+                setup_commands: config.setup_commands,
+            })
+        })
+        .collect()
+}
+
+/// Earlier builds copied a repo's committed config into Settings when it was added, so later
+/// changes to the file never took effect. A saved field that still matches the file is that
+/// copy and goes back to following it; one the user changed stays as their override. Repos whose
+/// file is missing or unreadable now are left as they are.
+pub const MIGRATION: RustMigration = RustMigration {
+    name: "030_follow_committed_repo_config",
+    run: follow_committed_config,
+};
+
+fn follow_committed_config(conn: &Connection) -> Result<()> {
+    let rows: Vec<(String, String, String, Option<String>)> = conn
+        .prepare(
+            "SELECT r.id, r.path, c.setup_commands, c.run_command
+             FROM repos r JOIN repo_config c ON c.repo_id = r.id",
+        )?
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    for (id, path, setup, run) in rows {
+        let Ok(Some(config)) = read_committed_config(&crate::paths::expand_tilde(&path)) else {
+            continue;
+        };
+        let copied = |saved: Option<&str>, committed: Option<&str>| matches!((non_blank(saved), non_blank(committed)), (Some(a), Some(b)) if a == b);
+        if copied(Some(&setup), Some(&config.setup_commands)) {
+            conn.execute(
+                "UPDATE repo_config SET setup_commands = '' WHERE repo_id = ?1",
+                [&id],
+            )?;
+        }
+        if copied(run.as_deref(), config.run_command.as_deref()) {
+            conn.execute(
+                "UPDATE repo_config SET run_command = NULL WHERE repo_id = ?1",
+                [&id],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -364,6 +441,91 @@ mod tests {
                 command: "file run".into(),
                 source: RunCommandSource::Config,
             })
+        );
+    }
+
+    #[test]
+    fn a_new_repo_saves_suggestions_only_where_its_committed_config_says_nothing() {
+        let suggested = || SuggestedRepoCommands {
+            setup_commands: "pnpm install".into(),
+            run_command: Some("pnpm dev".into()),
+        };
+        let setup_only = CommittedRepoConfig {
+            setup_commands: "make setup".into(),
+            run_command: Some("  ".into()),
+        };
+        assert_eq!(
+            initial_commands(Some(&setup_only), suggested()),
+            (String::new(), Some("pnpm dev".into()))
+        );
+        assert_eq!(
+            initial_commands(None, suggested()),
+            ("pnpm install".into(), Some("pnpm dev".into()))
+        );
+    }
+
+    /// Run against a database as the migrations before it left one.
+    #[test]
+    fn rows_copied_from_the_committed_config_go_back_to_following_it() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::store::migrate::migrated_before(&conn, 30);
+        let copied = tempfile::tempdir().unwrap();
+        commit_config(
+            copied.path(),
+            r#"{"setupCommands":"pnpm install\n","runCommand":"pnpm dev"}"#,
+        );
+        let edited = tempfile::tempdir().unwrap();
+        commit_config(
+            edited.path(),
+            r#"{"setupCommands":"pnpm install","runCommand":"pnpm dev"}"#,
+        );
+        let uncommitted = tempfile::tempdir().unwrap();
+        for (id, dir, setup, run) in [
+            ("copied", copied.path(), "pnpm install", Some("pnpm dev")),
+            (
+                "edited",
+                edited.path(),
+                "pnpm i && cp .env",
+                Some("pnpm dev -p 4000"),
+            ),
+            (
+                "uncommitted",
+                uncommitted.path(),
+                "pnpm install",
+                Some("pnpm dev"),
+            ),
+        ] {
+            conn.execute(
+                "INSERT INTO repos (id, path, name) VALUES (?1, ?2, ?1)",
+                rusqlite::params![id, dir.to_string_lossy()],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO repo_config (repo_id, setup_commands, run_command) VALUES (?1, ?2, ?3)",
+                rusqlite::params![id, setup, run],
+            )
+            .unwrap();
+        }
+
+        crate::store::migrate::run(&conn, &[MIGRATION]).unwrap();
+
+        let saved = |id: &str| -> (String, Option<String>) {
+            conn.query_row(
+                "SELECT setup_commands, run_command FROM repo_config WHERE repo_id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(saved("copied"), (String::new(), None));
+        assert_eq!(
+            saved("edited"),
+            ("pnpm i && cp .env".into(), Some("pnpm dev -p 4000".into())),
+            "the user's own commands stay"
+        );
+        assert_eq!(
+            saved("uncommitted"),
+            ("pnpm install".into(), Some("pnpm dev".into()))
         );
     }
 
