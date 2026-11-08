@@ -41,4 +41,14 @@ describe('approvalResolvedChip', () => {
       ),
     ).toBe('Skipped · 3m ago')
   })
+
+  // Bug: approvals had their own clock, so a two-day-old one read "48h ago" where the sidebar said "2d ago".
+  it('says how long ago as the rest of the app does', () => {
+    const twoDays = {
+      ...card,
+      state: 'approved' as const,
+      doneAtMs: now - 48 * 3_600_000,
+    }
+    expect(approvalResolvedChip(twoDays, now)).toBe('Approved by you · 2d ago')
+  })
 })
