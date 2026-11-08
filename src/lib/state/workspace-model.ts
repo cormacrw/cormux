@@ -5,6 +5,7 @@ import type {
   WorkspaceAppStatus,
   WorkspaceKind,
   WorkspaceLifecycle,
+  WorkspaceRunCommand,
 } from '$lib/ipc/bindings'
 import { parseTimestampMs } from '$lib/format/relative-time'
 import { workspaceActivity } from './activity'
@@ -55,8 +56,8 @@ export type Workspace = {
   prHtmlUrl: string | null
   /** The setup command that failed and its exit code, once setup failed at one. */
   setupFailure: { command: string; exitCode: number } | null
-  /** The workspace's own run command, which Run starts instead of its repo's. */
-  runCommand: string | null
+  /** What Run starts here (the workspace's own command, else its repo's), as the core resolved it. */
+  run: Omit<WorkspaceRunCommand, 'workspaceId'> | null
   /** Where a review of this workspace stands; null before one starts. */
   reviewStatus: ReviewStatus | null
   /** The review was posted to GitHub. */
@@ -91,6 +92,12 @@ export function workspacesFromSnapshot(
   )
   const apps = new Map(
     snapshot.workspaceApps.map((row) => [row.workspaceId, row]),
+  )
+  const runs = new Map(
+    snapshot.workspaceRunCommands.map(({ workspaceId, ...run }) => [
+      workspaceId,
+      run,
+    ]),
   )
   const workspaceOf = new Map(
     persisted.threads.map((thread) => [thread.id, thread.workspaceId]),
@@ -155,7 +162,7 @@ export function workspacesFromSnapshot(
               exitCode: record.activity.exitCode,
             }
           : null,
-      runCommand: row?.runCommand ?? null,
+      run: runs.get(record.id) ?? null,
       reviewStatus: review?.status ?? null,
       reviewSubmitted: review?.submitted ?? false,
       runtime,

@@ -223,10 +223,7 @@ pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) ->
     let caller = caller_thread(&state.store, caller_id)?;
     check_can_spawn(&state.store, &caller)?;
     let repo_id = caller_repo(&state.store, &caller)?;
-    let repo = state
-        .store
-        .repo_by_id(&repo_id)?
-        .ok_or_else(|| Error::Mcp(format!("unknown repo {repo_id}")))?;
+    let repo = state.store.repo(&repo_id)?;
     let repo_path = crate::paths::expand_tilde(&repo.path);
     let mut taken = state.git.list_local_branches(&repo_path).await?;
     taken.extend(state.git.list_remote_branches(&repo_path, "origin").await?);
@@ -241,8 +238,7 @@ pub async fn create_thread(state: &AppState, caller_id: &str, new: NewThread) ->
     let base = new
         .base
         .filter(|base| !base.trim().is_empty())
-        .or_else(|| repo.default_branch.clone())
-        .unwrap_or_else(|| "main".into());
+        .unwrap_or_else(|| repo.default_branch.clone());
     let model = match new.model {
         Some(model) => Some(model),
         None => state.store.thread_model(caller_id)?,

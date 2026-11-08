@@ -11,7 +11,7 @@ pub fn repo(id: &str) -> RepoRecord {
         id: id.into(),
         path: format!("/tmp/{id}"),
         name: id.into(),
-        default_branch: Some("main".into()),
+        default_branch: "main".into(),
         setup_commands: String::new(),
         run_command: None,
         single_instance: false,

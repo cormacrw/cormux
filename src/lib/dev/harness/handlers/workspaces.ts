@@ -62,7 +62,15 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       command: string
     }) => {
       const { row } = runtime.findWorkspace(workspaceId)
-      if (row) row.runCommand = command.trim() || null
+      // As the core: no override for a blank command or the repo's own one again.
+      const repo = db.snapshot.persisted.repos.find(
+        (repo) => repo.id === row?.repoId,
+      )
+      const typed = command.trim()
+      if (row) {
+        row.runCommand =
+          typed && typed !== repo?.runCommand?.trim() ? typed : null
+      }
       emitStateChanged(CHANGE.state)
       return null
     },

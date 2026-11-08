@@ -22,7 +22,7 @@ export function workspaceFixture(patch: Partial<Workspace> = {}): Workspace {
     prNumber: null,
     prHtmlUrl: null,
     setupFailure: null,
-    runCommand: null,
+    run: null,
     reviewStatus: null,
     reviewSubmitted: false,
     runtime: IDLE_RUNTIME,

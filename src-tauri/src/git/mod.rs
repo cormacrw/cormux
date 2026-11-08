@@ -12,7 +12,7 @@ use tokio::process::Command;
 use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 use crate::error::{Error, Result};
-use crate::model::GitConflictOperation;
+use crate::model::{FALLBACK_DEFAULT_BRANCH, GitConflictOperation};
 use crate::shell_env::ShellEnv;
 
 pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
@@ -226,11 +226,11 @@ impl Git {
             let value = Self::stdout(&output).trim().to_string();
             let branch = value
                 .strip_prefix("refs/remotes/origin/")
-                .unwrap_or("main")
+                .unwrap_or(FALLBACK_DEFAULT_BRANCH)
                 .to_string();
             return Ok(branch);
         }
-        Ok("main".into())
+        Ok(FALLBACK_DEFAULT_BRANCH.into())
     }
 
     pub async fn worktree_add(

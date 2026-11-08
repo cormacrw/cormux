@@ -1,9 +1,7 @@
 import { commands } from '$lib/ipc'
 import type { WorkspaceAppControlAction } from '$lib/ipc/bindings'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
-import { repos } from '$lib/state/repos.svelte'
 import { workspaces } from '$lib/state/workspaces.svelte'
-import { workspaceRunCommand } from './run-command'
 import { appActionAllowed, appControlsFor, type AppControls } from './controls'
 
 export function appControls(workspaceId: string): AppControls {
@@ -11,10 +9,7 @@ export function appControls(workspaceId: string): AppControls {
   return appControlsFor({
     appStatus: workspaces.runtime(workspaceId).appStatus,
     lifecycle: workspace?.lifecycle,
-    runCommand: workspaceRunCommand(
-      workspace?.runCommand,
-      repos.runCommand(workspace?.repoId),
-    ),
+    runCommand: workspace?.run?.command ?? '',
   })
 }
 

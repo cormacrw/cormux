@@ -139,6 +139,7 @@ export function createFixtures() {
     clickupConfigured: false,
     workspaceApps: [],
     repoRunCommands: [],
+    workspaceRunCommands: [],
   }
   const timeline: StoredEventRow[] = [
     {

@@ -10,7 +10,9 @@ pub struct RepoRecord {
     pub id: String,
     pub path: String,
     pub name: String,
-    pub default_branch: Option<String>,
+    /// The branch workspaces start from and the checkout keeps: the one recorded, else
+    /// [`crate::model::FALLBACK_DEFAULT_BRANCH`].
+    pub default_branch: String,
     pub setup_commands: String,
     pub run_command: Option<String>,
     /// Running the app in one workspace stops it in the repo's other workspaces.
@@ -18,14 +20,10 @@ pub struct RepoRecord {
 }
 
 impl RepoRecord {
-    pub fn default_branch_or_main(&self) -> &str {
-        self.default_branch.as_deref().unwrap_or("main")
-    }
-
     /// The default branch stays in the repo checkout. Git lets a branch be checked out in one
     /// worktree only, so no workspace takes it.
     pub fn ensure_not_default_branch(&self, branch: &str) -> Result<()> {
-        let default = self.default_branch_or_main();
+        let default = &self.default_branch;
         if branch.trim() == default {
             return Err(Error::Workspace(format!(
                 "Workspaces can't check out {default}, the default branch of {}. Use another branch.",

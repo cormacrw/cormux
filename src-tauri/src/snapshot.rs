@@ -11,7 +11,7 @@ use crate::entities::EntityRow;
 use crate::error::Result;
 use crate::findings::FindingRow;
 use crate::github::PrRow;
-use crate::harness_config::RepoRunCommand;
+use crate::harness_config::{RepoRunCommand, WorkspaceRunCommand};
 use crate::metrics::MemorySample;
 use crate::review::ReviewRow;
 use crate::scratch::ScratchRow;
@@ -60,6 +60,8 @@ pub struct Snapshot {
     pub workspace_apps: Vec<WorkspaceAppRuntime>,
     /// Each repo's run command (its own, else its committed config's), for repos with one.
     pub repo_run_commands: Vec<RepoRunCommand>,
+    /// What Run starts in each live workspace (its own, else its repo's), for those with one.
+    pub workspace_run_commands: Vec<WorkspaceRunCommand>,
 }
 
 fn persisted(store: &crate::store::Store) -> Result<PersistedSnapshot> {
@@ -93,6 +95,8 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let workspace_ids: Vec<String> = workspaces.iter().map(|row| row.id.clone()).collect();
     let workspace_git = state.workspace_git.snapshot(&workspace_ids).await;
     let repo_run_commands = crate::harness_config::repo_run_commands(&persisted.repos);
+    let workspace_run_commands =
+        crate::harness_config::workspace_run_commands(&persisted.workspaces, &repo_run_commands);
 
     Ok(Snapshot {
         version: state.out.version(),
@@ -106,6 +110,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         clickup_configured: state.clickup.is_configured(),
         workspace_apps: state.apps.snapshot(),
         repo_run_commands,
+        workspace_run_commands,
     })
 }
 

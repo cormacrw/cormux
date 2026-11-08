@@ -6,7 +6,6 @@
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { workspaces } from '$lib/state'
-  import { overrideToSave } from '$lib/run-app/run-command'
 
   let {
     workspaceId,
@@ -23,10 +22,9 @@
   let draft = $state('')
   let inputEl = $state<HTMLInputElement | null>(null)
 
-  const override = $derived(
-    workspaces.getById(workspaceId)?.runCommand?.trim() ?? '',
-  )
-  const command = $derived(override || repoCommand)
+  const run = $derived(workspaces.getById(workspaceId)?.run ?? null)
+  const command = $derived(run?.command ?? '')
+  const override = $derived(run?.source === 'workspace')
 
   /** Opens the editor; the empty state uses it when there's no command at all. */
   export async function startEditing() {
@@ -40,8 +38,9 @@
   function save() {
     if (!editing) return
     editing = false
-    const value = overrideToSave(draft, repoCommand)
-    if (value !== override) void saveOverride(value)
+    // The core keeps no override for a blank command or the repo's own one again.
+    const typed = draft.trim()
+    if (typed !== command && (typed || override)) void saveOverride(typed)
   }
 
   function reset() {
@@ -82,7 +81,7 @@
     <span
       class="max-w-[16rem] truncate font-mono text-xs text-muted-foreground"
       title={override
-        ? `This workspace runs ${override} instead of the repo's ${repoCommand || 'command'}${running ? '. Restart to use it.' : '.'}`
+        ? `This workspace runs ${command} instead of the repo's ${repoCommand || 'command'}${running ? '. Restart to use it.' : '.'}`
         : command}>{command}</span
     >
     {#if override}

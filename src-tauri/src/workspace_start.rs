@@ -81,10 +81,7 @@ pub async fn start_workspace(
     // With no branch given, the goal drafts one; Haiku may improve it below.
     let branch = match input.branch.trim() {
         "" => {
-            let repo = state
-                .store
-                .repo_by_id(&input.repo_id)?
-                .ok_or_else(|| Error::unknown_repo(&input.repo_id))?;
+            let repo = state.store.repo(&input.repo_id)?;
             let repo_path = crate::paths::expand_tilde(&repo.path);
             let taken = taken_branches(state, &repo.id, &repo_path, None).await?;
             crate::naming::draft_branch(&goal, &taken)
@@ -167,7 +164,7 @@ pub fn session_brief(store: &Store, workspace: &WorkspaceRecord, resuming: bool)
         return media;
     }
     let default_branch = match store.repo_by_id(&workspace.repo_id) {
-        Ok(Some(repo)) => repo.default_branch_or_main().to_string(),
+        Ok(Some(repo)) => repo.default_branch,
         Ok(None) => return media,
         Err(error) => {
             log::warn!("reading {}'s repo for its brief: {error}", workspace.id);

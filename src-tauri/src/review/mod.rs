@@ -444,10 +444,7 @@ pub async fn submit_workspace_review(
         .pr_number
         .ok_or_else(|| Error::Workspace("Review workspace has no PR number".into()))?;
 
-    let repo = state
-        .store
-        .repo_by_id(&workspace.repo_id)?
-        .ok_or_else(|| Error::unknown_repo(&workspace.repo_id))?;
+    let repo = state.store.repo(&workspace.repo_id)?;
     let slug = match workspace.pr_html_url.as_deref().and_then(RepoSlug::parse) {
         Some(slug) => slug,
         None => RepoSlug::of_origin(&state.git, &crate::paths::expand_tilde(&repo.path)).await?,

@@ -273,11 +273,9 @@ impl Workspaces {
         self.store.set_workspace_summary(id, summary)
     }
 
-    /// The workspace's own run command; blank goes back to the repo's.
-    pub fn set_run_command(&self, id: &str, command: &str) -> Result<()> {
-        let command = command.trim();
-        self.store
-            .set_workspace_run_command(id, (!command.is_empty()).then_some(command))
+    /// The workspace's own run command; `None` goes back to the repo's.
+    pub fn set_run_command(&self, id: &str, command: Option<&str>) -> Result<()> {
+        self.store.set_workspace_run_command(id, command)
     }
 
     pub async fn set_activity(
@@ -367,9 +365,7 @@ fn load<'a>(store: &Store, inner: &'a mut Inner, id: &str) -> Result<&'a mut Wor
         if row.archived_at.is_some() {
             return Err(Error::Workspace(format!("workspace {id} is archived")));
         }
-        let repo = store
-            .repo_by_id(&row.repo_id)?
-            .ok_or_else(|| Error::unknown_repo(&row.repo_id))?;
+        let repo = store.repo(&row.repo_id)?;
         inner
             .records
             .insert(id.to_string(), WorkspaceRecord::from_row(&row, &repo));
@@ -448,7 +444,7 @@ mod tests {
             .upsert_repo(&RepoRecord {
                 path: "/tmp/app".into(),
                 name: "app".into(),
-                default_branch: Some(default_branch.into()),
+                default_branch: default_branch.into(),
                 ..crate::store::fixtures::repo("r1")
             })
             .unwrap();

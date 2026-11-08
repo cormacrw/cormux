@@ -453,10 +453,7 @@ fn run_session(workspace_id: &str) -> SessionId {
 }
 
 fn run_command(state: &AppState, workspace: &WorkspaceRecord) -> Result<String> {
-    let repo = state
-        .store
-        .repo_by_id(&workspace.repo_id)?
-        .ok_or_else(|| Error::unknown_repo(&workspace.repo_id))?;
+    let repo = state.store.repo(&workspace.repo_id)?;
     let own = state
         .store
         .workspace_by_id(&workspace.id)?
@@ -500,8 +497,12 @@ pub mod commands {
         command: String,
         state: State<'_, AppState>,
     ) -> Result<()> {
-        state.workspaces.get(&workspace_id).await?;
-        state.workspaces.set_run_command(&workspace_id, &command)?;
+        let workspace = state.workspaces.get(&workspace_id).await?;
+        let repo = state.store.repo(&workspace.repo_id)?;
+        let own = crate::harness_config::own_run_command_to_save(&command, &repo)?;
+        state
+            .workspaces
+            .set_run_command(&workspace_id, own.as_deref())?;
         state.out.changed();
         Ok(())
     }

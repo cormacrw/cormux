@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
-use crate::store::types::RepoRecord;
+use crate::store::types::{RepoRecord, WorkspaceRow};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,13 +123,63 @@ pub fn repo_run_commands(repos: &[RepoRecord]) -> Vec<RepoRunCommand> {
 
 /// The command Run starts for a workspace: `own` when set, else the repo's.
 pub fn workspace_run_command(own: Option<&str>, repo: &RepoRecord) -> Result<Option<RunCommand>> {
-    if let Some(command) = non_blank(own) {
-        return Ok(Some(RunCommand {
-            command,
-            source: RunCommandSource::Workspace,
-        }));
+    match own_run_command(own) {
+        Some(own) => Ok(Some(own)),
+        None => repo_run_command(repo),
     }
-    repo_run_command(repo)
+}
+
+fn own_run_command(own: Option<&str>) -> Option<RunCommand> {
+    non_blank(own).map(|command| RunCommand {
+        command,
+        source: RunCommandSource::Workspace,
+    })
+}
+
+/// A workspace's run command, for the webview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRunCommand {
+    pub workspace_id: String,
+    pub command: String,
+    pub source: RunCommandSource,
+}
+
+/// What Run starts in each workspace that has something to run, from the repos' commands.
+pub fn workspace_run_commands(
+    workspaces: &[WorkspaceRow],
+    repos: &[RepoRunCommand],
+) -> Vec<WorkspaceRunCommand> {
+    workspaces
+        .iter()
+        .filter_map(|workspace| {
+            let run = own_run_command(workspace.run_command.as_deref()).or_else(|| {
+                repos
+                    .iter()
+                    .find(|repo| repo.repo_id == workspace.repo_id)
+                    .map(|repo| RunCommand {
+                        command: repo.command.clone(),
+                        source: repo.source,
+                    })
+            })?;
+            Some(WorkspaceRunCommand {
+                workspace_id: workspace.id.clone(),
+                command: run.command,
+                source: run.source,
+            })
+        })
+        .collect()
+}
+
+/// What to keep as a workspace's own command when the user types `typed`: nothing when it's
+/// blank or just the repo's command again, so the workspace follows the repo's from then on.
+pub fn own_run_command_to_save(typed: &str, repo: &RepoRecord) -> Result<Option<String>> {
+    let typed = typed.trim();
+    if typed.is_empty() {
+        return Ok(None);
+    }
+    let repo_command = repo_run_command(repo)?.map(|run| run.command);
+    Ok((repo_command.as_deref() != Some(typed)).then(|| typed.to_string()))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -225,6 +275,57 @@ mod tests {
     fn commit_config(dir: &Path, json: &str) {
         fs::create_dir_all(dir.join(".cormux")).unwrap();
         fs::write(dir.join(".cormux/config.json"), json).unwrap();
+    }
+
+    #[test]
+    fn each_workspace_runs_its_own_command_else_its_repos() {
+        let repos = [RepoRunCommand {
+            repo_id: "r1".into(),
+            command: "pnpm dev".into(),
+            source: RunCommandSource::Config,
+        }];
+        let workspace = |id: &str, repo: &str, own: Option<&str>| WorkspaceRow {
+            repo_id: repo.into(),
+            run_command: own.map(Into::into),
+            ..crate::store::fixtures::workspace(id, crate::model::WorkspaceLifecycle::Idle)
+        };
+        let commands = workspace_run_commands(
+            &[
+                workspace("a", "r1", Some(" pnpm dev -p 4000 ")),
+                workspace("b", "r1", Some("  ")),
+                workspace("c", "r2", None),
+            ],
+            &repos,
+        );
+        assert_eq!(
+            commands,
+            [
+                WorkspaceRunCommand {
+                    workspace_id: "a".into(),
+                    command: "pnpm dev -p 4000".into(),
+                    source: RunCommandSource::Workspace,
+                },
+                WorkspaceRunCommand {
+                    workspace_id: "b".into(),
+                    command: "pnpm dev".into(),
+                    source: RunCommandSource::Config,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn typing_the_repos_command_again_keeps_no_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(dir.path(), Some("pnpm dev"));
+        assert_eq!(own_run_command_to_save(" pnpm dev ", &repo).unwrap(), None);
+        assert_eq!(own_run_command_to_save("  ", &repo).unwrap(), None);
+        assert_eq!(
+            own_run_command_to_save(" pnpm dev -p 1 ", &repo)
+                .unwrap()
+                .as_deref(),
+            Some("pnpm dev -p 1")
+        );
     }
 
     #[test]

@@ -56,10 +56,7 @@ pub struct ProvisionPlan {
 /// Records the workspace and its thread, having checked everything that can be checked before
 /// anything is written: the repo, the refs and the worktree folder. Nothing is notified.
 pub async fn create(state: &AppState, spec: WorkspaceSpec) -> Result<Created> {
-    let repo = state
-        .store
-        .repo_by_id(&spec.repo_id)?
-        .ok_or_else(|| Error::unknown_repo(&spec.repo_id))?;
+    let repo = state.store.repo(&spec.repo_id)?;
     repo.ensure_not_default_branch(&spec.branch)?;
     // Before any git call: `base` can come from an agent's `create_thread` call.
     crate::git::validate_ref_name(&spec.branch, "branch")?;
@@ -169,10 +166,7 @@ async fn run_plan(state: &AppState, plan: &ProvisionPlan) -> Result<()> {
         return Ok(());
     }
     let workspace = state.workspaces.get(&plan.workspace_id).await?;
-    let repo = state
-        .store
-        .repo_by_id(&workspace.repo_id)?
-        .ok_or_else(|| Error::unknown_repo(&workspace.repo_id))?;
+    let repo = state.store.repo(&workspace.repo_id)?;
     let setup = match crate::harness_config::effective_setup(
         &repo.setup_commands,
         &expand_tilde(&repo.path),

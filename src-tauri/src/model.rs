@@ -6,6 +6,9 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+/// The branch a repo's default is taken to be when git can't tell and none was recorded.
+pub const FALLBACK_DEFAULT_BRANCH: &str = "main";
+
 /// A workspace's lifecycle. `ready` is idle with no threads; running/idle describe activity
 /// after provisioning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

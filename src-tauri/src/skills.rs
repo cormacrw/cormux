@@ -75,10 +75,7 @@ pub async fn for_repo(state: &AppState, repo_id: &str) -> Result<Vec<Skill>> {
 }
 
 fn repo_path(state: &AppState, repo_id: &str) -> Result<PathBuf> {
-    let repo = state
-        .store
-        .repo_by_id(repo_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))?;
+    let repo = state.store.repo(repo_id)?;
     Ok(expand_tilde(&repo.path))
 }
 

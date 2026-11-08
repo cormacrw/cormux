@@ -1096,7 +1096,12 @@ export type RepoBranchesResult = { branches: string[] }
  * How far a repo's local default branch is from `origin`, as of the last fetch.
  */
 export type RepoGitRuntime = { repoId: string; behind: number; ahead: number }
-export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null; 
+export type RepoRecord = { id: string; path: string; name: string; 
+/**
+ * The branch workspaces start from and the checkout keeps: the one recorded, else
+ * [`crate::model::FALLBACK_DEFAULT_BRANCH`].
+ */
+defaultBranch: string; setupCommands: string; runCommand: string | null; 
 /**
  * Running the app in one workspace stops it in the repo's other workspaces.
  */
@@ -1247,7 +1252,11 @@ clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[];
 /**
  * Each repo's run command (its own, else its committed config's), for repos with one.
  */
-repoRunCommands: RepoRunCommand[] }
+repoRunCommands: RepoRunCommand[]; 
+/**
+ * What Run starts in each live workspace (its own, else its repo's), for those with one.
+ */
+workspaceRunCommands: WorkspaceRunCommand[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
@@ -1499,6 +1508,10 @@ summary: string | null; summaryAt: string | null; kind: WorkspaceKind; prNumber:
  * The workspace's own run command, which Run starts instead of the repo's.
  */
 runCommand: string | null }
+/**
+ * A workspace's run command, for the webview.
+ */
+export type WorkspaceRunCommand = { workspaceId: string; command: string; source: RunCommandSource }
 export type WorkspaceStack = { workspaceId: string; status: StackStatus; 
 /**
  * Why the stack is unavailable, for the panel to show.

@@ -43,9 +43,9 @@ export class ReposStore {
     return this.byId.get(id)
   }
 
-  /** The repo's default branch, by the core's rule: the one set, else `main`. */
+  /** The repo's default branch, as the core resolved it; '' for a repo that isn't registered. */
   defaultBranch(id: string): string {
-    return this.byId.get(id)?.defaultBranch?.trim() || 'main'
+    return this.byId.get(id)?.defaultBranch ?? ''
   }
 
   /** What Run starts in the repo's workspaces unless one sets its own; '' for nothing. */

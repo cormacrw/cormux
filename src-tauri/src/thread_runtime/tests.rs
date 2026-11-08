@@ -31,7 +31,7 @@ fn setup(engines: Arc<dyn Engines>) -> Setup {
             id: "r1".into(),
             path: "/tmp/app".into(),
             name: "app".into(),
-            default_branch: Some("main".into()),
+            default_branch: "main".into(),
             setup_commands: String::new(),
             run_command: None,
             single_instance: false,

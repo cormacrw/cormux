@@ -140,6 +140,12 @@ impl Store {
         })
     }
 
+    /// A registered repo, or the error for an id that isn't one.
+    pub fn repo(&self, repo_id: &str) -> Result<RepoRecord> {
+        self.repo_by_id(repo_id)?
+            .ok_or_else(|| Error::unknown_repo(repo_id))
+    }
+
     pub fn upsert_repo(&self, repo: &RepoRecord) -> Result<()> {
         self.with_tx(|conn| {
             conn.execute(
@@ -611,7 +617,10 @@ fn row_to_repo(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
         id: row.get(0)?,
         path: row.get(1)?,
         name: row.get(2)?,
-        default_branch: row.get(3)?,
+        default_branch: row
+            .get::<_, Option<String>>(3)?
+            .filter(|branch| !branch.trim().is_empty())
+            .unwrap_or_else(|| crate::model::FALLBACK_DEFAULT_BRANCH.into()),
         setup_commands: row.get(4)?,
         run_command: row.get(5)?,
         single_instance: row.get(6)?,
@@ -911,6 +920,7 @@ mod tests {
         let repo = store.repo_by_id("r1").unwrap().unwrap();
         assert_eq!(repo.run_command.as_deref(), Some("pnpm dev"));
         assert!(store.repo_by_id("nope").unwrap().is_none());
+        assert!(matches!(store.repo("nope"), Err(Error::Invalid(_))));
         assert_eq!(store.own_thread("w1").unwrap().unwrap().id, "t1");
         assert!(store.own_thread("w2").unwrap().is_none());
         assert_eq!(store.threads_for_workspace("w1").unwrap().len(), 1);
@@ -919,5 +929,21 @@ mod tests {
             store.workspace_threads().unwrap(),
             [thread("t1", "w1", ThreadStatus::Idle)]
         );
+    }
+
+    /// TS used to resolve a blank default branch itself (to `main`, where the core kept `""`).
+    #[test]
+    fn a_repo_without_a_recorded_default_branch_reads_as_main() {
+        let store = Store::in_memory().unwrap();
+        store.upsert_repo(&super::fixtures::repo("r1")).unwrap();
+        for stored in [None, Some(""), Some("  ")] {
+            store
+                .with_conn(|conn| {
+                    conn.execute("UPDATE repos SET default_branch = ?1", [stored])?;
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(store.repo("r1").unwrap().default_branch, "main");
+        }
     }
 }

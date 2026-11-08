@@ -28,6 +28,19 @@ export function coreHandlers({
             ]
           : [],
       )
+      // As the core's `workspace_run_commands`: the workspace's own, else its repo's.
+      snapshot.workspaceRunCommands = snapshot.persisted.workspaces.flatMap(
+        (row) => {
+          const own = row.runCommand?.trim()
+          const repo = snapshot.repoRunCommands.find(
+            (run) => run.repoId === row.repoId,
+          )
+          const run = own
+            ? { command: own, source: 'workspace' as const }
+            : repo && { command: repo.command, source: repo.source }
+          return run ? [{ workspaceId: row.id, ...run }] : []
+        },
+      )
       // A copy, as the real IPC deserialises one: the stores keep rows whose contents didn't
       // change, so handing them the harness's own objects would hide its edits.
       return structuredClone(snapshot)

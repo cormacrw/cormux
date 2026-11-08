@@ -121,16 +121,8 @@ fn upsert_repo_record(state: &AppState, repo: RepoRecord) -> Result<()> {
     Ok(())
 }
 
-/// A registered repo, or the error every repo command gives for an unknown id.
-fn repo_record(state: &AppState, repo_id: &str) -> Result<RepoRecord> {
-    state
-        .store
-        .repo_by_id(repo_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown repo {repo_id}")))
-}
-
 pub fn set_run_command(state: &AppState, input: SetRepoRunCommandInput) -> Result<()> {
-    let mut repo = repo_record(state, &input.repo_id)?;
+    let mut repo = state.store.repo(&input.repo_id)?;
     repo.run_command = input
         .run_command
         .map(|value| value.trim().to_string())
@@ -139,19 +131,19 @@ pub fn set_run_command(state: &AppState, input: SetRepoRunCommandInput) -> Resul
 }
 
 pub fn set_single_instance(state: &AppState, input: SetRepoSingleInstanceInput) -> Result<()> {
-    let mut repo = repo_record(state, &input.repo_id)?;
+    let mut repo = state.store.repo(&input.repo_id)?;
     repo.single_instance = input.single_instance;
     upsert_repo_record(state, repo)
 }
 
 pub fn set_setup_commands(state: &AppState, input: SetRepoSetupCommandsInput) -> Result<()> {
-    let mut repo = repo_record(state, &input.repo_id)?;
+    let mut repo = state.store.repo(&input.repo_id)?;
     repo.setup_commands = input.setup_commands;
     upsert_repo_record(state, repo)
 }
 
 pub fn set_default_branch(state: &AppState, input: SetRepoDefaultBranchInput) -> Result<()> {
-    let mut repo = repo_record(state, &input.repo_id)?;
+    let mut repo = state.store.repo(&input.repo_id)?;
     let branch = input.default_branch.trim().to_string();
     if branch.is_empty() {
         return Err(Error::Workspace("Pick a default branch".into()));
@@ -167,7 +159,7 @@ pub fn set_default_branch(state: &AppState, input: SetRepoDefaultBranchInput) ->
             workspace.name
         )));
     }
-    repo.default_branch = Some(branch);
+    repo.default_branch = branch;
     state.store.upsert_repo(&repo)?;
     state.out.repo_git_moved();
     Ok(())
@@ -179,7 +171,7 @@ pub async fn git_runtime(state: &AppState) -> Result<Vec<RepoGitRuntime>> {
     let mut rows = Vec::new();
     for repo in state.store.repos()? {
         let path = expand_tilde(&repo.path);
-        let branch = repo.default_branch_or_main();
+        let branch = repo.default_branch.as_str();
         // One `rev-list --left-right` gives both counts, instead of a process per direction.
         let (ahead, behind) = state
             .git
@@ -243,7 +235,11 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
         )));
     }
 
-    let default_branch = state.git.default_branch(&toplevel).await.ok();
+    let default_branch = state
+        .git
+        .default_branch(&toplevel)
+        .await
+        .unwrap_or_else(|_| crate::model::FALLBACK_DEFAULT_BRANCH.into());
     let committed = match crate::harness_config::read_committed_config(&toplevel) {
         Ok(committed) => committed,
         Err(error) => {
@@ -293,7 +289,7 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
 }
 
 pub async fn remove(state: &AppState, input: RemoveRepoInput) -> Result<()> {
-    let repo = repo_record(state, &input.repo_id)?;
+    let repo = state.store.repo(&input.repo_id)?;
 
     let used = state.store.count_active_workspaces_for_repo(&repo.id)?;
     if used > 0 {
@@ -337,7 +333,7 @@ pub async fn test_setup(
     state: &AppState,
     input: TestRepoSetupInput,
 ) -> Result<TestRepoSetupResult> {
-    let repo = repo_record(state, &input.repo_id)?;
+    let repo = state.store.repo(&input.repo_id)?;
     let repo_path = expand_tilde(&repo.path);
     let setup_raw = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path)?;
     let commands = crate::provisioning::parse_setup_commands(&setup_raw);
@@ -389,7 +385,7 @@ pub async fn test_setup(
 /// The env setup gets when it runs in the repo's own checkout, which is then both the repo and
 /// the worktree, on whatever branch is checked out there.
 async fn checkout_env(state: &AppState, repo: &RepoRecord, repo_path: &Path) -> HarnessEnv {
-    let base = repo.default_branch_or_main().to_string();
+    let base = repo.default_branch.clone();
     let branch = state
         .git
         .current_branch(repo_path)
@@ -408,7 +404,7 @@ async fn checkout_env(state: &AppState, repo: &RepoRecord, repo_path: &Path) -> 
 }
 
 pub async fn list_branches(state: &AppState, repo_id: &str) -> Result<RepoBranchesResult> {
-    let repo = repo_record(state, repo_id)?;
+    let repo = state.store.repo(repo_id)?;
     let repo_path = expand_tilde(&repo.path);
     // Branches that only exist on GitHub can be checked out too; `git switch` tracks them.
     let (local, remote) = tokio::try_join!(
@@ -423,7 +419,7 @@ pub async fn list_branches(state: &AppState, repo_id: &str) -> Result<RepoBranch
 }
 
 pub async fn list_local_branches(state: &AppState, repo_id: &str) -> Result<LocalBranchesResult> {
-    let repo = repo_record(state, repo_id)?;
+    let repo = state.store.repo(repo_id)?;
     let repo_path = expand_tilde(&repo.path);
     let (head, tips) = tokio::join!(
         state.git.current_branch(&repo_path),
@@ -451,8 +447,8 @@ pub async fn delete_local_branch(
     if branch.is_empty() {
         return Err(Error::Git("missing branch name".into()));
     }
-    let repo = repo_record(state, repo_id)?;
-    if branch == repo.default_branch_or_main() {
+    let repo = state.store.repo(repo_id)?;
+    if branch == repo.default_branch {
         return Err(Error::Git(format!("{branch} is the default branch")));
     }
     if let Some(workspace) = state
@@ -527,7 +523,7 @@ mod tests {
                 id: id.into(),
                 path: path.to_string_lossy().to_string(),
                 name: id.into(),
-                default_branch: Some("main".into()),
+                default_branch: "main".into(),
                 setup_commands: String::new(),
                 run_command: None,
                 single_instance: false,
