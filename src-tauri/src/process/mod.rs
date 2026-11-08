@@ -23,7 +23,9 @@ use crate::shell_env::ShellEnv;
 
 pub use session::{HarnessEnv, SessionId, ShellCommand};
 
-const RING_CAP: usize = 500;
+/// The lines of a workspace's output kept for a reader that comes late; the Output tab keeps as
+/// many (the bindings' `OUTPUT_LINE_CAP`).
+pub const OUTPUT_LINE_CAP: usize = 500;
 /// A line that never ends (`\r`-only progress bars) keeps only its tail.
 const FRAGMENT_CAP: usize = 64 * 1024;
 /// A log past this starts over; nothing reads it back, it's there for debugging.
@@ -620,7 +622,7 @@ impl Lines {
             if line.is_blank_output() && ring.back().is_some_and(LogEntry::is_blank_output) {
                 return;
             }
-            if ring.len() == RING_CAP {
+            if ring.len() == OUTPUT_LINE_CAP {
                 ring.pop_front();
             }
             ring.push_back(line.clone());
@@ -837,13 +839,13 @@ mod tests {
     #[test]
     fn caps_what_a_log_can_buffer() {
         let proc = supervisor();
-        for line in 0..RING_CAP * 3 {
+        for line in 0..OUTPUT_LINE_CAP * 3 {
             proc.log("capped", LogKind::Output, line.to_string());
         }
-        assert_eq!(proc.log_snapshot("capped").len(), RING_CAP);
+        assert_eq!(proc.log_snapshot("capped").len(), OUTPUT_LINE_CAP);
         let mut behind = 0;
-        assert_eq!(proc.log_since("capped", &mut behind).len(), RING_CAP);
-        assert_eq!(behind, (RING_CAP * 3) as u64);
+        assert_eq!(proc.log_since("capped", &mut behind).len(), OUTPUT_LINE_CAP);
+        assert_eq!(behind, (OUTPUT_LINE_CAP * 3) as u64);
 
         let mut fragment = "é".repeat(100);
         keep_tail(&mut fragment, 11);

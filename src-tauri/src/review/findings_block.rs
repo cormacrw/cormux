@@ -1,10 +1,18 @@
 //! The Reviewer ends its final reply with its findings as JSON inside
-//! `<cormux-findings>` tags. The frontend hides the same block when it renders the conversation.
+//! `<cormux-findings>` tags. The webview hides the same block when it renders the conversation,
+//! reading the tag's name from the bindings (`FINDINGS_BLOCK_TAG`).
 
 use serde::Deserialize;
 
-pub const OPEN_TAG: &str = "<cormux-findings>";
-pub const CLOSE_TAG: &str = "</cormux-findings>";
+pub const TAG: &str = "cormux-findings";
+
+pub fn open_tag() -> String {
+    format!("<{TAG}>")
+}
+
+pub fn close_tag() -> String {
+    format!("</{TAG}>")
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReviewFinding {
@@ -40,10 +48,11 @@ struct RawFinding {
 /// Parses the last findings block in `reply`. `worktree` is used to turn absolute
 /// paths the agent may have written back into repo-relative ones.
 pub fn parse_findings_block(reply: &str, worktree: &str) -> Result<Vec<ReviewFinding>, BlockError> {
-    let start = reply.rfind(OPEN_TAG).ok_or(BlockError::Missing)?;
-    let body_start = start + OPEN_TAG.len();
+    let open = open_tag();
+    let start = reply.rfind(&open).ok_or(BlockError::Missing)?;
+    let body_start = start + open.len();
     let body_len = reply[body_start..]
-        .find(CLOSE_TAG)
+        .find(&close_tag())
         .ok_or(BlockError::Missing)?;
     let body = strip_code_fence(reply[body_start..body_start + body_len].trim());
 

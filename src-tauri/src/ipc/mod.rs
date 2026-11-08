@@ -110,6 +110,8 @@ pub fn builder() -> Builder {
         .commands(commands())
         .constant("DEFAULT_SETTINGS", settings::Settings::default())
         .constant("MEDIA_EXTENSIONS", crate::media::extension_kinds())
+        .constant("FINDINGS_BLOCK_TAG", crate::review::FINDINGS_BLOCK_TAG)
+        .constant("OUTPUT_LINE_CAP", crate::process::OUTPUT_LINE_CAP)
         .constant("FIRST_CONVERSATION", crate::transcript::FIRST_CONVERSATION)
         .constant(
             "CONVERSATION_STEP_KINDS",

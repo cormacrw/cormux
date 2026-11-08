@@ -23,6 +23,7 @@ use crate::transcript::TranscriptEvent;
 use crate::workspace_git::Checkout;
 use crate::workspaces::{WorkspaceActivity, WorkspaceRecord};
 
+pub use findings_block::TAG as FINDINGS_BLOCK_TAG;
 pub(crate) use store::live as live_in;
 pub use store::{ReviewRow, ReviewStatus};
 
@@ -99,8 +100,8 @@ array inside {open} tags. The user never sees this block; Cormux turns it into t
 - file: path relative to the repository root, or null if the finding isn't about one file.
 - line: {line_hint}
 - Output raw JSON with no code fence. Use [] if you found nothing. Emit the block exactly once, at the very end.",
-        open = findings_block::OPEN_TAG,
-        close = findings_block::CLOSE_TAG,
+        open = findings_block::open_tag(),
+        close = findings_block::close_tag(),
     )
 }
 

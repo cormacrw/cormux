@@ -1,3 +1,4 @@
+import { FINDINGS_BLOCK_TAG } from '$lib/ipc/bindings'
 import { tag, type HiddenBlockDef } from '../block'
 
 /**
@@ -6,6 +7,6 @@ import { tag, type HiddenBlockDef } from '../block'
  */
 export const findingsBlock: HiddenBlockDef<'findings'> = {
   kind: 'findings',
-  match: tag('cormux-findings'),
+  match: tag(FINDINGS_BLOCK_TAG),
   hidden: true,
 }

@@ -1,9 +1,10 @@
-import type { LogEntry, LogKind } from '$lib/ipc/bindings'
+import { OUTPUT_LINE_CAP, type LogEntry, type LogKind } from '$lib/ipc/bindings'
 
 /** Ids only ever grow, so a row keeps its element as older lines fall off the top. */
 export type OutputLine = { id: number } & LogEntry
 
-export const OUTPUT_LINE_CAP = 500
+/** As many lines as the core keeps for a late reader. */
+export { OUTPUT_LINE_CAP }
 
 export function appendOutputLines(
   lines: OutputLine[],

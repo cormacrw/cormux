@@ -712,9 +712,11 @@ toastRaised: "toast-raised"
 
 export const CONVERSATION_STEP_KINDS = ["sessionStarted","sessionResumed"] as const;
 export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
+export const FINDINGS_BLOCK_TAG = "cormux-findings" as const;
 export const FIRST_CONVERSATION = "first" as const;
 export const MEDIA_EXTENSIONS = {"gif":"image","jpeg":"image","jpg":"image","m4v":"video","mov":"video","mp4":"video","png":"image","webm":"video","webp":"image"} as const;
 export const MID_TURN_THREAD_STATUSES = ["running","paused"] as const;
+export const OUTPUT_LINE_CAP = 500 as const;
 export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
 
 /** user-defined types **/
