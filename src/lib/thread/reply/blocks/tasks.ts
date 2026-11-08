@@ -1,13 +1,10 @@
 import { defineBlock, tag } from '../block'
 
 /**
- * Work an agent has scoped before creating it, as a JSON tree inside
- * `<cormux-tasks>` tags: epics first, then the tasks under each epic, then
- * subtasks under each task. The optional `cormux-task-cards` skill (see
- * `skills/cormux-task-cards/` in the repo) asks agents to end a scoping reply
- * with this block; Cormux renders it as a hierarchy and hides the raw JSON.
- * Without the skill there is no block and replies render exactly as before.
- * A flat array of tasks (the skill's first format) still parses.
+ * Work an agent has scoped before creating it, as a JSON array inside
+ * `<cormux-tasks>` tags: epics, the tasks under each, then subtasks under each
+ * task. The format is the one `skills/cormux-task-cards/SKILL.md` asks agents
+ * to write, and only that; Cormux renders it as a hierarchy and hides the JSON.
  */
 
 type TaskDraftKind = 'epic' | 'task' | 'subtask'
@@ -43,17 +40,12 @@ function asString(value: unknown): string | undefined {
 }
 
 function asPoints(value: unknown): number | undefined {
-  const points =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number(value)
-        : NaN
-  return Number.isFinite(points) && points > 0 ? points : undefined
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : undefined
 }
 
 function asStringList(value: unknown): string[] {
-  if (typeof value === 'string') return value.trim() ? [value.trim()] : []
   if (!Array.isArray(value)) return []
   return value
     .map((item) => asString(item))
@@ -61,29 +53,16 @@ function asStringList(value: unknown): string[] {
 }
 
 function asKind(value: unknown, depth: number): TaskDraftKind {
-  const kind = asString(value)
-    ?.toLowerCase()
-    .replace(/[\s_]+/g, '-')
-  if (kind === 'epic') return 'epic'
-  if (kind === 'subtask' || kind === 'sub-task' || kind === 'checklist')
-    return 'subtask'
-  if (kind === 'task' || kind === 'story' || kind === 'ticket') return 'task'
-  // Unlabelled nodes take their level's natural kind: tasks at the top,
-  // subtasks under a task.
+  if (value === 'epic' || value === 'task' || value === 'subtask') return value
+  // Unlabelled nodes take their level's kind: tasks at the top and under an
+  // epic, subtasks under a task.
   return depth >= 2 ? 'subtask' : 'task'
 }
 
-function childEntries(raw: RawDraft): unknown[] {
-  for (const key of ['children', 'tasks', 'stories', 'subtasks']) {
-    if (Array.isArray(raw[key])) return raw[key]
-  }
-  return []
-}
-
 function normalize(raw: RawDraft, depth: number): TaskDraft | null {
-  const title = asString(raw.title) ?? asString(raw.name)
+  const title = asString(raw.title)
   if (!title) return null
-  const kind = asKind(raw.kind ?? raw.type, depth)
+  const kind = asKind(raw.kind, depth)
   const draft: TaskDraft = {
     kind,
     title,
@@ -91,36 +70,34 @@ function normalize(raw: RawDraft, depth: number): TaskDraft | null {
     acceptance: [],
     children: [],
   }
-  const description = asString(raw.description) ?? asString(raw.body)
+  const description = asString(raw.description)
   if (description) draft.description = description
-  const outcome = asString(raw.outcome) ?? asString(raw.goal)
+  const outcome = asString(raw.outcome)
   if (outcome) draft.outcome = outcome
   const scope = raw.scope
   if (scope && typeof scope === 'object' && !Array.isArray(scope)) {
     const rawScope = scope as RawDraft
-    const inScope = asStringList(rawScope.in ?? rawScope.includes)
-    const outScope = asStringList(rawScope.out ?? rawScope.excludes)
+    const inScope = asStringList(rawScope.in)
+    const outScope = asStringList(rawScope.out)
     if (inScope.length || outScope.length)
       draft.scope = { in: inScope, out: outScope }
   }
-  draft.acceptance = asStringList(
-    raw.acceptance ?? raw.acceptanceCriteria ?? raw.doneWhen,
-  )
+  draft.acceptance = asStringList(raw.acceptance)
   const priority = asString(raw.priority)
   if (priority) draft.priority = priority
   const points = asPoints(raw.points)
   if (points !== undefined) draft.points = points
-  draft.labels = asStringList(raw.labels ?? raw.tags)
+  draft.labels = asStringList(raw.labels)
   const status = asString(raw.status)
   if (status) draft.status = status
-  const ref = asString(raw.ref) ?? asString(raw.id)
+  const ref = asString(raw.ref)
   if (ref) draft.ref = ref
   const url = asString(raw.url)
   if (url) draft.url = url
   // The hierarchy is three levels deep; anything deeper is dropped rather
   // than rendered as an ever-narrower tree.
-  if (depth < 3) {
-    draft.children = childEntries(raw)
+  if (depth < 3 && Array.isArray(raw.children)) {
+    draft.children = raw.children
       .filter(
         (entry): entry is RawDraft =>
           Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry),
@@ -131,22 +108,10 @@ function normalize(raw: RawDraft, depth: number): TaskDraft | null {
   return draft
 }
 
-function topEntries(parsed: unknown): unknown[] | null {
-  if (Array.isArray(parsed)) return parsed
-  if (parsed && typeof parsed === 'object') {
-    const raw = parsed as RawDraft
-    for (const key of ['epics', 'tasks', 'drafts']) {
-      if (Array.isArray(raw[key])) return raw[key]
-    }
-    return [parsed]
-  }
-  return null
-}
-
 function parseDrafts(body: string): TaskDraft[] | null {
   try {
-    const entries = topEntries(JSON.parse(body))
-    if (!entries) return null
+    const entries: unknown = JSON.parse(body)
+    if (!Array.isArray(entries)) return null
     return entries
       .filter(
         (entry): entry is RawDraft =>

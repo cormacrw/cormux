@@ -27,7 +27,7 @@ describe('the tasks block', () => {
       '',
       '<cormux-tasks>',
       '[{"title":"Add login rate limit","description":"Throttle after 5 attempts.","priority":"high","points":3,"labels":["auth","api"]},',
-      ' {"name":"Fix typo","body":"recieve → receive"}]',
+      ' {"title":"Fix typo","description":"recieve → receive"}]',
       '</cormux-tasks>',
     ].join('\n')
     expect(splitTaskCards(reply)).toEqual({
@@ -55,9 +55,9 @@ describe('the tasks block', () => {
     })
   })
 
-  it('tolerates a code fence and string points', () => {
+  it('tolerates a code fence', () => {
     const reply =
-      'Drafts.\n<cormux-tasks>\n```json\n[{"title":"Ship it","points":"5"}]\n```\n</cormux-tasks>'
+      'Drafts.\n<cormux-tasks>\n```json\n[{"title":"Ship it","points":5}]\n```\n</cormux-tasks>'
     expect(splitTaskCards(reply).drafts).toEqual([
       {
         kind: 'task',
@@ -68,6 +68,34 @@ describe('the tasks block', () => {
         children: [],
       },
     ])
+  })
+
+  it('reads only the fields and shapes the skill writes', () => {
+    const reply = `<cormux-tasks>${JSON.stringify([
+      { name: 'No title' },
+      {
+        title: 'Aliases',
+        kind: 'story',
+        body: 'not a description',
+        tags: ['x'],
+        points: '3',
+        acceptance: 'a string, not a list',
+        tasks: [{ title: 'not a child' }],
+      },
+    ])}</cormux-tasks>`
+    expect(splitTaskCards(reply).drafts).toEqual([
+      {
+        kind: 'task',
+        title: 'Aliases',
+        labels: [],
+        acceptance: [],
+        children: [],
+      },
+    ])
+    expect(
+      splitTaskCards('<cormux-tasks>{"title":"Not in a list"}</cormux-tasks>')
+        .drafts,
+    ).toEqual([])
   })
 
   it('drops drafts without a title and non-object entries', () => {
@@ -133,13 +161,13 @@ describe('the tasks block', () => {
           title: 'Self-serve onboarding',
           outcome: 'New teams finish setup without support.',
           scope: { in: ['Invite flow'], out: ['SSO'] },
-          acceptanceCriteria: ['Median setup under 10 minutes'],
+          acceptance: ['Median setup under 10 minutes'],
           children: [
             {
               title: 'Invite teammates',
               points: 5,
               acceptance: ['Invite link expires in 7 days'],
-              subtasks: [
+              children: [
                 { title: 'Add invite tokens', points: 2 },
                 { title: 'Send invite email' },
               ],

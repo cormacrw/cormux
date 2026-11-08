@@ -42,7 +42,7 @@
 <SettingsPanel data-od-id="settings-general-group">
   <SettingsRow
     title="Default repository"
-    description="Pre-selected whenever you pick a repo for a new workspace or scratch"
+    description="Pre-selected whenever you pick a repo for a new thread"
     controlId="settings-default-repo"
   >
     {#snippet control()}

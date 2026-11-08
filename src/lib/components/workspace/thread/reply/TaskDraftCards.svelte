@@ -1,8 +1,6 @@
 <!--
-  Display-only view of work an agent scoped but has not created yet, parsed
-  from the reply's <cormux-tasks> block (see the optional cormux-task-cards
-  skill): epics with their scope first, tasks under each epic, subtasks
-  under each task. Creating stays with the agent in chat.
+  Draws a reply's <cormux-tasks> block (thread/reply/blocks/tasks.ts) as its hierarchy.
+  Display only: creating the tasks stays with the agent in chat.
 -->
 <script lang="ts">
   import { plural } from '$lib/format/plural'

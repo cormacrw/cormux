@@ -1,7 +1,7 @@
 /**
  * Bangs: a short name like `!test` that stands for a saved prompt. Typed in any
  * prompt bar it becomes the prompt; typed in the command palette it starts a
- * scratch with it. Managed in Settings › Bangs.
+ * thread with it. Managed in Settings › Bangs.
  */
 import type { Bang } from '$lib/ipc/bindings'
 export type { Bang }

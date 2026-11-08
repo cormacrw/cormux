@@ -192,7 +192,7 @@
               >
                 No spaces. Type !{bangName(drafts[bang.id]!.name) || bang.name} in
                 a prompt bar to put the prompt in, or in the command palette to start
-                a scratch with it.
+                a thread with it.
               </p>
             </div>
             <div class="field space-y-1.5">
@@ -211,7 +211,7 @@
                 class="field-hint text-xs text-muted-foreground"
                 id="bang-prompt-hint-{bang.id}"
               >
-                From the command palette, the scratch starts in
+                From the command palette, the thread starts in
                 {defaultRepoId || 'your default repository'} and runs in the background;
                 words typed after the bang are added to the end.
               </p>
