@@ -2,7 +2,6 @@ mod findings_block;
 mod store;
 
 use crate::bus::{DomainEvent, TurnSpan};
-use uuid::Uuid;
 
 use crate::error::{Error, Result};
 use crate::feedback::{NotificationPayload, ToastPart, ToastRaisedPayload, ToastTone};
@@ -356,23 +355,8 @@ async fn on_reviewer_turn_end(
         }
     };
 
-    let rows: Vec<FindingRow> = findings
-        .into_iter()
-        .map(|finding| FindingRow {
-            id: Uuid::new_v4().to_string(),
-            workspace_id: workspace.id.clone(),
-            severity: finding.severity,
-            title: finding.title,
-            file: finding.file,
-            line: finding.line,
-            explanation: finding.explanation,
-            status: crate::model::FindingStatus::Open,
-            commit_sha: None,
-            sent_to_thread_id: None,
-        })
-        .collect();
-    state.store.replace_findings(&workspace.id, &rows)?;
-    complete_review(state, &workspace, thread_id, rows.len()).await
+    let found = crate::findings::record_review(&state.store, &workspace.id, findings)?;
+    complete_review(state, &workspace, thread_id, found).await
 }
 
 /// Why the workspace's own thread can't review its branch now, or `None` when it can. The one
@@ -465,9 +449,7 @@ async fn complete_review(
     thread_id: &str,
     found: usize,
 ) -> Result<()> {
-    state
-        .store
-        .set_review_status(&workspace.id, ReviewStatus::Ready)?;
+    state.store.finish_review(&workspace.id, found)?;
     let reviewed = match workspace.kind {
         WorkspaceKind::PrReview => {
             state
@@ -560,7 +542,7 @@ pub async fn submit_workspace_review(
         .store
         .findings_for_workspace(&input.workspace_id)?
         .into_iter()
-        .filter(|row| row.status == crate::model::FindingStatus::Open)
+        .filter(|row| row.status == crate::findings::FindingStatus::Open)
         .collect();
 
     let mut body_lines = Vec::new();
@@ -579,7 +561,9 @@ pub async fn submit_workspace_review(
         }
         body_lines.push(format!(
             "- **{}** ({}) — {}",
-            finding.title, finding.severity, finding.explanation
+            finding.title,
+            finding.severity.as_str(),
+            finding.explanation
         ));
     }
     let body = if body_lines.is_empty() {
@@ -1102,7 +1086,10 @@ mod tests {
         for rubric in [reviewer_rubric(), branch_reviewer_rubric("develop")] {
             let example = findings_block::parse_findings_block(&rubric, "/repo").unwrap();
             assert_eq!(example.len(), 1, "{rubric}");
-            assert_eq!(example[0].severity, "blocking");
+            assert_eq!(
+                example[0].severity,
+                crate::findings::FindingSeverity::Blocking
+            );
             assert_eq!(example[0].line, Some(48));
         }
     }

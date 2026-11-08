@@ -226,38 +226,6 @@ impl ApprovalStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum FindingStatus {
-    Open,
-    /// Sent to a thread to fix.
-    Sent,
-    Fixed,
-    /// Kept in the list, but not sent or posted.
-    Dismissed,
-}
-
-impl FindingStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::Sent => "sent",
-            Self::Fixed => "fixed",
-            Self::Dismissed => "dismissed",
-        }
-    }
-
-    /// A stored status. Anything unrecognised reads as `Open`, so it can still be acted on.
-    pub fn parse(raw: &str) -> Self {
-        match raw {
-            "sent" => Self::Sent,
-            "fixed" => Self::Fixed,
-            "dismissed" => Self::Dismissed,
-            _ => Self::Open,
-        }
-    }
-}
-
 /// What an approval card shows, and how it was answered. Stored as JSON in the approval's row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

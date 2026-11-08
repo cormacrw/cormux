@@ -1,5 +1,4 @@
-import type { FindingRow } from '$lib/ipc/bindings'
-import type { FindingSeverity } from './types'
+import type { FindingRow, FindingSeverity } from '$lib/ipc/bindings'
 import { openFindings } from './types'
 
 export type QuickSelectMode = 'blocking' | 'all' | 'none'

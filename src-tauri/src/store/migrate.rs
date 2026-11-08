@@ -94,6 +94,7 @@ const MIGRATIONS: &[Migration] = migrations![
     "032_closed_threads_retired",
     "033_workspace_setup_message",
     "035_findings_batch_message",
+    "036_review_has_findings",
 ];
 
 fn create_ledger(conn: &Connection) -> Result<()> {
@@ -854,5 +855,34 @@ mod tests {
         };
         assert_eq!(message("w").as_deref(), Some("Fix login"));
         assert_eq!(message("quiet"), None);
+    }
+
+    #[test]
+    fn a_review_remembers_whether_it_found_anything() {
+        let conn = migrated_before(36);
+        conn.execute_batch(
+            "INSERT INTO repos (id, path, name) VALUES ('r', '/tmp/r', 'r');
+             INSERT INTO workspaces (id, repo_id, name, branch, worktree_path, status)
+                VALUES ('found', 'r', 'F', 'f', '/tmp/f', 'idle'),
+                       ('clean', 'r', 'C', 'c', '/tmp/c', 'idle');
+             INSERT INTO review_state (workspace_id, status) VALUES
+                ('found', 'ready'), ('clean', 'ready');
+             INSERT INTO findings (id, workspace_id, severity, title, explanation, status)
+                VALUES ('f1', 'found', 'nit', 'A', 'x', 'fixed');",
+        )
+        .unwrap();
+
+        run(&conn, &[]).unwrap();
+
+        let has = |id: &str| -> bool {
+            conn.query_row(
+                "SELECT has_findings FROM review_state WHERE workspace_id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert!(has("found"));
+        assert!(!has("clean"));
     }
 }

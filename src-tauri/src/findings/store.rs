@@ -3,15 +3,76 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{Error, Result};
-use crate::model::FindingStatus;
 use crate::store::{Store, query_all};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FindingStatus {
+    Open,
+    /// Sent to a thread to fix.
+    Sent,
+    Fixed,
+    /// Kept in the list, but not sent or posted.
+    Dismissed,
+}
+
+impl FindingStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Sent => "sent",
+            Self::Fixed => "fixed",
+            Self::Dismissed => "dismissed",
+        }
+    }
+
+    /// A stored status. Anything unrecognised reads as `Open`, so it can still be acted on.
+    pub fn parse(raw: &str) -> Self {
+        match raw {
+            "sent" => Self::Sent,
+            "fixed" => Self::Fixed,
+            "dismissed" => Self::Dismissed,
+            _ => Self::Open,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FindingSeverity {
+    /// Must be fixed before merging.
+    Blocking,
+    /// Worth doing in this change.
+    Suggestion,
+    /// Optional polish.
+    Nit,
+}
+
+impl FindingSeverity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Blocking => "blocking",
+            Self::Suggestion => "suggestion",
+            Self::Nit => "nit",
+        }
+    }
+
+    /// What a Reviewer wrote, or a stored value. Anything unrecognised is a suggestion.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "blocking" | "blocker" | "critical" | "high" => Self::Blocking,
+            "nit" | "nitpick" | "low" => Self::Nit,
+            _ => Self::Suggestion,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FindingRow {
     pub id: String,
     pub workspace_id: String,
-    pub severity: String,
+    pub severity: FindingSeverity,
     pub title: String,
     pub file: Option<String>,
     pub line: Option<i64>,
@@ -131,7 +192,11 @@ impl Store {
 
     /// Swaps a workspace's findings for `findings` in one transaction, so a failed insert
     /// leaves the old set in place and a reader never sees it half replaced.
-    pub fn replace_findings(&self, workspace_id: &str, findings: &[FindingRow]) -> Result<()> {
+    pub(super) fn replace_findings(
+        &self,
+        workspace_id: &str,
+        findings: &[FindingRow],
+    ) -> Result<()> {
         self.with_tx(|conn| {
             conn.execute(
                 "DELETE FROM findings WHERE workspace_id = ?1",
@@ -214,7 +279,7 @@ fn write_finding(conn: &Connection, finding: &FindingRow) -> Result<()> {
         rusqlite::params![
             finding.id,
             finding.workspace_id,
-            finding.severity,
+            finding.severity.as_str(),
             finding.title,
             finding.file,
             finding.line,
@@ -231,7 +296,7 @@ fn row_to_finding(row: &rusqlite::Row<'_>) -> rusqlite::Result<FindingRow> {
     Ok(FindingRow {
         id: row.get(0)?,
         workspace_id: row.get(1)?,
-        severity: row.get(2)?,
+        severity: FindingSeverity::parse(&row.get::<_, String>(2)?),
         title: row.get(3)?,
         file: row.get(4)?,
         line: row.get(5)?,

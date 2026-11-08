@@ -1,6 +1,4 @@
-import type { FindingRow } from '$lib/ipc/bindings'
-
-export type FindingSeverity = 'blocking' | 'suggestion' | 'nit'
+import type { FindingRow, FindingSeverity } from '$lib/ipc/bindings'
 
 export const FINDING_GROUPS: {
   severity: FindingSeverity

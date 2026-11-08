@@ -918,7 +918,20 @@ export type Error =
  * What happened to a file, as git reports it.
  */
 export type FileStatus = "added" | "modified" | "deleted" | "renamed"
-export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: FindingStatus; commitSha: string | null; sentToThreadId: string | null }
+export type FindingRow = { id: string; workspaceId: string; severity: FindingSeverity; title: string; file: string | null; line: number | null; explanation: string; status: FindingStatus; commitSha: string | null; sentToThreadId: string | null }
+export type FindingSeverity = 
+/**
+ * Must be fixed before merging.
+ */
+"blocking" | 
+/**
+ * Worth doing in this change.
+ */
+"suggestion" | 
+/**
+ * Optional polish.
+ */
+"nit"
 export type FindingStatus = "open" | 
 /**
  * Sent to a thread to fix.

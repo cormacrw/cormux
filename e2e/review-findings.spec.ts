@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test'
-import type { FindingRow } from '../src/lib/ipc/bindings'
+import type { FindingRow, FindingSeverity } from '../src/lib/ipc/bindings'
 import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
 
 const finding = (
   id: string,
-  severity: string,
+  severity: FindingSeverity,
   title: string,
   file: string | null,
   line: number | null,

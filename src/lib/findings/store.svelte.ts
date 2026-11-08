@@ -1,6 +1,6 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
-import type { FindingRow } from '$lib/ipc/bindings'
+import type { FindingRow, FindingSeverity } from '$lib/ipc/bindings'
 import { commands, type CoreError } from '$lib/ipc'
 import {
   applyQuickSelect,
@@ -10,7 +10,7 @@ import {
   setGroupSelection,
   toggleFinding,
 } from '$lib/findings/selection'
-import { openFindings, type FindingSeverity } from '$lib/findings/types'
+import { openFindings } from '$lib/findings/types'
 import { threads } from '$lib/state/threads.svelte'
 import type { Workspace } from '$lib/state/workspaces.svelte'
 import { showFindingsTab } from '$lib/workspace/thread-tabs'

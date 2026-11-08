@@ -14,7 +14,43 @@ use crate::timeline::TimelineStep;
 use crate::transcript::HostEvent;
 
 pub(crate) use store::live as live_in;
-pub use store::{FindingRow, FindingsBatch};
+pub use store::{FindingRow, FindingSeverity, FindingStatus, FindingsBatch};
+
+/// A finding as a review reported it, before it is recorded.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReviewFinding {
+    pub severity: FindingSeverity,
+    pub title: String,
+    pub file: Option<String>,
+    pub line: Option<i64>,
+    pub explanation: String,
+}
+
+/// A finished review's findings replace the workspace's earlier ones, each open and unsent.
+/// Returns how many there are.
+pub fn record_review(
+    store: &crate::store::Store,
+    workspace_id: &str,
+    findings: Vec<ReviewFinding>,
+) -> Result<usize> {
+    let rows: Vec<FindingRow> = findings
+        .into_iter()
+        .map(|finding| FindingRow {
+            id: uuid::Uuid::new_v4().to_string(),
+            workspace_id: workspace_id.to_string(),
+            severity: finding.severity,
+            title: finding.title,
+            file: finding.file,
+            line: finding.line,
+            explanation: finding.explanation,
+            status: FindingStatus::Open,
+            commit_sha: None,
+            sent_to_thread_id: None,
+        })
+        .collect();
+    store.replace_findings(workspace_id, &rows)?;
+    Ok(rows.len())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -66,7 +102,7 @@ pub async fn send_workspace_findings(
                 "finding {id} is in another workspace"
             )));
         }
-        if row.status != crate::model::FindingStatus::Open {
+        if row.status != FindingStatus::Open {
             return Err(Error::Invalid(format!("finding {id} is not open")));
         }
         picked.push(row);
@@ -205,7 +241,11 @@ fn build_fix_prompt(findings: &[FindingRow]) -> String {
         };
         lines.push(format!(
             "- id={} [{}] {} ({}) — {}",
-            row.id, row.severity, row.title, loc, row.explanation
+            row.id,
+            row.severity.as_str(),
+            row.title,
+            loc,
+            row.explanation
         ));
     }
     lines.join("\n")
@@ -246,7 +286,7 @@ fn finish_batch_if_fixed(state: &AppState, thread_id: &str, batch: &[String]) ->
     }
     if !batch_rows
         .iter()
-        .all(|row| row.status == crate::model::FindingStatus::Fixed)
+        .all(|row| row.status == FindingStatus::Fixed)
     {
         return Ok(());
     }
@@ -332,12 +372,12 @@ mod tests {
                 .upsert_finding(&FindingRow {
                     id: id.clone(),
                     workspace_id: W.into(),
-                    severity: "blocking".into(),
+                    severity: crate::findings::FindingSeverity::Blocking,
                     title: format!("Finding {id}"),
                     file: None,
                     line: None,
                     explanation: "wrong".into(),
-                    status: crate::model::FindingStatus::Open,
+                    status: FindingStatus::Open,
                     commit_sha: None,
                     sent_to_thread_id: None,
                 })

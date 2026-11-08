@@ -4,6 +4,8 @@
 
 use serde::Deserialize;
 
+use crate::findings::{FindingSeverity, ReviewFinding};
+
 pub const TAG: &str = "cormux-findings";
 
 pub fn open_tag() -> String {
@@ -12,15 +14,6 @@ pub fn open_tag() -> String {
 
 pub fn close_tag() -> String {
     format!("</{TAG}>")
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ReviewFinding {
-    pub severity: String,
-    pub title: String,
-    pub file: Option<String>,
-    pub line: Option<i64>,
-    pub explanation: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -78,12 +71,7 @@ fn normalize(item: RawFinding, worktree: &str) -> Option<ReviewFinding> {
     if title.is_empty() {
         return None;
     }
-    let severity = match item.severity.trim().to_ascii_lowercase().as_str() {
-        "blocking" | "blocker" | "critical" | "high" => "blocking",
-        "nit" | "nitpick" | "low" => "nit",
-        _ => "suggestion",
-    }
-    .to_string();
+    let severity = FindingSeverity::parse(&item.severity);
     let file = item
         .file
         .map(|path| relative_path(path.trim(), worktree))
@@ -137,7 +125,7 @@ mod tests {
 </cormux-findings>"#;
         let findings = parse_findings_block(reply, WORKTREE).unwrap();
         assert_eq!(findings.len(), 2);
-        assert_eq!(findings[0].severity, "blocking");
+        assert_eq!(findings[0].severity, FindingSeverity::Blocking);
         assert_eq!(findings[0].file.as_deref(), Some("src/retry.ts"));
         assert_eq!(findings[0].line, Some(48));
         assert_eq!(findings[1].file, None);
@@ -157,12 +145,12 @@ mod tests {
         );
         let findings = parse_findings_block(&reply, WORKTREE).unwrap();
         assert_eq!(findings.len(), 2);
-        assert_eq!(findings[0].severity, "blocking");
+        assert_eq!(findings[0].severity, FindingSeverity::Blocking);
         assert_eq!(findings[0].title, "Leak");
         assert_eq!(findings[0].file.as_deref(), Some("src/a.rs"));
         assert_eq!(findings[0].line, Some(12));
         assert_eq!(findings[0].explanation, "Close it.");
-        assert_eq!(findings[1].severity, "suggestion");
+        assert_eq!(findings[1].severity, FindingSeverity::Suggestion);
         assert_eq!(findings[1].file.as_deref(), Some("b.rs"));
         assert_eq!(findings[1].line, None);
     }

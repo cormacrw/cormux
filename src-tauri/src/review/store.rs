@@ -77,14 +77,24 @@ impl Store {
         })
     }
 
+    pub fn finish_review(&self, workspace_id: &str, found: usize) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO review_state (workspace_id, status, has_findings) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(workspace_id) DO UPDATE
+                    SET status = excluded.status, has_findings = excluded.has_findings",
+                rusqlite::params![workspace_id, ReviewStatus::Ready.as_str(), found > 0],
+            )?;
+            Ok(())
+        })
+    }
+
     /// A review that stopped before it found anything: the workspace is back where its last
     /// finished review left it, or where it was before any.
     pub fn end_unfinished_review(&self, workspace_id: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "UPDATE review_state SET status = CASE
-                    WHEN EXISTS (SELECT 1 FROM findings WHERE workspace_id = ?1) THEN ?2
-                    ELSE NULL END
+                "UPDATE review_state SET status = CASE WHEN has_findings THEN ?2 ELSE NULL END
                  WHERE workspace_id = ?1 AND status = ?3",
                 rusqlite::params![
                     workspace_id,

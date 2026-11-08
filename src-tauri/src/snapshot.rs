@@ -227,12 +227,12 @@ mod tests {
             .upsert_finding(&FindingRow {
                 id: "f1".into(),
                 workspace_id: "w1".into(),
-                severity: "high".into(),
+                severity: crate::findings::FindingSeverity::Blocking,
                 title: "Leak".into(),
                 file: Some("a.ts".into()),
                 line: Some(10),
                 explanation: "secret".into(),
-                status: crate::model::FindingStatus::Open,
+                status: crate::findings::FindingStatus::Open,
                 commit_sha: None,
                 sent_to_thread_id: None,
             })

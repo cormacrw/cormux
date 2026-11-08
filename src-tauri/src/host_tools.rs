@@ -635,12 +635,12 @@ mod tests {
             .upsert_finding(&FindingRow {
                 id: "f1".into(),
                 workspace_id: "w1".into(),
-                severity: "blocking".into(),
+                severity: crate::findings::FindingSeverity::Blocking,
                 title: "Leak".into(),
                 file: None,
                 line: None,
                 explanation: "wrong".into(),
-                status: crate::model::FindingStatus::Open,
+                status: crate::findings::FindingStatus::Open,
                 commit_sha: None,
                 sent_to_thread_id: None,
             })
@@ -664,12 +664,12 @@ mod tests {
         assert_eq!(fixed("t2").await["result"]["isError"], true);
         assert_eq!(
             state.store.finding_by_id("f1").unwrap().unwrap().status,
-            crate::model::FindingStatus::Sent
+            crate::findings::FindingStatus::Sent
         );
 
         assert!(fixed("t1").await["result"].get("isError").is_none());
         let finding = state.store.finding_by_id("f1").unwrap().unwrap();
-        assert_eq!(finding.status, crate::model::FindingStatus::Fixed);
+        assert_eq!(finding.status, crate::findings::FindingStatus::Fixed);
         assert_eq!(finding.commit_sha.as_deref(), Some("abc123"));
         assert!(
             state.store.findings_batch("t1").unwrap().is_none(),
