@@ -62,4 +62,20 @@ describe('keyboardLayers', () => {
     keyboardLayers.releasePopover(second)
     expect(keyboardLayers.closePopover()).toBe(false)
   })
+
+  it('closes the popover and what gives way to a dialog as one opens', () => {
+    const calls: string[] = []
+    const popover = {
+      close: () => calls.push('close popover'),
+      restoreFocus: () => calls.push('focus'),
+    }
+    keyboardLayers.claimPopover(popover)
+    const release = keyboardLayers.closeUnderModal(() =>
+      calls.push('close palette'),
+    )
+    keyboardLayers.modalOpening()
+    expect(calls).toEqual(['close popover', 'focus', 'close palette'])
+    keyboardLayers.releasePopover(popover)
+    release()
+  })
 })

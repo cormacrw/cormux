@@ -24,7 +24,7 @@ class ShellDialogsStore {
   }
 
   open<K extends ShellDialogId>(id: K, args: ShellDialogArgs[K]) {
-    keyboardLayers.closePopover()
+    keyboardLayers.modalOpening()
     this.openArgs = { ...this.openArgs, [id]: args }
   }
 
