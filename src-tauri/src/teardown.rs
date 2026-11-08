@@ -120,6 +120,7 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
     state.diffs.unwatch(&input.workspace_id);
     state.process.forget_workspace(&input.workspace_id);
     state.workspace_git.forget(&input.workspace_id).await;
+    state.stacks.forget(&input.workspace_id);
 
     state.out.changed();
 
@@ -313,6 +314,7 @@ mod tests {
     #[tokio::test]
     async fn a_workspace_mid_setup_is_torn_down_and_its_setup_told() {
         let state = registered("/tmp/cormux-no-such-worktree").await;
+        state.stacks.remember_unstacked("w", "feat");
 
         execute(
             &state,
@@ -328,6 +330,7 @@ mod tests {
         let archived = state.store.workspace_by_id("w").unwrap().unwrap();
         assert!(archived.archived_at.is_some());
         assert_eq!(archived.status, WorkspaceLifecycle::TearingDown);
+        assert!(!state.stacks.recently_unstacked("w", "feat"));
     }
 
     /// Bug: a workspace whose setup failed before making its worktree defaulted to deleting a

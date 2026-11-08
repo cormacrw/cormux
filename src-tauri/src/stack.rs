@@ -356,13 +356,18 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
                 return Ok(empty(StackStatus::NotStacked, message));
             }
             if !adopt_local_stack(state, &worktree, &record.branch).await {
-                if state.stacks.recently_unstacked(&worktree, &record.branch) {
+                if state
+                    .stacks
+                    .recently_unstacked(workspace_id, &record.branch)
+                {
                     return Ok(empty(StackStatus::NotStacked, None));
                 }
                 match checkout_remote_stack(state, &worktree, &record.branch, &record.base).await {
                     RemoteStack::CheckedOut => {}
                     RemoteStack::None => {
-                        state.stacks.remember_unstacked(&worktree, &record.branch);
+                        state
+                            .stacks
+                            .remember_unstacked(workspace_id, &record.branch);
                         return Ok(empty(StackStatus::NotStacked, None));
                     }
                     RemoteStack::Failed(message) => {
@@ -561,34 +566,42 @@ async fn stack_in_other_worktrees(
         .find_map(|text| stack_with_branch(&text, branch))
 }
 
-/// When GitHub last said each `worktree\0branch` has no stack. Asking means a network call on
+/// When GitHub last said each workspace's branch has no stack. Asking means a network call on
 /// every open of an unstacked branch, the common case; a stack made here shows up regardless,
 /// since `view` is asked first.
 #[derive(Default)]
 pub struct RemoteStackCache {
-    unstacked: Mutex<HashMap<String, Instant>>,
+    unstacked: Mutex<HashMap<(String, String), Instant>>,
 }
 
 impl RemoteStackCache {
-    fn key(worktree: &Path, branch: &str) -> String {
-        format!("{}\0{branch}", worktree.display())
+    fn key(workspace_id: &str, branch: &str) -> (String, String) {
+        (workspace_id.to_string(), branch.to_string())
     }
 
-    fn recently_unstacked(&self, worktree: &Path, branch: &str) -> bool {
+    pub(crate) fn recently_unstacked(&self, workspace_id: &str, branch: &str) -> bool {
         self.unstacked
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .get(&Self::key(worktree, branch))
+            .get(&Self::key(workspace_id, branch))
             .is_some_and(|at| at.elapsed() < REMOTE_STACK_TTL)
     }
 
-    fn remember_unstacked(&self, worktree: &Path, branch: &str) {
+    pub(crate) fn remember_unstacked(&self, workspace_id: &str, branch: &str) {
         let mut unstacked = self
             .unstacked
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         unstacked.retain(|_, at| at.elapsed() < REMOTE_STACK_TTL);
-        unstacked.insert(Self::key(worktree, branch), Instant::now());
+        unstacked.insert(Self::key(workspace_id, branch), Instant::now());
+    }
+
+    /// A torn-down workspace's answers go with it.
+    pub fn forget(&self, workspace_id: &str) {
+        self.unstacked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(workspace, _), _| workspace != workspace_id);
     }
 }
 
@@ -860,6 +873,18 @@ mod tests {
     use crate::model::WorkspaceLifecycle;
     use crate::shell_env::ShellEnv;
     use crate::store::types::{RepoRecord, WorkspaceRow};
+
+    /// Bug: answers were kept by worktree path, so a workspace made again at the path of one torn
+    /// down inherited its "no stack on GitHub" until the answer aged out.
+    #[test]
+    fn each_workspace_keeps_its_own_remote_answer_until_it_is_forgotten() {
+        let cache = RemoteStackCache::default();
+        cache.remember_unstacked("w1", "feat/a");
+        assert!(cache.recently_unstacked("w1", "feat/a"));
+        assert!(!cache.recently_unstacked("w2", "feat/a"));
+        cache.forget("w1");
+        assert!(!cache.recently_unstacked("w1", "feat/a"));
+    }
 
     fn order(rows: &[(&str, bool)]) -> Vec<(String, bool)> {
         rows.iter()
