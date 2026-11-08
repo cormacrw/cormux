@@ -1,8 +1,4 @@
-import type {
-  ClickupBoard,
-  ClickupTaskDetail,
-  Result,
-} from '$lib/ipc/bindings'
+import type { ClickupBoard, ClickupTaskDetail, Result } from '$lib/ipc/bindings'
 import { commands, type CoreError } from '$lib/ipc'
 import { onSnapshot } from '$lib/core/sync'
 import { coalesce } from '$lib/core/coalesce'
