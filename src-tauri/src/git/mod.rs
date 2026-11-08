@@ -1023,13 +1023,6 @@ fn parse_numstat_z(bytes: &[u8]) -> Vec<FileStat> {
     files
 }
 
-/// Whether git would take `name` as a branch name; the error says why not.
-#[tauri::command]
-#[specta::specta]
-pub fn validate_branch_name(name: String) -> Result<()> {
-    validate_ref_name(name.trim(), "branch")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

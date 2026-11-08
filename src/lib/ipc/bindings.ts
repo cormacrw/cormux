@@ -669,17 +669,6 @@ async testRepoSetup(input: TestRepoSetupInput) : Promise<Result<TestRepoSetupRes
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Whether git would take `name` as a branch name; the error says why not.
- */
-async validateBranchName(name: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("validate_branch_name", { name }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async getSettings() : Promise<Result<Settings, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_settings") };
@@ -1540,7 +1529,11 @@ export type WorkspaceStack = { workspaceId: string; status: StackStatus;
 /**
  * Why the stack is unavailable, for the panel to show.
  */
-message: string | null; trunk: string; currentBranch: string; 
+message: string | null; 
+/**
+ * What to run to make stacks available, when installing something would.
+ */
+installCommand: string | null; trunk: string; currentBranch: string; 
 /**
  * The checked-out branch is missing commits from the branch it's based on: the
  * one below it in the stack, or the trunk when it isn't stacked.

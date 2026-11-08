@@ -81,6 +81,8 @@ pub struct WorkspaceStack {
     pub status: StackStatus,
     /// Why the stack is unavailable, for the panel to show.
     pub message: Option<String>,
+    /// What to run to make stacks available, when installing something would.
+    pub install_command: Option<String>,
     pub trunk: String,
     pub current_branch: String,
     /// The checked-out branch is missing commits from the branch it's based on: the
@@ -136,7 +138,38 @@ impl ViewJson {
 enum View {
     Stacked(ViewJson),
     NotStacked,
-    Unavailable(String),
+    Unavailable(Unavailable),
+}
+
+/// Why stacks can't be used in a worktree, and the command that would fix it, if one would.
+#[derive(Debug, Clone, PartialEq)]
+struct Unavailable {
+    reason: String,
+    install: Option<&'static str>,
+}
+
+impl Unavailable {
+    fn because(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            install: None,
+        }
+    }
+
+    fn extension_missing() -> Self {
+        Self {
+            reason: "The gh-stack extension isn't installed.".into(),
+            install: Some(INSTALL_HINT),
+        }
+    }
+
+    /// As an error's text, for actions that can't go ahead.
+    fn text(&self) -> String {
+        match self.install {
+            Some(command) => format!("{} Run: {command}", self.reason),
+            None => self.reason.clone(),
+        }
+    }
 }
 
 async fn gh_stack(state: &AppState, worktree: &Path, args: &[&str]) -> Result<CommandOutput> {
@@ -229,7 +262,9 @@ async fn view(state: &AppState, worktree: &Path) -> Result<View> {
     let args = ["stack", "view", "--json"];
     let output = match state.github.gh.output(Some(worktree), &args, &[]).await {
         Ok(output) => output,
-        Err(GhFailure::NotInstalled) => return Ok(View::Unavailable(not_installed())),
+        Err(GhFailure::NotInstalled) => {
+            return Ok(View::Unavailable(Unavailable::because(not_installed())));
+        }
         Err(failure) => return Err(failure.into()),
     };
     if output.status.success() {
@@ -238,15 +273,13 @@ async fn view(state: &AppState, worktree: &Path) -> Result<View> {
         return Ok(View::Stacked(parsed));
     }
     if extension_missing(&output) {
-        return Ok(View::Unavailable(format!(
-            "The gh-stack extension isn't installed. Run: {INSTALL_HINT}"
-        )));
+        return Ok(View::Unavailable(Unavailable::extension_missing()));
     }
     match output.status.code() {
         Some(EXIT_NO_STACK) => Ok(View::NotStacked),
-        Some(EXIT_UNAVAILABLE) => Ok(View::Unavailable(
-            "Stacked pull requests aren't enabled on this repository.".into(),
-        )),
+        Some(EXIT_UNAVAILABLE) => Ok(View::Unavailable(Unavailable::because(
+            "Stacked pull requests aren't enabled on this repository.",
+        ))),
         _ => Err(failure(&output, "Reading the stack")),
     }
 }
@@ -284,6 +317,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         workspace_id: workspace_id.to_string(),
         status,
         message,
+        install_command: None,
         trunk: record.base.clone(),
         current_branch: record.branch.clone(),
         current_needs_rebase: solo_needs_rebase,
@@ -323,7 +357,12 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
                 _ => return Ok(empty(StackStatus::NotStacked, None)),
             }
         }
-        View::Unavailable(message) => return Ok(empty(StackStatus::Unavailable, Some(message))),
+        View::Unavailable(unavailable) => {
+            return Ok(WorkspaceStack {
+                install_command: unavailable.install.map(Into::into),
+                ..empty(StackStatus::Unavailable, Some(unavailable.reason))
+            });
+        }
     };
 
     let trunk_ref = state.git.freshest_ref(&worktree, &json.trunk).await;
@@ -385,6 +424,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         workspace_id: workspace_id.to_string(),
         status: StackStatus::Stacked,
         message: None,
+        install_command: None,
         current_needs_rebase,
         trunk: json.trunk,
         current_branch: json.current_branch,
@@ -603,15 +643,13 @@ async fn checkout_remote_stack(
 /// checked-out branch is adopted as the bottom and the new branch goes on top of it.
 pub async fn add_branch(state: &AppState, workspace_id: &str, branch: &str) -> Result<()> {
     let name = branch.trim();
-    if name.is_empty() {
-        return Err(Error::Git("branch name is required".into()));
-    }
     let record = workspace_record(state, workspace_id).await?;
-    state.workspaces.can_switch_branch(workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
+    refuse_new_branch(state, &record, &worktree, name).await?;
+    state.workspaces.can_switch_branch(workspace_id).await?;
 
     match view(state, &worktree).await? {
-        View::Unavailable(message) => return Err(Error::Git(message)),
+        View::Unavailable(unavailable) => return Err(Error::Git(unavailable.text())),
         View::Stacked(json) => {
             if json.branches.last().map(|top| &top.name) != Some(&json.current_branch) {
                 return Err(Error::Git(
@@ -649,6 +687,38 @@ pub async fn add_branch(state: &AppState, workspace_id: &str, branch: &str) -> R
         },
     )
     .await?;
+    Ok(())
+}
+
+/// Why `name` can't be a new branch in the workspace, in words for the field it was typed in
+/// (`Error::Invalid`).
+async fn refuse_new_branch(
+    state: &AppState,
+    record: &WorkspaceRecord,
+    worktree: &Path,
+    name: &str,
+) -> Result<()> {
+    let refuse = |message: String| Err(Error::Invalid(message));
+    if name.is_empty() {
+        return refuse("Add a branch name, e.g. feat/oauth-login.".into());
+    }
+    if crate::git::validate_ref_name(name, "branch").is_err() {
+        return refuse(
+            "Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.".into(),
+        );
+    }
+    let local = state.git.list_local_branches(worktree).await?;
+    if name == record.base || local.iter().any(|branch| branch == name) {
+        return refuse(format!("{name} already exists. Pick a new branch name."));
+    }
+    let taken = state
+        .store
+        .live_workspaces()?
+        .into_iter()
+        .any(|row| row.repo_id == record.repo_id && row.id != record.id && row.branch == name);
+    if taken {
+        return refuse("Another workspace already uses this branch.".into());
+    }
     Ok(())
 }
 
@@ -966,7 +1036,7 @@ mod tests {
         match view {
             Ok(View::Stacked(_)) => "stacked".into(),
             Ok(View::NotStacked) => "not stacked".into(),
-            Ok(View::Unavailable(message)) => format!("unavailable: {message}"),
+            Ok(View::Unavailable(unavailable)) => format!("unavailable: {}", unavailable.text()),
             Err(error) => format!("error: {error}"),
         }
     }
@@ -1030,6 +1100,70 @@ mod tests {
         assert_eq!(json.parents(), ["main", "main"]);
     }
 
+    /// The UI used to check names itself (two IPC calls, and a rule the core didn't share).
+    #[tokio::test]
+    async fn a_new_stack_branch_name_is_checked_by_the_core() {
+        use crate::model::WorkspaceLifecycle;
+        use crate::store::types::WorkspaceRow;
+
+        let (state, _) = state_on(ShellEnv::new()).await;
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "a",
+        ]);
+        git(&["branch", "feat/old"]);
+        state
+            .store
+            .upsert_repo(&crate::store::fixtures::repo("r1"))
+            .unwrap();
+        for (id, branch) in [("w1", "feat/a"), ("w2", "feat/b")] {
+            let row = WorkspaceRow {
+                branch: branch.into(),
+                worktree_path: repo.to_string_lossy().into(),
+                ..crate::store::fixtures::workspace(id, WorkspaceLifecycle::Idle)
+            };
+            state.store.insert_workspace(&row).unwrap();
+        }
+        let record = state.workspaces.get("w1").await.unwrap();
+
+        for (name, refusal) in [
+            ("", "Add a branch name"),
+            ("bad name", "Use letters, numbers, dashes and slashes only"),
+            ("main", "main already exists"),
+            ("feat/old", "feat/old already exists"),
+            ("feat/b", "Another workspace already uses this branch"),
+        ] {
+            let error = refuse_new_branch(&state, &record, repo, name)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(&error, Error::Invalid(text) if text.contains(refusal)),
+                "{name:?}: {error}"
+            );
+        }
+        refuse_new_branch(&state, &record, repo, "feat/new")
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn view_says_why_a_branch_has_no_stack() {
         let fake = FakeGh::new();
@@ -1059,6 +1193,16 @@ mod tests {
             assert_eq!(describe_view(view(&state, cwd.path()).await), expected);
         }
         assert!(fake.calls().iter().all(|call| call == "stack view --json"));
+        // The panel shows the install command on its own, not parsed out of the reason.
+        fake.reply(
+            "view",
+            exits(1, "", "unknown command \"stack\" for \"gh\"\n"),
+        );
+        let Ok(View::Unavailable(missing)) = view(&state, cwd.path()).await else {
+            panic!("not unavailable");
+        };
+        assert_eq!(missing.install, Some(INSTALL_HINT));
+        assert!(!missing.reason.contains(INSTALL_HINT));
 
         let (_bin, env) = env_without_gh();
         let (state, _) = state_on(env).await;

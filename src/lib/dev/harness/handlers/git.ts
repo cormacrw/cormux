@@ -69,14 +69,15 @@ export function gitHandlers({
       currentBranch: current,
       currentNeedsRebase: stackMode === 'behind' || current === 'feat/oauth-ui',
       message: null,
+      installCommand: null,
       branches: [],
     }
     if (stackMode === 'unavailable') {
       return {
         ...base,
         status: 'unavailable',
-        message:
-          "The gh-stack extension isn't installed. Run: gh extension install github/gh-stack",
+        message: "The gh-stack extension isn't installed.",
+        installCommand: 'gh extension install github/gh-stack',
       }
     }
     if (stackMode === 'remote' && !stackBranches.includes(current)) {
@@ -128,17 +129,18 @@ export function gitHandlers({
       return null
     },
     add_stack_branch: ({ input }: Input<'add_stack_branch'>) => {
+      // A stand-in for the core's refusals: git's ref rules, enough for a typo'd name.
+      if (/\s|\.\.|\/\/|^\/|\/$/.test(input.branch.trim()))
+        throw {
+          kind: 'Invalid',
+          message:
+            'Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.',
+        }
       const current = currentBranch(input.workspaceId)
       if (!stackBranches.includes(current) && current !== 'main')
         stackBranches.push(current)
       stackBranches.push(input.branch)
       setFixtureBranch(input.workspaceId, input.branch)
-      return null
-    },
-    // A stand-in for git's ref rules, which only the core knows: enough for a typo'd name.
-    validate_branch_name: ({ name }: { name: string }) => {
-      if (/\s|\.\.|\/\/|^\/|\/$/.test(name.trim()))
-        throw { kind: 'Git', message: `invalid branch name: "${name}"` }
       return null
     },
     push_stack: () => null,

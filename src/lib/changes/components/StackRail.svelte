@@ -23,10 +23,6 @@
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
-    branchErrorMessage,
-    validateBranchName,
-  } from '$lib/new-workspace/validation'
-  import {
     canAddToStack,
     commitsLabel,
     isDiffTargetOf,
@@ -60,10 +56,9 @@
     lock.reason ?? 'Pause or stop the running agents to change branches.',
   )
   const addable = $derived(canAddToStack(stack))
-  // Backend messages end with " Run: <command>" when there's something to install.
-  const unavailable = $derived.by(() => {
-    const [reason, command] = (stack?.message ?? '').split(' Run: ')
-    return { reason, command }
+  const unavailable = $derived({
+    reason: stack?.message ?? '',
+    command: stack?.installCommand ?? null,
   })
   const topBranch = $derived(cards[0]?.name)
   const addTitle = $derived(
@@ -143,22 +138,11 @@
   }
 
   async function submitAdd() {
-    const name = newBranch.trim()
-    const validRef =
-      !!name && (await commands.validateBranchName(name)).status === 'ok'
-    const code = validateBranchName(name, {
-      existingBranches: [trunk, ...cards.map((card) => card.name)],
-      workspaceBranches: otherWorkspaceBranches,
-      validRef,
-    })
-    if (code) {
-      addError = branchErrorMessage(name, code)
-      return
-    }
     creating = true
-    const ok = await addStackBranch(workspace.id, name)
+    const { added, refused } = await addStackBranch(workspace.id, newBranch)
     creating = false
-    if (ok) closeAdd()
+    if (added) closeAdd()
+    else addError = refused
   }
 
   const levelClass = (active: boolean) =>

@@ -38,8 +38,19 @@ export async function createWorkspaceBranch(
   await runGit(() => commands.createWorkspaceBranch({ workspaceId, branch }))
 }
 
-export async function addStackBranch(workspaceId: string, branch: string) {
-  return runGit(() => commands.addStackBranch({ workspaceId, branch }))
+/** Adds a branch on top of the stack. A name the core refuses comes back to show by the field;
+ * any other failure toasts. */
+export async function addStackBranch(
+  workspaceId: string,
+  branch: string,
+): Promise<{ added: boolean; refused: string | null }> {
+  const result = await commands.addStackBranch({ workspaceId, branch })
+  if (result.status === 'error' && result.error.kind === 'Invalid') {
+    return { added: false, refused: result.error.message }
+  }
+  if (result.status === 'error') toastCoreError(result.error)
+  await refreshSnapshot()
+  return { added: result.status === 'ok', refused: null }
 }
 
 export async function pushStack(workspaceId: string) {

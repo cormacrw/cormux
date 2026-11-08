@@ -31,6 +31,7 @@ function stack(extra: Partial<WorkspaceStack> = {}): WorkspaceStack {
     workspaceId: 'ws',
     status: 'stacked',
     message: null,
+    installCommand: null,
     trunk: 'main',
     currentNeedsRebase: false,
     currentBranch: 'b',

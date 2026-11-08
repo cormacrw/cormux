@@ -7,8 +7,8 @@ pub mod subscriptions;
 use tauri_specta::Builder;
 
 use crate::{
-    app, approvals, attachments, changes, clickup, create_pr, environment, findings, git, menu,
-    repos, review, scratch, settings, skills, snapshot, stack, teardown, terminal, thread_media,
+    app, approvals, attachments, changes, clickup, create_pr, environment, findings, menu, repos,
+    review, scratch, settings, skills, snapshot, stack, teardown, terminal, thread_media,
     transcript, turn, workspace_git, workspace_start, workspaces,
 };
 
@@ -100,7 +100,6 @@ commands![
     repos::commands::add_repo,
     repos::commands::remove_repo,
     repos::commands::test_repo_setup,
-    git::validate_branch_name,
     settings::commands::get_settings,
     settings::commands::update_settings,
     findings::commands::send_workspace_findings,
