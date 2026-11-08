@@ -4,10 +4,7 @@ import { openWorkspace } from '$lib/nav/open'
 import { openSettings } from '$lib/settings/open'
 import { nav, navigate } from '$lib/core/nav.svelte'
 import { switchConversation } from '$lib/thread/actions'
-import {
-  closeActiveWorkspacePopover,
-  dismissOpenPopover,
-} from '$lib/keyboard/popover-registry'
+import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
 import { focusPrompt, overlayOpen } from '$lib/keyboard/focus-home'
 import { runEscape } from '$lib/keyboard/escape'
 import { palette } from '$lib/command-palette/store.svelte'
@@ -100,7 +97,7 @@ export function handleGlobalKeydown(event: KeyboardEvent) {
 
 /** Esc closes the innermost thing: a popover, then a slide-out, then stops a working agent. */
 function onEscape(event: KeyboardEvent) {
-  if (closeActiveWorkspacePopover() || dismissOpenPopover()) {
+  if (closeActiveWorkspacePopover()) {
     event.preventDefault()
     return
   }

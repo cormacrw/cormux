@@ -1,5 +1,5 @@
 import { untrack } from 'svelte'
-import { dismissOpenPopover } from '$lib/keyboard/popover-registry'
+import { closeActiveWorkspacePopover } from '$lib/keyboard/popover-registry'
 import { isShortcut, type MatchedShortcutId } from '$lib/keyboard/shortcuts'
 import { workspaces } from './workspaces.svelte'
 
@@ -39,7 +39,7 @@ class ShellDialogsStore {
     const guard = guards[id] as
       ((args: ShellDialogArgs[K]) => boolean) | undefined
     if (guard && !guard(args)) return false
-    dismissOpenPopover()
+    closeActiveWorkspacePopover()
     this.openArgs = { ...this.openArgs, [id]: args }
     return true
   }
