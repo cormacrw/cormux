@@ -53,9 +53,8 @@ export type Workspace = {
   summary: string | null
   prNumber: number | null
   prHtmlUrl: string | null
-  provStep: number
-  setupFailedCommand: string | null
-  setupFailedExitCode: number | null
+  /** The setup command that failed and its exit code, once setup failed at one. */
+  setupFailure: { command: string; exitCode: number } | null
   /** The workspace's own run command, which Run starts instead of its repo's. */
   runCommand: string | null
   /** Where a review of this workspace stands; null before one starts. */
@@ -147,9 +146,15 @@ export function workspacesFromSnapshot(
       summary: row?.summary ?? null,
       prNumber: row?.prNumber ?? null,
       prHtmlUrl: row?.prHtmlUrl ?? null,
-      provStep: record.provStep,
-      setupFailedCommand: record.setupFailedCommand,
-      setupFailedExitCode: record.setupFailedExitCode,
+      setupFailure:
+        record.activity.kind === 'setupFailed' &&
+        record.activity.command != null &&
+        record.activity.exitCode != null
+          ? {
+              command: record.activity.command,
+              exitCode: record.activity.exitCode,
+            }
+          : null,
       runCommand: row?.runCommand ?? null,
       reviewStatus: review?.status ?? null,
       reviewSubmitted: review?.submitted ?? false,

@@ -30,10 +30,35 @@ pub struct WorkspaceRecord {
     pub worktree_path: String,
     pub status: WorkspaceLifecycle,
     pub kind: WorkspaceKind,
-    pub activity: String,
-    pub prov_step: u8,
-    pub setup_failed_command: Option<String>,
-    pub setup_failed_exit_code: Option<i32>,
+    pub activity: WorkspaceActivity,
+}
+
+/// What a workspace is doing that only the running app knows: how far its setup got, or what
+/// its review came to. The webview words it, by the workspace's kind.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum WorkspaceActivity {
+    /// Nothing beyond its lifecycle.
+    #[default]
+    None,
+    /// Making the worktree and running the repo's setup (a review: checking out the PR).
+    SettingUp,
+    /// Setup is done and the agent is launching with its first prompt.
+    StartingAgent,
+    /// The agent has its first prompt.
+    AgentStarted,
+    /// `command` and its exit code when a setup command failed, else setup failed before one ran.
+    SetupFailed {
+        command: Option<String>,
+        #[serde(rename = "exitCode")]
+        exit_code: Option<i32>,
+    },
+    ReviewReady,
+    ReviewSubmitted,
 }
 
 impl WorkspaceRecord {
@@ -50,10 +75,7 @@ impl WorkspaceRecord {
             worktree_path: row.worktree_path.clone(),
             status: row.status,
             kind: row.kind,
-            activity: String::new(),
-            prov_step: 0,
-            setup_failed_command: None,
-            setup_failed_exit_code: None,
+            activity: WorkspaceActivity::None,
         }
     }
 
@@ -258,21 +280,13 @@ impl Workspaces {
             .set_workspace_run_command(id, (!command.is_empty()).then_some(command))
     }
 
-    /// What setup is doing, or why it failed. Only the running app knows this.
     pub async fn set_activity(
         &self,
         id: &str,
-        activity: &str,
-        prov_step: u8,
-        failure: Option<(String, i32)>,
+        activity: WorkspaceActivity,
     ) -> Result<WorkspaceRecord> {
         self.update(id, |_, record| {
-            record.activity = activity.to_string();
-            record.prov_step = prov_step;
-            (record.setup_failed_command, record.setup_failed_exit_code) = match failure {
-                Some((command, code)) => (Some(command), Some(code)),
-                None => (None, None),
-            };
+            record.activity = activity;
             Ok(())
         })
         .await

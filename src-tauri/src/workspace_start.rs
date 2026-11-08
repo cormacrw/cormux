@@ -8,7 +8,7 @@ use specta::Type;
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::model::WorkspaceKind;
-use crate::provisioning::{ProvisionPlan, SETUP_ACTIVITY, WorkspaceSpec};
+use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::types::ThreadPicks;
@@ -194,9 +194,7 @@ fn lead_plan(
         workspace_id: workspace_id.to_string(),
         thread_id: thread_id.to_string(),
         checkout: Checkout::NewBranch,
-        setup_activity: SETUP_ACTIVITY.into(),
         first_prompt,
-        running_activity: "Reading repo…".into(),
         intro: Some(Box::new(|workspace: &WorkspaceRecord| {
             format!(
                 "Started “{}” on a branch from {}.",

@@ -1403,6 +1403,31 @@ export type TranscriptPage = { events: SavedEvent[]; oldestSeq: number | null; n
  */
 export type UserMessage = { type: "messageChunk"; role: UserRole; text: string }
 export type UserRole = "user"
+/**
+ * What a workspace is doing that only the running app knows: how far its setup got, or what
+ * its review came to. The webview words it, by the workspace's kind.
+ */
+export type WorkspaceActivity = 
+/**
+ * Nothing beyond its lifecycle.
+ */
+{ kind: "none" } | 
+/**
+ * Making the worktree and running the repo's setup (a review: checking out the PR).
+ */
+{ kind: "settingUp" } | 
+/**
+ * Setup is done and the agent is launching with its first prompt.
+ */
+{ kind: "startingAgent" } | 
+/**
+ * The agent has its first prompt.
+ */
+{ kind: "agentStarted" } | 
+/**
+ * `command` and its exit code when a setup command failed, else setup failed before one ran.
+ */
+{ kind: "setupFailed"; command: string | null; exitCode: number | null } | { kind: "reviewReady" } | { kind: "reviewSubmitted" }
 export type WorkspaceAppControlAction = "run" | "restart" | "stop" | "clear"
 export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; 
 /**
@@ -1431,7 +1456,7 @@ export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "idle" |
 /**
  * A workspace as the webview shows it: its row, plus what only the running app knows.
  */
-export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; kind: WorkspaceKind; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
+export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; kind: WorkspaceKind; activity: WorkspaceActivity }
 export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; 
 /**
  * The branch the workspace is compared with and pulls from.

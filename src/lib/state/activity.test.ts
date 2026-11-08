@@ -13,54 +13,55 @@ describe('threadActivity', () => {
   })
 
   it('follows setup while the workspace is being set up', () => {
-    expect(
-      threadActivity('provisioning', {
-        activity: 'Running worktree setup…',
-        provStep: 1,
-      }),
-    ).toBe('Setting up the worktree')
-    expect(
-      threadActivity('provisioning', {
-        activity: 'Starting agent…',
-        provStep: 2,
-      }),
-    ).toBe('Starting agent…')
+    expect(threadActivity('provisioning', { kind: 'settingUp' })).toBe(
+      'Setting up the worktree',
+    )
+    expect(threadActivity('provisioning', { kind: 'startingAgent' })).toBe(
+      'Starting agent…',
+    )
   })
 })
 
 describe('workspaceActivity', () => {
-  it("prefers the core's own words", () => {
+  it('words what the core says, by kind', () => {
     expect(
       workspaceActivity({
         status: 'provisioning',
-        kind: 'lead',
-        activity: 'Installing dependencies…',
+        kind: 'review',
+        activity: { kind: 'settingUp' },
       }),
-    ).toBe('Installing dependencies…')
+    ).toBe('Checking out the PR…')
+    expect(
+      workspaceActivity({
+        status: 'running',
+        kind: 'lead',
+        activity: { kind: 'agentStarted' },
+      }),
+    ).toBe('Reading repo…')
+    expect(
+      workspaceActivity({
+        status: 'provisioningFailed',
+        kind: 'lead',
+        activity: { kind: 'setupFailed', command: 'pnpm i', exitCode: 1 },
+      }),
+    ).toBe('Setup failed')
   })
 
   it('falls back to the lifecycle, by kind while setting up', () => {
     expect(
       workspaceActivity({
         status: 'provisioning',
-        kind: 'review',
-        activity: '',
-      }),
-    ).toBe('Checking out the PR…')
-    expect(
-      workspaceActivity({
-        status: 'provisioning',
         kind: 'lead',
-        activity: ' ',
+        activity: { kind: 'none' },
       }),
     ).toBe('Running worktree setup…')
     expect(
       workspaceActivity({
-        status: 'provisioningFailed',
+        status: 'ready',
         kind: 'lead',
-        activity: '',
+        activity: { kind: 'none' },
       }),
-    ).toBe('Setup failed')
+    ).toBe('Ready')
   })
 })
 

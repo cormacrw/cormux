@@ -21,7 +21,7 @@ use crate::store::types::WorkspaceRow;
 use crate::timeline::TimelineStep;
 use crate::transcript::TranscriptEvent;
 use crate::workspace_git::Checkout;
-use crate::workspaces::WorkspaceRecord;
+use crate::workspaces::{WorkspaceActivity, WorkspaceRecord};
 
 pub(crate) use store::live as live_in;
 pub use store::{ReviewRow, ReviewStatus};
@@ -226,9 +226,7 @@ fn review_plan(
         workspace_id: workspace.id.clone(),
         thread_id: thread_id.to_string(),
         checkout: Checkout::PullRef(pr_number as u64),
-        setup_activity: "Checking out the PR…".into(),
         first_prompt: Some(reviewer_engine_prompt(user_message).into()),
-        running_activity: "Reading the diff…".into(),
         intro: None,
         started_toast: Some(vec![
             ToastPart::Text {
@@ -387,7 +385,7 @@ async fn complete_review(
         WorkspaceKind::PrReview => {
             state
                 .workspaces
-                .set_activity(&workspace.id, "Review ready", 0, None)
+                .set_activity(&workspace.id, WorkspaceActivity::ReviewReady)
                 .await?;
             workspace
                 .pr_number
@@ -528,7 +526,7 @@ pub async fn submit_workspace_review(
 
     state
         .workspaces
-        .set_activity(&input.workspace_id, "Review submitted", 0, None)
+        .set_activity(&input.workspace_id, WorkspaceActivity::ReviewSubmitted)
         .await?;
 
     state.out.toast(ToastRaisedPayload {
@@ -756,7 +754,7 @@ mod tests {
         assert_eq!(row.name, "Renamed");
         assert_eq!(
             state.workspaces.get("pr").await.unwrap().activity,
-            "Review ready"
+            WorkspaceActivity::ReviewReady
         );
     }
 

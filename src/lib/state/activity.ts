@@ -1,5 +1,6 @@
 import type {
   ThreadStatus,
+  WorkspaceActivity,
   WorkspaceLifecycle,
   WorkspaceRecord,
 } from '$lib/ipc/bindings'
@@ -7,7 +8,7 @@ import type {
 /** What a thread is doing, in words; `setup` is its workspace's, for a thread still being set up. */
 export function threadActivity(
   status: ThreadStatus,
-  setup?: { activity: string; provStep: number },
+  setup?: WorkspaceActivity,
 ): string {
   switch (status) {
     case 'running':
@@ -15,7 +16,7 @@ export function threadActivity(
     case 'paused':
       return 'Paused'
     case 'provisioning':
-      return setup?.provStep === 2 || setup?.activity.includes('Starting agent')
+      return setup?.kind === 'startingAgent'
         ? 'Starting agent…'
         : 'Setting up the worktree'
     default:
@@ -23,11 +24,27 @@ export function threadActivity(
   }
 }
 
-/** What a workspace is doing: the core's own words while it has some, else its lifecycle's. */
+/** What a workspace is doing: what the core says it's at, else its lifecycle, in words. */
 export function workspaceActivity(
   record: Pick<WorkspaceRecord, 'status' | 'kind' | 'activity'>,
 ): string {
-  if (record.activity.trim()) return record.activity
+  const review = record.kind === 'review'
+  switch (record.activity.kind) {
+    case 'settingUp':
+      return review ? 'Checking out the PR…' : 'Running worktree setup…'
+    case 'startingAgent':
+      return 'Starting agent…'
+    case 'agentStarted':
+      return review ? 'Reading the diff…' : 'Reading repo…'
+    case 'setupFailed':
+      return 'Setup failed'
+    case 'reviewReady':
+      return 'Review ready'
+    case 'reviewSubmitted':
+      return 'Review submitted'
+    case 'none':
+      break
+  }
   switch (record.status) {
     case 'provisioningFailed':
       return 'Setup failed'

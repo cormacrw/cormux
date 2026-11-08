@@ -27,8 +27,9 @@
   }
 
   const detail = $derived.by(() => {
-    if (workspace.setupFailedCommand && workspace.setupFailedExitCode != null) {
-      return `“${workspace.setupFailedCommand}” exited with code ${workspace.setupFailedExitCode}. Fix the command or skip setup to start the agent anyway.`
+    const failure = workspace.setupFailure
+    if (failure) {
+      return `“${failure.command}” exited with code ${failure.exitCode}. Fix the command or skip setup to start the agent anyway.`
     }
     return 'Worktree setup did not finish. Retry, skip remaining setup, or edit the repo’s setup commands.'
   })

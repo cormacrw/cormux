@@ -14,10 +14,7 @@ use crate::state::AppState;
 use crate::store::types::{ThreadPicks, ThreadRow, WorkspaceRow};
 use crate::timeline::TimelineStep;
 use crate::workspace_git::Checkout;
-use crate::workspaces::WorkspaceRecord;
-
-/// What a new workspace shows until its plan says otherwise.
-pub const SETUP_ACTIVITY: &str = "Running worktree setup…";
+use crate::workspaces::{WorkspaceActivity, WorkspaceRecord};
 
 /// A workspace to record: its row and its own thread.
 #[derive(Debug, Clone)]
@@ -48,12 +45,8 @@ pub struct ProvisionPlan {
     pub workspace_id: String,
     pub thread_id: String,
     pub checkout: Checkout,
-    /// Shown while the worktree is made and set up.
-    pub setup_activity: String,
     /// The engine's first prompt. Without one the thread waits idle for the user.
     pub first_prompt: Option<Prompt>,
-    /// Shown once the agent has its prompt.
-    pub running_activity: String,
     /// What the workspace's intro says, from the workspace as setup leaves it.
     pub intro: Option<Intro>,
     /// Raised once the agent has its prompt.
@@ -110,7 +103,7 @@ pub async fn create(state: &AppState, spec: WorkspaceSpec) -> Result<Created> {
         .await?;
     let workspace = state
         .workspaces
-        .set_activity(&workspace_id, SETUP_ACTIVITY, 1, None)
+        .set_activity(&workspace_id, WorkspaceActivity::SettingUp)
         .await?;
     Ok(Created {
         workspace,
@@ -145,7 +138,7 @@ pub async fn retry(state: &AppState, plan: ProvisionPlan) -> Result<()> {
         .await?;
     state
         .workspaces
-        .set_activity(&plan.workspace_id, SETUP_ACTIVITY, 1, None)
+        .set_activity(&plan.workspace_id, WorkspaceActivity::SettingUp)
         .await?;
     run(state, plan).await;
     Ok(())
@@ -159,7 +152,7 @@ pub async fn skip_setup(state: &AppState, plan: ProvisionPlan) -> Result<()> {
         .await?;
     state
         .workspaces
-        .set_activity(&plan.workspace_id, SETUP_ACTIVITY, 1, None)
+        .set_activity(&plan.workspace_id, WorkspaceActivity::SettingUp)
         .await?;
     state.process.append_log_line(
         &plan.workspace_id,
@@ -193,7 +186,7 @@ async fn run_plan(state: &AppState, plan: &ProvisionPlan) -> Result<()> {
 
     let workspace = state
         .workspaces
-        .set_activity(&plan.workspace_id, &plan.setup_activity, 1, None)
+        .set_activity(&plan.workspace_id, WorkspaceActivity::SettingUp)
         .await?;
     state.out.changed();
 
@@ -317,7 +310,7 @@ async fn finish_after_setup(
     if let Some(prompt) = &plan.first_prompt {
         state
             .workspaces
-            .set_activity(id, "Starting agent…", 2, None)
+            .set_activity(id, WorkspaceActivity::StartingAgent)
             .await?;
         state.out.changed();
         crate::turn::begin(state, &plan.thread_id, id, prompt.clone()).await?;
@@ -353,7 +346,7 @@ async fn finish_after_setup(
             .await?;
         state
             .workspaces
-            .set_activity(id, &plan.running_activity, 0, None)
+            .set_activity(id, WorkspaceActivity::AgentStarted)
             .await?;
         state.out.changed();
         if let Some(parts) = &plan.started_toast {
@@ -373,7 +366,10 @@ async fn finish_after_setup(
             .workspaces
             .set_thread_status(&plan.thread_id, id, ThreadStatus::Idle)
             .await?;
-        state.workspaces.set_activity(id, "", 0, None).await?;
+        state
+            .workspaces
+            .set_activity(id, WorkspaceActivity::None)
+            .await?;
     }
     state.out.changed();
     Ok(())
@@ -412,7 +408,13 @@ async fn mark_failed(
     }
     let updated = state
         .workspaces
-        .set_activity(workspace_id, "Setup failed", 0, failure)
+        .set_activity(
+            workspace_id,
+            WorkspaceActivity::SetupFailed {
+                exit_code: failure.as_ref().map(|(_, code)| *code),
+                command: failure.map(|(command, _)| command),
+            },
+        )
         .await;
     let failed = state
         .workspaces
@@ -522,17 +524,30 @@ mod tests {
     #[tokio::test]
     async fn failed_setup_refreshes_then_toasts() {
         let (state, recording, _dir, id) = provisioning_workspace().await;
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().activity,
+            WorkspaceActivity::SettingUp
+        );
 
-        mark_failed(&state, &id, None, "Setup broke").await;
+        mark_failed(&state, &id, Some(("pnpm i".into(), 1)), "Setup broke").await;
 
         assert_eq!(recording.toasts(), ["Setup broke"]);
         assert!(matches!(
             recording.emitted().as_slice(),
             [Emitted::State(_), Emitted::Toast(_)]
         ));
+        let failed = state.workspaces.get(&id).await.unwrap();
+        assert_eq!(failed.status, WorkspaceLifecycle::ProvisioningFailed);
         assert_eq!(
-            state.workspaces.get(&id).await.unwrap().status,
-            WorkspaceLifecycle::ProvisioningFailed
+            failed.activity,
+            WorkspaceActivity::SetupFailed {
+                command: Some("pnpm i".into()),
+                exit_code: Some(1),
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&failed.activity).unwrap(),
+            serde_json::json!({ "kind": "setupFailed", "command": "pnpm i", "exitCode": 1 })
         );
     }
 
@@ -568,9 +583,7 @@ mod tests {
                 workspace_id: id.clone(),
                 thread_id,
                 checkout: Checkout::NewBranch,
-                setup_activity: SETUP_ACTIVITY.into(),
                 first_prompt: Some("Go".into()),
-                running_activity: "Working".into(),
                 intro: None,
                 started_toast: None,
             },

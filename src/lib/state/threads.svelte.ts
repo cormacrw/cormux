@@ -45,7 +45,7 @@ export function threadsFromSnapshot(snapshot: Snapshot): Thread[] {
       ownRole: thread.role,
       engine: thread.engine,
       status: thread.status,
-      activity: threadActivity(thread.status, ws),
+      activity: threadActivity(thread.status, ws?.activity),
       pendingApprovals: pending.get(thread.id) ?? 0,
       retired: thread.retired,
       parentThreadId: thread.parentThreadId,
