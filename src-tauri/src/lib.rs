@@ -109,6 +109,8 @@ pub fn run() {
                 paths::DataDir::for_app(app.path().app_data_dir()?),
                 Arc::new(TauriOutput(app.handle().clone())),
             )?;
+            app.asset_protocol_scope()
+                .allow_directory(state.data_dir.media(), true)?;
             state.diffs.start();
             state.engines.spawn_idle_reaper();
             app.manage(state.clone());
