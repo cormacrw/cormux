@@ -118,14 +118,35 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
                 "2 uncommitted file changes will be discarded. This can't be undone.",
             },
     }),
-    // The sidebar already marked the row as deleting, which is all the specs look at.
-    teardown_workspace: () => null,
+    // As the core's first step; the specs look no further than the row going.
+    teardown_workspace: ({ input }: Input<'teardown_workspace'>) => {
+      const { record } = runtime.findWorkspace(input.workspaceId)
+      if (record) record.status = 'tearingDown'
+      emitStateChanged(CHANGE.state)
+      return null
+    },
     open_workspace_terminal: ({ workspaceId }: { workspaceId: string }) => {
       controls.openedTerminal = workspaceId
       return null
     },
-    // Run and Stop only move the header's own state; no app is really started.
-    control_workspace_app: () => null,
+    // Run and Stop move the app's status as the core does; no app is really started.
+    control_workspace_app: ({ input }: Input<'control_workspace_app'>) => {
+      if (input.action === 'clear') return null
+      const apps = db.snapshot.workspaceApps.filter(
+        (row) => row.workspaceId !== input.workspaceId,
+      )
+      const up = input.action !== 'stop'
+      apps.push({
+        workspaceId: input.workspaceId,
+        status: up ? 'starting' : 'stopped',
+        port: up ? 5173 : null,
+        https: false,
+        exitCode: null,
+      })
+      db.snapshot.workspaceApps = apps
+      emitStateChanged(CHANGE.state)
+      return null
+    },
     // The Output panel subscribes when it opens; only `appRunning` prints to it.
     subscribe_pty: ({
       workspaceId,

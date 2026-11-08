@@ -13,19 +13,25 @@ export function appControls(workspaceId: string): AppControls {
   })
 }
 
+const logClearListeners = new Set<(workspaceId: string) => void>()
+
+/** Calls `listener` with the workspace whenever its log is cleared; returns the unsubscribe. */
+export function onLogCleared(listener: (workspaceId: string) => void) {
+  logClearListeners.add(listener)
+  return () => {
+    logClearListeners.delete(listener)
+  }
+}
+
 /** Runs, restarts, stops or clears a workspace's app; does nothing when the action doesn't apply now. */
 export async function controlApp(
   workspaceId: string,
   action: WorkspaceAppControlAction,
 ) {
   if (!appActionAllowed(appControls(workspaceId), action)) return
-  if (action === 'run') workspaces.setAppStatus(workspaceId, 'starting')
-  if (action === 'clear') workspaces.clearLog(workspaceId)
-  const result = await commands.controlWorkspaceApp({ workspaceId, action })
-  if (result.status === 'error') {
-    toastCoreError(result.error)
-    if (action === 'run') {
-      workspaces.setAppStatus(workspaceId, 'stopped', null)
-    }
+  if (action === 'clear') {
+    for (const listener of logClearListeners) listener(workspaceId)
   }
+  const result = await commands.controlWorkspaceApp({ workspaceId, action })
+  if (result.status === 'error') toastCoreError(result.error)
 }

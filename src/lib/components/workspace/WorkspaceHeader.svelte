@@ -49,7 +49,7 @@
       if (start) void controlApp(workspace.id, start.action)
     } else if (shellDialogs.allows(event, 'reviewBranch')) {
       event.preventDefault()
-      if (workspace.kind !== 'review' && !workspace.reviewBlock) {
+      if (!workspace.reviewBlock) {
         void startBranchReview(workspace.id)
       }
     } else if (shellDialogs.allows(event, 'stopApp')) {
@@ -117,11 +117,7 @@
     >
       <WorkspaceTrayButtons {workspace} />
       <WorkspaceRunControls workspaceId={workspace.id} />
-      <WorkspaceMoreMenu
-        workspaceId={workspace.id}
-        canReview={workspace.kind !== 'review'}
-        reviewBlock={workspace.reviewBlock}
-      />
+      <WorkspaceMoreMenu {workspace} />
       <WorkspacePrimaryAction {workspace} />
     </div>
   </div>

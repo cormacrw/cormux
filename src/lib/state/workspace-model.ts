@@ -18,8 +18,6 @@ export type WorkspaceRuntime = {
   behind: number
   conflict: GitConflictState | null
   exitCode: number | null
-  /** Bumped by Clear, so the log view starts over. */
-  logVersion: number
 }
 
 export const IDLE_RUNTIME: WorkspaceRuntime = Object.freeze({
@@ -29,7 +27,6 @@ export const IDLE_RUNTIME: WorkspaceRuntime = Object.freeze({
   behind: 0,
   conflict: null,
   exitCode: null,
-  logVersion: 0,
 })
 
 export type Workspace = {

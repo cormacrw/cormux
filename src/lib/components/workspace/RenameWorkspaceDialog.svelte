@@ -46,7 +46,6 @@
       toastCoreError(result.error)
       return
     }
-    workspaces.patchName(workspaceId, trimmed)
     close()
   }
 </script>

@@ -6,7 +6,7 @@
   import { commands } from '$lib/ipc'
   import type { TeardownPreview } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { shellDialogs, threads, workspaces } from '$lib/state'
+  import { shellDialogs, threads } from '$lib/state'
   import { engineDisplayName } from '$lib/engine/engines'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
@@ -54,22 +54,17 @@
     if (!next) shellDialogs.close('teardown')
   }
 
-  // Close immediately and let the teardown run in the background: the sidebar
-  // row shows Deleting until the core finishes, then goes. A failure toasts
-  // here; success needs no toast.
+  // Close immediately and let the teardown run in the background: the core marks the
+  // workspace as tearing down first, which hides it. A failure toasts here; success needs no toast.
   function confirmTeardown() {
     if (!workspaceId) return
     const tornId = workspaceId
-    workspaces.markDeleting(tornId)
     shellDialogs.close('teardown')
     navigate({ view: 'newThread' })
     void commands
       .teardownWorkspace({ workspaceId: tornId, deleteBranch })
       .then((result) => {
-        if (result.status === 'error') {
-          workspaces.clearDeleting(tornId)
-          toastCoreError(result.error)
-        }
+        if (result.status === 'error') toastCoreError(result.error)
       })
   }
 

@@ -8,6 +8,7 @@
   } from '$lib/keyboard/popover-registry'
   import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
   import { shellDialogs, workspaceUi } from '$lib/state'
+  import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
     openWorkspaceTerminal,
     startBranchReview,
@@ -20,16 +21,12 @@
   import Terminal from '@lucide/svelte/icons/terminal'
   import Trash2 from '@lucide/svelte/icons/trash-2'
 
-  let {
-    workspaceId,
-    canReview = false,
-    reviewBlock = null,
-  }: {
-    workspaceId: string
-    canReview?: boolean
-    /** Why a review can't start now, as the core says. */
-    reviewBlock?: string | null
-  } = $props()
+  let { workspace }: { workspace: Workspace } = $props()
+
+  const workspaceId = $derived(workspace.id)
+  // Whether Review may start is the core's `reviewBlock`; this only hides the item where it
+  // could never apply.
+  const showReview = $derived(workspace.kind !== 'review')
 
   let open = $state(false)
   let triggerEl = $state<HTMLButtonElement | null>(null)
@@ -127,10 +124,10 @@
         >{shortcutLabel('openTerminal')}</DropdownMenu.Shortcut
       >
     </DropdownMenu.Item>
-    {#if canReview}
+    {#if showReview}
       <DropdownMenu.Item
-        disabled={reviewBlock != null}
-        title={reviewBlock ?? undefined}
+        disabled={workspace.reviewBlock != null}
+        title={workspace.reviewBlock ?? undefined}
         onclick={() => closeAndRun(() => void startBranchReview(workspaceId))}
       >
         <ScanSearch class="size-4" aria-hidden="true" />
