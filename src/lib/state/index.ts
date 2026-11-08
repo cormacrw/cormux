@@ -229,7 +229,7 @@ export function hydrateFromSnapshot(snapshot: Snapshot) {
   })
   findings.hydrate(snapshot.persisted.findings)
   entities.hydrate(snapshot.persisted.entities)
-  repos.hydrate(snapshot.persisted.repos)
+  repos.hydrate(snapshot.persisted.repos, snapshot.repoRunCommands ?? [])
   workspaceRecords.hydrate(models.records)
   workspaceRecords.applyGitStats(snapshot.workspaceGit ?? [])
   workspaceRecords.applyApps(snapshot.workspaceApps ?? [])

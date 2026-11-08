@@ -130,6 +130,40 @@ pub async fn generate_branch(llm: &LlmClient, prompt: &str) -> Option<String> {
     }
 }
 
+/// A branch for `goal` before Haiku has named it: a type its words suggest, its first words,
+/// and a number if that's taken.
+pub fn draft_branch(goal: &str, taken: &[String]) -> String {
+    let lower = goal.to_lowercase();
+    let has_word = |words: &[&str]| {
+        lower
+            .split(|c: char| !c.is_alphanumeric())
+            .any(|word| words.contains(&word))
+    };
+    let kind = if has_word(&["fix", "bug", "broken", "error", "crash", "repair"]) {
+        "fix"
+    } else if has_word(&["refactor", "clean", "rename"]) {
+        "refactor"
+    } else {
+        "feat"
+    };
+    let words: Vec<String> = lower
+        .split_whitespace()
+        .map(|word| {
+            word.chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+                .collect::<String>()
+        })
+        .filter(|word| !word.is_empty())
+        .take(BRANCH_SLUG_WORDS)
+        .collect();
+    let slug = if words.is_empty() {
+        "task".to_string()
+    } else {
+        words.join("-")
+    };
+    unique_branch(&format!("{kind}/{slug}"), taken)
+}
+
 /// `name`, or `name-2`, `name-3`… if that's taken.
 pub fn unique_branch(name: &str, taken: &[String]) -> String {
     let mut candidate = name.to_string();
@@ -211,6 +245,21 @@ mod tests {
         assert_eq!(clean_branch("wip/oauth"), None);
         assert_eq!(clean_branch("feat/---"), None);
         assert_eq!(clean_branch(""), None);
+    }
+
+    #[test]
+    fn a_drafted_branch_takes_its_type_and_words_from_the_goal() {
+        assert_eq!(
+            draft_branch("Add a dark mode toggle now please", &[]),
+            "feat/add-a-dark-mode-toggle"
+        );
+        assert_eq!(draft_branch("Fix the crash", &[]), "fix/fix-the-crash");
+        assert_eq!(
+            draft_branch("Rename it", &["refactor/rename-it".into()]),
+            "refactor/rename-it-2"
+        );
+        assert_eq!(draft_branch("日本語", &[]), "feat/task");
+        assert_eq!(draft_branch("  ", &[]), "feat/task");
     }
 
     #[test]

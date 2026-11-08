@@ -1,6 +1,6 @@
 //! Starting a workspace: naming it, recording it, and provisioning its worktree and Lead.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -20,6 +20,7 @@ use crate::workspaces::WorkspaceRecord;
 pub struct CreateWorkspaceInput {
     pub repo_id: String,
     pub name: String,
+    /// Empty to have one drafted from the goal.
     pub branch: String,
     pub base: String,
     pub engine: String,
@@ -76,13 +77,27 @@ pub async fn start_workspace(
         (Some(prompt), shown)
     };
 
+    // With no branch given, the goal drafts one; Haiku may improve it below.
+    let branch = match input.branch.trim() {
+        "" => {
+            let repo = state
+                .store
+                .repo_by_id(&input.repo_id)?
+                .ok_or_else(|| Error::unknown_repo(&input.repo_id))?;
+            let repo_path = crate::paths::expand_tilde(&repo.path);
+            let taken = taken_branches(state, &repo.id, &repo_path, None).await?;
+            crate::naming::draft_branch(&goal, &taken)
+        }
+        given => given.to_string(),
+    };
+
     let created = crate::provisioning::create(
         state,
         WorkspaceSpec {
             kind: WorkspaceKind::Lead,
             repo_id: input.repo_id.clone(),
             name: name.clone(),
-            branch: input.branch.clone(),
+            branch: branch.clone(),
             base: input.base.clone(),
             pr: None,
             engine: input.engine.clone(),
@@ -111,7 +126,7 @@ pub async fn start_workspace(
 
     let plan = lead_plan(&workspace_id, &thread_id, &goal, prompt);
     let state_bg = state.clone();
-    let draft_branch = input.branch.clone();
+    let draft_branch = branch;
     tauri::async_runtime::spawn(async move {
         let state = state_bg;
         if auto_named && let Err(error) = name_branch(&state, &plan.workspace_id, &goal).await {
@@ -154,10 +169,7 @@ fn lead_plan(
         first_prompt,
         running_activity: "Reading repo…".into(),
         seed_summary: Some(Box::new(|workspace: &WorkspaceRecord| {
-            format!(
-                "Just started on “{}”, branched from {}. Claude Code is reading the repo to find where the change belongs; no files have been touched yet.",
-                workspace.name, workspace.base
-            )
+            crate::summaries::lead_started(&workspace.name, &workspace.base)
         })),
         started_toast: None,
     }
@@ -189,10 +201,31 @@ async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Resu
         return Ok(());
     };
     let workspace = state.workspaces.get(workspace_id).await?;
-    let repo_path = PathBuf::from(&workspace.repo_path);
+    let taken = taken_branches(
+        state,
+        &workspace.repo_id,
+        Path::new(&workspace.repo_path),
+        Some(workspace_id),
+    )
+    .await?;
+    let branch = crate::naming::unique_branch(&branch, &taken);
+    crate::git::validate_ref_name(&branch, "branch")?;
+    state.workspaces.retarget(workspace_id, &branch).await?;
+    state.out.changed(Change::THREADS);
+    Ok(())
+}
+
+/// Branch names a new workspace in the repo can't have: the repo's branches, local and on
+/// origin, and those of its other live workspaces.
+async fn taken_branches(
+    state: &AppState,
+    repo_id: &str,
+    repo_path: &Path,
+    except_workspace: Option<&str>,
+) -> Result<Vec<String>> {
     let (local, remote) = tokio::try_join!(
-        state.git.list_local_branches(&repo_path),
-        state.git.list_remote_branches(&repo_path, "origin"),
+        state.git.list_local_branches(repo_path),
+        state.git.list_remote_branches(repo_path, "origin"),
     )?;
     let mut taken = local;
     taken.extend(remote);
@@ -201,14 +234,10 @@ async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Resu
             .store
             .live_workspaces()?
             .into_iter()
-            .filter(|row| row.repo_id == workspace.repo_id && row.id != workspace_id)
+            .filter(|row| row.repo_id == repo_id && Some(row.id.as_str()) != except_workspace)
             .map(|row| row.branch),
     );
-    let branch = crate::naming::unique_branch(&branch, &taken);
-    crate::git::validate_ref_name(&branch, "branch")?;
-    state.workspaces.retarget(workspace_id, &branch).await?;
-    state.out.changed(Change::THREADS);
-    Ok(())
+    Ok(taken)
 }
 
 /// Swaps the drafted name for Haiku's unless the workspace was renamed or deleted meanwhile.
@@ -238,7 +267,7 @@ fn spawn_auto_name(state: AppState, workspace_id: String, draft: String, prompt:
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -531,6 +560,21 @@ esac
             .unwrap();
         assert!(error.to_string().contains("gone.txt"), "{error}");
         assert_eq!(f.state.store.live_workspaces().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn without_a_branch_one_is_drafted_from_the_goal_past_taken_names() {
+        let f = fixture().await;
+        git(&f.repo, &["branch", "fix/fix-the-login-page"]);
+
+        let started = start_workspace(&f.state, input("", "", "Fix the login page."), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            workspace(&f.state, &started.workspace_id).branch,
+            "fix/fix-the-login-page-2"
+        );
     }
 
     #[tokio::test]

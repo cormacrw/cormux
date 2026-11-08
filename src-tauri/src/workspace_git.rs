@@ -222,10 +222,15 @@ pub async fn refresh_stats(state: &AppState, workspace: &WorkspaceRecord) {
             log::warn!("behind count for {}: {error}", workspace.id);
             0
         });
+    // A branch origin doesn't have yet has nothing there to be ahead of.
     let ahead = state
         .git
         .unpushed_commit_count(&worktree, &workspace.branch)
         .await
+        .unwrap_or_else(|error| {
+            log::warn!("ahead count for {}: {error}", workspace.id);
+            None
+        })
         .unwrap_or(0);
     state
         .workspace_git
@@ -395,11 +400,7 @@ async fn integrate_base(
         }));
     }
     let worktree = workspace.worktree();
-    let result = match operation {
-        GitConflictOperation::Merge => state.git.merge(&worktree, &base).await,
-        GitConflictOperation::Rebase => state.git.rebase(&worktree, &base).await,
-    };
-    match result {
+    match state.git.integrate(&worktree, &base, operation).await {
         Ok(()) => {}
         Err(Error::GitConflict { operation, paths }) => {
             state

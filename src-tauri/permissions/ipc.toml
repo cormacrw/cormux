@@ -76,6 +76,7 @@ commands.allow = [
   "add_repo",
   "remove_repo",
   "test_repo_setup",
+  "validate_branch_name",
   "set_setting",
   "send_workspace_findings",
   "dismiss_workspace_findings",

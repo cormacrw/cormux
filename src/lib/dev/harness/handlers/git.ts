@@ -133,6 +133,12 @@ export function gitHandlers({
       setFixtureBranch(input.workspaceId, input.branch)
       return null
     },
+    // A stand-in for git's ref rules, which only the core knows: enough for a typo'd name.
+    validate_branch_name: ({ name }: { name: string }) => {
+      if (/\s|\.\.|\/\/|^\/|\/$/.test(name.trim()))
+        throw { kind: 'Git', message: `invalid branch name: "${name}"` }
+      return null
+    },
     push_stack: async () => {
       await wait(300)
       return null

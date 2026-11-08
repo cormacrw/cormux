@@ -1,66 +1,133 @@
+//! Running shell commands in PTYs: worktree setup, apps, and repo setup tests. Each session
+//! belongs to a `SessionId`; each workspace also has a log, the lines its Output tab shows,
+//! that sessions spawned for it forward into.
+
+mod session;
+
 use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::{Notify, RwLock, watch};
 
 use crate::error::{Error, Result};
 use crate::shell_env::ShellEnv;
+
+pub use session::{HarnessEnv, SessionId, ShellCommand};
 
 const RING_CAP: usize = 500;
 /// A line that never ends (`\r`-only progress bars) keeps only its tail.
 const FRAGMENT_CAP: usize = 64 * 1024;
 /// A log past this starts over; nothing reads it back, it's there for debugging.
 const LOG_FILE_CAP: u64 = 10 * 1024 * 1024;
-/// How long a stopped session gets to exit before it's killed.
-const STOP_GRACE: Duration = Duration::from_millis(200);
+/// How long a stopped session gets to exit before its group is sent SIGKILL.
+const SIGKILL_AFTER: Duration = Duration::from_millis(200);
 const STOP_POLL: Duration = Duration::from_millis(25);
+/// After its process exits, how long a session waits for the rest of its output. A background
+/// child still holding the terminal keeps it open, so this can't wait for EOF forever.
+const OUTPUT_DRAIN: Duration = Duration::from_secs(1);
+const LOG_FILE_PREFIX: &str = "cormux-pty-";
 
-/// Setup and run commands in a PTY, each in its own process group.
 #[derive(Clone)]
 pub struct ProcessSupervisor {
     env: Arc<RwLock<ShellEnv>>,
-    sessions: Arc<Mutex<HashMap<String, RunningApp>>>,
-    logs: Arc<Mutex<HashMap<String, Arc<SessionShared>>>>,
-    /// Woken on every new line of any session.
+    sessions: Arc<Mutex<HashMap<SessionId, RunningApp>>>,
+    /// Workspace logs, by workspace id.
+    logs: Arc<Mutex<HashMap<String, Arc<Lines>>>>,
+    /// Woken on every new line of any session or log.
     activity: Arc<Notify>,
 }
 
-struct SessionShared {
-    lines: Mutex<VecDeque<String>>,
-    pending: Mutex<Vec<String>>,
+/// A session's progress: lines printed so far, and its exit code once it has exited and its
+/// output has been read to the end.
+#[derive(Debug, Clone, Copy, Default)]
+struct SessionState {
+    lines: u64,
+    exit: Option<i32>,
+}
+
+/// A buffer of output lines: a session's, or a workspace log.
+struct Lines {
+    ring: Mutex<VecDeque<String>>,
+    /// Lines not yet streamed to the Output tab; only workspace logs keep them.
+    pending: Option<Mutex<Vec<String>>>,
     fragment: Mutex<String>,
     /// The tail of the last read that was only part of a character; the next read finishes it.
     partial: Mutex<Vec<u8>>,
     log: Mutex<File>,
     log_bytes: AtomicU64,
-    exited: Mutex<Option<i32>>,
-    killed: AtomicBool,
+    /// The workspace log that gets a copy of every line.
+    forward: Option<Arc<Lines>>,
+    state: watch::Sender<SessionState>,
     activity: Arc<Notify>,
 }
 
 struct RunningApp {
     pid: u32,
-    shared: Arc<SessionShared>,
+    lines: Arc<Lines>,
+    /// The process has been waited for, so its pid may already belong to another process.
+    reaped: Arc<AtomicBool>,
+    killed: AtomicBool,
     /// The PTY's descriptors, released as soon as the process exits.
     pty: Mutex<Option<Pty>>,
 }
 
 struct Pty {
-    // Only tests write input, but dropping the writer sends EOF to the app.
-    #[cfg_attr(not(test), allow(dead_code))]
-    writer: Box<dyn Write + Send>,
+    /// Held so the app's stdin stays open; dropping it would send EOF.
+    _writer: Box<dyn Write + Send>,
     _master: Box<dyn MasterPty + Send>,
 }
 
-fn log_path(id: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("cormux-pty-{id}.log"))
+/// A session's progress, as it happens.
+pub struct SessionEvents {
+    state: watch::Receiver<SessionState>,
+}
+
+impl SessionEvents {
+    /// The exit code, once the process has exited and its output has been read.
+    pub fn exit_code(&self) -> Option<i32> {
+        self.state.borrow().exit
+    }
+
+    /// Waits for a new line or the exit.
+    pub async fn changed(&mut self) {
+        if self.state.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    pub async fn exited(&mut self) -> i32 {
+        match self.state.wait_for(|state| state.exit.is_some()).await {
+            Ok(state) => state.exit.unwrap_or(-1),
+            Err(_) => -1,
+        }
+    }
+}
+
+/// How `run_to_exit` ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exit {
+    Code(i32),
+    /// Ran past its time and was stopped.
+    TimedOut,
+}
+
+fn log_path(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("{LOG_FILE_PREFIX}{name}.log"))
+}
+
+fn open_log(name: &str) -> Result<File> {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path(name))
+        .map_err(|error| Error::Process(format!("opening the log for {name}: {error}")))
 }
 
 impl ProcessSupervisor {
@@ -86,53 +153,85 @@ impl ProcessSupervisor {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with("cormux-pty-") && name.ends_with(".log") {
-                let _ = std::fs::remove_file(entry.path());
+            if name.starts_with(LOG_FILE_PREFIX)
+                && name.ends_with(".log")
+                && let Err(error) = std::fs::remove_file(entry.path())
+            {
+                log::debug!("removing stale log {name}: {error}");
             }
         }
     }
 
-    pub fn append_log_line(&self, id: &str, line: impl Into<String>) {
-        let line = line.into();
-        let shared = {
-            let mut logs = self.logs.lock().unwrap();
-            logs.entry(id.to_string())
-                .or_insert_with(|| {
-                    let log = OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(log_path(id))
-                        .unwrap_or_else(|_| {
-                            OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open(log_path("fallback"))
-                                .expect("fallback pty log")
-                        });
-                    Arc::new(SessionShared::new(log, self.activity.clone()))
-                })
-                .clone()
-        };
-        shared.push_line(line);
+    /// The workspace's log, made on first use.
+    fn workspace_log(&self, workspace_id: &str) -> Arc<Lines> {
+        let mut logs = self.logs.lock().unwrap();
+        if let Some(lines) = logs.get(workspace_id) {
+            return lines.clone();
+        }
+        let file = open_log(workspace_id).unwrap_or_else(|error| {
+            log::warn!("{error}; writing it nowhere");
+            File::create("/dev/null").expect("/dev/null opens")
+        });
+        let lines = Arc::new(Lines::new(file, true, None, self.activity.clone()));
+        logs.insert(workspace_id.to_string(), lines.clone());
+        lines
     }
 
-    #[cfg(test)]
-    pub fn spawn(&self, program: &str, args: &[&str]) -> Result<u32> {
-        self.spawn_session("default", program, args, None, &[])
+    /// Adds a line to a workspace's log.
+    pub fn append_log_line(&self, workspace_id: &str, line: impl Into<String>) {
+        self.workspace_log(workspace_id).push_line(line.into());
     }
 
-    pub fn spawn_session(
+    /// Runs `command` in the user's login shell until it exits, or until `timeout` passes and
+    /// it's stopped. Its output also goes to `forward_to`'s workspace log.
+    pub async fn run_to_exit(
         &self,
-        id: &str,
-        program: &str,
-        args: &[&str],
-        cwd: Option<&Path>,
-        extra_env: &[(String, String)],
-    ) -> Result<u32> {
-        let _ = self.stop_session(id);
+        id: SessionId,
+        command: &ShellCommand,
+        timeout: Duration,
+        forward_to: Option<&str>,
+    ) -> Result<Exit> {
+        let mut events = self.spawn_shell(id.clone(), command, forward_to).await?;
+        let exit = match tokio::time::timeout(timeout, events.exited()).await {
+            Ok(code) => Exit::Code(code),
+            Err(_) => Exit::TimedOut,
+        };
+        // Whatever it left running in its group goes with it.
+        if let Err(error) = self.stop_session(&id) {
+            log::warn!("stopping {id}: {error}");
+        }
+        Ok(exit)
+    }
 
-        let pty_system = NativePtySystem::default();
-        let pair = pty_system
+    /// Starts `command` in the user's login shell, replacing any session under `id`.
+    pub async fn spawn_shell(
+        &self,
+        id: SessionId,
+        command: &ShellCommand,
+        forward_to: Option<&str>,
+    ) -> Result<SessionEvents> {
+        let env = self.env.read().await.clone();
+        let mut builder = CommandBuilder::new(env.shell());
+        builder.args(["-l", "-c", command.cmd.as_str()]);
+        builder.cwd(&command.cwd);
+        env.apply(&mut builder);
+        for (key, value) in &command.env {
+            builder.env(key, value);
+        }
+        self.spawn(id, builder, forward_to)
+    }
+
+    fn spawn(
+        &self,
+        id: SessionId,
+        command: CommandBuilder,
+        forward_to: Option<&str>,
+    ) -> Result<SessionEvents> {
+        if let Err(error) = self.stop_session(&id) {
+            log::warn!("stopping the previous {id}: {error}");
+        }
+
+        let pair = NativePtySystem::default()
             .openpty(PtySize {
                 rows: 24,
                 cols: 80,
@@ -141,25 +240,9 @@ impl ProcessSupervisor {
             })
             .map_err(|error| Error::Process(error.to_string()))?;
 
-        let mut cmd = CommandBuilder::new(program);
-        for arg in args {
-            cmd.arg(*arg);
-        }
-        if let Some(cwd) = cwd {
-            cmd.cwd(cwd);
-        }
-        {
-            if let Ok(env) = self.env.try_read() {
-                env.apply(&mut cmd);
-            }
-        }
-        for (key, value) in extra_env {
-            cmd.env(key, value);
-        }
-
         let child = pair
             .slave
-            .spawn_command(cmd)
+            .spawn_command(command)
             .map_err(|error| Error::Process(error.to_string()))?;
         let pid = child
             .process_id()
@@ -176,257 +259,175 @@ impl ProcessSupervisor {
             .master
             .try_clone_reader()
             .map_err(|error| Error::Process(error.to_string()))?;
-        let mut writer = pair
+        let writer = pair
             .master
             .take_writer()
             .map_err(|error| Error::Process(error.to_string()))?;
-        let _ = writer.flush();
 
-        let log = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path(id))
-            .map_err(|error| Error::Process(error.to_string()))?;
+        let forward = forward_to.map(|workspace_id| self.workspace_log(workspace_id));
+        let lines = Arc::new(Lines::new(
+            open_log(&id.to_string())?,
+            false,
+            forward,
+            self.activity.clone(),
+        ));
+        let events = SessionEvents {
+            state: lines.state.subscribe(),
+        };
 
-        let shared = Arc::new(SessionShared::new(log, self.activity.clone()));
-
-        let reader_shared = shared.clone();
+        let (eof_tx, eof_rx) = mpsc::channel::<()>();
+        let reader_lines = lines.clone();
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
             while let Ok(n) = reader.read(&mut buf) {
                 if n == 0 {
                     break;
                 }
-                reader_shared.push_bytes(&buf[..n]);
+                reader_lines.push_bytes(&buf[..n]);
             }
-            reader_shared.finish_bytes();
+            reader_lines.finish_bytes();
+            drop(eof_tx);
         });
 
+        let reaped = Arc::new(AtomicBool::new(false));
         self.sessions.lock().unwrap().insert(
-            id.to_string(),
+            id,
             RunningApp {
                 pid,
-                shared: shared.clone(),
+                lines: lines.clone(),
+                reaped: reaped.clone(),
+                killed: AtomicBool::new(false),
                 pty: Mutex::new(Some(Pty {
-                    writer,
+                    _writer: writer,
                     _master: pair.master,
                 })),
             },
         );
 
-        let wait_shared = shared;
-        let wait_sessions = self.sessions.clone();
+        let sessions = self.sessions.clone();
         thread::spawn(move || {
             let mut child = child;
             let code = match child.wait() {
                 Ok(status) => i32::try_from(status.exit_code()).unwrap_or(1),
                 Err(_) => 1,
             };
-            *wait_shared.exited.lock().unwrap() = Some(code);
-            wait_shared.activity.notify_waiters();
+            reaped.store(true, Ordering::SeqCst);
+            // The last lines can still be in the terminal; whoever waits on the exit wants them.
+            let _ = eof_rx.recv_timeout(OUTPUT_DRAIN);
+            lines.state.send_modify(|state| state.exit = Some(code));
+            lines.activity.notify_waiters();
             // The record stays for its exit code; the descriptors needn't. `pty` can already
             // belong to a newer session under this id, hence the check.
-            if let Some(app) = wait_sessions
+            if let Some(app) = sessions
                 .lock()
                 .unwrap()
                 .values()
-                .find(|app| Arc::ptr_eq(&app.shared, &wait_shared))
+                .find(|app| Arc::ptr_eq(&app.lines, &lines))
             {
                 app.pty.lock().unwrap().take();
             }
         });
-        Ok(pid)
+        Ok(events)
     }
 
-    #[cfg(test)]
-    pub fn output(&self) -> String {
-        self.output_session("default")
-    }
-
-    pub fn output_session(&self, id: &str) -> String {
+    /// The session's last lines, joined.
+    pub fn output(&self, id: &SessionId) -> String {
         self.sessions
             .lock()
             .unwrap()
             .get(id)
-            .map(|app| {
-                app.shared
-                    .lines
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
+            .map(|app| app.lines.snapshot().join("\n"))
             .unwrap_or_default()
     }
 
-    pub fn drain_pending(&self, id: &str) -> Vec<String> {
-        let from_session = self
-            .sessions
+    /// A workspace log's lines added since the last call.
+    pub fn drain_pending(&self, workspace_id: &str) -> Vec<String> {
+        self.logs
             .lock()
             .unwrap()
-            .get(id)
-            .map(|app| std::mem::take(&mut *app.shared.pending.lock().unwrap()))
-            .unwrap_or_default();
-        let from_log = self
-            .logs
-            .lock()
-            .unwrap()
-            .get(id)
-            .map(|shared| std::mem::take(&mut *shared.pending.lock().unwrap()))
-            .unwrap_or_default();
-        let mut merged = from_session;
-        merged.extend(from_log);
-        merged
+            .get(workspace_id)
+            .and_then(|lines| lines.pending.as_ref())
+            .map(|pending| std::mem::take(&mut *pending.lock().unwrap()))
+            .unwrap_or_default()
     }
 
     /// The buffered lines of a workspace log, marking them all as delivered.
-    pub fn take_log_snapshot(&self, id: &str) -> Vec<String> {
+    pub fn take_log_snapshot(&self, workspace_id: &str) -> Vec<String> {
         let logs = self.logs.lock().unwrap();
-        let Some(shared) = logs.get(id) else {
+        let Some(lines) = logs.get(workspace_id) else {
             return Vec::new();
         };
-        let lines = shared.lines.lock().unwrap();
-        shared.pending.lock().unwrap().clear();
-        lines.iter().cloned().collect()
-    }
-
-    #[cfg(test)]
-    pub fn write_input(&self, id: &str, data: &[u8]) -> Result<()> {
-        let sessions = self.sessions.lock().unwrap();
-        let app = sessions
-            .get(id)
-            .ok_or_else(|| Error::Process(format!("no session {id}")))?;
-        let mut pty = app.pty.lock().unwrap();
-        let pty = pty
-            .as_mut()
-            .ok_or_else(|| Error::Process(format!("session {id} has exited")))?;
-        pty.writer
-            .write_all(data)
-            .map_err(|error| Error::Process(error.to_string()))?;
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub fn detected_port(&self) -> Option<u16> {
-        detect_port(&self.output())
-    }
-
-    #[cfg(test)]
-    pub fn current_pid(&self) -> Option<u32> {
-        self.sessions
-            .lock()
-            .unwrap()
-            .get("default")
-            .map(|app| app.pid)
-    }
-
-    pub fn exit_code(&self, id: &str) -> Option<i32> {
-        self.sessions
-            .lock()
-            .unwrap()
-            .get(id)
-            .and_then(|app| *app.shared.exited.lock().unwrap())
-    }
-
-    pub fn was_killed(&self, id: &str) -> bool {
-        self.sessions
-            .lock()
-            .unwrap()
-            .get(id)
-            .map(|app| app.shared.killed.load(Ordering::SeqCst))
-            .unwrap_or(false)
-    }
-
-    pub fn clear_log(&self, id: &str) {
-        let clear = |shared: &SessionShared| {
-            shared.lines.lock().unwrap().clear();
-            shared.pending.lock().unwrap().clear();
-            shared.fragment.lock().unwrap().clear();
-        };
-        if let Some(shared) = self.logs.lock().unwrap().get(id) {
-            clear(shared);
+        let ring = lines.ring.lock().unwrap();
+        if let Some(pending) = &lines.pending {
+            pending.lock().unwrap().clear();
         }
-        if let Some(app) = self.sessions.lock().unwrap().get(id) {
-            clear(&app.shared);
+        ring.iter().cloned().collect()
+    }
+
+    pub fn was_killed(&self, id: &SessionId) -> bool {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|app| app.killed.load(Ordering::SeqCst))
+    }
+
+    pub fn clear_log(&self, workspace_id: &str) {
+        if let Some(lines) = self.logs.lock().unwrap().get(workspace_id) {
+            lines.ring.lock().unwrap().clear();
+            if let Some(pending) = &lines.pending {
+                pending.lock().unwrap().clear();
+            }
+            lines.fragment.lock().unwrap().clear();
         }
     }
 
-    pub fn pids(&self) -> Vec<(String, u32)> {
+    /// Sessions whose process hasn't exited.
+    pub fn pids(&self) -> Vec<(SessionId, u32)> {
         self.sessions
             .lock()
             .unwrap()
             .iter()
-            .filter(|(_, app)| app.shared.exited.lock().unwrap().is_none())
+            .filter(|(_, app)| !app.reaped.load(Ordering::SeqCst))
             .map(|(id, app)| (id.clone(), app.pid))
             .collect()
     }
 
-    #[cfg(test)]
-    pub fn stop(&self) -> Result<()> {
-        self.stop_session("default")
-    }
-
-    pub fn stop_session(&self, id: &str) -> Result<()> {
+    /// Asks the session's process group to end (SIGTERM).
+    pub fn stop_session(&self, id: &SessionId) -> Result<()> {
         let sessions = self.sessions.lock().unwrap();
         let Some(app) = sessions.get(id) else {
             return Ok(());
         };
-        app.shared.killed.store(true, Ordering::SeqCst);
-        let reaped = app.shared.exited.lock().unwrap().is_some();
-        kill_group(app.pid, libc::SIGTERM, reaped)
+        app.killed.store(true, Ordering::SeqCst);
+        kill_group(app.pid, libc::SIGTERM, app.reaped.load(Ordering::SeqCst))
     }
 
-    pub fn kill_session(&self, id: &str) -> Result<()> {
+    fn kill_session(&self, id: &SessionId) -> Result<()> {
         let sessions = self.sessions.lock().unwrap();
         let Some(app) = sessions.get(id) else {
             return Ok(());
         };
-        let reaped = app.shared.exited.lock().unwrap().is_some();
-        kill_group(app.pid, libc::SIGKILL, reaped)
-    }
-
-    #[cfg(test)]
-    pub fn wait_exit(&self, timeout: Duration) -> Result<i32> {
-        self.wait_exit_session("default", timeout)
-    }
-
-    #[cfg(test)]
-    pub fn wait_exit_session(&self, id: &str, timeout: Duration) -> Result<i32> {
-        let started = std::time::Instant::now();
-        loop {
-            if let Some(code) = self.exit_code(id) {
-                return Ok(code);
-            }
-            if started.elapsed() > timeout {
-                return Err(Error::Process("timed out waiting for exit".into()));
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
+        kill_group(app.pid, libc::SIGKILL, app.reaped.load(Ordering::SeqCst))
     }
 
     /// For quitting, where there's no runtime left to wait on.
-    pub fn stop_all(&self) -> Result<()> {
-        let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
-        for id in &ids {
-            let _ = self.stop_session(id);
-        }
+    pub fn stop_all(&self) {
+        let ids: Vec<SessionId> = self.sessions.lock().unwrap().keys().cloned().collect();
+        self.signal(&ids);
         let started = std::time::Instant::now();
-        while started.elapsed() < STOP_GRACE && !self.all_exited(&ids) {
+        while started.elapsed() < SIGKILL_AFTER && !self.all_reaped(&ids) {
             thread::sleep(STOP_POLL);
         }
         self.kill_survivors(&ids);
-        Ok(())
     }
 
-    fn workspace_session_ids(&self, workspace_id: &str) -> Vec<String> {
-        let prefix = format!("{workspace_id}-");
+    fn workspace_session_ids(&self, workspace_id: &str) -> Vec<SessionId> {
         self.sessions
             .lock()
             .unwrap()
             .keys()
-            .filter(|id| id.as_str() == workspace_id || id.starts_with(&prefix))
+            .filter(|id| id.owner_workspace() == Some(workspace_id))
             .cloned()
             .collect()
     }
@@ -435,69 +436,100 @@ impl ProcessSupervisor {
         !self.workspace_session_ids(workspace_id).is_empty()
     }
 
-    pub async fn stop_workspace_sessions(&self, workspace_id: &str) -> Result<()> {
+    /// Stops every session the workspace owns, killing what's left after a grace period.
+    pub async fn stop_workspace_sessions(&self, workspace_id: &str) {
         let ids = self.workspace_session_ids(workspace_id);
-        for id in &ids {
-            let _ = self.stop_session(id);
-        }
-        let started = std::time::Instant::now();
-        while started.elapsed() < STOP_GRACE && !self.all_exited(&ids) {
-            tokio::time::sleep(STOP_POLL).await;
-        }
+        self.signal(&ids);
+        let exits: Vec<_> = {
+            let sessions = self.sessions.lock().unwrap();
+            ids.iter()
+                .filter_map(|id| sessions.get(id))
+                .map(|app| app.lines.state.subscribe())
+                .collect()
+        };
+        let all_exited = async {
+            for mut state in exits {
+                let _ = state.wait_for(|state| state.exit.is_some()).await;
+            }
+        };
+        let _ = tokio::time::timeout(SIGKILL_AFTER, all_exited).await;
         self.kill_survivors(&ids);
-        Ok(())
     }
 
-    fn all_exited(&self, ids: &[String]) -> bool {
-        ids.iter().all(|id| self.exit_code(id).is_some())
-    }
-
-    fn kill_survivors(&self, ids: &[String]) {
+    fn signal(&self, ids: &[SessionId]) {
         for id in ids {
-            if self.exit_code(id).is_none() {
-                let _ = self.kill_session(id);
+            if let Err(error) = self.stop_session(id) {
+                log::warn!("stopping {id}: {error}");
             }
         }
     }
 
-    /// Drop everything kept for a workspace that's gone: sessions, buffered logs, log files.
-    pub fn forget_workspace(&self, workspace_id: &str) {
-        let prefix = format!("{workspace_id}-");
-        let belongs = |id: &str| id == workspace_id || id.starts_with(&prefix);
-        let mut ids: Vec<String> = Vec::new();
-        self.sessions.lock().unwrap().retain(|id, _| {
-            let keep = !belongs(id);
-            if !keep {
-                ids.push(id.clone());
-            }
-            keep
-        });
-        self.logs.lock().unwrap().retain(|id, _| {
-            let keep = !belongs(id);
-            if !keep {
-                ids.push(id.clone());
-            }
-            keep
-        });
+    fn all_reaped(&self, ids: &[SessionId]) -> bool {
+        let sessions = self.sessions.lock().unwrap();
+        ids.iter().all(|id| {
+            sessions
+                .get(id)
+                .is_none_or(|app| app.reaped.load(Ordering::SeqCst))
+        })
+    }
+
+    fn kill_survivors(&self, ids: &[SessionId]) {
         for id in ids {
-            let _ = std::fs::remove_file(log_path(&id));
+            let alive = self
+                .sessions
+                .lock()
+                .unwrap()
+                .get(id)
+                .is_some_and(|app| !app.reaped.load(Ordering::SeqCst));
+            if alive && let Err(error) = self.kill_session(id) {
+                log::warn!("killing {id}: {error}");
+            }
+        }
+    }
+
+    /// Drop everything kept for a workspace that's gone: sessions, its log, log files.
+    pub fn forget_workspace(&self, workspace_id: &str) {
+        let mut files = vec![log_path(workspace_id)];
+        self.sessions.lock().unwrap().retain(|id, _| {
+            let keep = id.owner_workspace() != Some(workspace_id);
+            if !keep {
+                files.push(log_path(&id.to_string()));
+            }
+            keep
+        });
+        self.logs.lock().unwrap().remove(workspace_id);
+        for file in files {
+            if let Err(error) = std::fs::remove_file(&file)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                log::debug!("removing {}: {error}", file.display());
+            }
         }
     }
 }
 
-impl SessionShared {
-    fn new(log: File, activity: Arc<Notify>) -> Self {
+impl Lines {
+    fn new(
+        log: File,
+        keeps_pending: bool,
+        forward: Option<Arc<Lines>>,
+        activity: Arc<Notify>,
+    ) -> Self {
         Self {
-            lines: Mutex::new(VecDeque::new()),
-            pending: Mutex::new(Vec::new()),
+            ring: Mutex::new(VecDeque::new()),
+            pending: keeps_pending.then(|| Mutex::new(Vec::new())),
             fragment: Mutex::new(String::new()),
             partial: Mutex::new(Vec::new()),
             log: Mutex::new(log),
             log_bytes: AtomicU64::new(0),
-            exited: Mutex::new(None),
-            killed: AtomicBool::new(false),
+            forward,
+            state: watch::Sender::new(SessionState::default()),
             activity,
         }
+    }
+
+    fn snapshot(&self) -> Vec<String> {
+        self.ring.lock().unwrap().iter().cloned().collect()
     }
 
     /// Reads land in 4 KiB pieces that can split a multi-byte character (an arrow or an accent
@@ -550,24 +582,28 @@ impl SessionShared {
 
     fn push_line(&self, line: String) {
         {
-            let mut lines = self.lines.lock().unwrap();
+            let mut ring = self.ring.lock().unwrap();
             // Dev servers clear the screen by printing a screenful of newlines.
-            if is_blank(&line) && lines.back().is_some_and(|last| is_blank(last)) {
+            if is_blank(&line) && ring.back().is_some_and(|last| is_blank(last)) {
                 return;
             }
-            if lines.len() == RING_CAP {
-                lines.pop_front();
+            if ring.len() == RING_CAP {
+                ring.pop_front();
             }
-            lines.push_back(line.clone());
+            ring.push_back(line.clone());
         }
-        {
+        if let Some(forward) = &self.forward {
+            forward.push_line(line.clone());
+        }
+        if let Some(pending) = &self.pending {
             // Nobody drains this until the Output tab opens, and the ring is all it replays.
-            let mut pending = self.pending.lock().unwrap();
+            let mut pending = pending.lock().unwrap();
             if pending.len() >= RING_CAP * 2 {
                 pending.drain(..RING_CAP);
             }
             pending.push(line);
         }
+        self.state.send_modify(|state| state.lines += 1);
         self.activity.notify_waiters();
     }
 }
@@ -682,20 +718,25 @@ fn kill_group(pid: u32, signal: i32, reaped: bool) -> Result<()> {
         return Ok(());
     }
     // SAFETY: killpg takes plain integers and has no memory-safety preconditions.
-    let result = unsafe { libc::killpg(pgid, signal) };
-    if result != 0 && !reaped {
-        // SAFETY: as above; the leader hasn't been reaped, so `pgid` is still our child's pid.
-        unsafe {
-            libc::kill(pgid, signal);
-        }
+    if unsafe { libc::killpg(pgid, signal) } == 0 || reaped {
+        return Ok(());
     }
-    Ok(())
+    // SAFETY: as above; the leader hasn't been reaped, so `pgid` is still our child's pid.
+    if unsafe { libc::kill(pgid, signal) } == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        // Already gone.
+        return Ok(());
+    }
+    Err(Error::Process(format!("signalling process {pid}: {error}")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::Path;
 
     fn python_script(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -705,6 +746,37 @@ mod tests {
 
     fn supervisor() -> ProcessSupervisor {
         ProcessSupervisor::new(Arc::new(RwLock::new(ShellEnv::new())))
+    }
+
+    fn shell(cmd: &str) -> ShellCommand {
+        ShellCommand {
+            cmd: cmd.into(),
+            cwd: std::env::temp_dir(),
+            env: Vec::new(),
+        }
+    }
+
+    fn setup(workspace: &str, index: usize) -> SessionId {
+        SessionId::Setup {
+            workspace: workspace.into(),
+            index,
+        }
+    }
+
+    fn run(workspace: &str) -> SessionId {
+        SessionId::Run {
+            workspace: workspace.into(),
+        }
+    }
+
+    fn python(proc: &ProcessSupervisor, id: SessionId, script: &Path) -> SessionEvents {
+        let mut command = CommandBuilder::new("python3");
+        command.arg(script);
+        proc.spawn(id, command, None).unwrap()
+    }
+
+    fn pid_of(proc: &ProcessSupervisor, id: &SessionId) -> u32 {
+        proc.sessions.lock().unwrap()[id].pid
     }
 
     #[test]
@@ -737,51 +809,116 @@ mod tests {
     }
 
     #[test]
-    fn caps_what_a_session_can_buffer() {
+    fn caps_what_a_log_can_buffer() {
         let proc = supervisor();
         for line in 0..RING_CAP * 3 {
             proc.append_log_line("capped", line.to_string());
         }
         assert!(proc.drain_pending("capped").len() <= RING_CAP * 2);
+        assert_eq!(proc.take_log_snapshot("capped").len(), RING_CAP);
 
         let mut fragment = "é".repeat(100);
         keep_tail(&mut fragment, 11);
         assert_eq!(fragment, "é".repeat(5));
     }
 
-    #[test]
-    fn exited_sessions_leave_metrics_and_forgetting_clears_them() {
+    #[tokio::test]
+    async fn a_command_runs_to_its_exit_with_every_line_in_the_workspace_log() {
         let proc = supervisor();
-        proc.spawn_session("ws-setup-1", "true", &[], None, &[])
+        proc.append_log_line("ws", "cmd: count");
+        let mut command =
+            shell("for i in 1 2 3; do echo line $i; done; echo \"$HARNESS_BASE\"; exit 3");
+        command.env.push(("HARNESS_BASE".into(), "develop".into()));
+
+        let exit = proc
+            .run_to_exit(
+                setup("ws", 0),
+                &command,
+                Duration::from_secs(10),
+                Some("ws"),
+            )
+            .await
             .unwrap();
-        proc.append_log_line("ws", "hello");
-        proc.wait_exit_session("ws-setup-1", Duration::from_secs(5))
+
+        assert_eq!(exit, Exit::Code(3));
+        assert_eq!(
+            proc.take_log_snapshot("ws"),
+            ["cmd: count", "line 1", "line 2", "line 3", "develop"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_command_waits_for_the_login_env_rather_than_running_without_it() {
+        let env = Arc::new(RwLock::new(ShellEnv::new()));
+        let proc = ProcessSupervisor::new(env.clone());
+        let loading = env.write().await;
+        let running = tokio::spawn({
+            let proc = proc.clone();
+            async move {
+                let command = shell(r#"test "$CORMUX_LOGIN_ENV" = loaded"#);
+                proc.run_to_exit(setup("ws", 0), &command, Duration::from_secs(10), None)
+                    .await
+            }
+        });
+        tokio::task::yield_now().await;
+        let mut loading = loading;
+        *loading = ShellEnv::from_vars(
+            std::env::vars().chain([("CORMUX_LOGIN_ENV".into(), "loaded".into())]),
+        );
+        drop(loading);
+        assert_eq!(running.await.unwrap().unwrap(), Exit::Code(0));
+    }
+
+    #[tokio::test]
+    async fn a_command_past_its_time_is_stopped() {
+        let proc = supervisor();
+        let exit = proc
+            .run_to_exit(
+                setup("ws", 0),
+                &shell("sleep 30"),
+                Duration::from_millis(300),
+                None,
+            )
+            .await
             .unwrap();
-        let started = std::time::Instant::now();
-        while !proc.pids().is_empty() && started.elapsed() < Duration::from_secs(5) {
-            thread::sleep(Duration::from_millis(10));
-        }
+        assert_eq!(exit, Exit::TimedOut);
+        assert!(proc.was_killed(&setup("ws", 0)));
+    }
+
+    #[tokio::test]
+    async fn exited_sessions_leave_their_code_and_forgetting_clears_them() {
+        let proc = supervisor();
+        let exit = proc
+            .run_to_exit(
+                setup("ws", 1),
+                &shell("true"),
+                Duration::from_secs(10),
+                Some("ws"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(exit, Exit::Code(0));
         assert!(proc.pids().is_empty());
-        // Monitors still read the exit code after the process is gone.
-        assert_eq!(proc.exit_code("ws-setup-1"), Some(0));
         assert!(proc.workspace_has_session("ws"));
+        // Another workspace's id can't claim it by sharing a prefix.
+        assert!(!proc.workspace_has_session("w"));
 
         proc.forget_workspace("ws");
         assert!(!proc.workspace_has_session("ws"));
         assert!(proc.take_log_snapshot("ws").is_empty());
         assert!(!log_path("ws").exists());
-        assert!(!log_path("ws-setup-1").exists());
+        assert!(!log_path(&setup("ws", 1).to_string()).exists());
     }
 
     #[test]
     fn a_character_split_across_reads_stays_whole() {
         let proc = supervisor();
         proc.append_log_line("split", "warm up");
-        let shared = proc.logs.lock().unwrap().get("split").unwrap().clone();
+        let lines = proc.logs.lock().unwrap().get("split").unwrap().clone();
         let text = "➜  Local: ready\n".as_bytes();
         // The arrow is three bytes; cut it in the middle.
-        shared.push_bytes(&text[..2]);
-        shared.push_bytes(&text[2..]);
+        lines.push_bytes(&text[..2]);
+        lines.push_bytes(&text[2..]);
         assert_eq!(
             proc.take_log_snapshot("split"),
             vec!["warm up", "➜  Local: ready"]
@@ -793,9 +930,9 @@ mod tests {
         assert_eq!(complete_utf8_len(&"a😀".as_bytes()[..4]), 1);
         assert_eq!(complete_utf8_len("a😀".as_bytes()), 5);
         assert_eq!(complete_utf8_len(b"\xffok\xe2\x9e"), 3);
-        shared.push_bytes(&"end é".as_bytes()[..5]);
-        shared.finish_bytes();
-        shared.push_bytes(b"\n");
+        lines.push_bytes(&"end é".as_bytes()[..5]);
+        lines.finish_bytes();
+        lines.push_bytes(b"\n");
         assert_eq!(
             proc.take_log_snapshot("split").last().unwrap(),
             "end \u{fffd}"
@@ -812,54 +949,38 @@ mod tests {
         assert!(proc.drain_pending("blank-runs").is_empty());
     }
 
-    #[test]
-    fn pty_detects_port_stop_kills_tree_crash_reports_code() {
-        let first = supervisor();
-        let script = python_script("fake_dev_server.py");
-        first.spawn("python3", &[script.to_str().unwrap()]).unwrap();
+    #[tokio::test]
+    async fn stopping_a_workspace_kills_its_whole_tree() {
+        let proc = supervisor();
+        let id = run("ws");
+        let mut events = python(&proc, id.clone(), &python_script("fake_dev_server.py"));
+        while detect_port(&proc.output(&id)).is_none() {
+            tokio::time::timeout(Duration::from_secs(5), events.changed())
+                .await
+                .expect("a port in the output");
+        }
+        assert_eq!(detect_port(&proc.output(&id)), Some(8765));
 
-        let started = std::time::Instant::now();
-        let port = loop {
-            if let Some(port) = first.detected_port() {
-                break port;
-            }
-            if started.elapsed() > Duration::from_secs(5) {
-                panic!("no port in output: {}", first.output());
-            }
-            thread::sleep(Duration::from_millis(50));
-        };
-        assert_eq!(port, 8765);
-
-        let pid = first.current_pid().unwrap();
-        first.stop().unwrap();
-        thread::sleep(Duration::from_millis(400));
+        let pid = pid_of(&proc, &id);
+        proc.stop_workspace_sessions("ws").await;
+        tokio::time::timeout(Duration::from_secs(5), events.exited())
+            .await
+            .unwrap();
+        assert!(proc.was_killed(&id));
         let still_alive = unsafe { libc::kill(pid as i32, 0) } == 0;
         assert!(!still_alive, "process group should be dead after Stop");
-
-        let crashing = supervisor();
-        let crash = python_script("fake_crash.py");
-        crashing
-            .spawn("python3", &[crash.to_str().unwrap()])
-            .unwrap();
-        let code = crashing.wait_exit(Duration::from_secs(5)).unwrap();
-        assert_eq!(code, 17);
     }
 
-    #[test]
-    fn ring_buffer_keeps_500_lines_and_accepts_input() {
+    #[tokio::test]
+    async fn a_crash_reports_its_code_after_its_last_line() {
         let proc = supervisor();
-        proc.spawn(
-            "python3",
-            &[
-                "-c",
-                "print('hello', flush=True); import time; time.sleep(2)",
-            ],
-        )
-        .unwrap();
-        thread::sleep(Duration::from_millis(400));
-        let pending = proc.drain_pending("default");
-        assert!(pending.iter().any(|line| line.contains("hello")));
-        let _ = proc.write_input("default", b"x");
-        proc.stop().unwrap();
+        let id = run("ws");
+        let mut events = python(&proc, id.clone(), &python_script("fake_crash.py"));
+        let code = tokio::time::timeout(Duration::from_secs(5), events.exited())
+            .await
+            .unwrap();
+        assert_eq!(code, 17);
+        assert_eq!(proc.output(&id), "crashed");
+        assert!(!proc.was_killed(&id));
     }
 }

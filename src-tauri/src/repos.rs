@@ -1,7 +1,6 @@
 //! Registered repos: adding and removing them, their settings, and git in their main checkouts.
 
 use std::path::Path;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -9,6 +8,7 @@ use specta::Type;
 use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
 use crate::paths::expand_tilde;
+use crate::process::{Exit, HarnessEnv, SessionId, ShellCommand};
 use crate::state::AppState;
 use crate::store::types::RepoRecord;
 
@@ -221,8 +221,27 @@ pub async fn pull_default_branch(state: &AppState, repo_id: &str) -> Result<()> 
     Ok(())
 }
 
+/// A path typed into "Add repo", without its trailing slashes, and the id its last folder
+/// name gives the repo.
+fn validate_add_path(path: &str) -> Result<(String, String)> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(Error::Workspace("Enter the path to a folder".into()));
+    }
+    let normalized = trimmed.trim_end_matches('/').to_string();
+    let segment = normalized.rsplit('/').next().unwrap_or("").trim();
+    let absolute = normalized.starts_with("~/") || normalized.starts_with('/');
+    if !absolute || segment.is_empty() || segment == "~" {
+        return Err(Error::Workspace(
+            "Use a full path, like ~/code/my-project".into(),
+        ));
+    }
+    let id = segment.to_string();
+    Ok((normalized, id))
+}
+
 pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
-    let (normalized, id) = crate::harness_config::validate_add_path(&input.path)?;
+    let (normalized, id) = validate_add_path(&input.path)?;
     let expanded = expand_tilde(&normalized);
     if !expanded.is_dir() {
         return Err(Error::Git(format!(
@@ -252,7 +271,21 @@ pub async fn add(state: &AppState, input: AddRepoInput) -> Result<RepoRecord> {
     }
 
     let default_branch = state.git.default_branch(&toplevel).await.ok();
-    let committed = crate::harness_config::read_committed_config(&toplevel);
+    let committed = match crate::harness_config::read_committed_config(&toplevel) {
+        Ok(committed) => committed,
+        Err(error) => {
+            log::warn!("adding {id}: {error}");
+            state.out.toast(ToastRaisedPayload {
+                tone: ToastTone::Bad,
+                parts: vec![ToastPart::Text {
+                    value: format!("{error}. Using suggested commands instead."),
+                }],
+                workspace_id: None,
+                thread_id: None,
+            });
+            None
+        }
+    };
     let suggested = crate::harness_config::suggest_commands(&toplevel);
     let (setup_commands, run_command) =
         crate::harness_config::merge_initial_config(committed, suggested);
@@ -332,7 +365,7 @@ pub async fn test_setup(
 ) -> Result<TestRepoSetupResult> {
     let repo = repo_record(state, &input.repo_id)?;
     let repo_path = expand_tilde(&repo.path);
-    let setup_raw = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
+    let setup_raw = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path)?;
     let commands = crate::provisioning::parse_setup_commands(&setup_raw);
     if commands.is_empty() {
         return Ok(TestRepoSetupResult {
@@ -341,44 +374,32 @@ pub async fn test_setup(
         });
     }
 
-    let shell = state.shell_env.read().await.shell();
-    let harness_env = vec![
-        ("HARNESS_REPO_PATH".into(), repo.path.clone()),
-        (
-            "HARNESS_BRANCH".into(),
-            repo.default_branch.clone().unwrap_or_else(|| "main".into()),
-        ),
-    ];
-
+    let env = checkout_env(state, &repo, &repo_path).await.vars();
     for (index, command) in commands.iter().enumerate() {
-        let session_id = format!("test-setup-{}-{index}", repo.id);
-        state.process.spawn_session(
-            &session_id,
-            &shell,
-            &["-l", "-c", command],
-            Some(&repo_path),
-            &harness_env,
-        )?;
-        let deadline = std::time::Instant::now() + crate::provisioning::SETUP_COMMAND_TIMEOUT;
-        loop {
-            if let Some(code) = state.process.exit_code(&session_id) {
-                if code != 0 {
-                    return Ok(TestRepoSetupResult {
-                        ok: false,
-                        message: format!("Command failed ({code}): {command}"),
-                    });
-                }
-                break;
-            }
-            if std::time::Instant::now() >= deadline {
-                let _ = state.process.stop_session(&session_id);
-                return Ok(TestRepoSetupResult {
-                    ok: false,
-                    message: format!("Command timed out: {command}"),
-                });
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
+        let session = SessionId::RepoTest {
+            repo: repo.id.clone(),
+            index,
+        };
+        let shell = ShellCommand {
+            cmd: command.clone(),
+            cwd: repo_path.clone(),
+            env: env.clone(),
+        };
+        let exit = state
+            .process
+            .run_to_exit(
+                session,
+                &shell,
+                crate::provisioning::SETUP_COMMAND_TIMEOUT,
+                None,
+            )
+            .await?;
+        let message = match exit {
+            Exit::Code(0) => continue,
+            Exit::Code(code) => format!("Command failed ({code}): {command}"),
+            Exit::TimedOut => format!("Command timed out: {command}"),
+        };
+        return Ok(TestRepoSetupResult { ok: false, message });
     }
 
     Ok(TestRepoSetupResult {
@@ -389,6 +410,27 @@ pub async fn test_setup(
             if commands.len() == 1 { "" } else { "s" }
         ),
     })
+}
+
+/// The env setup gets when it runs in the repo's own checkout, which is then both the repo and
+/// the worktree, on whatever branch is checked out there.
+async fn checkout_env(state: &AppState, repo: &RepoRecord, repo_path: &Path) -> HarnessEnv {
+    let base = repo.default_branch_or_main().to_string();
+    let branch = state
+        .git
+        .current_branch(repo_path)
+        .await
+        .ok()
+        .filter(|branch| !branch.is_empty())
+        .unwrap_or_else(|| base.clone());
+    let path = repo_path.to_string_lossy().to_string();
+    HarnessEnv {
+        repo_path: path.clone(),
+        worktree_path: path,
+        workspace: repo.name.clone(),
+        branch,
+        base,
+    }
 }
 
 pub async fn list_branches(state: &AppState, repo_id: &str) -> Result<RepoBranchesResult> {
@@ -733,5 +775,64 @@ mod tests {
 
         assert!(result.ok);
         assert_eq!(result.message, "No setup commands to run.");
+    }
+
+    #[tokio::test]
+    async fn testing_setup_runs_in_the_checkout_with_its_branch_and_the_full_env() {
+        let (state, _recording, dir) = fixture();
+        let repo = init_repo(&dir, "app");
+        git(&repo, &["switch", "-q", "-c", "feat/x"]);
+        register(&state, "app", &repo);
+        let mut record = state.store.repo_by_id("app").unwrap().unwrap();
+        record.setup_commands = [
+            r#"test "$HARNESS_BRANCH" = feat/x"#,
+            r#"test "$HARNESS_BASE" = main && test "$HARNESS_WORKSPACE" = app"#,
+            r#"test -n "$HARNESS_WORKTREE_PATH" && test "$HARNESS_REPO_PATH" = "$HARNESS_WORKTREE_PATH""#,
+            "exit 4",
+        ]
+        .join("\n");
+        state.store.upsert_repo(&record).unwrap();
+
+        let input = TestRepoSetupInput {
+            repo_id: "app".into(),
+        };
+        let result = test_setup(&state, input).await.unwrap();
+
+        assert!(!result.ok);
+        assert_eq!(result.message, "Command failed (4): exit 4");
+    }
+
+    #[tokio::test]
+    async fn a_broken_committed_config_is_reported_not_skipped() {
+        let (state, recording, dir) = fixture();
+        let repo = init_repo(&dir, "app");
+        std::fs::create_dir(repo.join(".cormux")).unwrap();
+        std::fs::write(repo.join(".cormux/config.json"), "{ nope").unwrap();
+
+        let record = add_path(&state, &repo).await.unwrap();
+        assert_eq!(record.id, "app");
+        assert!(
+            recording.toasts()[0].contains(".cormux/config.json can't be used"),
+            "{:?}",
+            recording.toasts()
+        );
+
+        let input = TestRepoSetupInput {
+            repo_id: "app".into(),
+        };
+        let error = test_setup(&state, input).await.unwrap_err();
+        assert!(error.to_string().contains("can't be used"), "{error}");
+    }
+
+    #[test]
+    fn an_added_path_must_be_absolute_or_under_home() {
+        assert!(validate_add_path("  ").is_err());
+        assert!(validate_add_path("relative/path").is_err());
+        assert!(validate_add_path("~code/app").is_err());
+        assert!(validate_add_path("~/").is_err());
+        let (path, id) = validate_add_path("~/code/my-app/").unwrap();
+        assert_eq!((path.as_str(), id.as_str()), ("~/code/my-app", "my-app"));
+        let (path, id) = validate_add_path("/srv/app").unwrap();
+        assert_eq!((path.as_str(), id.as_str()), ("/srv/app", "app"));
     }
 }

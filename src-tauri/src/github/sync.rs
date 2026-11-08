@@ -2,12 +2,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
-use tokio::sync::RwLock;
-
 use crate::error::Result;
 use crate::feedback::Change;
-use crate::git::Git;
-use crate::shell_env::ShellEnv;
 use crate::state::AppState;
 use crate::store::types::PrRow;
 
@@ -17,27 +13,17 @@ use super::r#match::load_repo_origins;
 const SYNC_INTERVAL: Duration = Duration::from_secs(120);
 const SYNCED_AT_KEY: &str = "githubPrSyncedAt";
 
-const AUTH_UNKNOWN: u8 = 0;
 const AUTH_SIGNED_IN: u8 = 1;
 const AUTH_SIGNED_OUT: u8 = 2;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PrSyncScheduler {
-    git: Git,
-    shell_env: Arc<RwLock<ShellEnv>>,
-    /// Outcome of the last sync that reached GitHub; read by snapshots instead of shelling out.
+    /// Outcome of the last sync that reached GitHub, 0 until one has; read by snapshots instead
+    /// of shelling out.
     auth: Arc<AtomicU8>,
 }
 
 impl PrSyncScheduler {
-    pub fn new(git: Git, shell_env: Arc<RwLock<ShellEnv>>) -> Self {
-        Self {
-            git,
-            shell_env,
-            auth: Arc::new(AtomicU8::new(AUTH_UNKNOWN)),
-        }
-    }
-
     /// Before the first sync of this launch, trust the last launch: a stored sync time
     /// means we were signed in, and it is cleared on sign-out.
     pub fn auth_configured(&self, state: &AppState) -> bool {
@@ -57,7 +43,7 @@ impl PrSyncScheduler {
     /// definite signed-out answer from `gh` clears it.
     pub async fn tick(&self, state: &AppState) -> Result<bool> {
         // Until the login-shell env loads, `gh` and `git` aren't on PATH for a GUI launch.
-        if self.shell_env.read().await.vars().is_empty() {
+        if state.shell_env.read().await.vars().is_empty() {
             return Ok(false);
         }
 
@@ -67,8 +53,8 @@ impl PrSyncScheduler {
             .into_iter()
             .map(|repo| (repo.id, repo.path))
             .collect();
-        let origins = load_repo_origins(&self.git, &repos).await?;
-        let items = match client::fetch_open_prs(&self.shell_env, &origins).await {
+        let origins = load_repo_origins(&state.git, &repos).await?;
+        let items = match client::fetch_open_prs(&state.github.gh, &origins).await {
             // Only PRs in repos registered in Settings; the search itself spans every repo.
             Ok(items) => items
                 .into_iter()

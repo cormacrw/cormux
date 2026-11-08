@@ -165,9 +165,9 @@
               of origin/{defaultBranch}
             </span>
           {/if}
-          {#if repo.runCommand}
+          {#if repos.runCommand(repo.id)}
             <Badge variant="outline" class="max-w-full font-mono">
-              <span class="truncate">Run {repo.runCommand}</span>
+              <span class="truncate">Run {repos.runCommand(repo.id)}</span>
             </Badge>
           {/if}
         </div>

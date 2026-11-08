@@ -5,7 +5,7 @@ use specta::Type;
 
 use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
-use crate::github::RestGithubClient;
+use crate::github::RepoSlug;
 use crate::github::auth;
 use crate::github::create::CreatePullRequestInput;
 use crate::github::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
@@ -127,7 +127,7 @@ pub async fn create_workspace_pull_request(
         )));
     }
 
-    let token = auth::resolve_token(&state.shell_env).await?;
+    let token = auth::resolve_token(&state.github.gh).await?;
 
     state
         .git
@@ -142,20 +142,7 @@ pub async fn create_workspace_pull_request(
 
     crate::workspace_git::refresh_stats(state, &record).await;
 
-    let origin = state
-        .git
-        .remote_origin_url(worktree)
-        .await?
-        .ok_or_else(|| Error::Git("no origin remote configured for this repo".into()))?;
-    let slug = crate::github::parse_origin_url(&origin).ok_or_else(|| {
-        Error::Git(format!(
-            "could not parse origin URL {}",
-            crate::github::redact_origin_url(&origin)
-        ))
-    })?;
-    let (owner, repo) = slug
-        .split_once('/')
-        .ok_or_else(|| Error::Git(format!("invalid origin slug {slug}")))?;
+    let slug = RepoSlug::of_origin(&state.git, worktree).await?;
 
     let diff = pr_diff(state, &input.workspace_id, worktree, &pr_base, &record.base).await;
 
@@ -167,12 +154,13 @@ pub async fn create_workspace_pull_request(
         .unwrap_or(workspace.name.as_str())
         .to_string();
 
-    let client = RestGithubClient::new();
-    let created = client
+    let created = state
+        .github
+        .rest
         .create_pull_request(
             &token,
-            owner,
-            repo,
+            &slug.owner,
+            &slug.name,
             &CreatePullRequestInput {
                 title: title.clone(),
                 body: body.to_string(),
@@ -207,7 +195,7 @@ pub async fn create_workspace_pull_request(
         files: files as i64,
         is_draft: true,
         html_url: created.html_url.clone(),
-        repo_full_name: slug.clone(),
+        repo_full_name: slug.full_name(),
         repo_id: Some(workspace.repo_id.clone()),
     };
     let payload_json =

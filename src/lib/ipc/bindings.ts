@@ -690,6 +690,17 @@ async testRepoSetup(input: TestRepoSetupInput) : Promise<Result<TestRepoSetupRes
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Whether git would take `name` as a branch name; the error says why not.
+ */
+async validateBranchName(name: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("validate_branch_name", { name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setSetting(input: SetSettingInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_setting", { input }) };
@@ -848,7 +859,11 @@ export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceA
 export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number; title: string; head: string; base: string; author: string; authorIsYou: boolean; filesChanged: number; prHtmlUrl: string | null }
 export type CreateReviewWorkspaceResult = { workspaceId: string; created: boolean }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
-export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string; 
+export type CreateWorkspaceInput = { repoId: string; name: string; 
+/**
+ * Empty to have one drafted from the goal.
+ */
+branch: string; base: string; engine: string; goal: string; 
 /**
  * The model to start on; `None` leaves the engine's default.
  */
@@ -982,6 +997,11 @@ export type RepoRecord = { id: string; path: string; name: string; defaultBranch
  */
 singleInstance: boolean }
 /**
+ * A repo's run command, for the webview: what Run starts in its workspaces unless they set
+ * their own.
+ */
+export type RepoRunCommand = { repoId: string; command: string; source: RunCommandSource }
+/**
  * An earlier conversation to resume in a thread.
  */
 export type ResumeThreadSessionInput = { threadId: string; 
@@ -993,6 +1013,22 @@ conversationId: string;
  * The agent session it ended with; none starts the agent fresh.
  */
 sessionId: string | null }
+/**
+ * Where a run command comes from.
+ */
+export type RunCommandSource = 
+/**
+ * The workspace's own, set in its Output tab.
+ */
+"workspace" | 
+/**
+ * The repo's, saved in Settings.
+ */
+"repo" | 
+/**
+ * The repo's committed `.cormux/config.json`.
+ */
+"config"
 /**
  * A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
  */
@@ -1038,7 +1074,11 @@ githubAuthConfigured: boolean;
 /**
  * True when a ClickUp API key is saved. Every ClickUp surface hides without one.
  */
-clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[] }
+clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[]; 
+/**
+ * Each repo's run command (its own, else its committed config's), for repos with one.
+ */
+repoRunCommands: RepoRunCommand[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.

@@ -25,6 +25,19 @@ export function coreHandlers({ scenario }: HarnessRuntime) {
   return {
     get_snapshot: () => {
       fixtureSnapshot.persisted.threadActivity = threadActivityRows()
+      // The harness's repos have no committed config, so only their own commands count.
+      fixtureSnapshot.repoRunCommands = fixtureSnapshot.persisted.repos.flatMap(
+        (repo) =>
+          repo.runCommand?.trim()
+            ? [
+                {
+                  repoId: repo.id,
+                  command: repo.runCommand.trim(),
+                  source: 'repo' as const,
+                },
+              ]
+            : [],
+      )
       // A copy, as the real IPC deserialises one: the stores keep rows whose contents didn't
       // change, so handing them the fixture's own objects would hide the harness's edits.
       return structuredClone(fixtureSnapshot)

@@ -16,7 +16,7 @@ export function appControls(workspaceId: string): AppControls {
     runCommand: workspaceRunCommand(
       settings.rows,
       workspaceId,
-      record ? repos.getById(record.repoId)?.runCommand : undefined,
+      repos.runCommand(record?.repoId),
     ),
   })
 }

@@ -154,9 +154,12 @@
 
   async function submitAdd() {
     const name = newBranch.trim()
+    const validRef =
+      !!name && (await commands.validateBranchName(name)).status === 'ok'
     const code = validateBranchName(name, {
       existingBranches: [trunk, ...cards.map((card) => card.name)],
       workspaceBranches: otherWorkspaceBranches,
+      validRef,
     })
     if (code) {
       addError = branchErrorMessage(name, code)

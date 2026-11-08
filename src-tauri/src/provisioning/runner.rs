@@ -1,14 +1,13 @@
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use uuid::Uuid;
 
 use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
 use crate::feedback::{Change, ToastPart, ToastRaisedPayload, ToastTone};
-use crate::model::{SUMMARY_MODEL_LABEL, ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
+use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
 use crate::paths::{WORKTREE_ROOT_SETTING, expand_tilde, worktrees_root};
-use crate::process::ProcessSupervisor;
+use crate::process::{Exit, SessionId, ShellCommand};
 use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
 use crate::state::AppState;
 use crate::store::types::{ThreadRow, WorkspaceRow};
@@ -176,10 +175,17 @@ async fn run_plan(state: &AppState, plan: &ProvisionPlan) -> Result<()> {
         .store
         .repo_by_id(&workspace.repo_id)?
         .ok_or_else(|| Error::unknown_repo(&workspace.repo_id))?;
-    let setup = parse_setup_commands(&crate::harness_config::effective_setup(
+    let setup = match crate::harness_config::effective_setup(
         &repo.setup_commands,
         &expand_tilde(&repo.path),
-    ));
+    ) {
+        Ok(setup) => parse_setup_commands(&setup),
+        Err(error) => {
+            log::warn!("setup for {}: {error}", plan.workspace_id);
+            mark_failed(state, &plan.workspace_id, None, &error.to_string()).await;
+            return Ok(());
+        }
+    };
 
     let workspace = state
         .workspaces
@@ -227,9 +233,7 @@ async fn run_setup_commands(
         ),
     );
 
-    let shell = state.shell_env.read().await.shell();
-    let worktree = PathBuf::from(&workspace.worktree_path);
-    let harness_env = workspace.harness_env();
+    let env = workspace.harness_env().vars();
 
     for (index, command) in setup.iter().enumerate() {
         if !workspace_alive(state, &workspace.id).await {
@@ -245,27 +249,25 @@ async fn run_setup_commands(
             format!("── Command {} of {} ──", index + 1, setup.len()),
         );
 
-        let session_id = format!("{}-setup-{index}", workspace.id);
-        state.process.spawn_session(
-            &session_id,
-            &shell,
-            &["-l", "-c", command],
-            Some(&worktree),
-            &harness_env,
-        )?;
-
-        let code =
-            match poll_session(&state.process, &session_id, log_id, SETUP_COMMAND_TIMEOUT).await {
-                Ok(code) => code,
-                Err(error) => {
-                    let failure = Some((command.clone(), -1));
-                    mark_failed(state, &workspace.id, failure, &error.to_string()).await;
-                    return Ok(false);
-                }
-            };
-
-        forward_session_lines(&state.process, &session_id, log_id);
-        let _ = state.process.stop_session(&session_id);
+        let session = SessionId::Setup {
+            workspace: workspace.id.clone(),
+            index,
+        };
+        let shell = ShellCommand {
+            cmd: command.clone(),
+            cwd: workspace.worktree(),
+            env: env.clone(),
+        };
+        let exit = state
+            .process
+            .run_to_exit(session, &shell, SETUP_COMMAND_TIMEOUT, Some(log_id))
+            .await?;
+        let Exit::Code(code) = exit else {
+            let failure = Some((command.clone(), -1));
+            let error = Error::Process("timed out waiting for setup command".into());
+            mark_failed(state, &workspace.id, failure, &error.to_string()).await;
+            return Ok(false);
+        };
 
         state.process.append_log_line(
             log_id,
@@ -384,9 +386,11 @@ fn seed_summary(state: &AppState, workspace: &WorkspaceRecord, seed: &SeedSummar
         .and_then(|row| row.summary)
         .is_some_and(|text| !text.is_empty());
     if !has_summary {
-        state
-            .workspaces
-            .set_summary(&workspace.id, &seed(workspace), SUMMARY_MODEL_LABEL)?;
+        state.workspaces.set_summary(
+            &workspace.id,
+            &seed(workspace),
+            crate::summaries::LOCAL_SOURCE,
+        )?;
     }
     Ok(())
 }
@@ -434,31 +438,6 @@ async fn workspace_alive(state: &AppState, workspace_id: &str) -> bool {
         .get(workspace_id)
         .await
         .is_ok_and(|record| record.status != WorkspaceLifecycle::TearingDown)
-}
-
-fn forward_session_lines(process: &ProcessSupervisor, from: &str, to: &str) {
-    for line in process.drain_pending(from) {
-        process.append_log_line(to, line);
-    }
-}
-
-async fn poll_session(
-    process: &ProcessSupervisor,
-    session_id: &str,
-    log_id: &str,
-    timeout: Duration,
-) -> Result<i32> {
-    let started = Instant::now();
-    loop {
-        forward_session_lines(process, session_id, log_id);
-        if let Some(code) = process.exit_code(session_id) {
-            return Ok(code);
-        }
-        if started.elapsed() > timeout {
-            return Err(Error::Process("timed out waiting for setup command".into()));
-        }
-        tokio::time::sleep(Duration::from_millis(30)).await;
-    }
 }
 
 #[cfg(test)]

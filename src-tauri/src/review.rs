@@ -4,10 +4,10 @@ use uuid::Uuid;
 use crate::error::{Error, Result};
 use crate::feedback::Change;
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
-use crate::github::RestGithubClient;
+use crate::github::RepoSlug;
 use crate::github::auth;
 use crate::github::review::{ReviewLineComment, ReviewVerdict, SubmitPullRequestReviewInput};
-use crate::model::{SUMMARY_MODEL_LABEL, ThreadStatus, WorkspaceKind};
+use crate::model::{ThreadStatus, WorkspaceKind};
 use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
 use crate::store::Store;
@@ -255,7 +255,7 @@ fn review_plan(
     author: String,
 ) -> ProvisionPlan {
     let pr_label = format!("#{pr_number}");
-    let summary_label = pr_label.clone();
+    let seed_label = pr_label.clone();
     ProvisionPlan {
         workspace_id: workspace.id.clone(),
         thread_id: thread_id.to_string(),
@@ -264,10 +264,7 @@ fn review_plan(
         first_prompt: Some(reviewer_engine_prompt(user_message).into()),
         running_activity: "Reading the diff…".into(),
         seed_summary: Some(Box::new(move |workspace: &WorkspaceRecord| {
-            format!(
-                "Reviewing {summary_label} from {author} against {}. Claude Code is reading the diff and will draft comments for your approval; nothing has been posted to GitHub yet.",
-                workspace.base
-            )
+            crate::summaries::review_started(&seed_label, &author, &workspace.base)
         })),
         started_toast: Some(vec![
             ToastPart::Text {
@@ -500,17 +497,11 @@ async fn complete_review(
         .pr_number
         .map(|num| format!("#{num}"))
         .unwrap_or_else(|| "the PR".into());
-    let card_summary = if findings.is_empty() {
-        format!("Reviewed {pr_label} from {author}: no findings.")
-    } else {
-        format!(
-            "Reviewed {pr_label} from {author}: {}. Choose which to send back for fixes in the Findings tab; nothing has been posted to GitHub yet.",
-            count_findings(&findings)
-        )
-    };
+    let counted = (!findings.is_empty()).then(|| count_findings(&findings));
+    let card_summary = crate::summaries::review_ready(&pr_label, &author, counted.as_deref());
     state
         .workspaces
-        .set_summary(&workspace.id, &card_summary, SUMMARY_MODEL_LABEL)?;
+        .set_summary(&workspace.id, &card_summary, crate::summaries::LOCAL_SOURCE)?;
     state
         .workspaces
         .set_activity(&workspace.id, "Review ready", 0, None)
@@ -586,10 +577,13 @@ pub async fn submit_workspace_review(
         .store
         .repo_by_id(&workspace.repo_id)?
         .ok_or_else(|| Error::unknown_repo(&workspace.repo_id))?;
-    let (owner, repo_name) =
-        parse_repo_slug(state, &repo.path, workspace.pr_html_url.as_deref()).await?;
+    let slug = match workspace.pr_html_url.as_deref().and_then(RepoSlug::parse) {
+        Some(slug) => slug,
+        None => RepoSlug::of_origin(&state.git, &crate::paths::expand_tilde(&repo.path)).await?,
+    };
+    let (owner, repo_name) = (slug.owner, slug.name);
 
-    let token = auth::resolve_token(&state.shell_env).await?;
+    let token = auth::resolve_token(&state.github.gh).await?;
 
     let open_findings: Vec<FindingRow> = state
         .store
@@ -629,7 +623,7 @@ pub async fn submit_workspace_review(
         SubmitReviewVerdict::Comment => ReviewVerdict::Comment,
     };
 
-    let client = RestGithubClient::new();
+    let client = &state.github.rest;
     let mut review = SubmitPullRequestReviewInput {
         verdict,
         body,
@@ -698,40 +692,6 @@ pub async fn submit_workspace_review(
 
     state.out.changed(Change::THREADS);
     Ok(())
-}
-
-async fn parse_repo_slug(
-    state: &AppState,
-    repo_path: &str,
-    pr_html_url: Option<&str>,
-) -> Result<(String, String)> {
-    if let Some(url) = pr_html_url
-        && let Some(rest) = url.strip_prefix("https://github.com/")
-    {
-        let parts: Vec<&str> = rest.split('/').collect();
-        if parts.len() >= 2 {
-            return Ok((parts[0].to_string(), parts[1].to_string()));
-        }
-    }
-    let origin = state
-        .git
-        .remote_origin_url(std::path::Path::new(repo_path))
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    let slug = crate::github::parse_origin_url(origin.trim())
-        .ok_or_else(|| Error::Github("could not resolve repo owner/name".into()))?;
-    let mut parts = slug.split('/');
-    let owner = parts
-        .next()
-        .ok_or_else(|| Error::Github("could not resolve repo owner".into()))?
-        .to_string();
-    let repo_name = parts
-        .next()
-        .ok_or_else(|| Error::Github("could not resolve repo name".into()))?
-        .to_string();
-    Ok((owner, repo_name))
 }
 
 #[cfg(test)]

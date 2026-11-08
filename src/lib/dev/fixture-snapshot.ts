@@ -106,6 +106,7 @@ export const fixtureSnapshot: Snapshot = {
   githubAuthConfigured: false,
   clickupConfigured: false,
   workspaceApps: [],
+  repoRunCommands: [],
 }
 
 /** Uncommitted diff the harness streams for the OAuth workspace. */

@@ -45,7 +45,7 @@
   // A primitive, so status or git updates to `runtime` don't wipe the log.
   const logVersion = $derived(runtime.logVersion)
   const repo = $derived(repos.getById(repoId))
-  const repoCommand = $derived(repo?.runCommand?.trim() ?? '')
+  const repoCommand = $derived(repos.runCommand(repoId))
   const controls = $derived(appControls(workspaceId))
   // This workspace's own command from the field below, else the repo's.
   const runCommand = $derived(controls.runCommand)

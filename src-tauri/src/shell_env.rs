@@ -98,10 +98,6 @@ impl ShellEnv {
         }
     }
 
-    pub async fn run(&self, program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
-        self.run_with_stdin(program, args, cwd, None).await
-    }
-
     pub async fn run_with_stdin(
         &self,
         program: &str,
@@ -197,7 +193,6 @@ pub fn parse_env0(bytes: &[u8]) -> Result<HashMap<String, String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn parses_nul_delimited_env() {
@@ -213,25 +208,13 @@ mod tests {
         let path = env.get("PATH").expect("PATH");
         assert!(path.contains('/'), "login PATH should be populated");
 
-        let claude = env.run("claude", &["--version"], None).await;
-        let pnpm = env.run("pnpm", &["--version"], None).await;
+        let claude = env
+            .run_with_stdin("claude", &["--version"], None, None)
+            .await;
+        let pnpm = env.run_with_stdin("pnpm", &["--version"], None, None).await;
         assert!(
             claude.is_ok() || pnpm.is_ok(),
             "login env should resolve claude or pnpm; claude={claude:?} pnpm={pnpm:?}"
         );
-
-        if pnpm.is_ok() {
-            let dir = std::env::temp_dir().join("cormux-cor-44-worktree");
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(
-                dir.join("package.json"),
-                r#"{"name":"cor-44-spike","private":true}"#,
-            )
-            .unwrap();
-            let _ = env
-                .run("pnpm", &["install", "--ignore-scripts"], Some(&dir))
-                .await;
-            let _ = PathBuf::from(&dir);
-        }
     }
 }
