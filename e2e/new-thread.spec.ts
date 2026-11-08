@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import type { WorkspaceLifecycle } from '../src/lib/ipc/bindings'
 
 test('the first page is a new thread, and typing into it spawns a workspace', async ({
   page,
@@ -175,10 +176,10 @@ test('a thread flashes only while waiting on you, and carries no status text', a
 
   const rows = page.locator('[data-od-id="thread-list"] button')
   await expect(rows).toHaveCount(3)
-  const setStatus = (name: string, status: string) =>
+  const setStatus = (name: string, status: WorkspaceLifecycle) =>
     page.evaluate(
-      ([name, status]) => window.__HARNESS__!.setStatus(name!, status!),
-      [name, status],
+      ({ name, status }) => window.__HARNESS__!.setStatus(name, status),
+      { name, status },
     )
 
   // Working goes quiet and moves below what's waiting, with no words either way.
@@ -252,20 +253,16 @@ test('the shortcuts swap one picker for another, keeping the arrow keys', async 
   await expect(list).toBeVisible()
   await page.keyboard.press('ControlOrMeta+Shift+M')
   await expect(menu).toContainText('Model')
-  // The closed picker hands focus back only after its animation.
-  await page.waitForTimeout(400)
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitemradio', { name: 'Fable' })).toBeFocused()
 
   await page.keyboard.press('ControlOrMeta+Shift+E')
   await expect(menu).toContainText('Effort')
-  await page.waitForTimeout(400)
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitemradio', { name: 'Low' })).toBeFocused()
 
   await page.keyboard.press('ControlOrMeta+Shift+R')
   await expect(list).toBeVisible()
-  await page.waitForTimeout(400)
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect(page.locator('#new-thread-repo')).toHaveText('api')
