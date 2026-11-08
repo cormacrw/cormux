@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte'
+  import { tick } from 'svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import Check from '@lucide/svelte/icons/check'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -42,33 +42,14 @@
   const workspace = $derived(workspaces.getById(workspaceId))
   const rows = $derived(findings.forWorkspace(workspaceId))
   const openRows = $derived(openFindings(rows))
-  const wsThreads = $derived(
-    threads.forWorkspace(workspaceId).filter((thread) => !thread.retired),
-  )
+  const wsThreads = $derived(findings.targetThreads(workspaceId))
   const reviewer = $derived(
     wsThreads.find((thread) => thread.ownRole === 'reviewer') ?? wsThreads[0],
   )
   const selected = $derived(findings.selectedIds(workspaceId))
   const summary = $derived(selectedSummary(rows, selected))
   const barSummary = $derived(selectionSummaryText(summary))
-
-  // Re-run when the findings or threads change. The store calls read and write the
-  // selection, so running them tracked would re-trigger this effect forever.
-  $effect(() => {
-    void rows
-    const threadIds = wsThreads.map((thread) => thread.id)
-    untrack(() => {
-      findings.seedDefaults(workspaceId)
-      findings.ensureTargetThread(workspaceId, threadIds)
-    })
-  })
-
-  const targetThreadId = $derived(
-    findings.targetThreadId[workspaceId] ?? wsThreads[0]?.id ?? '',
-  )
-  const targetThread = $derived(
-    wsThreads.find((thread) => thread.id === targetThreadId) ?? wsThreads[0],
-  )
+  const targetThread = $derived(findings.targetThread(workspaceId))
 
   const engineName = $derived(engineDisplayName(reviewer?.engine ?? 'claude'))
   const prLabel = $derived(
@@ -115,7 +96,7 @@
     if (!targetThread || sending) return
     sending = true
     sendError = null
-    const error = await findings.sendSelected(workspaceId, targetThread.id)
+    const error = await findings.sendSelected(workspaceId)
     sending = false
     if (error) sendError = coreErrorText(error, 'Could not send findings')
   }
@@ -142,7 +123,6 @@
 >
   <div
     bind:this={bodyEl}
-    id="findings-body"
     class="min-h-0 flex-1 overflow-y-auto"
   >
     <div class="mx-auto w-full max-w-3xl px-8 pt-8 pb-12 select-text">
@@ -150,7 +130,6 @@
         <div class="space-y-1">
           <h2
             bind:this={headingRef}
-            id="fnd-heading"
             tabindex="-1"
             class="text-xl font-semibold tracking-tight outline-none"
           >
@@ -400,7 +379,6 @@
   </div>
 
   <div
-    id="findings-bar"
     data-od-id="findings-send-bar"
     class="border-t border-border/50 bg-popover"
   >
@@ -439,7 +417,7 @@
             <span class="text-muted-foreground">Send to</span>
             <Select.Root
               type="single"
-              value={targetThreadId}
+              value={targetThread?.id ?? ''}
               onValueChange={(value) => {
                 if (value) findings.setTargetThread(workspaceId, value)
               }}

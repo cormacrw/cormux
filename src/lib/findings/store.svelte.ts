@@ -1,33 +1,30 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
-import { SvelteSet } from 'svelte/reactivity'
 import type { FindingRow } from '$lib/ipc/bindings'
 import { commands, type CoreError } from '$lib/ipc'
 import {
   applyQuickSelect,
   defaultSelectedIds,
-  mergeSelection,
   type QuickSelectMode,
   setGroupSelection,
   toggleFinding,
 } from '$lib/findings/selection'
 import { openFindings, type FindingSeverity } from '$lib/findings/types'
+import { threads, type Thread } from '$lib/state/threads.svelte'
 import { reuseRows } from '../state/reuse-rows'
 import { onSnapshot } from '$lib/core/sync'
 
-function sameSet(a: Set<string>, b: Set<string>) {
-  if (a.size !== b.size) return false
-  for (const id of a) if (!b.has(id)) return false
-  return true
-}
-
 const NO_FINDINGS: FindingRow[] = []
 
+/**
+ * A workspace's findings, which of them are selected and which thread they go to. Until the
+ * user picks, the selection is the open blocking findings and the target is the first live
+ * thread; only explicit picks are stored.
+ */
 export class FindingsStore {
   items = $state.raw<FindingRow[]>([])
-  private selection = $state<Record<string, Set<string>>>({})
-  private selectionTouched = $state<Record<string, boolean>>({})
-  targetThreadId = $state<Record<string, string>>({})
+  private picked = $state<Record<string, Set<string>>>({})
+  private pickedThread = $state<Record<string, string>>({})
 
   private readonly byWorkspace = $derived.by(() => {
     const map = new Map<string, FindingRow[]>()
@@ -40,21 +37,7 @@ export class FindingsStore {
   })
 
   hydrate(items: FindingRow[]) {
-    const previous = this.items
-    this.items = reuseRows(previous, items)
-    if (this.items === previous) return
-    let selection: Record<string, Set<string>> | null = null
-    for (const [workspaceId, rows] of this.byWorkspace) {
-      const touched = this.selectionTouched[workspaceId] ?? false
-      const current = this.selection[workspaceId]
-      // An untouched selection follows the findings; a touched one is the user's.
-      if (touched && current) continue
-      const merged = mergeSelection(rows, current ?? new SvelteSet(), touched)
-      if (current && sameSet(current, merged)) continue
-      selection ??= { ...this.selection }
-      selection[workspaceId] = merged
-    }
-    if (selection) this.selection = selection
+    this.items = reuseRows(this.items, items)
   }
 
   /** The workspace's findings; the same array until the list changes. */
@@ -71,55 +54,62 @@ export class FindingsStore {
   }
 
   selectedIds(workspaceId: string): Set<string> {
-    return this.selection[workspaceId] ?? new SvelteSet()
+    return (
+      this.picked[workspaceId] ??
+      defaultSelectedIds(this.forWorkspace(workspaceId))
+    )
   }
 
-  ensureTargetThread(workspaceId: string, threadIds: string[]) {
-    if (!threadIds.length) return
-    const current = this.targetThreadId[workspaceId]
-    const fallback = threadIds[0]
-    if (fallback && (!current || !threadIds.includes(current))) {
-      this.targetThreadId = { ...this.targetThreadId, [workspaceId]: fallback }
-    }
+  /** The threads findings can be sent to: the workspace's live ones. */
+  targetThreads(workspaceId: string): Thread[] {
+    return threads
+      .forWorkspace(workspaceId)
+      .filter((thread) => !thread.retired)
+  }
+
+  targetThread(workspaceId: string): Thread | undefined {
+    const candidates = this.targetThreads(workspaceId)
+    const picked = this.pickedThread[workspaceId]
+    return (
+      candidates.find((thread) => thread.id === picked) ?? candidates[0]
+    )
   }
 
   setTargetThread(workspaceId: string, threadId: string) {
-    this.targetThreadId = { ...this.targetThreadId, [workspaceId]: threadId }
+    this.pickedThread = { ...this.pickedThread, [workspaceId]: threadId }
   }
 
   toggle(workspaceId: string, findingId: string, checked: boolean) {
-    const next = toggleFinding(
-      this.selectedIds(workspaceId),
-      findingId,
-      checked,
+    this.select(
+      workspaceId,
+      toggleFinding(this.selectedIds(workspaceId), findingId, checked),
     )
-    this.selection = { ...this.selection, [workspaceId]: next }
-    this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
   }
 
   quickSelect(workspaceId: string, mode: QuickSelectMode) {
     const rows = this.forWorkspace(workspaceId)
-    const next = applyQuickSelect(rows, this.selectedIds(workspaceId), mode)
-    this.selection = { ...this.selection, [workspaceId]: next }
-    this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
+    this.select(
+      workspaceId,
+      applyQuickSelect(rows, this.selectedIds(workspaceId), mode),
+    )
   }
 
   setGroup(workspaceId: string, severity: FindingSeverity, checked: boolean) {
-    const next = setGroupSelection(
-      this.forWorkspace(workspaceId),
-      this.selectedIds(workspaceId),
-      severity,
-      checked,
+    this.select(
+      workspaceId,
+      setGroupSelection(
+        this.forWorkspace(workspaceId),
+        this.selectedIds(workspaceId),
+        severity,
+        checked,
+      ),
     )
-    this.selection = { ...this.selection, [workspaceId]: next }
-    this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
   }
 
-  /** Sends the selected open findings to the thread; resolves why the core refused, or null. */
-  async sendSelected(
-    workspaceId: string,
-    threadId: string,
-  ): Promise<CoreError | null> {
+  /** Sends the selected open findings to the target thread; resolves why the core refused, or null. */
+  async sendSelected(workspaceId: string): Promise<CoreError | null> {
+    const thread = this.targetThread(workspaceId)
+    if (!thread) return null
     const open = new Set(
       openFindings(this.forWorkspace(workspaceId)).map((row) => row.id),
     )
@@ -127,7 +117,7 @@ export class FindingsStore {
     if (!ids.length) return null
     const result = await commands.sendWorkspaceFindings({
       workspaceId,
-      threadId,
+      threadId: thread.id,
       findingIds: ids,
     })
     if (result.status === 'error') return result.error
@@ -148,20 +138,14 @@ export class FindingsStore {
       dismissed,
     })
     if (result.status === 'error') return result.error
-    const next = new SvelteSet(this.selectedIds(workspaceId))
+    const next = new Set(this.selectedIds(workspaceId))
     for (const id of ids) next.delete(id)
-    this.selection = { ...this.selection, [workspaceId]: next }
-    this.selectionTouched = { ...this.selectionTouched, [workspaceId]: true }
+    this.select(workspaceId, next)
     return null
   }
 
-  seedDefaults(workspaceId: string) {
-    if (this.selectionTouched[workspaceId]) return
-    const rows = this.forWorkspace(workspaceId)
-    this.selection = {
-      ...this.selection,
-      [workspaceId]: defaultSelectedIds(rows),
-    }
+  private select(workspaceId: string, ids: Set<string>) {
+    this.picked = { ...this.picked, [workspaceId]: ids }
   }
 }
 
