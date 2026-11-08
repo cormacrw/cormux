@@ -62,6 +62,8 @@ export type HarnessScenario = {
   /** The workspace whose teardown preview reports nothing to lose. */
   cleanTeardown?: string
   fullscreen?: boolean
+  /** An older Reviewer thread in the fixture workspace, retired behind the Lead. */
+  retiredThread?: boolean
 }
 
 /** `window.__HARNESS__`: what tests read back from a running session, and how they drive it. */
