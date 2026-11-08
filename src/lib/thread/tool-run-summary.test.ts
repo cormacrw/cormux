@@ -34,3 +34,20 @@ describe('tool run summary', () => {
     expect(editedPaths(steps)).toEqual(['a.ts'])
   })
 })
+
+describe('tool run summary with agents', () => {
+  it('counts agents rather than calling them other steps', () => {
+    const agent = {
+      kind: 'tool',
+      id: 'a',
+      icon: 'agent',
+      title: 'Agent',
+      agent: true,
+      seq: 1,
+      atMs: 0,
+    } satisfies ToolRunStep
+    expect(toolRunSummary([tool('1', 'file', 'Read'), agent])).toBe(
+      'Read 1 file, ran 1 agent',
+    )
+  })
+})

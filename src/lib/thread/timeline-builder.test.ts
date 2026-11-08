@@ -13,7 +13,7 @@ const tool = (id: string, extra: Partial<AgentEvent> = {}): AgentEvent =>
     title: 'Read',
     name: null,
     kind: 'read',
-    status: 'in_progress',
+    status: 'inProgress',
     locations: [],
     detail: null,
     ...extra,
@@ -167,5 +167,110 @@ describe('TimelineBuilder', () => {
       approvals: [row('approved')] as never,
     })
     expect(items[0]).toMatchObject({ kind: 'approval', state: 'approved' })
+  })
+})
+
+describe('running subagents', () => {
+  const agentCall = (id: string, extra: Partial<AgentEvent> = {}) =>
+    tool(id, {
+      kind: 'other',
+      title: 'Agent',
+      name: 'Agent',
+      detail: 'Explore the auth flow',
+      ...extra,
+    } as Partial<AgentEvent>)
+
+  const live = (events: AgentEvent[]) => {
+    const items = mapEventsToTimeline({
+      events: events.map((event, index) => ({
+        seq: index + 1,
+        atMs: index + 1,
+        event,
+      })),
+      approvals: [],
+      findingsReady: false,
+      showLive: true,
+    })
+    const last = items.at(-1)
+    return last?.kind === 'live' ? last.agents : []
+  }
+
+  it('lists an agent at work with the last thing it did', () => {
+    const agents = live([
+      user('go'),
+      agentCall('a'),
+      tool('c1', { parent_id: 'a', title: 'Read', detail: 'src/one.ts' }),
+      tool('c2', { parent_id: 'a', title: 'Grep', detail: 'auth' }),
+    ])
+    expect(agents).toEqual([
+      {
+        id: 'a',
+        description: 'Explore the auth flow',
+        steps: 2,
+        latest: 'Grep auth',
+      },
+    ])
+  })
+
+  it('drops an agent once it reports back', () => {
+    expect(live([user('go'), agentCall('a'), update('a')])).toEqual([])
+  })
+
+  it('keeps a background agent listed after the turn that started it', () => {
+    expect(live([user('go'), agentCall('a'), end, user('next')])).toHaveLength(
+      1,
+    )
+  })
+
+  it('forgets agents when the engine exits', () => {
+    const exited = { type: 'engineExited', code: 1 } as unknown as AgentEvent
+    expect(live([user('go'), agentCall('a'), exited])).toEqual([])
+  })
+
+  it('marks the agent step itself as running', () => {
+    const items = mapEventsToTimeline({
+      events: [user('go'), agentCall('a')].map((event, index) => ({
+        seq: index + 1,
+        event,
+      })),
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+    })
+    const run = items.find((item) => item.kind === 'toolRun')
+    expect(run?.kind === 'toolRun' && run.steps[0]).toMatchObject({
+      icon: 'agent',
+      agent: true,
+      status: 'inProgress',
+      detail: 'Explore the auth flow',
+    })
+  })
+
+  it('builds the same live row incrementally as from scratch', () => {
+    const builder = new TimelineBuilder()
+    const events: AgentEvent[] = [
+      user('go'),
+      agentCall('a'),
+      end,
+      user('next'),
+      agent('meanwhile'),
+      end,
+      tool('child', { parent_id: 'a' }),
+      update('a'),
+    ]
+    const entries = events.map((event, index) => ({
+      seq: index + 1,
+      atMs: index + 1,
+      event,
+    }))
+    for (let count = 1; count <= entries.length; count += 1) {
+      const next: MapTimelineInput = {
+        events: entries.slice(0, count),
+        approvals: [],
+        findingsReady: false,
+        showLive: true,
+      }
+      expect(builder.build(next)).toEqual(mapEventsToTimeline(next))
+    }
   })
 })

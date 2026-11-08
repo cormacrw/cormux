@@ -31,6 +31,7 @@
     ToolRunStep,
     ToolStepIcon,
   } from '$lib/thread/timeline-types'
+  import { agentIsRunning } from '$lib/thread/timeline-types'
   import { workspaceDiff } from '$lib/state/workspace-diff.svelte'
   import { workspaceRecords } from '$lib/state/workspace-records.svelte'
   import { popIn, type EntryScope } from '$lib/thread/entering'
@@ -47,6 +48,7 @@
   import ApprovalCard from './ApprovalCard.svelte'
   import QuestionCard from './QuestionCard.svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
+  import Bot from '@lucide/svelte/icons/bot'
   import Check from '@lucide/svelte/icons/check'
   import Clock from '@lucide/svelte/icons/clock'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
@@ -197,6 +199,31 @@
     clock: Clock,
     globe: Globe,
     skill: Sparkles,
+    agent: Bot,
+  }
+
+  function counted(count: number, one: string) {
+    return `${count} ${one}${count === 1 ? '' : 's'}`
+  }
+
+  // How an agent step is doing: `running · 4 steps`, `4 steps`, `failed`.
+  function agentState(step: ToolRunStep) {
+    if (step.kind !== 'tool' || !step.agent) return ''
+    const steps = step.children?.length
+      ? counted(step.children.length, 'step')
+      : ''
+    if (step.status === 'failed')
+      return ['failed', steps].filter(Boolean).join(' · ')
+    if (agentIsRunning(step))
+      return ['running', steps].filter(Boolean).join(' · ')
+    return steps
+  }
+
+  function stepIconClass(step: ToolRunStep) {
+    if (step.kind !== 'tool') return 'text-primary'
+    if (step.agent && step.status === 'failed') return 'text-destructive'
+    if (agentIsRunning(step)) return 'animate-pulse text-primary'
+    return step.tone === 'success' ? 'text-success' : 'text-primary'
   }
 
   function iconFor(icon: ToolStepIcon) {
@@ -365,12 +392,7 @@
               use:popIn={{ entries, key: step.id }}
             >
               <Icon
-                class={cn(
-                  'mt-[3px] size-3.5 shrink-0',
-                  step.kind === 'tool' && step.tone === 'success'
-                    ? 'text-success'
-                    : 'text-primary',
-                )}
+                class={cn('mt-[3px] size-3.5 shrink-0', stepIconClass(step))}
                 aria-hidden="true"
               />
               <div class="min-w-0 flex-1">
@@ -390,6 +412,17 @@
                         >· {chip.label}</span
                       >
                     {/each}
+                    {#if agentState(step)}
+                      <span
+                        class={cn(
+                          'text-[11px]',
+                          step.status === 'failed'
+                            ? 'text-destructive'
+                            : 'text-muted-foreground/75',
+                        )}
+                        data-od-id="agent-state">· {agentState(step)}</span
+                      >
+                    {/if}
                   </p>
                   {#if step.rawDetail}
                     <details class="mt-0.5 text-xs text-muted-foreground">
@@ -543,7 +576,8 @@
           </div>
         </div>
       {:else if item.kind === 'toolRun'}
-        {#if item.steps.length >= COLLAPSE_RUN_AT && item.id !== activeRunId}
+        <!-- A run with an agent still working stays open, so the agent stays in view. -->
+        {#if item.steps.length >= COLLAPSE_RUN_AT && item.id !== activeRunId && !item.steps.some(agentIsRunning)}
           {@const edited = editedPaths(item.steps)}
           <details
             class="group/run"

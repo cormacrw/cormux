@@ -16,17 +16,20 @@ export function toolRunSummary(steps: ToolRunStep[]): string {
   const commands = of(
     (step) => step.kind === 'tool' && step.title.startsWith('Ran'),
   )
+  const agents = of((step) => step.kind === 'tool' && Boolean(step.agent))
   const other =
     steps.length -
     reads -
     searches -
     commands -
+    agents -
     of((step) => step.kind === 'edit')
   const parts = [
     reads ? `read ${counted(reads, 'file')}` : '',
     searches ? `ran ${counted(searches, 'search', 'searches')}` : '',
     edits ? `edited ${counted(edits, 'file')}` : '',
     commands ? `ran ${counted(commands, 'command')}` : '',
+    agents ? `ran ${counted(agents, 'agent')}` : '',
     other > 0 ? counted(other, 'other step') : '',
   ].filter(Boolean)
   const line = parts.join(', ')

@@ -66,6 +66,13 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
 }
 
 fn map_block(block: &AssistantBlock, parent_id: Option<&str>) -> Option<AgentEvent> {
+    // A subagent's words and todo list are its own: the lead gets them back as the Agent
+    // call's result, so only its tool calls show, nested under that call.
+    if parent_id.is_some()
+        && !matches!(block, AssistantBlock::ToolUse { name, .. } if name != "TodoWrite")
+    {
+        return None;
+    }
     match block {
         AssistantBlock::Text(text) if !text.is_empty() => Some(AgentEvent::MessageChunk {
             role: MessageRole::Agent,
@@ -227,6 +234,34 @@ mod tests {
                 }],
             })
         );
+    }
+
+    #[test]
+    fn keeps_a_subagents_words_and_todos_out_of_the_thread() {
+        use super::super::protocol::decode_event;
+        let assistant = decode_event(
+            &json!({
+                "type": "assistant",
+                "parent_tool_use_id": "toolu_agent",
+                "message": {"content": [
+                    {"type": "thinking", "thinking": "Where is auth?"},
+                    {"type": "text", "text": "Found it in auth.ts."},
+                    {"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",
+                     "input": {"todos": [{"content": "Read", "status": "pending"}]}},
+                    {"type": "tool_use", "id": "toolu_read", "name": "Read",
+                     "input": {"file_path": "/repo/auth.ts"}}
+                ]}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mapped = map_claude_event(&assistant);
+        assert_eq!(mapped.len(), 1);
+        assert!(matches!(
+            &mapped[0],
+            AgentEvent::ToolCall { id, parent_id: Some(parent), .. }
+                if id == "toolu_read" && parent == "toolu_agent"
+        ));
     }
 
     #[test]

@@ -4,12 +4,18 @@ import { deepEqual } from '$lib/deep-equal'
 import { memoByText } from './memo'
 import { summarizeRun } from './run-summary'
 import type {
+  RunningAgent,
   TimelineChip,
   TimelineItem,
   ToolRunStep,
   ToolStepIcon,
 } from './timeline-types'
-import { toolKindIsEdit, toolKindIsRunStep } from './timeline-types'
+import {
+  agentIsRunning,
+  isAgentTool,
+  toolKindIsEdit,
+  toolKindIsRunStep,
+} from './timeline-types'
 import {
   isLegacyDivider,
   legacyDividerIcon,
@@ -164,6 +170,9 @@ function toolStepFromCall(
       atMs,
     }
   }
+  if (isAgentTool(event.name ?? event.title)) {
+    return agentStep(event, seq, atMs, chips)
+  }
   if (event.kind === 'execute') return commandStep(event, seq, atMs, chips)
   const named = namedToolStep(event)
   if (named) {
@@ -194,6 +203,49 @@ function toolStepFromCall(
     atMs,
     rawDetail: event.detail ?? undefined,
   }
+}
+
+// Claude's Agent call is detailed by the task's short description.
+function agentStep(
+  event: Extract<AgentEvent, { type: 'toolCall' }>,
+  seq: number,
+  atMs: number,
+  chips: TimelineChip[] | undefined,
+): ToolRunStep {
+  return {
+    kind: 'tool',
+    id: event.id,
+    icon: 'agent',
+    title: 'Agent',
+    detail: event.detail ?? undefined,
+    chips,
+    tone: event.status === 'completed' ? 'success' : undefined,
+    quiet: false,
+    seq,
+    atMs,
+    status: event.status,
+    agent: true,
+  }
+}
+
+/** What a subagent did last, as its step reads in the timeline. */
+function stepText(step: ToolRunStep): string {
+  if (step.kind === 'edit') return `${step.verb} ${step.path.split('/').pop()}`
+  return [step.title, step.detail].filter(Boolean).join(' ')
+}
+
+function runningAgents(agents: ToolRunStep[]): RunningAgent[] {
+  return agents.filter(agentIsRunning).map((step) => {
+    const children = step.kind === 'tool' ? (step.children ?? []) : []
+    const last = children.at(-1)
+    return {
+      id: step.id,
+      description:
+        (step.kind === 'tool' ? step.detail : undefined) ?? 'Subagent',
+      steps: children.length,
+      latest: last ? stepText(last) : undefined,
+    }
+  })
 }
 
 /** `https://www.example.com/a/b` → `example.com/a/b`; the full URL stays in the tooltip. */
@@ -356,6 +408,8 @@ type FoldState = {
   run: ToolRunStep[]
   // A subagent's steps can land runs after the step that spawned them.
   stepsById: Map<string, ToolRunStep>
+  // Agent steps, for the live row. A background agent outlives the run that started it.
+  agents: ToolRunStep[]
   runSeq: number
   pendingAutoChip: TimelineChip | undefined
   sealMessage: boolean
@@ -368,6 +422,7 @@ function foldState(
   counts = new Map<string, number>(),
   pendingAutoChip?: TimelineChip,
   sealMessage = false,
+  agents: ToolRunStep[] = [],
 ): FoldState {
   return {
     items,
@@ -375,6 +430,7 @@ function foldState(
     nextId: ordinalIds(counts),
     run: [],
     stepsById: new Map(),
+    agents,
     runSeq: 0,
     pendingAutoChip,
     sealMessage,
@@ -510,6 +566,7 @@ function foldEvent(
         ]
         break
       }
+      if (step.kind === 'tool' && step.agent) state.agents.push(step)
       run.push(step)
       break
     }
@@ -555,6 +612,8 @@ function foldEvent(
     case 'turnEnd':
     case 'engineExited':
       flushRun(run, items, state.runSeq, nextId)
+      // Its subagents went with the process, whether or not they reported back.
+      if (event.type === 'engineExited') state.agents = []
       if (state.runStartedAt && atMs >= state.runStartedAt) {
         items.push({
           kind: 'toolRun',
@@ -605,7 +664,11 @@ function finishTimeline(
 
   if (input.showLive) {
     // A stable id keeps the row mounted while replies stream, so its animations run on.
-    items.push({ kind: 'live', id: 'live' })
+    items.push({
+      kind: 'live',
+      id: 'live',
+      agents: runningAgents(state.agents),
+    })
   }
 
   return items
@@ -628,6 +691,7 @@ type FinishedTurns = {
   counts: Map<string, number>
   pendingAutoChip: TimelineChip | undefined
   callIds: Set<string>
+  agents: ToolRunStep[]
   approvals: ApprovalRow[]
   scratch: boolean | undefined
 }
@@ -697,6 +761,7 @@ export class TimelineBuilder {
           new Map(turns.counts),
           turns.pendingAutoChip,
           true,
+          [...turns.agents],
         )
       : foldState()
     const tail = input.events.slice(start)
@@ -721,6 +786,7 @@ export class TimelineBuilder {
         counts: new Map(state.counts),
         pendingAutoChip: state.pendingAutoChip,
         callIds,
+        agents: [...state.agents],
         approvals: input.approvals,
         scratch: input.scratch,
       }

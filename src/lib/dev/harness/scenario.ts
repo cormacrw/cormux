@@ -78,6 +78,8 @@ export type HarnessControls = {
   stackRemoteUp: boolean
   /** Sets a workspace's status without driving an agent. */
   setStatus: (name: string, status: string) => void
+  /** Sets a thread's status, such as `running` for its live status, without a prompt. */
+  setThreadStatus: (threadId: string, status: string) => void
   /** Delivers events to the open Lead thread as an engine would. */
   agentEvents: (events: object[]) => void
   /** Commits the uncommitted diff, as the watcher reports it. */

@@ -51,6 +51,12 @@ export function createRuntime(scenario: HarnessScenario) {
       }
       emitStateChanged()
     },
+    setThreadStatus(threadId, status) {
+      for (const row of fixtureSnapshot.persisted.threads) {
+        if (row.id === threadId) row.status = status as typeof row.status
+      }
+      emitStateChanged()
+    },
     agentEvents(events) {
       for (const event of events) {
         const seq = nextSeq('th-lead')

@@ -29,6 +29,7 @@ export type ToolStepIcon =
   | 'globe'
   | 'skill'
   | 'clock'
+  | 'agent'
 
 export type ToolRunStep =
   | {
@@ -50,6 +51,8 @@ export type ToolRunStep =
       /** What a subagent did, when this step spawned one. */
       children?: ToolRunStep[]
       status?: ToolCallStatus
+      /** Set on the step that spawned a subagent, which shows whether it is still running. */
+      agent?: boolean
     }
   | {
       kind: 'edit'
@@ -109,7 +112,33 @@ export type TimelineItem =
       atMs: number
     }
   | { kind: 'findings'; id: string; seq: number }
-  | { kind: 'live'; id: string }
+  | {
+      kind: 'live'
+      id: string
+      /** Subagents still working, so they show while the step that spawned them is out of view. */
+      agents: RunningAgent[]
+    }
+
+/** A subagent still working, with the last thing it did. */
+export type RunningAgent = {
+  id: string
+  description: string
+  steps: number
+  latest?: string
+}
+
+/** Claude's tool for spawning a subagent; older builds called it `Task`. */
+export function isAgentTool(name: string): boolean {
+  return name === 'Agent' || name === 'Task'
+}
+
+export function agentIsRunning(step: ToolRunStep): boolean {
+  return (
+    step.kind === 'tool' &&
+    Boolean(step.agent) &&
+    (step.status === 'inProgress' || step.status === 'pending')
+  )
+}
 
 export type TimelineSpeaker = 'user' | 'agent'
 

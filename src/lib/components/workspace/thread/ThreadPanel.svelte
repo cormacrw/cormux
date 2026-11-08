@@ -24,6 +24,7 @@
   import { buildTimelineRows } from '$lib/thread/timeline-rows'
   import { createVirtualizer } from '@tanstack/svelte-virtual'
   import Pause from '@lucide/svelte/icons/pause'
+  import Bot from '@lucide/svelte/icons/bot'
   import AgentSpinner from './AgentSpinner.svelte'
   import ThreadComposer from './ThreadComposer.svelte'
   import ThreadFind from './ThreadFind.svelte'
@@ -74,6 +75,14 @@
 
   // The live row floats above the prompt bar instead (see the composer's status).
   const live = $derived(items.at(-1)?.kind === 'live')
+  // Subagents still working, shown with the live status so they stay in view.
+  const runningAgents = $derived.by(() => {
+    const last = items.at(-1)
+    return last?.kind === 'live' ? last.agents : []
+  })
+  const AGENTS_SHOWN = 4
+  // The live status floats over the end of the timeline, which leaves room for all of it.
+  let liveStatusHeight = $state(0)
   const rows = $derived(
     buildTimelineRows(
       live ? items.slice(0, -1) : items,
@@ -388,6 +397,9 @@
             ? 'pb-14'
             : 'pb-4',
       ]}
+      style:padding-bottom={live && !showHero && liveStatusHeight
+        ? `calc(${liveStatusHeight}px + 1.75rem)`
+        : undefined}
     >
       {#if !loaded}
         <!-- Reads in a moment; a greeting here would flash before the conversation. -->
@@ -482,27 +494,74 @@
 
   {#snippet liveStatus()}
     <div
-      class="live-status glass-pane flex max-w-full min-w-0 items-center gap-2 rounded-full py-1.5 pr-3.5 pl-3 text-xs shadow-none"
-      data-od-id="live-status"
+      class="flex max-w-full min-w-0 flex-col items-start gap-1"
+      bind:clientHeight={liveStatusHeight}
     >
-      {#if thread.paused}
-        <Pause
-          class="size-3 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-      {:else}
-        <AgentSpinner class="mr-1" />
+      {#if runningAgents.length}
+        <ul
+          class="live-status glass-pane max-w-full min-w-0 space-y-1 rounded-[14px] py-1.5 pr-3.5 pl-3 text-xs shadow-none"
+          data-od-id="running-agents"
+          aria-label="Running agents"
+        >
+          {#each runningAgents.slice(0, AGENTS_SHOWN) as agent (agent.id)}
+            <li class="flex min-w-0 items-center gap-1.5">
+              <Bot
+                class="size-3 shrink-0 animate-pulse text-primary"
+                aria-hidden="true"
+              />
+              <span class="shrink-0 font-medium text-foreground/85"
+                >{agent.description}</span
+              >
+              {#if agent.latest}
+                <span
+                  class="truncate text-muted-foreground"
+                  title={agent.latest}>· {agent.latest}</span
+                >
+              {/if}
+              {#if agent.steps}
+                <span class="shrink-0 text-muted-foreground/70"
+                  >· {agent.steps} {agent.steps === 1 ? 'step' : 'steps'}</span
+                >
+              {/if}
+            </li>
+          {/each}
+          {#if runningAgents.length > AGENTS_SHOWN}
+            <li class="pl-[1.125rem] text-muted-foreground">
+              +{runningAgents.length - AGENTS_SHOWN} more
+            </li>
+          {/if}
+        </ul>
       {/if}
-      <span
-        class={[
-          'shrink-0 font-medium text-foreground/85',
-          // Re-added on resume as the spinner remounts, so both restart the beat together.
-          !thread.paused && 'agent-working-text',
-        ]}>{liveRowTitle}</span
+      <div
+        class="live-status glass-pane flex max-w-full min-w-0 items-center gap-2 rounded-full py-1.5 pr-3.5 pl-3 text-xs shadow-none"
+        data-od-id="live-status"
       >
-      {#if liveRowSubtitle && liveRowSubtitle !== liveRowTitle}
-        <span class="truncate text-muted-foreground">· {liveRowSubtitle}</span>
-      {/if}
+        {#if thread.paused}
+          <Pause
+            class="size-3 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+        {:else}
+          <AgentSpinner class="mr-1" />
+        {/if}
+        <span
+          class={[
+            'shrink-0 font-medium text-foreground/85',
+            // Re-added on resume as the spinner remounts, so both restart the beat together.
+            !thread.paused && 'agent-working-text',
+          ]}>{liveRowTitle}</span
+        >
+        {#if liveRowSubtitle && liveRowSubtitle !== liveRowTitle}
+          <span class="truncate text-muted-foreground">· {liveRowSubtitle}</span
+          >
+        {/if}
+        {#if runningAgents.length}
+          <span class="shrink-0 text-muted-foreground"
+            >· {runningAgents.length}
+            {runningAgents.length === 1 ? 'agent' : 'agents'} running</span
+          >
+        {/if}
+      </div>
     </div>
   {/snippet}
 
