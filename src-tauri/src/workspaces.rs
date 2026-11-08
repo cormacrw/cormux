@@ -194,6 +194,26 @@ impl Workspaces {
         .await
     }
 
+    /// Starts tearing the workspace down, checked and set under one lock so two teardowns can't
+    /// both start. Returns the workspace as it was before, to hand back if the teardown fails.
+    pub async fn begin_teardown(&self, id: &str) -> Result<WorkspaceRecord> {
+        let mut before = None;
+        self.update(id, |store, record| {
+            if record.status == WorkspaceLifecycle::TearingDown {
+                return Err(Error::Workspace(format!(
+                    "workspace {id} is already being torn down"
+                )));
+            }
+            assert_transition(record.status, WorkspaceLifecycle::TearingDown)?;
+            before = Some(record.clone());
+            store.set_workspace_status(id, WorkspaceLifecycle::TearingDown)?;
+            record.status = WorkspaceLifecycle::TearingDown;
+            Ok(())
+        })
+        .await?;
+        before.ok_or_else(|| Error::unknown_workspace(id))
+    }
+
     /// Takes a failed setup back to provisioning. Anything else is refused, so a second Retry
     /// or Skip can't start a run over one already going.
     pub async fn restart_provisioning(&self, id: &str) -> Result<WorkspaceRecord> {
@@ -886,6 +906,32 @@ mod tests {
             Some(ThreadRole::Lead)
         );
         assert_eq!(restarted.live().await.unwrap().len(), 1);
+    }
+
+    /// Bug: teardown checked the status and set it under separate locks, so two teardowns could
+    /// both start.
+    #[tokio::test]
+    async fn only_one_of_two_teardowns_begins() {
+        let store = store_with_repo("main");
+        let root = tempfile::tempdir().unwrap();
+        let workspaces = registered(&store, root.path()).await;
+        workspaces
+            .set_status("w", WorkspaceLifecycle::Ready)
+            .await
+            .unwrap();
+
+        let (first, second) = tokio::join!(
+            workspaces.begin_teardown("w"),
+            workspaces.begin_teardown("w")
+        );
+
+        let begun: Vec<_> = [first, second].into_iter().filter_map(Result::ok).collect();
+        assert_eq!(begun.len(), 1);
+        assert_eq!(begun[0].status, WorkspaceLifecycle::Ready);
+        assert_eq!(
+            workspaces.get("w").await.unwrap().status,
+            WorkspaceLifecycle::TearingDown
+        );
     }
 
     #[tokio::test]

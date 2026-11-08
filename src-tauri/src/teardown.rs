@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::app::WorkspaceAppStatus;
-use crate::error::{Error, Result};
-use crate::model::WorkspaceLifecycle;
+use crate::error::Result;
 use crate::state::AppState;
 use crate::workspaces::WorkspaceRecord;
 
@@ -76,17 +75,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
 /// Setup still running stops too: its command's process is stopped with the rest, and its run is
 /// cancelled once any worktree it was adding is there to remove.
 pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
-    let record = state.workspaces.get(&input.workspace_id).await?;
-    if record.status == WorkspaceLifecycle::TearingDown {
-        return Err(Error::Workspace(format!(
-            "workspace {} is already being torn down",
-            input.workspace_id
-        )));
-    }
-    state
-        .workspaces
-        .set_status(&input.workspace_id, WorkspaceLifecycle::TearingDown)
-        .await?;
+    let record = state.workspaces.begin_teardown(&input.workspace_id).await?;
     state.out.changed();
 
     let thread_ids: Vec<String> = state
@@ -244,7 +233,7 @@ pub mod commands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind};
+    use crate::model::{ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
     use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
 
     async fn registered(worktree: &str) -> AppState {
