@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte'
   import { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
   import { Button } from '$lib/components/ui/button'
-  import ThoughtMarkdown from '$lib/components/workspace/thread/ThoughtMarkdown.svelte'
+  import DocMarkdown from '$lib/components/markdown/DocMarkdown.svelte'
   import { POINT_PRESETS, statusLabel, taskRef } from '$lib/clickup/board'
   import { clickup } from '$lib/state'
   import { cn } from '$lib/utils'
@@ -174,7 +174,7 @@
           {#if detail}
             {#if detail.description.trim()}
               <div class="text-sm">
-                <ThoughtMarkdown text={detail.description} rich />
+                <DocMarkdown text={detail.description} />
               </div>
             {:else}
               <p class="text-sm text-muted-foreground">No description.</p>

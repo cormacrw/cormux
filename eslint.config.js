@@ -31,9 +31,10 @@ export default ts.config(
   },
   {
     files: [
-      'src/lib/components/workspace/thread/ThoughtMarkdown.svelte',
-      'src/lib/components/workspace/thread/MathBlock.svelte',
-      'src/lib/components/workspace/thread/MermaidBlock.svelte',
+      'src/lib/components/markdown/DocMarkdown.svelte',
+      'src/lib/components/workspace/thread/reply/ReplyMarkdown.svelte',
+      'src/lib/components/workspace/thread/reply/MathBlock.svelte',
+      'src/lib/components/workspace/thread/reply/MermaidBlock.svelte',
     ],
     rules: {
       'svelte/no-at-html-tags': 'off',

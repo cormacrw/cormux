@@ -1,6 +1,6 @@
 import type { ToolCallStatus, ToolKind } from '$lib/ipc/bindings'
 import type { AgentQuestion } from '$lib/approvals/payload'
-import type { RunSummary } from './run-summary'
+import type { RunSummary } from './reply/blocks/run'
 
 type ChipTone = 'success' | 'warning' | 'muted'
 

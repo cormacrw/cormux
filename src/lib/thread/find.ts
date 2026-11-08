@@ -1,3 +1,4 @@
+import { parseReply, replySearchText } from './reply/parse'
 import type { TimelineRow } from './timeline-types'
 
 /** One match: the row it's in, and which occurrence in that row's text it is. */
@@ -18,8 +19,11 @@ export function rowSearchText(row: TimelineRow): string {
   const item = row.item
   switch (item.kind) {
     case 'user':
-    case 'thought':
       return item.text
+    case 'thought':
+      return item.role === 'thought'
+        ? item.text
+        : replySearchText(parseReply(item.text, { streaming: false }))
     case 'toolRun':
       return item.steps
         .flatMap((step) =>
@@ -74,13 +78,11 @@ export function findMatches(rows: TimelineRow[], query: string): FindMatch[] {
   )
 }
 
-/** `3 of 12`, or `No matches` once something is typed. */
 export function findCounterText(current: number, total: number): string {
   if (!total) return 'No matches'
   return `${current + 1} of ${total}`
 }
 
-/** The next match index, wrapping around either end. */
 export function stepMatch(current: number, total: number, by: 1 | -1): number {
   if (!total) return 0
   return (current + by + total) % total
