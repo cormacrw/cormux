@@ -1,4 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
+import { Marked } from 'marked'
 import { commands, type ThreadMedia } from '$lib/ipc'
 
 /**
@@ -68,25 +69,38 @@ function splitPlain(text: string, into: MediaSegment[]) {
   if (last < text.length) into.push({ kind: 'text', text: text.slice(last) })
 }
 
+const lexer = new Marked({ gfm: true, breaks: true })
+
+// Only these top-level blocks are cut around their media. Cutting a table, list or quote would
+// leave the markdown on either side unparseable, so media in those stays in the prose and is
+// mounted in place once rendered (see `mountInlineMedia`).
+const SPLITTABLE = new Set(['paragraph', 'html', 'space', 'text'])
+
 /** Splits a reply into prose and local media, keeping order. Fenced code stays prose. */
 export function splitLocalMedia(text: string): MediaSegment[] {
   const segments: MediaSegment[] = []
-  const fence = /```[^\n]*\n[\s\S]*?(?:```|$)/g
-  let last = 0
-  for (const match of text.matchAll(fence)) {
-    splitPlain(text.slice(last, match.index), segments)
-    segments.push({ kind: 'text', text: match[0] })
-    last = match.index + match[0].length
+  for (const token of lexer.lexer(text)) {
+    if (SPLITTABLE.has(token.type)) splitPlain(token.raw, segments)
+    else segments.push({ kind: 'text', text: token.raw })
   }
-  splitPlain(text.slice(last), segments)
   // A match that produced nothing (all references left as prose) stays one text segment.
   if (segments.every((segment) => segment.kind === 'text')) {
     return text ? [{ kind: 'text', text }] : []
   }
-  return segments.filter(
-    (segment) => segment.kind !== 'text' || segment.text.length > 0,
-  )
+  const merged: MediaSegment[] = []
+  for (const segment of segments) {
+    const previous = merged[merged.length - 1]
+    if (segment.kind === 'text' && previous?.kind === 'text') {
+      previous.text += segment.text
+    } else if (segment.kind !== 'text' || segment.text) {
+      merged.push(segment)
+    }
+  }
+  return merged
 }
+
+/** Marks a local image the sanitiser let through; its `src` is never loaded directly. */
+export const INLINE_MEDIA_ATTR = 'data-local-media'
 
 export type ResolvedMedia = {
   kind: LocalMediaKind

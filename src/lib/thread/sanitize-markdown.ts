@@ -17,6 +17,7 @@ import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import { Marked } from 'marked'
 import { markedHighlight } from 'marked-highlight'
+import { INLINE_MEDIA_ATTR, mediaKindForSource } from './local-media'
 import { memoByText } from './memo'
 
 // Only the languages agents usually write, so the bundle doesn't carry all ~190 of them.
@@ -75,10 +76,11 @@ const ALLOWED = {
     'tr',
     'th',
     'td',
+    'img',
   ],
   // `start` keeps a list the agent continues (16., 17., …) from renumbering at 1.
   // `align` is how marked says what a table column's `:---:` asked for.
-  ALLOWED_ATTR: ['href', 'rel', 'target', 'start', 'class', 'align'],
+  ALLOWED_ATTR: ['href', 'rel', 'target', 'start', 'class', 'align', 'alt'],
 }
 
 // A private instance: hooks are per instance, and Mermaid sanitises with the shared one.
@@ -92,6 +94,25 @@ purify.addHook('uponSanitizeAttribute', (_node, data) => {
     .split(/\s+/)
     .filter((name) => /^(hljs|language-)|_$/.test(name))
     .join(' ')
+})
+
+// An image never keeps its `src`, so nothing loads from the agent's markup. A local image (the
+// kind a top-level reference renders as a figure) is marked for `mountInlineMedia`, which
+// resolves it through the core; any other image becomes its alt text.
+purify.addHook('uponSanitizeElement', (node) => {
+  if (!(node instanceof Element) || node.nodeName !== 'IMG') return
+  const source = node.getAttribute('src') ?? ''
+  node.removeAttribute(INLINE_MEDIA_ATTR)
+  if (mediaKindForSource(source) === 'image') {
+    node.setAttribute(INLINE_MEDIA_ATTR, source)
+  }
+})
+
+purify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.nodeName !== 'IMG' || !(node instanceof Element)) return
+  if (!node.hasAttribute(INLINE_MEDIA_ATTR)) {
+    node.replaceWith(node.getAttribute('alt') ?? '')
+  }
 })
 
 // GitHub's `> [!NOTE]`, and the `> **Warning:**` agents write by habit.

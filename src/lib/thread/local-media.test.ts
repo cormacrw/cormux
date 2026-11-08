@@ -70,6 +70,27 @@ describe('splitLocalMedia', () => {
   })
 })
 
+describe('splitLocalMedia inside other blocks', () => {
+  it('leaves a table whole, so it still parses as a table', () => {
+    const text = [
+      'Compare:',
+      '',
+      '| Before | After |',
+      '|---|---|',
+      '| ![a](/tmp/a.png) | ![b](/tmp/b.png) |',
+    ].join('\n')
+    expect(splitLocalMedia(text)).toEqual([{ kind: 'text', text }])
+  })
+
+  it('leaves lists whole but still cuts media out of the paragraphs around them', () => {
+    const list = '- ![a](/tmp/a.png)\n- second'
+    expect(splitLocalMedia(`${list}\n\n![b](/tmp/b.png)`)).toEqual([
+      { kind: 'text', text: `${list}\n\n` },
+      { kind: 'media', source: '/tmp/b.png', alt: 'b', mediaKind: 'image' },
+    ])
+  })
+})
+
 describe('mediaKindForSource', () => {
   it('classifies by extension, ignoring case and query', () => {
     expect(mediaKindForSource('/a/B.PNG')).toBe('image')

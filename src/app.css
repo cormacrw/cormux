@@ -588,6 +588,25 @@
   white-space: nowrap;
 }
 
+/* Media mounted in place inside a table, list or quote (see ThoughtMarkdown). In a cell it's a
+   thumbnail that holds its column open; a click still opens the full viewer. */
+.reply-inline-media {
+  display: block;
+}
+
+.agent-markdown td .reply-inline-media {
+  width: 16rem;
+  max-width: 100%;
+}
+
+.agent-markdown td .reply-inline-media :is(figure, p, div) {
+  margin-block: 0;
+}
+
+.agent-markdown td .reply-inline-media :is(img, video) {
+  max-height: 12rem;
+}
+
 .agent-markdown :is(th, td)[align='center'] {
   text-align: center;
 }

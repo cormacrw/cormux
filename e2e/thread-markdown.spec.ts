@@ -319,3 +319,45 @@ test('before and after screenshots compare with a slider', async ({ page }) => {
     /70%/,
   )
 })
+
+test('images in a table render in their cells', async ({ page }) => {
+  await openReply(
+    page,
+    [
+      '| Screen | Before | After |',
+      '|---|---|---|',
+      '| Settings | ![Settings before](/tmp/shots/before.png) | ![Settings after](/tmp/shots/after.png) |',
+      '| Remote | ![tracker](https://example.com/pixel.png) | [the flow](/tmp/shots/flow.webm) |',
+      '',
+      '- In a list: ![Listed](/tmp/shots/listed.png)',
+    ].join('\n'),
+  )
+
+  const table = page.locator('#timeline .agent-markdown table')
+  await expect(table.getByRole('row')).toHaveCount(3)
+  const cells = table.getByRole('row').nth(1).getByRole('cell')
+  await expect(
+    cells.nth(1).getByRole('img', { name: 'Settings before' }),
+  ).toBeVisible()
+  await expect(
+    cells.nth(2).getByRole('img', { name: 'Settings after' }),
+  ).toBeVisible()
+  await expect(table.locator('video')).toHaveCount(1)
+  // A remote image never loads; its alt text stands in.
+  await expect(table.getByRole('cell', { name: 'tracker' })).toBeVisible()
+  await expect(table.locator('img[src*="example.com"]')).toHaveCount(0)
+  await expect(
+    page
+      .locator('#timeline .agent-markdown li')
+      .getByRole('img', { name: 'Listed' }),
+  ).toBeVisible()
+
+  await cells
+    .nth(2)
+    .getByRole('button', { name: /Enlarge/ })
+    .click()
+  await expect(page.getByRole('dialog', { name: 'after.png' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await table.screenshot({ path: 'e2e/output/thread-table-images.png' })
+})
