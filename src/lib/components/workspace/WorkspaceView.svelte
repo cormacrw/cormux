@@ -111,22 +111,25 @@
     void tick().then(focusPrompt)
   }
 
-  // Esc slides Git, Output or Findings away from anywhere in the workspace.
+  let paneRow: HTMLDivElement | undefined = $state()
+  let changesTray: HTMLDivElement | undefined = $state()
+  let outputTray: HTMLDivElement | undefined = $state()
+
+  /** Focus is in the tray pinned beside the conversation. */
+  function inPinnedTray() {
+    const tray = pinnedTray === 'changes' ? changesTray : outputTray
+    return !!pinnedTray && !!tray?.contains(document.activeElement)
+  }
+
+  // Esc slides Git, Output or Findings away from anywhere in the workspace; in the pinned
+  // tray it goes back to the prompt rather than on to stop the agent.
   $effect(() =>
     keyboardLayers.onEscape('slideOut', () => {
-      if (!slideOut) return false
+      if (!slideOut && !inPinnedTray()) return false
       dismissSlideOut()
       return true
     }),
   )
-
-  let paneRow: HTMLDivElement | undefined = $state()
-
-  function onSlideOutKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || event.defaultPrevented) return
-    event.preventDefault()
-    dismissSlideOut()
-  }
 
   // Snapshots rebuild the workspace object; resubscribing on each one would clear the diff.
   const workspaceId = $derived(workspace?.id)
@@ -215,8 +218,8 @@
         {/snippet}
 
         {#if changesMounted}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
+            bind:this={changesTray}
             class={pinnedTray === 'changes' ? PANE_CLASS : SLIDE_CLASS}
             style:--tray-w="960px"
             style:width={pinnedTray === 'changes'
@@ -227,15 +230,14 @@
             data-od-id="git-slide-out"
             data-tray="git"
             inert={!gitVisible}
-            onkeydown={onSlideOutKeydown}
           >
             {#if pinnedTray === 'changes'}{@render paneEdge()}{/if}
             <ChangesPanel {workspace} repoId={workspaceRepoId} />
           </div>
         {/if}
         {#if outputMounted}
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
+            bind:this={outputTray}
             id="output-panel"
             role="region"
             aria-label="Output"
@@ -250,7 +252,6 @@
             data-od-id="output-slide-out"
             data-tray="output"
             inert={!outputVisible}
-            onkeydown={onSlideOutKeydown}
           >
             {#if pinnedTray === 'output'}{@render paneEdge()}{/if}
             <WorkspaceOutputPanel
@@ -261,7 +262,6 @@
           </div>
         {/if}
         {#if findingsShown}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class={SLIDE_CLASS}
             style:--tray-w="760px"
@@ -269,7 +269,6 @@
             data-od-id="findings-slide-out"
             data-tray="findings"
             inert={!findingsTabActive}
-            onkeydown={onSlideOutKeydown}
           >
             <WorkspaceFindingsPanel
               workspaceId={workspace.id}
