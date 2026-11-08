@@ -1,20 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentEvent } from '$lib/ipc/bindings'
+import type { EditVerb, TranscriptEvent } from '$lib/ipc/bindings'
 import { TimelineBuilder } from './map-events-to-timeline'
 import { buildTimelineRows } from './timeline-rows'
 import { splitConversations } from './conversations'
 import { reuseRows } from '$lib/state/reuse-rows'
 
-type Timed = { seq: number; atMs: number; event: AgentEvent }
-type ToolKind = Extract<AgentEvent, { type: 'toolCall' }>['kind']
-
-function toolCall(id: string, kind: ToolKind): AgentEvent {
+type Timed = { seq: number; atMs: number; event: TranscriptEvent }
+function toolCall(id: string, edit: boolean): TranscriptEvent {
+  const verb: EditVerb = 'Edited'
   return {
     type: 'toolCall',
     id,
     title: `Read src/lib/file-${id}.ts`,
-    name: 'Read',
-    kind,
+    role: edit ? { kind: 'edit', verb } : { kind: 'read' },
     status: 'completed',
     locations: [`src/lib/file-${id}.ts`],
     detail: null,
@@ -25,7 +23,7 @@ function toolCall(id: string, kind: ToolKind): AgentEvent {
 export function syntheticThread(turns: number): Timed[] {
   const events: Timed[] = []
   let seq = 0
-  const push = (event: AgentEvent) => {
+  const push = (event: TranscriptEvent) => {
     seq += 1
     events.push({ seq, atMs: 1_700_000_000_000 + seq * 1000, event })
   }
@@ -38,12 +36,11 @@ export function syntheticThread(turns: number): Timed[] {
     })
     for (let step = 0; step < 20; step += 1) {
       const id = `t${turn}-s${step}`
-      push(toolCall(id, step % 5 === 0 ? 'edit' : 'read'))
+      push(toolCall(id, step % 5 === 0))
       push({
         type: 'toolCallUpdate',
         id,
         title: null,
-        kind: null,
         status: 'completed',
         locations: [],
         output: null,

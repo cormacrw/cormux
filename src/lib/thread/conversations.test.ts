@@ -1,32 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentEvent } from '$lib/ipc/bindings'
+import type { TimelineStep, TranscriptEvent } from '$lib/ipc/bindings'
 import { heroLine, splitConversations } from './conversations'
-import { NEW_SESSION_TITLE, RESUME_TITLE } from './legacy-steps'
 
 let seq = 0
-const at = (event: AgentEvent) => ({ seq: ++seq, atMs: seq * 1000, event })
+const at = (event: TranscriptEvent) => ({ seq: ++seq, atMs: seq * 1000, event })
 const ask = (text: string) => at({ type: 'messageChunk', role: 'user', text })
 const reply = (text: string) =>
   at({ type: 'messageChunk', role: 'agent', text })
-const step = (title: string, detail: object) =>
-  at({
-    type: 'toolCall',
-    id: `control-${seq}`,
-    title,
-    name: null,
-    kind: 'other',
-    status: 'completed',
-    locations: [],
-    detail: JSON.stringify(detail),
-  })
+const step = (step: TimelineStep) =>
+  at({ type: 'step', id: `step-${seq}`, title: '', detail: null, step })
+const newSession = (ended: string | null) =>
+  step({ kind: 'sessionStarted', ended_session: ended })
 
 describe('splitConversations', () => {
   it('shows only what came after a new session', () => {
-    const events = [
-      ask('Fix login'),
-      reply('Done'),
-      step(NEW_SESSION_TITLE, { endedSession: 'sess-1' }),
-    ]
+    const events = [ask('Fix login'), reply('Done'), newSession('sess-1')]
     const { current, earlier } = splitConversations(events)
     expect(current.events).toEqual([])
     expect(earlier).toHaveLength(1)
@@ -39,12 +27,16 @@ describe('splitConversations', () => {
   })
 
   it('switches back to a resumed conversation, which then grows', () => {
-    const newSession = step(NEW_SESSION_TITLE, { endedSession: 'sess-1' })
+    const started = newSession('sess-1')
     const events = [
       ask('Fix login'),
-      newSession,
+      started,
       ask('Write docs'),
-      step(RESUME_TITLE, { conversation: 'first', endedSession: 'sess-2' }),
+      step({
+        kind: 'sessionResumed',
+        conversation: 'first',
+        ended_session: 'sess-2',
+      }),
       ask('And the logout too'),
     ]
     const { current, earlier } = splitConversations(events)
@@ -56,7 +48,7 @@ describe('splitConversations', () => {
     ).toEqual(['Fix login', 'And the logout too'])
     expect(earlier).toMatchObject([
       {
-        id: `after-${newSession.seq}`,
+        id: `after-${started.seq}`,
         firstPrompt: 'Write docs',
         sessionId: 'sess-2',
       },
@@ -64,10 +56,7 @@ describe('splitConversations', () => {
   })
 
   it('lists no empty conversations', () => {
-    const events = [
-      step(NEW_SESSION_TITLE, { endedSession: null }),
-      step(NEW_SESSION_TITLE, { endedSession: null }),
-    ]
+    const events = [newSession(null), newSession(null)]
     expect(splitConversations(events).earlier).toEqual([])
   })
 })

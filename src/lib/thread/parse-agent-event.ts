@@ -1,16 +1,12 @@
-import type { AgentEvent } from '$lib/ipc/bindings'
-import { normalizeLegacyStep } from './legacy-steps'
+import type { TranscriptEvent } from '$lib/ipc/bindings'
 
+/** A saved row's event. Every row is typed (the core rewrote older ones once), so one without a type is something this build can't show. */
 export function parseAgentEventPayload(
   payload: string,
-  seq?: number,
-): AgentEvent | null {
+): TranscriptEvent | null {
   try {
     const raw = JSON.parse(payload) as Record<string, unknown>
-    if (typeof raw.type === 'string') {
-      return raw as AgentEvent
-    }
-    return normalizeLegacyStep(raw, seq)
+    return typeof raw.type === 'string' ? (raw as TranscriptEvent) : null
   } catch {
     return null
   }

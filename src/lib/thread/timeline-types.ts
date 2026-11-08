@@ -1,4 +1,4 @@
-import type { ToolCallStatus, ToolKind } from '$lib/ipc/bindings'
+import type { ToolCallStatus } from '$lib/ipc/bindings'
 import type { AgentQuestion } from '$lib/approvals/payload'
 import type { RunSummary } from './reply/blocks/run'
 
@@ -126,11 +126,6 @@ export type RunningAgent = {
   latest?: string
 }
 
-/** Claude's tool for spawning a subagent; older builds called it `Task`. */
-export function isAgentTool(name: string): boolean {
-  return name === 'Agent' || name === 'Task'
-}
-
 export function agentIsRunning(step: ToolRunStep): boolean {
   return (
     step.kind === 'tool' &&
@@ -149,7 +144,3 @@ export type TimelineRow =
       atMs: number
     }
   | { kind: 'item'; item: TimelineItem }
-
-export function toolKindIsEdit(kind: ToolKind): boolean {
-  return kind === 'edit' || kind === 'delete' || kind === 'move'
-}

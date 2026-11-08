@@ -1,26 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import type { ToolRole, TranscriptEvent } from '$lib/ipc/bindings'
 import {
+  TimelineBuilder,
   mapEventsToTimeline,
   shouldShowLiveRow,
 } from './map-events-to-timeline'
-import { parseAgentEventPayload } from './parse-agent-event'
-import { eventCreatedAtMs } from './thread-time'
 
-/** Rows from the store as timed events, the way the timeline store reads them. */
-function agentEventsForThread(
-  rows: { threadId: string; seq: number; payload: string; createdAt: string }[],
-  threadId: string,
-) {
-  return rows
-    .filter((row) => row.threadId === threadId)
-    .sort((a, b) => a.seq - b.seq)
-    .flatMap((row) => {
-      const event = parseAgentEventPayload(row.payload, row.seq)
-      return event
-        ? [{ seq: row.seq, atMs: eventCreatedAtMs(row.createdAt), event }]
-        : []
-    })
-}
+const command = (text: string): ToolRole => ({
+  kind: 'command',
+  command: text,
+  description: null,
+})
 
 describe('mapEventsToTimeline', () => {
   it('shows tools Claude runs without asking, by command and path', () => {
@@ -40,8 +30,7 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCall',
             id: 'toolu_1',
             title: 'ls -la',
-            name: 'Bash',
-            kind: 'execute',
+            role: command('ls -la'),
             status: 'inProgress',
             locations: [],
             detail: 'List files',
@@ -53,7 +42,6 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCallUpdate',
             id: 'toolu_1',
             title: null,
-            kind: null,
             status: 'completed',
             locations: [],
           },
@@ -64,8 +52,7 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCall',
             id: 'toolu_2',
             title: 'Read',
-            name: 'Read',
-            kind: 'read',
+            role: { kind: 'read' },
             status: 'inProgress',
             locations: ['/repo/README.md'],
             detail: '/repo/README.md',
@@ -121,8 +108,7 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCall',
             id: 'open',
             title: 'Opened my-app',
-            name: null,
-            kind: 'read',
+            role: { kind: 'read' },
             status: 'completed',
             locations: [],
             detail: '~/code/my-app',
@@ -134,8 +120,7 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCall',
             id: 'bash',
             title: 'git log',
-            name: null,
-            kind: 'execute',
+            role: command('git log'),
             status: 'completed',
             locations: [],
             detail: null,
@@ -163,7 +148,7 @@ describe('mapEventsToTimeline', () => {
   })
 
   it('shows a shell step as a short command preview', () => {
-    const command =
+    const text =
       '/Users/me/.cursor/skills/impeccable comp-spec --comp mocks/01-pad-on-desk.png --grid'
     const items = mapEventsToTimeline({
       events: [
@@ -172,9 +157,8 @@ describe('mapEventsToTimeline', () => {
           event: {
             type: 'toolCall',
             id: 'cursor-shell',
-            title: command,
-            name: null,
-            kind: 'execute',
+            title: text,
+            role: command(text),
             status: 'completed',
             locations: [],
             detail: null,
@@ -186,8 +170,7 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCall',
             id: 'claude-bash',
             title: 'Bash',
-            name: 'Bash',
-            kind: 'execute',
+            role: command(''),
             status: 'completed',
             locations: [],
             detail: 'allowed by settings',
@@ -201,8 +184,8 @@ describe('mapEventsToTimeline', () => {
     const steps = items[0]?.kind === 'toolRun' ? items[0].steps : []
     expect(steps[0]).toMatchObject({
       title: 'Ran',
-      detail: `${command.slice(0, 50).trimEnd()}…`,
-      rawDetail: command,
+      detail: `${text.slice(0, 50).trimEnd()}…`,
+      rawDetail: text,
       quiet: true,
     })
     expect(steps[1]).toMatchObject({ title: 'Ran a command', quiet: true })
@@ -213,8 +196,7 @@ describe('mapEventsToTimeline', () => {
       type: 'toolCall' as const,
       id,
       title: 'Edit File',
-      name: null,
-      kind: 'edit' as const,
+      role: { kind: 'edit', verb: 'Edited' } as const,
       status: 'pending' as const,
       locations: [],
       detail: null,
@@ -229,7 +211,6 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCallUpdate',
             id: 'edit-1',
             title: null,
-            kind: null,
             status: 'completed',
             locations: ['src/lib/auth.ts'],
           },
@@ -343,8 +324,7 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCall',
             id: 't1',
             title: 'Read files',
-            name: null,
-            kind: 'read',
+            role: { kind: 'read' },
             status: 'completed',
             locations: ['src/a.ts'],
             detail: null,
@@ -356,8 +336,7 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCall',
             id: 't2',
             title: 'Grep',
-            name: null,
-            kind: 'search',
+            role: { kind: 'search' },
             status: 'completed',
             locations: [],
             detail: 'pattern',
@@ -385,8 +364,7 @@ describe('mapEventsToTimeline', () => {
             type: 'toolCall',
             id: 'e1',
             title: 'Write',
-            name: null,
-            kind: 'edit',
+            role: { kind: 'edit', verb: 'Edited' },
             status: 'completed',
             locations: ['src/lib/auth.ts'],
             detail: null,
@@ -417,8 +395,8 @@ describe('mapEventsToTimeline', () => {
             id: 'perm-1',
             tool_call_id: null,
             title: 'Use Bash',
-            tool_name: 'Bash',
-            kind: 'execute',
+            tool: 'Bash',
+            role: command('pnpm test'),
             detail: 'pnpm test',
             auto_approved: false,
           },
@@ -449,7 +427,7 @@ describe('mapEventsToTimeline', () => {
     })
   })
 
-  it('shows a question only as its card, not as an AskUserQuestion step', () => {
+  it('shows a question only as its card, not as a hidden step', () => {
     const question = {
       question: 'Which colour?',
       header: 'Colour',
@@ -463,12 +441,12 @@ describe('mapEventsToTimeline', () => {
           event: {
             type: 'toolCall',
             id: 'toolu_ask',
-            title: 'AskUserQuestion',
-            name: 'AskUserQuestion',
-            kind: 'other',
+            title: 'Ask user question',
+            role: { kind: 'other', name: 'Ask user question' },
             status: 'pending',
             locations: [],
             detail: null,
+            hidden: true,
             parent_id: null,
           },
         },
@@ -478,9 +456,9 @@ describe('mapEventsToTimeline', () => {
             type: 'permission',
             id: 'q1',
             tool_call_id: 'toolu_ask',
-            title: 'Use AskUserQuestion',
-            tool_name: 'AskUserQuestion',
-            kind: 'other',
+            title: 'Use Ask user question',
+            tool: 'Ask user question',
+            role: { kind: 'other', name: 'Ask user question' },
             detail: null,
             auto_approved: false,
           },
@@ -513,7 +491,7 @@ describe('mapEventsToTimeline', () => {
     })
   })
 
-  it('shows a plan only as its approval, not as an ExitPlanMode step', () => {
+  it('shows a plan only as its approval, not as a hidden step', () => {
     const items = mapEventsToTimeline({
       events: [
         {
@@ -521,9 +499,8 @@ describe('mapEventsToTimeline', () => {
           event: {
             type: 'toolCall',
             id: 'toolu_enter',
-            title: 'EnterPlanMode',
-            name: 'EnterPlanMode',
-            kind: 'other',
+            title: 'Enter plan mode',
+            role: { kind: 'planMode' },
             status: 'completed',
             locations: [],
             detail: null,
@@ -534,12 +511,12 @@ describe('mapEventsToTimeline', () => {
           event: {
             type: 'toolCall',
             id: 'toolu_plan',
-            title: 'ExitPlanMode',
-            name: 'ExitPlanMode',
-            kind: 'other',
+            title: 'Exit plan mode',
+            role: { kind: 'other', name: 'Exit plan mode' },
             status: 'inProgress',
             locations: [],
             detail: null,
+            hidden: true,
           },
         },
         {
@@ -548,9 +525,9 @@ describe('mapEventsToTimeline', () => {
             type: 'permission',
             id: 'plan-1',
             tool_call_id: 'toolu_plan',
-            title: 'Use ExitPlanMode',
-            tool_name: 'ExitPlanMode',
-            kind: 'other',
+            title: 'Use Exit plan mode',
+            tool: 'Exit plan mode',
+            role: { kind: 'other', name: 'Exit plan mode' },
             detail: null,
             auto_approved: false,
           },
@@ -583,8 +560,8 @@ describe('mapEventsToTimeline', () => {
   })
 })
 
-describe('named tool steps', () => {
-  function stepFor(name: string, detail: string | null) {
+describe('tool steps by role', () => {
+  function stepFor(role: ToolRole, detail: string | null, title = 'Tool') {
     const items = mapEventsToTimeline({
       events: [
         {
@@ -592,9 +569,8 @@ describe('named tool steps', () => {
           event: {
             type: 'toolCall',
             id: 'toolu_1',
-            title: name,
-            name,
-            kind: 'other',
+            title,
+            role,
             status: 'inProgress',
             locations: [],
             detail,
@@ -610,34 +586,34 @@ describe('named tool steps', () => {
     return run.steps[0]
   }
 
-  it('shows an MCP call by its server and tool', () => {
+  it('shows an MCP call by its server, with its action before the detail', () => {
     expect(
-      stepFor('mcp__claude_ai_Trello__trelloReadCard', null),
-    ).toMatchObject({
-      title: 'Used Trello',
-      detail: 'Read card',
-      quiet: true,
-    })
+      stepFor({ kind: 'mcp', server: 'Trello', action: 'Read card' }, null),
+    ).toMatchObject({ title: 'Used Trello', detail: 'Read card', quiet: true })
+    expect(
+      stepFor({ kind: 'mcp', server: 'Github', action: 'Get pr' }, 'cormux#3'),
+    ).toMatchObject({ title: 'Used Github', detail: 'Get pr · cormux#3' })
   })
 
-  it('turns snake and kebab case names into words', () => {
-    expect(stepFor('mcp__linear-server__list_issues', null)).toMatchObject({
-      title: 'Used Linear server',
-      detail: 'List issues',
-    })
-    expect(stepFor('mcp__github__github_get_pr', 'cormux#3')).toMatchObject({
-      title: 'Used Github',
-      detail: 'Get pr · cormux#3',
-    })
+  it('shows other tools by the title the engine gave them', () => {
+    expect(
+      stepFor({ kind: 'other', name: 'Todo write' }, null, 'Todo write'),
+    ).toMatchObject({ title: 'Todo write', icon: 'tool' })
   })
 
-  it('shows other tools by name in words', () => {
-    expect(stepFor('TodoWrite', null)).toMatchObject({ title: 'Todo write' })
+  it('picks a command icon from the role, not from words in the command', () => {
+    const ran = (text: string) => stepFor(command(text), null, text)
+    expect(ran('npm run preview')).toMatchObject({ icon: 'terminal' })
+    expect(ran('git pull --rebase')).toMatchObject({ icon: 'terminal' })
+    expect(ran('pnpm test')).toMatchObject({ icon: 'check' })
   })
 
   it('shows a web fetch as a quiet line with a short URL', () => {
     expect(
-      stepFor('WebFetch', 'https://www.example.com/docs/page/'),
+      stepFor(
+        { kind: 'fetch', url: 'https://www.example.com/docs/page/' },
+        'https://www.example.com/docs/page/',
+      ),
     ).toMatchObject({
       icon: 'globe',
       title: 'Fetched',
@@ -648,7 +624,9 @@ describe('named tool steps', () => {
   })
 
   it('shows a skill by name as a quiet line', () => {
-    expect(stepFor('Skill', 'code-review')).toMatchObject({
+    expect(
+      stepFor({ kind: 'skill', name: 'code-review' }, 'code-review'),
+    ).toMatchObject({
       icon: 'skill',
       title: 'Used skill',
       detail: 'code-review',
@@ -656,13 +634,85 @@ describe('named tool steps', () => {
     })
   })
 
-  it('shows ToolSearch as a quiet lookup', () => {
-    expect(stepFor('ToolSearch', 'select:Read')).toMatchObject({
+  it('shows a tool lookup as a quiet line', () => {
+    expect(stepFor({ kind: 'toolLookup' }, 'select:Read')).toMatchObject({
       icon: 'search',
       title: 'Looked up tools',
       detail: 'select:Read',
       quiet: true,
     })
+  })
+
+  it('leaves a hidden call out', () => {
+    const items = mapEventsToTimeline({
+      events: [
+        {
+          seq: 1,
+          event: {
+            type: 'toolCall',
+            id: 'toolu_1',
+            title: 'Ask user question',
+            role: { kind: 'other', name: 'Ask user question' },
+            status: 'pending',
+            locations: [],
+            detail: null,
+            hidden: true,
+          },
+        },
+      ],
+      approvals: [],
+      findingsReady: false,
+      showLive: false,
+    })
+    expect(items).toEqual([])
+  })
+})
+
+describe('item ids', () => {
+  const read = (id: string): TranscriptEvent => ({
+    type: 'toolCall',
+    id,
+    title: 'Read',
+    role: { kind: 'read' },
+    status: 'completed',
+    locations: [],
+    detail: null,
+  })
+  const events: TranscriptEvent[] = [
+    { type: 'messageChunk', role: 'user', text: 'one' },
+    { type: 'messageChunk', role: 'agent', text: 'first' },
+    { type: 'turnEnd', stop_reason: 'end_turn', error: null },
+    { type: 'messageChunk', role: 'user', text: 'two' },
+    read('toolu_9'),
+    { type: 'messageChunk', role: 'agent', text: 'second' },
+  ]
+  const rows = events.map((event, index) => ({
+    seq: index + 1,
+    atMs: 0,
+    event,
+  }))
+  const input = { approvals: [], findingsReady: false, showLive: false }
+
+  it('come from where the store saved each item and from tool call ids', () => {
+    const ids = mapEventsToTimeline({ ...input, events: rows }).map(
+      (item) => item.id,
+    )
+    expect(ids).toEqual([
+      'user-1',
+      'thought-2',
+      'user-4',
+      'run-toolu_9',
+      'thought-6',
+    ])
+  })
+
+  it('stay put when older events load in front', () => {
+    const builder = new TimelineBuilder()
+    const newest = builder.build({ ...input, events: rows.slice(3) })
+    const all = builder.build({ ...input, events: rows })
+    expect(all.slice(-newest.length).map((item) => item.id)).toEqual(
+      newest.map((item) => item.id),
+    )
   })
 })
 
@@ -673,38 +723,32 @@ describe('shouldShowLiveRow', () => {
     expect(shouldShowLiveRow('idle', false)).toBe(false)
   })
 
-  it('keeps step ids unique for repeated branch switches and replayed tool calls', () => {
-    const legacy = (seq: number, title: string) => ({
-      id: seq,
-      threadId: 't',
-      seq,
-      kind: 'tool',
-      payload: JSON.stringify({ icon: 'branch', title }),
-      createdAt: '2026-09-29 04:26:22',
+  it('keeps step ids unique for repeated branch switches and a step written twice', () => {
+    const switched = (id: string, branch: string): TranscriptEvent => ({
+      type: 'step',
+      id,
+      title: `Switched to \`${branch}\``,
+      detail: null,
+      step: {
+        kind: 'branchSwitched',
+        branch,
+        change: { kind: 'checkedOut', previous: 'main' },
+      },
     })
+    const opened: TranscriptEvent = {
+      type: 'step',
+      id: 'pr-open-12',
+      title: 'Opened PR #12',
+      detail: null,
+      step: { kind: 'prOpened', number: 12, branch: 'b', base: 'main' },
+    }
     const events = [
-      ...agentEventsForThread(
-        [
-          legacy(1, 'Switched to `feat/test`'),
-          legacy(2, 'Switched to `feat/colors`'),
-          legacy(3, 'Switched to `feat/test`'),
-        ],
-        't',
-      ),
-      ...[4, 5].map((seq) => ({
-        seq,
-        event: {
-          type: 'toolCall' as const,
-          id: 'call-1',
-          title: 'Read file',
-          name: null,
-          kind: 'read' as const,
-          status: 'completed' as const,
-          locations: [],
-          detail: null,
-        },
-      })),
-    ]
+      switched('step-1', 'feat/test'),
+      switched('step-2', 'feat/colors'),
+      switched('step-3', 'feat/test'),
+      opened,
+      opened,
+    ].map((event, index) => ({ seq: index + 1, event }))
     const items = mapEventsToTimeline({
       events,
       approvals: [],

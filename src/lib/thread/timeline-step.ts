@@ -48,9 +48,14 @@ const STEP_PRESENTATION: Record<TimelineStep['kind'], StepPresentation> = {
       { label: 'Committed locally, not pushed', tone: 'muted' },
     ],
   },
+  // Drawn by its own icon and row, below.
+  legacy: divider('tool'),
 }
 
 /** A kind this build doesn't know (the store outlived a downgrade) still shows, plainly. */
 export function presentStep(step: TimelineStep): StepPresentation {
+  if (step.kind === 'legacy') {
+    return { icon: step.icon, row: step.run ? 'run' : 'divider' }
+  }
   return STEP_PRESENTATION[step.kind] ?? divider('tool')
 }

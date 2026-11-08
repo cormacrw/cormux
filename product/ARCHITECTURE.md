@@ -149,7 +149,11 @@ creating → provisioning → ready ⇄ (threads running / idle / waiting) → t
 
 ### Engine adapters (`engines`)
 
-The core of the product. Each thread is one long-lived engine process with the worktree as its working directory. Adapters translate each engine's native stream into one internal event model.
+The core of the product. Each thread is one long-lived engine process with the worktree as its working directory. Adapters translate each engine's native stream into one internal event model, and they are the only code that knows an engine's vocabulary: Claude's tool names, its `mcp__<server>__<tool>` naming and its CLI flags stay in `engines::claude`. A typed launch config yields both the CLI's arguments and its initialize handshake. A tool call reaches the rest of the app with a typed role (read, search, edit, command, fetch, web search, skill, MCP tool, subagent…), and permission requests and host tool calls arrive with a responder to answer them.
+
+`thread_runtime` sits above the adapters: it keeps each thread's live engine, launches one in the thread's worktree when a prompt needs it, routes what it reports (events into the transcript, permission requests to the approval broker, tool calls to the MCP server), adds up cost, publishes each turn's end once, and shuts down engines that sit idle. Tests give it fake engines.
+
+`transcript` owns each thread's event log: it is the only writer, it saves an event and then streams it to whoever watches the thread (so prompts, stops and the core's own steps stream like the engine's events), and it is the only reader of the stored rows. A few signals are streamed but never saved: an engine exiting, a permission approved without asking, and the tool a permission is waiting on.
 
 | Engine | Process | Protocol | Approvals arrive as |
 | --- | --- | --- | --- |
@@ -162,8 +166,8 @@ Claude Code gets a native Rust translator so Cormux doesn't have to bundle or re
 | Engine event | Timeline item |
 | --- | --- |
 | Agent message chunk | `thought` (streamed, rendered as sanitised markdown) |
-| Tool call, kind `read` / `search` / `execute` / `fetch` | `tool` step, grouped into a run |
-| Tool call, kind `edit` / `delete` with a diff | `edit` step linked to the Changes panel |
+| Tool call, role `read` / `search` / `command` / `fetch` / … | `tool` step, grouped into a run |
+| Tool call, role `edit` | `edit` step linked to the Changes panel |
 | Plan update | `plan` |
 | Permission request | `approval` |
 | Harness MCP `report_finding` call | finding, plus a `findings` card when the review ends |

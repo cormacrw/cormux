@@ -1,57 +1,61 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentEvent } from '$lib/ipc/bindings'
+import type { TranscriptEvent } from '$lib/ipc/bindings'
 import {
   TimelineBuilder,
   mapEventsToTimeline,
   type MapTimelineInput,
 } from './map-events-to-timeline'
 
-const tool = (id: string, extra: Partial<AgentEvent> = {}): AgentEvent =>
+type ToolCall = Extract<TranscriptEvent, { type: 'toolCall' }>
+
+const tool = (id: string, extra: Partial<ToolCall> = {}): TranscriptEvent =>
   ({
     type: 'toolCall',
     id,
     title: 'Read',
-    name: null,
-    kind: 'read',
+    role: { kind: 'read' },
     status: 'inProgress',
     locations: [],
     detail: null,
     ...extra,
-  }) as AgentEvent
+  }) as TranscriptEvent
 
-const user = (text: string): AgentEvent => ({
+const user = (text: string): TranscriptEvent => ({
   type: 'messageChunk',
   role: 'user',
   text,
 })
-const agent = (text: string): AgentEvent => ({
+const agent = (text: string): TranscriptEvent => ({
   type: 'messageChunk',
   role: 'agent',
   text,
 })
-const thought = (text: string): AgentEvent => ({
+const thought = (text: string): TranscriptEvent => ({
   type: 'messageChunk',
   role: 'thought',
   text,
 })
-const end: AgentEvent = { type: 'turnEnd', stop_reason: 'end', error: null }
-const plan = (status: string): AgentEvent =>
+const end: TranscriptEvent = {
+  type: 'turnEnd',
+  stop_reason: 'end',
+  error: null,
+}
+const plan = (status: string): TranscriptEvent =>
   ({
     type: 'plan',
     entries: [{ content: 'Step', status }],
-  }) as AgentEvent
-const update = (id: string): AgentEvent =>
+  }) as TranscriptEvent
+const update = (id: string): TranscriptEvent =>
   ({
     type: 'toolCallUpdate',
     id,
     title: 'Late title',
-    kind: null,
     status: 'completed',
     locations: [],
     output: 'Tests: 2 passed',
-  }) as AgentEvent
+  }) as TranscriptEvent
 
-const SCRIPT: AgentEvent[] = [
+const SCRIPT: TranscriptEvent[] = [
   user('one'),
   thought('thinking'),
   agent('rep'),
@@ -64,7 +68,7 @@ const SCRIPT: AgentEvent[] = [
   end,
   plan('completed'),
   user('two'),
-  { type: 'usage', used_tokens: 10, context_size: 100 } as AgentEvent,
+  { type: 'usage', used_tokens: 10, context_size: 100 } as TranscriptEvent,
   tool('b'),
   tool('c', { parent_id: 'b' }),
   end,
@@ -113,12 +117,15 @@ describe('TimelineBuilder', () => {
 
   it('picks up a background agent reporting into a finished turn', () => {
     const builder = new TimelineBuilder()
-    const events: AgentEvent[] = [
+    const events: TranscriptEvent[] = [
       user('go'),
-      tool('agent', { kind: 'execute', name: 'Agent' }),
+      tool('agent', { role: { kind: 'subagent', description: null } }),
       end,
       user('next'),
-      tool('child', { kind: 'execute', parent_id: 'agent' }),
+      tool('child', {
+        role: { kind: 'command', command: 'ls', description: null },
+        parent_id: 'agent',
+      }),
       update('agent'),
     ]
     const entries = events.map((event, index) => ({
@@ -143,11 +150,11 @@ describe('TimelineBuilder', () => {
       id: 'p',
       tool_call_id: null,
       title: 'Run',
-      tool_name: 'Bash',
-      kind: 'execute',
+      tool: 'Bash',
+      role: { kind: 'command', command: 'ls', description: null },
       detail: null,
       auto_approved: false,
-    } as AgentEvent
+    } as TranscriptEvent
     const events = [permission, end].map((event, index) => ({
       seq: index + 1,
       atMs: 1,
@@ -171,16 +178,14 @@ describe('TimelineBuilder', () => {
 })
 
 describe('running subagents', () => {
-  const agentCall = (id: string, extra: Partial<AgentEvent> = {}) =>
+  const agentCall = (id: string) =>
     tool(id, {
-      kind: 'other',
       title: 'Agent',
-      name: 'Agent',
+      role: { kind: 'subagent', description: 'Explore the auth flow' },
       detail: 'Explore the auth flow',
-      ...extra,
-    } as Partial<AgentEvent>)
+    })
 
-  const live = (events: AgentEvent[]) => {
+  const live = (events: TranscriptEvent[]) => {
     const items = mapEventsToTimeline({
       events: events.map((event, index) => ({
         seq: index + 1,
@@ -223,7 +228,10 @@ describe('running subagents', () => {
   })
 
   it('forgets agents when the engine exits', () => {
-    const exited = { type: 'engineExited', code: 1 } as unknown as AgentEvent
+    const exited = {
+      type: 'engineExited',
+      code: 1,
+    } as unknown as TranscriptEvent
     expect(live([user('go'), agentCall('a'), exited])).toEqual([])
   })
 
@@ -248,7 +256,7 @@ describe('running subagents', () => {
 
   it('builds the same live row incrementally as from scratch', () => {
     const builder = new TimelineBuilder()
-    const events: AgentEvent[] = [
+    const events: TranscriptEvent[] = [
       user('go'),
       agentCall('a'),
       end,

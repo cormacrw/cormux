@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentEvent } from '$lib/ipc/bindings'
+import type { TranscriptEvent } from '$lib/ipc/bindings'
 import { mapEventsToTimeline } from './map-events-to-timeline'
 import { hasSessionToClear } from './new-session'
-import { NEW_SESSION_TITLE } from './legacy-steps'
 
-const marker: AgentEvent = {
-  type: 'toolCall',
-  id: 'control-1',
-  title: NEW_SESSION_TITLE,
-  name: null,
-  kind: 'other',
-  status: 'completed',
-  locations: [],
+const marker: TranscriptEvent = {
+  type: 'step',
+  id: 'step-1',
+  title: 'Started a new session',
   detail: null,
+  step: { kind: 'sessionStarted', ended_session: null },
 }
-const message: AgentEvent = { type: 'messageChunk', role: 'user', text: 'hi' }
+const message: TranscriptEvent = {
+  type: 'messageChunk',
+  role: 'user',
+  text: 'hi',
+}
 
 describe('new session', () => {
   it('renders the marker as an app event divider', () => {
@@ -25,7 +25,7 @@ describe('new session', () => {
       showLive: false,
     })
     expect(items).toMatchObject([
-      { kind: 'event', icon: 'session', title: NEW_SESSION_TITLE },
+      { kind: 'event', icon: 'session', title: 'Started a new session' },
     ])
   })
 

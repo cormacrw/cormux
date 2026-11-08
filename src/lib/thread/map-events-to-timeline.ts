@@ -1,4 +1,4 @@
-import type { AgentEvent, ApprovalRow, ToolKind } from '$lib/ipc/bindings'
+import type { ApprovalRow, TranscriptEvent } from '$lib/ipc/bindings'
 import { parseApprovalPayload } from '$lib/approvals/payload'
 import { deepEqual } from '$lib/deep-equal'
 import { memoByText } from './memo'
@@ -10,23 +10,16 @@ import type {
   ToolRunStep,
   ToolStepIcon,
 } from './timeline-types'
-import { agentIsRunning, isAgentTool, toolKindIsEdit } from './timeline-types'
-import {
-  isLegacyDivider,
-  legacyDividerIcon,
-  legacyToolChips,
-  legacyToolIcon,
-  legacyToolSucceeded,
-} from './legacy-steps'
+import { agentIsRunning } from './timeline-types'
 import { presentStep } from './timeline-step'
-import {
-  humanizeIdentifier,
-  parseMcpToolName,
-  toolDisplayName,
-} from './humanize'
 
 export type MapTimelineInput = {
-  events: { seq: number; atMs?: number; event: AgentEvent }[]
+  /**
+   * In store order. `seq` is where the store saved the event, or, for one that is only streamed,
+   * where the newest saved event before it is: items take their ids from it, so loading older
+   * rows or a reload leaves every id where it was.
+   */
+  events: { seq: number; atMs?: number; event: TranscriptEvent }[]
   approvals: ApprovalRow[]
   findingsReady: boolean
   showLive: boolean
@@ -49,45 +42,7 @@ function workedForLabel(startMs: number, endMs: number): string {
   return `Worked for ${minutes}m ${seconds}s`
 }
 
-type NextId = (prefix: string) => string
-
-/**
- * Ids count items of each kind (the 3rd user message is `user-3`), so a rebuild after a
- * new chunk or a reload from the store gives every row the same key and it stays mounted.
- */
-function ordinalIds(counts: Map<string, number>): NextId {
-  return (prefix) => {
-    const next = (counts.get(prefix) ?? 0) + 1
-    counts.set(prefix, next)
-    return `${prefix}-${next}`
-  }
-}
-
-function iconForTool(kind: ToolKind, title: string): ToolStepIcon {
-  const legacy = legacyToolIcon(title)
-  if (legacy) return legacy
-  const lower = title.toLowerCase()
-  if (kind === 'read') return 'file'
-  if (kind === 'search') return 'search'
-  if (kind === 'execute') return lower.includes('test') ? 'check' : 'terminal'
-  if (kind === 'fetch') return 'download'
-  if (kind === 'delete') return 'trash'
-  if (kind === 'edit' || kind === 'move') return 'pencil'
-  if (lower.includes('branch')) return 'branch'
-  if (lower.includes('pull') || lower.includes('pr')) return 'pr'
-  if (lower.includes('database') || lower.includes('migration'))
-    return 'database'
-  return 'tool'
-}
-
-function editVerb(
-  kind: ToolKind,
-  title: string,
-): 'Edited' | 'Created' | 'Deleted' {
-  if (kind === 'delete') return 'Deleted'
-  if (/creat/i.test(title)) return 'Created'
-  return 'Edited'
-}
+type ToolCallEvent = Extract<TranscriptEvent, { type: 'toolCall' }>
 
 function approvalState(
   row: ApprovalRow | undefined,
@@ -110,17 +65,12 @@ function approvalById(approvals: ApprovalRow[], id: string) {
   return index.get(id)
 }
 
-// Approval labels quote the raw tool name ("Use mcp__github__get_pr"); show it as words.
-function withToolName(text: string, toolName: string): string {
-  return toolName ? text.replace(toolName, toolDisplayName(toolName)) : text
-}
-
 // A timeline rebuild re-reads every approval and run, and neither changes once written.
 const parsedApproval = memoByText(parseApprovalPayload)
 const summarizedRun = memoByText(summarizeRun)
 
 function approvalFromPermission(
-  event: Extract<AgentEvent, { type: 'permission' }>,
+  event: Extract<TranscriptEvent, { type: 'permission' }>,
   seq: number,
   atMs: number,
   approvals: ApprovalRow[],
@@ -131,12 +81,9 @@ function approvalFromPermission(
   return {
     kind: 'approval' as const,
     id: event.id,
-    title: withToolName(payload?.title ?? event.title, event.tool_name),
-    what: withToolName(
-      payload?.what ?? event.detail ?? event.tool_name,
-      event.tool_name,
-    ),
-    why: withToolName(payload?.why ?? event.tool_name, event.tool_name),
+    title: payload?.title ?? event.title,
+    what: payload?.what ?? event.detail ?? event.tool,
+    why: payload?.why ?? event.tool,
     okLabel: payload?.okLabel ?? 'Approve',
     noLabel: payload?.noLabel ?? 'Deny',
     state,
@@ -149,60 +96,86 @@ function approvalFromPermission(
 }
 
 function toolStepFromCall(
-  event: Extract<AgentEvent, { type: 'toolCall' }>,
+  event: ToolCallEvent,
   seq: number,
   atMs: number,
   chips: TimelineChip[] | undefined,
 ): ToolRunStep {
-  if (toolKindIsEdit(event.kind)) {
-    const path = event.locations[0] ?? ''
-    return {
-      kind: 'edit',
-      id: event.id,
-      path,
-      verb: editVerb(event.kind, event.title),
-      seq,
-      atMs,
-    }
-  }
-  if (isAgentTool(event.name ?? event.title)) {
-    return agentStep(event, seq, atMs, chips)
-  }
-  if (event.kind === 'execute') return commandStep(event, seq, atMs, chips)
-  const named = namedToolStep(event)
-  if (named) {
-    return {
-      kind: 'tool',
-      id: event.id,
-      ...named,
-      chips,
-      quiet: true,
-      seq,
-      atMs,
-      rawDetail: event.detail ?? undefined,
-    }
-  }
-  const succeeded =
-    event.status === 'completed' || legacyToolSucceeded(event.title)
-  return {
+  const { role } = event
+  const detail = event.detail ?? undefined
+  const quietStep = (
+    icon: ToolStepIcon,
+    title: string,
+    shown: string | undefined,
+  ): ToolRunStep => ({
     kind: 'tool',
     id: event.id,
-    icon: iconForTool(event.kind, event.title),
-    // Claude titles these by tool name (`TodoWrite`); show it as words.
-    title: humanizeIdentifier(event.title),
-    detail: (event.detail ?? event.locations.join(', ')) || undefined,
-    chips: chips ?? legacyToolChips(event.title),
-    tone: succeeded ? 'success' : undefined,
-    quiet: event.kind === 'read' || event.kind === 'search',
+    icon,
+    title,
+    detail: shown,
+    chips,
+    quiet: true,
     seq,
     atMs,
-    rawDetail: event.detail ?? undefined,
+    rawDetail: detail,
+  })
+  switch (role.kind) {
+    case 'edit':
+      return {
+        kind: 'edit',
+        id: event.id,
+        path: event.locations[0] ?? '',
+        verb: role.verb,
+        seq,
+        atMs,
+      }
+    case 'subagent':
+      return agentStep(event, seq, atMs, chips)
+    case 'command':
+      return commandStep(event, role.command, seq, atMs, chips)
+    case 'fetch':
+      return quietStep('globe', 'Fetched', shortUrl(event.detail))
+    case 'webSearch':
+      return quietStep('globe', 'Searched the web', detail)
+    case 'skill':
+      return quietStep('skill', 'Used skill', detail)
+    case 'planMode':
+      return quietStep('tool', 'Switched to plan mode', undefined)
+    case 'toolLookup':
+      return quietStep('search', 'Looked up tools', detail)
+    case 'mcp':
+      return quietStep(
+        'tool',
+        `Used ${role.server}`,
+        detail ? `${role.action} · ${detail}` : role.action,
+      )
+    case 'read':
+    case 'search':
+    case 'other':
+      return {
+        kind: 'tool',
+        id: event.id,
+        icon:
+          role.kind === 'read'
+            ? 'file'
+            : role.kind === 'search'
+              ? 'search'
+              : 'tool',
+        title: event.title,
+        detail: (event.detail ?? event.locations.join(', ')) || undefined,
+        chips,
+        tone: event.status === 'completed' ? 'success' : undefined,
+        quiet: role.kind !== 'other',
+        seq,
+        atMs,
+        rawDetail: detail,
+      }
   }
 }
 
-// Claude's Agent call is detailed by the task's short description.
+// A subagent is detailed by the task's short description.
 function agentStep(
-  event: Extract<AgentEvent, { type: 'toolCall' }>,
+  event: ToolCallEvent,
   seq: number,
   atMs: number,
   chips: TimelineChip[] | undefined,
@@ -252,75 +225,26 @@ function shortUrl(url: string | null): string | undefined {
     .replace(/\/$/, '')
 }
 
-// MCP tools arrive as `mcp__<server>__<tool>`, ToolSearch is Claude loading tool schemas,
-// and web and skill calls carry their point in the detail; all read better as a quiet
-// line than as a raw-name card.
-function namedToolStep(
-  event: Extract<AgentEvent, { type: 'toolCall' }>,
-): { icon: ToolStepIcon; title: string; detail: string | undefined } | null {
-  const name = event.name ?? event.title
-  if (name === 'WebFetch') {
-    return { icon: 'globe', title: 'Fetched', detail: shortUrl(event.detail) }
-  }
-  if (name === 'WebSearch') {
-    return {
-      icon: 'globe',
-      title: 'Searched the web',
-      detail: event.detail ?? undefined,
-    }
-  }
-  if (name === 'Skill') {
-    return {
-      icon: 'skill',
-      title: 'Used skill',
-      detail: event.detail ?? undefined,
-    }
-  }
-  if (name === 'EnterPlanMode') {
-    return { icon: 'tool', title: 'Switched to plan mode', detail: undefined }
-  }
-  if (name === 'ToolSearch') {
-    return {
-      icon: 'search',
-      title: 'Looked up tools',
-      detail: event.detail ?? undefined,
-    }
-  }
-  const mcp = parseMcpToolName(name)
-  if (!mcp) return null
-  return {
-    icon: 'tool',
-    title: `Used ${mcp.server}`,
-    detail: event.detail ? `${mcp.action} · ${event.detail}` : mcp.action,
-  }
-}
-
 const COMMAND_PREVIEW_CHARS = 50
 
 function withRunResult(
   step: ToolRunStep,
-  event: Extract<AgentEvent, { type: 'toolCall' }>,
+  event: ToolCallEvent,
   output: string | undefined,
 ): ToolRunStep {
-  if (step.kind !== 'tool' || event.kind !== 'execute' || !output) return step
+  if (step.kind !== 'tool' || event.role.kind !== 'command' || !output)
+    return step
   const run = summarizedRun(output)
   return run ? { ...step, run, output } : step
 }
 
-// A shell step's title is its command, unless it only repeats the tool's name.
-function commandText(event: Extract<AgentEvent, { type: 'toolCall' }>): string {
-  const title = event.title.trim()
-  if (event.name && title === event.name) return ''
-  return title
-}
-
 function commandStep(
-  event: Extract<AgentEvent, { type: 'toolCall' }>,
+  event: ToolCallEvent,
+  command: string,
   seq: number,
   atMs: number,
   chips: TimelineChip[] | undefined,
 ): ToolRunStep {
-  const command = commandText(event)
   const preview =
     command.length > COMMAND_PREVIEW_CHARS
       ? `${command.slice(0, COMMAND_PREVIEW_CHARS).trimEnd()}…`
@@ -328,7 +252,8 @@ function commandStep(
   return {
     kind: 'tool',
     id: event.id,
-    icon: iconForTool(event.kind, command),
+    // A test run gets a check, the way its summary reads.
+    icon: command.toLowerCase().includes('test') ? 'check' : 'terminal',
     title: command ? 'Ran' : 'Ran a command',
     detail: preview || undefined,
     chips,
@@ -339,16 +264,13 @@ function commandStep(
   }
 }
 
-function flushRun(
-  run: ToolRunStep[],
-  items: TimelineItem[],
-  seq: number,
-  nextId: NextId,
-) {
-  if (!run.length) return
+/** A run takes its id from its first step, whose id is the tool call's own. */
+function flushRun(run: ToolRunStep[], items: TimelineItem[], seq: number) {
+  const first = run[0]
+  if (!first) return
   items.push({
     kind: 'toolRun',
-    id: nextId('run'),
+    id: `run-${first.id}`,
     steps: [...run],
     seq,
   })
@@ -357,10 +279,9 @@ function flushRun(
 
 type TimelineEvent = MapTimelineInput['events'][number] & { output?: string }
 
-// Engines fill in a tool call after announcing it,
-// so fold each update into the call it belongs to.
-// A repeated id is the same call or step again (a replay stored by an older
-// build); keep the first so step ids, which key the rendered list, stay unique.
+// Engines fill in a tool call after announcing it, so fold each update into the call it belongs
+// to. A step written twice (a PR opened again) keeps its id; the first one stands, so step ids,
+// which key the rendered list, stay unique.
 function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
   const merged: TimelineEvent[] = []
   const callIndex = new Map<string, number>()
@@ -385,7 +306,6 @@ function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
       event: {
         ...call.event,
         title: event.title ?? call.event.title,
-        kind: event.kind ?? call.event.kind,
         status: event.status ?? call.event.status,
         locations: event.locations.length
           ? event.locations
@@ -398,8 +318,6 @@ function mergeToolUpdates(events: TimelineEvent[]): TimelineEvent[] {
 
 type FoldState = {
   items: TimelineItem[]
-  counts: Map<string, number>
-  nextId: NextId
   run: ToolRunStep[]
   // A subagent's steps can land runs after the step that spawned them.
   stepsById: Map<string, ToolRunStep>
@@ -414,15 +332,12 @@ type FoldState = {
 
 function foldState(
   items: TimelineItem[] = [],
-  counts = new Map<string, number>(),
   pendingAutoChip?: TimelineChip,
   sealMessage = false,
   agents: ToolRunStep[] = [],
 ): FoldState {
   return {
     items,
-    counts,
-    nextId: ordinalIds(counts),
     run: [],
     stepsById: new Map(),
     agents,
@@ -438,10 +353,10 @@ function foldEvent(
   { seq, atMs = 0, event, output }: TimelineEvent,
   input: MapTimelineInput,
 ) {
-  const { items, run, nextId, stepsById } = state
+  const { items, run, stepsById } = state
   switch (event.type) {
     case 'messageChunk': {
-      flushRun(run, items, state.runSeq, nextId)
+      flushRun(run, items, state.runSeq)
       if (event.role === 'user') {
         if (!state.runStartedAt && atMs) state.runStartedAt = atMs
         const last = items[items.length - 1]
@@ -451,7 +366,7 @@ function foldEvent(
         } else {
           items.push({
             kind: 'user',
-            id: nextId('user'),
+            id: `user-${seq}`,
             text: event.text,
             seq,
             atMs,
@@ -471,7 +386,7 @@ function foldEvent(
         } else {
           items.push({
             kind: 'thought',
-            id: nextId('thought'),
+            id: `thought-${seq}`,
             role,
             text: event.text,
             seq,
@@ -486,7 +401,7 @@ function foldEvent(
       const { icon, row, chips } = presentStep(event.step)
       const detail = event.detail || undefined
       if (row === 'divider') {
-        flushRun(run, items, state.runSeq, nextId)
+        flushRun(run, items, state.runSeq)
         items.push({
           kind: 'event',
           id: event.id,
@@ -518,26 +433,12 @@ function foldEvent(
       break
     }
     case 'toolCall': {
-      if (isLegacyDivider(event)) {
-        flushRun(run, items, state.runSeq, nextId)
-        items.push({
-          kind: 'event',
-          id: event.id,
-          icon: legacyDividerIcon(event.title),
-          title: event.title,
-          detail: event.detail ?? undefined,
-          seq,
-          atMs,
-        })
-        break
-      }
-      // The plan's own row stands for the request to leave plan mode.
-      const toolName = event.name ?? event.title
-      // Both show up as their approval card, never as a step.
-      if (toolName === 'ExitPlanMode' || toolName === 'AskUserQuestion') break
+      // A question or a plan asking to start shows as its approval card instead.
+      if (event.hidden) break
       if (!run.length) state.runSeq = seq
       const scratchRead =
-        input.scratch && (event.kind === 'read' || event.kind === 'search')
+        input.scratch &&
+        (event.role.kind === 'read' || event.role.kind === 'search')
       const chips = state.pendingAutoChip
         ? [state.pendingAutoChip]
         : scratchRead
@@ -565,7 +466,7 @@ function foldEvent(
       break
     }
     case 'plan': {
-      flushRun(run, items, state.runSeq, nextId)
+      flushRun(run, items, state.runSeq)
       const steps = event.entries.map((entry) => entry.content)
       const statuses = event.entries.map((entry) => entry.status)
       // An agent re-sends its list as it works: that ticks the turn's plan off, not a new one.
@@ -578,7 +479,7 @@ function foldEvent(
       }
       items.push({
         kind: 'plan',
-        id: nextId('plan'),
+        id: `plan-${seq}`,
         steps,
         statuses,
         seq,
@@ -587,7 +488,7 @@ function foldEvent(
       break
     }
     case 'permission': {
-      flushRun(run, items, state.runSeq, nextId)
+      flushRun(run, items, state.runSeq)
       if (event.auto_approved) {
         state.pendingAutoChip = input.scratch
           ? SCRATCH_CHIP
@@ -600,23 +501,23 @@ function foldEvent(
     case 'currentTool':
     case 'sessionStarted':
     case 'usage':
-      flushRun(run, items, state.runSeq, nextId)
+      flushRun(run, items, state.runSeq)
       state.sealMessage = true
       break
     case 'turnEnd':
     case 'engineExited':
-      flushRun(run, items, state.runSeq, nextId)
+      flushRun(run, items, state.runSeq)
       // Its subagents went with the process, whether or not they reported back.
       if (event.type === 'engineExited') state.agents = []
       if (state.runStartedAt && atMs >= state.runStartedAt) {
         items.push({
           kind: 'toolRun',
-          id: nextId('run'),
+          id: `run-worked-${seq}`,
           seq,
           steps: [
             {
               kind: 'tool',
-              id: nextId('worked'),
+              id: `worked-${seq}`,
               icon: 'clock',
               title: workedForLabel(state.runStartedAt, atMs),
               quiet: true,
@@ -636,7 +537,7 @@ function finishTimeline(
   state: FoldState,
   input: MapTimelineInput,
 ): TimelineItem[] {
-  flushRun(state.run, state.items, state.runSeq, state.nextId)
+  flushRun(state.run, state.items, state.runSeq)
   // A thought right before the reply can hold the answer too, so the reply stands alone.
   const items = state.items.filter((item, index) => {
     const next = state.items[index + 1]
@@ -682,7 +583,6 @@ type FinishedTurns = {
   first: MapTimelineInput['events'][number] | undefined
   last: MapTimelineInput['events'][number] | undefined
   items: TimelineItem[]
-  counts: Map<string, number>
   pendingAutoChip: TimelineChip | undefined
   callIds: Set<string>
   agents: ToolRunStep[]
@@ -705,7 +605,7 @@ function sameApprovals(a: ApprovalRow[], b: ApprovalRow[]) {
   )
 }
 
-function touchesFinishedTurn(event: AgentEvent, callIds: Set<string>) {
+function touchesFinishedTurn(event: TranscriptEvent, callIds: Set<string>) {
   if (event.type === 'toolCallUpdate') return callIds.has(event.id)
   if (event.type === 'step') return callIds.has(event.id)
   if (event.type !== 'toolCall') return false
@@ -750,13 +650,9 @@ export class TimelineBuilder {
     const start = turns?.count ?? 0
     // Sealed: nothing written after a turn ends can extend a message from before it.
     const state = turns
-      ? foldState(
-          [...turns.items],
-          new Map(turns.counts),
-          turns.pendingAutoChip,
-          true,
-          [...turns.agents],
-        )
+      ? foldState([...turns.items], turns.pendingAutoChip, true, [
+          ...turns.agents,
+        ])
       : foldState()
     const tail = input.events.slice(start)
     const turnEnd = tail.findLastIndex(
@@ -777,7 +673,6 @@ export class TimelineBuilder {
         first: input.events[0],
         last: boundary,
         items: [...state.items],
-        counts: new Map(state.counts),
         pendingAutoChip: state.pendingAutoChip,
         callIds,
         agents: [...state.agents],

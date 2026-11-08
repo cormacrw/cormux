@@ -101,7 +101,7 @@
 
   async function load(threadId: string) {
     if (draft) {
-      const listed = await config.listEngine(thread.engine)
+      const listed = await config.listEngine()
       if (listed.status === 'ok') {
         models = { current: draftValue, options: listed.data }
       }

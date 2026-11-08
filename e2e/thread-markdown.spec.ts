@@ -218,12 +218,15 @@ test('a long tool run folds, and plans and subagents show progress', async ({
     payload: JSON.stringify(payload),
     createdAt: '2026-09-29 12:00:00',
   })
+  const roles: Record<string, object> = {
+    read: { kind: 'read' },
+    edit: { kind: 'edit', verb: 'Edited' },
+  }
   const tool = (id: string, kind: string, title: string, extra = {}) => ({
     type: 'toolCall',
     id,
     title,
-    name: title,
-    kind,
+    role: roles[kind] ?? { kind: 'command', command: title, description: null },
     status: 'completed',
     locations: [],
     detail: null,
@@ -255,12 +258,14 @@ test('a long tool run folds, and plans and subagents show progress', async ({
       type: 'toolCallUpdate',
       id: 'c1',
       title: null,
-      kind: null,
       status: 'completed',
       locations: [],
       output: '  Tests  12 passed (12)\n',
     },
-    tool('a1', 'other', 'Agent', { detail: 'Explore the code' }),
+    tool('a1', 'other', 'Agent', {
+      detail: 'Explore the code',
+      role: { kind: 'subagent', description: 'Explore the code' },
+    }),
     tool('s1', 'read', 'Read', { parent_id: 'a1', locations: ['d.ts'] }),
     tool('s2', 'execute', 'ls', { parent_id: 'a1', status: 'in_progress' }),
     { type: 'messageChunk', role: 'agent', text: 'All done.' },

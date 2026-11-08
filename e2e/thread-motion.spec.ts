@@ -157,8 +157,7 @@ test('two replies never type at the same time', async ({ page }) => {
       type: 'toolCall',
       id: 'skill-1',
       title: 'Skill',
-      name: 'Skill',
-      kind: 'other',
+      role: { kind: 'skill', name: 'release-notes' },
       status: 'completed',
       locations: [],
       detail: 'release-notes',
@@ -179,14 +178,14 @@ test('two replies never type at the same time', async ({ page }) => {
   })
   expect(most).toBeLessThanOrEqual(1)
   // Both end up in full.
-  const replyText = (key: string) =>
+  const replyText = (start: string) =>
     page
-      .locator(`[data-row-key="${key}"] .agent-markdown`)
+      .locator('#timeline .agent-markdown', { hasText: start })
       .evaluate((el) => (el.textContent ?? '').trim())
   await expect
-    .poll(() => replyText('thought-1'))
+    .poll(() => replyText('First reply.'))
     .toBe(`First reply. ${'more words here '.repeat(60)}`.trim())
   await expect
-    .poll(() => replyText('thought-2'), { timeout: 3000 })
+    .poll(() => replyText('Second reply.'), { timeout: 3000 })
     .toBe(`Second reply. ${'other words here '.repeat(60)}`.trim())
 })

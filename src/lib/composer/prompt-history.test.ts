@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentEvent } from '$lib/ipc/bindings'
+import type { TranscriptEvent } from '$lib/ipc/bindings'
 import { promptHistory, stepPromptHistory } from './prompt-history'
 
-const user = (text: string): { event: AgentEvent } => ({
+const user = (text: string): { event: TranscriptEvent } => ({
   event: { type: 'messageChunk', role: 'user', text },
 })
-const agent = (text: string): { event: AgentEvent } => ({
+const agent = (text: string): { event: TranscriptEvent } => ({
   event: { type: 'messageChunk', role: 'agent', text },
 })
 

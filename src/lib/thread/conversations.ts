@@ -1,7 +1,6 @@
-import type { AgentEvent } from '$lib/ipc/bindings'
-import { legacySessionBoundary } from './legacy-steps'
+import type { TranscriptEvent } from '$lib/ipc/bindings'
 
-type TimedEvent = { seq: number; atMs: number; event: AgentEvent }
+type TimedEvent = { seq: number; atMs: number; event: TranscriptEvent }
 
 /**
  * One conversation in a thread: the events between session boundaries that
@@ -21,8 +20,8 @@ export type Conversation = {
 }
 
 /** What a step marking a new or resumed session says about the conversations around it. */
-function sessionBoundary(event: AgentEvent) {
-  if (event.type !== 'step') return legacySessionBoundary(event)
+function sessionBoundary(event: TranscriptEvent) {
+  if (event.type !== 'step') return null
   const { step } = event
   if (step.kind === 'sessionStarted') {
     return { ended: step.ended_session, conversation: null }

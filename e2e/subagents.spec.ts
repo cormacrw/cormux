@@ -11,8 +11,10 @@ const call = (
   type: 'toolCall',
   id,
   title,
-  name,
-  kind: name === 'Agent' ? 'other' : 'read',
+  role:
+    name === 'Agent'
+      ? { kind: 'subagent', description: detail }
+      : { kind: 'read' },
   status: 'inProgress',
   locations: [],
   detail,
@@ -23,7 +25,6 @@ const done = (id: string) => ({
   type: 'toolCallUpdate',
   id,
   title: null,
-  kind: null,
   status: 'completed',
   locations: [],
 })
