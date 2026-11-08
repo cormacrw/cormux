@@ -590,12 +590,4 @@ mod tests {
             "not rewritten a second time"
         );
     }
-
-    #[test]
-    fn the_migrations_take_every_version_once() {
-        let versions =
-            crate::store::migrate::versions(&[MIGRATION, crate::harness_config::MIGRATION]);
-        let expected: Vec<i64> = (1..=versions.len() as i64).collect();
-        assert_eq!(versions, expected);
-    }
 }

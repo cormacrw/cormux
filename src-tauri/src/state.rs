@@ -22,6 +22,13 @@ use crate::{
     workspaces::Workspaces,
 };
 
+/// The migrations a module writes in Rust, beside the SQL ones `store::migrate` lists. Opening
+/// the app's store runs these, so a module's migration runs for users only once it's here.
+pub const RUST_MIGRATIONS: &[crate::store::migrate::RustMigration] = &[
+    crate::transcript::MIGRATION,
+    crate::harness_config::MIGRATION,
+];
+
 /// Process-wide core state. The webview never holds this; IPC commands borrow it. A handle to
 /// one shared [`Core`], so a workflow can clone it into the background tasks it spawns.
 #[derive(Clone)]
@@ -65,13 +72,7 @@ pub struct Core {
 impl AppState {
     /// Turns that were running when the app last closed are over: no agent survives it.
     pub fn new(data_dir: DataDir, output: Arc<dyn UserOutput>) -> Result<Self> {
-        let store = Store::open(
-            &data_dir.db(),
-            &[
-                crate::transcript::MIGRATION,
-                crate::harness_config::MIGRATION,
-            ],
-        )?;
+        let store = Store::open(&data_dir.db(), RUST_MIGRATIONS)?;
         store.reset_interrupted_turns()?;
         let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
         let engines = Arc::new(ClaudeEngines::new(shell_env.clone()));
@@ -200,5 +201,27 @@ mod tests {
     #[test]
     fn constructs_without_async_runtime() {
         let _state = AppState::recorded(DataDir::new(std::env::temp_dir()));
+    }
+
+    /// Bug: the Rust migrations were listed inline here and the version test kept its own list,
+    /// so it never saw 030, and a module's migration could pass its own test and never run.
+    #[test]
+    fn the_app_runs_every_migration_version_once() {
+        let versions = crate::store::migrate::versions(RUST_MIGRATIONS);
+        let expected: Vec<i64> = (1..=versions.len() as i64).collect();
+        assert_eq!(versions, expected);
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("cormux.db"), RUST_MIGRATIONS).unwrap();
+        let applied: Vec<i64> = store
+            .with_read(|conn| {
+                let mut stmt =
+                    conn.prepare("SELECT version FROM schema_migrations ORDER BY version")?;
+                let rows = stmt.query_map([], |row| row.get(0))?;
+                Ok(rows.collect::<rusqlite::Result<Vec<i64>>>()?)
+            })
+            .unwrap();
+        assert_eq!(applied, expected);
+        assert!(applied.contains(&30), "the committed-config migration runs");
     }
 }
