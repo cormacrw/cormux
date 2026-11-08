@@ -328,6 +328,7 @@ pub fn parents(names_and_merged: &[(String, bool)], trunk: &str) -> Vec<String> 
 /// worktree: the workspace record follows whatever branch that leaves checked out. That switches
 /// branches, so it waits while the branch is locked (an agent working, or setup running).
 pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<WorkspaceStack> {
+    let _moving = state.workspace_git.hold_branch(workspace_id);
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
     let solo_needs_rebase = record.branch != record.base && {
@@ -677,6 +678,7 @@ pub async fn add_branch(state: &AppState, workspace_id: &str, branch: &str) -> R
     let worktree = PathBuf::from(&record.worktree_path);
     crate::workspace_git::check_new_branch(state, &record, name).await?;
     state.workspaces.can_switch_branch(workspace_id).await?;
+    let _moving = state.workspace_git.hold_branch(workspace_id);
 
     match view(state, &worktree).await? {
         View::Unavailable(unavailable) => return Err(Error::Git(unavailable.text())),
@@ -738,6 +740,7 @@ pub async fn push(state: &AppState, workspace_id: &str) -> Result<()> {
 pub async fn sync(state: &AppState, workspace_id: &str) -> Result<()> {
     let record = workspace_record(state, workspace_id).await?;
     state.workspaces.can_switch_branch(workspace_id).await?;
+    let _moving = state.workspace_git.hold_branch(workspace_id);
     let worktree = PathBuf::from(&record.worktree_path);
     let output = gh_stack(state, &worktree, &["sync", "--remote", "origin"]).await?;
     let result = if !output.status.success() {

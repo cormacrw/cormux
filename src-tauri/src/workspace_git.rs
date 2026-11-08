@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -45,12 +45,72 @@ pub enum Checkout {
     PullRef(u64),
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct BranchMoves {
+    held: usize,
+    started: u64,
+}
+
+type MovesByWorkspace = HashMap<String, BranchMoves>;
+
+/// Held by a Cormux operation that can move a workspace's HEAD, for as long as it can.
+pub struct BranchMoveGuard {
+    moves: Arc<Mutex<MovesByWorkspace>>,
+    workspace_id: String,
+}
+
+impl Drop for BranchMoveGuard {
+    fn drop(&mut self) {
+        let mut moves = self.moves.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = moves.get_mut(&self.workspace_id) {
+            entry.held = entry.held.saturating_sub(1);
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct WorkspaceGit {
     stats: Arc<RwLock<HashMap<String, Stats>>>,
+    /// Kept after the last guard drops: the count started is how the branch watcher sees an
+    /// operation that came and went between its reads.
+    moves: Arc<Mutex<MovesByWorkspace>>,
 }
 
 impl WorkspaceGit {
+    /// Cormux's own branch operations check branches out and back as separate git calls, and
+    /// adopt what they leave themselves; the branch watcher keeps out of a workspace while one
+    /// is held.
+    pub fn hold_branch(&self, workspace_id: &str) -> BranchMoveGuard {
+        let mut moves = self.moves.lock().unwrap_or_else(PoisonError::into_inner);
+        let entry = moves.entry(workspace_id.to_string()).or_default();
+        entry.held += 1;
+        entry.started += 1;
+        BranchMoveGuard {
+            moves: Arc::clone(&self.moves),
+            workspace_id: workspace_id.to_string(),
+        }
+    }
+
+    fn branch_moves(&self) -> MovesByWorkspace {
+        self.moves
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Whether a branch operation in `workspace_id` is held now or started after `before`.
+    fn branch_moved_since(&self, before: &MovesByWorkspace, workspace_id: &str) -> bool {
+        let now = self
+            .moves
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(workspace_id)
+            .copied()
+            .unwrap_or_default();
+        let started_before = before.get(workspace_id).map_or(0, |moves| moves.started);
+        now.held > 0 || now.started != started_before
+    }
+
     /// Waits for the lock: a `try_read` here gave an empty map whenever a count was being
     /// written, so a snapshot taken mid-pull showed every workspace level and conflict-free.
     pub async fn snapshot(&self, workspace_ids: &[String]) -> Vec<WorkspaceGitRuntime> {
@@ -70,6 +130,10 @@ impl WorkspaceGit {
 
     pub async fn forget(&self, workspace_id: &str) {
         self.stats.write().await.remove(workspace_id);
+        self.moves
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(workspace_id);
     }
 
     async fn get(&self, workspace_id: &str) -> Stats {
@@ -363,6 +427,7 @@ pub async fn switch_branch(state: &AppState, workspace_id: &str, branch: &str) -
         return Ok(());
     }
     state.workspaces.can_switch_branch(workspace_id).await?;
+    let _moving = state.workspace_git.hold_branch(workspace_id);
     state.git.switch(&workspace.worktree(), branch).await?;
     let change = BranchChange::CheckedOut {
         previous: workspace.branch.clone(),
@@ -375,6 +440,7 @@ pub async fn create_branch(state: &AppState, workspace_id: &str, branch: &str) -
     let workspace = state.workspaces.get(workspace_id).await?;
     check_new_branch(state, &workspace, branch).await?;
     state.workspaces.can_switch_branch(workspace_id).await?;
+    let _moving = state.workspace_git.hold_branch(workspace_id);
     state
         .git
         .switch_new_branch(&workspace.worktree(), branch, "HEAD")
@@ -406,6 +472,8 @@ pub async fn adopt_checked_out_branch(
 }
 
 async fn adopt_outside_checkouts(state: &AppState) {
+    // Read before the records, so an operation that switched and recorded in between counts.
+    let moves = state.workspace_git.branch_moves();
     let workspaces = match state.workspaces.live().await {
         Ok(workspaces) => workspaces,
         Err(error) => {
@@ -430,6 +498,13 @@ async fn adopt_outside_checkouts(state: &AppState) {
             },
         };
         if branch.is_empty() || branch == workspace.branch {
+            continue;
+        }
+        // Checked after reading HEAD: a branch read mid-operation may be gone already.
+        if state
+            .workspace_git
+            .branch_moved_since(&moves, &workspace.id)
+        {
             continue;
         }
         let change = BranchChange::CheckedOutOutside {
@@ -705,6 +780,29 @@ mod tests {
         git(&repo, &["commit", "-q", "-am", "resolved"]);
         adopt_outside_checkouts(&state).await;
         assert_eq!(conflict(&state).await, None);
+    }
+
+    /// Bug: the branch watcher took a branch a stack operation checked out for a moment as one
+    /// checked out outside Cormux, recording a switch and dropping the workspace's PR.
+    #[tokio::test]
+    async fn the_branch_watcher_keeps_out_while_cormux_moves_a_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, repo) = workspace_in_a_repo(dir.path()).await;
+        git(&repo, &["branch", "feat/b"]);
+        let pr = |state: &AppState| state.store.workspace_by_id("w").unwrap().unwrap().pr_number;
+
+        let moving = state.workspace_git.hold_branch("w");
+        git(&repo, &["switch", "-q", "feat/b"]);
+        adopt_outside_checkouts(&state).await;
+        assert_eq!(state.workspaces.get("w").await.unwrap().branch, "feat/a");
+        assert_eq!(pr(&state), Some(7));
+        git(&repo, &["switch", "-q", "feat/a"]);
+        drop(moving);
+
+        git(&repo, &["switch", "-q", "feat/b"]);
+        adopt_outside_checkouts(&state).await;
+        assert_eq!(state.workspaces.get("w").await.unwrap().branch, "feat/b");
+        assert_eq!(pr(&state), None);
     }
 
     /// The background fetch used to throw its counts away, so they only moved on focus.
