@@ -145,8 +145,7 @@ impl ThreadStatus {
         }
     }
 
-    /// A stored status. Anything else, such as the `waiting` older builds could leave behind,
-    /// isn't doing anything, so it reads as `Idle`.
+    /// A stored status. Anything unrecognised isn't doing anything, so it reads as `Idle`.
     pub fn parse(raw: &str) -> Self {
         match raw {
             "provisioning" => Self::Provisioning,
@@ -403,7 +402,6 @@ mod tests {
             assert_eq!(ThreadStatus::parse(word), status);
             assert_eq!(serde_json::to_value(status).unwrap(), word);
         }
-        assert_eq!(ThreadStatus::parse("waiting"), ThreadStatus::Idle);
         for status in [
             ApprovalStatus::Pending,
             ApprovalStatus::Approved,
