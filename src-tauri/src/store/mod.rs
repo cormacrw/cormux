@@ -359,21 +359,18 @@ impl Store {
                     ApprovalStatus::Pending.as_str(),
                 ],
             )?;
-            conn.execute(
-                "UPDATE threads SET status = ?1 WHERE status IN (?2, ?3)",
-                [
-                    ThreadStatus::Idle.as_str(),
-                    ThreadStatus::Running.as_str(),
-                    ThreadStatus::Paused.as_str(),
-                ],
-            )?;
-            conn.execute(
-                "UPDATE workspaces SET status = ?1 WHERE status = ?2",
-                [
-                    WorkspaceLifecycle::Idle.as_str(),
-                    WorkspaceLifecycle::Running.as_str(),
-                ],
-            )?;
+            for status in ThreadStatus::ALL.into_iter().filter(|s| s.is_mid_turn()) {
+                conn.execute(
+                    "UPDATE threads SET status = ?1 WHERE status = ?2",
+                    [ThreadStatus::Idle.as_str(), status.as_str()],
+                )?;
+            }
+            for status in [WorkspaceLifecycle::Running, WorkspaceLifecycle::Paused] {
+                conn.execute(
+                    "UPDATE workspaces SET status = ?1 WHERE status = ?2",
+                    [WorkspaceLifecycle::Idle.as_str(), status.as_str()],
+                )?;
+            }
             Ok(())
         })
     }
@@ -857,12 +854,14 @@ mod tests {
     #[test]
     fn a_restart_ends_the_turns_that_were_running() {
         let store = Store::in_memory().unwrap();
+        store.seed_workspace("w", WorkspaceLifecycle::Paused);
         store
             .with_conn(|conn| {
                 conn.execute_batch(
                     "PRAGMA foreign_keys = OFF;
                      INSERT INTO threads (id, workspace_id, title, engine, status) VALUES
                         ('busy', 'w', 'Lead', 'claude', 'running'),
+                        ('held', 'w', 'Helper', 'claude', 'paused'),
                         ('setup', 'w2', 'Lead', 'claude', 'provisioning');
                      INSERT INTO approvals (id, thread_id, status, tool, payload) VALUES
                         ('stale', 'busy', 'pending', 'execute', '{}'),
@@ -879,7 +878,10 @@ mod tests {
         assert_eq!(approval("done"), ApprovalStatus::Approved);
         let status = |id: &str| store.thread_by_id(id).unwrap().unwrap().status;
         assert_eq!(status("busy"), ThreadStatus::Idle);
+        assert_eq!(status("held"), ThreadStatus::Idle);
         assert_eq!(status("setup"), ThreadStatus::Provisioning);
+        let workspace = store.workspace_by_id("w").unwrap().unwrap();
+        assert_eq!(workspace.status, WorkspaceLifecycle::Idle);
     }
 
     #[test]

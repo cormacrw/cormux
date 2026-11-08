@@ -9,14 +9,15 @@ use specta::Type;
 /// The branch a repo's default is taken to be when git can't tell and none was recorded.
 pub const FALLBACK_DEFAULT_BRANCH: &str = "main";
 
-/// A workspace's lifecycle. `ready` is idle with no threads; running/idle describe activity
-/// after provisioning.
+/// A workspace's lifecycle. `ready` is idle with no threads; running, paused and idle describe
+/// its threads after provisioning (see `status_from_threads`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkspaceLifecycle {
     Provisioning,
     Ready,
     Running,
+    Paused,
     Idle,
     TearingDown,
     ProvisioningFailed,
@@ -29,6 +30,7 @@ impl WorkspaceLifecycle {
             Self::Provisioning => "provisioning",
             Self::Ready => "ready",
             Self::Running => "running",
+            Self::Paused => "paused",
             Self::Idle => "idle",
             Self::TearingDown => "tearingDown",
             Self::ProvisioningFailed => "provisioningFailed",
@@ -40,11 +42,20 @@ impl WorkspaceLifecycle {
         match raw {
             "provisioning" => Self::Provisioning,
             "running" => Self::Running,
+            "paused" => Self::Paused,
             "idle" => Self::Idle,
             "tearingDown" => Self::TearingDown,
             "provisioningFailed" => Self::ProvisioningFailed,
             _ => Self::Ready,
         }
+    }
+
+    /// Past setup and not being torn down: its status follows its threads.
+    pub fn is_settled(self) -> bool {
+        !matches!(
+            self,
+            Self::Provisioning | Self::TearingDown | Self::ProvisioningFailed
+        )
     }
 }
 
@@ -146,29 +157,43 @@ impl ThreadStatus {
             _ => Self::Idle,
         }
     }
+
+    /// An agent at work or starting: the workspace reads as running, and its branch stays where
+    /// it is. The webview gets the list as `WORKING_THREAD_STATUSES`.
+    pub const WORKING: [Self; 2] = [Self::Running, Self::Provisioning];
+
+    pub fn is_working(self) -> bool {
+        Self::WORKING.contains(&self)
+    }
+
+    /// A turn was started and hasn't ended: it is running, or paused partway.
+    pub fn is_mid_turn(self) -> bool {
+        matches!(self, Self::Running | Self::Paused)
+    }
+
+    /// Still has work to finish: working, or paused partway through a turn.
+    pub fn is_unfinished(self) -> bool {
+        self.is_working() || self.is_mid_turn()
+    }
+
+    pub const ALL: [Self; 4] = [Self::Provisioning, Self::Running, Self::Paused, Self::Idle];
 }
 
 /// A workspace's status given its threads: the one derivation, for the live record and the
 /// stored row alike. Setup and teardown own the workspace until they finish, so their states
-/// are left alone.
+/// are left alone. A workspace whose only unfinished threads are paused reads as paused.
 pub fn status_from_threads(
     current: WorkspaceLifecycle,
     threads: impl Iterator<Item = ThreadStatus>,
 ) -> WorkspaceLifecycle {
-    if matches!(
-        current,
-        WorkspaceLifecycle::Provisioning
-            | WorkspaceLifecycle::TearingDown
-            | WorkspaceLifecycle::ProvisioningFailed
-    ) {
+    if !current.is_settled() {
         return current;
     }
     let threads: Vec<_> = threads.collect();
-    if threads
-        .iter()
-        .any(|activity| matches!(activity, ThreadStatus::Running | ThreadStatus::Provisioning))
-    {
+    if threads.iter().any(|status| status.is_working()) {
         WorkspaceLifecycle::Running
+    } else if threads.contains(&ThreadStatus::Paused) {
+        WorkspaceLifecycle::Paused
     } else if threads.is_empty() {
         WorkspaceLifecycle::Ready
     } else {
@@ -360,10 +385,11 @@ impl fmt::Display for GitConflictOperation {
 mod tests {
     use super::*;
 
-    const LIFECYCLES: [WorkspaceLifecycle; 6] = [
+    const LIFECYCLES: [WorkspaceLifecycle; 7] = [
         WorkspaceLifecycle::Provisioning,
         WorkspaceLifecycle::Ready,
         WorkspaceLifecycle::Running,
+        WorkspaceLifecycle::Paused,
         WorkspaceLifecycle::Idle,
         WorkspaceLifecycle::TearingDown,
         WorkspaceLifecycle::ProvisioningFailed,
@@ -416,7 +442,9 @@ mod tests {
         for (threads, expected) in [
             (vec![], Lifecycle::Ready),
             (vec![Idle], Lifecycle::Idle),
-            (vec![Paused], Lifecycle::Idle),
+            (vec![Paused], Lifecycle::Paused),
+            (vec![Idle, Paused], Lifecycle::Paused),
+            (vec![Paused, Running], Lifecycle::Running),
             (vec![Idle, Running], Lifecycle::Running),
             (vec![Idle, Provisioning], Lifecycle::Running),
         ] {

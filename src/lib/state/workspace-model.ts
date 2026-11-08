@@ -45,8 +45,6 @@ export type Workspace = {
   base: string
   kind: WorkspaceKind
   lifecycle: WorkspaceLifecycle
-  /** Running, with every agent in it paused. */
-  paused: boolean
   activityText: string
   pendingApprovals: number
   createdAtMs: number | null
@@ -104,19 +102,10 @@ export function workspacesFromSnapshot(
   const pending = countBy(persisted.approvals, (row) =>
     row.status === 'pending' ? (workspaceOf.get(row.threadId) ?? null) : null,
   )
-  const runningLike = new Map<string, { all: number; paused: number }>()
-  for (const thread of persisted.threads) {
-    if (!['running', 'paused', 'provisioning'].includes(thread.status)) continue
-    const tally = runningLike.get(thread.workspaceId) ?? { all: 0, paused: 0 }
-    tally.all += 1
-    if (thread.status === 'paused') tally.paused += 1
-    runningLike.set(thread.workspaceId, tally)
-  }
 
   return snapshot.workspaces.map((record) => {
     const row = rows.get(record.id)
     const review = reviews.get(record.id)
-    const tally = runningLike.get(record.id)
     const gitRow = git.get(record.id)
     const app = apps.get(record.id)
     const runtime = { ...(previous(record.id) ?? IDLE_RUNTIME) }
@@ -141,11 +130,6 @@ export function workspacesFromSnapshot(
       base: record.base,
       kind: record.kind,
       lifecycle: record.status,
-      paused:
-        record.status === 'running' &&
-        !!tally &&
-        tally.all > 0 &&
-        tally.paused === tally.all,
       activityText: workspaceActivity(record),
       pendingApprovals: pending.get(record.id) ?? 0,
       createdAtMs: row?.createdAtMs ?? null,

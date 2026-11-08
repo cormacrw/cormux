@@ -740,6 +740,7 @@ toastRaised: "toast-raised"
 
 /** user-defined constants **/
 
+export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
 export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
 
 /** user-defined types **/
@@ -1455,10 +1456,10 @@ export type WorkspaceKind =
  */
 "review"
 /**
- * A workspace's lifecycle. `ready` is idle with no threads; running/idle describe activity
- * after provisioning.
+ * A workspace's lifecycle. `ready` is idle with no threads; running, paused and idle describe
+ * its threads after provisioning (see `status_from_threads`).
  */
-export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "idle" | "tearingDown" | "provisioningFailed"
+export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "paused" | "idle" | "tearingDown" | "provisioningFailed"
 /**
  * A workspace as the webview shows it: its row, plus what only the running app knows.
  */

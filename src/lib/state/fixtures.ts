@@ -13,7 +13,6 @@ export function workspaceFixture(patch: Partial<Workspace> = {}): Workspace {
     base: 'main',
     kind: 'lead',
     lifecycle: 'idle',
-    paused: false,
     activityText: 'Idle',
     pendingApprovals: 0,
     createdAtMs: null,

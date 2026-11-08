@@ -10,7 +10,6 @@ export type StatusDotVariant =
 
 type WorkspaceSidebarInput = {
   lifecycle: WorkspaceLifecycle
-  paused: boolean
   activityText: string
 }
 
@@ -18,9 +17,8 @@ export function statusDotVariantForWorkspace(
   workspace: WorkspaceSidebarInput,
 ): StatusDotVariant {
   if (workspace.lifecycle === 'provisioning') return 'provisioning'
-  if (workspace.lifecycle === 'running') {
-    return workspace.paused ? 'paused' : 'running'
-  }
+  if (workspace.lifecycle === 'running') return 'running'
+  if (workspace.lifecycle === 'paused') return 'paused'
   return 'idle'
 }
 
@@ -33,8 +31,7 @@ export function statusDotVariantForAttention(
 
 export function workspaceStatusWord(workspace: WorkspaceSidebarInput): string {
   if (workspace.lifecycle === 'provisioning') return 'Starting'
-  if (workspace.lifecycle === 'running') {
-    return workspace.paused ? 'Paused' : 'Running'
-  }
+  if (workspace.lifecycle === 'running') return 'Running'
+  if (workspace.lifecycle === 'paused') return 'Paused'
   return workspace.activityText
 }

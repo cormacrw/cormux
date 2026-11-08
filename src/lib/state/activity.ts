@@ -1,8 +1,9 @@
-import type {
-  ThreadStatus,
-  WorkspaceActivity,
-  WorkspaceLifecycle,
-  WorkspaceRecord,
+import {
+  WORKING_THREAD_STATUSES,
+  type ThreadStatus,
+  type WorkspaceActivity,
+  type WorkspaceLifecycle,
+  type WorkspaceRecord,
 } from '$lib/ipc/bindings'
 
 /** What a thread is doing, in words; `setup` is its workspace's, for a thread still being set up. */
@@ -54,6 +55,8 @@ export function workspaceActivity(
         : 'Running worktree setup…'
     case 'running':
       return 'Working'
+    case 'paused':
+      return 'Paused'
     case 'ready':
       return 'Ready'
     default:
@@ -67,9 +70,9 @@ export function isWorkspaceProvisioning(
   return lifecycle === 'provisioning'
 }
 
-/** An agent working or starting: what holds a workspace's branch where it is. */
+/** An agent working or starting, by the core's rule. */
 export function isAgentWorking(status: ThreadStatus): boolean {
-  return status === 'running' || status === 'provisioning'
+  return (WORKING_THREAD_STATUSES as readonly ThreadStatus[]).includes(status)
 }
 
 export function runningAgentCount(threads: { status: ThreadStatus }[]): number {
@@ -84,7 +87,6 @@ export function runningAgentCount(threads: { status: ThreadStatus }[]): number {
 export function needsAttention(
   workspace: {
     lifecycle: WorkspaceLifecycle
-    paused: boolean
     pendingApprovals: number
   },
   threadStatus: ThreadStatus | undefined,
@@ -92,6 +94,6 @@ export function needsAttention(
   const working =
     (threadStatus !== undefined && isAgentWorking(threadStatus)) ||
     workspace.lifecycle === 'provisioning' ||
-    (workspace.lifecycle === 'running' && !workspace.paused)
+    workspace.lifecycle === 'running'
   return !working || workspace.pendingApprovals > 0
 }

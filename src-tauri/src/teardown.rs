@@ -154,7 +154,7 @@ async fn run_teardown_steps(
 /// What a workspace is once a teardown that stopped its agents and setup gives up.
 fn after_failed_teardown(before: WorkspaceLifecycle) -> WorkspaceLifecycle {
     match before {
-        WorkspaceLifecycle::Running => WorkspaceLifecycle::Idle,
+        WorkspaceLifecycle::Running | WorkspaceLifecycle::Paused => WorkspaceLifecycle::Idle,
         WorkspaceLifecycle::Provisioning => WorkspaceLifecycle::ProvisioningFailed,
         other => other,
     }

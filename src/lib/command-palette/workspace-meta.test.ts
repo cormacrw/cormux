@@ -29,7 +29,7 @@ describe('workspaceCardMetaText', () => {
       'Needs Attention',
     )
     expect(
-      workspaceCardMetaText({ ...running, paused: true }, [
+      workspaceCardMetaText(workspaceFixture({ lifecycle: 'paused' }), [
         threadFixture({ status: 'paused' }),
       ]),
     ).toBe('Needs Attention')

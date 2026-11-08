@@ -8,7 +8,7 @@ import {
 } from '$lib/sidebar/thread-list'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches } from '$lib/state/scratches.svelte'
-import { threadTimeline } from '$lib/thread/timeline-store.svelte'
+import { threadActivity } from '$lib/state/thread-activity.svelte'
 import { threads } from '$lib/state/threads.svelte'
 import { workspaces, type Workspace } from '$lib/state/workspaces.svelte'
 
@@ -36,7 +36,7 @@ export type ThreadListRowItem = ThreadListItem & { nested: boolean }
  */
 class ThreadList {
   readonly items = $derived.by((): ThreadListItem[] => {
-    const activity = threadTimeline.activityByThread
+    const activity = threadActivity.atMs
     const rows = workspaces.liveItems.map((workspace) => {
       const thread = threads.liveFor(workspace.id)
       const parentThread = thread?.parentThreadId

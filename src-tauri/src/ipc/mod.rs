@@ -113,6 +113,10 @@ pub fn builder() -> Builder {
     Builder::<tauri::Wry>::new()
         .commands(commands())
         .constant("DEFAULT_SETTINGS", settings::Settings::default())
+        .constant(
+            "WORKING_THREAD_STATUSES",
+            crate::model::ThreadStatus::WORKING,
+        )
         .events(tauri_specta::collect_events![
             events::StateChanged,
             events::MemorySampled,

@@ -16,7 +16,6 @@
   import { branchHoldLabel } from '$lib/repo/branch-hold'
   import { workspaceStatusWord } from '$lib/sidebar/status'
   import { prs, repos, scratches, workspaces } from '$lib/state'
-  import type { Workspace } from '$lib/state/workspaces.svelte'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Trash2 from '@lucide/svelte/icons/trash-2'
@@ -79,14 +78,6 @@
       cancelled = true
     }
   })
-
-  function statusWord(workspace: Workspace) {
-    return workspaceStatusWord({
-      lifecycle: workspace.lifecycle,
-      paused: workspace.paused,
-      activityText: workspace.activityText,
-    })
-  }
 
   async function removeBranch(name: string, force = false) {
     const id = nav.repoId
@@ -179,7 +170,7 @@
             class="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
           >
             {#each repoWorkspaces as row (row.id)}
-              {@const status = statusWord(row)}
+              {@const status = workspaceStatusWord(row)}
               <li>
                 <button
                   type="button"

@@ -321,12 +321,11 @@ impl Workspaces {
                 "branch switch refused while provisioning".into(),
             ));
         }
-        let blocked = self.store.threads_for_workspace(id)?.iter().any(|thread| {
-            matches!(
-                thread.status,
-                ThreadStatus::Running | ThreadStatus::Provisioning
-            )
-        });
+        let blocked = self
+            .store
+            .threads_for_workspace(id)?
+            .iter()
+            .any(|thread| thread.status.is_working());
         if blocked {
             return Err(Error::Workspace(
                 "branch switch refused while a thread is running".into(),
@@ -393,7 +392,9 @@ fn ensure_worktree_free(
 /// The lifecycle's legal moves. A failed teardown hands the workspace back as it can now be:
 /// its threads were stopped, and so was any setup.
 fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result<()> {
-    use WorkspaceLifecycle::{Idle, Provisioning, ProvisioningFailed, Ready, Running, TearingDown};
+    use WorkspaceLifecycle::{
+        Idle, Paused, Provisioning, ProvisioningFailed, Ready, Running, TearingDown,
+    };
     if from == to {
         return Ok(());
     }
@@ -402,8 +403,11 @@ fn assert_transition(from: WorkspaceLifecycle, to: WorkspaceLifecycle) -> Result
         (
             Provisioning,
             Ready | Running | ProvisioningFailed | TearingDown
-        ) | (Ready, Running | Idle | TearingDown)
-            | (Running | Idle, Ready | Running | Idle | TearingDown)
+        ) | (Ready, Running | Paused | Idle | TearingDown)
+            | (
+                Running | Paused | Idle,
+                Ready | Running | Paused | Idle | TearingDown
+            )
             | (ProvisioningFailed, Provisioning | TearingDown)
             | (TearingDown, Ready | Idle | ProvisioningFailed)
     );

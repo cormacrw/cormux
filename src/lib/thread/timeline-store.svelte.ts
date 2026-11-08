@@ -4,7 +4,6 @@ import type {
   ApprovalRow,
   ConversationSummary,
   StreamedEvent,
-  ThreadActivityRow,
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc/bindings'
 import type { CoreError } from '$lib/ipc'
@@ -48,8 +47,6 @@ class ThreadTimelineStore {
   // reactive proxy made every rebuild of the timeline ~30x slower. Always replaced, never mutated.
   // Only the threads you've opened recently are here; see `watch`.
   private eventsByThread = $state.raw<Record<string, TimedEvent[]>>({})
-  /** When each thread last moved, for the sidebar; streamed output doesn't count. */
-  activityByThread = $state.raw<Record<string, number>>({})
   private currentToolByThread = $state.raw<Record<string, string>>({})
   private olderByThread = $state.raw<Record<string, boolean>>({})
   private historyGeneration = $state.raw<Record<string, number>>({})
@@ -91,11 +88,7 @@ class ThreadTimelineStore {
     for (const listener of this.readErrorListeners) listener(error)
   }
 
-  hydrate(input: {
-    threadIds: string[]
-    approvals: ApprovalRow[]
-    activity: ThreadActivityRow[]
-  }) {
+  hydrate(input: { threadIds: string[]; approvals: ApprovalRow[] }) {
     const alive = new Set(input.threadIds)
     for (const threadId of Object.keys(this.eventsByThread)) {
       if (!alive.has(threadId)) this.forget(threadId)
@@ -103,7 +96,6 @@ class ThreadTimelineStore {
     if (!deepEqual(input.approvals, this.approvals)) {
       this.approvals = input.approvals
     }
-    this.mergeActivity(input.activity)
   }
 
   // Grouped once per approvals list, so a timeline rebuild on every chunk doesn't scan them all.
@@ -116,17 +108,6 @@ class ThreadTimelineStore {
     }
     return map
   })
-
-  private mergeActivity(rows: ThreadActivityRow[]) {
-    let next: Record<string, number> | null = null
-    for (const row of rows) {
-      if (row.atMs > (this.activityByThread[row.threadId] ?? 0)) {
-        next ??= { ...this.activityByThread }
-        next[row.threadId] = row.atMs
-      }
-    }
-    if (next) this.activityByThread = next
-  }
 
   /** Everything the thread's conversation shows; the same object until something in it changes. */
   threadView(threadId: string): ThreadView {
@@ -438,6 +419,5 @@ onSnapshot((snapshot) =>
       ...snapshot.persisted.scratches.map((scratch) => scratch.threadId),
     ],
     approvals: snapshot.persisted.approvals,
-    activity: snapshot.persisted.threadActivity,
   }),
 )

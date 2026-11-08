@@ -548,25 +548,23 @@ impl Store {
     pub fn active_children(&self, parent_id: &str) -> Result<Vec<(String, WorkspaceLifecycle)>> {
         self.with_read(|conn| {
             let mut stmt = conn.prepare_cached(
-                "SELECT t.id, w.status FROM visible_threads t
+                "SELECT t.id, t.status, w.status FROM visible_threads t
                  JOIN live_workspaces w ON w.id = t.workspace_id
-                 WHERE t.parent_thread_id = ?1 AND t.status IN (?2, ?3, ?4)",
+                 WHERE t.parent_thread_id = ?1",
             )?;
-            let rows = stmt.query_map(
-                rusqlite::params![
-                    parent_id,
-                    ThreadStatus::Provisioning.as_str(),
-                    ThreadStatus::Running.as_str(),
-                    ThreadStatus::Paused.as_str(),
-                ],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        WorkspaceLifecycle::parse(&row.get::<_, String>(1)?),
-                    ))
-                },
-            )?;
-            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            let rows = stmt.query_map([parent_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    ThreadStatus::parse(&row.get::<_, String>(1)?),
+                    WorkspaceLifecycle::parse(&row.get::<_, String>(2)?),
+                ))
+            })?;
+            let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows
+                .into_iter()
+                .filter(|(_, status, _)| status.is_unfinished())
+                .map(|(id, _, workspace)| (id, workspace))
+                .collect())
         })
     }
 

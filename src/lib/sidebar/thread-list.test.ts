@@ -9,7 +9,6 @@ import {
 describe('thread urgency', () => {
   const working = {
     lifecycle: 'running' as const,
-    paused: false,
     pendingApprovals: 0,
   }
 
@@ -32,7 +31,7 @@ describe('thread urgency', () => {
         'attention',
       )
     }
-    expect(threadUrgency({ ...working, paused: true }, undefined)).toBe(
+    expect(threadUrgency({ ...working, lifecycle: 'paused' }, undefined)).toBe(
       'attention',
     )
   })

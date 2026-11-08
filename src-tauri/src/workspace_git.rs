@@ -13,7 +13,7 @@ use tokio::sync::RwLock;
 use crate::error::{Error, Result};
 use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
 use crate::git::{BehindUpdate, GitConflictState, RepoFetchTarget, WorkspaceFetchTarget};
-use crate::model::{GitConflictOperation, WorkspaceLifecycle};
+use crate::model::GitConflictOperation;
 use crate::state::AppState;
 use crate::timeline::{BranchChange, TimelineStep};
 use crate::workspaces::WorkspaceRecord;
@@ -329,10 +329,7 @@ async fn adopt_outside_checkouts(state: &AppState) {
         }
     };
     for workspace in workspaces {
-        if !matches!(
-            workspace.status,
-            WorkspaceLifecycle::Ready | WorkspaceLifecycle::Running | WorkspaceLifecycle::Idle
-        ) {
+        if !workspace.status.is_settled() {
             continue;
         }
         let worktree = workspace.worktree();

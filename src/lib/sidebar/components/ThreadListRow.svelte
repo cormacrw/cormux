@@ -27,21 +27,13 @@
       : nav.view === 'scratch' && nav.scratchId === item.id,
   )
 
-  const statusInput = $derived(
-    workspace && {
-      lifecycle: workspace.lifecycle,
-      paused: workspace.paused,
-      activityText: workspace.activityText,
-    },
-  )
-
   const statusLine = $derived.by(() => {
-    if (!workspace || !statusInput) return 'Read-only'
+    if (!workspace) return 'Read-only'
     if (workspace.lifecycle === 'provisioningFailed') return 'Setup failed'
     if (workspace.pendingApprovals > 0) {
       return `${plural(workspace.pendingApprovals, 'approval', 'approvals')} waiting`
     }
-    return workspaceStatusWord(statusInput)
+    return workspaceStatusWord(workspace)
   })
 
   // An approval can land while the workspace still reads as running, so urgency decides.
@@ -49,7 +41,7 @@
     if (attention) {
       return statusDotVariantForAttention(workspace?.pendingApprovals ?? 0)
     }
-    return statusInput ? statusDotVariantForWorkspace(statusInput) : 'idle'
+    return workspace ? statusDotVariantForWorkspace(workspace) : 'idle'
   })
 
   // Only what the dot can't say: a setup that failed, or a leftover that can't be prompted.

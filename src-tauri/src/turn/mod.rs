@@ -475,7 +475,8 @@ mod tests {
         pause(&state, T).await.unwrap();
         assert!(cancelled(&mut engine));
         assert_eq!(thread_status(&state, T), "paused");
-        assert_eq!(live_workspace(&state).await, WorkspaceLifecycle::Idle);
+        assert_eq!(stored_workspace(&state), "paused");
+        assert_eq!(live_workspace(&state).await, WorkspaceLifecycle::Paused);
 
         submit(&state, T, "while paused".into(), Vec::new())
             .await

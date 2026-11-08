@@ -10,7 +10,6 @@ describe('statusDotVariantForWorkspace', () => {
     expect(
       statusDotVariantForWorkspace({
         lifecycle: 'provisioning',
-        paused: false,
         activityText: 'Idle',
       }),
     ).toBe('provisioning')
@@ -20,16 +19,11 @@ describe('statusDotVariantForWorkspace', () => {
     expect(
       statusDotVariantForWorkspace({
         lifecycle: 'running',
-        paused: false,
         activityText: '',
       }),
     ).toBe('running')
     expect(
-      statusDotVariantForWorkspace({
-        lifecycle: 'running',
-        paused: true,
-        activityText: '',
-      }),
+      statusDotVariantForWorkspace({ lifecycle: 'paused', activityText: '' }),
     ).toBe('paused')
   })
 })
@@ -39,24 +33,30 @@ describe('workspaceStatusWord', () => {
     expect(
       workspaceStatusWord({
         lifecycle: 'idle',
-        paused: false,
         activityText: 'Plan ready',
       }),
     ).toBe('Plan ready')
+  })
+
+  it('says a paused workspace is paused, whatever it was last doing', () => {
+    expect(
+      workspaceStatusWord({
+        lifecycle: 'paused',
+        activityText: 'Reading repo…',
+      }),
+    ).toBe('Paused')
   })
 
   it('uses Starting and Running labels', () => {
     expect(
       workspaceStatusWord({
         lifecycle: 'provisioning',
-        paused: false,
         activityText: '',
       }),
     ).toBe('Starting')
     expect(
       workspaceStatusWord({
         lifecycle: 'running',
-        paused: false,
         activityText: '',
       }),
     ).toBe('Running')
