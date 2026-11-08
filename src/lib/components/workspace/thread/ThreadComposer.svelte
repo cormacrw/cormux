@@ -69,7 +69,6 @@
   import { composerDrafts } from '$lib/composer/drafts-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
-  import { workspaceUi } from '$lib/state/workspace-ui.svelte'
   import ArrowUp from '@lucide/svelte/icons/arrow-up'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import FileText from '@lucide/svelte/icons/file-text'
@@ -84,8 +83,11 @@
     target,
     onSent,
     status,
+    shown = true,
   }: {
     target: ComposerTarget
+    /** False while a slide-out covers the composer's view. */
+    shown?: boolean
     onSent?: () => void
     /** What the agent is doing, floated just above the prompt bar. */
     status?: Snippet
@@ -260,7 +262,7 @@
   // The conversation stays mounted under the slide-outs, so closing one (or picking the
   // thread tab again) brings focus back here rather than to a fresh composer.
   $effect(() => {
-    if (workspaceUi.activeTab === 'thread') takeFocusSoon()
+    if (shown) takeFocusSoon()
   })
 
   // Coming back to the app with nothing focused lands in the prompt too.

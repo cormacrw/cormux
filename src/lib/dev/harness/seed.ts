@@ -12,9 +12,15 @@ import type { HarnessScenario } from './scenario'
 
 const SEEDED_AT = '2026-09-28 12:00:00'
 
+/** As the engine does when it starts talking: the thread now has a session to resume or clear. */
+function startLeadSession(db: HarnessDb) {
+  findThread(db, LEAD_THREAD_ID)!.sessionId ??= 'session-seeded'
+}
+
 function seedLongThread(db: HarnessDb, turns: number) {
   const push = (event: TranscriptEvent) =>
     appendEvent(db, LEAD_THREAD_ID, event, SEEDED_AT)
+  startLeadSession(db)
   for (let turn = 1; turn <= turns; turn += 1) {
     push({ type: 'messageChunk', role: 'user', text: `Question ${turn}` })
     push({ type: 'messageChunk', role: 'agent', text: `Answer ${turn}` })
@@ -89,6 +95,7 @@ function seedLeadUsage(
   usage: NonNullable<HarnessScenario['leadUsage']>,
 ) {
   Object.assign(findThread(db, LEAD_THREAD_ID)!, usage)
+  startLeadSession(db)
   // As a real turn does, log the usage it reported, stamped now.
   appendEvent(db, LEAD_THREAD_ID, {
     type: 'usage',
@@ -137,6 +144,7 @@ export function seedFixtures(db: HarnessDb, scenario: HarnessScenario) {
       ...db.timeline.filter((row) => row.threadId !== LEAD_THREAD_ID),
       ...scenario.timeline,
     ]
+    if (scenario.timeline.length > 0) startLeadSession(db)
   }
   if (scenario.approvals) persisted.approvals = scenario.approvals
   if (scenario.reviewFindings) seedReviewFindings(db, scenario.reviewFindings)

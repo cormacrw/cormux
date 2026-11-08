@@ -40,13 +40,7 @@
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import Undo2 from '@lucide/svelte/icons/undo-2'
 
-  let {
-    workspace,
-    repoId,
-  }: {
-    workspace: Workspace
-    repoId: string
-  } = $props()
+  let { workspace }: { workspace: Workspace } = $props()
 
   const files = $derived(workspaceDiff.filesByWorkspace[workspace.id] ?? [])
   const totals = $derived(workspaceDiff.totals(workspace.id))
@@ -182,7 +176,7 @@
   data-od-id="changes-panel"
   class="flex min-h-0 flex-1"
 >
-  <StackRail {workspace} {repoId} />
+  <StackRail {workspace} />
   <div class="flex min-h-0 min-w-0 flex-1 flex-col">
     <div
       class="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2"

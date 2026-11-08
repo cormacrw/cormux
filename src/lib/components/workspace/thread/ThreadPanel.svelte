@@ -56,19 +56,22 @@
     ),
   )
   const source: ConversationSource = {
-    get workdir() {
-      return workspace.worktreePath
-    },
-    diffFile: (path) => diffFileByPath.get(path),
     findPr: (repoFullName, num) => prs.find(repoFullName, num),
-    revealFile: (path, line = null) =>
-      revealFileInWorkspace(workspace.id, threadId, path, line),
-    get workspaceId() {
-      return workspace.id
+    workspace: {
+      get id() {
+        return workspace.id
+      },
+      get workdir() {
+        return workspace.worktreePath
+      },
+      diffFile: (path) => diffFileByPath.get(path),
+      revealFile: (path, line = null) =>
+        revealFileInWorkspace(workspace.id, threadId, path, line),
+      openFindings: () => openWorkspaceFindings(workspace.id, threadId),
     },
-    openFindings: () => openWorkspaceFindings(workspace.id, threadId),
   }
   const view = $derived(threadTimeline.threadView(threadId))
+  const shown = $derived(workspaceUi.activeTab === 'thread')
   const live = $derived(view.live)
   const showHero = $derived(showsHero(view))
   let conversation: ThreadConversation | undefined = $state()
@@ -135,7 +138,7 @@
     role={thread.role}
     engine={engineDisplayName(thread.engine)}
     {source}
-    shown={workspaceUi.activeTab === 'thread'}
+    {shown}
     contentClass={['pt-3', live ? 'pb-14' : 'pb-4']}
     padBottom={live && liveStatusHeight
       ? `calc(${liveStatusHeight}px + 1.75rem)`
@@ -259,6 +262,7 @@
   {:else}
     <ThreadComposer
       target={composer}
+      {shown}
       status={live ? liveStatus : undefined}
       onSent={() => conversation?.followEnd()}
     />
@@ -273,7 +277,7 @@
   />
 {/snippet}
 {#snippet composerTools()}
-  <ThreadComposerTools {thread} canClearSession={view.canClearSession} />
+  <ThreadComposerTools {thread} />
 {/snippet}
 
 <style>

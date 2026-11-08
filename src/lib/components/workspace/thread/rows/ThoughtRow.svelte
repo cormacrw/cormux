@@ -36,9 +36,9 @@
     >
       <ReplyMarkdown
         text={item.text}
-        workdir={ctx.workdir}
+        workdir={ctx.workspace?.workdir}
         findPr={ctx.findPr}
-        revealFile={ctx.revealFile}
+        revealFile={ctx.workspace?.revealFile}
       />
     </div>
   </Fold>

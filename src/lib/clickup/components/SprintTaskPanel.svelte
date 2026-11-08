@@ -43,7 +43,7 @@
 
 {#if task}
   <aside
-    class="flex h-full min-h-0 flex-col bg-popover"
+    class="flex h-full min-h-0 flex-col"
     aria-labelledby="sprint-task-title"
     data-od-id="sprint-task-panel"
   >

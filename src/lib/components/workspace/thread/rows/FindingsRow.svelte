@@ -15,7 +15,7 @@
 
   // The thread's own workspace ran the review.
   const rows = $derived(
-    ctx.workspaceId ? findings.forWorkspace(ctx.workspaceId) : [],
+    ctx.workspace ? findings.forWorkspace(ctx.workspace.id) : [],
   )
 </script>
 
@@ -29,12 +29,12 @@
     <span class="truncate text-muted-foreground/80"
       >· {rows.length ? severitySummary(rows) : 'No findings'}</span
     >
-    {#if ctx.openFindings}
+    {#if ctx.workspace}
       <button
         type="button"
         class="inline-flex shrink-0 items-center gap-0.5 font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
         data-od-id="findings-card-open"
-        onclick={ctx.openFindings}
+        onclick={ctx.workspace.openFindings}
       >
         Open findings
         <ArrowRight class="size-3" aria-hidden="true" />

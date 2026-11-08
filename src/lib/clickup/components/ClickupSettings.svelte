@@ -93,6 +93,7 @@
     loadError = null
     void commands.clickupWorkspaces().then((result) => {
       workspaceOptions = unwrap(result)
+      autoPick(workspaceOptions, workspaceId, 'workspace')
     })
   })
 
@@ -101,7 +102,9 @@
     if (!clickup.configured || !workspaceId) return
     const id = workspaceId
     void commands.clickupSpaces(id).then((result) => {
-      if (id === workspaceId) spaceOptions = unwrap(result)
+      if (id !== workspaceId) return
+      spaceOptions = unwrap(result)
+      autoPick(spaceOptions, spaceId, 'space')
     })
   })
 
@@ -110,18 +113,13 @@
     if (!clickup.configured || !spaceId) return
     const id = spaceId
     void commands.clickupFolders(id).then((result) => {
-      if (id === spaceId) folderOptions = unwrap(result)
+      if (id !== spaceId) return
+      folderOptions = unwrap(result)
+      autoPick(folderOptions, folderId, 'folder', (option) =>
+        /sprint/i.test(option.name),
+      )
     })
   })
-
-  // Separate from the fetches so a snapshot that briefly rolls a pick back gets it re-made.
-  $effect(() => autoPick(workspaceOptions, workspaceId, 'workspace'))
-  $effect(() => autoPick(spaceOptions, spaceId, 'space'))
-  $effect(() =>
-    autoPick(folderOptions, folderId, 'folder', (option) =>
-      /sprint/i.test(option.name),
-    ),
-  )
 
   function nameOf(options: ClickupOption[], id: string, placeholder: string) {
     return options.find((option) => option.id === id)?.name ?? placeholder

@@ -16,11 +16,3 @@ export function formatRelativeAge(fromMs: number, nowMs: number): string {
   const days = Math.floor(delta / DAY_MS)
   return `${days}d ago`
 }
-
-export function parseTimestampMs(
-  value: string | null | undefined,
-): number | null {
-  if (!value) return null
-  const parsed = Date.parse(value)
-  return Number.isNaN(parsed) ? null : parsed
-}

@@ -1,7 +1,5 @@
 import { formatRelativeAge } from '$lib/format/relative-time'
 
-export type { AgentQuestion } from '$lib/ipc/bindings'
-
 /** What a decided card says instead of its buttons. */
 export function approvalResolvedChip(
   item: {

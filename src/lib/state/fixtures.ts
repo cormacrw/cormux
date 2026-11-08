@@ -6,7 +6,6 @@ export function workspaceFixture(patch: Partial<Workspace> = {}): Workspace {
   return {
     id: 'ws-1',
     repoId: 'repo-1',
-    repoPath: '/tmp/repo',
     worktreePath: '/tmp/wt',
     name: 'Auth',
     branch: 'feat/auth',
@@ -41,7 +40,7 @@ export function threadFixture(patch: Partial<Thread> = {}): Thread {
     engine: 'claude',
     status: 'idle',
     activity: 'Idle',
-    pendingApprovals: 0,
+    hasSession: false,
     usage: NO_USAGE,
     retired: false,
     parentThreadId: null,

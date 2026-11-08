@@ -35,9 +35,6 @@ export class ScratchesStore {
   private readonly byId = $derived(
     new Map(this.items.map((item) => [item.id, item])),
   )
-  private readonly byThread = $derived(
-    new Map(this.items.map((item) => [item.threadId, item])),
-  )
 
   hydrate(items: Scratch[]) {
     this.items = reuseRows(this.items, items)
@@ -45,10 +42,6 @@ export class ScratchesStore {
 
   getById(id: string) {
     return this.byId.get(id)
-  }
-
-  forThread(threadId: string) {
-    return this.byThread.get(threadId)
   }
 }
 

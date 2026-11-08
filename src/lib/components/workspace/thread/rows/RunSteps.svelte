@@ -103,7 +103,7 @@
                   title={text.full}>{text.detail}</span
                 >
               {/if}
-              {#each newChips(step, segment.steps[index - 1], ctx.scratch) as chip (chip.label)}
+              {#each newChips(step, segment.steps[index - 1], !ctx.workspace) as chip (chip.label)}
                 <span class="shrink-0 text-muted-foreground/70"
                   >· {chip.label}</span
                 >
@@ -114,15 +114,15 @@
                 >
               {/if}
             {:else if edit.path}
-              {@const file = ctx.diffFile(edit.path)}
+              {@const file = ctx.workspace?.diffFile(edit.path)}
               <span class="shrink-0">{edit.verb}</span>
               <button
                 type="button"
                 class="truncate font-mono text-primary underline-offset-2 hover:underline"
                 title={edit.path}
                 aria-label="View diff for {edit.path}"
-                disabled={!ctx.revealFile}
-                onclick={() => ctx.revealFile?.(edit.path)}
+                disabled={!ctx.workspace}
+                onclick={() => ctx.workspace?.revealFile(edit.path)}
               >
                 {basename(edit.path)}
               </button>
@@ -154,7 +154,7 @@
                     >{text.detail}</span
                   >
                 {/if}
-                {#each stepChips(step, ctx.scratch) as chip (chip.label)}
+                {#each stepChips(step, !ctx.workspace) as chip (chip.label)}
                   <span class="text-[11px] text-muted-foreground/75"
                     >· {chip.label}</span
                   >

@@ -11,15 +11,12 @@ export const ENGINE_OPTIONS: EngineOption[] = [
   { kind: 'claude', label: 'Claude Code' },
 ]
 
-const ENGINE_MARKS: Record<string, EngineMark> = {
+const ENGINE_MARKS: Record<EngineKind, EngineMark> = {
   claude: 'CC',
 }
 
-/** Takes an engine id (`claude`) or its display name (`Claude Code`). */
-export function engineMark(engine: string): EngineMark {
-  const kind =
-    ENGINE_OPTIONS.find((option) => option.label === engine)?.kind ?? engine
-  return ENGINE_MARKS[kind] ?? 'CC'
+export function engineMark(kind: EngineKind): EngineMark {
+  return ENGINE_MARKS[kind]
 }
 
 export function engineDisplayName(engine: string): string {

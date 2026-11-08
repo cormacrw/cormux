@@ -109,11 +109,10 @@ describe('a thread view', () => {
     expect(next.items).toBe(first.items)
   })
 
-  it('offers your prompts back, oldest first, and a session to clear', () => {
+  it('offers your prompts back, oldest first', () => {
     const view = new ThreadViewBuilder().view(
       sources({ events: timed(user('one'), agent('a'), user('two')) }),
     )
     expect(view.promptHistory).toEqual(['one', 'two'])
-    expect(view.canClearSession).toBe(true)
   })
 })

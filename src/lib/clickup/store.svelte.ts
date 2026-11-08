@@ -29,10 +29,9 @@ const SETTLE_MS = 800
  */
 export class ClickupStore {
   configured = $state(false)
-  readonly folderId = $derived(settings.values.clickupFolderId)
+  /** The sprint folder picked in Settings; picking another starts the board over. */
+  folderId = $state('')
   readonly hiddenStatuses = $derived(settings.values.clickupHiddenStatuses)
-  /** The folder the board was loaded for; picking another starts the board over. */
-  private boardFolderId = ''
   board = $state<ClickupBoard | null>(null)
   loading = $state(false)
   error = $state<string | null>(null)
@@ -64,11 +63,10 @@ export class ClickupStore {
     this.mine?.tasks.find((task) => task.id === this.selectedTaskId) ?? null,
   )
 
-  hydrate(configured: boolean) {
-    const changed =
-      configured !== this.configured || this.folderId !== this.boardFolderId
+  hydrate(configured: boolean, folderId: string) {
+    const changed = configured !== this.configured || folderId !== this.folderId
     this.configured = configured
-    this.boardFolderId = this.folderId
+    this.folderId = folderId
     if (!changed) return
     this.board = null
     this.details = {}
@@ -167,18 +165,6 @@ export class ClickupStore {
     return result
   }
 
-  private patchDetail(
-    taskId: string,
-    patch: Partial<ClickupTaskDetail['task']>,
-  ) {
-    const detail = this.details[taskId]
-    if (!detail) return
-    this.details = {
-      ...this.details,
-      [taskId]: { ...detail, task: { ...detail.task, ...patch } },
-    }
-  }
-
   async moveTask(
     taskId: string,
     statusName: string,
@@ -189,7 +175,6 @@ export class ClickupStore {
     if (!board || !status || !task || sameStatus(task.status, status.name))
       return null
     this.board = withTaskStatus(board, taskId, status)
-    this.patchDetail(taskId, { status: status.name, statusColor: status.color })
     const result = await this.write(() =>
       commands.setClickupTaskStatus(taskId, status.name),
     )
@@ -201,10 +186,6 @@ export class ClickupStore {
           name: task.status,
           color: task.statusColor,
         })
-      this.patchDetail(taskId, {
-        status: task.status,
-        statusColor: task.statusColor,
-      })
       return {
         error: result.error,
         doing: `Could not move the task to ${statusLabel(status.name)}`,
@@ -221,13 +202,11 @@ export class ClickupStore {
     const task = board?.tasks.find((row) => row.id === taskId)
     if (!board || !task || task.points === points) return null
     this.board = withTaskPoints(board, taskId, points)
-    this.patchDetail(taskId, { points })
     const result = await this.write(() =>
       commands.setClickupTaskPoints(taskId, points),
     )
     if (result.status === 'error') {
       this.board = this.board && withTaskPoints(this.board, taskId, task.points)
-      this.patchDetail(taskId, { points: task.points })
       return { error: result.error, doing: 'Could not set sprint points' }
     }
     return null
@@ -236,4 +215,9 @@ export class ClickupStore {
 
 export const clickup = new ClickupStore()
 
-onSnapshot((snapshot) => clickup.hydrate(snapshot.clickupConfigured))
+onSnapshot((snapshot) =>
+  clickup.hydrate(
+    snapshot.clickupConfigured,
+    snapshot.settings.clickupFolderId,
+  ),
+)

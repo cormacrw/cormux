@@ -40,11 +40,11 @@
   import { branchHoldLabel } from '$lib/repo/branch-hold'
   import { startsOver } from '$lib/core/owner-scoped'
 
-  let { workspace, repoId }: { workspace: Workspace; repoId: string } = $props()
+  let { workspace }: { workspace: Workspace } = $props()
 
   const stack = $derived(stacks.get(workspace.id))
   const cards = $derived(stackCardsTopFirst(stack))
-  const trunk = $derived(stack?.trunk ?? repos.defaultBranch(repoId))
+  const trunk = $derived(stack?.trunk ?? repos.defaultBranch(workspace.repoId))
   const stacked = $derived(stack?.status === 'stacked')
   const checking = $derived(stacks.loading[workspace.id] ?? false)
   const lockReason = $derived(workspace.branchLock)

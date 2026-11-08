@@ -12,10 +12,7 @@
   import Pause from '@lucide/svelte/icons/pause'
   import Play from '@lucide/svelte/icons/play'
 
-  let {
-    thread,
-    canClearSession,
-  }: { thread: Thread; canClearSession: boolean } = $props()
+  let { thread }: { thread: Thread } = $props()
 
   const showPause = $derived(composerShowsPauseControl(thread.status))
   const pauseLabel = $derived(composerPauseLabel(thread.status))
@@ -55,7 +52,7 @@
   size="xs"
   data-od-id="composer-new-session"
   title="Start a new session; the agent forgets this conversation"
-  disabled={!canClearSession}
+  disabled={!thread.hasSession}
   onclick={() => void switchConversation(thread.id, 'new')}
 >
   New session

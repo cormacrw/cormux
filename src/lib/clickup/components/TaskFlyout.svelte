@@ -89,7 +89,7 @@
     }}
   ></div>
   <!-- Stays mounted while it slides away; the pane holds its own last task. -->
-  <div class="min-h-0 flex-1 [&>aside]:bg-transparent">
+  <div class="min-h-0 flex-1">
     <SprintTaskPanel onClose={close} />
   </div>
 </div>

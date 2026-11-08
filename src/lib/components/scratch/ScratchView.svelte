@@ -23,14 +23,9 @@
   let sectionEl: HTMLElement | undefined = $state()
   provideMediaHost(() => sectionEl)
 
-  // No worktree and no Changes to open: file references stay plain text.
   const source: ConversationSource = {
-    workdir: undefined,
-    diffFile: () => undefined,
     findPr: (repoFullName, num) => prs.find(repoFullName, num),
-    revealFile: undefined,
-    workspaceId: undefined,
-    openFindings: undefined,
+    workspace: undefined,
   }
 
   $effect(() =>

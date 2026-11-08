@@ -45,15 +45,15 @@
     {#if edited.length}
       <ul class="mt-1.5 flex flex-wrap gap-1" data-od-id="files-touched">
         {#each edited as path (path)}
-          {@const file = ctx.diffFile(path)}
+          {@const file = ctx.workspace?.diffFile(path)}
           <li>
             <button
               type="button"
               class="file-ref"
               title={path}
               aria-label="View diff for {path}"
-              disabled={!ctx.revealFile}
-              onclick={() => ctx.revealFile?.(path)}
+              disabled={!ctx.workspace}
+              onclick={() => ctx.workspace?.revealFile(path)}
             >
               {basename(path)}
               {#if file}

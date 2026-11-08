@@ -6,7 +6,7 @@ describe('workspaceCardMetaText', () => {
   it('says the workspace needs you when the core says so, even if agents work', () => {
     expect(
       workspaceCardMetaText(true, [
-        threadFixture({ status: 'running', pendingApprovals: 1 }),
+        threadFixture({ status: 'running' }),
         threadFixture({ id: 'th-2', status: 'running' }),
       ]),
     ).toBe('Needs Attention')

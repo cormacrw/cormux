@@ -33,9 +33,9 @@
           entries={ctx.entries}
           key={item.id}
           {live}
-          workdir={ctx.workdir}
+          workdir={ctx.workspace?.workdir}
           findPr={ctx.findPr}
-          revealFile={ctx.revealFile}
+          revealFile={ctx.workspace?.revealFile}
         />
       </div>
     {/if}
@@ -43,8 +43,8 @@
       {#if segment.kind === 'tagBlock'}
         <ReplyBlock
           block={segment.block}
-          workdir={ctx.workdir}
-          revealFile={ctx.revealFile}
+          workdir={ctx.workspace?.workdir}
+          revealFile={ctx.workspace?.revealFile}
         />
       {/if}
     {/each}
