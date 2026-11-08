@@ -1244,7 +1244,10 @@ mod tests {
         let (_dir, repo) = init_repo();
         assert!(git.rev_list_count(&repo, "nope..HEAD").await.is_err());
         // Never pushed: nothing on origin to count against, which isn't "nothing to push".
-        assert_eq!(git.unpushed_commit_count(&repo, "main").await.unwrap(), None);
+        assert_eq!(
+            git.unpushed_commit_count(&repo, "main").await.unwrap(),
+            None
+        );
         assert_eq!(git.config_get(&repo, "cormux.unset").await.unwrap(), None);
         let (own, common) = git.git_dirs(&repo).await.unwrap();
         assert_eq!(own, common);
