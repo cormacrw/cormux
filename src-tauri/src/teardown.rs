@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::app::WorkspaceAppStatus;
 use crate::error::{Error, Result};
 use crate::model::{ThreadStatus, WorkspaceLifecycle};
 use crate::state::AppState;
@@ -61,7 +62,10 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
         workspace_name: record.name.clone(),
         branch: branch.clone(),
         worktree_path: record.worktree_path.clone(),
-        app_running: state.process.workspace_has_session(workspace_id),
+        app_running: matches!(
+            state.apps.runtime(workspace_id).status,
+            WorkspaceAppStatus::Starting | WorkspaceAppStatus::Running
+        ),
         // A branch holding the only copy of its commits stays, so a later thread can pick it up.
         delete_branch_default: row.pr_number.is_none() && unpushed == Some(0),
         data_loss: TeardownDataLoss {
@@ -337,6 +341,33 @@ mod tests {
         let state = registered("/tmp/cormux-no-such-worktree").await;
         let preview = super::preview(&state, "w").await.unwrap();
         assert!(!preview.data_loss.ask_first);
+    }
+
+    /// Bug: any setup command or app run that had ever finished left a session record, so the
+    /// dialog said it would stop "the running app" when none was running.
+    #[tokio::test]
+    async fn the_app_only_reads_as_running_while_it_runs() {
+        let state = registered("/tmp/cormux-no-such-worktree").await;
+        let exit = state
+            .process
+            .run_to_exit(
+                crate::process::SessionId::Setup {
+                    workspace: "w".into(),
+                    index: 0,
+                },
+                &crate::process::ShellCommand {
+                    cmd: "true".into(),
+                    cwd: std::env::temp_dir(),
+                    env: Vec::new(),
+                },
+                std::time::Duration::from_secs(10),
+                Some("w"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(exit, crate::process::Exit::Code(0));
+
+        assert!(!preview(&state, "w").await.unwrap().app_running);
     }
 
     #[tokio::test]

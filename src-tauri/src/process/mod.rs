@@ -481,10 +481,6 @@ impl ProcessSupervisor {
             .collect()
     }
 
-    pub fn workspace_has_session(&self, workspace_id: &str) -> bool {
-        !self.workspace_session_ids(workspace_id).is_empty()
-    }
-
     /// Stops every session the workspace owns, killing what's left after a grace period.
     pub async fn stop_workspace_sessions(&self, workspace_id: &str) {
         let ids = self.workspace_session_ids(workspace_id);
@@ -946,12 +942,12 @@ mod tests {
             .unwrap();
         assert_eq!(exit, Exit::Code(0));
         assert!(proc.pids().is_empty());
-        assert!(proc.workspace_has_session(&ws));
+        assert!(!proc.workspace_session_ids(&ws).is_empty());
         // Another workspace's id can't claim it by sharing a prefix.
-        assert!(!proc.workspace_has_session(&ws[..ws.len() - 1]));
+        assert!(proc.workspace_session_ids(&ws[..ws.len() - 1]).is_empty());
 
         proc.forget_workspace(&ws);
-        assert!(!proc.workspace_has_session(&ws));
+        assert!(proc.workspace_session_ids(&ws).is_empty());
         assert!(proc.take_log_snapshot(&ws).is_empty());
         assert!(!log_path(&ws).exists());
         assert!(!log_path(&setup(&ws, 1).to_string()).exists());
