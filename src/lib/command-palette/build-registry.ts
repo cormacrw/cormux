@@ -40,6 +40,7 @@ type PaletteRegistryState = {
   repos: RepoRecord[]
   pullRequests: PullRequest[]
   appControlsFor: (workspaceId: string) => AppControls
+  findingsAvailable: (workspace: Workspace) => boolean
 }
 
 export function buildPaletteCommandsFromState(
@@ -178,13 +179,15 @@ export function buildPaletteCommandsFromState(
         run: () => actions.openWorkspaceThread(workspace.id, thread.id),
       })
     }
-    cmds.push({
-      id: `findings-${workspace.id}`,
-      group: 'Threads',
-      label: `Open Findings in ${workspace.name}`,
-      icon: 'findings',
-      run: () => actions.openWorkspaceFindings(workspace.id),
-    })
+    if (state.findingsAvailable(workspace)) {
+      cmds.push({
+        id: `findings-${workspace.id}`,
+        group: 'Threads',
+        label: `Open Findings in ${workspace.name}`,
+        icon: 'findings',
+        run: () => actions.openWorkspaceFindings(workspace.id),
+      })
+    }
   }
 
   for (const workspace of state.workspaces) {

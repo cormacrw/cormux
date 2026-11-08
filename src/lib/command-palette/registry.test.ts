@@ -68,6 +68,7 @@ describe('buildPaletteCommandsFromState', () => {
             lifecycle: 'idle',
             runCommand: 'pnpm dev',
           }),
+        findingsAvailable: () => true,
       },
       actions,
     ).map((c) => c.label)
@@ -106,11 +107,41 @@ describe('buildPaletteCommandsFromState', () => {
             lifecycle: 'idle',
             runCommand: '',
           }),
+        findingsAvailable: () => false,
       },
       actions,
     ).map((c) => c.label)
 
     expect(labels).toContain('Open Reviewer in Auth')
     expect(labels).not.toContain('Open Lead in Auth')
+  })
+
+  it('offers Findings only where the Findings tab is on offer', () => {
+    const labels = buildPaletteCommandsFromState(
+      {
+        reduceMotion: false,
+        clickupConfigured: false,
+        workspaces: [
+          workspaceFixture(),
+          workspaceFixture({ id: 'ws-2', name: 'Billing' }),
+        ],
+        scratches: [],
+        bangs: [],
+        threads: [],
+        repos: [],
+        pullRequests: [],
+        appControlsFor: () =>
+          appControlsFor({
+            appStatus: 'stopped',
+            lifecycle: 'idle',
+            runCommand: '',
+          }),
+        findingsAvailable: (workspace) => workspace.id === 'ws-2',
+      },
+      actions,
+    ).map((c) => c.label)
+
+    expect(labels).toContain('Open Findings in Billing')
+    expect(labels).not.toContain('Open Findings in Auth')
   })
 })

@@ -10,6 +10,7 @@ import { scratches } from '$lib/state/scratches.svelte'
 import { settings } from '$lib/settings/store.svelte'
 import { prs } from '$lib/state/prs.svelte'
 import { threads } from '$lib/state/threads.svelte'
+import { findings } from '$lib/findings/store.svelte'
 import { workspaces } from '$lib/state/workspaces.svelte'
 import { pullWorkspace } from '$lib/workspace/git-actions'
 import { openWorkspaceFindings, openWorkspaceThread } from '$lib/nav/open'
@@ -29,6 +30,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
       repos: repos.items,
       pullRequests: prs.items,
       appControlsFor: appControls,
+      findingsAvailable: (workspace) => findings.tabAvailable(workspace),
     },
     {
       openNewThread: () => navigate({ view: 'newThread' }),
