@@ -213,10 +213,41 @@ pub async fn refresh_stats(state: &AppState, workspace: &WorkspaceRecord) {
             log::warn!("behind count for {}: {error}", workspace.id);
             0
         });
+    let conflict = state.git.merge_conflict(&worktree).await;
     state
         .workspace_git
-        .patch(&workspace.id, |stats| stats.behind = behind)
+        .patch(&workspace.id, |stats| {
+            stats.behind = behind;
+            match conflict {
+                Ok(conflict) => stats.conflict = conflict,
+                Err(error) => log::warn!("merge conflict for {}: {error}", workspace.id),
+            }
+        })
         .await;
+}
+
+/// Git owns whether a merge is stopped on conflicts: one finished or aborted outside Cormux
+/// clears, and one still stopped after a restart shows again.
+async fn sync_conflict(state: &AppState, workspace: &WorkspaceRecord) {
+    let worktree = workspace.worktree();
+    let known = state.workspace_git.get(&workspace.id).await.conflict;
+    if known.is_none() && !crate::git::merging(&worktree) {
+        return;
+    }
+    let conflict = match state.git.merge_conflict(&worktree).await {
+        Ok(conflict) => conflict,
+        Err(error) => {
+            log::warn!("merge conflict for {}: {error}", workspace.id);
+            return;
+        }
+    };
+    if conflict != known {
+        state
+            .workspace_git
+            .patch(&workspace.id, |stats| stats.conflict = conflict)
+            .await;
+        state.out.repo_git_moved();
+    }
 }
 
 /// The PR on record was the old branch's, so it is cleared.
@@ -390,6 +421,7 @@ async fn adopt_outside_checkouts(state: &AppState) {
         if !worktree.exists() {
             continue;
         }
+        sync_conflict(state, &workspace).await;
         let branch = match crate::git::checked_out_branch(&worktree) {
             Some(branch) => branch,
             None => match state.git.current_branch(&worktree).await {
@@ -440,10 +472,6 @@ pub async fn pull(state: &AppState, workspace_id: &str) -> Result<()> {
         Err(error) => return Err(error),
     }
 
-    state
-        .workspace_git
-        .patch(workspace_id, |stats| stats.conflict = None)
-        .await;
     refresh_stats(state, &workspace).await;
     refresh_diff(state, &workspace).await;
     record_in_own_thread(
@@ -474,20 +502,7 @@ pub async fn pull(state: &AppState, workspace_id: &str) -> Result<()> {
 
 pub async fn abort_conflict(state: &AppState, workspace_id: &str) -> Result<()> {
     let workspace = state.workspaces.get(workspace_id).await?;
-    if state
-        .workspace_git
-        .get(workspace_id)
-        .await
-        .conflict
-        .is_none()
-    {
-        return Ok(());
-    }
     state.git.abort_merge(&workspace.worktree()).await?;
-    state
-        .workspace_git
-        .patch(workspace_id, |stats| stats.conflict = None)
-        .await;
     refresh_stats(state, &workspace).await;
     refresh_diff(state, &workspace).await;
     state.out.repo_git_moved();
@@ -606,6 +621,90 @@ mod tests {
                 ..crate::store::fixtures::repo("r1")
             })
             .unwrap();
+    }
+
+    /// A repo on `feat/a` with `f.txt` committed, its own checkout the worktree of a settled
+    /// workspace `w` with PR #7.
+    async fn workspace_in_a_repo(root: &Path) -> (AppState, PathBuf) {
+        let repo = root.join("app");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("f.txt"), "base\n").unwrap();
+        git(&repo, &["add", "f.txt"]);
+        git(&repo, &["commit", "-q", "-m", "base"]);
+        git(&repo, &["switch", "-q", "-c", "feat/a"]);
+        let (state, _recording) = AppState::recorded(crate::paths::DataDir::new(root.join("data")));
+        *state.shell_env.write().await =
+            ShellEnv::from_vars([("PATH".to_string(), "/usr/bin:/bin".to_string())]);
+        add_repo(&state, &repo);
+        let row = WorkspaceRow::new(
+            WorkspaceKind::Lead,
+            "w",
+            "r1",
+            "Work",
+            "feat/a",
+            "main",
+            repo.to_string_lossy(),
+        )
+        .with_status(crate::model::WorkspaceLifecycle::Ready)
+        .with_pr(7, None);
+        state.store.insert_workspace(&row).unwrap();
+        (state, repo)
+    }
+
+    /// `main` and `feat/a` each change `f.txt`, and `feat/a` merges `main`, stopping on it.
+    fn stop_a_merge_on_a_conflict(repo: &Path) {
+        git(repo, &["switch", "-q", "main"]);
+        std::fs::write(repo.join("f.txt"), "main\n").unwrap();
+        git(repo, &["commit", "-q", "-am", "main"]);
+        git(repo, &["switch", "-q", "feat/a"]);
+        std::fs::write(repo.join("f.txt"), "feat\n").unwrap();
+        git(repo, &["commit", "-q", "-am", "feat"]);
+        merge_main_into_a_conflict(repo);
+    }
+
+    fn merge_main_into_a_conflict(repo: &Path) {
+        let merge = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "merge", "main"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(!merge.status.success(), "{merge:?}");
+    }
+
+    async fn conflict(state: &AppState) -> Option<GitConflictState> {
+        state.workspace_git.snapshot(&["w".to_string()]).await[0]
+            .conflict
+            .clone()
+    }
+
+    /// Bug: a merge's conflict lived only in memory, so its banner stayed after the merge was
+    /// finished or aborted outside Cormux, Abort then failed with "There is no merge to abort",
+    /// and a restart forgot a merge still stopped. Git is asked now.
+    #[tokio::test]
+    async fn a_merge_conflict_is_whatever_git_says_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, repo) = workspace_in_a_repo(dir.path()).await;
+        stop_a_merge_on_a_conflict(&repo);
+
+        // Stopped before this state ever pulled, as after a restart.
+        adopt_outside_checkouts(&state).await;
+        let stopped = Some(GitConflictState {
+            paths: vec!["f.txt".into()],
+        });
+        assert_eq!(conflict(&state).await, stopped);
+
+        git(&repo, &["merge", "--abort"]);
+        abort_conflict(&state, "w").await.unwrap();
+        assert_eq!(conflict(&state).await, None);
+
+        merge_main_into_a_conflict(&repo);
+        adopt_outside_checkouts(&state).await;
+        assert_eq!(conflict(&state).await, stopped);
+        std::fs::write(repo.join("f.txt"), "both\n").unwrap();
+        git(&repo, &["commit", "-q", "-am", "resolved"]);
+        adopt_outside_checkouts(&state).await;
+        assert_eq!(conflict(&state).await, None);
     }
 
     /// The background fetch used to throw its counts away, so they only moved on focus.

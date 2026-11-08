@@ -20,7 +20,7 @@ pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTar
 pub use queue::WorktreeQueue;
 
 /// A merge stopped on these paths, waiting for the user to resolve or abort it.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct GitConflictState {
     pub paths: Vec<String>,
@@ -604,7 +604,22 @@ impl Git {
         Err(Self::fail(&output, "merge"))
     }
 
+    /// The paths a merge in progress is stopped on; `None` once it is committed, aborted, or
+    /// has every path resolved.
+    pub async fn merge_conflict(&self, worktree: &Path) -> Result<Option<GitConflictState>> {
+        if !merging(worktree) {
+            return Ok(None);
+        }
+        let paths = self.unmerged_paths(worktree).await?;
+        Ok((!paths.is_empty()).then_some(GitConflictState { paths }))
+    }
+
+    /// With no merge in progress, as when it was finished or aborted outside Cormux, there is
+    /// nothing to abort and that is the outcome wanted.
     pub async fn abort_merge(&self, worktree: &Path) -> Result<()> {
+        if !merging(worktree) {
+            return Ok(());
+        }
         let output = self.run(worktree, &["merge", "--abort"]).await?;
         Self::require_success(&output, "merge --abort")
     }
@@ -945,6 +960,12 @@ pub fn worktree_git_dir(worktree: &Path) -> Option<PathBuf> {
 pub fn checked_out_branch(worktree: &Path) -> Option<String> {
     let head = std::fs::read_to_string(worktree_git_dir(worktree)?.join("HEAD")).ok()?;
     parse_head(&head)
+}
+
+/// Whether a merge is in progress in the worktree, read from its `MERGE_HEAD` without spawning
+/// git.
+pub fn merging(worktree: &Path) -> bool {
+    worktree_git_dir(worktree).is_some_and(|dir| dir.join("MERGE_HEAD").is_file())
 }
 
 fn parse_head(head: &str) -> Option<String> {
