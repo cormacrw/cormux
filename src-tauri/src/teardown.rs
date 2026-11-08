@@ -67,7 +67,8 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
             WorkspaceAppStatus::Starting | WorkspaceAppStatus::Running
         ),
         // A branch holding the only copy of its commits stays, so a later thread can pick it up.
-        delete_branch_default: row.pr_number.is_none() && unpushed == Some(0),
+        // One whose worktree was never made may not be this workspace's to delete.
+        delete_branch_default: row.pr_number.is_none() && unpushed == Some(0) && worktree.is_dir(),
         data_loss: TeardownDataLoss {
             ask_first: uncommitted != Some(0),
             warning: data_loss_warning(uncommitted, unpushed),
@@ -75,8 +76,8 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
     })
 }
 
-/// Setup still running stops too: it checks the workspace is alive between steps, and its
-/// command's process is stopped with the rest.
+/// Setup still running stops too: its command's process is stopped with the rest, and its run is
+/// cancelled once any worktree it was adding is there to remove.
 pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
     let record = state.workspaces.get(&input.workspace_id).await?;
     if record.status == WorkspaceLifecycle::TearingDown {
@@ -133,6 +134,7 @@ async fn run_teardown_steps(
 ) -> Result<()> {
     state.engines.stop_threads(thread_ids).await?;
     state.process.stop_workspace_sessions(&record.id).await;
+    let _setup = state.setup.cancel(&record.id).await;
 
     let repo = PathBuf::from(&record.repo_path);
     let worktree = PathBuf::from(&record.worktree_path);
@@ -146,7 +148,9 @@ async fn run_teardown_steps(
         state.git.worktree_remove(&repo, &worktree, force).await?;
     }
 
-    if delete_branch {
+    // Setup that failed early never made the branch, and there's nothing to delete.
+    let branch_ref = format!("refs/heads/{}", record.branch);
+    if delete_branch && state.git.ref_exists(&repo, &branch_ref).await? {
         state.git.branch_delete(&repo, &record.branch).await?;
     }
 
@@ -267,12 +271,16 @@ mod tests {
     use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
 
     async fn registered(worktree: &str) -> AppState {
+        registered_in("/tmp/app", worktree).await
+    }
+
+    async fn registered_in(repo: &str, worktree: &str) -> AppState {
         let (state, _recording) =
             AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
         state
             .store
             .upsert_repo(&RepoRecord {
-                path: "/tmp/app".into(),
+                path: repo.into(),
                 name: "app".into(),
                 ..crate::store::fixtures::repo("r1")
             })
@@ -320,6 +328,50 @@ mod tests {
         let archived = state.store.workspace_by_id("w").unwrap().unwrap();
         assert!(archived.archived_at.is_some());
         assert_eq!(archived.status, WorkspaceLifecycle::TearingDown);
+    }
+
+    /// Bug: a workspace whose setup failed before making its worktree defaulted to deleting a
+    /// branch that was never made, so every teardown failed on `branch -D` with no dialog to
+    /// untick it.
+    #[tokio::test]
+    async fn a_workspace_whose_worktree_was_never_made_tears_down_and_keeps_branches_by_default() {
+        let repo = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap()
+                .status;
+            assert!(status.success(), "git {args:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        let state = registered_in(
+            repo.path().to_str().unwrap(),
+            "/tmp/cormux-no-such-worktree",
+        )
+        .await;
+        state
+            .workspaces
+            .set_status("w", WorkspaceLifecycle::ProvisioningFailed)
+            .await
+            .unwrap();
+
+        let preview = preview(&state, "w").await.unwrap();
+        assert!(!preview.delete_branch_default);
+        assert!(!preview.data_loss.ask_first);
+
+        execute(
+            &state,
+            &TeardownInput {
+                workspace_id: "w".into(),
+                delete_branch: true,
+            },
+        )
+        .await
+        .unwrap();
+        let archived = state.store.workspace_by_id("w").unwrap().unwrap();
+        assert!(archived.archived_at.is_some());
     }
 
     /// Bug: when git couldn't count the uncommitted files the preview sent 0, and the dialog

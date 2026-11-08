@@ -215,9 +215,28 @@ impl Workspaces {
         .await
     }
 
+    /// Fails setup, if the workspace is still setting up: one being torn down stays so. Returns
+    /// whether it failed.
+    pub async fn fail_provisioning(&self, id: &str, activity: WorkspaceActivity) -> Result<bool> {
+        let mut failed = false;
+        self.update(id, |store, record| {
+            if record.status != WorkspaceLifecycle::Provisioning {
+                return Ok(());
+            }
+            store.set_workspace_status(id, WorkspaceLifecycle::ProvisioningFailed)?;
+            record.status = WorkspaceLifecycle::ProvisioningFailed;
+            record.activity = activity;
+            failed = true;
+            Ok(())
+        })
+        .await?;
+        Ok(failed)
+    }
+
     /// Ends setup: the thread's status, then the workspace's. In that order, the thread
     /// moving can't re-derive the workspace's status, which setup still holds, so `lifecycle`
-    /// is what it ends as.
+    /// is what it ends as. Refused unless the workspace is still setting up, so setup can't
+    /// bring back one being torn down.
     pub async fn finish_provisioning(
         &self,
         id: &str,
@@ -226,9 +245,23 @@ impl Workspaces {
         lifecycle: WorkspaceLifecycle,
         activity: WorkspaceActivity,
     ) -> Result<()> {
+        let still_setting_up =
+            || Error::Workspace(format!("workspace {id} is no longer being set up"));
+        if self.get(id).await?.status != WorkspaceLifecycle::Provisioning {
+            return Err(still_setting_up());
+        }
         self.set_thread_status(thread_id, id, thread).await?;
-        self.set_status(id, lifecycle).await?;
-        self.set_activity(id, activity).await?;
+        self.update(id, |store, record| {
+            if record.status != WorkspaceLifecycle::Provisioning {
+                return Err(still_setting_up());
+            }
+            assert_transition(record.status, lifecycle)?;
+            store.set_workspace_status(id, lifecycle)?;
+            record.status = lifecycle;
+            record.activity = activity;
+            Ok(())
+        })
+        .await?;
         Ok(())
     }
 
