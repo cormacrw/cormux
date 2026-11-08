@@ -2,8 +2,7 @@
   import { windowDrag } from '$lib/primitives/window-drag'
   import { tick } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-  import { Kbd } from '$lib/components/ui/kbd'
-  import CommandIcon from '@lucide/svelte/icons/command'
+  import ShortcutKbd from '$lib/primitives/ShortcutKbd.svelte'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
   import ThreadConversation from '$lib/components/workspace/thread/ThreadConversation.svelte'
   import { prs, repos, scratches, shellDialogs } from '$lib/state'
@@ -85,7 +84,7 @@
             shellDialogs.open('endScratch', { scratchId: scratch.id })}
         >
           Delete
-          <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />E</Kbd>
+          <ShortcutKbd id="deleteScratch" />
         </Button>
       </div>
     </header>

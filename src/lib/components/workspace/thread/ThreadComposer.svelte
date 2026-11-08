@@ -553,7 +553,7 @@
 >
   {#if status && !pickerOpen}
     <div
-      class="pointer-events-none absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-[760px]"
+      class="pointer-events-none absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-(--thread-column)"
     >
       {@render status()}
     </div>
@@ -571,7 +571,7 @@
           : shownKind === 'bang'
             ? 'Bangs'
             : 'Skills'}
-      class="composer-picker absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-[760px] flex-col gap-0.5 rounded-xl border border-border/80 bg-background-solid p-1 text-popover-foreground shadow-lg"
+      class="composer-picker absolute inset-x-1 bottom-full mx-auto mb-1 flex max-w-(--thread-column) flex-col gap-0.5 rounded-xl border border-border/80 bg-background-solid p-1 text-popover-foreground shadow-lg"
       data-od-id="{shownKind}-picker"
     >
       {#each pickerOptions as option, index (option.key)}
@@ -629,7 +629,7 @@
     </ul>
   {/if}
   <form
-    class="composer glass-pane @container mx-auto flex max-w-[760px] flex-col overflow-hidden rounded-[18px] transition-[border-color,box-shadow] duration-(--dur-fast) focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25"
+    class="composer glass-pane @container mx-auto flex max-w-(--thread-column) flex-col overflow-hidden rounded-[18px] transition-[border-color,box-shadow] duration-(--dur-fast) focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25"
     id="composer"
     data-od-id="composer"
     class:composer-dropping={draggingFiles}

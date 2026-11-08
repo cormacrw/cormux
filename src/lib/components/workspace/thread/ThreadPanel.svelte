@@ -206,7 +206,7 @@
   {#if thread.retired}
     <div class="px-1 pt-2 pb-4">
       <p
-        class="glass-pane mx-auto flex max-w-[760px] items-center justify-between gap-3 rounded-[18px] px-4 py-3 text-sm text-muted-foreground"
+        class="glass-pane mx-auto flex max-w-(--thread-column) items-center justify-between gap-3 rounded-[18px] px-4 py-3 text-sm text-muted-foreground"
         data-od-id="thread-read-only"
       >
         This earlier thread is read-only.

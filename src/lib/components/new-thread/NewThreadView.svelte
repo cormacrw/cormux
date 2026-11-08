@@ -143,7 +143,7 @@
   <div class="relative flex min-h-0 flex-1 flex-col">
     <div class="@container min-h-0 flex-1 overflow-y-auto">
       <div
-        class="mx-auto flex min-h-full w-full max-w-[760px] flex-col overflow-clip px-4 pt-3 select-text"
+        class="mx-auto flex min-h-full w-full max-w-(--thread-column) flex-col overflow-clip px-4 pt-3 select-text"
       >
         {#if repos.items.length}
           <ThreadHero greeting="new-thread:new" />

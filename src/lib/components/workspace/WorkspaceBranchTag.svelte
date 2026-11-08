@@ -18,8 +18,7 @@
   import { commands } from '$lib/ipc'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutAria } from '$lib/keyboard/shortcuts'
-  import { Kbd } from '$lib/components/ui/kbd'
-  import CommandIcon from '@lucide/svelte/icons/command'
+  import ShortcutKbd from '$lib/primitives/ShortcutKbd.svelte'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { repos, threads, workspaces } from '$lib/state'
 
@@ -145,10 +144,11 @@
           <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
           <span class="sr-only">Branch</span>
           <span class="truncate">{branch}</span>
-          <Kbd
+          <ShortcutKbd
+            id="switchBranch"
             class="h-4 min-w-4 shrink-0 gap-0.5 px-1 text-[10px]"
-            aria-hidden="true"><CommandIcon class="size-2.5" />B</Kbd
-          >
+            iconClass="size-2.5"
+          />
           <ChevronDown
             class="size-3.5 shrink-0 opacity-70"
             aria-hidden="true"

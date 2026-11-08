@@ -360,7 +360,10 @@
   >
     <div
       bind:this={contentEl}
-      class={['mx-auto w-full max-w-[760px] px-4 select-text', contentClass]}
+      class={[
+        'mx-auto w-full max-w-(--thread-column) px-4 select-text',
+        contentClass,
+      ]}
       style:padding-bottom={padBottom}
     >
       {#if !view.loaded}

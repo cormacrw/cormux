@@ -84,6 +84,9 @@
   /* The macOS 26 window's corner radius (no toolbar). */
   --window-radius: 16px;
 
+  /* How wide a conversation reads: its timeline, greeting and prompt bar line up. */
+  --thread-column: 760px;
+
   /* Motion: short and eased so the UI keeps up with the keyboard. */
   --ease-out-snappy: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-fast: 120ms;
