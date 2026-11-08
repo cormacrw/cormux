@@ -41,6 +41,25 @@ export default ts.config(
     },
   },
   {
+    files: ['src/**'],
+    ignores: ['src/lib/feedback/open-external.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@tauri-apps/plugin-opener',
+              importNames: ['openUrl'],
+              message:
+                'Use openExternal from $lib/feedback/open-external, which toasts a failure.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     ignores: [
       'dist/**',
       'src-tauri/**',

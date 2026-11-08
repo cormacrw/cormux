@@ -12,6 +12,7 @@
   import { coreErrorText } from '$lib/core/core-error'
   import { startsOver } from '$lib/core/owner-scoped'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { openExternal } from '$lib/feedback/open-external'
   import { onModEnter } from '$lib/keyboard/mod-enter'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { branchHoldLabel } from '$lib/repo/branch-hold'
@@ -19,7 +20,6 @@
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Trash2 from '@lucide/svelte/icons/trash-2'
-  import { openUrl } from '@tauri-apps/plugin-opener'
 
   let titleEl = $state<HTMLHeadingElement | null>(null)
   // Each repo's list starts over, so a Delete never names another repo's branch.
@@ -259,7 +259,7 @@
                       type="button"
                       class="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-left text-xs transition-colors hover:bg-muted"
                       aria-label="Open pull request #{pr.num} on GitHub, {pr.title}"
-                      onclick={() => void openUrl(pr.htmlUrl)}
+                      onclick={() => void openExternal(pr.htmlUrl)}
                     >
                       <GitPullRequest
                         class="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
