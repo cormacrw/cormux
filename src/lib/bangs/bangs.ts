@@ -49,36 +49,6 @@ export function bangPreview(prompt: string, length = 48) {
   return flat.length > length ? `${flat.slice(0, length).trimEnd()}…` : flat
 }
 
-type BangToken = { start: number; end: number; query: string }
-
-/** The `!word` the caret is in, if it starts the draft or follows a space. */
-export function bangToken(draft: string, caret: number): BangToken | null {
-  const match = /(^|\s)!([\w-]*)$/.exec(draft.slice(0, caret))
-  if (!match) return null
-  const rest = /^\S*/.exec(draft.slice(caret))?.[0] ?? ''
-  if (!/^[\w-]*$/.test(rest)) return null
-  return {
-    start: match.index + (match[1]?.length ?? 0),
-    end: caret + rest.length,
-    query: match[2] ?? '',
-  }
-}
-
-/** The draft with the `!word` replaced by the bang's prompt, and the caret after it. */
-export function insertBang(
-  draft: string,
-  token: BangToken,
-  bang: Bang,
-): { text: string; caret: number } {
-  const prompt = bang.prompt.trim()
-  const rest = draft.slice(token.end)
-  const gap = rest === '' || /^\s/.test(rest) ? '' : ' '
-  return {
-    text: draft.slice(0, token.start) + prompt + gap + rest,
-    caret: token.start + prompt.length + gap.length,
-  }
-}
-
 /** On send: any whole `!name` left in a message becomes its bang's prompt. */
 export function expandBangs(text: string, bangs: Bang[]): string {
   return text.replace(

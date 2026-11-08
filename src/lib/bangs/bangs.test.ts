@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   bangName,
-  bangToken,
   expandBangs,
   filterBangs,
-  insertBang,
   paletteBang,
   type Bang,
 } from './bangs'
@@ -21,26 +19,6 @@ describe('bangName', () => {
   it('drops the !, spaces become dashes, lowercase, no symbols', () => {
     expect(bangName('!Daily Standup')).toBe('daily-standup')
     expect(bangName('  fix/it!  ')).toBe('fixit')
-  })
-})
-
-describe('bangToken and insertBang', () => {
-  it('finds the !word at the caret, at the start or after a space', () => {
-    expect(bangToken('!te', 3)).toEqual({ start: 0, end: 3, query: 'te' })
-    expect(bangToken('please !re now', 10)).toEqual({
-      start: 7,
-      end: 10,
-      query: 're',
-    })
-    expect(bangToken('wow!te', 6)).toBeNull()
-  })
-
-  it('replaces the word with the prompt', () => {
-    const token = bangToken('please !te', 10)!
-    expect(insertBang('please !te', token, test)).toEqual({
-      text: 'please Run the tests and fix what fails.',
-      caret: 40,
-    })
   })
 })
 

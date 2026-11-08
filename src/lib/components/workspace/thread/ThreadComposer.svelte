@@ -31,34 +31,15 @@
   import { commands } from '$lib/ipc'
   import type { Skill } from '$lib/ipc/bindings'
   import {
-    filterSkills,
-    insertSkill,
-    skillToken,
-  } from '$lib/composer/skill-picker'
-  import {
-    filterRepos,
-    insertRepoAlias,
-    repoAlias,
-    repoToken,
-  } from '$lib/composer/repo-aliases'
-  import {
-    filterTasks,
-    insertTaskAlias,
-    taskToken,
-  } from '$lib/composer/task-aliases'
+    pickerAt,
+    replaceWord,
+    type TriggerWord,
+  } from '$lib/composer/triggers'
   import { expandMessage } from '$lib/composer/expand-message'
-  import {
-    bangPreview,
-    bangToken,
-    filterBangs,
-    insertBang,
-    type Bang,
-  } from '$lib/bangs/bangs'
+  import { bangPreview } from '$lib/bangs/bangs'
   import Zap from '@lucide/svelte/icons/zap'
-  import { taskRef } from '$lib/clickup/board'
   import { clickup } from '$lib/clickup/store.svelte'
   import { repos } from '$lib/state/repos.svelte'
-  import type { RepoRecord } from '$lib/ipc/bindings'
   import { coreErrorText } from '$lib/core/core-error'
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/composer/drafts-store.svelte'
@@ -155,94 +136,62 @@
   )
   let draggingFiles = $state(false)
 
-  // Typing `/` anywhere opens the skill picker.
+  // Typing `/` opens the skill picker, `@` the repos set up in Cormux (the folder goes in on
+  // send), `#` your sprint tasks, and `!` your bangs (picking one puts its prompt in).
   let skills = $state<Skill[] | null>(null)
   let skillsThreadId: string | null = null
   let pickerIndex = $state(0)
   /** Esc hides the picker until the draft changes. */
   let pickerDismissed = $state(false)
-  /** Where the caret is in the draft; the picker follows the `/` or `@` word it's in. */
+  /** Where the caret is in the draft; the picker follows the trigger word it's in. */
   let caret = $state(0)
-  const token = $derived(skillToken(draft, Math.min(caret, draft.length)))
-  const query = $derived(token?.query ?? null)
-  const skillMatches = $derived(
-    query !== null && skills ? filterSkills(skills, query) : [],
-  )
-  // Typing `@` offers the repos set up in Cormux; `@alias` becomes the repo's folder on send.
-  const repoWord = $derived(
-    token ? null : repoToken(draft, Math.min(caret, draft.length)),
-  )
-  const repoMatches = $derived(
-    repoWord ? filterRepos(repos.items, repoWord.query) : [],
-  )
-  // Typing `#` offers your sprint tasks; `#ref` becomes the task on send.
   const sprintTasks = $derived(clickup.mine?.tasks ?? [])
-  const taskWord = $derived(
-    token || repoWord || !sprintTasks.length
-      ? null
-      : taskToken(draft, Math.min(caret, draft.length)),
+  const picker = $derived(
+    pickerAt(draft, caret, {
+      skills,
+      repos: repos.items,
+      tasks: sprintTasks,
+      bangs: settings.bangs,
+    }),
   )
-  const taskMatches = $derived(
-    taskWord ? filterTasks(sprintTasks, taskWord.query) : [],
-  )
-  // Typing `!` offers your bangs (Settings › Bangs); picking one puts its prompt in.
-  const bangWord = $derived(
-    token || repoWord || taskWord || !settings.bangs.length
-      ? null
-      : bangToken(draft, Math.min(caret, draft.length)),
-  )
-  const bangMatches = $derived(
-    bangWord ? filterBangs(settings.bangs, bangWord.query) : [],
-  )
-  type PickerOption = {
-    key: string
-    label: string
-    detail: string
-    badge: string | null
-    kind: 'skill' | 'repo' | 'task' | 'bang'
-    choose: () => void
-  }
-  const pickerOptions = $derived.by((): PickerOption[] => {
-    if (query !== null)
-      return skillMatches.map((skill) => ({
-        key: skill.name,
-        label: `/${skill.name}`,
-        detail: skill.description,
-        badge:
-          skill.source === 'project'
-            ? 'repo'
-            : skill.source === 'plugin'
-              ? 'plugin'
-              : null,
-        kind: 'skill' as const,
-        choose: () => chooseSkill(skill),
-      }))
-    if (bangWord)
-      return bangMatches.map((bang) => ({
-        key: bang.id,
-        label: `!${bang.name}`,
-        detail: bangPreview(bang.prompt, 80),
-        badge: null,
-        kind: 'bang' as const,
-        choose: () => chooseBang(bang),
-      }))
-    if (taskWord)
-      return taskMatches.map((task) => ({
-        key: task.id,
-        label: `#${taskRef(task)}`,
-        detail: task.name,
-        badge: task.status,
-        kind: 'task' as const,
-        choose: () => chooseTask(task),
-      }))
-    return repoMatches.map((repo) => ({
-      key: repo.id,
-      label: `@${repoAlias(repo)}`,
-      detail: repo.path,
-      badge: null,
-      kind: 'repo' as const,
-      choose: () => chooseRepo(repo),
-    }))
+  const pickerOptions = $derived.by(() => {
+    if (!picker) return []
+    const base = { kind: picker.kind, choose: chooseFrom(picker.word) }
+    switch (picker.kind) {
+      case 'skill':
+        return picker.options.map((option) => ({
+          ...base,
+          ...option,
+          detail: option.item.description,
+          badge:
+            option.item.source === 'project'
+              ? 'repo'
+              : option.item.source === 'plugin'
+                ? 'plugin'
+                : null,
+        }))
+      case 'bang':
+        return picker.options.map((option) => ({
+          ...base,
+          ...option,
+          detail: bangPreview(option.item.prompt, 80),
+          badge: null,
+        }))
+      case 'task':
+        return picker.options.map((option) => ({
+          ...base,
+          ...option,
+          detail: option.item.name,
+          badge: option.item.status,
+        }))
+      case 'repo':
+        return picker.options.map((option) => ({
+          ...base,
+          ...option,
+          detail: option.item.path,
+          badge: null,
+        }))
+    }
   })
   const pickerOpen = $derived(!pickerDismissed && pickerOptions.length > 0)
 
@@ -257,7 +206,7 @@
 
   // Read the skill folders when the picker is first wanted, once per thread.
   $effect(() => {
-    if (query === null || skillsThreadId === draftId) return
+    if (picker?.kind !== 'skill' || skillsThreadId === draftId) return
     const threadId = draftId
     skillsThreadId = threadId
     if (listSkills) {
@@ -270,24 +219,9 @@
     })
   })
 
-  function chooseSkill(skill: Skill) {
-    if (!token) return
-    applyPick(insertSkill(draft, token, skill.name))
-  }
-
-  function chooseRepo(repo: RepoRecord) {
-    if (!repoWord) return
-    applyPick(insertRepoAlias(draft, repoWord, repoAlias(repo)))
-  }
-
-  function chooseBang(bang: Bang) {
-    if (!bangWord) return
-    applyPick(insertBang(draft, bangWord, bang))
-  }
-
-  function chooseTask(task: (typeof sprintTasks)[number]) {
-    if (!taskWord) return
-    applyPick(insertTaskAlias(draft, taskWord, taskRef(task)))
+  function chooseFrom(word: TriggerWord) {
+    return (option: { insert: string; as: 'word' | 'text' }) =>
+      applyPick(replaceWord(draft, word, option.insert, option.as))
   }
 
   function applyPick(next: { text: string; caret: number }) {
@@ -315,7 +249,8 @@
       (event.key === 'Enter' && !event.shiftKey) ||
       event.key === 'Tab'
     ) {
-      pickerOptions[pickerIndex]?.choose()
+      const option = pickerOptions[pickerIndex]
+      option?.choose(option)
     } else if (event.key === 'Escape') {
       pickerDismissed = true
     } else {
@@ -638,7 +573,7 @@
           onmousedown={(event) => {
             // Keep focus in the composer.
             event.preventDefault()
-            option.choose()
+            option.choose(option)
           }}
           onpointermove={(event) => {
             // Only a pointer that really moved: the list opening, or sliding in
