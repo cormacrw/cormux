@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { tick } from 'svelte'
   import ArrowRight from '@lucide/svelte/icons/arrow-right'
   import Check from '@lucide/svelte/icons/check'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
@@ -7,7 +6,6 @@
   import X from '@lucide/svelte/icons/x'
   import { Button } from '$lib/components/ui/button'
   import { Checkbox } from '$lib/components/ui/checkbox'
-  import * as Select from '$lib/components/ui/select'
   import { threads, workspaceUi, workspaces } from '$lib/state'
   import { findings } from '$lib/findings/store.svelte'
   import { openWorkspaceThread, revealInChanges } from '$lib/nav/open'
@@ -42,22 +40,19 @@
   const workspace = $derived(workspaces.getById(workspaceId))
   const rows = $derived(findings.forWorkspace(workspaceId))
   const openRows = $derived(openFindings(rows))
-  const wsThreads = $derived(findings.targetThreads(workspaceId))
-  const reviewer = $derived(
-    wsThreads.find((thread) => thread.ownRole === 'reviewer') ?? wsThreads[0],
-  )
+  // The workspace's one live thread both ran the review and takes the fixes.
+  const liveThread = $derived(threads.liveFor(workspaceId))
   const selected = $derived(findings.selectedIds(workspaceId))
   const summary = $derived(selectedSummary(rows, selected))
   const barSummary = $derived(selectionSummaryText(summary))
-  const targetThread = $derived(findings.targetThread(workspaceId))
 
-  const engineName = $derived(engineDisplayName(reviewer?.engine ?? 'claude'))
+  const engineName = $derived(engineDisplayName(liveThread?.engine ?? 'claude'))
   const prLabel = $derived(
     workspace?.prNumber != null ? `#${workspace.prNumber}` : 'This PR',
   )
 
   function threadRoleForFinding(row: FindingRow) {
-    if (!row.sentToThreadId) return targetThread?.role ?? 'agent'
+    if (!row.sentToThreadId) return liveThread?.role ?? 'agent'
     return threads.getById(row.sentToThreadId)?.role ?? 'agent'
   }
 
@@ -67,14 +62,6 @@
     return 'bg-muted-foreground/60'
   }
 
-  async function preserveScroll<T>(run: () => T | Promise<T>): Promise<T> {
-    const top = bodyEl?.scrollTop ?? 0
-    const result = await run()
-    await tick()
-    if (bodyEl) bodyEl.scrollTop = top
-    return result
-  }
-
   function openLocation(row: FindingRow) {
     if (!row.file) return
     revealInChanges(row.file, row.line)
@@ -82,9 +69,7 @@
 
   async function setDismissed(ids: string[], dismissed: boolean) {
     sendError = null
-    const error = await preserveScroll(() =>
-      findings.setDismissed(workspaceId, ids, dismissed),
-    )
+    const error = await findings.setDismissed(workspaceId, ids, dismissed)
     if (error) sendError = coreErrorText(error, 'Could not update the findings')
   }
 
@@ -93,7 +78,7 @@
   )
 
   async function sendFindings() {
-    if (!targetThread || sending) return
+    if (!liveThread || sending) return
     sending = true
     sendError = null
     const error = await findings.sendSelected(workspaceId)
@@ -102,15 +87,13 @@
   }
 
   function goToTargetThread() {
-    if (!targetThread) return
-    openWorkspaceThread(workspaceId, targetThread.id)
+    if (!liveThread) return
+    openWorkspaceThread(workspaceId, liveThread.id)
   }
 
   $effect(() => {
     void workspaceUi.activeTab
-    queueMicrotask(() => {
-      if (bodyEl) bodyEl.scrollTop = 0
-    })
+    if (bodyEl) bodyEl.scrollTop = 0
   })
 </script>
 
@@ -133,7 +116,8 @@
             Review findings
           </h2>
           <p class="text-sm text-muted-foreground">
-            {prLabel} · reviewed by {reviewer ? reviewer.role : 'Reviewer'} with {engineName}
+            {prLabel} · reviewed by {liveThread ? liveThread.role : 'Reviewer'} with
+            {engineName}
           </p>
         </div>
 
@@ -175,10 +159,7 @@
                 variant="ghost"
                 size="xs"
                 disabled={!openRows.length}
-                onclick={() =>
-                  preserveScroll(() =>
-                    findings.quickSelect(workspaceId, 'blocking'),
-                  )}
+                onclick={() => findings.quickSelect(workspaceId, 'blocking')}
               >
                 Blocking
               </Button>
@@ -186,10 +167,7 @@
                 variant="ghost"
                 size="xs"
                 disabled={!openRows.length}
-                onclick={() =>
-                  preserveScroll(() =>
-                    findings.quickSelect(workspaceId, 'all'),
-                  )}
+                onclick={() => findings.quickSelect(workspaceId, 'all')}
               >
                 All
               </Button>
@@ -197,10 +175,7 @@
                 variant="ghost"
                 size="xs"
                 disabled={!summary.total}
-                onclick={() =>
-                  preserveScroll(() =>
-                    findings.quickSelect(workspaceId, 'none'),
-                  )}
+                onclick={() => findings.quickSelect(workspaceId, 'none')}
               >
                 None
               </Button>
@@ -213,7 +188,7 @@
         <div class="py-16 text-center" data-od-id="findings-empty">
           <h3 class="text-base font-medium">Nothing to fix</h3>
           <p class="mt-1 text-sm text-muted-foreground">
-            {reviewer?.role ?? 'Reviewer'} didn’t flag anything in this pull request.
+            {liveThread?.role ?? 'Reviewer'} didn’t flag anything in this pull request.
           </p>
         </div>
       {:else}
@@ -236,12 +211,10 @@
                     disabled={box.disabled}
                     aria-label="Select all open {group.label.toLowerCase()}"
                     onCheckedChange={(value) =>
-                      preserveScroll(() =>
-                        findings.setGroup(
-                          workspaceId,
-                          group.severity,
-                          value === true,
-                        ),
+                      findings.setGroup(
+                        workspaceId,
+                        group.severity,
+                        value === true,
                       )}
                   />
                   <span
@@ -281,13 +254,7 @@
                         aria-label="Select “{row.title}”"
                         aria-describedby="fnd-b-{row.id}"
                         onCheckedChange={(value) =>
-                          preserveScroll(() =>
-                            findings.toggle(
-                              workspaceId,
-                              row.id,
-                              value === true,
-                            ),
-                          )}
+                          findings.toggle(workspaceId, row.id, value === true)}
                       />
                       <div class="min-w-0">
                         <div class="flex items-start justify-between gap-3">
@@ -391,16 +358,16 @@
               ? 'sent or dismissed'
               : 'sent'}.
             <span class="text-foreground/80"
-              >Follow the fixes in the {targetThread?.role ?? 'agent'} thread.</span
+              >Follow the fixes in the {liveThread?.role ?? 'agent'} thread.</span
             >
           {:else}
             No findings to send.
           {/if}
         </p>
-        {#if rows.length && dismissedCount < rows.length && targetThread}
+        {#if rows.length && dismissedCount < rows.length && liveThread}
           <span class="grow"></span>
           <Button variant="secondary" onclick={goToTargetThread}>
-            Go to {targetThread.role}
+            Go to {liveThread.role}
             <ArrowRight class="size-4" aria-hidden="true" />
           </Button>
         {/if}
@@ -409,29 +376,6 @@
           {barSummary}
         </p>
         <span class="grow"></span>
-        {#if wsThreads.length > 1}
-          <label class="flex items-center gap-2 text-sm">
-            <span class="text-muted-foreground">Send to</span>
-            <Select.Root
-              type="single"
-              value={targetThread?.id ?? ''}
-              onValueChange={(value) => {
-                if (value) findings.setTargetThread(workspaceId, value)
-              }}
-            >
-              <Select.Trigger data-od-id="findings-target">
-                {targetThread ? targetThread.role : 'Pick an agent'}
-              </Select.Trigger>
-              <Select.Content>
-                {#each wsThreads as thread (thread.id)}
-                  <Select.Item value={thread.id} label={thread.role}
-                    >{thread.role}</Select.Item
-                  >
-                {/each}
-              </Select.Content>
-            </Select.Root>
-          </label>
-        {/if}
         {#if sendError}
           <p class="text-xs text-destructive">{sendError}</p>
         {/if}
@@ -446,12 +390,12 @@
         </Button>
         <Button
           data-od-id="findings-send"
-          disabled={!summary.total || sending || !targetThread}
+          disabled={!summary.total || sending || !liveThread}
           onclick={sendFindings}
         >
           <ArrowRight class="size-4" aria-hidden="true" />
-          {#if summary.total && targetThread}
-            Send {summary.total} to {targetThread.role}
+          {#if summary.total && liveThread}
+            Send {summary.total} to {liveThread.role}
           {:else}
             Send to agent
           {/if}

@@ -10,21 +10,22 @@ import {
   toggleFinding,
 } from '$lib/findings/selection'
 import { openFindings, type FindingSeverity } from '$lib/findings/types'
-import { threads, type Thread } from '$lib/state/threads.svelte'
+import { threads } from '$lib/state/threads.svelte'
+import type { Workspace } from '$lib/state/workspaces.svelte'
+import { showFindingsTab } from '$lib/workspace/thread-tabs'
 import { reuseRows } from '../state/reuse-rows'
 import { onSnapshot } from '$lib/core/sync'
 
 const NO_FINDINGS: FindingRow[] = []
 
 /**
- * A workspace's findings, which of them are selected and which thread they go to. Until the
- * user picks, the selection is the open blocking findings and the target is the first live
- * thread; only explicit picks are stored.
+ * A workspace's findings and which of them are selected. Until the user picks, the selection
+ * is the open blocking findings; only explicit picks are stored. They go to the workspace's
+ * one live thread.
  */
 export class FindingsStore {
   items = $state.raw<FindingRow[]>([])
   private picked = $state<Record<string, Set<string>>>({})
-  private pickedThread = $state<Record<string, string>>({})
 
   private readonly byWorkspace = $derived.by(() => {
     const map = new Map<string, FindingRow[]>()
@@ -49,8 +50,13 @@ export class FindingsStore {
     return openFindings(this.forWorkspace(workspaceId)).length
   }
 
-  hasReviewFindings(workspaceId: string) {
-    return this.forWorkspace(workspaceId).length > 0
+  /** The one rule for whether the Findings tab is on offer, for its button and the open tab alike. */
+  tabAvailable(workspace: Workspace): boolean {
+    return showFindingsTab({
+      workspaceKind: workspace.kind,
+      reviewReady: workspace.reviewStatus === 'ready',
+      hasFindings: this.forWorkspace(workspace.id).length > 0,
+    })
   }
 
   selectedIds(workspaceId: string): Set<string> {
@@ -58,20 +64,6 @@ export class FindingsStore {
       this.picked[workspaceId] ??
       defaultSelectedIds(this.forWorkspace(workspaceId))
     )
-  }
-
-  targetThreads(workspaceId: string): Thread[] {
-    return threads.forWorkspace(workspaceId).filter((thread) => !thread.retired)
-  }
-
-  targetThread(workspaceId: string): Thread | undefined {
-    const candidates = this.targetThreads(workspaceId)
-    const picked = this.pickedThread[workspaceId]
-    return candidates.find((thread) => thread.id === picked) ?? candidates[0]
-  }
-
-  setTargetThread(workspaceId: string, threadId: string) {
-    this.pickedThread = { ...this.pickedThread, [workspaceId]: threadId }
   }
 
   toggle(workspaceId: string, findingId: string, checked: boolean) {
@@ -102,7 +94,7 @@ export class FindingsStore {
   }
 
   async sendSelected(workspaceId: string): Promise<CoreError | null> {
-    const thread = this.targetThread(workspaceId)
+    const thread = threads.liveFor(workspaceId)
     if (!thread) return null
     const open = new Set(
       openFindings(this.forWorkspace(workspaceId)).map((row) => row.id),
