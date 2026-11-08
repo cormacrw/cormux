@@ -85,16 +85,66 @@ mod tests {
     use super::*;
     use crate::git::Git;
     use crate::shell_env::ShellEnv;
+    use std::path::Path;
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
+    fn git(cwd: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    }
+
+    fn commit(repo: &Path, file: &str) {
+        std::fs::write(repo.join(file), "x\n").unwrap();
+        git(repo, &["add", file]);
+        git(
+            repo,
+            &[
+                "-c",
+                "user.name=C",
+                "-c",
+                "user.email=c@t",
+                "commit",
+                "-qm",
+                file,
+            ],
+        );
+    }
+
     #[tokio::test]
-    async fn tick_on_empty_repo_list_is_ok() {
-        let mut env = ShellEnv::new();
-        env.load_or_inherit().await.unwrap();
-        let git = Git::new(Arc::new(RwLock::new(env)));
-        let scheduler = FetchScheduler::new(git);
-        let updates = scheduler.tick(Vec::new()).await;
-        assert!(updates.is_empty());
+    async fn a_tick_fetches_and_recounts_and_skips_a_repo_it_cannot_fetch() {
+        let dir = tempfile::tempdir().unwrap();
+        let origin = dir.path().join("origin");
+        std::fs::create_dir(&origin).unwrap();
+        git(&origin, &["init", "-qb", "main"]);
+        commit(&origin, "one.txt");
+        git(dir.path(), &["clone", "-q", "origin", "clone"]);
+        let clone = dir.path().join("clone");
+        commit(&origin, "landed.txt");
+        let broken = dir.path().join("broken");
+        git(dir.path(), &["clone", "-q", "origin", "broken"]);
+        git(&broken, &["remote", "set-url", "origin", "/nowhere"]);
+
+        let target = |path: &Path, id: &str| RepoFetchTarget {
+            repo_path: path.to_path_buf(),
+            workspaces: vec![WorkspaceFetchTarget {
+                workspace_id: id.into(),
+                worktree_path: path.to_path_buf(),
+                base: "main".into(),
+            }],
+        };
+        let scheduler = FetchScheduler::new(Git::new(Arc::new(RwLock::new(ShellEnv::new()))));
+        let updates = scheduler
+            .tick(vec![target(&clone, "w1"), target(&broken, "w2")])
+            .await;
+        let counts: Vec<_> = updates
+            .iter()
+            .map(|update| (update.workspace_id.as_str(), update.behind))
+            .collect();
+        assert_eq!(counts, [("w1", 1)]);
     }
 }

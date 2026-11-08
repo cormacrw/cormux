@@ -463,8 +463,8 @@ sys.stdin.readline()
     #[tokio::test]
     #[ignore = "talks to a real `claude` binary; cargo test -- --ignored --nocapture"]
     async fn live_claude_control_protocol() {
-        let cwd = std::env::temp_dir().join("cormux-live-claude");
-        std::fs::create_dir_all(&cwd).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_path_buf();
 
         let live = |resume: Option<String>, extra: &[&str]| {
             let mut args = super::super::argv(&crate::engines::LaunchConfig {

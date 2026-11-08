@@ -145,8 +145,8 @@ mod tests {
 
     #[test]
     fn previews_only_images() {
-        let root = std::env::temp_dir().join(format!("cormux-preview-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         let image = root.join("shot.png");
         std::fs::write(&image, b"png").unwrap();
         let notes = root.join("notes.txt");
@@ -157,7 +157,6 @@ mod tests {
         );
         assert_eq!(crate::media::image_data_url(&notes), None);
         assert_eq!(crate::media::image_data_url(&root.join("gone.png")), None);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -169,8 +168,8 @@ mod tests {
 
     #[test]
     fn builds_a_prompt_with_images_and_file_paths() {
-        let root = std::env::temp_dir().join(format!("cormux-attach-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         let notes = root.join("notes.txt");
         std::fs::write(&notes, "hello").unwrap();
         let attachments = vec![
@@ -185,7 +184,7 @@ mod tests {
                 data_base64: None,
             },
         ];
-        let (prompt, shown) = build_prompt(&root, "Fix the layout", &attachments).unwrap();
+        let (prompt, shown) = build_prompt(root, "Fix the layout", &attachments).unwrap();
         assert_eq!(shown, "Fix the layout\n\nAttached: shot.png, notes.txt");
         assert_eq!(prompt.images.len(), 1);
         assert_eq!(prompt.images[0].media_type, "image/png");
@@ -203,7 +202,6 @@ mod tests {
             path: Some(root.join("gone.txt").display().to_string()),
             data_base64: None,
         };
-        assert!(build_prompt(&root, "", &[missing]).is_err());
-        std::fs::remove_dir_all(root).unwrap();
+        assert!(build_prompt(root, "", &[missing]).is_err());
     }
 }

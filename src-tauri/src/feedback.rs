@@ -318,8 +318,17 @@ mod tests {
         notifier.changed();
         notifier.changed();
         notifier.repo_git_moved();
+        assert_eq!(
+            recording.state_changes(),
+            [PLAIN],
+            "the first goes out at once"
+        );
 
-        tokio::time::sleep(CHANGE_WINDOW * 3).await;
+        // The trailing event comes from Tauri's runtime, so wait for it rather than a fixed time.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while recording.state_changes().len() < 2 && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
         assert_eq!(recording.state_changes(), [PLAIN, REPO_GIT]);
         assert_eq!(recording.versions(), [1, 2]);
         assert_eq!(notifier.version(), 2);

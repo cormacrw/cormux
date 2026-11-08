@@ -1071,10 +1071,9 @@ mod tests {
         );
     }
 
+    /// Git with the test process's own environment, no login shell needed.
     async fn git_with_env() -> Git {
-        let mut env = ShellEnv::new();
-        env.load_or_inherit().await.unwrap();
-        Git::new(Arc::new(RwLock::new(env)))
+        Git::new(Arc::new(RwLock::new(ShellEnv::new())))
     }
 
     fn init_repo() -> (tempfile::TempDir, PathBuf) {
@@ -1637,18 +1636,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn serialises_calls_on_one_worktree() {
+    async fn a_second_call_on_a_worktree_waits_for_the_first() {
         let git = git_with_env().await;
         let (_dir, repo) = init_repo();
-        let a = git.clone();
-        let b = git.clone();
-        let repo_a = repo.clone();
-        let repo_b = repo.clone();
-        let (left, right) = tokio::join!(
-            async move { a.status_porcelain(&repo_a).await },
-            async move { b.status_porcelain(&repo_b).await }
-        );
-        left.unwrap();
-        right.unwrap();
+        let overlapped = git
+            .with_queue(&repo, || {
+                tokio::time::timeout(Duration::from_millis(200), git.status_porcelain(&repo))
+            })
+            .await;
+        assert!(overlapped.is_err(), "ran while the worktree was busy");
+        git.status_porcelain(&repo).await.unwrap();
     }
 }

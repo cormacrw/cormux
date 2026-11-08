@@ -932,27 +932,29 @@ mod tests {
 
     #[tokio::test]
     async fn exited_sessions_leave_their_code_and_forgetting_clears_them() {
+        // Log files live in the shared temp folder, so this workspace's id is its own.
+        let ws = format!("forget-{}", uuid::Uuid::new_v4());
         let proc = supervisor();
         let exit = proc
             .run_to_exit(
-                setup("ws", 1),
+                setup(&ws, 1),
                 &shell("true"),
                 Duration::from_secs(10),
-                Some("ws"),
+                Some(&ws),
             )
             .await
             .unwrap();
         assert_eq!(exit, Exit::Code(0));
         assert!(proc.pids().is_empty());
-        assert!(proc.workspace_has_session("ws"));
+        assert!(proc.workspace_has_session(&ws));
         // Another workspace's id can't claim it by sharing a prefix.
-        assert!(!proc.workspace_has_session("w"));
+        assert!(!proc.workspace_has_session(&ws[..ws.len() - 1]));
 
-        proc.forget_workspace("ws");
-        assert!(!proc.workspace_has_session("ws"));
-        assert!(proc.take_log_snapshot("ws").is_empty());
-        assert!(!log_path("ws").exists());
-        assert!(!log_path(&setup("ws", 1).to_string()).exists());
+        proc.forget_workspace(&ws);
+        assert!(!proc.workspace_has_session(&ws));
+        assert!(proc.take_log_snapshot(&ws).is_empty());
+        assert!(!log_path(&ws).exists());
+        assert!(!log_path(&setup(&ws, 1).to_string()).exists());
     }
 
     #[test]

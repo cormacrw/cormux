@@ -143,22 +143,32 @@ mod tests {
 
     #[test]
     fn counts_a_child_in_its_parents_tree() {
-        let mut child = std::process::Command::new("sleep")
-            .arg("5")
+        // A shell with a child of its own, so nothing else this test process runs is in its tree.
+        let mut shell = std::process::Command::new("/bin/sh")
+            .args(["-c", "sleep 5 & wait"])
             .spawn()
             .unwrap();
         let mut system = System::new();
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::nothing().with_memory(),
-        );
-        let children = children_by_parent(&system);
-        let alone = tree_memory(&system, &children, child.id());
-        let with_child = tree_memory(&system, &children, std::process::id());
-        child.kill().unwrap();
-        child.wait().unwrap();
-        assert!(alone > 0);
-        assert!(with_child > alone);
+        let mut children = HashMap::new();
+        for _ in 0..200 {
+            system.refresh_processes_specifics(
+                ProcessesToUpdate::All,
+                true,
+                ProcessRefreshKind::nothing().with_memory(),
+            );
+            children = children_by_parent(&system);
+            if children.contains_key(&shell.id()) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let own = system
+            .process(sysinfo::Pid::from_u32(shell.id()))
+            .map_or(0, sysinfo::Process::memory);
+        let tree = tree_memory(&system, &children, shell.id());
+        shell.kill().unwrap();
+        shell.wait().unwrap();
+        assert!(own > 0);
+        assert!(tree > own, "the shell's sleep is counted: {tree} vs {own}");
     }
 }

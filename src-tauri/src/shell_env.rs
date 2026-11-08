@@ -199,20 +199,38 @@ mod tests {
         assert_eq!(vars.get("HOME").unwrap(), "/Users/dev");
     }
 
-    #[tokio::test]
-    async fn login_shell_recovers_tools_hidden_from_gui_path() {
-        let mut env = ShellEnv::new();
-        env.load().await.unwrap();
-        let path = env.get("PATH").expect("PATH");
-        assert!(path.contains('/'), "login PATH should be populated");
+    /// A login shell that is a script: `body` stands in for `-l -i -c 'env -0'`.
+    fn fake_shell(dir: &Path, body: &str) -> ShellEnv {
+        use std::os::unix::fs::PermissionsExt;
+        let shell = dir.join("login-shell");
+        std::fs::write(&shell, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+        ShellEnv::from_vars([("SHELL".to_string(), shell.display().to_string())])
+    }
 
-        let claude = env
-            .run_with_stdin("claude", &["--version"], None, None)
-            .await;
-        let pnpm = env.run_with_stdin("pnpm", &["--version"], None, None).await;
-        assert!(
-            claude.is_ok() || pnpm.is_ok(),
-            "login env should resolve claude or pnpm; claude={claude:?} pnpm={pnpm:?}"
-        );
+    #[tokio::test]
+    async fn the_login_shells_env_replaces_the_apps() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut env = fake_shell(dir.path(), r"printf 'PATH=/login/bin\0HOME=/Users/dev\0'");
+        env.load().await.unwrap();
+        assert_eq!(env.get("PATH"), Some("/login/bin"));
+        assert_eq!(env.get("SHELL"), None, "nothing is kept from before");
+
+        let mut command = env.command("/usr/bin/env");
+        let output = command.output().await.unwrap();
+        let seen = String::from_utf8(output.stdout).unwrap();
+        assert!(seen.contains("HOME=/Users/dev"), "{seen}");
+    }
+
+    #[tokio::test]
+    async fn a_broken_login_shell_falls_back_to_the_apps_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut env = fake_shell(dir.path(), "exit 1");
+        assert!(env.clone().load().await.is_err());
+        env.load_or_inherit().await.unwrap();
+        assert_eq!(env.get("PATH"), std::env::var("PATH").ok().as_deref());
+
+        let mut silent = fake_shell(dir.path(), "true");
+        assert!(silent.load().await.is_err(), "an empty env is a failure");
     }
 }

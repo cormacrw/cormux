@@ -178,17 +178,17 @@ pub async fn resolve_thread_media(
 mod tests {
     use super::*;
 
-    fn root() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("cormux-media-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn root() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        (dir, path)
     }
 
     const PNG: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4];
 
     #[test]
     fn copies_a_screenshot_into_the_media_folder() {
-        let root = root();
+        let (_dir, root) = root();
         let work = root.join("work");
         std::fs::create_dir_all(&work).unwrap();
         std::fs::write(work.join("after.png"), PNG).unwrap();
@@ -219,12 +219,11 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(by_file_url.path, by_absolute.path);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn refuses_files_that_are_not_what_they_claim() {
-        let root = root();
+        let (_dir, root) = root();
         std::fs::write(root.join("fake.png"), b"just some text").unwrap();
         std::fs::write(root.join("notes.txt"), b"hi").unwrap();
         assert!(
@@ -256,12 +255,11 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn accepts_a_recording_by_its_ftyp_box() {
-        let root = root();
+        let (_dir, root) = root();
         let mut mp4 = b"\0\0\0\x18".to_vec();
         mp4.extend_from_slice(b"ftypisom");
         std::fs::write(root.join("flow.mp4"), &mp4).unwrap();
@@ -274,6 +272,5 @@ mod tests {
         .unwrap();
         assert_eq!(media.kind, MediaKind::Video);
         assert!(media.preview_url.is_none());
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

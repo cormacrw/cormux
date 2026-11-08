@@ -538,7 +538,7 @@ async fn next_live_event(events: &mut broadcast::Receiver<StreamedEvent>) -> Age
 
 /// Needs a signed-in `claude` on PATH, and spends a few small Haiku turns.
 #[tokio::test]
-#[ignore]
+#[ignore = "needs a signed-in `claude`; cargo test -- --ignored live_claude"]
 async fn live_claude_holds_the_turn_for_a_background_agent() {
     let (setup, mut events) = live_background_agent("live-bg").await;
     let mut agent = None;
@@ -568,7 +568,7 @@ async fn live_claude_holds_the_turn_for_a_background_agent() {
 
 /// Needs a signed-in `claude` on PATH, and spends a few small Haiku turns.
 #[tokio::test]
-#[ignore]
+#[ignore = "needs a signed-in `claude`; cargo test -- --ignored live_claude"]
 async fn live_claude_stop_reaches_a_background_agent() {
     let (setup, mut events) = live_background_agent("live-stop").await;
     let mut agent = None;

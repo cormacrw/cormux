@@ -631,7 +631,7 @@ mod tests {
 
     /// Needs a signed-in `claude` on PATH, and spends one small Haiku turn.
     #[tokio::test]
-    #[ignore]
+    #[ignore = "needs a signed-in `claude`; cargo test -- --ignored live_claude"]
     async fn live_claude_reaches_the_cormux_tools() {
         use crate::engines::{AgentEvent, ClaudeEngines, ToolRole};
         use crate::transcript::TranscriptEvent;

@@ -315,7 +315,8 @@ mod tests {
 
     #[test]
     fn lists_synced_and_enabled_plugin_skills_under_their_plugin() {
-        let root = std::env::temp_dir().join(format!("cormux-skills-{}", uuid::Uuid::new_v4()));
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         let home = root.join("home");
         let write = |path: PathBuf, body: &str| {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -361,7 +362,6 @@ mod tests {
         );
 
         let skills = list(&root.join("repo"), Some(&home));
-        let _ = std::fs::remove_dir_all(&root);
         let plugin: Vec<_> = skills
             .iter()
             .filter(|skill| skill.source == "plugin")
@@ -381,7 +381,8 @@ mod tests {
 
     #[test]
     fn project_skills_shadow_user_skills_which_shadow_builtins() {
-        let root = std::env::temp_dir().join(format!("cormux-skills-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
         let write = |dir: &str, body: &str| {
             let path = root.join(dir);
             std::fs::create_dir_all(&path).unwrap();
@@ -403,7 +404,6 @@ mod tests {
         );
 
         let skills = list(&root.join("repo"), Some(&root.join("home")));
-        let _ = std::fs::remove_dir_all(&root);
         let simplify = skills
             .iter()
             .find(|skill| skill.name == "simplify")

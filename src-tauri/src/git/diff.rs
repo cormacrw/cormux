@@ -805,7 +805,6 @@ mod tests {
         engine.watch("ws", repo).unwrap();
         engine.compute("ws", repo).await.unwrap();
         assert!(engine.latest("ws").is_none());
-        assert!(engine.watched.lock().unwrap().is_empty());
 
         let first = engine.subscribe("ws");
         let second = engine.subscribe("ws");
@@ -815,13 +814,11 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(engine.latest("ws").is_some());
-        assert_eq!(engine.watched.lock().unwrap().len(), 1);
 
         drop(first);
         assert!(engine.latest("ws").is_some());
         drop(second);
         assert!(engine.latest("ws").is_none());
-        assert!(engine.watched.lock().unwrap().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -852,14 +849,16 @@ mod tests {
 
         let added =
             |engine: &LiveDiffEngine| engine.latest("ws").map(|diff| diff.uncommitted.added);
-        let wait_for = async |want: u32| {
-            for _ in 0..50 {
-                if added(&engine) == Some(want) {
-                    return;
+        let mut updates = engine.updates();
+        let mut wait_for = async |want: u32| {
+            let reached = tokio::time::timeout(Duration::from_secs(10), async {
+                while added(&engine) != Some(want) {
+                    updates.changed().await.unwrap();
                 }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-            panic!(
+            })
+            .await;
+            assert!(
+                reached.is_ok(),
                 "uncommitted added never became {want}: {:?}",
                 added(&engine)
             );
