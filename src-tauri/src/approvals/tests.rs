@@ -69,7 +69,7 @@ async fn an_answer_reaches_the_waiting_engine_and_the_card_together() {
     let row = setup.store.get_approval("a1").unwrap().unwrap();
     assert_eq!(
         (row.status.as_str(), row.tool.as_str()),
-        ("pending", "execute")
+        ("pending", "Bash")
     );
     assert_eq!(row.payload.unwrap().title, "Use Bash");
     assert_eq!(
@@ -77,7 +77,7 @@ async fn an_answer_reaches_the_waiting_engine_and_the_card_together() {
         DomainEvent::ApprovalRequested {
             thread_id: "t1".into(),
             approval_id: "a1".into(),
-            tool: "execute".into(),
+            tool: "Bash".into(),
         }
     );
     assert_eq!(setup.broker.pending_count(), 1);
@@ -216,7 +216,7 @@ async fn an_answer_nothing_waits_for_is_refused_and_the_card_stops_asking() {
         .insert_pending_approval(
             "a1",
             "t1",
-            "execute",
+            "Bash",
             &crate::model::ApprovalPayload::titled("Use Bash"),
         )
         .unwrap();

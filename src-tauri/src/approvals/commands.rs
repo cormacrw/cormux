@@ -61,7 +61,7 @@ mod tests {
             .insert_pending_approval(
                 "a1",
                 "t1",
-                "execute",
+                "Bash",
                 &crate::model::ApprovalPayload::titled("Use Bash"),
             )
             .unwrap();

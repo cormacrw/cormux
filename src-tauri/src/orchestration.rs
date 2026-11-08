@@ -1094,14 +1094,14 @@ mod tests {
         let asked = |thread: &str| DomainEvent::ApprovalRequested {
             thread_id: thread.into(),
             approval_id: format!("a-{thread}"),
-            tool: "execute".into(),
+            tool: "Bash".into(),
         };
 
         state.bus.publish(asked("orphan"));
         state.bus.publish(asked("child"));
         let report = first_prompt(&mut engine).await.expect("a report");
         assert!(report.contains("status=\"blocked\""));
-        assert!(report.contains("execute"));
+        assert!(report.contains("an approval for Bash"));
 
         crate::turn::end_turn(&state, "parent").await;
         state.bus.publish(asked("child"));

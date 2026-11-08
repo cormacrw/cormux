@@ -1,12 +1,12 @@
-use crate::engines::{PermissionRequest, ToolRole};
+use crate::engines::PermissionRequest;
 use crate::model::ApprovalPayload;
 use crate::transcript::HostEvent;
 
 /// The `tool` an approval row carries when an agent is asking rather than seeking permission.
 pub const QUESTION_TOOL: &str = "question";
 
-/// The card the user answers, and the row's `tool`: the kind of thing it would do.
-pub fn card(request: &PermissionRequest) -> (ApprovalPayload, &'static str) {
+/// The card the user answers, and the row's `tool`: the tool the agent asks to use.
+pub fn card(request: &PermissionRequest) -> (ApprovalPayload, &str) {
     if !request.questions.is_empty() {
         return (
             ApprovalPayload::asking(request.questions.clone()),
@@ -15,7 +15,7 @@ pub fn card(request: &PermissionRequest) -> (ApprovalPayload, &'static str) {
     }
     (
         ApprovalPayload::to_use(&request.tool, request.detail.as_deref()),
-        tool_key(&request.role),
+        &request.tool,
     )
 }
 
@@ -29,21 +29,5 @@ pub fn event(request: &PermissionRequest, card: ApprovalPayload, auto_approved: 
         role: request.role.clone(),
         detail: request.detail.clone(),
         auto_approved,
-    }
-}
-
-fn tool_key(role: &ToolRole) -> &'static str {
-    match role {
-        ToolRole::Read => "read",
-        ToolRole::Search | ToolRole::WebSearch { .. } => "search",
-        ToolRole::Edit { .. } => "edit",
-        ToolRole::Command { .. } => "execute",
-        ToolRole::Fetch { .. } => "fetch",
-        ToolRole::Skill { .. }
-        | ToolRole::Mcp { .. }
-        | ToolRole::Subagent { .. }
-        | ToolRole::ToolLookup
-        | ToolRole::PlanMode
-        | ToolRole::Other { .. } => "other",
     }
 }
