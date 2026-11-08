@@ -722,7 +722,7 @@ pub(crate) fn workspace_at(row: &rusqlite::Row<'_>, at: usize) -> rusqlite::Resu
         base: row.get(at + 4)?,
         worktree_path: row.get(at + 5)?,
         status: WorkspaceLifecycle::parse(&row.get::<_, String>(at + 6)?),
-        created_at: row.get(at + 7)?,
+        created_at_ms: crate::time::sqlite_to_unix_ms(&row.get::<_, String>(at + 7)?),
         summary: row.get(at + 8)?,
         summary_at: row.get(at + 9)?,
         kind: WorkspaceKind::parse(row.get::<_, Option<String>>(at + 10)?.as_deref()),

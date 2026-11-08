@@ -32,6 +32,39 @@ fn utc(unix_secs: u64) -> (String, String) {
     )
 }
 
+/// A stored `YYYY-MM-DD HH:MM:SS` (SQLite's `datetime('now')`, which is UTC) as Unix
+/// milliseconds, or 0 when the text isn't one.
+pub fn sqlite_to_unix_ms(text: &str) -> i64 {
+    let parse = || -> Option<i64> {
+        let (date, time) = text.trim().split_once(' ')?;
+        let mut date = date.splitn(3, '-').map(str::parse::<i64>);
+        let (year, month, day) = (date.next()?.ok()?, date.next()?.ok()?, date.next()?.ok()?);
+        let mut time = time.splitn(3, ':').map(str::parse::<i64>);
+        let (hour, minute, second) = (time.next()?.ok()?, time.next()?.ok()?, time.next()?.ok()?);
+        let valid = (1..=12).contains(&month)
+            && (1..=31).contains(&day)
+            && (0..24).contains(&hour)
+            && (0..60).contains(&minute)
+            && (0..=60).contains(&second);
+        valid.then(|| {
+            let secs =
+                days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second;
+            secs * 1000
+        })
+    };
+    parse().unwrap_or(0)
+}
+
+/// A proleptic Gregorian date to days since 1970-01-01 (Howard Hinnant's `days_from_civil`).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let yoe = year.rem_euclid(400);
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
 /// Days since 1970-01-01 to a proleptic Gregorian date (Howard Hinnant's `civil_from_days`).
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
@@ -59,6 +92,13 @@ mod tests {
             (4_102_444_799, "2099-12-31", "23:59:59"),
         ] {
             assert_eq!(utc(secs), (date.to_string(), time.to_string()));
+            assert_eq!(
+                sqlite_to_unix_ms(&format!("{date} {time}")),
+                secs as i64 * 1000
+            );
         }
+        assert_eq!(sqlite_to_unix_ms(""), 0);
+        assert_eq!(sqlite_to_unix_ms("1700000000"), 0);
+        assert_eq!(sqlite_to_unix_ms("2024-13-01 00:00:00"), 0);
     }
 }

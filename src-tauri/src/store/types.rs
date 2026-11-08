@@ -45,7 +45,8 @@ pub struct WorkspaceRow {
     pub base: String,
     pub worktree_path: String,
     pub status: WorkspaceLifecycle,
-    pub created_at: String,
+    /// Unix milliseconds.
+    pub created_at_ms: i64,
     /// What the workspace's Lead shows above its thread, written by Cormux when setup is done.
     pub summary: Option<String>,
     pub summary_at: Option<String>,
@@ -76,7 +77,7 @@ impl WorkspaceRow {
             base: base.into(),
             worktree_path: worktree_path.into(),
             status: WorkspaceLifecycle::Provisioning,
-            created_at: String::new(),
+            created_at_ms: 0,
             summary: None,
             summary_at: None,
             kind,

@@ -1,7 +1,6 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import type { ScratchRow, ThreadStatus } from '$lib/ipc/bindings'
-import { parseTimestampMs } from '$lib/format/relative-time'
 import { onSnapshot } from '$lib/core/sync'
 import { reuseRows } from './reuse-rows'
 
@@ -25,7 +24,7 @@ function scratchFromRow(row: ScratchRow): Scratch {
     threadId: row.threadId,
     engine: row.engine,
     status: row.status,
-    createdAtMs: parseTimestampMs(row.createdAt),
+    createdAtMs: row.createdAtMs,
   }
 }
 

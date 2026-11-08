@@ -34,7 +34,7 @@ type NewWorkspace = {
   branch: string
   base: string
   worktreePath: string
-  createdAt: string
+  createdAtMs: number
 }
 
 /** A Lead workspace as the core stores it and as its snapshot record shows it, idle. */
@@ -42,12 +42,12 @@ export function workspaceFixture(fields: NewWorkspace): {
   row: WorkspaceRow
   record: WorkspaceRecord
 } {
-  const { createdAt, ...shared } = fields
+  const { createdAtMs, ...shared } = fields
   return {
     row: {
       ...shared,
       status: 'idle',
-      createdAt,
+      createdAtMs,
       summary: null,
       summaryAt: null,
       kind: 'lead',
@@ -93,7 +93,7 @@ export function createFixtures() {
     branch: 'feat/oauth-login',
     base: 'main',
     worktreePath: '/tmp/cormux-fixture/oauth',
-    createdAt: '1700000000',
+    createdAtMs: 0,
   })
   const snapshot: Snapshot = {
     version: 1,
@@ -122,7 +122,7 @@ export function createFixtures() {
           threadId: SCRATCH_THREAD_ID,
           engine: 'claude',
           status: 'idle',
-          createdAt: '2026-09-28 12:00:00',
+          createdAtMs: Date.UTC(2026, 8, 28, 12),
         },
       ],
       threadActivity: [],

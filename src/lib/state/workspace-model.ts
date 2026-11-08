@@ -7,7 +7,6 @@ import type {
   WorkspaceLifecycle,
   WorkspaceRunCommand,
 } from '$lib/ipc/bindings'
-import { parseTimestampMs } from '$lib/format/relative-time'
 import { workspaceActivity } from './activity'
 
 /** What only the running app knows about a workspace: its dev server and git state. */
@@ -149,7 +148,7 @@ export function workspacesFromSnapshot(
         tally.paused === tally.all,
       activityText: workspaceActivity(record),
       pendingApprovals: pending.get(record.id) ?? 0,
-      createdAtMs: parseTimestampMs(row?.createdAt),
+      createdAtMs: row?.createdAtMs ?? null,
       summary: row?.summary ?? null,
       prNumber: row?.prNumber ?? null,
       prHtmlUrl: row?.prHtmlUrl ?? null,

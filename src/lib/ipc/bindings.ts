@@ -1173,9 +1173,9 @@ atMs: number; conversation: string; event: TranscriptEvent }
  */
 export type ScratchRow = { id: string; repoId: string; title: string; threadId: string; engine: string; status: ThreadStatus; 
 /**
- * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+ * Unix milliseconds.
  */
-createdAt: string }
+createdAtMs: number }
 export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
 /**
  * A message as the thread shows it, where the transcript saved it.
@@ -1509,7 +1509,11 @@ export type WorkspaceRow = { id: string; repoId: string; name: string; branch: s
 /**
  * The branch the workspace is compared with and pulls from.
  */
-base: string; worktreePath: string; status: WorkspaceLifecycle; createdAt: string; 
+base: string; worktreePath: string; status: WorkspaceLifecycle; 
+/**
+ * Unix milliseconds.
+ */
+createdAtMs: number; 
 /**
  * What the workspace's Lead shows above its thread, written by Cormux when setup is done.
  */

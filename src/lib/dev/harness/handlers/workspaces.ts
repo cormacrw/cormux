@@ -31,7 +31,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       branch: input.branch || `feat/harness-${n}`,
       base: input.base,
       worktreePath: `/tmp/cormux-fixture/harness-${n}`,
-      createdAt,
+      createdAtMs: Date.now(),
     })
     db.snapshot.persisted.workspaces.push(row)
     db.snapshot.workspaces.push(record)

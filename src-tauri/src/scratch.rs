@@ -20,8 +20,8 @@ pub struct ScratchRow {
     pub thread_id: String,
     pub engine: String,
     pub status: ThreadStatus,
-    /// SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
-    pub created_at: String,
+    /// Unix milliseconds.
+    pub created_at_ms: i64,
 }
 
 const SCRATCH_COLUMNS: &str = "SELECT s.id, s.repo_id, s.title, s.thread_id, t.engine, t.status,
@@ -91,7 +91,7 @@ fn row_to_scratch(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScratchRow> {
         thread_id: row.get(3)?,
         engine: row.get(4)?,
         status: ThreadStatus::parse(&row.get::<_, String>(5)?),
-        created_at: row.get(6)?,
+        created_at_ms: crate::time::sqlite_to_unix_ms(&row.get::<_, String>(6)?),
     })
 }
 
