@@ -4,6 +4,7 @@ import type {
   TranscriptEvent,
 } from '$lib/ipc/bindings'
 import { memoByText } from '$lib/memo'
+import { endsTurn } from '../conversations'
 import { summarizeRun } from '../reply/blocks/run'
 import type {
   RunStep,
@@ -202,6 +203,23 @@ function foldEvent(
   approvals: ApprovalRow[],
 ) {
   const { items, run, stepsById } = state
+  if (endsTurn(event)) {
+    flushRun(run, items, state.runSeq)
+    // Its subagents went with the process, whether or not they reported back.
+    if (event.type === 'engineExited') state.agents = []
+    if (state.runStartedAt && atMs >= state.runStartedAt) {
+      items.push({
+        kind: 'worked',
+        id: `run-worked-${seq}`,
+        startedAtMs: state.runStartedAt,
+        seq,
+        atMs,
+      })
+    }
+    state.runStartedAt = 0
+    state.sealMessage = true
+    return
+  }
   switch (event.type) {
     case 'messageChunk': {
       flushRun(run, items, state.runSeq)
@@ -303,23 +321,6 @@ function foldEvent(
     case 'sessionStarted':
     case 'usage':
       flushRun(run, items, state.runSeq)
-      state.sealMessage = true
-      break
-    case 'turnEnd':
-    case 'engineExited':
-      flushRun(run, items, state.runSeq)
-      // Its subagents went with the process, whether or not they reported back.
-      if (event.type === 'engineExited') state.agents = []
-      if (state.runStartedAt && atMs >= state.runStartedAt) {
-        items.push({
-          kind: 'worked',
-          id: `run-worked-${seq}`,
-          startedAtMs: state.runStartedAt,
-          seq,
-          atMs,
-        })
-      }
-      state.runStartedAt = 0
       state.sealMessage = true
       break
   }
