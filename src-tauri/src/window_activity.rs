@@ -1,22 +1,60 @@
-use std::sync::Mutex;
+//! Whether the window has focus, and the sync a focus starts: every workspace's fetch and the PR
+//! list, at most once a minute.
+
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+use tauri::{AppHandle, Manager};
+
+use crate::state::AppState;
 
 /// How long a focus-triggered sync buys, so Cmd-Tabbing doesn't refetch every repo.
 const FOCUS_SYNC_COOLDOWN: Duration = Duration::from_secs(60);
 
-/// Whether the window has focus, and whether focusing it should sync again yet.
 pub struct WindowActivity {
     focused: AtomicBool,
-    syncing: AtomicBool,
+    syncing: Arc<AtomicBool>,
     last_sync: Mutex<Option<Instant>>,
+}
+
+/// A running focus sync; another can't start until it's dropped, however the sync ends.
+pub struct SyncClaim(Arc<AtomicBool>);
+
+impl Drop for SyncClaim {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Notes the focus, and on gaining it syncs unless a sync is running or just ran.
+pub fn focus_changed(app: &AppHandle, focused: bool) {
+    let Some(activity) = app.try_state::<WindowActivity>() else {
+        return;
+    };
+    activity.set_focused(focused);
+    if !focused {
+        return;
+    }
+    let Some(claim) = activity.begin_sync(Instant::now()) else {
+        return;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _claim = claim;
+        let state = app.state::<AppState>();
+        crate::workspace_git::fetch_all(&state).await;
+        if let Err(error) = state.pr_sync.sync_app(&state).await {
+            log::warn!("focus PR sync failed: {error}");
+        }
+    });
 }
 
 impl WindowActivity {
     pub fn new() -> Self {
         Self {
             focused: AtomicBool::new(true),
-            syncing: AtomicBool::new(false),
+            syncing: Arc::new(AtomicBool::new(false)),
             last_sync: Mutex::new(None),
         }
     }
@@ -29,23 +67,17 @@ impl WindowActivity {
         self.focused.store(focused, Ordering::Relaxed);
     }
 
-    /// Claims the sync; the caller must `finish_sync`. Refused while one runs or just ran.
-    pub fn begin_sync(&self, now: Instant) -> bool {
-        let Ok(mut last) = self.last_sync.lock() else {
-            return false;
-        };
+    /// Refused while a sync runs or just ran.
+    fn begin_sync(&self, now: Instant) -> Option<SyncClaim> {
+        let mut last = self.last_sync.lock().ok()?;
         if self.syncing.load(Ordering::SeqCst)
             || last.is_some_and(|at| now.duration_since(at) < FOCUS_SYNC_COOLDOWN)
         {
-            return false;
+            return None;
         }
         self.syncing.store(true, Ordering::SeqCst);
         *last = Some(now);
-        true
-    }
-
-    pub fn finish_sync(&self) {
-        self.syncing.store(false, Ordering::SeqCst);
+        Some(SyncClaim(self.syncing.clone()))
     }
 }
 
@@ -65,10 +97,27 @@ mod tests {
         let start = Instant::now();
         let later = start + FOCUS_SYNC_COOLDOWN;
 
-        assert!(activity.begin_sync(start));
-        assert!(!activity.begin_sync(later), "one is still running");
-        activity.finish_sync();
-        assert!(!activity.begin_sync(start + Duration::from_secs(1)));
-        assert!(activity.begin_sync(later));
+        let claim = activity.begin_sync(start);
+        assert!(claim.is_some());
+        assert!(activity.begin_sync(later).is_none(), "one is still running");
+        drop(claim);
+        assert!(
+            activity
+                .begin_sync(start + Duration::from_secs(1))
+                .is_none()
+        );
+        assert!(activity.begin_sync(later).is_some());
+    }
+
+    #[test]
+    fn a_sync_that_panics_still_lets_the_next_one_run() {
+        let activity = WindowActivity::new();
+        let start = Instant::now();
+        let claim = activity.begin_sync(start).unwrap();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _claim = claim;
+            panic!("sync failed");
+        }));
+        assert!(activity.begin_sync(start + FOCUS_SYNC_COOLDOWN).is_some());
     }
 }

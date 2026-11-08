@@ -11,7 +11,7 @@ use crate::paths::{expand_tilde, worktrees_root};
 use crate::process::{Exit, SessionId, ShellCommand};
 use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
 use crate::state::AppState;
-use crate::store::types::{ThreadRow, WorkspaceRow};
+use crate::store::types::{ThreadPicks, ThreadRow, WorkspaceRow};
 use crate::timeline::TimelineStep;
 use crate::workspace_git::Checkout;
 use crate::workspaces::WorkspaceRecord;
@@ -32,6 +32,8 @@ pub struct WorkspaceSpec {
     pub engine: String,
     /// The thread that asked for the workspace, when an agent did.
     pub parent_thread_id: Option<String>,
+    /// What its thread starts on, stored with it, since the engine reads it when it launches.
+    pub picks: ThreadPicks,
 }
 
 pub struct Created {
@@ -102,7 +104,10 @@ pub async fn create(state: &AppState, spec: WorkspaceSpec) -> Result<Created> {
             &spec.engine,
         )
     };
-    state.workspaces.register(row, &thread, &repo).await?;
+    state
+        .workspaces
+        .register(row, &thread, &spec.picks, &repo)
+        .await?;
     let workspace = state
         .workspaces
         .set_activity(&workspace_id, SETUP_ACTIVITY, 1, None)
@@ -392,6 +397,11 @@ fn write_intro(state: &AppState, workspace: &WorkspaceRecord, intro: &Intro) -> 
 
 /// Setup stopped: says why and reports it. A workspace being torn down stopped its own setup,
 /// so it's left alone.
+/// Fails a recorded workspace's setup before it ran, so it can be retried or torn down.
+pub async fn fail(state: &AppState, workspace_id: &str, message: &str) {
+    mark_failed(state, workspace_id, None, message).await;
+}
+
 async fn mark_failed(
     state: &AppState,
     workspace_id: &str,
@@ -490,6 +500,7 @@ mod tests {
                 pr: None,
                 engine: "claude".into(),
                 parent_thread_id: None,
+                picks: Default::default(),
             },
         )
         .await

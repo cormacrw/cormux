@@ -564,6 +564,7 @@ mod tests {
                 pr: None,
                 engine: "claude".into(),
                 parent_thread_id: None,
+                picks: Default::default(),
             },
         )
         .await

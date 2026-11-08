@@ -42,19 +42,22 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
         .ok_or_else(|| Error::unknown_workspace(workspace_id))?;
     let worktree = PathBuf::from(&record.worktree_path);
 
-    let uncommitted_files = count_uncommitted_files(state, &worktree).await;
-    let unpushed_commits = if worktree.is_dir() {
-        state
-            .git
-            .commits_only_here(&worktree, &record.base)
-            .await
-            // Unknown counts as at risk: the default then keeps the branch.
-            .unwrap_or(1)
+    // A count git couldn't give is at risk: the warning says so and the branch is kept.
+    let uncommitted = count_uncommitted_files(state, &worktree).await;
+    let unpushed = if worktree.is_dir() {
+        match state.git.commits_only_here(&worktree, &record.base).await {
+            Ok(count) => Some(count),
+            Err(error) => {
+                log::warn!("counting {workspace_id}'s unpushed commits: {error}");
+                None
+            }
+        }
     } else {
-        0
+        Some(0)
     };
-    let has_data_loss = uncommitted_files > 0 || unpushed_commits > 0;
-    let warning = data_loss_warning(uncommitted_files, unpushed_commits);
+    let (uncommitted_files, unpushed_commits) = (uncommitted.unwrap_or(0), unpushed.unwrap_or(0));
+    let warning = data_loss_warning(uncommitted, unpushed);
+    let has_data_loss = warning.is_some();
 
     let branch = record.branch.clone();
     Ok(TeardownPreview {
@@ -65,7 +68,7 @@ pub async fn preview(state: &AppState, workspace_id: &str) -> Result<TeardownPre
         worktree_path: record.worktree_path.clone(),
         app_running: state.process.workspace_has_session(workspace_id),
         // A branch holding the only copy of its commits stays, so a later thread can pick it up.
-        delete_branch_default: row.pr_number.is_none() && unpushed_commits == 0,
+        delete_branch_default: row.pr_number.is_none() && unpushed == Some(0),
         data_loss: TeardownDataLoss {
             uncommitted_files,
             unpushed_commits,
@@ -158,18 +161,41 @@ fn after_failed_teardown(before: WorkspaceLifecycle) -> WorkspaceLifecycle {
     }
 }
 
-async fn count_uncommitted_files(state: &AppState, worktree: &Path) -> u32 {
+async fn count_uncommitted_files(state: &AppState, worktree: &Path) -> Option<u32> {
     if !worktree.is_dir() {
-        return 0;
+        return Some(0);
     }
     match state.git.numstat(worktree).await {
-        Ok(files) => files.len() as u32,
-        Err(_) => 0,
+        Ok(files) => Some(files.len() as u32),
+        Err(error) => {
+            log::warn!(
+                "counting uncommitted files in {}: {error}",
+                worktree.display()
+            );
+            None
+        }
     }
 }
 
-fn data_loss_warning(uncommitted_files: u32, unpushed_commits: u32) -> Option<String> {
+/// `None` is a count git couldn't give.
+fn data_loss_warning(uncommitted: Option<u32>, unpushed: Option<u32>) -> Option<String> {
     let mut parts = Vec::new();
+    let uncommitted_files = match uncommitted {
+        Some(count) => count,
+        None => {
+            parts.push("Couldn't tell whether the worktree has uncommitted changes; any will be discarded.".to_string());
+            0
+        }
+    };
+    let unpushed_commits = match unpushed {
+        Some(count) => count,
+        None => {
+            parts.push(
+                "Couldn't tell whether the branch has commits found nowhere else.".to_string(),
+            );
+            0
+        }
+    };
     if uncommitted_files > 0 {
         let label = if uncommitted_files == 1 {
             "1 uncommitted file change".into()
@@ -254,6 +280,7 @@ mod tests {
             .register(
                 row,
                 &ThreadRow::new("t", "w", ThreadRole::Lead, "claude"),
+                &Default::default(),
                 &repo,
             )
             .await
@@ -293,13 +320,24 @@ mod tests {
 
     #[test]
     fn data_loss_message_covers_uncommitted_and_unpushed() {
-        let message = data_loss_warning(2, 3).unwrap();
+        let message = data_loss_warning(Some(2), Some(3)).unwrap();
         assert!(message.contains("2 uncommitted file changes"));
         assert!(message.contains("3 unpushed commits"));
     }
 
     #[test]
     fn no_warning_when_nothing_is_at_risk() {
-        assert!(data_loss_warning(0, 0).is_none());
+        assert!(data_loss_warning(Some(0), Some(0)).is_none());
+    }
+
+    #[test]
+    fn a_count_git_couldnt_give_is_at_risk() {
+        let unknown_files = data_loss_warning(None, Some(0)).unwrap();
+        assert!(
+            unknown_files.contains("uncommitted changes"),
+            "{unknown_files}"
+        );
+        let unknown_commits = data_loss_warning(Some(0), None).unwrap();
+        assert!(unknown_commits.contains("commits"), "{unknown_commits}");
     }
 }

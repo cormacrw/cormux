@@ -4,12 +4,12 @@
 mod runner;
 
 pub use runner::{
-    ProvisionPlan, SETUP_ACTIVITY, WorkspaceSpec, create, retry, run, skip_setup, start,
+    ProvisionPlan, SETUP_ACTIVITY, WorkspaceSpec, create, fail, retry, run, skip_setup, start,
 };
 
 use std::time::Duration;
 
-/// Per-command ceiling for worktree setup (spec gap COR-107).
+/// Per-command ceiling for worktree setup.
 pub const SETUP_COMMAND_TIMEOUT: Duration = Duration::from_secs(3600);
 
 /// Parses repo **Worktree setup** lines: trim, skip blank and `#` comments.

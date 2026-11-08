@@ -103,6 +103,13 @@ impl WorkspaceRow {
     }
 }
 
+/// The model and effort a new thread starts on; `None` leaves the engine's default.
+#[derive(Debug, Clone, Default)]
+pub struct ThreadPicks {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadRow {

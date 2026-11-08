@@ -11,6 +11,7 @@ use crate::model::WorkspaceKind;
 use crate::provisioning::{ProvisionPlan, SETUP_ACTIVITY, WorkspaceSpec};
 use crate::state::AppState;
 use crate::store::Store;
+use crate::store::types::ThreadPicks;
 use crate::timeline::TimelineStep;
 use crate::workspace_git::Checkout;
 use crate::workspaces::WorkspaceRecord;
@@ -102,20 +103,21 @@ pub async fn start_workspace(
             pr: None,
             engine: input.engine.clone(),
             parent_thread_id,
+            picks: ThreadPicks {
+                model: input.model.clone(),
+                effort: input.effort.clone(),
+            },
         },
     )
     .await?;
     let workspace_id = created.workspace.id.clone();
     let thread_id = created.thread_id.clone();
-    // Stored before provisioning starts, since the engine reads it when it spawns.
-    if let Some(model) = input.model.as_deref() {
-        state.store.set_thread_model(&thread_id, Some(model))?;
-    }
-    if let Some(effort) = input.effort.as_deref() {
-        state.store.set_thread_effort(&thread_id, Some(effort))?;
-    }
-    if !shown.is_empty() {
-        state.transcript.record_user_message(&thread_id, &shown)?;
+    if !shown.is_empty()
+        && let Err(error) = state.transcript.record_user_message(&thread_id, &shown)
+    {
+        // Recorded already: failing its setup leaves it to retry or tear down.
+        crate::provisioning::fail(state, &workspace_id, &error.to_string()).await;
+        return Err(error);
     }
 
     state.out.changed();

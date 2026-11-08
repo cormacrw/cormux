@@ -164,6 +164,7 @@ pub async fn create_review_workspace(
             )),
             engine: engine.clone(),
             parent_thread_id: None,
+            picks: Default::default(),
         },
     )
     .await?;

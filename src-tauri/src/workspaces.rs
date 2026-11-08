@@ -14,7 +14,7 @@ use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle, status_from_
 use crate::paths;
 use crate::process::HarnessEnv;
 use crate::store::Store;
-use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
+use crate::store::types::{RepoRecord, ThreadPicks, ThreadRow, WorkspaceRow};
 
 /// A workspace as the webview shows it: its row, plus what only the running app knows.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -145,6 +145,7 @@ impl Workspaces {
         &self,
         row: WorkspaceRow,
         thread: &ThreadRow,
+        picks: &ThreadPicks,
         repo: &RepoRecord,
     ) -> Result<WorkspaceRecord> {
         let mut inner = self.inner.write().await;
@@ -153,7 +154,8 @@ impl Workspaces {
         if let Some(parent) = worktree.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        self.store.insert_workspace_with_thread(&row, thread)?;
+        self.store
+            .insert_workspace_with_thread(&row, thread, picks)?;
         let record = WorkspaceRecord::from_row(&row, repo);
         inner.records.insert(row.id.clone(), record.clone());
         Ok(record)
@@ -457,6 +459,7 @@ mod tests {
             .register(
                 row("w", "feat/draft", "release", root),
                 &ThreadRow::new("t", "w", ThreadRole::Lead, "claude"),
+                &Default::default(),
                 &repo,
             )
             .await
@@ -515,6 +518,7 @@ mod tests {
             .register(
                 row("w2", "feat-draft", "main", root.path()),
                 &ThreadRow::new("t2", "w2", ThreadRole::Lead, "claude"),
+                &Default::default(),
                 &repo,
             )
             .await

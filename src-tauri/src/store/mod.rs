@@ -14,7 +14,7 @@ use crate::model::{
     status_from_threads,
 };
 pub use migrate::RustMigration;
-use types::{RepoRecord, ThreadRow, WorkspaceRow};
+use types::{RepoRecord, ThreadPicks, ThreadRow, WorkspaceRow};
 
 const STATEMENT_CACHE: usize = 64;
 
@@ -174,10 +174,16 @@ impl Store {
         &self,
         workspace: &WorkspaceRow,
         thread: &ThreadRow,
+        picks: &ThreadPicks,
     ) -> Result<()> {
         self.with_tx(|conn| {
             write_workspace(conn, workspace)?;
-            write_thread(conn, thread)
+            write_thread(conn, thread)?;
+            conn.execute(
+                "UPDATE threads SET model = ?1, effort = ?2 WHERE id = ?3",
+                rusqlite::params![picks.model, picks.effort, thread.id],
+            )?;
+            Ok(())
         })
     }
 

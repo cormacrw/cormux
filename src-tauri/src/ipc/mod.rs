@@ -4,7 +4,6 @@
 pub mod events;
 pub mod subscriptions;
 
-use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::Builder;
 
 use crate::{
@@ -124,7 +123,10 @@ pub fn builder() -> Builder {
         ])
 }
 
-pub fn export_bindings(builder: &Builder) {
+/// Writes `src/lib/ipc/bindings.ts`; the bindings test runs it, and CI checks the file is current.
+#[cfg(test)]
+fn export_bindings(builder: &Builder) {
+    use specta_typescript::{BigIntExportBehavior, Typescript};
     builder
         .export(
             Typescript::new()

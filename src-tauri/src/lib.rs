@@ -65,9 +65,6 @@ use window_activity::WindowActivity;
 pub fn run() {
     let ipc = ipc::builder();
 
-    #[cfg(debug_assertions)]
-    ipc::export_bindings(&ipc);
-
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -78,22 +75,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::Focused(focused) = event {
-                let app = window.app_handle().clone();
-                let Some(activity) = app.try_state::<WindowActivity>() else {
-                    return;
-                };
-                activity.set_focused(*focused);
-                if !*focused || !activity.begin_sync(std::time::Instant::now()) {
-                    return;
-                }
-                tauri::async_runtime::spawn(async move {
-                    let state = app.state::<AppState>();
-                    workspace_git::fetch_all(&state).await;
-                    if let Err(error) = state.pr_sync.sync_app(&state).await {
-                        log::warn!("focus PR sync failed: {error}");
-                    }
-                    app.state::<WindowActivity>().finish_sync();
-                });
+                window_activity::focus_changed(window.app_handle(), *focused);
             }
         })
         .setup(move |app| {
