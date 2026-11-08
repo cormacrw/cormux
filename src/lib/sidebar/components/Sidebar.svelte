@@ -11,7 +11,7 @@
   import { memory } from '$lib/state'
   import { nav } from '$lib/core/nav.svelte'
   import { clickup } from '$lib/clickup/store.svelte'
-  import { palette } from '$lib/state/palette.svelte'
+  import { palette } from '$lib/command-palette/store.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import { cubicOut } from 'svelte/easing'
   import { flip } from 'svelte/animate'
@@ -102,7 +102,7 @@
 
 <nav
   class="sidebar-nav grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] px-3.5 pb-3.5"
-  aria-label="Harness"
+  aria-label="Sidebar"
 >
   <div
     class={fullscreen ? 'titlebar h-3.5' : 'titlebar h-[52px]'}
@@ -178,7 +178,7 @@
       {#if sidebarWorkspaces.items.length === 0}
         <p class="px-2 py-1.5 text-xs text-muted-foreground">No threads yet</p>
       {:else}
-        <!-- What needs you first; ⌘1–⌘9 follow this order (sidebar-workspaces.svelte.ts). -->
+        <!-- What needs you first; ⌘1–⌘9 follow this order (thread-list-store.svelte.ts). -->
         <ul
           class="grid list-none gap-1 p-0"
           aria-labelledby="side-threads-label"

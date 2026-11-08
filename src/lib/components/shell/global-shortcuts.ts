@@ -7,14 +7,14 @@ import {
   dismissOpenPopover,
 } from '$lib/keyboard/popover-registry'
 import { nav } from '$lib/core/nav.svelte'
-import { palette } from '$lib/state/palette.svelte'
+import { palette } from '$lib/command-palette/store.svelte'
 import { threadFind } from '$lib/thread/find-store.svelte'
 import { handleSwitcherKeydown } from '$lib/switcher/navigate'
 import { threadTimeline } from '$lib/thread/timeline-store.svelte'
 import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
 import { workspaceUi } from '$lib/state/workspace-ui.svelte'
 import { sidebarWorkspaces } from '$lib/sidebar/thread-list-store.svelte'
-import { isShortcut } from './shortcuts'
+import { isShortcut } from '$lib/keyboard/shortcuts'
 
 export function handleGlobalKeydown(event: KeyboardEvent) {
   if (handleSwitcherKeydown(event)) return

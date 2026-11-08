@@ -3,7 +3,7 @@
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { SubmitReviewVerdict } from '$lib/ipc/bindings'
   import { coreErrorText } from '$lib/core/core-error'

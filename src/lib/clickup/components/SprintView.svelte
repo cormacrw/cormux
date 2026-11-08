@@ -22,6 +22,7 @@
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import SprintTaskCard from './SprintTaskCard.svelte'
+  import TaskFlyout from './TaskFlyout.svelte'
 
   /** Pointer travel before a press becomes a drag, so a click still selects. */
   const DRAG_THRESHOLD = 4
@@ -31,14 +32,16 @@
   let boardEl: HTMLDivElement | undefined = $state()
 
   $effect(() => {
-    if (nav.view !== 'sprint') return
     void nav.arrivals
     if (!clickup.selectedTaskId) title?.focus()
   })
 
   $effect(() => {
-    if (nav.view === 'sprint' && !clickup.board) void clickup.refresh()
+    if (!clickup.board) void clickup.refresh()
   })
+
+  // The open task belongs to this page: leaving it closes the flyout.
+  $effect(() => () => clickup.select(null))
 
   const sprint = $derived(clickup.board?.sprint ?? null)
   const totals = $derived(sprintTotals(clickup.mine?.tasks ?? []))
@@ -443,6 +446,9 @@
     </div>
   {/if}
 </section>
+
+<!-- A task opened here slides out over the page. -->
+<TaskFlyout />
 
 {#if drag?.active}
   <div

@@ -3,9 +3,8 @@
   Drag its left edge to resize it; Esc or × closes it.
 -->
 <script lang="ts">
-  import { tick, untrack } from 'svelte'
+  import { tick } from 'svelte'
   import SprintTaskPanel from '$lib/clickup/components/SprintTaskPanel.svelte'
-  import { nav } from '$lib/core/nav.svelte'
   import { clickup } from '$lib/clickup/store.svelte'
   import {
     escClosesSlideOut,
@@ -19,19 +18,6 @@
   let width = $state(readPaneWidth(WIDTH_KEY, 340, 440))
 
   const ready = $derived(clickup.selectedTask != null)
-
-  // Leaving the page it was opened on closes it.
-  let openedOn: string | null = null
-  $effect(() => {
-    void clickup.selectedTaskId
-    untrack(() => (openedOn = nav.view))
-  })
-  $effect(() => {
-    const view = nav.view
-    untrack(() => {
-      if (clickup.selectedTaskId && openedOn !== view) clickup.select(null)
-    })
-  })
 
   async function close() {
     const id = clickup.selectedTaskId

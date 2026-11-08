@@ -5,7 +5,7 @@ import {
   toastCoreError,
   toastEnvironmentReloaded,
 } from '$lib/feedback/wire-feedback'
-import { palette } from '$lib/state/palette.svelte'
+import { palette } from '$lib/command-palette/store.svelte'
 
 async function reloadEnvironment() {
   const result = await commands.reloadEnvironment()

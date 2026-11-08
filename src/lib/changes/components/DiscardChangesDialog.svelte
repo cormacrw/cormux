@@ -8,7 +8,7 @@
 <script lang="ts">
   import { pluralWord } from '$lib/format/plural'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import { inferFileStatus } from '$lib/changes/file-status'
   import { toastCoreError } from '$lib/feedback/wire-feedback'

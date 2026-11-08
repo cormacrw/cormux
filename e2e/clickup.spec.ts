@@ -13,14 +13,14 @@ function calls(page: Page) {
 test.describe('clickup', () => {
   test('stays hidden without an API key', async ({ page }) => {
     await page.goto('/')
-    const nav = page.getByRole('navigation', { name: 'Harness' })
+    const nav = page.getByRole('navigation', { name: 'Sidebar' })
     await expect(nav.getByRole('button', { name: /New thread/ })).toBeVisible()
     await expect(nav.getByRole('button', { name: /Sprint/ })).toHaveCount(0)
   })
 
   test('saving a key in Settings reveals the Sprint page', async ({ page }) => {
     await page.goto('/')
-    const nav = page.getByRole('navigation', { name: 'Harness' })
+    const nav = page.getByRole('navigation', { name: 'Sidebar' })
     await nav.getByRole('button', { name: /Settings/ }).click()
     await page
       .getByRole('navigation', { name: 'Settings sections' })
@@ -54,7 +54,7 @@ test.describe('clickup', () => {
 
     // Opening a card shows its details in the pane.
     await page
-      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('navigation', { name: 'Sidebar' })
       .getByRole('button', { name: /Sprint/ })
       .click()
     await expect(
@@ -145,7 +145,7 @@ test.describe('clickup', () => {
     // The sidebar counts every task not yet done; moving between open lanes keeps it.
     await expect(
       page
-        .getByRole('navigation', { name: 'Harness' })
+        .getByRole('navigation', { name: 'Sidebar' })
         .getByRole('button', { name: /Sprint/ }),
     ).toContainText('4')
 
@@ -177,7 +177,7 @@ test.describe('clickup', () => {
     await enableClickup(page)
     await page.goto('/')
     await page
-      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('navigation', { name: 'Sidebar' })
       .getByRole('button', { name: /Sprint/ })
       .click()
     const lanes = page.locator('[data-lane]')

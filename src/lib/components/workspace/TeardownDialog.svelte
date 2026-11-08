@@ -3,7 +3,7 @@
   import { navigate } from '$lib/core/nav.svelte'
   import { tick } from 'svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { TeardownPreview } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'

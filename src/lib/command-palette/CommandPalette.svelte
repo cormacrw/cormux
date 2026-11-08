@@ -9,7 +9,7 @@
   import { runBang } from '$lib/command-palette/actions'
   import type { PaletteCommand, PaletteIcon } from '$lib/command-palette/types'
   import { bangPreview, paletteBang } from '$lib/bangs/bangs'
-  import { palette } from '$lib/state/palette.svelte'
+  import { palette } from '$lib/command-palette/store.svelte'
   import { settings } from '$lib/settings/store.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import type { Component } from 'svelte'

@@ -1,7 +1,7 @@
 <script lang="ts">
   import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus'
   import Kanban from '@lucide/svelte/icons/square-kanban'
-  import StatusDot from './StatusDot.svelte'
+  import StatusDot from '$lib/sidebar/components/StatusDot.svelte'
   import { repos, workspaces } from '$lib/state'
   import { switcher } from '$lib/switcher/store.svelte'
   import { statusDotVariantForWorkspace } from '$lib/sidebar/status'

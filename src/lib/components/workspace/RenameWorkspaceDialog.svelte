@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import * as Dialog from '$lib/components/ui/dialog'
   import { Input } from '$lib/components/ui/input'
   import { commands } from '$lib/ipc'
