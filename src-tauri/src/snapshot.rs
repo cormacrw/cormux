@@ -203,7 +203,7 @@ mod tests {
     fn snapshot_timing() {
         use std::time::Instant;
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(&dir.path().join("bench.db")).unwrap();
+        let store = Store::open(&dir.path().join("bench.db"), &[]).unwrap();
         store
             .with_conn(|conn| {
                 conn.execute_batch("PRAGMA foreign_keys = OFF;")?;

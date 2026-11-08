@@ -71,9 +71,8 @@ impl AppState {
     /// The app's state over the database in `data_dir`. Turns that were running when the app
     /// last closed are over: no agent survives it.
     pub fn new(data_dir: DataDir, output: Arc<dyn UserOutput>) -> Result<Self> {
-        let store = Store::open(&data_dir.db())?;
+        let store = Store::open(&data_dir.db(), &[crate::transcript::MIGRATION])?;
         store.reset_interrupted_turns()?;
-        crate::transcript::upgrade(&store)?;
         let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
         let engines = Arc::new(ClaudeEngines::new(shell_env.clone()));
         Ok(Self::with_store(

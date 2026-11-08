@@ -8,12 +8,51 @@ struct Migration {
     sql: &'static str,
 }
 
-impl Migration {
-    fn version(&self) -> i64 {
-        self.name[..3]
-            .parse()
-            .expect("a migration's file name starts with its three-digit version")
-    }
+/// A migration that rewrites rows in Rust rather than running a file. The module whose rows it
+/// reads supplies it, and it runs in version order with the files.
+pub struct RustMigration {
+    /// Named like a file, so its first three digits are its version.
+    pub name: &'static str,
+    pub run: fn(&Connection) -> Result<()>,
+}
+
+fn version(name: &str) -> i64 {
+    name[..3]
+        .parse()
+        .expect("a migration's name starts with its three-digit version")
+}
+
+enum Step {
+    Sql(&'static str),
+    Rust(fn(&Connection) -> Result<()>),
+}
+
+/// Every migration, files and `rust` together, in version order. A version taken twice is a
+/// build mistake.
+fn ordered(rust: &[RustMigration]) -> Vec<(i64, &'static str, Step)> {
+    let mut all: Vec<(i64, &'static str, Step)> = MIGRATIONS
+        .iter()
+        .map(|m| (version(m.name), m.name, Step::Sql(m.sql)))
+        .chain(
+            rust.iter()
+                .map(|m| (version(m.name), m.name, Step::Rust(m.run))),
+        )
+        .collect();
+    all.sort_by_key(|(version, ..)| *version);
+    assert!(
+        all.windows(2).all(|pair| pair[0].0 != pair[1].0),
+        "two migrations share a version"
+    );
+    all
+}
+
+/// Every version the migrations take, in order.
+#[cfg(test)]
+pub fn versions(rust: &[RustMigration]) -> Vec<i64> {
+    ordered(rust)
+        .into_iter()
+        .map(|(version, ..)| version)
+        .collect()
 }
 
 macro_rules! migrations {
@@ -24,11 +63,6 @@ macro_rules! migrations {
         }),*]
     };
 }
-
-/// Versions taken by migrations that rewrite rows in Rust rather than run a file:
-/// 24 is `transcript::upgrade`.
-#[cfg(test)]
-const RUST_VERSIONS: &[i64] = &[24];
 
 const MIGRATIONS: &[Migration] = migrations![
     "001_initial",
@@ -56,6 +90,7 @@ const MIGRATIONS: &[Migration] = migrations![
     "023_workspace_base_kind_thread_role",
     "025_snapshot_views_and_dead_data",
     "026_per_entity_state",
+    "027_retire_scratch_threads",
 ];
 
 fn create_ledger(conn: &Connection) -> Result<()> {
@@ -69,22 +104,22 @@ fn create_ledger(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub fn run(conn: &Connection) -> Result<()> {
+pub fn run(conn: &Connection, rust: &[RustMigration]) -> Result<()> {
     create_ledger(conn)?;
 
     // Table rebuilds (007) drop a parent table, which would cascade-delete its children while
     // foreign keys are on. The pragma is ignored inside a transaction, so set it out here.
     conn.pragma_update(None, "foreign_keys", false)?;
-    let result = apply_pending(conn);
+    let result = apply_pending(conn, rust);
     conn.pragma_update(None, "foreign_keys", true)?;
     result
 }
 
-fn apply_pending(conn: &Connection) -> Result<()> {
-    for migration in MIGRATIONS {
+fn apply_pending(conn: &Connection, rust: &[RustMigration]) -> Result<()> {
+    for (version, name, step) in ordered(rust) {
         let already_applied: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?1)",
-            [migration.version()],
+            [version],
             |row| row.get(0),
         )?;
 
@@ -93,12 +128,12 @@ fn apply_pending(conn: &Connection) -> Result<()> {
         }
 
         conn.execute_batch("BEGIN IMMEDIATE;")?;
-        if let Err(error) = apply(conn, migration) {
+        if let Err(error) = apply(conn, version, name, &step) {
             conn.execute_batch("ROLLBACK;").ok();
             return Err(error);
         }
         conn.execute_batch("COMMIT;")?;
-        log::info!("applied migration {}", migration.name);
+        log::info!("applied migration {name}");
     }
 
     let broken: i64 =
@@ -111,27 +146,44 @@ fn apply_pending(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn apply(conn: &Connection, migration: &Migration) -> Result<()> {
-    conn.execute_batch(migration.sql)
-        .map_err(|error| Error::Store(format!("{}: {error}", migration.name)))?;
+fn apply(conn: &Connection, version: i64, name: &str, step: &Step) -> Result<()> {
+    let applied = match step {
+        Step::Sql(sql) => conn.execute_batch(sql).map_err(Error::from),
+        Step::Rust(run) => run(conn),
+    };
+    applied.map_err(|error| Error::Store(format!("{name}: {error}")))?;
     conn.execute(
         "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
-        rusqlite::params![migration.version(), migration.name],
+        rusqlite::params![version, name],
     )?;
     Ok(())
+}
+
+/// A database as the migrations before `version` left it, for testing the ones after.
+#[cfg(test)]
+pub fn migrated_before(conn: &Connection, version: i64) {
+    create_ledger(conn).unwrap();
+    for migration in MIGRATIONS
+        .iter()
+        .filter(|m| self::version(m.name) < version)
+    {
+        apply(
+            conn,
+            self::version(migration.name),
+            migration.name,
+            &Step::Sql(migration.sql),
+        )
+        .unwrap();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A database as the migrations before `version` left it.
     fn migrated_before(version: i64) -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        create_ledger(&conn).unwrap();
-        for migration in MIGRATIONS.iter().filter(|m| m.version() < version) {
-            apply(&conn, migration).unwrap();
-        }
+        super::migrated_before(&conn, version);
         conn
     }
 
@@ -167,23 +219,53 @@ mod tests {
         files.sort();
         let listed: Vec<&str> = MIGRATIONS.iter().map(|m| m.name).collect();
         assert_eq!(listed, files);
+    }
 
-        let mut versions: Vec<i64> = MIGRATIONS.iter().map(Migration::version).collect();
-        versions.extend(RUST_VERSIONS);
-        versions.sort();
-        let latest = *versions.last().unwrap();
-        assert_eq!(
-            latest as usize,
-            versions.len(),
-            "versions run 1, 2, 3… with none skipped or taken twice: {versions:?}"
-        );
+    #[test]
+    fn a_rust_migration_runs_in_version_order_with_the_files() {
+        fn saw_views(conn: &Connection) -> Result<()> {
+            let views: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'view'",
+                [],
+                |row| row.get(0),
+            )?;
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('views', ?1)",
+                [views],
+            )?;
+            Ok(())
+        }
+        let rust = [RustMigration {
+            name: "024_check",
+            run: saw_views,
+        }];
+        let conn = migrated_before(24);
+        run(&conn, &rust).unwrap();
+        run(&conn, &rust).unwrap();
+
+        let views: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'views'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(views, "0", "ran before 025 made the views");
+        let ledger: Vec<i64> = conn
+            .prepare("SELECT version FROM schema_migrations WHERE version >= 23 ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|version| version.unwrap())
+            .collect();
+        assert_eq!(ledger, [23, 24, 25, 26, 27]);
     }
 
     #[test]
     fn applies_every_migration_once() {
         let conn = Connection::open_in_memory().unwrap();
-        run(&conn).unwrap();
-        run(&conn).unwrap();
+        run(&conn, &[]).unwrap();
+        run(&conn, &[]).unwrap();
 
         let applied: i64 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
@@ -228,7 +310,7 @@ mod tests {
         )
         .unwrap();
 
-        run(&conn).unwrap();
+        run(&conn, &[]).unwrap();
 
         let events: i64 = conn
             .query_row("SELECT COUNT(*) FROM thread_events", [], |row| row.get(0))
@@ -282,7 +364,7 @@ mod tests {
         )
         .unwrap();
 
-        run(&conn).unwrap();
+        run(&conn, &[]).unwrap();
 
         let retired = |id: &str| -> bool {
             conn.query_row("SELECT retired FROM threads WHERE id = ?1", [id], |row| {
@@ -315,7 +397,7 @@ mod tests {
         )
         .unwrap();
 
-        run(&conn).unwrap();
+        run(&conn, &[]).unwrap();
 
         let thread = |id: &str| -> (String, Option<String>, Option<String>) {
             conn.query_row(
@@ -356,7 +438,7 @@ mod tests {
         )
         .unwrap();
 
-        run(&conn).unwrap();
+        run(&conn, &[]).unwrap();
 
         let thread = |id: &str| -> (String, Option<String>, Option<String>) {
             conn.query_row(
@@ -404,7 +486,7 @@ mod tests {
         )
         .unwrap();
 
-        run(&conn).unwrap();
+        run(&conn, &[]).unwrap();
 
         let workspace = |id: &str| -> (String, String, String) {
             conn.query_row(
@@ -462,7 +544,7 @@ mod tests {
         )
         .unwrap();
 
-        run(&conn).unwrap();
+        run(&conn, &[]).unwrap();
 
         assert!(!names(&conn, "table").contains(&"todos".to_string()));
         assert!(!columns(&conn, "workspaces").contains(&"modified_files".to_string()));
@@ -504,7 +586,7 @@ mod tests {
         )
         .unwrap();
 
-        run(&conn).unwrap();
+        run(&conn, &[]).unwrap();
 
         let run_command = |id: &str| -> Option<String> {
             conn.query_row(
@@ -544,5 +626,44 @@ mod tests {
             .map(|key| key.unwrap())
             .collect();
         assert_eq!(keys, ["reduceMotion"]);
+    }
+
+    #[test]
+    fn every_scratch_thread_is_read_only() {
+        let conn = migrated_before(27);
+        conn.execute_batch(
+            "INSERT INTO threads (id, workspace_id, title, engine, status) VALUES
+                ('late', 's', 'Scratch', 'claude', 'running'),
+                ('lead', 'w', 'Lead', 'claude', 'running');
+             INSERT INTO scratches (id, repo_id, title, thread_id)
+                VALUES ('s', 'r', 'A question', 'late');
+             INSERT INTO approvals (id, thread_id, status, tool, payload) VALUES
+                ('a', 'late', 'pending', 'bash', '{}'),
+                ('b', 'lead', 'pending', 'bash', '{}');",
+        )
+        .unwrap();
+
+        run(&conn, &[]).unwrap();
+
+        let thread = |id: &str| -> (bool, String) {
+            conn.query_row(
+                "SELECT retired, status FROM threads WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(thread("late"), (true, "idle".into()));
+        assert_eq!(thread("lead"), (false, "running".into()));
+        let approval = |id: &str| -> String {
+            conn.query_row("SELECT status FROM approvals WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(
+            (approval("a"), approval("b")),
+            ("denied".into(), "pending".into())
+        );
     }
 }

@@ -1,6 +1,6 @@
 #[cfg(test)]
 pub mod fixtures;
-mod migrate;
+pub mod migrate;
 pub mod types;
 
 use std::path::Path;
@@ -13,6 +13,7 @@ use crate::model::{
     ApprovalStatus, ThreadRole, ThreadStatus, WorkspaceKind, WorkspaceLifecycle,
     status_from_threads,
 };
+pub use migrate::RustMigration;
 use types::{RepoRecord, ThreadRow, WorkspaceRow};
 
 const STATEMENT_CACHE: usize = 64;
@@ -27,12 +28,13 @@ pub struct Store {
 }
 
 impl Store {
-    /// Opens the database at `path`, creating and migrating it as needed.
-    pub fn open(path: &Path) -> Result<Self> {
+    /// Opens the database at `path`, creating it as needed and migrating it with the SQL files
+    /// and `rust`, in version order.
+    pub fn open(path: &Path, rust: &[RustMigration]) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let conn = configure(Connection::open(path)?)?;
+        let conn = configure(Connection::open(path)?, rust)?;
         // After the migrations, which it mustn't race.
         let reader = Connection::open(path)?;
         tune(&reader)?;
@@ -46,7 +48,7 @@ impl Store {
     #[cfg(test)]
     pub fn in_memory() -> Result<Self> {
         Ok(Self {
-            conn: Arc::new(Mutex::new(configure(Connection::open_in_memory()?)?)),
+            conn: Arc::new(Mutex::new(configure(Connection::open_in_memory()?, &[])?)),
             reader: None,
         })
     }
@@ -582,11 +584,11 @@ fn write_thread(conn: &Connection, thread: &ThreadRow) -> Result<()> {
     Ok(())
 }
 
-fn configure(conn: Connection) -> Result<Connection> {
+fn configure(conn: Connection, rust: &[RustMigration]) -> Result<Connection> {
     conn.pragma_update(None, "foreign_keys", true)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     tune(&conn)?;
-    migrate::run(&conn)?;
+    migrate::run(&conn, rust)?;
     Ok(conn)
 }
 
@@ -779,7 +781,7 @@ mod tests {
     #[test]
     fn reads_go_to_their_own_connection_and_see_committed_writes() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(&dir.path().join("cormux.db")).unwrap();
+        let store = Store::open(&dir.path().join("cormux.db"), &[]).unwrap();
         store.set_setting("k", "v").unwrap();
         assert_eq!(store.get_setting("k").unwrap().as_deref(), Some("v"));
         let refused = store.with_read(|conn| Ok(conn.execute("DELETE FROM settings", [])?));

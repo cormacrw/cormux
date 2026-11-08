@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use rusqlite::Connection;
 use serde_json::{Map, Value};
 
 use super::{StepEvent, TranscriptEvent};
@@ -14,13 +15,16 @@ use crate::engines::{
     AgentEvent, SavedCall, ToolCallStatus, restore_call, restore_permission_tool,
 };
 use crate::error::Result;
-use crate::store::Store;
+use crate::store::RustMigration;
 
-use super::store::Rewrite;
+use super::store::{Rewrite, rewrite_rows};
 use crate::timeline::{StepIcon, TimelineStep};
 
-const VERSION: i64 = 24;
-const NAME: &str = "024_typed_transcript_rows";
+/// The migration that runs this, in version order with the SQL files.
+pub const MIGRATION: RustMigration = RustMigration {
+    name: "024_typed_transcript_rows",
+    run,
+};
 
 const NEW_SESSION_TITLE: &str = "Started a new session";
 const RESUME_TITLE: &str = "Resumed an earlier conversation";
@@ -35,22 +39,16 @@ const DIVIDER_IDS: [&str; 5] = [
 ];
 const FINDING_ID: &str = "finding-";
 
-/// Runs the rewrite unless it already has.
-pub fn upgrade(store: &Store) -> Result<()> {
+fn run(conn: &Connection) -> Result<()> {
     let mut seen: HashMap<String, HashSet<String>> = HashMap::new();
-    let ran = store.rewrite_rows_once(
-        VERSION,
-        NAME,
+    rewrite_rows(
+        conn,
         |thread_id, seq, kind, payload| {
             let ids = seen.entry(thread_id.to_string()).or_default();
             rewrite_event(ids, seq, kind, payload)
         },
         rewrite_approval,
-    )?;
-    if ran {
-        log::info!("applied migration {NAME}");
-    }
-    Ok(())
+    )
 }
 
 fn rewrite_event(ids: &mut HashSet<String>, seq: i64, kind: &str, payload: &str) -> Rewrite {
@@ -335,6 +333,7 @@ mod tests {
     use crate::engines::ToolRole;
     use crate::model::ApprovalPayload;
     use crate::model::ThreadRole;
+    use crate::store::Store;
     use crate::store::types::ThreadRow;
 
     fn store_with(rows: &[(&str, Value)]) -> Store {
@@ -409,7 +408,7 @@ mod tests {
             ),
             ("tool", json!({ "icon": "x" })),
         ]);
-        upgrade(&store).unwrap();
+        store.with_conn(run).unwrap();
         let rows = events(&store);
 
         let (_, title, _, step) = step_of(&rows[0].1);
@@ -519,7 +518,7 @@ mod tests {
         store
             .set_approval_payload_text("p1", &legacy.to_string())
             .unwrap();
-        upgrade(&store).unwrap();
+        store.with_conn(run).unwrap();
         let rows = events(&store);
 
         assert_eq!(rows.len(), 5, "the replayed call is gone");
@@ -550,23 +549,53 @@ mod tests {
     }
 
     #[test]
-    fn it_runs_once() {
-        let store = store_with(&[(
-            "tool",
-            json!({ "type": "toolCall", "id": "toolu_1", "title": "Read", "name": "Read",
-                    "kind": "read", "status": "completed", "locations": [], "detail": null }),
-        )]);
-        upgrade(&store).unwrap();
-        let once = events(&store);
+    fn opening_an_older_database_rewrites_its_rows_once_in_version_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cormux.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            crate::store::migrate::migrated_before(&conn, 24);
+            conn.execute_batch(
+                r#"INSERT INTO threads (id, workspace_id, title, engine, status)
+                    VALUES ('t1', 'w1', 'Lead', 'claude', 'idle');
+                 INSERT INTO thread_events (thread_id, seq, kind, payload)
+                    VALUES ('t1', 1, 'tool', '{"icon":"pause","title":"You paused the agent"}');"#,
+            )
+            .unwrap();
+        }
+
+        let store = Store::open(&path, &[MIGRATION]).unwrap();
+        let rows = events(&store);
+        assert_eq!(step_of(&rows[0].1).3, &TimelineStep::AgentPaused);
+        let ledger: Vec<i64> = store
+            .with_read(|conn| {
+                Ok(conn
+                    .prepare(
+                        "SELECT version FROM schema_migrations WHERE version >= 23 ORDER BY rowid",
+                    )?
+                    .query_map([], |row| row.get(0))?
+                    .collect::<rusqlite::Result<Vec<i64>>>()?)
+            })
+            .unwrap();
+        assert_eq!(ledger[..3], [23, 24, 25]);
+
         store
             .append_event("t1", "tool", &json!({ "title": "Later" }).to_string())
             .unwrap();
-        upgrade(&store).unwrap();
-        assert_eq!(events(&store)[0], once[0]);
+        drop(store);
+        let store = Store::open(&path, &[MIGRATION]).unwrap();
         assert!(
             store.thread_events_after("t1", 1, 10).unwrap()[0]
                 .2
-                .contains("Later")
+                .contains("Later"),
+            "not rewritten a second time"
         );
+    }
+
+    #[test]
+    fn the_migrations_take_every_version_once() {
+        let versions = crate::store::migrate::versions(&[MIGRATION]);
+        let expected: Vec<i64> = (1..=versions.len() as i64).collect();
+        assert_eq!(versions, expected);
     }
 }

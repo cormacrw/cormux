@@ -29,7 +29,7 @@ use crate::timeline::TimelineStep;
 
 pub(crate) use store::activity_in;
 pub use store::{ThreadActivityRow, ThreadEventPage};
-pub use upgrade::upgrade;
+pub use upgrade::MIGRATION;
 
 /// Events a subscriber can fall behind by before it's told to read the store instead.
 const STREAM_CAP: usize = 256;
