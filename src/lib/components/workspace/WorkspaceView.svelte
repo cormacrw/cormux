@@ -15,6 +15,7 @@
   import { provideMediaHost } from './thread/reply/media-host'
   import ChangesPanel from '$lib/changes/components/ChangesPanel.svelte'
   import { resizeEdge } from '$lib/primitives/slide-out'
+  import { slideIn } from '$lib/primitives/slide-in.svelte'
   import { focusPrompt } from '$lib/keyboard/focus-home'
   import { keyboardLayers } from '$lib/keyboard/layers.svelte'
 
@@ -55,48 +56,18 @@
   // Everything else slides over the conversation, which stays mounted so
   // closing it is instant and the conversation keeps its scroll.
   const slideOut = $derived(workspaceUi.slideOut)
-  // Mounted on first open, then kept so reopening doesn't rebuild the diff or log.
-  let changesMounted = $state(false)
-  let outputMounted = $state(false)
-  // A first open mounts the panel closed and opens it a frame later, so it
-  // slides in like every later open instead of appearing in place.
-  let changesArmed = $state(false)
-  let outputArmed = $state(false)
-  function nextFrame(run: () => void) {
-    requestAnimationFrame(() => requestAnimationFrame(run))
-  }
-  $effect(() => {
-    if (gitVisible && !untrack(() => changesMounted)) {
-      changesMounted = true
-      nextFrame(() => (changesArmed = true))
-    }
-    if (outputVisible && !untrack(() => outputMounted)) {
-      outputMounted = true
-      nextFrame(() => (outputArmed = true))
-    }
-  })
-  // Switching workspaces shows whatever was open straight away.
-  $effect(() => {
-    void workspaceId
-    untrack(() => {
-      changesMounted = changesArmed = gitVisible
-      outputMounted = outputArmed = outputVisible
-      findingsShown = findingsArmed = findingsTabActive
-    })
-  })
-  // Holds its panel while it slides away.
-  let findingsShown = $state(false)
-  let findingsArmed = $state(false)
-  $effect(() => {
-    if (!findingsTabActive) {
-      findingsArmed = false
-      return
-    }
-    findingsShown = true
-    nextFrame(() => (findingsArmed = true))
-  })
-  const changesOpen = $derived(gitVisible && changesArmed)
-  const outputOpen = $derived(outputVisible && outputArmed)
+  const changes = slideIn(
+    () => gitVisible,
+    () => workspaceId,
+  )
+  const output = slideIn(
+    () => outputVisible,
+    () => workspaceId,
+  )
+  const findingsTray = slideIn(
+    () => findingsTabActive,
+    () => workspaceId,
+  )
   const PANE_CLASS =
     'tray-pane glass-pane relative my-3 mr-3 flex max-w-[calc(100%-372px)] min-w-[320px] shrink-0 flex-col overflow-hidden rounded-[18px]'
   const SLIDE_CLASS =
@@ -214,7 +185,7 @@
           ></div>
         {/snippet}
 
-        {#if changesMounted}
+        {#if changes.mounted}
           <div
             bind:this={changesTray}
             class={pinnedTray === 'changes' ? PANE_CLASS : SLIDE_CLASS}
@@ -222,7 +193,7 @@
             style:width={pinnedTray === 'changes'
               ? `${workspaceUi.trayWidth}px`
               : null}
-            data-open={changesOpen}
+            data-open={changes.open}
             data-pinned={pinnedTray === 'changes'}
             data-od-id="git-slide-out"
             data-tray="git"
@@ -232,7 +203,7 @@
             <ChangesPanel {workspace} repoId={workspaceRepoId} />
           </div>
         {/if}
-        {#if outputMounted}
+        {#if output.mounted}
           <div
             bind:this={outputTray}
             id="output-panel"
@@ -244,7 +215,7 @@
             style:width={pinnedTray === 'output'
               ? `${workspaceUi.trayWidth}px`
               : null}
-            data-open={outputOpen}
+            data-open={output.open}
             data-pinned={pinnedTray === 'output'}
             data-od-id="output-slide-out"
             data-tray="output"
@@ -258,11 +229,11 @@
             />
           </div>
         {/if}
-        {#if findingsShown}
+        {#if findingsTray.mounted}
           <div
             class={SLIDE_CLASS}
             style:--tray-w="760px"
-            data-open={findingsTabActive && findingsArmed}
+            data-open={findingsTray.open}
             data-od-id="findings-slide-out"
             data-tray="findings"
             inert={!findingsTabActive}
