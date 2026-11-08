@@ -5,7 +5,7 @@
 <script lang="ts">
   import { plural } from '$lib/format/plural'
   import { draftRollup, type TaskDraft } from '$lib/thread/reply/blocks/tasks'
-  import { openUrl } from '@tauri-apps/plugin-opener'
+  import { openExternal } from '$lib/feedback/open-external'
   import Check from '@lucide/svelte/icons/check'
   import CircleCheck from '@lucide/svelte/icons/circle-check'
   import CircleDashed from '@lucide/svelte/icons/circle-dashed'
@@ -77,7 +77,7 @@
         <button
           type="button"
           class="shrink-0 text-[11px] font-medium text-primary underline-offset-2 hover:underline"
-          onclick={() => void openUrl(draft.url!).catch(() => {})}
+          onclick={() => void openExternal(draft.url!)}
         >
           Open
         </button>

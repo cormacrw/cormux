@@ -7,7 +7,7 @@
   import Check from '@lucide/svelte/icons/check'
   import Copy from '@lucide/svelte/icons/copy'
   import ExternalLink from '@lucide/svelte/icons/external-link'
-  import { openUrl } from '@tauri-apps/plugin-opener'
+  import { openExternal } from '$lib/feedback/open-external'
 
   let {
     task,
@@ -51,7 +51,7 @@
     title="Open in ClickUp"
     onclick={(event) => {
       event.stopPropagation()
-      void openUrl(task.url)
+      void openExternal(task.url)
     }}
   >
     <ExternalLink class="size-3.5" aria-hidden="true" />

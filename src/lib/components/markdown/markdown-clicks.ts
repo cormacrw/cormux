@@ -1,4 +1,4 @@
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openExternal } from '$lib/feedback/open-external'
 import type { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
 
 // Lucide's copy and check, as static markup.
@@ -66,5 +66,5 @@ export function openClickedLink(event: MouseEvent) {
   const href = target.getAttribute('href')
   if (!href || href.startsWith('#')) return
   event.preventDefault()
-  void openUrl(href)
+  void openExternal(href)
 }
