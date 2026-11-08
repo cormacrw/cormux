@@ -236,7 +236,7 @@ async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : Promise<Result<null, Error>> {
+async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : Promise<Result<WorktreeDiff, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_workspace_diff_target", { workspaceId, target }) };
 } catch (e) {

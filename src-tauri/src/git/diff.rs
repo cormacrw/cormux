@@ -158,6 +158,8 @@ pub struct LiveDiffEngine {
     in_flight: Arc<Mutex<HashMap<String, bool>>>,
     /// Absent: no choice made yet. `Some(None)`: explicitly uncommitted.
     diff_target: Arc<Mutex<HashMap<String, Option<DiffTarget>>>>,
+    /// One compute at a time per workspace, so a slow one can't land after a newer one.
+    computing: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     tx: mpsc::UnboundedSender<String>,
     rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
@@ -185,6 +187,7 @@ impl LiveDiffEngine {
             updates: Arc::new(watch::channel(0).0),
             in_flight: Arc::new(Mutex::new(HashMap::new())),
             diff_target: Arc::new(Mutex::new(HashMap::new())),
+            computing: Arc::new(Mutex::new(HashMap::new())),
             tx,
             rx: Arc::new(Mutex::new(Some(rx))),
         }
@@ -393,6 +396,7 @@ impl LiveDiffEngine {
         self.watched.lock().unwrap().remove(workspace_id);
         self.latest.lock().unwrap().remove(workspace_id);
         self.diff_target.lock().unwrap().remove(workspace_id);
+        self.computing.lock().unwrap().remove(workspace_id);
     }
 
     pub fn latest(&self, workspace_id: &str) -> Option<Arc<WorktreeDiff>> {
@@ -415,15 +419,26 @@ impl LiveDiffEngine {
         compute_diff(&self.git, workspace_id, path, Some(&target)).await
     }
 
+    /// The diff of what the workspace shows now, stored for its subscribers.
     pub async fn compute(&self, workspace_id: &str, path: &Path) -> Result<WorktreeDiff> {
+        let lock = self
+            .computing
+            .lock()
+            .unwrap()
+            .entry(workspace_id.to_string())
+            .or_default()
+            .clone();
+        let _computing = lock.lock().await;
         let target = self.diff_target(workspace_id);
         let diff = compute_diff(&self.git, workspace_id, path, target.as_ref()).await?;
         self.publish(workspace_id, &diff);
         Ok(diff)
     }
 
+    /// A diff for a target the workspace has since moved off isn't stored: it would replace the
+    /// one asked for with one nobody wants any more.
     fn publish(&self, workspace_id: &str, diff: &WorktreeDiff) {
-        if !self.is_subscribed(workspace_id) {
+        if !self.is_subscribed(workspace_id) || diff.target != self.diff_target(workspace_id) {
             return;
         }
         let mut latest = self.latest.lock().unwrap();
@@ -697,6 +712,36 @@ mod tests {
         commit_file(repo, "later.txt");
         assert!(!git.is_ancestor(repo, "main", "feat/a").await);
         assert!(git.is_ancestor(repo, "feat/a", "feat/b").await);
+    }
+
+    /// Bug: computes for a quick retarget and back ran side by side, and the slower one, for the
+    /// branch, landed last, so the panel showed the branch's files while set to uncommitted.
+    #[test]
+    fn a_diff_for_a_target_moved_off_is_not_stored() {
+        use crate::shell_env::ShellEnv;
+        use tokio::sync::RwLock;
+
+        let engine = LiveDiffEngine::new(Git::new(Arc::new(RwLock::new(ShellEnv::new()))));
+        let _subscription = engine.subscribe("w");
+        let diff = |target: Option<DiffTarget>| WorktreeDiff {
+            workspace_id: "w".into(),
+            target,
+            files: Vec::new(),
+            uncommitted: LineCounts::default(),
+        };
+        let branch = DiffTarget {
+            head: "feat/a".into(),
+            base: "main".into(),
+        };
+
+        engine.set_diff_target("w", None);
+        engine.publish("w", &diff(None));
+        engine.publish("w", &diff(Some(branch.clone())));
+        assert_eq!(engine.latest("w").unwrap().target, None);
+
+        engine.set_diff_target("w", Some(branch.clone()));
+        engine.publish("w", &diff(Some(branch.clone())));
+        assert_eq!(engine.latest("w").unwrap().target, Some(branch));
     }
 
     /// Bug: the UI guessed status from line counts, so a file only appended to read "Added" and

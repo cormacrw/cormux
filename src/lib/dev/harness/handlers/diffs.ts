@@ -1,4 +1,4 @@
-import type { DiffTarget } from '$lib/ipc/bindings'
+import type { DiffTarget, WorktreeDiff } from '$lib/ipc/bindings'
 import type { HarnessRuntime } from '../runtime'
 import type { HandlerSlice } from '../types'
 
@@ -35,15 +35,28 @@ export function diffHandlers(runtime: HarnessRuntime) {
   const uncommittedFiles = () =>
     diffFiles().filter((file) => discarded && !discarded.has(file.path))
 
+  const filesFor = (target: DiffTarget | null) =>
+    target ? diffFiles() : uncommittedFiles()
+
+  /** As the command returns it; the stream leaves `uncommitted` out, so the store counts the files. */
+  const diffFor = (target: DiffTarget | null): WorktreeDiff => {
+    const files = filesFor(target)
+    return {
+      ...db.diff,
+      target,
+      files,
+      uncommitted: {
+        added: files.reduce((sum, file) => sum + file.added, 0),
+        deleted: files.reduce((sum, file) => sum + file.deleted, 0),
+      },
+    }
+  }
+
   const sendDiff = (target: DiffTarget | null) => {
     if (!runtime.diffChannel) return
     runtime.send(runtime.diffChannel, {
       workspaceId: db.diff.workspaceId,
-      diff: {
-        ...db.diff,
-        target,
-        files: target ? diffFiles() : uncommittedFiles(),
-      },
+      diff: { ...db.diff, target, files: filesFor(target) },
     })
   }
 
@@ -69,11 +82,17 @@ export function diffHandlers(runtime: HarnessRuntime) {
       workspaceId: string
       target: DiffTarget | null
     }) => {
-      // The new diff follows on the channel once the command has returned.
-      if (workspaceId === db.diff.workspaceId) {
-        queueMicrotask(() => sendDiff(target ?? null))
+      // The new diff follows on the channel once the command has returned it.
+      if (workspaceId !== db.diff.workspaceId) {
+        return {
+          workspaceId,
+          target,
+          files: [],
+          uncommitted: { added: 0, deleted: 0 },
+        }
       }
-      return null
+      queueMicrotask(() => sendDiff(target ?? null))
+      return diffFor(target ?? null)
     },
     discard_workspace_changes: ({
       workspaceId,

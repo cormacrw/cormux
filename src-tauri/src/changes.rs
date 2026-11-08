@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use crate::error::Result;
-use crate::git::DiffTarget;
+use crate::git::{DiffTarget, WorktreeDiff};
 use crate::model::WorkspaceKind;
 use crate::state::AppState;
 use crate::workspaces::WorkspaceRecord;
@@ -40,19 +40,20 @@ pub async fn refresh(state: &AppState, workspace_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Points the panel at uncommitted work (`None`) or a branch against its base.
+/// Points the panel at uncommitted work (`None`) or a branch against its base, and returns that
+/// diff: it isn't sent to subscribers when it matches what they already have, so the caller
+/// waiting on it gets it here.
 pub async fn set_target(
     state: &AppState,
     workspace_id: &str,
     target: Option<DiffTarget>,
-) -> Result<()> {
+) -> Result<WorktreeDiff> {
     let workspace = load(state, workspace_id).await?;
     state.diffs.set_diff_target(workspace_id, target);
     state
         .diffs
         .compute(workspace_id, Path::new(&workspace.worktree_path))
-        .await?;
-    Ok(())
+        .await
 }
 
 /// Throws away the uncommitted change to the file at `path`, or every one when `None`. A renamed
@@ -80,7 +81,7 @@ pub mod commands {
     use tauri::State;
 
     use crate::error::Result;
-    use crate::git::DiffTarget;
+    use crate::git::{DiffTarget, WorktreeDiff};
     use crate::state::AppState;
 
     /// Re-reads the workspace's changes now, after something outside the watcher moved them.
@@ -99,7 +100,7 @@ pub mod commands {
         workspace_id: String,
         target: Option<DiffTarget>,
         state: State<'_, AppState>,
-    ) -> Result<()> {
+    ) -> Result<WorktreeDiff> {
         super::set_target(&state, &workspace_id, target).await
     }
 
