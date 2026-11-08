@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
 import {
-  canAddToStack,
   commitsLabel,
   stackCardsTopFirst,
   diffTargetLabel,
@@ -37,6 +36,7 @@ function stack(extra: Partial<WorkspaceStack> = {}): WorkspaceStack {
     currentNeedsRebase: false,
     currentBranch: 'b',
     branches: [branch('a', { merged: true }), branch('b', { current: true })],
+    addBlock: null,
     ...extra,
   }
 }
@@ -48,18 +48,6 @@ describe('stack helpers', () => {
       'a',
     ])
     expect(stackCardsTopFirst(undefined)).toEqual([])
-  })
-
-  it('only adds from the top of the stack, or to start one', () => {
-    expect(canAddToStack(stack())).toBe(true)
-    expect(canAddToStack(stack({ currentBranch: 'a' }))).toBe(false)
-    expect(canAddToStack(stack({ status: 'notStacked', branches: [] }))).toBe(
-      true,
-    )
-    expect(canAddToStack(stack({ status: 'unavailable', branches: [] }))).toBe(
-      false,
-    )
-    expect(canAddToStack(undefined)).toBe(false)
   })
 
   it('labels the subtitle', () => {

@@ -4,7 +4,6 @@ import type {
   ApprovalRow,
   ConversationSummary,
   StreamedEvent,
-  TranscriptEvent,
 } from '$lib/ipc/bindings'
 import { commands } from '$lib/ipc/bindings'
 import type { CoreError } from '$lib/ipc'
@@ -19,6 +18,7 @@ import { onSnapshot } from '$lib/core/sync'
 import { createEventBatcher } from '$lib/thread/event-batcher'
 import { threadsToEvict } from '$lib/thread/evict-threads'
 import { SharedSubscriptions } from '$lib/thread/shared-subscriptions'
+import { endsTurn } from '$lib/thread/conversations'
 import { ThreadViewBuilder, type ThreadView } from '$lib/thread/thread-view'
 import {
   appendStreamed,
@@ -438,10 +438,6 @@ class ThreadTimelineStore {
     }
     if (ended && !liveTool) this.clearCurrentTool(threadId)
   }
-}
-
-function endsTurn(event: TranscriptEvent) {
-  return event.type === 'turnEnd' || event.type === 'engineExited'
 }
 
 function isUserMessage({ event }: StreamedEvent) {

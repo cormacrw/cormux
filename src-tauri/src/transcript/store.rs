@@ -1,11 +1,15 @@
 //! The `thread_events` table, which only the transcript writes and reads.
 
+use std::sync::LazyLock;
+
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::Result;
 use crate::store::{Store, query_all};
+
+use super::{EXIT, MESSAGE, TOOL, TURN_END};
 
 const THREAD_EVENT_PAGE: u32 = 2_000;
 const THREAD_EVENT_PAGE_MAX: u32 = 10_000;
@@ -105,20 +109,24 @@ pub(super) fn rewrite_rows(
 /// Threads that never have are left out. The row condition must stay word for word what the
 /// `thread_events_activity` partial index (migration 020) declares, or SQLite walks every
 /// streamed chunk of a thread mid-turn.
-const ACTIVITY_SQL: &str = "SELECT thread_id,
+static ACTIVITY_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT thread_id,
         COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) FROM (
         SELECT t.id AS thread_id, (
             SELECT e.created_at FROM thread_events e
             WHERE e.thread_id = t.id
-              AND (e.kind IN ('turn_end', 'exit')
-                   OR (e.kind = 'message' AND json_extract(e.payload, '$.role') = 'user'))
+              AND (e.kind IN ('{TURN_END}', '{EXIT}')
+                   OR (e.kind = '{MESSAGE}' AND json_extract(e.payload, '$.role') = 'user'))
             ORDER BY e.seq DESC LIMIT 1
         ) AS created_at
         FROM visible_threads t
-     ) WHERE created_at IS NOT NULL";
+     ) WHERE created_at IS NOT NULL"
+    )
+});
 
 pub(crate) fn activity_in(conn: &Connection) -> Result<Vec<ThreadActivityRow>> {
-    query_all(conn, ACTIVITY_SQL, |row| {
+    query_all(conn, &ACTIVITY_SQL, |row| {
         Ok(ThreadActivityRow {
             thread_id: row.get(0)?,
             at_ms: row.get(1)?,
@@ -131,7 +139,7 @@ impl Store {
     #[cfg(test)]
     pub fn activity_query_plan(&self) -> Result<String> {
         self.with_read(|conn| {
-            let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {ACTIVITY_SQL}"))?;
+            let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", *ACTIVITY_SQL))?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(3))?;
             Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.join("\n"))
         })
@@ -198,7 +206,7 @@ impl Store {
         self.with_read(|conn| {
             let mut stmt = conn.prepare_cached(&format!(
                 "SELECT seq, payload FROM thread_events
-                 WHERE thread_id = ?1 AND kind = 'tool'
+                 WHERE thread_id = ?1 AND kind = '{TOOL}'
                    AND CASE WHEN json_valid(payload) THEN json_extract(payload, '$.step.kind') END
                        IN ({kinds})
                  ORDER BY seq"
@@ -212,7 +220,7 @@ impl Store {
     pub fn message_rows(&self, thread_id: &str) -> Result<Vec<(i64, i64, Option<String>)>> {
         self.with_read(|conn| {
             let mut stmt = conn.prepare_cached(&format!(
-                "SELECT seq, {AT_MS}, CASE WHEN kind = 'message' THEN payload END
+                "SELECT seq, {AT_MS}, CASE WHEN kind = '{MESSAGE}' THEN payload END
                  FROM thread_events WHERE thread_id = ?1 ORDER BY seq"
             ))?;
             let rows = stmt.query_map([thread_id], |row| {

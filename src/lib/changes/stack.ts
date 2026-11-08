@@ -8,13 +8,6 @@ export function stackCardsTopFirst(
   return stack ? [...stack.branches].reverse() : []
 }
 
-/** gh-stack only adds branches on top, so Add needs the top branch checked out. */
-export function canAddToStack(stack: WorkspaceStack | undefined): boolean {
-  if (!stack || stack.status === 'unavailable') return false
-  if (stack.status === 'notStacked') return true
-  return stack.branches.at(-1)?.name === stack.currentBranch
-}
-
 export function sameDiffTarget(
   a: DiffTarget | null,
   b: DiffTarget | null,

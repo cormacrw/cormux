@@ -1,5 +1,6 @@
 import type { ApprovalRow, TranscriptEvent } from '$lib/ipc/bindings'
 import { deepEqual } from '$lib/deep-equal'
+import { endsTurn } from '../conversations'
 import type { RunningAgent, TimelineItem, ToolStep } from '../timeline-types'
 import { sameApprovals } from './approval'
 import {
@@ -70,9 +71,7 @@ export class TimelineBuilder {
       ? foldState([...turns.items], turns.autoApproved, true, [...turns.agents])
       : foldState()
     const tail = input.events.slice(start)
-    const turnEnd = tail.findLastIndex(
-      ({ event }) => event.type === 'turnEnd' || event.type === 'engineExited',
-    )
+    const turnEnd = tail.findLastIndex(({ event }) => endsTurn(event))
     const boundary = tail[turnEnd]
     foldEvents(state, tail, input.approvals, (entry) => {
       if (entry !== boundary) return

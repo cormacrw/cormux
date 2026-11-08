@@ -6,15 +6,6 @@
 import type { Bang } from '$lib/ipc/bindings'
 export type { Bang }
 
-export function bangName(raw: string): string {
-  return raw
-    .trim()
-    .replace(/^!+/, '')
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9_-]/g, '')
-}
-
 export function isUsableBang(bang: Bang) {
   return bang.name.length > 0 && bang.prompt.trim().length > 0
 }
@@ -23,9 +14,9 @@ export function newBangId() {
   return `bang-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
 
+/** Saved names are the core's, lowercase; a typed `!Name` matches its bang whatever its case. */
 function bangNamed(bangs: Bang[], name: string): Bang | undefined {
-  const wanted = bangName(name)
-  if (!wanted) return undefined
+  const wanted = name.toLowerCase()
   return bangs.find((bang) => isUsableBang(bang) && bang.name === wanted)
 }
 

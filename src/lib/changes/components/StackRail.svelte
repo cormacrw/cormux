@@ -23,7 +23,6 @@
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
-    canAddToStack,
     commitsLabel,
     isDiffTargetOf,
     sameDiffTarget,
@@ -49,18 +48,15 @@
   const checking = $derived(stacks.loading[workspace.id] ?? false)
   const lockReason = $derived(workspace.branchLock)
   const locked = $derived(lockReason != null)
-  const addable = $derived(canAddToStack(stack))
+  const addable = $derived(stack != null && stack.addBlock == null)
   const unavailable = $derived({
     reason: stack?.message ?? '',
     command: stack?.installCommand ?? null,
   })
-  const topBranch = $derived(cards[0]?.name)
   const addTitle = $derived(
     locked
       ? lockReason
-      : !addable && topBranch
-        ? `New branches go on top. Check out ${topBranch} first.`
-        : `Create a branch on top of ${workspace.branch}`,
+      : (stack?.addBlock ?? `Create a branch on top of ${workspace.branch}`),
   )
 
   // While a retarget loads, the highlight moves to where it is headed.

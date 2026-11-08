@@ -8,7 +8,7 @@
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
   import { resolveDefaultRepoId } from '$lib/settings/default-repo'
-  import { bangName, newBangId, type Bang } from '$lib/bangs/bangs'
+  import { newBangId, type Bang } from '$lib/bangs/bangs'
   import { commands } from '$lib/ipc'
   import { coreErrorText } from '$lib/core/core-error'
   import { repos } from '$lib/state'
@@ -195,9 +195,8 @@
                 class="field-hint text-xs text-muted-foreground"
                 id="bang-name-hint-{bang.id}"
               >
-                No spaces. Type !{bangName(drafts[bang.id]!.name) || bang.name} in
-                a prompt bar to put the prompt in, or in the command palette to start
-                a thread with it.
+                No spaces. Type !{bang.name} in a prompt bar to put the prompt in,
+                or in the command palette to start a thread with it.
               </p>
             </div>
             <div class="field space-y-1.5">

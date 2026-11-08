@@ -118,6 +118,10 @@ pub fn builder() -> Builder {
             crate::transcript::CONVERSATION_STEP_KINDS,
         )
         .constant(
+            "TURN_ENDING_EVENTS",
+            crate::transcript::TURN_ENDING_EVENTS,
+        )
+        .constant(
             "WORKING_THREAD_STATUSES",
             crate::model::ThreadStatus::WORKING,
         )

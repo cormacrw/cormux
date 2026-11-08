@@ -110,6 +110,8 @@ pub struct WorkspaceStack {
     pub current_needs_rebase: bool,
     /// Bottom of the stack (closest to the trunk) first.
     pub branches: Vec<StackBranch>,
+    /// Why Add branch can't add here now, by the stack's shape; `None` when it can.
+    pub add_block: Option<String>,
 }
 
 /// `gh stack view --json`, per gh-stack v0.1's `viewJSONOutput`.
@@ -144,6 +146,13 @@ struct ViewPr {
 }
 
 impl ViewJson {
+    /// gh-stack only adds on top, so the top branch has to be the one checked out.
+    fn add_block(&self) -> Option<String> {
+        let top = &self.branches.last()?.name;
+        (*top != self.current_branch)
+            .then(|| format!("New branches go on top. Check out {top} first."))
+    }
+
     /// Each branch's parent, bottom first.
     fn parents(&self) -> Vec<String> {
         let order: Vec<(String, bool)> = self
@@ -356,6 +365,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         current_branch: record.branch.clone(),
         current_needs_rebase: solo_needs_rebase,
         branches: Vec::new(),
+        add_block: None,
     };
 
     let json = match view(state, &worktree).await? {
@@ -405,6 +415,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         View::Unavailable(unavailable) => {
             return Ok(WorkspaceStack {
                 install_command: unavailable.install.map(Into::into),
+                add_block: Some(unavailable.reason.clone()),
                 ..empty(StackStatus::Unavailable, Some(unavailable.reason))
             });
         }
@@ -412,6 +423,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
 
     let trunk_ref = state.git.freshest_ref(&worktree, &json.trunk).await?;
     let parents = json.parents();
+    let add_block = json.add_block();
     let holds = crate::repos::BranchHolds::read(state, state.store.repo(&record.repo_id)?)
         .await?
         .seen_from(workspace_id);
@@ -471,6 +483,7 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
         .any(|branch| branch.current && branch.needs_rebase);
     Ok(WorkspaceStack {
         workspace_id: workspace_id.to_string(),
+        add_block,
         status: StackStatus::Stacked,
         message: None,
         install_command: None,
@@ -708,10 +721,8 @@ pub async fn add_branch(state: &AppState, workspace_id: &str, branch: &str) -> R
     match view(state, &worktree).await? {
         View::Unavailable(unavailable) => return Err(Error::Git(unavailable.text())),
         View::Stacked(json) => {
-            if json.branches.last().map(|top| &top.name) != Some(&json.current_branch) {
-                return Err(Error::Git(
-                    "New branches go on top of the stack. Check out the top branch first.".into(),
-                ));
+            if let Some(reason) = json.add_block() {
+                return Err(Error::Git(reason));
             }
             run(state, &worktree, &["add", name], "Adding the branch").await?;
         }
@@ -885,6 +896,23 @@ mod tests {
     use crate::model::WorkspaceLifecycle;
     use crate::shell_env::ShellEnv;
     use crate::store::types::{RepoRecord, WorkspaceRow};
+
+    #[test]
+    fn a_branch_is_added_only_on_top_of_the_stack() {
+        let stack = |current: &str| -> ViewJson {
+            serde_json::from_value(json!({
+                "trunk": "main",
+                "currentBranch": current,
+                "branches": [{"name": "a"}, {"name": "b"}],
+            }))
+            .unwrap()
+        };
+        assert_eq!(stack("b").add_block(), None);
+        assert_eq!(
+            stack("a").add_block().as_deref(),
+            Some("New branches go on top. Check out b first.")
+        );
+    }
 
     /// Bug: answers were kept by worktree path, so a workspace made again at the path of one torn
     /// down inherited its "no stack on GitHub" until the answer aged out.

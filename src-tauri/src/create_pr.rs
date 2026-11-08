@@ -63,7 +63,13 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
         .own_thread(workspace_id)?
         .ok_or_else(|| Error::Workspace(format!("no thread in workspace {workspace_id}")))?;
     let goal = state.transcript.first_user_goal(&thread.id)?;
-    let transcript = state.transcript.raw_tail(&thread.id, 24)?;
+    let transcript = state
+        .transcript
+        .recent(&thread.id, 24)?
+        .into_iter()
+        .map(|entry| format!("{}: {}", entry.speaker.as_str(), entry.text))
+        .collect::<Vec<_>>()
+        .join("\n");
     let instructions = pr_prompt(&crate::settings::Settings::read(&state.store)?.pr_prompt);
 
     let (text, from_llm) = draft_why(

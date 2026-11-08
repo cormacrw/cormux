@@ -188,16 +188,18 @@ impl Transcript {
         Ok(goal)
     }
 
-    /// The newest `limit` rows as `kind: payload` lines, oldest first, for a model to read.
-    pub fn raw_tail(&self, thread_id: &str, limit: usize) -> Result<String> {
-        let mut lines = Vec::new();
+    /// What was said and done in the newest `limit` rows, oldest first.
+    pub fn recent(&self, thread_id: &str, limit: usize) -> Result<Vec<Entry>> {
+        let mut rows = 0;
+        let mut kept = Vec::new();
         self.store
             .visit_events(thread_id, None, true, |_, kind, payload| {
-                lines.push(format!("{kind}: {payload}"));
-                lines.len() < limit
+                kept.extend(said(kind, payload));
+                rows += 1;
+                rows < limit
             })?;
-        lines.reverse();
-        Ok(lines.join("\n"))
+        kept.reverse();
+        Ok(join(kept))
     }
 }
 
@@ -292,6 +294,35 @@ mod tests {
         assert_eq!(page.next, None);
         assert_eq!(transcript.page("t1", 0, 2, 10_000).unwrap().next, Some(2));
         assert_eq!(transcript.page("t1", 0, 100, 1).unwrap().next, Some(1));
+    }
+
+    /// The PR draft read `kind: payload` rows, so the prompt carried the store's encoding:
+    /// usage and plan JSON included.
+    #[test]
+    fn the_recent_rows_read_as_who_said_what() {
+        let transcript = transcript();
+        transcript.record_user_message("t1", "go").unwrap();
+        transcript.append("t1", agent("a")).unwrap();
+        transcript
+            .append(
+                "t1",
+                AgentEvent::Usage {
+                    used_tokens: 1,
+                    context_size: 2,
+                    cost_usd: None,
+                },
+            )
+            .unwrap();
+        transcript.append("t1", agent("b")).unwrap();
+
+        let recent: Vec<(&str, String)> = transcript
+            .recent("t1", 3)
+            .unwrap()
+            .into_iter()
+            .map(|entry| (entry.speaker.as_str(), entry.text))
+            .collect();
+
+        assert_eq!(recent, [("agent", "ab".to_string())]);
     }
 
     #[test]

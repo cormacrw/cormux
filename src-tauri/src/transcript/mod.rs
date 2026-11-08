@@ -152,6 +152,10 @@ const TOOL: &str = "tool";
 const TURN_END: &str = "turn_end";
 const EXIT: &str = "exit";
 
+/// The event types after which a thread's turn is over: the ones saved under `TURN_END` and
+/// `EXIT`, which the activity lookup reads. The webview gets it as `TURN_ENDING_EVENTS`.
+pub const TURN_ENDING_EVENTS: [&str; 2] = ["turnEnd", "engineExited"];
+
 /// An event on its way to a subscriber, with where the store saved it: `None` for a signal, or an
 /// event that failed to save.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
@@ -430,6 +434,25 @@ mod tests {
 
     use super::*;
     use crate::engines::MessageRole;
+
+    #[test]
+    fn the_turn_ending_events_are_the_ones_saved_as_turn_ends() {
+        for event in [
+            AgentEvent::TurnEnd {
+                stop_reason: crate::model::StopReason::EndTurn,
+                error: None,
+            },
+            AgentEvent::EngineExited { code: None },
+        ] {
+            let event = TranscriptEvent::Agent(event);
+            let kind = serde_json::to_value(&event).unwrap()["type"].clone();
+            assert!(
+                TURN_ENDING_EVENTS.contains(&kind.as_str().unwrap()),
+                "{kind}"
+            );
+            assert!([TURN_END, EXIT].contains(&event.kind().unwrap()));
+        }
+    }
 
     fn rows(transcript: &Transcript) -> Vec<(String, Value)> {
         transcript

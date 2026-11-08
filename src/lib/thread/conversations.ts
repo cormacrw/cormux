@@ -1,7 +1,9 @@
 import {
   CONVERSATION_STEP_KINDS,
   FIRST_CONVERSATION,
+  TURN_ENDING_EVENTS,
   type TimelineStep,
+  type TranscriptEvent,
 } from '$lib/ipc/bindings'
 import type { TimedEvent } from './timed-events'
 
@@ -16,6 +18,11 @@ type SessionStep = Extract<
 /** A step that begins a conversation, by the core's list. */
 export function isSessionStep(step: TimelineStep): step is SessionStep {
   return (CONVERSATION_STEP_KINDS as readonly string[]).includes(step.kind)
+}
+
+/** An event after which the thread's turn is over, by the core's list. */
+export function endsTurn(event: TranscriptEvent): boolean {
+  return (TURN_ENDING_EVENTS as readonly string[]).includes(event.type)
 }
 
 export function currentConversation(events: TimedEvent[]): CurrentConversation {
