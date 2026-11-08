@@ -14,11 +14,7 @@ function showCoreToast(event: ToastRaised) {
     tone: payload.tone,
     workspaceId: payload.workspaceId ?? undefined,
     threadId: payload.threadId ?? undefined,
-    parts: payload.parts.map((part) =>
-      part.type === 'code'
-        ? { type: 'code', value: part.value }
-        : { type: 'text', value: part.value },
-    ),
+    parts: payload.parts,
   })
 }
 
