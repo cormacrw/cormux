@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { updateSettings } from '$lib/settings/actions'
+  import { reloadEnvironment, updateSettings } from '$lib/settings/actions'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
@@ -7,8 +7,6 @@
   import { Switch } from '$lib/components/ui/switch'
   import SettingsPanel from '$lib/settings/components/SettingsPanel.svelte'
   import SettingsRow from '$lib/settings/components/SettingsRow.svelte'
-  import { commands } from '$lib/ipc'
-  import { toastCoreError } from '$lib/feedback/wire-feedback'
   import { resolveDefaultRepoId } from '$lib/settings/default-repo'
   import { repos } from '$lib/state'
   import { settings } from '$lib/settings/store.svelte'
@@ -29,11 +27,10 @@
 
   const hasWorkspaces = $derived(workspaces.items.length > 0)
 
-  async function reloadEnvironment() {
+  async function reload() {
     reloadingEnv = true
-    const result = await commands.reloadEnvironment()
+    await reloadEnvironment()
     reloadingEnv = false
-    if (result.status === 'error') toastCoreError(result.error)
   }
 
   async function commitWorktreeRoot() {
@@ -147,7 +144,7 @@
         variant="secondary"
         size="sm"
         disabled={reloadingEnv}
-        onclick={() => void reloadEnvironment()}
+        onclick={() => void reload()}
       >
         {#if reloadingEnv}
           <LoaderCircleIcon class="size-4 animate-spin" aria-hidden="true" />

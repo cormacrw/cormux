@@ -1,20 +1,8 @@
 import { openSettings } from '$lib/settings/open'
+import { reloadEnvironment } from '$lib/settings/actions'
 import { navigate } from '$lib/core/nav.svelte'
-import { commands, events } from '$lib/ipc'
-import {
-  toastCoreError,
-  toastEnvironmentReloaded,
-} from '$lib/feedback/wire-feedback'
+import { events } from '$lib/ipc'
 import { palette } from '$lib/command-palette/store.svelte'
-
-async function reloadEnvironment() {
-  const result = await commands.reloadEnvironment()
-  if (result.status === 'ok') {
-    toastEnvironmentReloaded()
-    return
-  }
-  toastCoreError(result.error)
-}
 
 export function bindNativeMenu() {
   return events.menuChosen.listen(({ payload }) => {
