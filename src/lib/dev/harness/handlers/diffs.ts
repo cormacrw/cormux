@@ -1,14 +1,13 @@
 import type { DiffTarget } from '$lib/ipc/bindings'
-import { fixtureDiff } from '../../fixture-snapshot'
 import type { HarnessRuntime } from '../runtime'
 import type { HandlerSlice } from '../types'
 
 export function diffHandlers(runtime: HarnessRuntime) {
-  const { scenario } = runtime
+  const { db, scenario } = runtime
 
   const diffFiles = () => {
     const count = scenario.bigDiff ?? 0
-    if (!count) return fixtureDiff.files
+    if (!count) return db.diff.files
     return Array.from({ length: count }, (_, file) => {
       const lines = Array.from(
         { length: 240 },
@@ -37,21 +36,14 @@ export function diffHandlers(runtime: HarnessRuntime) {
 
   const sendDiff = (target: DiffTarget | null) => {
     if (!runtime.diffChannel) return
-    const diff = {
-      ...fixtureDiff,
-      target,
-      files: target ? diffFiles() : uncommittedFiles(),
-    }
     runtime.send(runtime.diffChannel, {
-      workspaceId: fixtureDiff.workspaceId,
-      diff,
+      workspaceId: db.diff.workspaceId,
+      diff: {
+        ...db.diff,
+        target,
+        files: target ? diffFiles() : uncommittedFiles(),
+      },
     })
-  }
-
-  const holdIfSlow = async () => {
-    if (scenario.slowDiff) {
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-    }
   }
 
   return {
@@ -62,26 +54,23 @@ export function diffHandlers(runtime: HarnessRuntime) {
       workspaceId: string
       channel: { id: number }
     }) => {
-      if (workspaceId === fixtureDiff.workspaceId) {
+      if (workspaceId === db.diff.workspaceId) {
         runtime.diffChannel = { id: channel.id, index: 0 }
         queueMicrotask(() => sendDiff(null))
       }
       return runtime.newId()
     },
-    refresh_workspace_diff: async () => {
-      await holdIfSlow()
-      return null
-    },
-    set_workspace_diff_target: async ({
+    refresh_workspace_diff: () => null,
+    set_workspace_diff_target: ({
       workspaceId,
       target,
     }: {
       workspaceId: string
       target: DiffTarget | null
     }) => {
-      await holdIfSlow()
-      if (workspaceId === fixtureDiff.workspaceId) {
-        setTimeout(() => sendDiff(target ?? null), 100)
+      // The new diff follows on the channel once the command has returned.
+      if (workspaceId === db.diff.workspaceId) {
+        queueMicrotask(() => sendDiff(target ?? null))
       }
       return null
     },
@@ -92,7 +81,7 @@ export function diffHandlers(runtime: HarnessRuntime) {
       workspaceId: string
       paths: string[]
     }) => {
-      if (workspaceId === fixtureDiff.workspaceId) {
+      if (workspaceId === db.diff.workspaceId) {
         if (!paths.length) discarded = null
         else for (const path of paths) discarded?.add(path)
         sendDiff(null)

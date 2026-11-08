@@ -1,70 +1,56 @@
-import {
-  fixtureEngines,
-  fixtureSnapshot,
-  fixtureTimeline,
-} from '../../fixture-snapshot'
-import type { HarnessRuntime } from '../runtime'
 import type { SettingsPatch } from '$lib/ipc/bindings'
+import { threadActivity } from '../db'
+import { fixtureEngines } from '../fixtures'
+import { CHANGE, type HarnessRuntime } from '../runtime'
 import type { HandlerSlice } from '../types'
 
-/** Matches `thread_activity` in the core's store. */
-function threadActivityRows() {
-  const latest = new Map<string, string>()
-  for (const row of fixtureTimeline) {
-    if (
-      row.kind === 'turn_end' ||
-      row.kind === 'exit' ||
-      (row.kind === 'message' && row.payload.includes('"role":"user"'))
-    ) {
-      latest.set(row.threadId, row.createdAt)
-    }
-  }
-  return [...latest].map(([threadId, createdAt]) => ({ threadId, createdAt }))
-}
-
-export function coreHandlers({ scenario }: HarnessRuntime) {
+export function coreHandlers({
+  db,
+  scenario,
+  emitStateChanged,
+}: HarnessRuntime) {
   return {
     get_snapshot: () => {
-      fixtureSnapshot.persisted.threadActivity = threadActivityRows()
-      // The core counts its pending approval rows.
-      fixtureSnapshot.pendingApprovals =
-        fixtureSnapshot.persisted.approvals.filter(
-          (row) => row.status === 'pending',
-        ).length
+      const { snapshot } = db
+      snapshot.persisted.threadActivity = threadActivity(db)
+      snapshot.pendingApprovals = snapshot.persisted.approvals.filter(
+        (row) => row.status === 'pending',
+      ).length
       // The harness's repos have no committed config, so only their own commands count.
-      fixtureSnapshot.repoRunCommands = fixtureSnapshot.persisted.repos.flatMap(
-        (repo) =>
-          repo.runCommand?.trim()
-            ? [
-                {
-                  repoId: repo.id,
-                  command: repo.runCommand.trim(),
-                  source: 'repo' as const,
-                },
-              ]
-            : [],
+      snapshot.repoRunCommands = snapshot.persisted.repos.flatMap((repo) =>
+        repo.runCommand?.trim()
+          ? [
+              {
+                repoId: repo.id,
+                command: repo.runCommand.trim(),
+                source: 'repo' as const,
+              },
+            ]
+          : [],
       )
       // A copy, as the real IPC deserialises one: the stores keep rows whose contents didn't
-      // change, so handing them the fixture's own objects would hide the harness's edits.
-      return structuredClone(fixtureSnapshot)
+      // change, so handing them the harness's own objects would hide its edits.
+      return structuredClone(snapshot)
     },
     // There's no shell environment to read again.
     reload_environment: () => null,
-    get_metrics: () => fixtureSnapshot.memory!,
+    get_metrics: () => db.snapshot.memory!,
     detect_engines: () => scenario.engines ?? fixtureEngines,
-    get_settings: () => fixtureSnapshot.settings,
+    get_settings: () => db.snapshot.settings,
     update_settings: ({ patch }: { patch: SettingsPatch }) => {
       const changes = Object.fromEntries(
         Object.entries(patch).filter(([, value]) => value != null),
       )
-      fixtureSnapshot.settings = { ...fixtureSnapshot.settings, ...changes }
-      return fixtureSnapshot.settings
+      db.snapshot.settings = { ...db.snapshot.settings, ...changes }
+      emitStateChanged(CHANGE.snapshot)
+      return db.snapshot.settings
     },
     end_scratch: ({ scratchId }: { scratchId: string }) => {
-      const persisted = fixtureSnapshot.persisted
+      const persisted = db.snapshot.persisted
       persisted.scratches = persisted.scratches.filter(
         (row) => row.id !== scratchId,
       )
+      emitStateChanged(CHANGE.threads)
       return null
     },
     // Nothing behind a subscription needs stopping: its channel just goes quiet.

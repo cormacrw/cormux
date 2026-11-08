@@ -1,66 +1,58 @@
-import { fixtureSnapshot, fixtureTimeline } from '../../fixture-snapshot'
 import type { FindingStatus } from '$lib/ipc/bindings'
-import type { HarnessRuntime } from '../runtime'
-import { shownMessage } from '../seed'
-import type { HandlerSlice, Input } from '../types'
+import { appendEvent, shownMessage, storeNow } from '../db'
+import { leadThreadFixture, WORKSPACE_ID, workspaceFixture } from '../fixtures'
+import { CHANGE, type HarnessRuntime } from '../runtime'
+import type { HandlerSlice, Input, Unsupported } from '../types'
 
-type WorkspaceInput = Input<'create_workspace'>['input']
-
-let nextWorkspace = 1
-
-/** Mirrors `create_workspace`, minus provisioning: the thread opens with the prompt in it. */
-function createWorkspace(input: WorkspaceInput) {
-  const n = nextWorkspace++
-  const workspaceId = `ws-harness-${n}`
-  const threadId = `th-harness-${n}`
-  const persisted = fixtureSnapshot.persisted
-  const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ')
-  const name = input.goal.slice(0, 48)
-  // The core drafts a branch from the goal when none is given; any `feat/` name stands in.
-  const branch = input.branch || `feat/harness-${n}`
-  persisted.workspaces.push({
-    ...persisted.workspaces[0]!,
-    id: workspaceId,
-    repoId: input.repoId,
-    name,
-    branch,
-    status: 'idle',
-    createdAt,
-  })
-  fixtureSnapshot.workspaces.push({
-    ...fixtureSnapshot.workspaces[0]!,
-    id: workspaceId,
-    repoId: input.repoId,
-    name,
-    branch,
-    base: input.base,
-  })
-  persisted.threads.push({
-    ...persisted.threads[0]!,
-    id: threadId,
-    workspaceId,
-    status: 'idle',
-  })
-  fixtureTimeline.push({
-    id: 1000 * n,
-    threadId,
-    seq: 1,
-    kind: 'message',
-    payload: JSON.stringify({
-      type: 'messageChunk',
-      role: 'user',
-      text: shownMessage(
-        input.goal,
-        (input.attachments ?? []).map((attachment) => attachment.name),
-      ),
-    }),
-    createdAt,
-  })
-  return { workspaceId, threadId }
-}
+export const workspaceUnsupported = [
+  'rename_workspace',
+  'retry_workspace_provisioning',
+  'skip_workspace_provisioning_setup',
+  'summarise_workspace',
+  'send_workspace_findings',
+  'submit_workspace_review',
+  'start_branch_review',
+] as const satisfies Unsupported
 
 export function workspaceHandlers(runtime: HarnessRuntime) {
-  const { scenario, controls, emitStateChanged } = runtime
+  const { db, scenario, controls, emitStateChanged } = runtime
+  let created = 0
+
+  /** Like `create_workspace`, minus provisioning: the thread opens with the prompt in it. */
+  const createWorkspace = (input: Input<'create_workspace'>['input']) => {
+    const n = ++created
+    const workspaceId = `ws-harness-${n}`
+    const threadId = `th-harness-${n}`
+    const createdAt = storeNow()
+    const { row, record } = workspaceFixture({
+      id: workspaceId,
+      repoId: input.repoId,
+      name: input.goal.slice(0, 48),
+      // The core drafts a branch from the goal when none is given; any `feat/` name stands in.
+      branch: input.branch || `feat/harness-${n}`,
+      base: input.base,
+      worktreePath: `/tmp/cormux-fixture/harness-${n}`,
+      createdAt,
+    })
+    db.snapshot.persisted.workspaces.push(row)
+    db.snapshot.workspaces.push(record)
+    db.snapshot.persisted.threads.push(leadThreadFixture(threadId, workspaceId))
+    appendEvent(
+      db,
+      threadId,
+      {
+        type: 'messageChunk',
+        role: 'user',
+        text: shownMessage(
+          input.goal,
+          (input.attachments ?? []).map((attachment) => attachment.name),
+        ),
+      },
+      createdAt,
+    )
+    emitStateChanged(CHANGE.threads)
+    return { workspaceId, threadId }
+  }
 
   return {
     set_workspace_run_command: ({
@@ -70,11 +62,9 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       workspaceId: string
       command: string
     }) => {
-      const row = fixtureSnapshot.persisted.workspaces.find(
-        (workspace) => workspace.id === workspaceId,
-      )
+      const { row } = runtime.findWorkspace(workspaceId)
       if (row) row.runCommand = command.trim() || null
-      emitStateChanged()
+      emitStateChanged(CHANGE.snapshot)
       return null
     },
     create_workspace: ({ input }: Input<'create_workspace'>) => {
@@ -89,11 +79,11 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       runtime.threadEfforts.set(created.threadId, input.effort)
       return created
     },
-    create_review_workspace: async () => {
-      // Slow enough for tests to see the button's loading state; opens the fixture workspace.
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      return { workspaceId: 'ws-auth', created: true }
-    },
+    // Opens the fixture workspace.
+    create_review_workspace: () => ({
+      workspaceId: WORKSPACE_ID,
+      created: true,
+    }),
     get_teardown_preview: ({ workspaceId }: { workspaceId: string }) => ({
       workspaceId,
       workspaceName: 'OAuth login',
@@ -134,7 +124,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       const [from, to]: [FindingStatus, FindingStatus] = input.dismissed
         ? ['open', 'dismissed']
         : ['dismissed', 'open']
-      for (const row of fixtureSnapshot.persisted.findings) {
+      for (const row of db.snapshot.persisted.findings) {
         if (
           row.workspaceId === input.workspaceId &&
           input.findingIds.includes(row.id) &&
@@ -143,7 +133,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
           row.status = to
         }
       }
-      emitStateChanged()
+      emitStateChanged(CHANGE.threads)
       return null
     },
   } satisfies HandlerSlice

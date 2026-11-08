@@ -1,7 +1,16 @@
 import type { WorkspaceStack } from '$lib/ipc/bindings'
-import { fixtureSnapshot } from '../../fixture-snapshot'
-import type { HarnessRuntime } from '../runtime'
-import type { HandlerSlice, Input } from '../types'
+import { CHANGE, type HarnessRuntime } from '../runtime'
+import type { HandlerSlice, Input, Unsupported } from '../types'
+
+export const gitUnsupported = [
+  'abort_workspace_git',
+  'create_workspace_branch',
+  'create_workspace_pull_request',
+  'pull_workspace',
+  'push_workspace_branch',
+  'rebase_workspace',
+  'sync_pull_requests',
+] as const satisfies Unsupported
 
 const FULL_STACK = ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
 const STACK_STATS: Record<string, [number, number, number, number]> = {
@@ -14,11 +23,10 @@ const STACK_PRS: Record<string, number> = { 'feat/oauth-api': 101 }
 // Branches origin doesn't have at the same commit, so deleting them asks first.
 const UNPUSHED_BRANCHES = ['feat/oauth-api']
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
 export function gitHandlers({
   scenario,
   controls,
+  findWorkspace,
   emitStateChanged,
 }: HarnessRuntime) {
   const stackMode = scenario.stack
@@ -44,20 +52,14 @@ export function gitHandlers({
   ]
 
   const setFixtureBranch = (workspaceId: string, branch: string) => {
-    const row = fixtureSnapshot.persisted.workspaces.find(
-      (workspace) => workspace.id === workspaceId,
-    )
-    const record = fixtureSnapshot.workspaces.find(
-      (workspace) => workspace.id === workspaceId,
-    )
+    const { row, record } = findWorkspace(workspaceId)
     if (row) row.branch = branch
     if (record) record.branch = branch
-    emitStateChanged()
+    emitStateChanged(CHANGE.branch)
   }
 
   const currentBranch = (workspaceId: string) =>
-    fixtureSnapshot.workspaces.find((workspace) => workspace.id === workspaceId)
-      ?.branch ?? 'main'
+    findWorkspace(workspaceId).record?.branch ?? 'main'
 
   const stackFor = (workspaceId: string): WorkspaceStack => {
     const current = currentBranch(workspaceId)
@@ -139,10 +141,7 @@ export function gitHandlers({
         throw { kind: 'Git', message: `invalid branch name: "${name}"` }
       return null
     },
-    push_stack: async () => {
-      await wait(300)
-      return null
-    },
+    push_stack: () => null,
     sync_stack: () => null,
     default_pr_prompt: () => 'Write the description for this pull request.',
     draft_pr_why: ({ workspaceId }: { workspaceId: string }) => ({
@@ -151,10 +150,7 @@ export function gitHandlers({
       fromLlm: false,
     }),
     get_repo_git: () => scenario.repoGit ?? [],
-    pull_repo_default_branch: async () => {
-      await wait(300)
-      return null
-    },
+    pull_repo_default_branch: () => null,
     list_repo_branches: () => ({
       branches: ['main', 'develop', 'feat/oauth-login'],
     }),

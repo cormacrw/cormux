@@ -1,16 +1,13 @@
-import {
-  fixtureClickupBoard,
-  fixtureClickupDetail,
-} from '../../fixture-clickup'
-import { fixtureSnapshot } from '../../fixture-snapshot'
-import type { HarnessRuntime } from '../runtime'
+import { clickupTaskDetail } from '../clickup-fixtures'
+import { CHANGE, type HarnessRuntime } from '../runtime'
 import type { HandlerSlice } from '../types'
 
 export function clickupHandlers({
+  db,
   controls,
   emitStateChanged,
 }: HarnessRuntime) {
-  const board = fixtureClickupBoard()
+  const board = db.clickup
   const findTask = (taskId: string) =>
     board.tasks.find((row) => row.id === taskId)
 
@@ -19,13 +16,13 @@ export function clickupHandlers({
       if (!key.startsWith('pk_')) {
         throw { kind: 'Clickup', message: 'ClickUp rejected the API key' }
       }
-      fixtureSnapshot.clickupConfigured = true
-      emitStateChanged()
+      db.snapshot.clickupConfigured = true
+      emitStateChanged(CHANGE.threads)
       return null
     },
     clear_clickup_api_key: () => {
-      fixtureSnapshot.clickupConfigured = false
-      emitStateChanged()
+      db.snapshot.clickupConfigured = false
+      emitStateChanged(CHANGE.threads)
       return null
     },
     clickup_workspaces: () => [{ id: 'team-1', name: 'Acme' }],
@@ -38,7 +35,7 @@ export function clickupHandlers({
     clickup_task: ({ taskId }: { taskId: string }) => {
       const found = findTask(taskId)
       if (!found) throw { kind: 'Clickup', message: 'ClickUp: Task not found' }
-      return fixtureClickupDetail(structuredClone(found))
+      return clickupTaskDetail(structuredClone(found))
     },
     set_clickup_task_status: (args: { taskId: string; status: string }) => {
       controls.clickupCalls.push({ cmd: 'set_clickup_task_status', args })

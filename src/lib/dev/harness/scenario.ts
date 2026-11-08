@@ -8,6 +8,7 @@ import type {
   ThreadEventRow,
 } from '../../ipc/bindings'
 import type { ToastPayload } from '../../feedback/toast-payload'
+import type { WireCommand } from './types'
 
 /**
  * How a browser session of the app should start. Playwright sets it with `setScenario` from
@@ -20,8 +21,12 @@ export type HarnessScenario = {
   secondRepo?: boolean
   /** URL `?slowReply`: a long reply at a real agent's pace instead of a quick one. */
   slowReply?: boolean
-  /** URL `?slowDiff`: holds diff fetches long enough to see the Changes splash. */
-  slowDiff?: boolean
+  /**
+   * Commands that take this many milliseconds to answer, for a test that wants to see their
+   * loading state. Everything else answers at once. URL `?slowDiff` holds diff fetches long
+   * enough to see the Changes splash.
+   */
+  slow?: Partial<Record<WireCommand, number>>
   /** URL `?bigDiff=N`: N long TypeScript files, to see how Changes copes with a big diff. */
   bigDiff?: number
   /**
@@ -99,6 +104,8 @@ declare global {
   }
 }
 
+const SLOW_DIFF_MS = 1500
+
 function scenarioFromUrl(): HarnessScenario {
   const params = new URLSearchParams(window.location.search)
   const scenario: HarnessScenario = {}
@@ -106,7 +113,12 @@ function scenarioFromUrl(): HarnessScenario {
     scenario.longThread = Number(params.get('longThread'))
   if (params.has('secondRepo')) scenario.secondRepo = true
   if (params.has('slowReply')) scenario.slowReply = true
-  if (params.has('slowDiff')) scenario.slowDiff = true
+  if (params.has('slowDiff')) {
+    scenario.slow = {
+      refresh_workspace_diff: SLOW_DIFF_MS,
+      set_workspace_diff_target: SLOW_DIFF_MS,
+    }
+  }
   if (params.has('bigDiff')) scenario.bigDiff = Number(params.get('bigDiff'))
   if (params.has('stack'))
     scenario.stack = params.get('stack') as HarnessScenario['stack']

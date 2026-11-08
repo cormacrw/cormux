@@ -7,10 +7,10 @@ export function pluginHandlers(
   runtime: HarnessRuntime,
 ): Record<string, PluginHandler> {
   return {
-    'plugin:event|listen': (args) => {
-      runtime.listen(String(args.event), Number(args.handler))
-      return runtime.newId()
-    },
+    'plugin:event|listen': (args) =>
+      runtime.listen(String(args.event), Number(args.handler)),
+    // `unregisterListener` already dropped it.
+    'plugin:event|unlisten': () => null,
     'plugin:window|is_focused': () => true,
     'plugin:window|is_fullscreen': () => runtime.scenario.fullscreen === true,
     'plugin:window|set_title': (args) => {

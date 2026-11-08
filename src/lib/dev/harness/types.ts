@@ -1,5 +1,4 @@
-import type { commands } from '$lib/ipc/bindings'
-import type { UnsupportedCommand } from './unsupported'
+import type { commands } from '../../ipc/bindings'
 
 type Commands = typeof commands
 
@@ -40,12 +39,19 @@ export type Input<W extends WireCommand> = {
 }
 
 /**
- * Every command needs an entry, unless `UNSUPPORTED_COMMANDS` lists it. A new command in
- * `bindings.ts` therefore fails `pnpm check` until it gets one or the other.
+ * Every command needs a handler unless a domain lists it as `Unsupported`. A new command in
+ * `bindings.ts` therefore fails `pnpm check` until its domain gives it one or the other.
  */
-export type HandlerTable = {
-  [W in Exclude<WireCommand, UnsupportedCommand>]: Handler<W>
+export type HandlerTable<Unsupported extends WireCommand> = {
+  [W in Exclude<WireCommand, Unsupported>]: Handler<W>
 }
 
 /** What one domain's file contributes to the table. */
-export type HandlerSlice = Partial<HandlerTable>
+export type HandlerSlice = Partial<HandlerTable<never>>
+
+/**
+ * A domain's commands with nothing worth faking: they'd need a real repo, engine or GitHub
+ * behind them, and no e2e flow reaches them. Calling one rejects, so a flow that starts to
+ * depend on one fails loudly instead of carrying on with a `null`.
+ */
+export type Unsupported = readonly WireCommand[]
