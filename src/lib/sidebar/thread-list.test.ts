@@ -1,47 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  nestThreadList,
-  sortThreadList,
-  splitThreadList,
-  threadUrgency,
-} from './thread-list'
-
-describe('thread urgency', () => {
-  const working = {
-    lifecycle: 'running' as const,
-    pendingApprovals: 0,
-  }
-
-  it('is quiet only while working', () => {
-    expect(threadUrgency(working, undefined)).toBe('quiet')
-    expect(
-      threadUrgency({ ...working, lifecycle: 'provisioning' }, undefined),
-    ).toBe('quiet')
-  })
-
-  it('is working as soon as the thread is, before the workspace catches up', () => {
-    expect(threadUrgency({ ...working, lifecycle: 'idle' }, 'running')).toBe(
-      'quiet',
-    )
-  })
-
-  it('needs attention whenever nothing is happening', () => {
-    for (const lifecycle of ['idle', 'ready', 'provisioningFailed'] as const) {
-      expect(threadUrgency({ ...working, lifecycle }, undefined)).toBe(
-        'attention',
-      )
-    }
-    expect(threadUrgency({ ...working, lifecycle: 'paused' }, undefined)).toBe(
-      'attention',
-    )
-  })
-
-  it('needs attention on an approval, even mid-turn', () => {
-    expect(threadUrgency({ ...working, pendingApprovals: 1 }, 'running')).toBe(
-      'attention',
-    )
-  })
-})
+import { nestThreadList, sortThreadList, splitThreadList } from './thread-list'
 
 describe('thread order', () => {
   it('puts what needs you first, longest wait on top, then recent activity', () => {

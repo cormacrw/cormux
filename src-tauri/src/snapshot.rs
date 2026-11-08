@@ -74,6 +74,8 @@ pub struct Snapshot {
     pub workspace_run_blocks: Vec<crate::app::WorkspaceRunBlock>,
     /// Each live workspace's own thread, for those with one.
     pub workspace_own_threads: Vec<WorkspaceOwnThread>,
+    /// The live workspaces that need the user, by `workspaces::needs_attention`.
+    pub workspaces_needing_attention: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -89,6 +91,45 @@ fn own_threads(own: &[&ThreadRow]) -> Vec<WorkspaceOwnThread> {
             workspace_id: thread.workspace_id.clone(),
             thread_id: thread.id.clone(),
         })
+        .collect()
+}
+
+fn needing_attention(
+    workspaces: &[WorkspaceRecord],
+    persisted: &PersistedSnapshot,
+    own: &[WorkspaceOwnThread],
+) -> Vec<String> {
+    let status_of = |thread_id: &str| {
+        persisted
+            .threads
+            .iter()
+            .find(|thread| thread.id == thread_id)
+            .map(|thread| thread.status)
+    };
+    let mut pending = std::collections::HashMap::<&str, usize>::new();
+    for approval in &persisted.approvals {
+        if approval.status != crate::model::ApprovalStatus::Pending {
+            continue;
+        }
+        if let Some(thread) = persisted
+            .threads
+            .iter()
+            .find(|thread| thread.id == approval.thread_id)
+        {
+            *pending.entry(thread.workspace_id.as_str()).or_default() += 1;
+        }
+    }
+    workspaces
+        .iter()
+        .filter(|workspace| {
+            let own_status = own
+                .iter()
+                .find(|own| own.workspace_id == workspace.id)
+                .and_then(|own| status_of(&own.thread_id));
+            let waiting = pending.get(workspace.id.as_str()).copied().unwrap_or(0);
+            crate::workspaces::needs_attention(workspace, own_status, waiting)
+        })
+        .map(|workspace| workspace.id.clone())
         .collect()
 }
 
@@ -132,6 +173,8 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
     let workspace_review_blocks = crate::review::review_blocks(&workspaces, &own);
     let workspace_own_threads = own_threads(&own);
     let workspace_run_blocks = crate::app::run_blocks(&workspaces, &workspace_run_commands);
+    let workspaces_needing_attention =
+        needing_attention(&workspaces, &persisted, &workspace_own_threads);
 
     Ok(Snapshot {
         version: state.out.version(),
@@ -152,6 +195,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<Snapshot> {
         workspace_review_blocks,
         workspace_run_blocks,
         workspace_own_threads,
+        workspaces_needing_attention,
     })
 }
 
@@ -197,6 +241,30 @@ mod tests {
             .await
             .unwrap();
         assert!(crate::review::review_blocks(&records, &own_rows).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_working_workspace_needs_you_once_any_of_its_threads_waits_on_an_approval() {
+        let store = Store::in_memory().unwrap();
+        for id in ["asks", "busy"] {
+            store.seed_workspace(id, WorkspaceLifecycle::Running);
+            store.seed_thread(&format!("{id}-lead"), id, ThreadStatus::Running);
+        }
+        let mut child = crate::store::fixtures::thread("child", "asks", ThreadStatus::Running);
+        child.role = None;
+        store.upsert_thread(&child).unwrap();
+        store
+            .insert_pending_approval("a1", "child", "edit", &ApprovalPayload::titled("Edit"))
+            .unwrap();
+
+        let persisted = read(&store);
+        let records = crate::workspaces::Workspaces::new(store.clone())
+            .live()
+            .await
+            .unwrap();
+        let own = own_threads(&persisted.threads);
+
+        assert_eq!(needing_attention(&records, &persisted, &own), ["asks"]);
     }
 
     #[test]

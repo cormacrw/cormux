@@ -56,6 +56,7 @@ describe('buildPaletteCommands', () => {
           runCommand: 'pnpm dev',
         }),
       findingsAvailable: () => true,
+      needsYou: () => false,
     }).map((c) => c.label)
 
     expect(labels).toContain('New thread')
@@ -92,6 +93,7 @@ describe('buildPaletteCommands', () => {
           runCommand: '',
         }),
       findingsAvailable: () => false,
+      needsYou: () => false,
     }).map((c) => c.label)
 
     expect(labels).toContain('Open Reviewer in Auth')
@@ -118,6 +120,7 @@ describe('buildPaletteCommands', () => {
           runCommand: '',
         }),
       findingsAvailable: (workspace) => workspace.id === 'ws-2',
+      needsYou: () => false,
     }).map((c) => c.label)
 
     expect(labels).toContain('Open Findings in Billing')

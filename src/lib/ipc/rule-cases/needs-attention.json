@@ -1,0 +1,47 @@
+[
+  {
+    "lifecycle": "running",
+    "own": "running",
+    "pending": 1,
+    "needsAttention": true
+  },
+  {
+    "lifecycle": "running",
+    "own": "running",
+    "pending": 0,
+    "needsAttention": false
+  },
+  { "lifecycle": "idle", "own": "idle", "pending": 0, "needsAttention": true },
+  { "lifecycle": "ready", "own": "idle", "pending": 0, "needsAttention": true },
+  {
+    "lifecycle": "paused",
+    "own": "paused",
+    "pending": 0,
+    "needsAttention": true
+  },
+  {
+    "lifecycle": "idle",
+    "own": "running",
+    "pending": 0,
+    "needsAttention": false
+  },
+  {
+    "lifecycle": "idle",
+    "own": "provisioning",
+    "pending": 0,
+    "needsAttention": false
+  },
+  {
+    "lifecycle": "provisioning",
+    "own": null,
+    "pending": 0,
+    "needsAttention": false
+  },
+  {
+    "lifecycle": "provisioningFailed",
+    "own": "idle",
+    "pending": 0,
+    "needsAttention": true
+  },
+  { "lifecycle": "running", "own": null, "pending": 0, "needsAttention": false }
+]

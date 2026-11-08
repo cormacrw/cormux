@@ -67,6 +67,13 @@ fn thread_status(thread: &ThreadRow, workspace: &WorkspaceRow) -> &'static str {
     }
 }
 
+/// Whether a thread an agent asked about is stuck on the user: an approval waits, or its setup
+/// failed. An idle thread is done, unlike for the sidebar (`workspaces::needs_attention`), which
+/// asks the user to prompt or close it.
+fn blocked(pending_approvals: usize, status: &str) -> bool {
+    pending_approvals > 0 || status == FAILED.as_str()
+}
+
 fn truncated(text: &str, limit: usize) -> String {
     match text.char_indices().nth(limit) {
         Some((at, _)) => format!("{}… [cut; read_thread has the rest]", &text[..at]),
@@ -123,7 +130,7 @@ pub fn list_threads(store: &Store, caller_id: &str, scope: Option<&str>) -> Resu
             "title": workspace.name,
             "status": status,
             "branch": workspace.branch,
-            "needsAttention": pending > 0 || status == FAILED.as_str(),
+            "needsAttention": blocked(pending, status),
             "parentThreadId": thread.parent_thread_id,
         }));
     }

@@ -1,4 +1,5 @@
 import type { Bang, SettingsPatch } from '$lib/ipc/bindings'
+import { workspacesNeedingAttention } from '../attention'
 import { threadActivity } from '../db'
 import { fixtureEngines } from '../fixtures'
 import { CHANGE, type HarnessRuntime } from '../runtime'
@@ -32,6 +33,7 @@ export function coreHandlers({
       snapshot.pendingApprovals = snapshot.persisted.approvals.filter(
         (row) => row.status === 'pending',
       ).length
+      snapshot.workspacesNeedingAttention = workspacesNeedingAttention(snapshot)
       // A copy, as the real IPC deserialises one: the stores keep rows whose contents didn't
       // change, so handing them the harness's own objects would hide its edits.
       return structuredClone(snapshot)

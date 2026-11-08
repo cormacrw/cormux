@@ -3,9 +3,9 @@ import {
   nestThreadList,
   sortThreadList,
   splitThreadList,
-  threadUrgency,
   type ThreadUrgency,
 } from '$lib/sidebar/thread-list'
+import { attention } from '$lib/state/attention.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches } from '$lib/state/scratches.svelte'
 import { threadActivity } from '$lib/state/thread-activity.svelte'
@@ -49,7 +49,9 @@ class ThreadList {
         title: workspace.name,
         repoName: repos.getById(workspace.repoId)?.name || null,
         branch: workspace.branch,
-        urgency: threadUrgency(workspace, thread?.status),
+        urgency: attention.needsYou(workspace.id)
+          ? ('attention' as const)
+          : ('quiet' as const),
         activityAtMs:
           (thread && activity[thread.id]) || (workspace.createdAtMs ?? 0),
         workspace,

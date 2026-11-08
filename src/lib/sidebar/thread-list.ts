@@ -1,16 +1,8 @@
-import { needsAttention } from '$lib/state/activity'
-
 /**
- * Attention: the workspace needs you (`needsAttention`). Quiet: it's working, or it's a read-only
- * leftover there's nothing to do with.
+ * Attention: the workspace needs you, by the core's rule (`attention.needsYou`). Quiet: it's
+ * working, or it's a read-only leftover there's nothing to do with.
  */
 export type ThreadUrgency = 'attention' | 'quiet'
-
-export function threadUrgency(
-  ...args: Parameters<typeof needsAttention>
-): ThreadUrgency {
-  return needsAttention(...args) ? 'attention' : 'quiet'
-}
 
 /**
  * Working threads step out of the way into their own section, except the one you're on: it stays

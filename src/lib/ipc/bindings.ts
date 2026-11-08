@@ -710,13 +710,17 @@ toastRaised: "toast-raised"
 
 /** user-defined constants **/
 
+export const ATTACHED_LINE_PREFIX = "Attached: " as const;
 export const CONVERSATION_STEP_KINDS = ["sessionStarted","sessionResumed"] as const;
 export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
+export const ENGINE_EFFORTS = [{"id":"low","label":"Low"},{"id":"medium","label":"Medium"},{"id":"high","label":"High"},{"id":"xhigh","label":"Extra high"},{"id":"max","label":"Max"}] as const;
+export const ENGINE_MODELS = [{"id":"fable","label":"Fable"},{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"},{"id":"haiku","label":"Haiku"}] as const;
 export const FINDINGS_BLOCK_TAG = "cormux-findings" as const;
 export const FIRST_CONVERSATION = "first" as const;
 export const MEDIA_EXTENSIONS = {"gif":"image","jpeg":"image","jpg":"image","m4v":"video","mov":"video","mp4":"video","png":"image","webm":"video","webp":"image"} as const;
 export const MID_TURN_THREAD_STATUSES = ["running","paused"] as const;
 export const OUTPUT_LINE_CAP = 500 as const;
+export const TRANSCRIPT_KINDS = {"briefing":"message","currentTool":"current_tool","engineExited":"exit","messageChunk":"message","permission":"permission","plan":"plan","sessionStarted":"session","step":"tool","toolCall":"tool","toolCallUpdate":"tool_update","turnEnd":"turn_end","usage":"usage"} as const;
 export const TURN_ENDING_EVENTS = ["turnEnd","engineExited"] as const;
 export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
 
@@ -1312,7 +1316,11 @@ workspaceRunBlocks: WorkspaceRunBlock[];
 /**
  * Each live workspace's own thread, for those with one.
  */
-workspaceOwnThreads: WorkspaceOwnThread[] }
+workspaceOwnThreads: WorkspaceOwnThread[]; 
+/**
+ * The live workspaces that need the user, by `workspaces::needs_attention`.
+ */
+workspacesNeedingAttention: string[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.

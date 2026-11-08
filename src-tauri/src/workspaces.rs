@@ -473,6 +473,23 @@ pub fn branch_locks(
         .collect()
 }
 
+/// Whether a workspace needs the user: nothing works in it, so it needs prompting or closing, or
+/// an agent waits on one of its `pending` approvals. `own` is its own thread's status. The
+/// snapshot carries it for the sidebar, switcher and palette. An agent asking about threads gets
+/// orchestration's rule instead, where an idle thread is done rather than waiting.
+pub fn needs_attention(
+    workspace: &WorkspaceRecord,
+    own: Option<ThreadStatus>,
+    pending: usize,
+) -> bool {
+    let working = own.is_some_and(ThreadStatus::is_working)
+        || matches!(
+            workspace.status,
+            WorkspaceLifecycle::Provisioning | WorkspaceLifecycle::Running
+        );
+    !working || pending > 0
+}
+
 fn load<'a>(store: &Store, inner: &'a mut Inner, id: &str) -> Result<&'a mut WorkspaceRecord> {
     if !inner.records.contains_key(id) {
         let row = store
@@ -1007,5 +1024,38 @@ mod tests {
         assert!(agents.contains("running agents"), "{agents}");
         assert_eq!(branch_lock(Lifecycle::Paused, [Paused, Idle]), None);
         assert_eq!(branch_lock(Lifecycle::ProvisioningFailed, [Idle]), None);
+    }
+
+    /// The browser harness reads the same cases (`src/lib/dev/harness/attention.test.ts`). A
+    /// workspace is working as soon as its own thread is, before its lifecycle catches up.
+    #[test]
+    fn a_workspace_needs_you_when_nothing_works_in_it_or_an_approval_waits() {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Case {
+            lifecycle: WorkspaceLifecycle,
+            own: Option<ThreadStatus>,
+            pending: usize,
+            needs_attention: bool,
+        }
+        let cases: Vec<Case> = serde_json::from_str(include_str!(
+            "../../src/lib/ipc/rule-cases/needs-attention.json"
+        ))
+        .unwrap();
+        let repo = crate::store::fixtures::repo("r1");
+        for case in cases {
+            let workspace = WorkspaceRecord::from_row(
+                &row("w", "feat", "main", Path::new("/tmp")).with_status(case.lifecycle),
+                &repo,
+            );
+            assert_eq!(
+                needs_attention(&workspace, case.own, case.pending),
+                case.needs_attention,
+                "{:?} {:?} {}",
+                case.lifecycle,
+                case.own,
+                case.pending
+            );
+        }
     }
 }

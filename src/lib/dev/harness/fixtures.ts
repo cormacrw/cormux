@@ -159,6 +159,7 @@ export function createFixtures() {
     workspaceOwnThreads: [
       { workspaceId: WORKSPACE_ID, threadId: LEAD_THREAD_ID },
     ],
+    workspacesNeedingAttention: [],
   }
   const timeline: StoredEventRow[] = [
     {

@@ -18,6 +18,7 @@ import { settings } from '$lib/settings/store.svelte'
 import { clickup } from '$lib/clickup/store.svelte'
 import { findings } from '$lib/findings/store.svelte'
 import { prs, type PullRequest } from '$lib/state/prs.svelte'
+import { attention } from '$lib/state/attention.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches, type Scratch } from '$lib/state/scratches.svelte'
 import { threads, type Thread } from '$lib/state/threads.svelte'
@@ -40,6 +41,7 @@ export type PaletteState = {
   pullRequests: PullRequest[]
   appControlsFor: (workspaceId: string) => AppControls
   findingsAvailable: (workspace: Workspace) => boolean
+  needsYou: (workspaceId: string) => boolean
 }
 
 function storeState(): PaletteState {
@@ -54,6 +56,7 @@ function storeState(): PaletteState {
     pullRequests: prs.items,
     appControlsFor: appControls,
     findingsAvailable: (workspace) => findings.tabAvailable(workspace),
+    needsYou: (workspaceId) => attention.needsYou(workspaceId),
   }
 }
 
@@ -134,7 +137,7 @@ export function buildPaletteCommands(
       group: 'Workspaces',
       label: `Open ${workspace.name}`,
       meta: workspaceCardMetaText(
-        workspace,
+        state.needsYou(workspace.id),
         wsThreads.filter((thread) => !thread.retired),
       ),
       icon: 'workspace',
