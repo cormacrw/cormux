@@ -304,9 +304,15 @@ impl Git {
         Self::require_success(&output, "worktree add")
     }
 
+    /// Outside the repo's queue, like `fetch`: new threads in this repo shouldn't wait on the
+    /// network.
     pub async fn fetch_pull_ref(&self, repo: &Path, number: u64, local_branch: &str) -> Result<()> {
         let refspec = format!("pull/{number}/head:{local_branch}");
-        let output = self.run(repo, &["fetch", "origin", &refspec]).await?;
+        let args = ["fetch", "origin", &refspec];
+        let fetch = self.run_unlocked(Some(repo), &args);
+        let output = tokio::time::timeout(BACKGROUND_FETCH_TIMEOUT, fetch)
+            .await
+            .map_err(|_| Error::Git("fetching the pull request timed out".into()))??;
         Self::require_success(&output, "fetch pull ref")
     }
 
@@ -1418,6 +1424,42 @@ mod tests {
         run_ok(&clone, &["git", "config", "user.email", "cormux@test"]);
         run_ok(&clone, &["git", "config", "user.name", "Cormux"]);
         (dir, clone)
+    }
+
+    /// Bug: a PR review's checkout fetched inside the repo's queue with no timeout, so a stalled
+    /// network held up every new worktree in that repo.
+    #[tokio::test]
+    async fn fetching_a_pull_request_does_not_wait_on_the_repos_queue() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        run_ok(&origin, &["git", "update-ref", "refs/pull/7/head", "HEAD"]);
+        let (_clone_dir, clone) = clone_of(&origin);
+
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let (started, queued) = tokio::sync::oneshot::channel::<()>();
+        let holder = {
+            let git = git.clone();
+            let clone = clone.clone();
+            tokio::spawn(async move {
+                git.queue()
+                    .run(&clone, || async {
+                        let _ = started.send(());
+                        let _ = held.await;
+                    })
+                    .await
+            })
+        };
+        queued.await.unwrap();
+
+        let fetch = git.fetch_pull_ref(&clone, 7, "cormux/review-7");
+        tokio::time::timeout(Duration::from_secs(20), fetch)
+            .await
+            .expect("waited on the queue")
+            .unwrap();
+
+        let _ = release.send(());
+        holder.await.unwrap();
+        assert!(git.ref_exists(&clone, "cormux/review-7").await.unwrap());
     }
 
     #[tokio::test]
