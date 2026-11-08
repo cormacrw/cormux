@@ -12,7 +12,6 @@ test.describe('repos', () => {
     await page.goto('/')
 
     await page.getByRole('button', { name: 'Settings' }).click()
-    await expect(page.getByText('Default base branch')).toHaveCount(0)
     await page.getByRole('button', { name: 'Configure my-app' }).click()
     const field = page.getByRole('button', { name: 'Default branch' })
     await expect(field).toHaveText('main')

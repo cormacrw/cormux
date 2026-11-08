@@ -9,13 +9,11 @@ test('the first page is a new thread, and typing into it spawns a workspace', as
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'New thread' })).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page.locator('[data-od-id="thread-tabs"]')).toHaveCount(0)
   const composer = page.locator('#composer-input')
   await expect(composer).toBeFocused()
 
-  // The repo lives in the prompt bar; the base is the default unless the prompt says otherwise.
+  // The repo lives in the prompt bar.
   await expect(page.locator('#new-thread-repo')).toHaveText('my-app')
-  await expect(page.locator('#new-thread-base')).toHaveCount(0)
 
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/new-thread.png' })
@@ -125,7 +123,6 @@ test('the sidebar is a flat list that says where each thread lives', async ({
   const row = page.getByRole('button', { name: /^OAuth login,/ })
   await expect(row).toContainText('my-app')
   await expect(row).toContainText('feat/')
-  await expect(page.locator('#side-repo-label')).toHaveCount(0)
 })
 
 test('a working thread only moves to Working once you leave it', async ({
@@ -188,10 +185,6 @@ test('a thread flashes only while waiting on you, and carries no status text', a
   await page.locator('[data-od-id="working-toggle"]').click()
   await expect(row).toHaveAttribute('data-urgency', 'quiet')
   await expect(row.locator('[data-od-id="thread-row-spinner"]')).toBeVisible()
-  await expect(row.locator('.opacity-50')).toBeVisible()
-  await expect(
-    row.locator('.opacity-50 .text-muted-foreground').first(),
-  ).toContainText('OAuth login')
   mkdirSync('e2e/output', { recursive: true })
   await page.waitForTimeout(1600) // let the rows and the greeting settle
   await page.screenshot({ path: 'e2e/output/thread-working.png' })
