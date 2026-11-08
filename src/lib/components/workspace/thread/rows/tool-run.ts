@@ -47,7 +47,7 @@ export function toolIcon(step: RunStep): IconName {
 }
 
 /** Reads, searches, commands and edits are subtle lines; agents, other tools and core steps stand out. */
-export function isQuiet(step: RunStep): boolean {
+function isQuiet(step: RunStep): boolean {
   if (step.kind === 'step') return false
   return step.role.kind !== 'subagent' && step.role.kind !== 'other'
 }

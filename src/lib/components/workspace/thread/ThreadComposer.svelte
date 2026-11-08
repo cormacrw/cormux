@@ -71,7 +71,7 @@
   import { showToast } from '$lib/feedback/show-toast'
   import { composerDrafts } from '$lib/composer/drafts-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
-  import { contextPercent, usageSummary } from '$lib/usage/usage'
+  import { contextPercent, usageDetail } from '$lib/usage/usage'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import { shortcutLabel } from '$lib/keyboard/shortcuts'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
@@ -124,9 +124,7 @@
   const isPaused = $derived(threadStatus === 'paused')
   // Only how full the context is; tokens and cost are in the thread tab's tooltip.
   const contextFill = $derived(thread ? contextPercent(thread.usage) : null)
-  const usageDetail = $derived(
-    thread ? usageSummary(thread.usage).detail : undefined,
-  )
+  const usageTooltip = $derived(thread ? usageDetail(thread.usage) : undefined)
   const view = $derived(thread ? threadTimeline.threadView(thread.id) : null)
   const attachments = $derived(composerDrafts.attachmentsFor(draftId))
   // Between Send and the core taking the message, which can mean starting the agent first.
@@ -761,7 +759,7 @@
           <span
             class="shrink-0 font-mono text-[10px] text-muted-foreground/80 tabular-nums"
             data-od-id="composer-usage"
-            title={usageDetail}
+            title={usageTooltip}
             aria-label="Context {contextFill}% full">{contextFill}%</span
           >
         {/if}

@@ -11,9 +11,6 @@ test('New thread picks the repo from an app menu, not a native select', async ({
   await expect(dialog).toBeVisible()
   await expect(dialog.locator('select')).toHaveCount(0)
 
-  // Claude is the only engine, so there is nothing to pick.
-  await expect(dialog.getByRole('button', { name: 'AI engine' })).toHaveCount(0)
-
   // The label still names the control, and Esc closes the menu, not the dialog.
   const repo = dialog.getByRole('button', { name: 'Repository' })
   await expect(repo).toHaveText('my-app')

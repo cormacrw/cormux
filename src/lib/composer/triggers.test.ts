@@ -1,8 +1,32 @@
 import { describe, expect, it } from 'vitest'
 import type { Bang, ClickupTask, RepoRecord } from '$lib/ipc/bindings'
-import { pickerAt, replaceWord, wordAt } from './triggers'
+import { pickerAt, replaceWord } from './triggers'
 
-describe('wordAt', () => {
+const repo = {
+  id: 'r1',
+  name: 'web admin',
+  path: '/dev/web-admin',
+} as RepoRecord
+const task = {
+  id: 't1',
+  customId: 'ENG-1',
+  name: 'Retry webhooks',
+  url: 'https://app.clickup.com/t/t1',
+} as ClickupTask
+const bang: Bang = { id: 'b1', name: 'test', prompt: ' Run the tests. ' }
+const sources = { skills: null, repos: [repo], tasks: [task], bangs: [bang] }
+
+/** The trigger word a picker opens on with the caret at `caret`, if it's a `kind` picker. */
+function wordAt(
+  kind: 'skill' | 'repo' | 'task' | 'bang',
+  draft: string,
+  caret: number,
+) {
+  const picker = pickerAt(draft, caret, sources)
+  return picker?.kind === kind ? picker.word : null
+}
+
+describe('the word a picker opens on', () => {
   const at = (kind: Parameters<typeof wordAt>[0], draft: string) =>
     wordAt(kind, draft, draft.length)
 
@@ -110,20 +134,6 @@ describe('replaceWord', () => {
 })
 
 describe('pickerAt', () => {
-  const repo = {
-    id: 'r1',
-    name: 'web admin',
-    path: '/dev/web-admin',
-  } as RepoRecord
-  const task = {
-    id: 't1',
-    customId: 'ENG-1',
-    name: 'Retry webhooks',
-    url: 'https://app.clickup.com/t/t1',
-  } as ClickupTask
-  const bang: Bang = { id: 'b1', name: 'test', prompt: ' Run the tests. ' }
-  const sources = { skills: null, repos: [repo], tasks: [task], bangs: [bang] }
-
   it('opens the picker for the word at the caret, with what each option puts in', () => {
     expect(pickerAt('@we', 3, sources)?.options[0]).toMatchObject({
       label: '@web-admin',

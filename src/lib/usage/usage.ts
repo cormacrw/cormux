@@ -15,7 +15,7 @@ export const NO_USAGE: ThreadUsage = {
 }
 
 /** `950`, `22.3k`, `1.2M`. */
-export function formatTokens(count: number): string {
+function formatTokens(count: number): string {
   if (count < 1000) return String(count)
   if (count < 1_000_000) return `${trimZero((count / 1000).toFixed(1))}k`
   return `${trimZero((count / 1_000_000).toFixed(1))}M`
@@ -38,23 +38,13 @@ export function contextPercent(usage: ThreadUsage): number | null {
 }
 
 /**
- * A compact meter (`22.3k · 2% · $0.42`, or null before anything is reported) and a sentence
- * for its tooltip, which says what the engine didn't report rather than showing zero.
+ * The usage meter's tooltip (`22.3k tokens in context (2% of 1M) · $0.42 so far`), which says
+ * what the engine didn't report rather than showing zero.
  */
-export function usageSummary(usage: ThreadUsage): {
-  meter: string | null
-  detail: string
-} {
+export function usageDetail(usage: ThreadUsage): string {
   const percent = contextPercent(usage)
   const tokens = usage.usedTokens
-  if (tokens == null && usage.costUsd == null) {
-    return { meter: null, detail: 'Usage not reported' }
-  }
-  const meter = [
-    tokens != null ? formatTokens(tokens) : null,
-    percent != null ? `${percent}%` : null,
-    usage.costUsd != null ? formatCost(usage.costUsd) : null,
-  ].filter((part): part is string => part !== null)
+  if (tokens == null && usage.costUsd == null) return 'Usage not reported'
   const context =
     tokens == null
       ? 'Tokens not reported'
@@ -65,7 +55,7 @@ export function usageSummary(usage: ThreadUsage): {
     usage.costUsd == null
       ? 'cost not reported'
       : `${formatCost(usage.costUsd)} so far`
-  return { meter: meter.join(' · '), detail: `${context} · ${cost}` }
+  return `${context} · ${cost}`
 }
 
 /** What the threads have cost together, or null if none reported a cost. */

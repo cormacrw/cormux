@@ -475,7 +475,7 @@ describe('item ids', () => {
     atMs: 0,
     event,
   }))
-  const input = { approvals: [], findingsFor: null }
+  const input = { approvals: [] }
 
   it('come from where the store saved each item and from tool call ids', () => {
     expect(items(events).map((item) => item.id)).toEqual([

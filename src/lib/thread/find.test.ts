@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  findCounterText,
-  findMatches,
-  rowKey,
-  rowSearchText,
-  stepMatch,
-} from './find'
+import { findCounterText, findMatches, rowKey, stepMatch } from './find'
 import type { TimelineRow } from './timeline-types'
 
 const rows: TimelineRow[] = [
@@ -89,7 +83,6 @@ describe('findMatches', () => {
   })
 
   it('skips speaker rows, which only label a turn', () => {
-    expect(rowSearchText(rows[0]!)).toBe('')
     expect(findMatches(rows, 'Lead')).toEqual([])
   })
 

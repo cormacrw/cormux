@@ -1,17 +1,26 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
-// Text of the elements running a pop-in (Web Animations, not CSS transitions or keyframes).
-const popping = (page: import('@playwright/test').Page) =>
-  page.evaluate(() =>
-    document
-      .getAnimations()
-      .filter((animation) => animation.constructor.name === 'Animation')
-      .map((animation) =>
-        ((animation.effect as KeyframeEffect).target?.textContent ?? '').trim(),
-      ),
-  )
+/**
+ * Records the text of every timeline row that starts a Web Animation (a pop-in), as it starts.
+ * A pop lasts a third of a second, so polling for running ones can miss it.
+ */
+const recordPops = (page: Page) =>
+  page.addInitScript(() => {
+    const w = window as Window & { __pops?: string[] }
+    w.__pops = []
+    const animate = Element.prototype.animate
+    Element.prototype.animate = function (...args) {
+      if (this.closest('#timeline')) {
+        w.__pops!.push((this.textContent ?? '').trim())
+      }
+      return animate.apply(this, args)
+    }
+  })
 
-const replyLength = (page: import('@playwright/test').Page) =>
+const pops = (page: Page) =>
+  page.evaluate(() => (window as Window & { __pops?: string[] }).__pops ?? [])
+
+const replyLength = (page: Page) =>
   page.evaluate(
     () =>
       (
@@ -23,40 +32,54 @@ const replyLength = (page: import('@playwright/test').Page) =>
 test('only new rows pop in, and a new reply types out', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
+  await recordPops(page)
   await page.goto('/?longThread=3')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(
     page.locator('#timeline').getByText('Answer 3', { exact: true }),
   ).toBeVisible()
   // Rows already in the thread when it opens stay still.
-  expect(await popping(page)).toEqual([])
+  expect(await pops(page)).toEqual([])
 
+  // The reply's length on every frame from here, to see it reveal.
+  await page.evaluate(() => {
+    const w = window as Window & { __lengths?: number[] }
+    w.__lengths = []
+    const sample = () => {
+      const reply = [
+        ...document.querySelectorAll('#timeline .agent-markdown'),
+      ].at(-1)
+      w.__lengths!.push(reply?.textContent?.length ?? 0)
+      requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+  })
   await page.locator('#composer-input').fill('Go')
   await page.keyboard.press('Enter')
   await expect
-    .poll(() => popping(page))
-    .toEqual(expect.arrayContaining([expect.stringContaining('Go')]))
-  await expect
-    .poll(() => popping(page))
+    .poll(() => pops(page))
     .toEqual(
-      expect.arrayContaining([expect.stringContaining('src/lib/auth.ts')]),
+      expect.arrayContaining([
+        expect.stringContaining('Go'),
+        expect.stringContaining('src/lib/auth.ts'),
+      ]),
     )
-
-  // The reply is revealed a little at a time, then in full.
-  await expect.poll(() => replyLength(page)).toBeGreaterThan(0)
-  const early = await replyLength(page)
-  await expect.poll(() => replyLength(page)).toBeGreaterThan(early)
   await expect(page.locator('#timeline').getByText(/done\.$/)).toBeVisible({
     timeout: 20_000,
   })
+  await expect(page.locator('[data-od-id="composer-stop"]')).toHaveCount(0)
 
-  // Reloading the turn from the store once it ends replays nothing.
-  await expect(
-    page
-      .getByRole('navigation', { name: 'Sidebar' })
-      .getByRole('button', { name: /^OAuth login,/ }),
-  ).toBeVisible({ timeout: 5000 })
-  expect(await popping(page)).toEqual([])
+  // The reply was revealed a little at a time, then in full.
+  const full = await replyLength(page)
+  const lengths = await page.evaluate(
+    () => (window as Window & { __lengths?: number[] }).__lengths ?? [],
+  )
+  expect(lengths.some((length) => length > 0 && length < full)).toBe(true)
+
+  // Reloading the turn from the store once it ends replays nothing: the prompt popped once.
+  expect((await pops(page)).filter((text) => text.includes('Go'))).toHaveLength(
+    1,
+  )
   expect(errors).toEqual([])
 })
 

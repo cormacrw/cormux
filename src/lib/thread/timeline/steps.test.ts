@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import type { TimelineStep, TranscriptEvent } from '$lib/ipc/bindings'
-import { hasSessionToClear } from '../new-session'
 import { TimelineBuilder } from './builder'
 import { foldTimeline } from './fold'
 
@@ -131,15 +130,5 @@ describe('core steps in the timeline', () => {
     expect(builder.build({ ...input, events: rows })).toEqual(
       foldTimeline({ ...input, events: rows }),
     )
-  })
-
-  it('leave no session to clear right after a new session step', () => {
-    const started = typed(
-      { kind: 'sessionStarted', ended_session: 's1' },
-      'Rephrased',
-    )
-    const paused = typed({ kind: 'agentPaused' }, 'You paused the agent')
-    expect(hasSessionToClear([{ event: started }])).toBe(false)
-    expect(hasSessionToClear([{ event: paused }])).toBe(true)
   })
 })

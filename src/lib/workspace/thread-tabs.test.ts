@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   findingsTabAriaLabel,
   outputTabAriaLabel,
-  outputTabState,
   showFindingsTab,
 } from './thread-tabs'
 
@@ -17,12 +16,12 @@ describe('thread tab labels', () => {
       }),
     ).toBe('App output, running on localhost:5173')
     expect(
-      outputTabState({
+      outputTabAriaLabel({
         provisioning: true,
         appStatus: 'stopped',
         port: null,
       }),
-    ).toBe('setting up')
+    ).toBe('App output, setting up')
   })
 })
 

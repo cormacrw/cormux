@@ -25,4 +25,15 @@ describe('new session', () => {
       true,
     )
   })
+
+  it('has a session to clear after any other step', () => {
+    const paused: TranscriptEvent = {
+      type: 'step',
+      id: 'step-2',
+      title: 'You paused the agent',
+      detail: null,
+      step: { kind: 'agentPaused' },
+    }
+    expect(hasSessionToClear([{ event: marker }, { event: paused }])).toBe(true)
+  })
 })

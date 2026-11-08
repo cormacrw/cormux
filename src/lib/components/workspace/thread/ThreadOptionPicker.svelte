@@ -170,8 +170,10 @@
       side="top"
       class="w-44"
       onOpenAutoFocus={(event) => {
-        // Start the arrow keys from the current pick.
+        // Start the arrow keys from the current pick. bits-ui remounts the focus scope a frame
+        // after opening and runs this again; by then the arrow keys may have moved on.
         event.preventDefault()
+        if (content?.contains(document.activeElement)) return
         content?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus()
       }}
       onCloseAutoFocus={(event) => {

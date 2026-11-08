@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { revealEnd, revealRate, stableMarkdown } from './typing'
 
 describe('revealRate', () => {
-  it('types a short reply at a readable pace', () => {
-    expect(revealRate(40, true)).toBe(90)
+  const secondsToShow = (length: number, live: boolean) =>
+    length / revealRate(length, live)
+
+  it('types a short reply at a readable pace, not all at once', () => {
+    expect(revealRate(40, true)).toBe(revealRate(10, true))
+    expect(secondsToShow(40, true)).toBeGreaterThan(0.2)
   })
 
   it('catches up on a long reply within about a second, faster once it’s done', () => {
-    expect(revealRate(3000, true)).toBe(2500)
-    expect(revealRate(3000, false)).toBe(7500)
+    expect(secondsToShow(3000, true)).toBeLessThanOrEqual(1.2)
+    expect(secondsToShow(30_000, true)).toBeLessThanOrEqual(1.2)
+    expect(secondsToShow(3000, false)).toBeLessThan(secondsToShow(3000, true))
   })
 })
 

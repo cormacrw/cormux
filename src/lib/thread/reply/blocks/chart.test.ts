@@ -1,17 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { chartTicks, MAX_SERIES, parseChartSpec } from './chart'
+import { parseReply } from '../parse'
+import { chartTicks } from './chart'
 
-const spec = (fields: object) =>
-  JSON.stringify({
+/** The chart a reply's fenced `chart` block draws, or null when it stays code. */
+function chartIn(fields: object) {
+  const spec = JSON.stringify({
     type: 'bar',
     labels: ['a', 'b'],
     series: [{ name: 'x', values: [1, 2] }],
     ...fields,
   })
+  const [segment] = parseReply(`\`\`\`chart\n${spec}\n\`\`\``, {
+    streaming: false,
+  })
+  return segment?.kind === 'block' && segment.block.kind === 'chart'
+    ? segment.block.data
+    : null
+}
 
-describe('parseChartSpec', () => {
-  it('reads a chart', () => {
-    expect(parseChartSpec(spec({ title: 'Size' }))).toEqual({
+describe('a chart block', () => {
+  it('draws the chart the agent described', () => {
+    expect(chartIn({ title: 'Size' })).toEqual({
       type: 'bar',
       title: 'Size',
       labels: ['a', 'b'],
@@ -19,23 +28,19 @@ describe('parseChartSpec', () => {
     })
   })
 
-  it('refuses what it can’t draw honestly', () => {
-    expect(parseChartSpec('nope')).toBeNull()
-    expect(parseChartSpec(spec({ type: 'pie' }))).toBeNull()
-    expect(
-      parseChartSpec(spec({ series: [{ name: 'x', values: [1] }] })),
-    ).toBeNull()
-    expect(
-      parseChartSpec(spec({ series: [{ name: 'x', values: [1, 'two'] }] })),
-    ).toBeNull()
+  it('stays code when it can’t be drawn honestly', () => {
+    expect(chartIn({ type: 'pie' })).toBeNull()
+    expect(chartIn({ series: [{ name: 'x', values: [1] }] })).toBeNull()
+    expect(chartIn({ series: [{ name: 'x', values: [1, 'two'] }] })).toBeNull()
+    expect(chartIn({ labels: [] })).toBeNull()
   })
 
-  it('stops at the palette’s length', () => {
+  it('draws no more series than the palette has colours', () => {
     const series = Array.from({ length: 7 }, (_, at) => ({
       name: `s${at}`,
       values: [1, 2],
     }))
-    expect(parseChartSpec(spec({ series }))?.series).toHaveLength(MAX_SERIES)
+    expect(chartIn({ series })?.series).toHaveLength(5)
   })
 })
 

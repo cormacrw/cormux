@@ -120,8 +120,9 @@ describe('sprintTotals', () => {
 
 describe('sprint dates', () => {
   it('formats the range and counts days left', () => {
-    const start = Date.UTC(2026, 8, 22, 12)
-    const due = Date.UTC(2026, 9, 5, 12)
+    // Local noon, so the dates hold in every time zone.
+    const start = new Date(2026, 8, 22, 12).getTime()
+    const due = new Date(2026, 9, 5, 12).getTime()
     expect(sprintRange(start, due)).toBe('Sep 22 – Oct 5')
     expect(sprintRange(null, due)).toBeNull()
     expect(daysLeft(due, due - 2.5 * 86_400_000)).toBe(3)

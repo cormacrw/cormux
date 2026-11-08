@@ -22,7 +22,7 @@ const TRIGGERS = {
 type TriggerKind = keyof typeof TRIGGERS
 
 /** The `kind` word the caret is in, when it starts the draft or follows whitespace, or null. */
-export function wordAt(
+function wordAt(
   kind: TriggerKind,
   draft: string,
   caret: number,

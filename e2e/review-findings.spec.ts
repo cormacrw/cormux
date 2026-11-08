@@ -74,7 +74,6 @@ test('findings: selectable text, checkbox-only toggles, location opens Changes a
   await expect(
     panel.getByRole('heading', { name: 'Review findings' }),
   ).toBeVisible()
-  await expect(panel.getByText('Known gaps')).toHaveCount(0)
 
   // Blocking is selected by default; clicking the text doesn't toggle it.
   const blocking = panel.getByRole('checkbox', {

@@ -42,16 +42,20 @@ test('toasts are filled green, red or yellow by tone', async ({ page }) => {
 
   // The toaster expands them: three raised at once each take their own row,
   // newest at the bottom, with none drawn over another.
-  await page.waitForTimeout(400)
-  const boxes = await Promise.all(
-    ['ok', 'bad', 'default'].map(
-      async (tone) =>
-        (await page.locator(`[data-tone="${tone}"]`).boundingBox())!,
-    ),
-  )
-  const [ok, bad, fallback] = boxes
-  expect(ok.y + ok.height).toBeLessThanOrEqual(bad.y + 1)
-  expect(bad.y + bad.height).toBeLessThanOrEqual(fallback.y + 1)
+  // Waits out the toasts sliding into place.
+  const stacked = async () => {
+    const [ok, bad, fallback] = await Promise.all(
+      ['ok', 'bad', 'default'].map(
+        async (tone) =>
+          (await page.locator(`[data-tone="${tone}"]`).boundingBox())!,
+      ),
+    )
+    return (
+      ok!.y + ok!.height <= bad!.y + 1 &&
+      bad!.y + bad!.height <= fallback!.y + 1
+    )
+  }
+  await expect.poll(stacked).toBe(true)
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/toasts.png' })
   expect(errors).toEqual([])

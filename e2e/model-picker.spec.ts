@@ -88,8 +88,6 @@ test('⌘⇧M and ⌘⇧E pick with the arrow keys and ↵', async ({ page }) =>
   await expect(
     menu.getByRole('menuitemradio', { name: 'Default' }),
   ).toBeFocused()
-  // A person's next key; the menu's roving focus settles just after it takes focus.
-  await page.waitForTimeout(50)
   await page.keyboard.press('ArrowUp')
   await expect(menu.getByRole('menuitemradio', { name: 'Max' })).toBeFocused()
   await page.keyboard.press('Enter')
