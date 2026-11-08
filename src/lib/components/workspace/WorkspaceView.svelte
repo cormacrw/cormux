@@ -21,13 +21,10 @@
   const workspace = $derived(
     nav.workspaceId ? workspaces.getById(nav.workspaceId) : undefined,
   )
-  const workspaceThreads = $derived(
-    nav.workspaceId ? threads.forWorkspace(nav.workspaceId) : [],
-  )
   const activeThread = $derived(
-    workspaceThreads.find((thread) => thread.id === nav.threadId) ??
-      (nav.workspaceId ? threads.liveFor(nav.workspaceId) : undefined) ??
-      workspaceThreads[0],
+    nav.workspaceId
+      ? threads.shownIn(nav.workspaceId, nav.threadId)
+      : undefined,
   )
 
   let workspaceTitle: HTMLHeadingElement | undefined = $state()

@@ -14,7 +14,7 @@ export function openWorkspace(
   navigate({
     view: 'workspace',
     workspaceId,
-    threadId: at.threadId ?? threads.liveFor(workspaceId)?.id ?? null,
+    threadId: at.threadId ?? threads.shownIn(workspaceId)?.id ?? null,
     panel: at.panel,
     reveal: at.reveal,
   })
