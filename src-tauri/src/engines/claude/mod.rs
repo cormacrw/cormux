@@ -297,10 +297,7 @@ fn ask_permission(
     } else {
         Vec::new()
     };
-    let detail = ["command", "file_path"]
-        .iter()
-        .find_map(|key| request.input.get(*key).and_then(Value::as_str))
-        .map(str::to_string);
+    let detail = tool.asks_about();
     let (respond, answer) = oneshot::channel();
     let asked = output.send(EngineOutput::Permission(PermissionRequest {
         id: request.request_id.clone(),

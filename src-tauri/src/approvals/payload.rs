@@ -7,43 +7,24 @@ pub const QUESTION_TOOL: &str = "question";
 
 /// The card the user answers, and the row's `tool`: the kind of thing it would do.
 pub fn card(request: &PermissionRequest) -> (ApprovalPayload, &'static str) {
-    if let Some(first) = request.questions.first() {
-        let payload = ApprovalPayload {
-            title: "Question".into(),
-            what: first.question.clone(),
-            why: String::new(),
-            ok_label: "Send".into(),
-            no_label: "Skip".into(),
-            resolved_at_ms: None,
-            deny_reason: None,
-            questions: request.questions.clone(),
-            answers: Default::default(),
-        };
-        return (payload, QUESTION_TOOL);
+    if !request.questions.is_empty() {
+        return (
+            ApprovalPayload::asking(request.questions.clone()),
+            QUESTION_TOOL,
+        );
     }
-    let payload = ApprovalPayload {
-        title: format!("Use {}", request.tool),
-        what: request
-            .detail
-            .clone()
-            .unwrap_or_else(|| request.tool.clone()),
-        why: request.tool.clone(),
-        ok_label: "Approve".into(),
-        no_label: "Deny".into(),
-        resolved_at_ms: None,
-        deny_reason: None,
-        questions: Vec::new(),
-        answers: Default::default(),
-    };
-    (payload, tool_key(&request.role))
+    (
+        ApprovalPayload::to_use(&request.tool, request.detail.as_deref()),
+        tool_key(&request.role),
+    )
 }
 
-/// The request as the thread records it.
-pub fn event(request: &PermissionRequest, auto_approved: bool) -> HostEvent {
+/// The request as the thread records it, with the card it shows.
+pub fn event(request: &PermissionRequest, card: ApprovalPayload, auto_approved: bool) -> HostEvent {
     HostEvent::Permission {
         id: request.id.clone(),
         tool_call_id: request.tool_call_id.clone(),
-        title: format!("Use {}", request.tool),
+        card: Box::new(card),
         tool: request.tool.clone(),
         role: request.role.clone(),
         detail: request.detail.clone(),

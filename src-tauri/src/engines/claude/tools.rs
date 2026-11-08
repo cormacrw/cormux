@@ -39,6 +39,17 @@ pub struct ToolUse {
     pub hidden: bool,
 }
 
+impl ToolUse {
+    /// What a permission request names: the command a shell call would run, or the file a tool
+    /// would touch.
+    pub fn asks_about(&self) -> Option<String> {
+        match &self.role {
+            ToolRole::Command { command, .. } => (!command.is_empty()).then(|| command.clone()),
+            _ => self.locations.first().cloned(),
+        }
+    }
+}
+
 pub fn tool_use(name: &str, input: &Value) -> ToolUse {
     let field = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_string);
     let path = field("file_path").or_else(|| field("notebook_path"));
@@ -218,6 +229,31 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_permission_names_the_command_or_the_file() {
+        for (name, input, asks_about) in [
+            (
+                "Bash",
+                json!({ "command": "ls", "description": "List" }),
+                Some("ls"),
+            ),
+            ("Bash", json!({}), None),
+            ("Edit", json!({ "file_path": "/a.rs" }), Some("/a.rs")),
+            (
+                "NotebookEdit",
+                json!({ "notebook_path": "/n.ipynb" }),
+                Some("/n.ipynb"),
+            ),
+            ("Grep", json!({ "pattern": "todo" }), None),
+        ] {
+            assert_eq!(
+                tool_use(name, &input).asks_about().as_deref(),
+                asks_about,
+                "{name}"
+            );
+        }
+    }
 
     #[test]
     fn names_read_as_words() {

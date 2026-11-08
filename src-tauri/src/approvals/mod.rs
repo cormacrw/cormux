@@ -108,13 +108,13 @@ impl ApprovalBroker {
         policy: ApprovalPolicy,
     ) -> oneshot::Receiver<ApprovalDecision> {
         let (decided, decision) = oneshot::channel();
+        let (card, tool) = payload::card(request);
         if !policy.asks_user(request) {
             self.transcript
-                .signal(thread_id, payload::event(request, true));
+                .signal(thread_id, payload::event(request, card, true));
             let _ = decided.send(ApprovalDecision::Approved);
             return decision;
         }
-        let (card, tool) = payload::card(request);
         {
             let mut waiting = self.waiting();
             if let Err(error) =
@@ -137,7 +137,7 @@ impl ApprovalBroker {
             );
             if let Err(error) = self
                 .transcript
-                .append(thread_id, payload::event(request, false))
+                .append(thread_id, payload::event(request, card, false))
             {
                 log::warn!("recording {thread_id}'s approval {}: {error}", request.id);
             }

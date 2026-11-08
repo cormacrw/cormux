@@ -283,6 +283,42 @@ pub struct ApprovalPayload {
     pub answers: std::collections::BTreeMap<String, String>,
 }
 
+/// The two cards an agent's request can show; `approvals::payload::card` picks one.
+impl ApprovalPayload {
+    /// An agent asking to use `tool` (as words), on `detail` when the request names it.
+    pub fn to_use(tool: &str, detail: Option<&str>) -> Self {
+        Self {
+            title: format!("Use {tool}"),
+            what: detail.unwrap_or(tool).to_string(),
+            why: tool.to_string(),
+            ok_label: "Approve".into(),
+            no_label: "Deny".into(),
+            resolved_at_ms: None,
+            deny_reason: None,
+            questions: Vec::new(),
+            answers: Default::default(),
+        }
+    }
+
+    /// An agent asking the user `questions`; the card leads with the first.
+    pub fn asking(questions: Vec<AgentQuestion>) -> Self {
+        Self {
+            title: "Question".into(),
+            what: questions
+                .first()
+                .map(|first| first.question.clone())
+                .unwrap_or_default(),
+            why: String::new(),
+            ok_label: "Send".into(),
+            no_label: "Skip".into(),
+            resolved_at_ms: None,
+            deny_reason: None,
+            questions,
+            answers: Default::default(),
+        }
+    }
+}
+
 #[cfg(test)]
 impl ApprovalPayload {
     pub fn titled(title: &str) -> Self {

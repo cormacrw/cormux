@@ -937,7 +937,7 @@ export type GitConflictState = { paths: string[] }
  * ending or the engine exiting, a permission card it asked for, the thread's running usage, and
  * the tool it waits on.
  */
-export type HostEvent = { type: "permission"; id: string; tool_call_id: string | null; title: string; tool: string; role: ToolRole; detail: string | null; auto_approved: boolean } | 
+export type HostEvent = { type: "permission"; id: string; tool_call_id: string | null; card: ApprovalPayload; tool: string; role: ToolRole; detail: string | null; auto_approved: boolean } | 
 /**
  * What the agent is waiting on right now, for the thread's live row.
  */

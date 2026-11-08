@@ -26,6 +26,7 @@ pub const RUST_MIGRATIONS: &[crate::store::migrate::RustMigration] = &[
     crate::transcript::MIGRATION,
     crate::harness_config::MIGRATION,
     crate::settings::MIGRATION,
+    crate::transcript::PERMISSION_CARDS,
 ];
 
 /// What an owner does to the store when the app opens, for what the last run left mid-way.

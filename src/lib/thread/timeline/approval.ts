@@ -29,19 +29,20 @@ export function approvalItem(
   approvals: ApprovalRow[],
 ): ApprovalItem {
   const row = approvalById(approvals, event.id)
-  const payload = row?.payload ?? null
+  // The row is the card as answered; until it arrives (or if it can't be read) the request's own.
+  const card = row?.payload ?? event.card
   return {
     kind: 'approval',
     id: event.id,
-    title: payload?.title ?? event.title,
-    what: payload?.what ?? event.detail ?? event.tool,
-    why: payload?.why ?? event.tool,
-    okLabel: payload?.okLabel ?? 'Approve',
-    noLabel: payload?.noLabel ?? 'Deny',
+    title: card.title,
+    what: card.what ?? '',
+    why: card.why ?? '',
+    okLabel: card.okLabel,
+    noLabel: card.noLabel,
     state: approvalState(row),
-    doneAtMs: payload?.resolvedAtMs ?? null,
-    questions: payload?.questions ?? [],
-    answers: payload?.answers ?? {},
+    doneAtMs: card.resolvedAtMs ?? null,
+    questions: card.questions ?? [],
+    answers: card.answers ?? {},
     seq,
     atMs,
   }

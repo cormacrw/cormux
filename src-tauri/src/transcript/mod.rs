@@ -26,7 +26,7 @@ use tokio::sync::broadcast;
 
 use crate::engines::{AgentEvent, ToolRole};
 use crate::error::{Error, Result};
-use crate::model::StopReason;
+use crate::model::{ApprovalPayload, StopReason};
 use crate::store::Store;
 use crate::timeline::TimelineStep;
 
@@ -34,7 +34,7 @@ pub use conversations::{CONVERSATION_STEP_KINDS, FIRST_CONVERSATION, ThreadConve
 use conversations::{Conversations, Counted, is_boundary};
 pub use store::ThreadActivityRow;
 pub(crate) use store::activity_in;
-pub use upgrade::MIGRATION;
+pub use upgrade::{MIGRATION, PERMISSION_CARDS};
 
 /// Events a subscriber can fall behind by before it's told to read the store instead.
 const STREAM_CAP: usize = 256;
@@ -61,7 +61,8 @@ pub enum HostEvent {
     Permission {
         id: String,
         tool_call_id: Option<String>,
-        title: String,
+        /// The card as the request first showed it; the approval's row has it as answered.
+        card: Box<ApprovalPayload>,
         /// The tool as words.
         tool: String,
         role: ToolRole,

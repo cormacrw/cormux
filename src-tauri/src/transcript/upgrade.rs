@@ -2,8 +2,9 @@
 //! core steps saved as tool calls titled in English (a `control-`, `legacy-`, `pr-open-`,
 //! `scratch-open-`, `review-` or `finding-` id, or a bare `{icon, title, detail}`) become typed
 //! steps; tool calls and permission requests get the role their Claude tool name meant; replayed
-//! tool calls are dropped; a review's untyped briefing gets its type. The rules are the ones the
-//! timeline drew these rows by, so they look the same afterwards.
+//! tool calls are dropped; a review's untyped briefing gets its type (024); a permission request
+//! saved with a title gets its card (036). The rules are the ones the timeline drew these rows
+//! by, so they look the same afterwards.
 
 use std::collections::{HashMap, HashSet};
 
@@ -15,6 +16,7 @@ use crate::engines::{
     AgentEvent, SavedCall, ToolCallStatus, restore_call, restore_permission_tool,
 };
 use crate::error::Result;
+use crate::model::ApprovalPayload;
 use crate::store::RustMigration;
 
 use super::store::{Rewrite, rewrite_rows};
@@ -138,7 +140,7 @@ fn permission(row: &Map<String, Value>) -> TranscriptEvent {
     HostEvent::Permission {
         id: text("id").unwrap_or_default().to_string(),
         tool_call_id: text("tool_call_id").map(str::to_string),
-        title: format!("Use {tool}"),
+        card: Box::new(ApprovalPayload::to_use(&tool, detail)),
         tool,
         role,
         detail: detail.map(str::to_string),
@@ -324,13 +326,45 @@ fn number_after(text: &str, before: &str, after: &str) -> Option<u32> {
     }
 }
 
+/// Permission requests saved with a title instead of their card get the card the timeline drew
+/// for them from the request's tool and detail.
+pub const PERMISSION_CARDS: RustMigration = RustMigration {
+    name: "036_permission_cards",
+    run: |conn| {
+        rewrite_rows(
+            conn,
+            |_, _, kind, payload| with_card(kind, payload),
+            |_| None,
+        )
+    },
+};
+
+fn with_card(kind: &str, payload: &str) -> Rewrite {
+    let Ok(Value::Object(mut row)) = serde_json::from_str::<Value>(payload) else {
+        return Rewrite::Keep;
+    };
+    if row.get("type").and_then(Value::as_str) != Some("permission") || row.contains_key("card") {
+        return Rewrite::Keep;
+    }
+    let text = |key: &str| row.get(key).and_then(Value::as_str);
+    let card = ApprovalPayload::to_use(text("tool").unwrap_or_default(), text("detail"));
+    let Ok(card) = serde_json::to_value(card) else {
+        return Rewrite::Keep;
+    };
+    row.remove("title");
+    row.insert("card".into(), card);
+    Rewrite::Replace {
+        kind: kind.to_string(),
+        payload: Value::Object(row).to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
     use crate::engines::ToolRole;
-    use crate::model::ApprovalPayload;
     use crate::model::ThreadRole;
     use crate::store::Store;
     use crate::store::types::ThreadRow;
@@ -533,11 +567,11 @@ mod tests {
             panic!("{:?}", rows[2]);
         };
         assert!(hidden);
-        let TranscriptEvent::Host(HostEvent::Permission { title, tool, .. }) = &rows[3].1 else {
+        let TranscriptEvent::Host(HostEvent::Permission { card, tool, .. }) = &rows[3].1 else {
             panic!("{:?}", rows[3]);
         };
         assert_eq!(
-            (title.as_str(), tool.as_str()),
+            (card.title.as_str(), tool.as_str()),
             ("Use Github: Get pr", "Github: Get pr")
         );
         assert_eq!(rows[4].1, TranscriptEvent::briefing("Review PR #4"));
@@ -545,6 +579,32 @@ mod tests {
         let card = store.get_approval("p1").unwrap().unwrap().payload.unwrap();
         assert_eq!(card.title, "Use Github: Get pr");
         assert_eq!(card.why, "Github: Get pr");
+    }
+
+    #[test]
+    fn a_permission_saved_with_a_title_gets_the_card_it_was_drawn_with() {
+        let store = store_with(&[(
+            "permission",
+            json!({ "type": "permission", "id": "p1", "tool_call_id": null,
+                    "title": "Use Bash", "tool": "Bash",
+                    "role": { "kind": "command", "command": "ls", "description": null },
+                    "detail": "ls", "auto_approved": false }),
+        )]);
+        store.with_conn(PERMISSION_CARDS.run).unwrap();
+        store.with_conn(PERMISSION_CARDS.run).unwrap();
+
+        let rows = events(&store);
+        let TranscriptEvent::Host(HostEvent::Permission { card, .. }) = &rows[0].1 else {
+            panic!("{:?}", rows[0]);
+        };
+        assert_eq!(**card, ApprovalPayload::to_use("Bash", Some("ls")));
+        assert_eq!(
+            (card.title.as_str(), card.what.as_str(), card.why.as_str()),
+            ("Use Bash", "ls", "Bash")
+        );
+        let (_, _, saved) = store.thread_events_after("t1", 0, 1).unwrap().remove(0);
+        let saved: Value = serde_json::from_str(&saved).unwrap();
+        assert!(saved.get("title").is_none(), "{saved}");
     }
 
     #[test]
