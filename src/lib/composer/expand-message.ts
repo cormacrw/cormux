@@ -1,4 +1,4 @@
-import { commands, type CoreError } from '$lib/ipc'
+import type { CoreError } from '$lib/ipc'
 import { coreErrorText } from '$lib/core/core-error'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
 import type { ClickupTask } from '$lib/ipc/bindings'
@@ -27,12 +27,10 @@ function errorText(error: unknown): string {
 const DESCRIPTION_WAIT_MS = 3000
 
 async function description(task: ClickupTask): Promise<string> {
-  const known = clickup.details[task.id]?.description
-  if (known !== undefined) return known
-  const fetched = commands
-    .clickupTask(task.id)
+  const fetched = clickup
+    .description(task.id)
     .then((result) => {
-      if (result.status === 'ok') return result.data.description
+      if (result.status === 'ok') return result.data
       descriptionLeftOut(task, result.error)
       return ''
     })
@@ -56,7 +54,7 @@ export async function expandMessage(text: string): Promise<string> {
   const withRepos = expandRepoAliases(withBangs, repos.items)
   const { text: expanded, mentioned } = expandTaskAliases(
     withRepos,
-    clickup.mine?.tasks ?? [],
+    clickup.sprintTasks,
   )
   if (!mentioned.length) return expanded
   const descriptions = Object.fromEntries(

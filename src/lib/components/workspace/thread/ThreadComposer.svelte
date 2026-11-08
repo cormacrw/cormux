@@ -119,7 +119,7 @@
   let pickerDismissed = $derived(startsOver(draftId, false))
   /** Where the caret is in the draft; the picker follows the trigger word it's in. */
   let caret = $derived(startsOver(draftId, 0))
-  const sprintTasks = $derived(clickup.mine?.tasks ?? [])
+  const sprintTasks = $derived(clickup.sprintTasks)
   const picker = $derived(
     pickerAt(draft, caret, {
       skills,
