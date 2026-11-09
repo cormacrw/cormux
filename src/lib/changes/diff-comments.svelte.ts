@@ -1,25 +1,23 @@
 import type { DiffTarget } from '$lib/ipc/bindings'
 import type { DiffComment } from './diff-comment-format'
-
-export type { DiffComment, DiffCommentSide } from './diff-comment-format'
+import { resolveHead } from './stack'
 
 /** Stored comments carry the level they were written on, since line numbers only hold within that diff. */
-export type ScopedDiffComment = DiffComment & { branch: string | null }
+type ScopedDiffComment = DiffComment & { branch: string | null }
 
 /** The branch a diff target shows, or null for uncommitted changes. */
 export function commentBranch(
   target: DiffTarget | null,
   currentBranch: string,
 ): string | null {
-  if (!target) return null
-  return target.head === 'HEAD' ? currentBranch : target.head
+  return target && resolveHead(target, currentBranch)
 }
 
 /** Draft review comments on the Changes diff, per workspace and branch, until sent to an agent. */
-export class DiffCommentsStore {
+class DiffCommentsStore {
   byWorkspace = $state<Record<string, ScopedDiffComment[]>>({})
 
-  list(workspaceId: string): ScopedDiffComment[] {
+  private list(workspaceId: string): ScopedDiffComment[] {
     return this.byWorkspace[workspaceId] ?? []
   }
 

@@ -1,8 +1,46 @@
 use std::collections::HashMap;
+use std::path::Path;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::git::Git;
 use crate::paths::expand_tilde;
+
+/// A GitHub repository, as the REST API addresses it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoSlug {
+    pub owner: String,
+    pub name: String,
+}
+
+impl RepoSlug {
+    /// From a GitHub remote URL or any github.com page of the repo (a pull request's).
+    pub fn parse(url: &str) -> Option<Self> {
+        let slug = parse_origin_url(url)?;
+        let (owner, name) = slug.split_once('/')?;
+        Some(Self {
+            owner: owner.to_string(),
+            name: name.to_string(),
+        })
+    }
+
+    /// `owner/name`.
+    pub fn full_name(&self) -> String {
+        format!("{}/{}", self.owner, self.name)
+    }
+
+    pub async fn of_origin(git: &Git, path: &Path) -> Result<Self> {
+        let origin = git
+            .remote_origin_url(path)
+            .await?
+            .ok_or_else(|| Error::Git("no origin remote configured for this repo".into()))?;
+        Self::parse(&origin).ok_or_else(|| {
+            Error::Git(format!(
+                "could not parse origin URL {}",
+                redact_origin_url(&origin)
+            ))
+        })
+    }
+}
 
 /// Normalised `owner/repo` slug used to match GitHub PRs to registered repos.
 pub fn parse_origin_url(raw: &str) -> Option<String> {
@@ -137,6 +175,23 @@ mod tests {
         );
         assert_eq!(parse_origin_url("github.com/o/r"), Some("o/r".into()));
         assert_eq!(parse_origin_url("git@gitlab.com:o/r.git"), None);
+    }
+
+    #[test]
+    fn a_slug_comes_from_a_remote_or_a_pull_request_page() {
+        let slug = |owner: &str, name: &str| RepoSlug {
+            owner: owner.into(),
+            name: name.into(),
+        };
+        assert_eq!(
+            RepoSlug::parse("https://github.com/Acme/app/pull/12"),
+            Some(slug("acme", "app"))
+        );
+        assert_eq!(
+            RepoSlug::parse("git@github.com:o/r.git"),
+            Some(slug("o", "r"))
+        );
+        assert_eq!(RepoSlug::parse("https://gitlab.com/o/r/pull/1"), None);
     }
 
     #[test]

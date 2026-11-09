@@ -1,65 +1,105 @@
-import { shownMessage } from '$lib/composer/attachments'
-import { fixtureSnapshot, fixtureTimeline } from '../../fixture-snapshot'
-import type { HarnessRuntime } from '../runtime'
-import type { HandlerSlice, Input } from '../types'
+import type { FindingStatus } from '$lib/ipc/bindings'
+import { appendEvent, shownMessage, storeNow } from '../db'
+import { leadThreadFixture, WORKSPACE_ID, workspaceFixture } from '../fixtures'
+import { CHANGE, type HarnessRuntime } from '../runtime'
+import type { HandlerSlice, Input, Unsupported } from '../types'
 
-type WorkspaceInput = Input<'create_workspace'>['input']
-
-let nextWorkspace = 1
-
-/** Mirrors `create_workspace`, minus provisioning: the thread opens with the prompt in it. */
-function createWorkspace(input: WorkspaceInput) {
-  const n = nextWorkspace++
-  const workspaceId = `ws-harness-${n}`
-  const threadId = `th-harness-${n}`
-  const persisted = fixtureSnapshot.persisted
-  const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ')
-  const name = input.goal.slice(0, 48)
-  persisted.workspaces.push({
-    ...persisted.workspaces[0]!,
-    id: workspaceId,
-    repoId: input.repoId,
-    name,
-    branch: input.branch,
-    status: 'idle',
-    createdAt,
-  })
-  fixtureSnapshot.workspaces.push({
-    ...fixtureSnapshot.workspaces[0]!,
-    id: workspaceId,
-    repoId: input.repoId,
-    name,
-    branch: input.branch,
-    base: input.base,
-  })
-  persisted.threads.push({
-    ...persisted.threads[0]!,
-    id: threadId,
-    workspaceId,
-    status: 'idle',
-  })
-  fixtureTimeline.push({
-    id: 1000 * n,
-    threadId,
-    seq: 1,
-    kind: 'message',
-    payload: JSON.stringify({
-      type: 'messageChunk',
-      role: 'user',
-      text: shownMessage(
-        input.goal,
-        (input.attachments ?? []).map((attachment) => attachment.name),
-      ),
-    }),
-    createdAt,
-  })
-  return { workspaceId, threadId }
-}
+export const workspaceUnsupported = [
+  'rename_workspace',
+  'retry_workspace_provisioning',
+  'skip_workspace_provisioning_setup',
+  'send_workspace_findings',
+  'submit_workspace_review',
+  'start_branch_review',
+] as const satisfies Unsupported
 
 export function workspaceHandlers(runtime: HarnessRuntime) {
-  const { scenario, controls, emitStateChanged } = runtime
+  const { db, scenario, controls, emitStateChanged } = runtime
+  let created = 0
+
+  /** Like `create_workspace`, minus provisioning: the thread opens with the prompt in it. */
+  const createWorkspace = (input: Input<'create_workspace'>['input']) => {
+    const n = ++created
+    const workspaceId = `ws-harness-${n}`
+    const threadId = `th-harness-${n}`
+    const createdAt = storeNow()
+    const { row, record } = workspaceFixture({
+      id: workspaceId,
+      repoId: input.repoId,
+      name: input.goal.slice(0, 48),
+      // The core drafts a branch from the goal when none is given; any `feat/` name stands in.
+      branch: input.branch || `feat/harness-${n}`,
+      base: input.base ?? 'main',
+      worktreePath: `/tmp/cormux-fixture/harness-${n}`,
+      createdAtMs: Date.now(),
+    })
+    db.snapshot.persisted.workspaces.push(row)
+    db.snapshot.workspaces.push(record)
+    db.snapshot.persisted.threads.push({
+      ...leadThreadFixture(threadId, workspaceId),
+      sessionId: `session-${threadId}`,
+    })
+    db.snapshot.workspaceOwnThreads.push({ workspaceId, threadId })
+    // A new workspace runs what the fixture workspace runs, and is refused Run as it is.
+    const like = <T extends { workspaceId: string }>(rows: T[]) =>
+      rows
+        .filter((row) => row.workspaceId === WORKSPACE_ID)
+        .map((row) => ({ ...row, workspaceId }))
+    db.snapshot.workspaceRunCommands.push(
+      ...like(db.snapshot.workspaceRunCommands),
+    )
+    db.snapshot.workspaceRunBlocks.push(...like(db.snapshot.workspaceRunBlocks))
+    appendEvent(
+      db,
+      threadId,
+      {
+        type: 'messageChunk',
+        role: 'user',
+        text: shownMessage(
+          input.goal,
+          (input.attachments ?? []).map((attachment) => attachment.name),
+        ),
+      },
+      createdAt,
+    )
+    emitStateChanged(CHANGE.state)
+    return { workspaceId, threadId }
+  }
 
   return {
+    set_workspace_run_command: ({
+      workspaceId,
+      command,
+    }: {
+      workspaceId: string
+      command: string
+    }) => {
+      const typed = command.trim()
+      const edit = scenario.runCommandEdits?.[typed]
+      if (!edit) {
+        throw {
+          kind: 'Invalid',
+          message: `the scenario gives no runCommandEdits for "${typed}"`,
+        }
+      }
+      const { row } = runtime.findWorkspace(workspaceId)
+      if (row) row.runCommand = edit.run?.source === 'workspace' ? typed : null
+      const snapshot = db.snapshot
+      snapshot.workspaceRunCommands = [
+        ...snapshot.workspaceRunCommands.filter(
+          (run) => run.workspaceId !== workspaceId,
+        ),
+        ...(edit.run ? [{ workspaceId, ...edit.run }] : []),
+      ]
+      snapshot.workspaceRunBlocks = [
+        ...snapshot.workspaceRunBlocks.filter(
+          (block) => block.workspaceId !== workspaceId,
+        ),
+        ...(edit.runBlock ? [{ workspaceId, reason: edit.runBlock }] : []),
+      ]
+      emitStateChanged(CHANGE.state)
+      return null
+    },
     create_workspace: ({ input }: Input<'create_workspace'>) => {
       const created = createWorkspace(input)
       // The first prompt, as `send_thread_prompt` records a later one.
@@ -72,52 +112,74 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       runtime.threadEfforts.set(created.threadId, input.effort)
       return created
     },
-    create_review_workspace: async () => {
-      // Slow enough for tests to see the button's loading state; opens the fixture workspace.
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      return { workspaceId: 'ws-auth', created: true }
-    },
+    // The fixture workspace stands in for the review workspace the core opens.
+    create_review_workspace: () => ({
+      workspaceId: WORKSPACE_ID,
+      created: true,
+    }),
     get_teardown_preview: ({ workspaceId }: { workspaceId: string }) => ({
       workspaceId,
       workspaceName: 'OAuth login',
-      engineLabel: 'Claude Code',
       branch: 'feat/oauth-login',
       worktreePath: '/tmp/cormux-fixture/oauth',
       appRunning: false,
       deleteBranchDefault: true,
       dataLoss:
         workspaceId === scenario.cleanTeardown
-          ? {
-              uncommittedFiles: 0,
-              unpushedCommits: 0,
-              hasDataLoss: false,
-              warning: null,
-            }
+          ? { askFirst: false, warning: null }
           : {
-              uncommittedFiles: 2,
-              unpushedCommits: 0,
-              hasDataLoss: true,
+              askFirst: true,
               warning:
                 "2 uncommitted file changes will be discarded. This can't be undone.",
             },
     }),
-    // The sidebar already marked the row as deleting, which is all the specs look at.
-    teardown_workspace: () => null,
+    // As the core's first step; the specs look no further than the row going.
+    teardown_workspace: ({ input }: Input<'teardown_workspace'>) => {
+      const { record } = runtime.findWorkspace(input.workspaceId)
+      if (record) record.status = 'tearingDown'
+      emitStateChanged(CHANGE.state)
+      return null
+    },
     open_workspace_terminal: ({ workspaceId }: { workspaceId: string }) => {
       controls.openedTerminal = workspaceId
       return null
     },
-    // Run and Stop only move the header's own state; no app is really started.
-    control_workspace_app: () => null,
-    // The Output panel subscribes when it opens; a fixture workspace has no process to log.
-    subscribe_pty: () => runtime.newId(),
+    // Run and Stop move the app's status as the core does; no app is really started.
+    control_workspace_app: ({ input }: Input<'control_workspace_app'>) => {
+      if (input.action === 'clear') return null
+      const apps = db.snapshot.workspaceApps.filter(
+        (row) => row.workspaceId !== input.workspaceId,
+      )
+      const up = input.action !== 'stop'
+      apps.push({
+        workspaceId: input.workspaceId,
+        status: up ? 'starting' : 'stopped',
+        port: up ? 5173 : null,
+        https: false,
+        exitCode: null,
+      })
+      db.snapshot.workspaceApps = apps
+      emitStateChanged(CHANGE.state)
+      return null
+    },
+    // The Output panel subscribes when it opens; only `appRunning` prints to it.
+    subscribe_pty: ({
+      workspaceId,
+      channel,
+    }: {
+      workspaceId: string
+      channel: { id: number }
+    }) => {
+      runtime.ptyChannels.set(workspaceId, { id: channel.id, index: 0 })
+      return runtime.newId()
+    },
     dismiss_workspace_findings: ({
       input,
     }: Input<'dismiss_workspace_findings'>) => {
-      const [from, to] = input.dismissed
+      const [from, to]: [FindingStatus, FindingStatus] = input.dismissed
         ? ['open', 'dismissed']
         : ['dismissed', 'open']
-      for (const row of fixtureSnapshot.persisted.findings) {
+      for (const row of db.snapshot.persisted.findings) {
         if (
           row.workspaceId === input.workspaceId &&
           input.findingIds.includes(row.id) &&
@@ -126,7 +188,7 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
           row.status = to
         }
       }
-      emitStateChanged()
+      emitStateChanged(CHANGE.state)
       return null
     },
   } satisfies HandlerSlice

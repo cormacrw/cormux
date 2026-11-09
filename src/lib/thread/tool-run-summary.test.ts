@@ -1,30 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import type { ToolRunStep } from './timeline-types'
+import type { ToolRole } from '$lib/ipc/bindings'
+import type { ToolStep } from './timeline-types'
 import { editedPaths, toolRunSummary } from './tool-run-summary'
 
-const tool = (
-  id: string,
-  icon: 'file' | 'search' | 'terminal',
-  title: string,
-) => ({ kind: 'tool', id, icon, title, seq: 1, atMs: 0 }) satisfies ToolRunStep
-const edit = (id: string, path: string) =>
+const step = (id: string, role: ToolRole, locations: string[] = []) =>
   ({
-    kind: 'edit',
+    kind: 'tool',
     id,
-    path,
-    verb: 'Edited',
+    role,
+    title: 'Tool',
+    detail: null,
+    locations,
+    status: 'completed',
     seq: 1,
     atMs: 0,
-  }) satisfies ToolRunStep
+  }) satisfies ToolStep
+
+const edit = (id: string, path: string) =>
+  step(id, { kind: 'edit', verb: 'Edited' }, [path])
 
 describe('tool run summary', () => {
   const steps = [
-    tool('1', 'file', 'Read'),
-    tool('2', 'file', 'Read'),
-    tool('3', 'search', 'Searched'),
+    step('1', { kind: 'read' }),
+    step('2', { kind: 'read' }),
+    step('3', { kind: 'search' }),
     edit('4', 'a.ts'),
     edit('5', 'a.ts'),
-    tool('6', 'terminal', 'Ran'),
+    step('6', { kind: 'command', command: 'ls', description: null }),
   ]
 
   it('says what the run did, counting a file once', () => {
@@ -32,5 +34,12 @@ describe('tool run summary', () => {
       'Read 2 files, ran 1 search, edited 1 file, ran 1 command',
     )
     expect(editedPaths(steps)).toEqual(['a.ts'])
+  })
+
+  it('counts agents rather than calling them other steps', () => {
+    const agent = step('a', { kind: 'subagent', description: null })
+    expect(toolRunSummary([step('1', { kind: 'read' }), agent])).toBe(
+      'Read 1 file, ran 1 agent',
+    )
   })
 })

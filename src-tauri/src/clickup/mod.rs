@@ -1,10 +1,11 @@
 //! ClickUp sprint board. The API key lives in `~/.cormux/credentials.json` and never reaches the webview.
 
+pub mod commands;
 mod sprint;
 pub mod types;
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use reqwest::header::AUTHORIZATION;
 use serde::Deserialize;
@@ -19,9 +20,6 @@ use types::{
     ClickupBoard, ClickupOption, ClickupSprint, ClickupStatus, ClickupTag, ClickupTask,
     ClickupTaskDetail, ClickupUser,
 };
-
-/// Settings key for the ClickUp folder whose lists are the sprints.
-const FOLDER_KEY: &str = "clickupFolderId";
 
 const API: &str = "https://api.clickup.com/api/v2";
 /// Get Tasks returns 100 a page; a sprint past 1,000 tasks isn't a sprint.
@@ -173,10 +171,10 @@ impl ClickupClient {
 
     /// The current sprint in the sprint folder chosen in Settings.
     pub async fn chosen_board(&self, store: &Store) -> Result<ClickupBoard> {
-        let folder_id = store
-            .get_setting(FOLDER_KEY)?
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| Error::Clickup("choose a sprint folder in Settings".into()))?;
+        let folder_id = crate::settings::Settings::read(store)?.clickup_folder_id;
+        if folder_id.is_empty() {
+            return Err(Error::Clickup("choose a sprint folder in Settings".into()));
+        }
         self.board(&folder_id).await
     }
 
@@ -188,7 +186,7 @@ impl ClickupClient {
             )
             .await?;
         let sprints: Vec<ClickupSprint> = response.lists.into_iter().map(map_sprint).collect();
-        let sprint = current_sprint(&sprints, now_ms())
+        let sprint = current_sprint(&sprints, crate::time::unix_ms())
             .cloned()
             .ok_or_else(|| Error::Clickup("the sprint folder has no sprints".into()))?;
 
@@ -265,13 +263,6 @@ impl ClickupClient {
         }
         self.update_task(task_id, json!({ "points": points })).await
     }
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or_default()
 }
 
 /// ClickUp errors look like `{"err":"Token invalid","ECODE":"OAUTH_025"}`.

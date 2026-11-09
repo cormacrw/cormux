@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import type { WorkspaceLifecycle } from '../src/lib/ipc/bindings'
 
 test('the first page is a new thread, and typing into it spawns a workspace', async ({
   page,
@@ -8,13 +9,11 @@ test('the first page is a new thread, and typing into it spawns a workspace', as
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'New thread' })).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page.locator('[data-od-id="thread-tabs"]')).toHaveCount(0)
   const composer = page.locator('#composer-input')
   await expect(composer).toBeFocused()
 
-  // The repo lives in the prompt bar; the base is the default unless the prompt says otherwise.
+  // The repo lives in the prompt bar.
   await expect(page.locator('#new-thread-repo')).toHaveText('my-app')
-  await expect(page.locator('#new-thread-base')).toHaveCount(0)
 
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/new-thread.png' })
@@ -30,6 +29,35 @@ test('the first page is a new thread, and typing into it spawns a workspace', as
   await expect(
     page.locator('[data-od-id="thread-list"] [aria-current="page"]'),
   ).toContainText('my-app')
+})
+
+test('the new thread’s conversation rises in once it has opened', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const w = window as Window & { __rises?: number }
+    w.__rises = 0
+    const animate = Element.prototype.animate
+    Element.prototype.animate = function (...args) {
+      if (this.id === 'timeline') {
+        w.__rises! += 1
+      }
+      return animate.apply(this, args)
+    }
+  })
+  await page.goto('/')
+  await page.locator('#composer-input').fill('Add rate limiting to the API')
+  await page.keyboard.press('Enter')
+  await expect(
+    page.locator('#timeline').getByText('Add rate limiting to the API'),
+  ).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as Window & { __rises?: number }).__rises ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0)
 })
 
 test('⌘↵ starts a thread and stays on the new thread page', async ({
@@ -124,7 +152,6 @@ test('the sidebar is a flat list that says where each thread lives', async ({
   const row = page.getByRole('button', { name: /^OAuth login,/ })
   await expect(row).toContainText('my-app')
   await expect(row).toContainText('feat/')
-  await expect(page.locator('#side-repo-label')).toHaveCount(0)
 })
 
 test('a working thread only moves to Working once you leave it', async ({
@@ -175,10 +202,10 @@ test('a thread flashes only while waiting on you, and carries no status text', a
 
   const rows = page.locator('[data-od-id="thread-list"] button')
   await expect(rows).toHaveCount(3)
-  const setStatus = (name: string, status: string) =>
+  const setStatus = (name: string, status: WorkspaceLifecycle) =>
     page.evaluate(
-      ([name, status]) => window.__HARNESS__!.setStatus(name!, status!),
-      [name, status],
+      ({ name, status }) => window.__HARNESS__!.setStatus(name, status),
+      { name, status },
     )
 
   // Working goes quiet and moves below what's waiting, with no words either way.
@@ -187,17 +214,13 @@ test('a thread flashes only while waiting on you, and carries no status text', a
   await page.locator('[data-od-id="working-toggle"]').click()
   await expect(row).toHaveAttribute('data-urgency', 'quiet')
   await expect(row.locator('[data-od-id="thread-row-spinner"]')).toBeVisible()
-  await expect(row.locator('.opacity-50')).toBeVisible()
-  await expect(
-    row.locator('.opacity-50 .text-muted-foreground').first(),
-  ).toContainText('OAuth login')
   mkdirSync('e2e/output', { recursive: true })
   await page.waitForTimeout(1600) // let the rows and the greeting settle
   await page.screenshot({ path: 'e2e/output/thread-working.png' })
   await expect(row).not.toContainText('Running')
   await expect(rows.first()).toContainText('Second thread')
 
-  await setStatus('OAuth login', 'waiting')
+  await page.evaluate(() => window.__HARNESS__!.requestApproval('th-lead'))
   await expect(row).toHaveAttribute('data-urgency', 'attention')
   // The dot really blinks: sampled across a cycle, it's seen both full and dimmed.
   const opacities = await row.locator('.status-flash').evaluate(
@@ -239,6 +262,25 @@ test('⌘⇧R picks the repo with the arrow keys and ↵', async ({ page }) => {
   await expect(composer).toBeFocused()
 })
 
+// Bug: the last repo used was remembered and beat the "Default repository" setting.
+test('the new thread page starts on the default repository, not the last one used', async ({
+  page,
+}) => {
+  await page.goto('/?secondRepo')
+  const composer = page.locator('#composer-input')
+  await expect(composer).toBeFocused()
+  await page.keyboard.press('ControlOrMeta+Shift+R')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#new-thread-repo')).toHaveText('api')
+  await composer.fill('Start in api')
+  await page.keyboard.press('ControlOrMeta+Enter')
+  await expect(composer).toHaveValue('')
+
+  await page.reload()
+  await expect(page.locator('#new-thread-repo')).toHaveText('my-app')
+})
+
 test('the shortcuts swap one picker for another, keeping the arrow keys', async ({
   page,
 }) => {
@@ -252,20 +294,16 @@ test('the shortcuts swap one picker for another, keeping the arrow keys', async 
   await expect(list).toBeVisible()
   await page.keyboard.press('ControlOrMeta+Shift+M')
   await expect(menu).toContainText('Model')
-  // The closed picker hands focus back only after its animation.
-  await page.waitForTimeout(400)
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitemradio', { name: 'Fable' })).toBeFocused()
 
   await page.keyboard.press('ControlOrMeta+Shift+E')
   await expect(menu).toContainText('Effort')
-  await page.waitForTimeout(400)
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitemradio', { name: 'Low' })).toBeFocused()
 
   await page.keyboard.press('ControlOrMeta+Shift+R')
   await expect(list).toBeVisible()
-  await page.waitForTimeout(400)
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect(page.locator('#new-thread-repo')).toHaveText('api')

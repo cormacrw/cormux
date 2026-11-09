@@ -11,7 +11,7 @@ impl AppKind {
         if lower.contains("storybook") {
             return Self::Storybook;
         }
-        if lower.contains("uv")
+        if lower.split_whitespace().any(|word| word == "uv")
             || lower.contains("uvicorn")
             || lower.contains("fastapi")
             || lower.contains("python")
@@ -26,18 +26,6 @@ impl AppKind {
             Self::Vite => 5173,
             Self::Storybook => 6006,
             Self::Python => 8000,
-        }
-    }
-}
-
-pub fn port_in_use_message(kind: AppKind, port: u16) -> String {
-    match kind {
-        AppKind::Vite => format!("Port {port} is in use, trying another one..."),
-        AppKind::Storybook => {
-            format!("Port {port} is not available, using the next free port")
-        }
-        AppKind::Python => {
-            format!("ERROR:    [Errno 48] Address already in use ({port}), trying the next port")
         }
     }
 }

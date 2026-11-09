@@ -1,0 +1,63 @@
+<script lang="ts">
+  import { onDestroy } from 'svelte'
+  import { taskRef } from '$lib/clickup/board'
+  import type { ClickupTask } from '$lib/ipc/bindings'
+  import { CopyFeedback } from '$lib/primitives/copy-feedback.svelte'
+  import { cn } from '$lib/utils'
+  import Check from '@lucide/svelte/icons/check'
+  import Copy from '@lucide/svelte/icons/copy'
+  import ExternalLink from '@lucide/svelte/icons/external-link'
+  import { openExternal } from '$lib/feedback/open-external'
+
+  let {
+    task,
+    class: className,
+  }: {
+    task: Pick<ClickupTask, 'id' | 'customId' | 'url'>
+    class?: string
+  } = $props()
+
+  const ref = $derived(taskRef(task))
+  const clipboard = new CopyFeedback()
+  const copied = $derived(clipboard.copied === ref)
+  onDestroy(() => clipboard.dispose())
+
+  const button =
+    'inline-flex size-6 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50'
+</script>
+
+<!-- Inside a draggable card: these buttons must not start a drag or select the card. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class={cn('flex items-center gap-0.5', className)}
+  onpointerdown={(event) => event.stopPropagation()}
+>
+  <button
+    type="button"
+    class={button}
+    aria-label={copied ? `Copied ${ref}` : `Copy ${ref}`}
+    title={copied ? 'Copied' : `Copy ${ref}`}
+    onclick={(event) => {
+      event.stopPropagation()
+      void clipboard.copy(ref)
+    }}
+  >
+    {#if copied}
+      <Check class="size-3.5 text-success" aria-hidden="true" />
+    {:else}
+      <Copy class="size-3.5" aria-hidden="true" />
+    {/if}
+  </button>
+  <button
+    type="button"
+    class={button}
+    aria-label="Open {ref} in ClickUp"
+    title="Open in ClickUp"
+    onclick={(event) => {
+      event.stopPropagation()
+      void openExternal(task.url)
+    }}
+  >
+    <ExternalLink class="size-3.5" aria-hidden="true" />
+  </button>
+</div>

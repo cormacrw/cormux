@@ -1,84 +1,41 @@
-import type { AgentEvent } from '$lib/ipc/bindings'
-import { legacySessionBoundary } from './legacy-steps'
+import {
+  CONVERSATION_STEP_KINDS,
+  FIRST_CONVERSATION,
+  TURN_ENDING_EVENTS,
+  type TimelineStep,
+  type TranscriptEvent,
+} from '$lib/ipc/bindings'
+import type { TimedEvent } from './timed-events'
 
-type TimedEvent = { seq: number; atMs: number; event: AgentEvent }
+/** The conversation showing now: the one the newest event is in (the core says which). */
+export type CurrentConversation = { id: string; events: TimedEvent[] }
 
-/**
- * One conversation in a thread: the events between session boundaries that
- * belong together. Starting a new session begins one; resuming switches back
- * to an earlier one, whose later events join it.
- */
-export type Conversation = {
-  /** `first` for the thread's opening conversation, else `after-<seq>` of the step that began it. */
-  id: string
-  events: TimedEvent[]
-  /** The first thing you asked, to name it by. */
-  firstPrompt: string | null
-  prompts: number
-  lastAtMs: number
-  /** The agent session it ended with, to resume; null if never recorded. */
-  sessionId: string | null
+type SessionStep = Extract<
+  TimelineStep,
+  { kind: (typeof CONVERSATION_STEP_KINDS)[number] }
+>
+
+/** A step that begins a conversation, by the core's list. */
+export function isSessionStep(step: TimelineStep): step is SessionStep {
+  return (CONVERSATION_STEP_KINDS as readonly string[]).includes(step.kind)
 }
 
-/** What a step marking a new or resumed session says about the conversations around it. */
-function sessionBoundary(event: AgentEvent) {
-  if (event.type !== 'step') return legacySessionBoundary(event)
-  const { step } = event
-  if (step.kind === 'sessionStarted') {
-    return { ended: step.ended_session, conversation: null }
-  }
-  if (step.kind === 'sessionResumed') {
-    return { ended: step.ended_session, conversation: step.conversation }
-  }
-  return null
+/** An event after which the thread's turn is over, by the core's list. */
+export function endsTurn(event: TranscriptEvent): boolean {
+  return (TURN_ENDING_EVENTS as readonly string[]).includes(event.type)
 }
 
-/** The conversation showing now, and the earlier ones you can resume (newest first). */
-export function splitConversations(events: TimedEvent[]): {
-  current: Conversation
-  earlier: Conversation[]
-} {
-  const all = new Map<string, Conversation>()
-  const open = (id: string, atMs: number): Conversation => {
-    const existing = all.get(id)
-    if (existing) return existing
-    const fresh: Conversation = {
-      id,
-      events: [],
-      firstPrompt: null,
-      prompts: 0,
-      lastAtMs: atMs,
-      sessionId: null,
-    }
-    all.set(id, fresh)
-    return fresh
+export function currentConversation(events: TimedEvent[]): CurrentConversation {
+  const id = events.at(-1)?.conversation ?? FIRST_CONVERSATION
+  return {
+    id,
+    events: events.filter(
+      // A session step begins a conversation, so it isn't shown in one.
+      (row) =>
+        row.conversation === id &&
+        !(row.event.type === 'step' && isSessionStep(row.event.step)),
+    ),
   }
-  let current = open('first', events[0]?.atMs ?? 0)
-
-  for (const row of events) {
-    const { event } = row
-    const boundary = sessionBoundary(event)
-    if (boundary) {
-      const { ended, conversation: target } = boundary
-      if (typeof ended === 'string') current.sessionId = ended
-      current =
-        typeof target === 'string' && all.has(target)
-          ? all.get(target)!
-          : open(`after-${row.seq}`, row.atMs)
-      continue
-    }
-    current.events.push(row)
-    current.lastAtMs = row.atMs
-    if (event.type === 'messageChunk' && event.role === 'user') {
-      current.prompts += 1
-      current.firstPrompt ??= event.text.trim() || null
-    }
-  }
-
-  const earlier = [...all.values()]
-    .filter((conversation) => conversation !== current && conversation.prompts)
-    .sort((a, b) => b.lastAtMs - a.lastAtMs)
-  return { current, earlier }
 }
 
 const HERO_LINES = [

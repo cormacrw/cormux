@@ -39,6 +39,18 @@ test('the composer picks a model per thread', async ({ page }) => {
   expect(errors).toEqual([])
 })
 
+test('opening the palette closes an open model picker', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.getByRole('button', { name: 'Model: Default' }).click()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+
+  await page.keyboard.press('ControlOrMeta+k')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(menu).toHaveCount(0)
+})
+
 test('the composer picks an effort per thread', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
@@ -88,8 +100,6 @@ test('⌘⇧M and ⌘⇧E pick with the arrow keys and ↵', async ({ page }) =>
   await expect(
     menu.getByRole('menuitemradio', { name: 'Default' }),
   ).toBeFocused()
-  // A person's next key; the menu's roving focus settles just after it takes focus.
-  await page.waitForTimeout(50)
   await page.keyboard.press('ArrowUp')
   await expect(menu.getByRole('menuitemradio', { name: 'Max' })).toBeFocused()
   await page.keyboard.press('Enter')

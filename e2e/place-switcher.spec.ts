@@ -12,7 +12,7 @@ async function visitNewThreadWorkspaceSprint(page: Page) {
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
   await expect(heading(page)).toHaveText('OAuth login')
   await page
-    .getByRole('navigation', { name: 'Harness' })
+    .getByRole('navigation', { name: 'Sidebar' })
     .getByRole('button', { name: /^Sprint/ })
     .click()
   await expect(heading(page)).toHaveText(SPRINT_TITLE)

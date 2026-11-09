@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
+// Parallel worktrees each need their own server: one on 1420 would answer for all of them.
+const port = Number(process.env.E2E_PORT ?? 1420)
+const url = `http://127.0.0.1:${port}`
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -8,14 +12,14 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
-    baseURL: 'http://127.0.0.1:1420',
+    baseURL: url,
     trace: 'on-first-retry',
     colorScheme: 'dark',
     viewport: { width: 1280, height: 800 },
   },
   webServer: {
-    command: 'pnpm dev --host 127.0.0.1',
-    url: 'http://127.0.0.1:1420',
+    command: `pnpm dev --host 127.0.0.1 --port ${port}`,
+    url,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

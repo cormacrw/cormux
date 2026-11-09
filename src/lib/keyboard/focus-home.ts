@@ -1,3 +1,5 @@
+import { keyboardLayers } from './layers.svelte'
+
 // The composer is where focus belongs in a conversation. These decide when it can take focus
 // back without pulling it away from something the user is in the middle of.
 
@@ -10,14 +12,12 @@ export function trackKeyboardInput(target: Window) {
   return () => target.removeEventListener('keydown', onKey, true)
 }
 
-/** The user moved focus with the keyboard just now. */
-export function keyboardJustMoved(withinMs = 400): boolean {
+function keyboardJustMoved(withinMs = 400): boolean {
   return performance.now() - lastKeyAt < withinMs
 }
 
 const TEXT_INPUT = /^(text|search|url|email|password|number|tel)$/
 
-/** A field the user types in: a text input, textarea, select or contenteditable. */
 export function isEditable(element: Element | null): boolean {
   if (!element) return false
   if (element instanceof HTMLTextAreaElement) return true
@@ -26,11 +26,30 @@ export function isEditable(element: Element | null): boolean {
   return element instanceof HTMLElement && element.isContentEditable
 }
 
-/** An open dialog, menu or list popover holds focus for now. */
-function overlayOpen(): boolean {
-  return !!document.querySelector(
-    '[role="dialog"], [role="alertdialog"], [role="menu"][data-state="open"], [role="listbox"]:not(#composer-picker)',
-  )
+const OVERLAY_ROLES = ['dialog', 'alertdialog', 'menu', 'listbox']
+
+/** A selector for any overlay, each role narrowed by `state` (`[data-state="open"]`, say). */
+export function overlaySelector(state = ''): string {
+  return OVERLAY_ROLES.map((role) => `[role="${role}"]${state}`).join(', ')
+}
+
+/** The prompts mounted, the one on screen last. */
+const prompts: (() => HTMLElement | null | undefined)[] = []
+
+/** For a composer: makes its input the prompt `focusPrompt` reaches. Returns the release. */
+export function registerPrompt(input: () => HTMLElement | null | undefined) {
+  prompts.push(input)
+  return () => {
+    const index = prompts.lastIndexOf(input)
+    if (index !== -1) prompts.splice(index, 1)
+  }
+}
+
+/** Puts focus in the prompt on screen, as asked; false when there isn't one. */
+export function focusPrompt(): boolean {
+  const prompt = prompts.at(-1)?.()
+  prompt?.focus()
+  return prompt != null
 }
 
 /**
@@ -38,20 +57,13 @@ function overlayOpen(): boolean {
  * opened meanwhile, since one shortcut can swap one picker for another.
  */
 export function focusPromptAfterPicker() {
-  const nextPicker = document.querySelector(
-    '[role="menu"][data-state="open"], [data-slot="select-content"][data-state="open"]',
-  )
-  if (!nextPicker) document.getElementById('composer-input')?.focus()
+  if (!keyboardLayers.held) focusPrompt()
 }
 
-/**
- * Whether the composer may take focus now: not while another field has it, an overlay is
- * open, or the user just moved focus somewhere with the keyboard.
- */
 export function composerMayTakeFocus(composer: HTMLElement | null): boolean {
   const active = document.activeElement
   if (active === composer) return false
-  if (overlayOpen()) return false
+  if (keyboardLayers.held) return false
   if (active && active !== document.body && isEditable(active)) return false
   if (
     active &&

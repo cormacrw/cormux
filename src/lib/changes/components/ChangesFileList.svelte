@@ -1,0 +1,135 @@
+<script lang="ts">
+  import { pluralWord } from '$lib/format/plural'
+  import type { DiffFile } from '$lib/ipc/bindings'
+  import type { Action } from 'svelte/action'
+  import { diffComments } from '$lib/changes/diff-comments.svelte'
+  import { splitPath, STATUS_MARK } from '$lib/changes/file-status'
+  import { changesUi } from '$lib/changes/changes-ui.svelte'
+  import { cn } from '$lib/utils'
+  import LazyDiff from './LazyDiff.svelte'
+  import ChevronRight from '@lucide/svelte/icons/chevron-right'
+  import MessageSquare from '@lucide/svelte/icons/message-square'
+  import Undo2 from '@lucide/svelte/icons/undo-2'
+
+  let {
+    workspaceId,
+    branch,
+    files,
+    scroller,
+    trackFile,
+    onDiscard,
+  }: {
+    workspaceId: string
+    branch: string | null
+    files: DiffFile[]
+    scroller: HTMLElement | undefined
+    /** Hands each file's row to the panel, which scrolls to it. */
+    trackFile: Action<HTMLElement, string>
+    /** Set while the list shows uncommitted changes, which can be thrown away. */
+    onDiscard?: (file: DiffFile) => void
+  } = $props()
+
+  function toggle(file: DiffFile) {
+    changesUi.toggle(file)
+  }
+</script>
+
+<ul class="flex flex-col" aria-label="Changed files">
+  {#each files as file (file.path)}
+    {@const status = file.status}
+    {@const parts = splitPath(file.path)}
+    {@const open = !changesUi.isCollapsed(file)}
+    {@const commentCount = diffComments.forFile(
+      workspaceId,
+      branch,
+      file.path,
+    ).length}
+    {@const bodyId = `changes-file-${file.path.replace(/[^\w-]/g, '_')}`}
+    <li
+      class="border-b border-border/60 [content-visibility:auto] [contain-intrinsic-size:auto_480px]"
+      use:trackFile={file.path}
+    >
+      <div
+        class="group/file sticky top-0 z-10 flex items-center border-b border-border/40 bg-background-solid hover:bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background-solid))]"
+      >
+        <button
+          type="button"
+          class="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+          onclick={() => toggle(file)}
+        >
+          <ChevronRight
+            class={cn(
+              'size-4 shrink-0 text-muted-foreground transition-transform',
+              open && 'rotate-90',
+            )}
+            aria-hidden="true"
+          />
+          <span class="min-w-0 flex-1 truncate">
+            {#if file.oldPath}
+              <span class="text-muted-foreground">{file.oldPath} → </span>
+            {/if}
+            {#if parts.dir}
+              <span class="text-muted-foreground">{parts.dir}</span>
+            {/if}
+            <span class="font-medium">{parts.name}</span>
+          </span>
+          {#if commentCount}
+            <span class="flex shrink-0 items-center gap-0.5 text-xs text-info">
+              <MessageSquare class="size-3.5" aria-hidden="true" />
+              {commentCount}
+              <span class="sr-only">{pluralWord(commentCount, 'comment')}</span>
+            </span>
+          {/if}
+          <span class="shrink-0 font-mono text-xs">
+            {#if file.added > 0}
+              <span class="text-[var(--success)]">+{file.added}</span>
+            {/if}
+            {#if file.deleted > 0}
+              <span class="text-destructive">−{file.deleted}</span>
+            {/if}
+          </span>
+          <span
+            class={cn(
+              'shrink-0 font-mono text-xs font-semibold',
+              status === 'added' && 'text-[var(--success)]',
+              status === 'deleted' && 'text-destructive',
+              status === 'modified' && 'text-[var(--warning)]',
+              status === 'renamed' && 'text-info',
+            )}
+          >
+            <span aria-hidden="true">{STATUS_MARK[status].letter}</span>
+            <span class="sr-only">{STATUS_MARK[status].label}</span>
+          </span>
+        </button>
+        {#if onDiscard}
+          <button
+            type="button"
+            class="mr-2 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-opacity group-hover/file:opacity-100 hover:bg-muted hover:text-destructive focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50"
+            title="Discard changes"
+            aria-label="Discard changes to {file.path}"
+            data-od-id="changes-discard-file"
+            onclick={() => onDiscard(file)}
+          >
+            <Undo2 class="size-3.5" aria-hidden="true" />
+          </button>
+        {/if}
+      </div>
+      {#if open}
+        <div id={bodyId}>
+          {#if file.hunks.length}
+            <LazyDiff {workspaceId} {branch} {file} {scroller} />
+          {:else}
+            <p class="px-3 py-2 text-xs text-muted-foreground">
+              {file.oldPath
+                ? 'Moved without other changes.'
+                : 'No text changes to show.'}
+            </p>
+          {/if}
+        </div>
+      {/if}
+    </li>
+  {/each}
+</ul>

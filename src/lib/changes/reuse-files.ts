@@ -3,6 +3,7 @@ import type { DiffFile } from '$lib/ipc/bindings'
 function sameFile(a: DiffFile, b: DiffFile): boolean {
   return (
     a.oldPath === b.oldPath &&
+    a.status === b.status &&
     a.added === b.added &&
     a.deleted === b.deleted &&
     a.hunks.length === b.hunks.length &&

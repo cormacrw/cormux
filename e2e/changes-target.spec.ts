@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { setScenario } from './harness'
 
 async function openChanges(page: Page, query = '') {
   await page.goto(`/${query}`)
@@ -82,4 +83,26 @@ test('Changes shows a loading splash while the diff is fetched', async ({
     panel.getByRole('region', { name: 'Proposed changes' }),
   ).toBeVisible()
   await expect(target).toHaveText('feat/oauth-login vs feat/oauth-api')
+})
+
+test('switching straight back to uncommitted changes doesn’t leave the splash up', async ({
+  page,
+}) => {
+  await setScenario(page, { slowBranchDiff: 800 })
+  const panel = await openChanges(page)
+  const stack = panel.getByRole('navigation', { name: 'Stack' })
+  await expect(
+    panel.getByRole('region', { name: 'Proposed changes' }),
+  ).toBeVisible()
+  await stack.getByRole('button', { name: /^feat\/oauth-login/ }).click()
+  const uncommitted = stack.getByRole('button', {
+    name: /^Uncommitted changes/,
+  })
+  await uncommitted.click()
+  await page.waitForTimeout(1200)
+  await expect(panel.getByRole('status')).toHaveCount(0)
+  await expect(uncommitted).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.locator('[data-od-id="changes-target"]')).toHaveText(
+    'Uncommitted changes',
+  )
 })

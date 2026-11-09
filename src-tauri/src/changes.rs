@@ -1,0 +1,133 @@
+//! The Changes panel: which diff it shows for a workspace, keeping it live, and discarding work.
+
+use std::path::Path;
+
+use crate::error::Result;
+use crate::git::{DiffTarget, WorktreeDiff};
+use crate::model::WorkspaceKind;
+use crate::state::AppState;
+use crate::workspaces::WorkspaceRecord;
+
+/// Keeps the workspace's diff live. A PR review shows the branch against its base unless the
+/// user picks something else.
+pub fn watch(state: &AppState, workspace: &WorkspaceRecord) -> Result<()> {
+    if workspace.kind == WorkspaceKind::PrReview {
+        state.diffs.default_diff_target(
+            &workspace.id,
+            DiffTarget::head_against(workspace.base.clone()),
+        );
+    }
+    let worktree = Path::new(&workspace.worktree_path);
+    if worktree.exists() {
+        state.diffs.watch(&workspace.id, worktree)?;
+    }
+    Ok(())
+}
+
+/// The workspace's base moved from `from` (its pull request was retargeted). A panel still on
+/// the branch against the old base follows it; one the user pointed elsewhere stays.
+pub async fn base_moved(state: &AppState, workspace: &WorkspaceRecord, from: &str) -> Result<()> {
+    if state.diffs.diff_target(&workspace.id) != Some(DiffTarget::head_against(from)) {
+        return Ok(());
+    }
+    state.diffs.set_diff_target(
+        &workspace.id,
+        Some(DiffTarget::head_against(workspace.base.clone())),
+    );
+    let worktree = Path::new(&workspace.worktree_path);
+    if worktree.exists() {
+        state.diffs.compute(&workspace.id, worktree).await?;
+    }
+    Ok(())
+}
+
+/// A workspace from an earlier launch has no watcher until something asks for its diff.
+pub async fn load(state: &AppState, workspace_id: &str) -> Result<WorkspaceRecord> {
+    let workspace = state.workspaces.get(workspace_id).await?;
+    watch(state, &workspace)?;
+    Ok(workspace)
+}
+
+pub async fn refresh(state: &AppState, workspace_id: &str) -> Result<()> {
+    let workspace = load(state, workspace_id).await?;
+    state
+        .diffs
+        .compute(workspace_id, Path::new(&workspace.worktree_path))
+        .await?;
+    Ok(())
+}
+
+/// Points the panel at uncommitted work (`None`) or a branch against its base, and returns that
+/// diff: it isn't sent to subscribers when it matches what they already have, so the caller
+/// waiting on it gets it here.
+pub async fn set_target(
+    state: &AppState,
+    workspace_id: &str,
+    target: Option<DiffTarget>,
+) -> Result<WorktreeDiff> {
+    let workspace = load(state, workspace_id).await?;
+    state.diffs.set_diff_target(workspace_id, target);
+    state
+        .diffs
+        .compute(workspace_id, Path::new(&workspace.worktree_path))
+        .await
+}
+
+/// Throws away the uncommitted change to the file at `path`, or every one when `None`. A renamed
+/// file goes back to where it came from.
+pub async fn discard(state: &AppState, workspace_id: &str, path: Option<&str>) -> Result<()> {
+    let workspace = load(state, workspace_id).await?;
+    let worktree = Path::new(&workspace.worktree_path);
+    let paths = match path {
+        None => Vec::new(),
+        Some(path) => state
+            .git
+            .numstat(worktree)
+            .await?
+            .into_iter()
+            .find(|stat| stat.path == path)
+            .map(|stat| stat.paths())
+            .unwrap_or_else(|| vec![path.to_string()]),
+    };
+    state.git.discard(worktree, &paths).await?;
+    state.diffs.compute(workspace_id, worktree).await?;
+    Ok(())
+}
+
+pub mod commands {
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::git::{DiffTarget, WorktreeDiff};
+    use crate::state::AppState;
+
+    /// Re-reads the workspace's changes now, after something outside the watcher moved them.
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn refresh_workspace_diff(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        super::refresh(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn set_workspace_diff_target(
+        workspace_id: String,
+        target: Option<DiffTarget>,
+        state: State<'_, AppState>,
+    ) -> Result<WorktreeDiff> {
+        super::set_target(&state, &workspace_id, target).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn discard_workspace_changes(
+        workspace_id: String,
+        path: Option<String>,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        super::discard(&state, &workspace_id, path.as_deref()).await
+    }
+}

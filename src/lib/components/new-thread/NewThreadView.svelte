@@ -3,25 +3,32 @@
   sending the first message spawns one, in its own worktree, and opens it.
 -->
 <script lang="ts">
-  import { getCurrentWindow } from '@tauri-apps/api/window'
-  import { tick, untrack } from 'svelte'
+  import { openWorkspace } from '$lib/nav/open'
+  import { openSettings } from '$lib/settings/open'
+  import { windowDrag } from '$lib/primitives/window-drag'
+  import { untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Select from '$lib/components/ui/select'
-  import ThreadComposer from '$lib/components/workspace/thread/ThreadComposer.svelte'
-  import ThreadHero from '$lib/components/workspace/thread/ThreadHero.svelte'
-  import ThreadOptionPicker from '$lib/components/workspace/thread/ThreadOptionPicker.svelte'
+  import ThreadComposer, {
+    type ComposerTarget,
+  } from '$lib/components/workspace/thread/ThreadComposer.svelte'
+  import ThreadHero, {
+    HERO_COLUMN,
+  } from '$lib/components/workspace/thread/ThreadHero.svelte'
+  import ThreadOptionPicker, {
+    draftOptions,
+  } from '$lib/components/workspace/thread/ThreadOptionPicker.svelte'
   import type { ComposerAttachment } from '$lib/composer/attachments'
   import { commands } from '$lib/ipc'
-  import { focusPromptAfterPicker } from '$lib/keyboard/focus-home'
-  import { isPickerShortcut } from '$lib/keyboard/header-shortcuts'
-  import {
-    claimWorkspacePopover,
-    releaseWorkspacePopover,
-  } from '$lib/keyboard/popover-registry'
-  import { resolveDefaultRepoId } from '$lib/new-workspace/settings-defaults'
-  import { app, repos, settings } from '$lib/state'
-  import type { Thread } from '$lib/state/threads.svelte'
-  import { NO_USAGE } from '$lib/usage/usage'
+  import { focusPrompt, focusPromptAfterPicker } from '$lib/keyboard/focus-home'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
+  import { shortcutLabel } from '$lib/keyboard/shortcuts'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
+  import { resolveDefaultRepoId } from '$lib/settings/default-repo'
+  import { repos } from '$lib/state'
+  import { wordmark } from '$lib/background/wordmark.svelte'
+  import { nav } from '$lib/core/nav.svelte'
+  import { settings } from '$lib/settings/store.svelte'
   import {
     enterConversation,
     firstPromptTransition,
@@ -29,44 +36,11 @@
   import { startThread } from '$lib/workspace/start-thread'
   import Folder from '@lucide/svelte/icons/folder'
 
-  const LAST_REPO_KEY = 'cormux-last-repo'
-
-  function lastRepo() {
-    try {
-      return globalThis.localStorage?.getItem(LAST_REPO_KEY) ?? ''
-    } catch {
-      return ''
-    }
-  }
-
-  function rememberRepo(id: string) {
-    try {
-      globalThis.localStorage?.setItem(LAST_REPO_KEY, id)
-    } catch {
-      // Optional: the next thread just starts on the default repo.
-    }
-  }
-
-  // A stand-in the composer and greeting can draw until there's a real thread.
-  const draftThread = $derived<Thread>({
-    id: 'new-thread',
-    workspaceId: '',
-    role: 'Lead',
-    engine: settings.defaultEngine,
-    status: 'idle',
-    paused: false,
-    activity: '',
-    pendingApprovals: 0,
-    usage: NO_USAGE,
-    retired: false,
-  })
-
   let repoId = $state('')
   let repoOpen = $state(false)
   let repoTrigger = $state<HTMLButtonElement | null>(null)
   let model = $state<string | null>(null)
   let effort = $state<string | null>(null)
-  let focusComposer = $state<(() => void) | null>(null)
   let titleEl: HTMLHeadingElement | undefined = $state()
 
   const repo = $derived(repos.getById(repoId))
@@ -76,31 +50,31 @@
     const items = repos.items
     untrack(() => {
       if (!items.some((row) => row.id === repoId)) {
-        repoId = resolveDefaultRepoId(items, lastRepo() || settings.defaultRepo)
+        repoId = resolveDefaultRepoId(items, settings.values.defaultRepo)
       }
     })
   })
 
-  $effect(() => {
-    if (app.focusTarget !== 'newThread') return
-    void app.focusGeneration
-    if (repos.items.length) focusComposer?.()
-    else titleEl?.focus()
-  })
+  $effect(() =>
+    nav.onArrival(() => {
+      if (nav.view !== 'newThread') return
+      if (repos.items.length) focusPrompt()
+      else titleEl?.focus()
+    }),
+  )
 
-  // Opening one picker from the keyboard closes the others.
   $effect(() => {
     if (!repoOpen) return
     const handle = {
       close: () => (repoOpen = false),
       restoreFocus: focusPromptAfterPicker,
     }
-    claimWorkspacePopover(handle)
-    return () => releaseWorkspacePopover(handle)
+    keyboardLayers.claimPopover(handle)
+    return () => keyboardLayers.releasePopover(handle)
   })
 
   function onWindowKeydown(event: KeyboardEvent) {
-    if (!isPickerShortcut(event, 'r') || !repos.items.length) return
+    if (!shellDialogs.allows(event, 'pickRepo') || !repos.items.length) return
     event.preventDefault()
     // The list takes its arrow keys and ↵ through the focused trigger.
     repoTrigger?.focus()
@@ -121,29 +95,47 @@
       attachments,
     })
     if (!workspaceId) return false
-    rememberRepo(id)
     if (stay) return true
     // The greeting falls away and the conversation rises in, as on a first prompt in a thread.
-    firstPromptTransition(() => app.openWorkspace(workspaceId))
-    void tick().then(enterConversation)
+    firstPromptTransition(
+      () => openWorkspace(workspaceId),
+      () => wordmark.glide(),
+      enterConversation,
+    )
     return true
   }
 
+  // A new thread's skills come from the repo it will start in.
   const listSkills = $derived.by(() => {
     const id = repoId
-    return async () => {
-      const result = await commands.listRepoSkills(id)
-      return result.status === 'ok' ? result.data : []
-    }
+    return () => commands.listRepoSkills(id)
   })
-
-  function startHeaderDrag(event: MouseEvent) {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof Element)) return
-    if (target.closest('button, a, input, textarea')) return
-    void getCurrentWindow().startDragging()
-  }
+  const composer: ComposerTarget = $derived({
+    draftKey: 'new-thread',
+    inputLabel: 'Start a new thread',
+    sendLabel: 'Start thread',
+    placeholder: repo
+      ? `What should we do in ${repo.name}?`
+      : 'Add a repo to start a thread',
+    disabled: !repo,
+    send: submit,
+    listSkills,
+    promptHistory: [],
+    stop: null,
+    pickers,
+  })
+  const modelSource = draftOptions('model', {
+    get current() {
+      return model
+    },
+    set: (next) => (model = next),
+  })
+  const effortSource = draftOptions('effort', {
+    get current() {
+      return effort
+    },
+    set: (next) => (effort = next),
+  })
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -153,11 +145,10 @@
   aria-labelledby="new-thread-title"
   data-od-id="new-thread"
 >
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <header
     class="flex items-center px-4 py-3"
     data-tauri-drag-region
-    onmousedown={startHeaderDrag}
+    use:windowDrag
   >
     <h1
       bind:this={titleEl}
@@ -171,17 +162,9 @@
 
   <div class="relative flex min-h-0 flex-1 flex-col">
     <div class="@container min-h-0 flex-1 overflow-y-auto">
-      <div
-        class="mx-auto flex min-h-full w-full max-w-[760px] flex-col overflow-clip px-4 pt-3 select-text"
-      >
+      <div class={HERO_COLUMN}>
         {#if repos.items.length}
-          <ThreadHero
-            thread={draftThread}
-            workspace={null}
-            conversationId="new"
-            earlier={[]}
-            nowMs={0}
-          />
+          <ThreadHero greeting="new-thread:new" />
         {:else}
           <div
             class="mt-auto flex flex-col items-start gap-3 pb-10"
@@ -196,8 +179,7 @@
             <Button
               variant="secondary"
               onclick={() => {
-                settings.focusSection = 'repos'
-                app.openSettings()
+                openSettings({ section: 'repos' })
               }}
             >
               Add a repo
@@ -207,66 +189,47 @@
       </div>
     </div>
 
-    <ThreadComposer
-      thread={draftThread}
-      bind:focusComposer
-      inputLabel="Start a new thread"
-      placeholder={repo
-        ? `What should we do in ${repo.name}?`
-        : 'Add a repo to start a thread'}
-      sendLabel="Start thread"
-      disabled={!repo}
-      onSubmit={submit}
-      {listSkills}
-    >
-      {#snippet pickers()}
-        {#if repos.items.length}
-          <label class="sr-only" for="new-thread-repo">Repository</label>
-          <Select.Root
-            type="single"
-            bind:open={repoOpen}
-            onOpenChangeComplete={(open) => {
-              // Back to the prompt rather than the picker's button.
-              if (!open) focusPromptAfterPicker()
-            }}
-            value={repoId}
-            onValueChange={(value) => {
-              if (value) repoId = value
-            }}
-          >
-            <Select.Trigger
-              bind:ref={repoTrigger}
-              id="new-thread-repo"
-              size="sm"
-              class="glass-well h-7 max-w-[168px] min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
-              title="The worktree is created from this repo (⌘⇧R)"
-              data-od-id="new-thread-repo"
-            >
-              <Folder class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
-              <span class="truncate">{repo?.name ?? 'Pick a repository'}</span>
-            </Select.Trigger>
-            <Select.Content>
-              {#each repos.items as row (row.id)}
-                <Select.Item value={row.id} label={row.name}>
-                  {row.name}
-                </Select.Item>
-              {/each}
-            </Select.Content>
-          </Select.Root>
-          <ThreadOptionPicker
-            kind="model"
-            thread={draftThread}
-            draft
-            bind:draftValue={model}
-          />
-          <ThreadOptionPicker
-            kind="effort"
-            thread={draftThread}
-            draft
-            bind:draftValue={effort}
-          />
-        {/if}
-      {/snippet}
-    </ThreadComposer>
+    <ThreadComposer target={composer} />
   </div>
 </section>
+
+{#snippet pickers()}
+  {#if repos.items.length}
+    <label class="sr-only" for="new-thread-repo">Repository</label>
+    <Select.Root
+      type="single"
+      bind:open={repoOpen}
+      onOpenChangeComplete={(open) => {
+        // Back to the prompt rather than the picker's button.
+        if (!open) focusPromptAfterPicker()
+      }}
+      value={repoId}
+      onValueChange={(value) => {
+        if (value) repoId = value
+      }}
+    >
+      <Select.Trigger
+        bind:ref={repoTrigger}
+        id="new-thread-repo"
+        size="sm"
+        class="glass-well h-7 max-w-[168px] min-w-0 shrink gap-1.5 rounded-[9px] border-transparent text-xs"
+        title="The worktree is created from this repo ({shortcutLabel(
+          'pickRepo',
+        )})"
+        data-od-id="new-thread-repo"
+      >
+        <Folder class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
+        <span class="truncate">{repo?.name ?? 'Pick a repository'}</span>
+      </Select.Trigger>
+      <Select.Content>
+        {#each repos.items as row (row.id)}
+          <Select.Item value={row.id} label={row.name}>
+            {row.name}
+          </Select.Item>
+        {/each}
+      </Select.Content>
+    </Select.Root>
+    <ThreadOptionPicker kind="model" source={modelSource} />
+    <ThreadOptionPicker kind="effort" source={effortSource} />
+  {/if}
+{/snippet}

@@ -1,49 +1,87 @@
 use std::path::Path;
 
-use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::git_workspace::{lead_thread_id, refresh_git_stats, resolve_record};
-use crate::github::auth;
-use crate::github::create::{CreatePullRequestInput, RestGithubClient};
-use crate::github::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
-use crate::ipc::types::{
-    CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
-    StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone,
-};
-use crate::pr_draft::{PR_PROMPT_KEY, draft_why, pr_prompt};
-use crate::state::AppState;
-use crate::store::types::{PrRow, WorkspaceRow};
-use crate::timeline::{TimelineStep, record_step};
+use serde::{Deserialize, Serialize};
+use specta::Type;
 
-/// A workspace that's still around, for the PR commands.
-fn live_workspace(state: &AppState, workspace_id: &str) -> Result<WorkspaceRow> {
-    state
+use crate::error::{Error, Result};
+use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
+use crate::github::RepoSlug;
+use crate::github::auth;
+use crate::github::create::CreatePullRequestInput;
+use crate::github::types::{OpenedPullRequest, PullRequestPayload};
+use crate::pr_draft::{draft_why, pr_prompt};
+use crate::state::AppState;
+use crate::timeline::TimelineStep;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftPrWhyResult {
+    pub workspace_id: String,
+    pub text: String,
+    pub from_llm: bool,
+    /// The branch the PR will target: the base, or the branch below in a stack.
+    pub base: String,
+    /// What the PR will show, against `base`.
+    pub files: u32,
+    pub added: u32,
+    pub deleted: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspacePullRequestInput {
+    pub workspace_id: String,
+    pub body: String,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspacePullRequestResult {
+    pub workspace_id: String,
+    pub number: i64,
+    pub html_url: String,
+    pub title: String,
+}
+
+async fn ensure_no_pr(state: &AppState, workspace_id: &str) -> Result<()> {
+    let workspace = state
         .store
         .workspace_by_id(workspace_id)?
-        .filter(|row| row.archived_at.is_none())
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))
+        .ok_or_else(|| Error::unknown_workspace(workspace_id))?;
+    let pull_requests = state.store.with_read(crate::github::pull_requests_in)?;
+    let stack_pr = state.stacks.pr(workspace_id, &workspace.branch);
+    match crate::github::create_pr_block(&workspace, &pull_requests, stack_pr) {
+        Some(reason) => Err(Error::Workspace(reason.into())),
+        None => Ok(()),
+    }
 }
 
 pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftPrWhyResult> {
-    let workspace = live_workspace(state, workspace_id)?;
-    if workspace.pr_number.is_some() {
-        return Err(Error::Workspace("pull request already opened".into()));
-    }
-
-    let record = resolve_record(state, workspace_id, &workspace).await?;
+    ensure_no_pr(state, workspace_id).await?;
+    let record = state.workspaces.get(workspace_id).await?;
     let worktree = Path::new(&record.worktree_path);
-    let base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await;
-    let diff = pr_diff(state, workspace_id, worktree, &base, &record.base).await;
+    let base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await?;
+    let diff = pr_diff(state, workspace_id, worktree, &base).await?;
 
-    let lead_id = lead_thread_id(state, workspace_id)?;
-    let goal = state.store.first_user_goal(&lead_id)?;
-    let transcript = state.store.transcript_summary(&lead_id, 24)?;
-    let instructions = pr_prompt(state.store.get_setting(PR_PROMPT_KEY)?);
+    let thread = state
+        .store
+        .own_thread(workspace_id)?
+        .ok_or_else(|| Error::Workspace(format!("no thread in workspace {workspace_id}")))?;
+    let goal = state.transcript.first_user_goal(&thread.id)?;
+    let transcript = state
+        .transcript
+        .recent(&thread.id, 24)?
+        .into_iter()
+        .map(|entry| format!("{}: {}", entry.speaker.as_str(), entry.text))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let instructions = pr_prompt(&crate::settings::Settings::read(&state.store)?.pr_prompt);
 
     let (text, from_llm) = draft_why(
         &state.llm,
         &instructions,
-        &workspace,
+        &record,
         &base,
         &goal,
         &transcript,
@@ -51,15 +89,19 @@ pub async fn draft_pr_why(state: &AppState, workspace_id: &str) -> Result<DraftP
     )
     .await?;
 
+    let (added, deleted, files) = diff_totals(&diff);
     Ok(DraftPrWhyResult {
         workspace_id: workspace_id.to_string(),
         text,
         from_llm,
+        base,
+        files,
+        added,
+        deleted,
     })
 }
 
 pub async fn create_workspace_pull_request(
-    out: &Output,
     state: &AppState,
     input: CreateWorkspacePullRequestInput,
 ) -> Result<CreateWorkspacePullRequestResult> {
@@ -70,13 +112,8 @@ pub async fn create_workspace_pull_request(
         ));
     }
 
-    let workspace = live_workspace(state, &input.workspace_id)?;
-
-    if workspace.pr_number.is_some() {
-        return Err(Error::Workspace("pull request already opened".into()));
-    }
-
-    let record = resolve_record(state, &input.workspace_id, &workspace).await?;
+    ensure_no_pr(state, &input.workspace_id).await?;
+    let record = state.workspaces.get(&input.workspace_id).await?;
     let worktree = Path::new(&record.worktree_path);
 
     let porcelain = state.git.status_porcelain(worktree).await?;
@@ -87,21 +124,15 @@ pub async fn create_workspace_pull_request(
     }
 
     // A stacked branch's PR targets the branch below it, which GitHub needs on the remote.
-    let pr_base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await;
-    if pr_base != record.base
-        && !state
-            .git
-            .remote_branch_exists(worktree, &pr_base)
-            .await
-            .unwrap_or(false)
-    {
+    let pr_base = crate::stack::pr_base(state, worktree, &record.branch, &record.base).await?;
+    if pr_base != record.base && !state.git.remote_branch_exists(worktree, &pr_base).await? {
         return Err(Error::Git(format!(
             "{} is stacked on {pr_base}, which isn't on GitHub yet. Push the stack from the Stack tab, then try again.",
             record.branch
         )));
     }
 
-    let token = auth::resolve_token(&state.shell_env).await?;
+    let token = auth::resolve_token(&state.github.gh).await?;
 
     state
         .git
@@ -114,46 +145,27 @@ pub async fn create_workspace_pull_request(
             other => other,
         })?;
 
-    refresh_git_stats(
-        state,
-        &input.workspace_id,
-        worktree,
-        &record.base,
-        &record.branch,
-    )
-    .await;
+    crate::workspace_git::refresh_stats(state, &record).await;
 
-    let origin = state
-        .git
-        .remote_origin_url(worktree)
-        .await?
-        .ok_or_else(|| Error::Git("no origin remote configured for this repo".into()))?;
-    let slug = crate::github::parse_origin_url(&origin).ok_or_else(|| {
-        Error::Git(format!(
-            "could not parse origin URL {}",
-            crate::github::redact_origin_url(&origin)
-        ))
-    })?;
-    let (owner, repo) = slug
-        .split_once('/')
-        .ok_or_else(|| Error::Git(format!("invalid origin slug {slug}")))?;
+    let slug = RepoSlug::of_origin(&state.git, worktree).await?;
 
-    let diff = pr_diff(state, &input.workspace_id, worktree, &pr_base, &record.base).await;
+    let diff = pr_diff(state, &input.workspace_id, worktree, &pr_base).await?;
 
     let title = input
         .title
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(workspace.name.as_str())
+        .unwrap_or(record.name.as_str())
         .to_string();
 
-    let client = RestGithubClient::new();
-    let created = client
+    let created = state
+        .github
+        .rest
         .create_pull_request(
             &token,
-            owner,
-            repo,
+            &slug.owner,
+            &slug.name,
             &CreatePullRequestInput {
                 title: title.clone(),
                 body: body.to_string(),
@@ -164,52 +176,44 @@ pub async fn create_workspace_pull_request(
         )
         .await?;
 
-    state.store.set_workspace_pr(
+    state.workspaces.set_pr(
         &input.workspace_id,
         Some(created.number),
         Some(&created.html_url),
     )?;
 
-    let (additions, deletions, files) = diff_totals(&diff);
-    let payload = PullRequestPayload {
-        num: created.number,
-        title: title.clone(),
-        author: "you".into(),
-        rel: PrRelationship::Author,
-        head: record.branch.clone(),
-        base: pr_base.clone(),
-        updated_at: iso_timestamp_now(),
-        checks: PrChecksState::Running,
-        failing: None,
-        review: PrReviewState::Draft,
-        additions: additions as i64,
-        deletions: deletions as i64,
-        files: files as i64,
-        is_draft: true,
-        html_url: created.html_url.clone(),
-        repo_full_name: slug.clone(),
-        repo_id: Some(workspace.repo_id.clone()),
-    };
-    let payload_json =
-        serde_json::to_string(&payload).map_err(|error| Error::Store(error.to_string()))?;
-    state.store.upsert_pr(&PrRow {
-        id: payload.cache_id(),
-        repo_id: Some(workspace.repo_id.clone()),
-        number: created.number,
-        title: title.clone(),
-        payload: payload_json,
-    })?;
+    let (_, _, files) = diff_totals(&diff);
+    state
+        .store
+        .upsert_pr(&PullRequestPayload::opened_by_viewer(OpenedPullRequest {
+            number: created.number,
+            title: title.clone(),
+            head: record.branch.clone(),
+            base: pr_base.clone(),
+            files: files as i64,
+            html_url: created.html_url.clone(),
+            repo_full_name: slug.full_name(),
+            repo_id: record.repo_id.clone(),
+        }))?;
 
-    let lead_id = lead_thread_id(state, &input.workspace_id)?;
-    append_opened_pr_step(
-        &state.store,
-        &lead_id,
-        created.number,
-        &record.branch,
-        &pr_base,
-    )?;
+    // The PR exists now, so nothing below may fail the command.
+    crate::workspace_git::record_in_own_thread(
+        state,
+        &input.workspace_id,
+        TimelineStep::PrOpened {
+            number: created.number,
+            branch: record.branch.clone(),
+            base: pr_base.clone(),
+        },
+    );
+    let own_thread = state
+        .store
+        .own_thread(&input.workspace_id)
+        .ok()
+        .flatten()
+        .map(|thread| thread.id);
 
-    out.toast(ToastRaisedPayload {
+    state.out.toast(ToastRaisedPayload {
         tone: ToastTone::Ok,
         parts: vec![
             ToastPart::Text {
@@ -220,11 +224,12 @@ pub async fn create_workspace_pull_request(
             },
         ],
         workspace_id: Some(input.workspace_id.clone()),
-        thread_id: Some(lead_id),
+        thread_id: own_thread,
+        ..Default::default()
     });
 
     // One refetch covers the new PR row and the workspace's PR number.
-    state.notify(out, StateChangeKind::PrSync);
+    state.out.changed();
 
     Ok(CreateWorkspacePullRequestResult {
         workspace_id: input.workspace_id,
@@ -234,29 +239,18 @@ pub async fn create_workspace_pull_request(
     })
 }
 
-/// The changes the PR will show. A stacked PR is measured against the branch below it;
-/// otherwise this is the Changes panel's diff, as it always was.
+/// The changes the PR will show: the branch's commits against the branch it targets, whatever
+/// the Changes panel is showing.
 async fn pr_diff(
     state: &AppState,
     workspace_id: &str,
     worktree: &Path,
     pr_base: &str,
-    trunk: &str,
-) -> crate::git::WorktreeDiff {
-    let diff = if pr_base == trunk {
-        state.diffs.compute(workspace_id, worktree).await
-    } else {
-        state
-            .diffs
-            .compute_against(workspace_id, worktree, pr_base)
-            .await
-    };
-    diff.unwrap_or(crate::git::WorktreeDiff {
-        workspace_id: workspace_id.to_string(),
-        target: None,
-        files: vec![],
-        uncommitted: Default::default(),
-    })
+) -> Result<crate::git::WorktreeDiff> {
+    state
+        .diffs
+        .compute_against(workspace_id, worktree, pr_base)
+        .await
 }
 
 fn diff_totals(diff: &crate::git::WorktreeDiff) -> (u32, u32, u32) {
@@ -269,71 +263,112 @@ fn diff_totals(diff: &crate::git::WorktreeDiff) -> (u32, u32, u32) {
     (added, deleted, diff.files.len() as u32)
 }
 
-fn append_opened_pr_step(
-    store: &crate::store::Store,
-    thread_id: &str,
-    number: i64,
-    branch: &str,
-    base: &str,
-) -> Result<()> {
-    record_step(
-        store,
-        thread_id,
-        TimelineStep::PrOpened {
-            number,
-            branch: branch.to_string(),
-            base: base.to_string(),
-        },
-    )
-}
+pub mod commands {
+    use tauri::State;
 
-/// Now, in the `YYYY-MM-DDTHH:MM:SSZ` form GitHub's `updatedAt` takes, so the PR row made here
-/// sorts and ages like the synced ones. (It used to be unix seconds, which the webview's
-/// `Date.parse` couldn't read, so a fresh PR showed as updated at the epoch until the next sync.)
-fn iso_timestamp_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    iso_timestamp(secs)
-}
+    use crate::error::Result;
+    use crate::state::AppState;
 
-fn iso_timestamp(unix_secs: u64) -> String {
-    let days = unix_secs / 86_400;
-    let rem = unix_secs % 86_400;
-    let (year, month, day) = civil_from_days(days as i64);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60
-    )
-}
+    use super::{
+        CreateWorkspacePullRequestInput, CreateWorkspacePullRequestResult, DraftPrWhyResult,
+    };
 
-/// Days since 1970-01-01 to a proleptic Gregorian date (Howard Hinnant's `civil_from_days`).
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (year, month, day)
+    /// The PR prompt Settings shows until the user writes their own.
+    #[tauri::command]
+    #[specta::specta]
+    pub fn default_pr_prompt() -> String {
+        crate::pr_draft::DEFAULT_PR_PROMPT.into()
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn draft_pr_why(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<DraftPrWhyResult> {
+        super::draft_pr_why(&state, &workspace_id).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn create_workspace_pull_request(
+        input: CreateWorkspacePullRequestInput,
+        state: State<'_, AppState>,
+    ) -> Result<CreateWorkspacePullRequestResult> {
+        super::create_workspace_pull_request(&state, input).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn timestamps_take_githubs_form() {
-        assert_eq!(iso_timestamp(0), "1970-01-01T00:00:00Z");
-        assert_eq!(iso_timestamp(951_782_400), "2000-02-29T00:00:00Z");
-        assert_eq!(iso_timestamp(1_727_657_551), "2024-09-30T00:52:31Z");
-        assert_eq!(iso_timestamp(4_102_444_799), "2099-12-31T23:59:59Z");
+    fn git(dir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git {args:?}: {output:?}");
+    }
+
+    fn synced(repo_id: &str, number: i64, head: &str) -> PullRequestPayload {
+        PullRequestPayload {
+            author: "ana".into(),
+            ..PullRequestPayload::opened_by_viewer(OpenedPullRequest {
+                number,
+                title: "Work".into(),
+                head: head.into(),
+                base: "main".into(),
+                files: 1,
+                html_url: format!("https://github.com/o/r/pull/{number}"),
+                repo_full_name: "o/r".into(),
+                repo_id: repo_id.into(),
+            })
+        }
+    }
+
+    /// Bug: only a PR this workspace opened counted, so one opened outside Cormux let Create
+    /// PR push and then fail at GitHub.
+    #[tokio::test]
+    async fn create_pr_is_refused_for_a_branch_whose_pr_was_opened_elsewhere() {
+        let (state, _recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        state
+            .store
+            .seed_workspace("feat", crate::model::WorkspaceLifecycle::Idle);
+        state.store.upsert_pr(&synced("r1", 8, "feat")).unwrap();
+
+        let refused = draft_pr_why(&state, "feat").await.unwrap_err();
+
+        assert!(
+            refused.to_string().contains("already has a pull request"),
+            "{refused}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_pr_diff_is_the_branch_against_its_base_whatever_changes_shows() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "-q", "-b", "main"]);
+        git(repo, &["config", "user.email", "t@example.com"]);
+        git(repo, &["config", "user.name", "T"]);
+        std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "-qm", "base"]);
+        git(repo, &["switch", "-qc", "feat"]);
+        std::fs::write(repo.join("b.txt"), "one\ntwo\n").unwrap();
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "-qm", "work"]);
+        std::fs::write(repo.join("a.txt"), "a\nuncommitted\n").unwrap();
+        let (state, _recording) = AppState::recorded(crate::paths::DataDir::new(repo.into()));
+        state.diffs.set_diff_target("w1", None);
+
+        let diff = pr_diff(&state, "w1", repo, "main").await.unwrap();
+
+        let files: Vec<&str> = diff.files.iter().map(|file| file.path.as_str()).collect();
+        assert_eq!(files, ["b.txt"]);
+        assert_eq!(diff_totals(&diff), (2, 0, 1));
     }
 }

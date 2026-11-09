@@ -5,6 +5,7 @@ import { reuseUnchangedFiles } from './reuse-files'
 const file = (path: string, body: string): DiffFile => ({
   path,
   oldPath: null,
+  status: 'modified',
   added: 1,
   deleted: 0,
   hunks: [{ header: '@@ -1 +1 @@\n', body }],

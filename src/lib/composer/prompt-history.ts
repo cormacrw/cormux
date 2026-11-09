@@ -1,7 +1,7 @@
-import type { AgentEvent } from '$lib/ipc/bindings'
+import type { TranscriptEvent } from '$lib/ipc/bindings'
 
 /** The user's prompts in a thread, oldest first. Back-to-back user chunks are one prompt. */
-export function promptHistory(events: { event: AgentEvent }[]): string[] {
+export function promptHistory(events: { event: TranscriptEvent }[]): string[] {
   const prompts: string[] = []
   let joining = false
   for (const { event } of events) {

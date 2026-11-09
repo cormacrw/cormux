@@ -5,7 +5,7 @@ test('editing a repo config never redraws it, even as saves refresh the app', as
 }) => {
   await page.goto('/')
   await page
-    .getByRole('navigation', { name: 'Harness' })
+    .getByRole('navigation', { name: 'Sidebar' })
     .getByRole('button', { name: /Settings/ })
     .click()
   await page.getByRole('button', { name: /Configure my-app/ }).click()

@@ -10,55 +10,17 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::Result;
-
-/// Images are shown inline in the thread, recordings in a player; both are capped so a
-/// stray reference can't copy the agent's whole disk into the app folder.
-const IMAGE_LIMIT_BYTES: u64 = 20 * 1024 * 1024;
-const VIDEO_LIMIT_BYTES: u64 = 200 * 1024 * 1024;
+use crate::media::{self, MediaKind};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadMedia {
-    /// `image` or `video`.
-    pub kind: String,
+    pub kind: MediaKind,
     pub name: String,
     /// The copy inside the media folder, loaded through the asset protocol.
     pub path: String,
     /// A data URL for images small enough to show directly; `None` otherwise.
     pub preview_url: Option<String>,
-}
-
-fn media_type(name: &str) -> Option<(&'static str, &'static str)> {
-    // (kind, canonical extension)
-    match Path::new(name)
-        .extension()?
-        .to_str()?
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "png" => Some(("image", "png")),
-        "jpg" | "jpeg" => Some(("image", "jpg")),
-        "gif" => Some(("image", "gif")),
-        "webp" => Some(("image", "webp")),
-        "mp4" => Some(("video", "mp4")),
-        "webm" => Some(("video", "webm")),
-        "mov" => Some(("video", "mov")),
-        "m4v" => Some(("video", "m4v")),
-        _ => None,
-    }
-}
-
-/// The file's own bytes must agree with its extension, so a renamed text file is refused.
-fn sniff_matches(kind: &str, extension: &str, head: &[u8]) -> bool {
-    match (kind, extension) {
-        ("image", "png") => head.starts_with(&[0x89, 0x50, 0x4E, 0x47]),
-        ("image", "jpg") => head.starts_with(&[0xFF, 0xD8, 0xFF]),
-        ("image", "gif") => head.starts_with(b"GIF8"),
-        ("image", "webp") => head.len() >= 12 && &head[..4] == b"RIFF" && &head[8..12] == b"WEBP",
-        ("video", "webm") => head.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]),
-        ("video", _) => head.len() >= 8 && &head[4..8] == b"ftyp",
-        _ => false,
-    }
 }
 
 fn percent_decode(value: &str) -> String {
@@ -83,7 +45,6 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// `file://` URLs lose their scheme; everything else is taken as a path as written.
 fn source_path(source: &str) -> PathBuf {
     let trimmed = source.trim();
     if let Some(rest) = trimmed.strip_prefix("file://") {
@@ -94,7 +55,6 @@ fn source_path(source: &str) -> PathBuf {
     }
 }
 
-/// Relative references resolve against the thread's worktree, the agent's working folder.
 fn resolve_path(source: &str, workdir: Option<&Path>) -> Option<PathBuf> {
     let path = source_path(source);
     let joined = if path.is_absolute() {
@@ -128,9 +88,8 @@ fn safe_stem(name: &str) -> String {
     }
 }
 
-/// Copies the referenced file into `media_dir` and describes how to show it. `Ok(None)`
-/// when the reference isn't a showable image or recording (missing, oversized, or a
-/// file whose bytes don't match its name) — the reply simply keeps its prose.
+/// `Ok(None)` when the reference isn't a showable image or recording (missing, oversized, or a
+/// file whose bytes don't match its name); the reply then keeps its prose.
 pub fn resolve(
     media_dir: &Path,
     source: &str,
@@ -143,22 +102,13 @@ pub fn resolve(
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let Some((kind, extension)) = media_type(&name) else {
+    let Some(format) = media::sniff(&path) else {
         return Ok(None);
     };
     let Ok(metadata) = std::fs::metadata(&path) else {
         return Ok(None);
     };
-    let limit = if kind == "image" {
-        IMAGE_LIMIT_BYTES
-    } else {
-        VIDEO_LIMIT_BYTES
-    };
-    if metadata.len() > limit {
-        return Ok(None);
-    }
-    let head = read_head(&path, 12);
-    if !sniff_matches(kind, extension, &head) {
+    if metadata.len() > format.kind.shown_limit() {
         return Ok(None);
     }
 
@@ -178,7 +128,7 @@ pub fn resolve(
         "{:016x}-{}.{}",
         hasher.finish(),
         safe_stem(&name),
-        extension
+        format.canonical
     );
     std::fs::create_dir_all(media_dir)
         .map_err(|error| crate::error::Error::Workspace(error.to_string()))?;
@@ -188,45 +138,46 @@ pub fn resolve(
         std::fs::copy(&path, &stored)
             .map_err(|error| crate::error::Error::Workspace(error.to_string()))?;
     }
-    let preview_url = if kind == "image" {
-        crate::attachments::image_preview(&stored)
-    } else {
-        None
-    };
     Ok(Some(ThreadMedia {
-        kind: kind.into(),
+        preview_url: media::image_data_url(&stored),
+        kind: format.kind,
         name,
         path: stored.display().to_string(),
-        preview_url,
     }))
 }
 
-fn read_head(path: &Path, count: usize) -> Vec<u8> {
-    use std::io::Read;
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return Vec::new();
-    };
-    let mut buffer = vec![0u8; count];
-    let read = file.read(&mut buffer).unwrap_or(0);
-    buffer.truncate(read);
-    buffer
+/// Copies a media file an agent referenced in its reply into the app's media folder,
+/// where the webview may load it. `None` when it isn't a showable image or recording.
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_thread_media(
+    source: String,
+    workdir: Option<String>,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<Option<ThreadMedia>> {
+    let media_dir = state.data_dir.media();
+    // Copies a file of up to hundreds of megabytes; not on an async worker.
+    tokio::task::spawn_blocking(move || {
+        resolve(&media_dir, &source, workdir.as_deref().map(Path::new))
+    })
+    .await?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn root() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("cormux-media-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn root() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        (dir, path)
     }
 
     const PNG: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4];
 
     #[test]
     fn copies_a_screenshot_into_the_media_folder() {
-        let root = root();
+        let (_dir, root) = root();
         let work = root.join("work");
         std::fs::create_dir_all(&work).unwrap();
         std::fs::write(work.join("after.png"), PNG).unwrap();
@@ -235,7 +186,7 @@ mod tests {
         let by_absolute = resolve(&media_dir, work.join("after.png").to_str().unwrap(), None)
             .unwrap()
             .unwrap();
-        assert_eq!(by_absolute.kind, "image");
+        assert_eq!(by_absolute.kind, MediaKind::Image);
         assert_eq!(by_absolute.name, "after.png");
         assert!(Path::new(&by_absolute.path).starts_with(&media_dir));
         assert!(
@@ -257,12 +208,11 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(by_file_url.path, by_absolute.path);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn refuses_files_that_are_not_what_they_claim() {
-        let root = root();
+        let (_dir, root) = root();
         std::fs::write(root.join("fake.png"), b"just some text").unwrap();
         std::fs::write(root.join("notes.txt"), b"hi").unwrap();
         assert!(
@@ -294,12 +244,11 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn accepts_a_recording_by_its_ftyp_box() {
-        let root = root();
+        let (_dir, root) = root();
         let mut mp4 = b"\0\0\0\x18".to_vec();
         mp4.extend_from_slice(b"ftypisom");
         std::fs::write(root.join("flow.mp4"), &mp4).unwrap();
@@ -310,8 +259,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(media.kind, "video");
+        assert_eq!(media.kind, MediaKind::Video);
         assert!(media.preview_url.is_none());
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

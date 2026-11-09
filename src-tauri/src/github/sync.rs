@@ -2,15 +2,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
-use tokio::sync::RwLock;
-
 use crate::error::Result;
-use crate::feedback::Output;
-use crate::git::Git;
-use crate::ipc::types::StateChangeKind;
-use crate::shell_env::ShellEnv;
 use crate::state::AppState;
-use crate::store::types::PrRow;
 
 use super::client::{self, FetchError};
 use super::r#match::load_repo_origins;
@@ -18,27 +11,17 @@ use super::r#match::load_repo_origins;
 const SYNC_INTERVAL: Duration = Duration::from_secs(120);
 const SYNCED_AT_KEY: &str = "githubPrSyncedAt";
 
-const AUTH_UNKNOWN: u8 = 0;
 const AUTH_SIGNED_IN: u8 = 1;
 const AUTH_SIGNED_OUT: u8 = 2;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PrSyncScheduler {
-    git: Git,
-    shell_env: Arc<RwLock<ShellEnv>>,
-    /// Outcome of the last sync that reached GitHub; read by snapshots instead of shelling out.
+    /// Outcome of the last sync that reached GitHub, 0 until one has; read by snapshots instead
+    /// of shelling out.
     auth: Arc<AtomicU8>,
 }
 
 impl PrSyncScheduler {
-    pub fn new(git: Git, shell_env: Arc<RwLock<ShellEnv>>) -> Self {
-        Self {
-            git,
-            shell_env,
-            auth: Arc::new(AtomicU8::new(AUTH_UNKNOWN)),
-        }
-    }
-
     /// Before the first sync of this launch, trust the last launch: a stored sync time
     /// means we were signed in, and it is cleared on sign-out.
     pub fn auth_configured(&self, state: &AppState) -> bool {
@@ -57,19 +40,14 @@ impl PrSyncScheduler {
     /// Returns whether the cache changed. Failures keep the last good list; only a
     /// definite signed-out answer from `gh` clears it.
     pub async fn tick(&self, state: &AppState) -> Result<bool> {
-        // Until the login-shell env loads, `gh` and `git` aren't on PATH for a GUI launch.
-        if self.shell_env.read().await.vars().is_empty() {
-            return Ok(false);
-        }
-
         let repos: Vec<(String, String)> = state
             .store
             .repos()?
             .into_iter()
             .map(|repo| (repo.id, repo.path))
             .collect();
-        let origins = load_repo_origins(&self.git, &repos).await?;
-        let items = match client::fetch_open_prs(&self.shell_env, &origins).await {
+        let origins = load_repo_origins(&state.git, &repos).await?;
+        let items = match client::fetch_open_prs(&state.github.gh, &origins).await {
             // Only PRs in repos registered in Settings; the search itself spans every repo.
             Ok(items) => items
                 .into_iter()
@@ -85,56 +63,32 @@ impl PrSyncScheduler {
             Err(FetchError::Other(error)) => return Err(error),
         };
 
-        let mut rows = Vec::with_capacity(items.len());
-        for pr in &items {
-            let payload = serde_json::to_string(pr)
-                .map_err(|error| crate::error::Error::Github(error.to_string()))?;
-            rows.push(PrRow {
-                id: pr.cache_id(),
-                repo_id: pr.repo_id.clone(),
-                number: pr.num,
-                title: pr.title.clone(),
-                payload,
-            });
-        }
-
-        let changed = state.store.replace_pull_requests(&rows)?;
-        let synced_at = chrono_like_now();
+        let changed = state.store.replace_pull_requests(&items)?;
+        let synced_at = crate::time::unix_secs().to_string();
         state.store.set_setting(SYNCED_AT_KEY, &synced_at)?;
         self.auth.store(AUTH_SIGNED_IN, Ordering::SeqCst);
         Ok(changed)
     }
 
-    pub fn spawn_loop(self, out: Output, state: AppState) {
-        tauri::async_runtime::spawn(async move {
-            let mut interval = tokio::time::interval(SYNC_INTERVAL);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            // The first tick fires immediately; the caller runs the initial sync itself.
-            interval.tick().await;
-            loop {
-                interval.tick().await;
-                if let Err(error) = self.sync_app(&out, &state).await {
-                    log::warn!("background PR sync failed: {error}");
-                }
-            }
-        });
-    }
-
-    pub async fn sync_app(&self, out: &Output, state: &AppState) -> Result<()> {
+    pub async fn sync_app(&self, state: &AppState) -> Result<()> {
         if !self.tick(state).await? {
             return Ok(());
         }
-        state.notify(out, StateChangeKind::PrSync);
+        state.out.changed();
         Ok(())
     }
 }
 
-/// Unix seconds, as the `githubPrSyncedAt` setting stores them.
-fn chrono_like_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    format!("{secs}")
+pub fn start(state: &AppState) {
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(SYNC_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            if let Err(error) = state.pr_sync.sync_app(&state).await {
+                log::warn!("PR sync failed: {error}");
+            }
+        }
+    });
 }

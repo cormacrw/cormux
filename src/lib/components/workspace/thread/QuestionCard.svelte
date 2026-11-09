@@ -5,8 +5,8 @@
   import * as Card from '$lib/components/ui/card'
   import { Textarea } from '$lib/components/ui/textarea'
   import { commands, type CoreError } from '$lib/ipc'
-  import { coreErrorText } from '$lib/feedback/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { focusPrompt } from '$lib/keyboard/focus-home'
   import { cn } from '$lib/utils'
   import type { TimelineItem } from '$lib/thread/timeline-types'
   import Check from '@lucide/svelte/icons/check'
@@ -20,13 +20,11 @@
     nowMs,
     timeLabel,
     timeTitle,
-    onFocusComposer,
   }: {
     item: ApprovalItem
     nowMs: number
     timeLabel: string
     timeTitle: string
-    onFocusComposer?: () => void
   } = $props()
 
   // Both keyed by question text, the way the agent wants its answers back.
@@ -47,19 +45,7 @@
   const resolvedChip = $derived(
     item.state === 'pending'
       ? null
-      : approvalResolvedChip(
-          {
-            title: item.title,
-            what: item.what,
-            why: item.why,
-            okLabel: item.okLabel,
-            noLabel: item.noLabel,
-            resolvedAtMs: item.doneAtMs ?? undefined,
-            questions: item.questions,
-          },
-          item.state,
-          nowMs,
-        ),
+      : approvalResolvedChip({ ...item, state: item.state }, nowMs),
   )
 
   function toggle(question: string, label: string, multiSelect: boolean) {
@@ -81,9 +67,9 @@
     try {
       const result = await send()
       if (result.status === 'error') {
-        toastCoreError(coreErrorText(result.error, 'Could not send the answer'))
+        toastCoreError(result.error, 'Could not send the answer')
       } else {
-        onFocusComposer?.()
+        focusPrompt()
       }
     } catch (error) {
       toastCoreError(error)
@@ -131,7 +117,7 @@
     </div>
   </Card.Header>
   <Card.Content class="space-y-4 pt-0">
-    {#each item.questions as { question, header, options, multiSelect } (question)}
+    {#each item.questions as { question, header, options = [], multiSelect = false } (question)}
       <div class="space-y-2">
         {#if header}
           <p class="text-xs font-medium text-muted-foreground">{header}</p>

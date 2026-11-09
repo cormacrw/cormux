@@ -1,19 +1,27 @@
 import { clickupHandlers } from './harness/handlers/clickup'
 import { coreHandlers } from './harness/handlers/core'
 import { diffHandlers } from './harness/handlers/diffs'
-import { gitHandlers } from './harness/handlers/git'
-import { repoHandlers } from './harness/handlers/repos'
-import { threadHandlers } from './harness/handlers/threads'
-import { workspaceHandlers } from './harness/handlers/workspaces'
+import { gitHandlers, gitUnsupported } from './harness/handlers/git'
+import { repoHandlers, repoUnsupported } from './harness/handlers/repos'
+import { threadHandlers, threadUnsupported } from './harness/handlers/threads'
+import {
+  workspaceHandlers,
+  workspaceUnsupported,
+} from './harness/handlers/workspaces'
 import { pluginHandlers } from './harness/plugins'
 import { createRuntime, type HarnessRuntime } from './harness/runtime'
 import { readScenario } from './harness/scenario'
-import { seedFixtures } from './harness/seed'
 import type { HandlerTable } from './harness/types'
-import { isUnsupported } from './harness/unsupported'
 
 type InvokeArgs = Record<string, unknown>
 type InvokeHandler = (args: InvokeArgs) => unknown
+
+const UNSUPPORTED = [
+  ...gitUnsupported,
+  ...repoUnsupported,
+  ...threadUnsupported,
+  ...workspaceUnsupported,
+]
 
 function isRealTauri(): boolean {
   const internals = (
@@ -34,7 +42,7 @@ function commandHandlers(runtime: HarnessRuntime) {
     ...repoHandlers(runtime),
     ...threadHandlers(runtime),
     ...workspaceHandlers(runtime),
-  } satisfies HandlerTable
+  } satisfies HandlerTable<(typeof UNSUPPORTED)[number]>
 }
 
 function createInvoke(runtime: HarnessRuntime) {
@@ -42,13 +50,23 @@ function createInvoke(runtime: HarnessRuntime) {
     ...commandHandlers(runtime),
     ...pluginHandlers(runtime),
   } as unknown as Record<string, InvokeHandler | undefined>
+  const slow: Partial<Record<string, number>> = runtime.scenario.slow ?? {}
+  const failing: Partial<Record<string, string>> =
+    runtime.scenario.failing ?? {}
 
   return async (cmd: string, args: InvokeArgs = {}) => {
+    const failure = failing[cmd]
+    // A rejection that isn't an `Error`, as Tauri delivers a command's `Err`.
+    if (failure !== undefined) throw { kind: 'Workspace', message: failure }
     const handler = handlers[cmd]
-    if (handler) return handler(args)
+    if (handler) {
+      const ms = slow[cmd]
+      if (ms) await new Promise((resolve) => setTimeout(resolve, ms))
+      return handler(args)
+    }
     if (cmd.startsWith('plugin:')) return null
     throw new Error(
-      isUnsupported(cmd)
+      (UNSUPPORTED as string[]).includes(cmd)
         ? `Browser harness: ${cmd} is unsupported. Give it a handler in src/lib/dev/harness/handlers if this flow needs it.`
         : `Browser harness: unknown command ${cmd}.`,
     )
@@ -61,9 +79,7 @@ function createInvoke(runtime: HarnessRuntime) {
  */
 export function installBrowserHarness() {
   if (typeof window === 'undefined' || isRealTauri()) return
-  const scenario = readScenario()
-  seedFixtures(scenario)
-  const runtime = createRuntime(scenario)
+  const runtime = createRuntime(readScenario())
   const invoke = createInvoke(runtime)
   window.__HARNESS__ = runtime.controls
 
@@ -85,7 +101,7 @@ export function installBrowserHarness() {
       },
     },
     __TAURI_EVENT_PLUGIN_INTERNALS__: {
-      unregisterListener() {},
+      unregisterListener: runtime.unlisten,
     },
   })
 

@@ -2,42 +2,29 @@
   import ChangeCounts from '$lib/components/workspace/ChangeCounts.svelte'
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
-  import { reviewReady } from '$lib/review/workspace-settings'
-  import {
-    findings,
-    settings,
-    workspaceDiff,
-    workspaceRecords,
-    workspaceUi,
-  } from '$lib/state'
+  import { workspaceUi } from '$lib/state'
+  import { findings } from '$lib/findings/store.svelte'
+  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import { cn } from '$lib/utils'
-  import { formatChangeCounts } from '$lib/workspace/diff-totals'
-  import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
+  import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
+  import { formatChangeCounts } from '$lib/changes/diff-totals'
+  import { appStatusView } from '$lib/run-app/status'
   import {
     changesTabAriaLabel,
     findingsTabAriaLabel,
     outputTabAriaLabel,
-    showFindingsTab,
   } from '$lib/workspace/thread-tabs'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import List from '@lucide/svelte/icons/list'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Terminal from '@lucide/svelte/icons/terminal'
 
-  // What used to be tabs: the panels that slide out over the workspace's one conversation.
   let { workspace }: { workspace: Workspace } = $props()
 
-  const showFindings = $derived(
-    showFindingsTab({
-      workspaceKind: workspace.kind,
-      reviewReady: reviewReady(settings.rows, workspace.id),
-      hasFindings: findings.hasReviewFindings(workspace.id),
-    }),
-  )
+  const showFindings = $derived(findings.tabAvailable(workspace))
   const openFindings = $derived(findings.openCount(workspace.id))
-  const provisioning = $derived(isWorkspaceProvisioning(workspace.lifecycle))
-  const runtime = $derived(workspaceRecords.runtime(workspace.id))
+  const app = $derived(appStatusView(workspace))
   const changeCountLabel = $derived(
     formatChangeCounts(workspaceDiff.uncommitted(workspace.id)),
   )
@@ -85,11 +72,11 @@
     class={buttonClass(workspaceUi.gitVisible)}
     aria-pressed={workspaceUi.gitVisible}
     aria-label={changesTabAriaLabel(changeCountLabel)}
-    aria-keyshortcuts="Meta+G"
-    title="Git (⌘G)"
+    aria-keyshortcuts={shortcutAria('toggleGit')}
+    title="Git ({shortcutLabel('toggleGit')})"
     id="tray-changes"
     data-od-id="tray-changes"
-    onclick={() => workspaceUi.toggleGit()}
+    onclick={() => workspaceUi.toggleTray('changes')}
   >
     <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
     <span aria-hidden="true">Git</span>
@@ -103,26 +90,22 @@
     size="sm"
     class={buttonClass(workspaceUi.outputVisible)}
     aria-pressed={workspaceUi.outputVisible}
-    aria-label={outputTabAriaLabel({
-      provisioning,
-      appStatus: runtime.appStatus,
-      port: runtime.port,
-    })}
-    aria-keyshortcuts="Meta+O"
-    title="Output (⌘O)"
+    aria-label={outputTabAriaLabel(app)}
+    aria-keyshortcuts={shortcutAria('toggleOutput')}
+    title="Output ({shortcutLabel('toggleOutput')})"
     id="tray-output"
     data-od-id="tray-output"
-    onclick={() => workspaceUi.toggleOutputTab()}
+    onclick={() => workspaceUi.toggleTray('output')}
   >
     <Terminal class="size-3.5 shrink-0" aria-hidden="true" />
     <span aria-hidden="true">Output</span>
-    {#if provisioning || runtime.appStatus === 'starting'}
+    {#if app.busy}
       <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />
-    {:else if runtime.appStatus === 'running' && runtime.port}
+    {:else if app.port}
       <span class="flex items-center gap-1" aria-hidden="true">
         <span class="size-2 rounded-full bg-emerald-500"></span>
         <span class="font-mono text-[10px] text-muted-foreground"
-          >:{runtime.port}</span
+          >:{app.port}</span
         >
       </span>
     {/if}

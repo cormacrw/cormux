@@ -1,21 +1,20 @@
 <script lang="ts">
+  import { navigate } from '$lib/core/nav.svelte'
   import { tick } from 'svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import { commands } from '$lib/ipc'
   import type { TeardownPreview } from '$lib/ipc/bindings'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { fetchSnapshot } from '$lib/ipc'
-  import {
-    app,
-    hydrateFromSnapshot,
-    shellDialogs,
-    workspaces,
-  } from '$lib/state'
+  import { shellDialogs, threads } from '$lib/state'
+  import { engineDisplayName } from '$lib/engine/engines'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
   import Trash2 from '@lucide/svelte/icons/trash-2'
 
-  const workspaceId = $derived(shellDialogs.teardownWorkspaceId)
+  const workspaceId = $derived(
+    shellDialogs.args('teardown')?.workspaceId ?? null,
+  )
 
   let preview = $state<TeardownPreview | null>(null)
   // Waits for the preview: a clean worktree never shows the dialog at all.
@@ -35,14 +34,14 @@
   async function loadPreview(id: string) {
     preview = null
     const result = await commands.getTeardownPreview(id)
-    if (shellDialogs.teardownWorkspaceId !== id) return
+    if (workspaceId !== id) return
     if (result.status === 'error') {
-      toastCoreError(JSON.stringify(result.error))
-      shellDialogs.closeTeardown()
+      toastCoreError(result.error)
+      shellDialogs.close('teardown')
       return
     }
     deleteBranch = result.data.deleteBranchDefault
-    if (result.data.dataLoss.uncommittedFiles === 0) {
+    if (!result.data.dataLoss.askFirst) {
       confirmTeardown()
       return
     }
@@ -52,40 +51,34 @@
   }
 
   function onOpenChange(next: boolean) {
-    if (!next) shellDialogs.closeTeardown()
+    if (!next) shellDialogs.close('teardown')
   }
 
-  // Close immediately and let the teardown run in the background: the sidebar
-  // drops the workspace and its row shows Deleting until the core
-  // finishes. A failure toasts here; success needs no toast, the row just goes.
+  // Close immediately and let the teardown run in the background: the core marks the
+  // workspace as tearing down first, which hides it. A failure toasts here; success needs no toast.
   function confirmTeardown() {
     if (!workspaceId) return
     const tornId = workspaceId
-    workspaces.markDeleting(tornId)
-    shellDialogs.closeTeardown()
-    app.openNewThread()
+    shellDialogs.close('teardown')
+    navigate({ view: 'newThread' })
     void commands
       .teardownWorkspace({ workspaceId: tornId, deleteBranch })
-      .then(async (result) => {
-        if (result.status === 'error') {
-          workspaces.clearDeleting(tornId)
-          toastCoreError(JSON.stringify(result.error))
-        }
-        hydrateFromSnapshot(await fetchSnapshot())
+      .then((result) => {
+        if (result.status === 'error') toastCoreError(result.error)
       })
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && preview) {
-      event.preventDefault()
-      confirmTeardown()
-    }
-  }
+  const onKeydown = onModEnter(() => {
+    if (preview) confirmTeardown()
+  })
 
   const description = $derived.by(() => {
     if (!preview) return ''
+    const engine = engineDisplayName(
+      threads.liveFor(preview.workspaceId)?.engine ?? 'claude',
+    )
     const appPart = preview.appRunning ? ' and the running app' : ''
-    return `Stops ${preview.engineLabel}${appPart}, then deletes ${preview.worktreePath}. Homebase is not affected.`
+    return `Stops ${engine}${appPart}, then deletes ${preview.worktreePath}.`
   })
 </script>
 

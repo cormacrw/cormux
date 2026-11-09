@@ -1,28 +1,30 @@
+import { openWorkspace } from '$lib/nav/open'
 import { toastCoreError } from '$lib/feedback/wire-feedback'
+import { showToast } from '$lib/feedback/show-toast'
 import { commands } from '$lib/ipc'
-import { fetchSnapshot } from '$lib/ipc'
 import type { PullRequest } from '$lib/state/prs.svelte'
-import { hydrateFromSnapshot } from '$lib/state'
 
-export async function startReviewWorkspace(pr: PullRequest): Promise<boolean> {
-  const result = await commands.createReviewWorkspace({
-    repoId: pr.repoId ?? 'my-app',
-    prNumber: pr.num,
-    title: pr.title,
-    head: pr.head,
-    base: pr.base,
-    author: pr.author,
-    authorIsYou: pr.author === 'you',
-    filesChanged: pr.files,
-    prHtmlUrl: pr.htmlUrl || null,
-  })
-
-  if (result.status === 'error') {
-    toastCoreError(result.error)
-    return false
+/**
+ * Reviews the PR in its own workspace, which the core finds or starts (one per PR). An existing
+ * one opens; a new one stays in the background, and the core's toasts link to it once it's up.
+ */
+export async function reviewPullRequest(pr: PullRequest) {
+  if (!pr.repoId) {
+    showToast({
+      tone: 'bad',
+      parts: [
+        {
+          type: 'text',
+          value: `#${pr.num} is in a repo Cormux doesn't have; add it in Settings to review it here.`,
+        },
+      ],
+    })
+    return
   }
-
-  // Stay where you are; the toasts link to the workspace once it's up.
-  hydrateFromSnapshot(await fetchSnapshot())
-  return true
+  const result = await commands.createReviewWorkspace({
+    repoId: pr.repoId,
+    prNumber: pr.num,
+  })
+  if (result.status === 'error') toastCoreError(result.error)
+  else if (!result.data.created) openWorkspace(result.data.workspaceId)
 }

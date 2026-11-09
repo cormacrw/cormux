@@ -35,6 +35,10 @@ jobs:
       - name: Test
         run: pnpm test && cargo test --manifest-path src-tauri/Cargo.toml
 
+      # `cargo test` regenerates the TypeScript bindings; a diff means they were committed stale.
+      - name: Bindings are up to date
+        run: git diff --exit-code src/lib/ipc/bindings.ts
+
       - name: Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 

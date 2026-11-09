@@ -1,59 +1,61 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import PlaceSwitcher from '$lib/components/shell/PlaceSwitcher.svelte'
+  import PlaceSwitcher from '$lib/switcher/PlaceSwitcher.svelte'
   import { trackKeyboardInput } from '$lib/keyboard/focus-home'
-  import { switcher } from '$lib/state/switcher.svelte'
-  import { currentPlace, handleSwitcherKeyup } from '$lib/switcher/navigate'
+  import { switcher } from '$lib/switcher/store.svelte'
+  import { handleSwitcherKeyup } from '$lib/switcher/navigate'
   import { ModeWatcher } from 'mode-watcher'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import AppShell from '$lib/components/shell/AppShell.svelte'
   import Backdrop from '$lib/background/Backdrop.svelte'
-  import CommandPalette from '$lib/components/shell/CommandPalette.svelte'
+  import CommandPalette from '$lib/command-palette/CommandPalette.svelte'
   import { bindNativeMenu } from '$lib/components/shell/menu'
-  import { handleGlobalKeydown } from '$lib/keyboard/global-shortcuts'
+  import { handleGlobalKeydown } from '$lib/components/shell/global-shortcuts'
   import { installOverlayFailsafe } from '$lib/overlay-failsafe'
-  import { events, fetchSnapshot, listenForStateChanges } from '$lib/ipc'
+  import { listenForStateChanges, refreshSnapshot } from '$lib/core/sync'
+  import { nav, navigate } from '$lib/core/nav.svelte'
   import {
-    app,
-    clickup,
-    hydrateFromSnapshot,
-    memory,
-    patchFromEvent,
-    resyncAfterGap,
-    settings,
-    shellDialogs,
-  } from '$lib/state'
+    NEW_THREAD,
+    routeIsLive,
+    windowTitle,
+    type RouteLookups,
+  } from '$lib/core/route'
+  import { appName } from '$lib/build-mode'
+  import { repos, scratches, shellDialogs, workspaces } from '$lib/state'
+  import { threadTimeline } from '$lib/thread/timeline-store.svelte'
+  import { clickup } from '$lib/clickup/store.svelte'
+  import { settings } from '$lib/settings/store.svelte'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
   import ToastsRegion from '$lib/components/feedback/ToastsRegion.svelte'
-  import NewThreadView from '$lib/components/new-thread/NewThreadView.svelte'
-  import CreatePrDialog from '$lib/components/workspace/CreatePrDialog.svelte'
   import LazyView from '$lib/components/shell/LazyView.svelte'
+  import { SHELL_DIALOGS } from '$lib/components/shell/lazy-views'
   import {
-    loadEndScratchDialog,
-    loadRepo,
-    loadScratch,
-    loadSettings,
-    loadSprint,
-    loadSubmitReviewDialog,
-    loadTeardownDialog,
+    ROUTE_VIEWS,
     preloadLazyViews,
-  } from '$lib/components/shell/lazy-views'
+  } from '$lib/components/shell/route-views'
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
-  import { bindWorkspaceAppControls } from '$lib/workspace/wire-workspace-app'
-  import { bindGitWorkspaceControls } from '$lib/workspace/wire-git-workspace'
-  import { setHarnessWindowFocused } from '$lib/feedback/supervision'
-  import { openNotifiedTarget } from '$lib/feedback/os-notifications'
+  import { installSupervision } from '$lib/feedback/supervision'
+  import { installClickupSync } from '$lib/clickup/sync'
   import * as Tooltip from '$lib/components/ui/tooltip'
-  import Workspace from './routes/Workspace.svelte'
+  import type { ShellDialogId } from '$lib/state/shell-dialogs.svelte'
+
+  const shellDialogIds = Object.keys(SHELL_DIALOGS) as ShellDialogId[]
 
   /** How long the first paint waits for the web fonts before showing the window anyway. */
   const FONT_WAIT_MS = 300
 
   onMount(() => {
-    let unlisten: (() => void) | undefined
+    const stops: (() => void)[] = []
+    let disposed = false
+    // Each listener registers after an await; one that lands after unmount stops at once.
+    const keep = (stop: () => void) => {
+      if (disposed) stop()
+      else stops.push(stop)
+    }
 
     void (async () => {
       try {
-        hydrateFromSnapshot(await fetchSnapshot())
+        await refreshSnapshot()
       } catch (error) {
         console.warn('snapshot unavailable, using empty stores', error)
       }
@@ -82,54 +84,42 @@
       if (idle) idle(preloadLazyViews, { timeout: 3000 })
       else window.setTimeout(preloadLazyViews, 1000)
 
-      const unlistenMenu = await bindNativeMenu()
-      const unlistenFeedback = await bindFeedbackEvents()
-      const unlistenWorkspaceApp = bindWorkspaceAppControls()
-      const unlistenGitWorkspace = bindGitWorkspaceControls()
       const win = getCurrentWindow()
-      const unlistenFocus = await win.onFocusChanged(({ payload: focused }) => {
-        setHarnessWindowFocused(focused)
-        if (focused) {
-          openNotifiedTarget()
-          void clickup.refresh()
-        }
-      })
-      setHarnessWindowFocused(await win.isFocused())
-      const unlistenState = await listenForStateChanges({
-        lastVersion: () => app.version,
-        onEvent: patchFromEvent,
-        onGap: () => void resyncAfterGap(),
-      })
-      const unlistenMemory = await events.memorySampled.listen(({ payload }) =>
-        memory.hydrate(payload.sample),
-      )
-
-      unlisten = () => {
-        unlistenMenu()
-        unlistenFeedback()
-        unlistenWorkspaceApp()
-        unlistenGitWorkspace()
-        unlistenFocus()
-        unlistenState()
-        unlistenMemory()
-      }
+      keep(await bindNativeMenu())
+      keep(await bindFeedbackEvents())
+      keep(await installSupervision(win))
+      keep(await installClickupSync(win))
+      keep(await listenForStateChanges())
     })()
 
     return () => {
-      unlisten?.()
+      disposed = true
+      for (const stop of stops) stop()
     }
   })
 
   onMount(() => installOverlayFailsafe())
 
-  // Teammates move tasks in ClickUp too, so the sprint refreshes every couple of minutes.
-  // Regaining focus refreshes it anyway, so a window in the background can skip its turns.
+  onMount(() =>
+    threadTimeline.onReadError((error) =>
+      toastCoreError(error, 'Could not read this thread'),
+    ),
+  )
+
+  const routeLookups: RouteLookups = {
+    workspace: (id) => workspaces.getById(id)?.name,
+    scratch: (id) => scratches.getById(id)?.title,
+    repo: (id) => repos.getById(id)?.name,
+    get sprint() {
+      return clickup.configured
+    },
+  }
+
+  // A workspace torn down, a scratch ended, a repo removed or ClickUp disconnected takes
+  // its page with it.
   $effect(() => {
-    if (!clickup.ready) return
-    const id = window.setInterval(() => {
-      if (document.hasFocus()) void clickup.refresh()
-    }, 120_000)
-    return () => window.clearInterval(id)
+    if (!routeIsLive(nav.route, routeLookups))
+      untrack(() => navigate(NEW_THREAD))
   })
 
   onMount(() => {
@@ -147,26 +137,15 @@
     }
   })
 
-  // Ctrl+Tab goes back through these, most recent first.
-  $effect(() => {
-    const place = currentPlace()
-    if (place) untrack(() => switcher.visit(place))
-  })
-
-  $effect(() => {
-    if (app.view === 'workspace' && app.workspaceId && app.threadId)
-      switcher.rememberThread(app.workspaceId, app.threadId)
-  })
-
   $effect(() => {
     document.documentElement.classList.toggle(
       'reduce-motion',
-      settings.reduceMotion,
+      settings.values.reduceMotion,
     )
   })
 
   $effect(() => {
-    const title = app.windowTitle
+    const title = windowTitle(nav.route, routeLookups, appName)
     void getCurrentWindow()
       .setTitle(title)
       .catch(() => {
@@ -176,39 +155,23 @@
 </script>
 
 <ModeWatcher />
-<!-- What the glass sits on: the theme's gradient and the wordmark. -->
 <Backdrop />
 <PlaceSwitcher />
 
 <Tooltip.Provider>
   <ToastsRegion />
-  <LazyView
-    load={loadTeardownDialog}
-    when={shellDialogs.teardownWorkspaceId != null}
-  />
-  <CreatePrDialog />
-  <LazyView
-    load={loadSubmitReviewDialog}
-    when={shellDialogs.submitReviewWorkspaceId != null}
-  />
-  <LazyView
-    load={loadEndScratchDialog}
-    when={shellDialogs.endScratch != null}
-  />
+  {#each shellDialogIds as id (id)}
+    <LazyView load={SHELL_DIALOGS[id]} when={shellDialogs.isOpen(id)} />
+  {/each}
   <CommandPalette />
   <AppShell>
-    {#if app.view === 'settings'}
-      <LazyView load={loadSettings} />
-    {:else if app.view === 'workspace'}
-      <Workspace />
-    {:else if app.view === 'scratch'}
-      <LazyView load={loadScratch} />
-    {:else if app.view === 'sprint'}
-      <LazyView load={loadSprint} />
-    {:else if app.view === 'repo'}
-      <LazyView load={loadRepo} />
-    {:else}
-      <NewThreadView />
-    {/if}
+    {#key nav.view}
+      {@const view = ROUTE_VIEWS[nav.view]}
+      {#if 'load' in view}
+        <LazyView load={view.load} />
+      {:else}
+        <view.component />
+      {/if}
+    {/key}
   </AppShell>
 </Tooltip.Provider>

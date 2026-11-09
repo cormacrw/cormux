@@ -1,105 +1,354 @@
-use std::sync::Arc;
+//! How the core tells the user something happened: state changes the webview mirrors, toasts
+//! and the dock badge. [`Notifier`] is the only way out for these; `ipc::events::TauriOutput`
+//! carries them to the webview and the dock, and tests use `RecordingOutput`.
 
-use crate::ipc::types::{StateChangeKind, ToastPart, ToastRaisedPayload, ToastTone};
-use crate::state::AppState;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-/// How a workflow tells the user something happened. It is the only way out of the core for
-/// these: `ipc::events::TauriOutput` sends them to the webview and the dock, and tests use
-/// `RecordingOutput`.
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
+use crate::bus::{Bus, DomainEvent};
+use crate::settings::Settings;
+use crate::store::Store;
+
+/// Changes closer together than this reach the webview as one `StateChanged`. The webview
+/// answers every one with a full snapshot fetch, so a burst (an approval resolving, its
+/// counts, the turn ending) costs one fetch instead of one each. The first change in a quiet
+/// spell goes out at once, so nothing waits on the window.
+const CHANGE_WINDOW: Duration = Duration::from_millis(50);
+
+/// What the webview has to re-read for a change, besides its snapshot, which it always
+/// refetches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Change {
+    /// `origin` moved, so the repo rows' behind and ahead counts are stale.
+    pub repo_git: bool,
+}
+
+impl Change {
+    fn merge(self, other: Self) -> Self {
+        Self {
+            repo_git: self.repo_git || other.repo_git,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ToastTone {
+    Ok,
+    Bad,
+    #[default]
+    Default,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum ToastPart {
+    Text { value: String },
+    Code { value: String },
+}
+
+impl ToastPart {
+    pub fn text(value: impl Into<String>) -> Self {
+        Self::Text {
+            value: value.into(),
+        }
+    }
+
+    pub fn code(value: impl Into<String>) -> Self {
+        Self::Code {
+            value: value.into(),
+        }
+    }
+
+    /// The parts as one line of plain text.
+    pub fn plain(parts: &[Self]) -> String {
+        parts
+            .iter()
+            .map(|part| match part {
+                Self::Text { value } | Self::Code { value } => value.as_str(),
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ToastRaisedPayload {
+    pub tone: ToastTone,
+    pub parts: Vec<ToastPart>,
+    pub workspace_id: Option<String>,
+    /// With `workspace_id`, clicking the toast opens this thread's tab.
+    pub thread_id: Option<String>,
+    /// With `workspace_id`, clicking the toast opens its Findings tab.
+    pub opens_findings: bool,
+}
+
+/// Something the user asked to hear about even while away: the webview shows it as a desktop
+/// notification when the window isn't in front, and focusing the app then opens its target.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPayload {
+    pub body: String,
+    pub workspace_id: Option<String>,
+    /// With `workspace_id`, opens this thread's tab.
+    pub thread_id: Option<String>,
+    /// With `workspace_id`, opens its Findings tab.
+    pub opens_findings: bool,
+}
+
 pub trait UserOutput: Send + Sync {
-    /// Prefer `AppState::notify`, which numbers changes and merges bursts of them.
-    fn state_changed(&self, version: u64, kind: StateChangeKind);
-    /// A toast carries its own payload, so it needs no `state_changed`: the webview showed it
-    /// from `ToastRaised` and ignored the matching `Toast` state event anyway.
+    fn state_changed(&self, version: u64, change: Change);
     fn toast(&self, payload: ToastRaisedPayload);
+    fn notification(&self, payload: NotificationPayload);
     fn dock_badge(&self, count: Option<i64>);
+}
 
-    fn toast_parts(&self, tone: ToastTone, parts: Vec<ToastPart>, workspace_id: Option<String>) {
+/// Refreshes the webview, and with it the dock badge, whenever an approval starts or stops
+/// waiting, and tells the user an agent is waiting when Settings asks for that, for the life of
+/// the app.
+pub fn start(bus: &Bus, out: &Notifier, store: &Store) {
+    let out = out.clone();
+    let store = store.clone();
+    bus.listen(crate::bus::Listener::Feedback, move |event| {
+        match event {
+            DomainEvent::ApprovalRequested { thread_id, .. } => {
+                notify_waiting(&out, &store, &thread_id);
+                out.changed();
+            }
+            DomainEvent::ApprovalsCancelled { .. } => out.changed(),
+            _ => {}
+        }
+        std::future::ready(())
+    });
+}
+
+fn notify_waiting(out: &Notifier, store: &Store, thread_id: &str) {
+    if !Settings::load(store).notify_approvals {
+        return;
+    }
+    let workspace_id = match store.thread_by_id(thread_id) {
+        Ok(thread) => thread.map(|thread| thread.workspace_id),
+        Err(error) => {
+            log::warn!("reading thread {thread_id} to notify: {error}");
+            None
+        }
+    };
+    out.notification(NotificationPayload {
+        body: waiting_text((out.0.pending_approvals)()),
+        thread_id: workspace_id.is_some().then(|| thread_id.to_string()),
+        workspace_id,
+        opens_findings: false,
+    });
+}
+
+fn waiting_text(pending: usize) -> String {
+    if pending <= 1 {
+        "An agent is waiting for your approval.".into()
+    } else {
+        format!("{pending} agents are waiting for your approval.")
+    }
+}
+
+/// Numbers state changes, merges bursts of them, and keeps the dock badge on the number of
+/// approvals waiting. Cheap to clone: clones share one sequence.
+#[derive(Clone)]
+pub struct Notifier(Arc<NotifierInner>);
+
+struct NotifierInner {
+    output: Arc<dyn UserOutput>,
+    pending_approvals: Box<dyn Fn() -> usize + Send + Sync>,
+    version: AtomicU64,
+    changes: Mutex<ChangeCoalescer>,
+    badge: Mutex<Option<i64>>,
+}
+
+impl Notifier {
+    /// `pending_approvals` counts the approvals waiting; the badge follows it.
+    pub fn new(
+        output: Arc<dyn UserOutput>,
+        pending_approvals: impl Fn() -> usize + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(NotifierInner {
+            output,
+            pending_approvals: Box::new(pending_approvals),
+            version: AtomicU64::new(0),
+            changes: Mutex::new(ChangeCoalescer::default()),
+            badge: Mutex::new(None),
+        }))
+    }
+
+    /// The version of the last change sent. A snapshot carries it, so the webview can tell
+    /// whether an event it gets next is news.
+    pub fn version(&self) -> u64 {
+        self.0.version.load(Ordering::SeqCst)
+    }
+
+    /// Tells the webview something it mirrors has changed, merging changes that land within
+    /// `CHANGE_WINDOW` of the last one into a single trailing event.
+    ///
+    /// The version only moves when an event goes out, so consecutive events are numbered
+    /// consecutively: the webview treats a jump as a dropped event and does a full resync,
+    /// which a merged burst must not look like.
+    pub fn changed(&self) {
+        self.note(Change::default());
+    }
+
+    /// Like `changed`, when `origin` moved too, so the webview re-reads the repos' git state.
+    pub fn repo_git_moved(&self) {
+        self.note(Change { repo_git: true });
+    }
+
+    fn note(&self, change: Change) {
+        let decision = match self.0.changes.lock() {
+            Ok(mut changes) => changes.record(change, Instant::now()),
+            Err(_) => Decision::EmitNow(change),
+        };
+        match decision {
+            Decision::EmitNow(change) => self.emit(change),
+            Decision::Schedule(delay) => {
+                let notifier = self.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    let change = match notifier.0.changes.lock() {
+                        Ok(mut changes) => changes.flush(Instant::now()),
+                        Err(_) => Some(change),
+                    };
+                    if let Some(change) = change {
+                        notifier.emit(change);
+                    }
+                });
+            }
+            Decision::Merged => {}
+        }
+    }
+
+    /// A toast carries its own payload, so it needs no state change.
+    pub fn toast(&self, payload: ToastRaisedPayload) {
+        self.0.output.toast(payload);
+    }
+
+    /// Callers raise one only when the user's settings ask for it.
+    pub fn notification(&self, payload: NotificationPayload) {
+        self.0.output.notification(payload);
+    }
+
+    pub fn toast_parts(
+        &self,
+        tone: ToastTone,
+        parts: Vec<ToastPart>,
+        workspace_id: Option<String>,
+    ) {
         self.toast(ToastRaisedPayload {
             tone,
             parts,
             workspace_id,
             thread_id: None,
+            ..Default::default()
         });
     }
-}
 
-/// Shared so a workflow can hand it to the background tasks it spawns.
-pub type Output = Arc<dyn UserOutput>;
-
-pub fn emit_approval_counts(out: &Output, state: &AppState) {
-    state.notify(out, StateChangeKind::ApprovalCounts);
-    sync_dock_badge(out, state);
-}
-
-pub fn sync_dock_badge(out: &Output, state: &AppState) {
-    let pending = pending_approvals(state);
-    let count = if pending == 0 {
-        None
-    } else {
-        Some(pending as i64)
-    };
-    out.dock_badge(count);
-}
-
-fn pending_approvals(state: &AppState) -> usize {
-    let stored = state.store.pending_approval_count().unwrap_or(0);
-    stored.max(state.approvals.pending_count())
-}
-
-/// The toast an approval earns once it's granted, if any. Only cross-thread effects get one;
-/// an edit or delete already shows as resolved on its card.
-pub fn toast_for_approval(tool: &str, approved: bool) -> Option<ToastRaisedPayload> {
-    if !approved {
-        return None;
+    fn emit(&self, change: Change) {
+        let version = self.0.version.fetch_add(1, Ordering::SeqCst) + 1;
+        self.0.output.state_changed(version, change);
+        self.sync_badge();
     }
-    let parts = match tool {
-        "send_suggestions" | "review_suggestions" => vec![ToastPart::Text {
-            value: "Review suggestions sent to Lead".into(),
-        }],
-        _ => return None,
-    };
-    Some(ToastRaisedPayload {
-        tone: ToastTone::Ok,
-        parts,
-        workspace_id: None,
-        thread_id: None,
-    })
+
+    /// Any change may have added or settled an approval, so the badge is recounted after each
+    /// one, and only sent when it moved.
+    fn sync_badge(&self) {
+        let pending = (self.0.pending_approvals)();
+        let count = (pending > 0).then_some(pending as i64);
+        let Ok(mut shown) = self.0.badge.lock() else {
+            return;
+        };
+        if *shown != count {
+            *shown = count;
+            self.0.output.dock_badge(count);
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Decision {
+    EmitNow(Change),
+    Schedule(Duration),
+    /// A flush is already scheduled and will carry this change.
+    Merged,
+}
+
+#[derive(Debug, Default)]
+struct ChangeCoalescer {
+    last_emit: Option<Instant>,
+    pending: Option<Change>,
+}
+
+impl ChangeCoalescer {
+    fn record(&mut self, change: Change, now: Instant) -> Decision {
+        if let Some(pending) = self.pending.take() {
+            self.pending = Some(pending.merge(change));
+            return Decision::Merged;
+        }
+        match self.last_emit {
+            Some(last) if now.duration_since(last) < CHANGE_WINDOW => {
+                self.pending = Some(change);
+                Decision::Schedule(CHANGE_WINDOW - now.duration_since(last))
+            }
+            _ => {
+                self.last_emit = Some(now);
+                Decision::EmitNow(change)
+            }
+        }
+    }
+
+    fn flush(&mut self, now: Instant) -> Option<Change> {
+        let change = self.pending.take()?;
+        self.last_emit = Some(now);
+        Some(change)
+    }
 }
 
 #[cfg(test)]
 #[derive(Debug, Clone)]
 pub enum Emitted {
-    State(StateChangeKind),
+    State(Change),
     Toast(ToastRaisedPayload),
+    Notification(NotificationPayload),
     Badge(Option<i64>),
 }
 
-/// Keeps what a workflow told the user, in order, for tests to assert on.
 #[cfg(test)]
 #[derive(Default)]
 pub struct RecordingOutput {
-    emitted: std::sync::Mutex<Vec<Emitted>>,
-    versions: std::sync::Mutex<Vec<u64>>,
+    emitted: Mutex<Vec<Emitted>>,
+    versions: Mutex<Vec<u64>>,
 }
 
 #[cfg(test)]
 impl RecordingOutput {
-    /// The recorder, and the same thing as the `Output` a workflow takes.
-    pub fn new() -> (Arc<Self>, Output) {
-        let recording = Arc::new(Self::default());
-        (recording.clone(), recording)
-    }
-
     pub fn emitted(&self) -> Vec<Emitted> {
         self.emitted.lock().unwrap().clone()
     }
 
-    pub fn state_changes(&self) -> Vec<StateChangeKind> {
+    pub fn state_changes(&self) -> Vec<Change> {
         self.emitted()
             .into_iter()
             .filter_map(|event| match event {
-                Emitted::State(kind) => Some(kind),
+                Emitted::State(change) => Some(change),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn notifications(&self) -> Vec<NotificationPayload> {
+        self.emitted()
+            .into_iter()
+            .filter_map(|event| match event {
+                Emitted::Notification(payload) => Some(payload),
                 _ => None,
             })
             .collect()
@@ -131,13 +380,20 @@ impl RecordingOutput {
 
 #[cfg(test)]
 impl UserOutput for RecordingOutput {
-    fn state_changed(&self, version: u64, kind: StateChangeKind) {
+    fn state_changed(&self, version: u64, change: Change) {
         self.versions.lock().unwrap().push(version);
-        self.emitted.lock().unwrap().push(Emitted::State(kind));
+        self.emitted.lock().unwrap().push(Emitted::State(change));
     }
 
     fn toast(&self, payload: ToastRaisedPayload) {
         self.emitted.lock().unwrap().push(Emitted::Toast(payload));
+    }
+
+    fn notification(&self, payload: NotificationPayload) {
+        self.emitted
+            .lock()
+            .unwrap()
+            .push(Emitted::Notification(payload));
     }
 
     fn dock_badge(&self, count: Option<i64>) {
@@ -147,36 +403,139 @@ impl UserOutput for RecordingOutput {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
 
+    fn recorded(pending: Arc<AtomicUsize>) -> (Notifier, Arc<RecordingOutput>) {
+        let recording = Arc::new(RecordingOutput::default());
+        let notifier = Notifier::new(recording.clone(), move || pending.load(Ordering::SeqCst));
+        (notifier, recording)
+    }
+
+    const PLAIN: Change = Change { repo_git: false };
+    const REPO_GIT: Change = Change { repo_git: true };
+
+    #[tokio::test]
+    async fn a_burst_reaches_the_output_as_one_trailing_event_numbered_in_sequence() {
+        let (notifier, recording) = recorded(Arc::default());
+        notifier.changed();
+        notifier.changed();
+        notifier.repo_git_moved();
+        assert_eq!(
+            recording.state_changes(),
+            [PLAIN],
+            "the first goes out at once"
+        );
+
+        // The trailing event comes from Tauri's runtime, so wait for it rather than a fixed time.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while recording.state_changes().len() < 2 && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(recording.state_changes(), [PLAIN, REPO_GIT]);
+        assert_eq!(recording.versions(), [1, 2]);
+        assert_eq!(notifier.version(), 2);
+    }
+
+    #[tokio::test]
+    async fn an_agent_waiting_refreshes_and_notifies_when_the_user_wants_to_hear() {
+        for wanted in [true, false] {
+            let (state, recording) =
+                crate::state::AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+            crate::settings::Settings {
+                notify_approvals: wanted,
+                ..Default::default()
+            }
+            .save(&state.store);
+            state
+                .store
+                .seed_workspace("w1", crate::model::WorkspaceLifecycle::Running);
+            state
+                .store
+                .seed_thread("t1", "w1", crate::model::ThreadStatus::Running);
+            start(&state.bus, &state.out, &state.store);
+
+            let _waiting = state.approvals.request("t1", 1, &waiting_on("a1"));
+            state.bus.settled().await;
+
+            assert!(!recording.state_changes().is_empty());
+            let expected = wanted.then(|| crate::feedback::NotificationPayload {
+                body: "An agent is waiting for your approval.".into(),
+                workspace_id: Some("w1".into()),
+                thread_id: Some("t1".into()),
+                opens_findings: false,
+            });
+            assert_eq!(recording.notifications().into_iter().next(), expected);
+        }
+    }
+
+    fn waiting_on(id: &str) -> crate::engines::PermissionRequest {
+        crate::engines::PermissionRequest {
+            id: id.into(),
+            tool_call_id: None,
+            tool: "Bash".into(),
+            role: crate::engines::ToolRole::Command {
+                command: "ls".into(),
+                description: None,
+            },
+            detail: None,
+            questions: Vec::new(),
+            respond: tokio::sync::oneshot::channel().0,
+        }
+    }
+
     #[test]
-    fn approval_counts_go_to_the_webview_and_then_the_dock() {
-        let state = AppState::new(std::env::temp_dir());
-        state.store.open_in_memory().unwrap();
-        let (recording, out) = RecordingOutput::new();
+    fn the_badge_follows_the_pending_count_and_is_only_sent_when_it_moves() {
+        let pending = Arc::new(AtomicUsize::new(0));
+        let (notifier, recording) = recorded(pending.clone());
+        notifier.emit(PLAIN);
+        pending.store(2, Ordering::SeqCst);
+        notifier.emit(PLAIN);
+        notifier.emit(PLAIN);
+        pending.store(0, Ordering::SeqCst);
+        notifier.emit(PLAIN);
 
-        emit_approval_counts(&out, &state);
+        let badges: Vec<_> = recording
+            .emitted()
+            .into_iter()
+            .filter_map(|event| match event {
+                Emitted::Badge(count) => Some(count),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(badges, [Some(2), None]);
+    }
 
+    #[test]
+    fn a_lone_change_goes_out_at_once_and_a_burst_becomes_one_trailing_event() {
+        let mut changes = ChangeCoalescer::default();
+        let start = Instant::now();
+        assert_eq!(changes.record(PLAIN, start), Decision::EmitNow(PLAIN));
+        let later = start + Duration::from_millis(10);
+        assert_eq!(
+            changes.record(PLAIN, later),
+            Decision::Schedule(CHANGE_WINDOW - Duration::from_millis(10))
+        );
+        assert_eq!(changes.record(REPO_GIT, later), Decision::Merged);
+        assert_eq!(changes.record(PLAIN, later), Decision::Merged);
+        let flushed = start + CHANGE_WINDOW;
+        assert_eq!(
+            changes.flush(flushed),
+            Some(REPO_GIT),
+            "the merged event does everything each change asked for"
+        );
+        assert_eq!(changes.flush(flushed), None);
+        // The flush counts as the last emit, so the next change waits again.
         assert!(matches!(
-            recording.emitted().as_slice(),
-            [
-                Emitted::State(StateChangeKind::ApprovalCounts),
-                Emitted::Badge(None)
-            ]
+            changes.record(PLAIN, flushed),
+            Decision::Schedule(_)
         ));
-    }
-
-    #[test]
-    fn approval_toast_copy() {
-        let payload = toast_for_approval("send_suggestions", true).expect("toast");
-        assert!(matches!(payload.tone, ToastTone::Ok));
-        assert_eq!(payload.parts.len(), 1);
-    }
-
-    #[test]
-    fn edits_deletes_and_denials_have_no_toast() {
-        assert!(toast_for_approval("edit", false).is_none());
-        assert!(toast_for_approval("edit", true).is_none());
-        assert!(toast_for_approval("delete_file", true).is_none());
+        let mut quiet = ChangeCoalescer::default();
+        quiet.record(PLAIN, start);
+        assert_eq!(
+            quiet.record(PLAIN, start + CHANGE_WINDOW),
+            Decision::EmitNow(PLAIN)
+        );
     }
 }

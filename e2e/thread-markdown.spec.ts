@@ -218,12 +218,15 @@ test('a long tool run folds, and plans and subagents show progress', async ({
     payload: JSON.stringify(payload),
     createdAt: '2026-09-29 12:00:00',
   })
+  const roles: Record<string, object> = {
+    read: { kind: 'read' },
+    edit: { kind: 'edit', verb: 'Edited' },
+  }
   const tool = (id: string, kind: string, title: string, extra = {}) => ({
     type: 'toolCall',
     id,
     title,
-    name: title,
-    kind,
+    role: roles[kind] ?? { kind: 'command', command: title, description: null },
     status: 'completed',
     locations: [],
     detail: null,
@@ -243,7 +246,7 @@ test('a long tool run folds, and plans and subagents show progress', async ({
       type: 'plan',
       entries: [
         { content: 'Read the code', status: 'completed' },
-        { content: 'Fix it', status: 'in_progress' },
+        { content: 'Fix it', status: 'inProgress' },
       ],
     },
     tool('r1', 'read', 'Read', { locations: ['a.ts'] }),
@@ -255,12 +258,14 @@ test('a long tool run folds, and plans and subagents show progress', async ({
       type: 'toolCallUpdate',
       id: 'c1',
       title: null,
-      kind: null,
       status: 'completed',
       locations: [],
       output: '  Tests  12 passed (12)\n',
     },
-    tool('a1', 'other', 'Agent', { detail: 'Explore the code' }),
+    tool('a1', 'other', 'Agent', {
+      detail: 'Explore the code',
+      role: { kind: 'subagent', description: 'Explore the code' },
+    }),
     tool('s1', 'read', 'Read', { parent_id: 'a1', locations: ['d.ts'] }),
     tool('s2', 'execute', 'ls', { parent_id: 'a1', status: 'in_progress' }),
     { type: 'messageChunk', role: 'agent', text: 'All done.' },
@@ -318,4 +323,46 @@ test('before and after screenshots compare with a slider', async ({ page }) => {
     'clip-path',
     /70%/,
   )
+})
+
+test('images in a table render in their cells', async ({ page }) => {
+  await openReply(
+    page,
+    [
+      '| Screen | Before | After |',
+      '|---|---|---|',
+      '| Settings | ![Settings before](/tmp/shots/before.png) | ![Settings after](/tmp/shots/after.png) |',
+      '| Remote | ![tracker](https://example.com/pixel.png) | [the flow](/tmp/shots/flow.webm) |',
+      '',
+      '- In a list: ![Listed](/tmp/shots/listed.png)',
+    ].join('\n'),
+  )
+
+  const table = page.locator('#timeline .agent-markdown table')
+  await expect(table.getByRole('row')).toHaveCount(3)
+  const cells = table.getByRole('row').nth(1).getByRole('cell')
+  await expect(
+    cells.nth(1).getByRole('img', { name: 'Settings before' }),
+  ).toBeVisible()
+  await expect(
+    cells.nth(2).getByRole('img', { name: 'Settings after' }),
+  ).toBeVisible()
+  await expect(table.locator('video')).toHaveCount(1)
+  // A remote image never loads; its alt text stands in.
+  await expect(table.getByRole('cell', { name: 'tracker' })).toBeVisible()
+  await expect(table.locator('img[src*="example.com"]')).toHaveCount(0)
+  await expect(
+    page
+      .locator('#timeline .agent-markdown li')
+      .getByRole('img', { name: 'Listed' }),
+  ).toBeVisible()
+
+  await cells
+    .nth(2)
+    .getByRole('button', { name: /Enlarge/ })
+    .click()
+  await expect(page.getByRole('dialog', { name: 'after.png' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await table.screenshot({ path: 'e2e/output/thread-table-images.png' })
 })

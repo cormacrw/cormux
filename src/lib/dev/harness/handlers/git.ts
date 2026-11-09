@@ -1,7 +1,13 @@
-import type { WorkspaceStack } from '$lib/ipc/bindings'
-import { fixtureSnapshot } from '../../fixture-snapshot'
-import type { HarnessRuntime } from '../runtime'
-import type { HandlerSlice, Input } from '../types'
+import type { BranchHold, WorkspaceStack } from '$lib/ipc/bindings'
+import { CHANGE, type HarnessRuntime } from '../runtime'
+import type { HandlerSlice, Input, Unsupported } from '../types'
+
+export const gitUnsupported = [
+  'abort_workspace_git',
+  'create_workspace_branch',
+  'create_workspace_pull_request',
+  'pull_workspace',
+] as const satisfies Unsupported
 
 const FULL_STACK = ['feat/oauth-api', 'feat/oauth-login', 'feat/oauth-ui']
 const STACK_STATS: Record<string, [number, number, number, number]> = {
@@ -13,12 +19,27 @@ const STACK_STATS: Record<string, [number, number, number, number]> = {
 const STACK_PRS: Record<string, number> = { 'feat/oauth-api': 101 }
 // Branches origin doesn't have at the same commit, so deleting them asks first.
 const UNPUSHED_BRANCHES = ['feat/oauth-api']
-
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+// What holds each branch, as the core's `BranchHolds` answers for the fixture repo.
+const BRANCH_HOLDS: Record<string, BranchHold> = {
+  main: { kind: 'defaultBranch' },
+  'feat/oauth-login': { kind: 'checkedOutBy', workspaces: ['OAuth login'] },
+}
+// Why Add branch can't add, by the checked-out branch, as the core answers for the full stack.
+const STACK_ADD_BLOCKS: Record<string, string> = {
+  'feat/oauth-api': 'New branches go on top. Check out feat/oauth-ui first.',
+  'feat/oauth-login': 'New branches go on top. Check out feat/oauth-ui first.',
+}
+// Each stacked branch's PR base, as the core drafts it: the branch below it.
+const STACK_PR_BASES: Record<string, string> = {
+  'feat/oauth-api': 'main',
+  'feat/oauth-login': 'feat/oauth-api',
+  'feat/oauth-ui': 'feat/oauth-login',
+}
 
 export function gitHandlers({
   scenario,
   controls,
+  findWorkspace,
   emitStateChanged,
 }: HarnessRuntime) {
   const stackMode = scenario.stack
@@ -43,21 +64,17 @@ export function gitHandlers({
     },
   ]
 
+  const REPO_HEAD = 'main'
+
   const setFixtureBranch = (workspaceId: string, branch: string) => {
-    const row = fixtureSnapshot.persisted.workspaces.find(
-      (workspace) => workspace.id === workspaceId,
-    )
-    const record = fixtureSnapshot.workspaces.find(
-      (workspace) => workspace.id === workspaceId,
-    )
+    const { row, record } = findWorkspace(workspaceId)
     if (row) row.branch = branch
     if (record) record.branch = branch
-    emitStateChanged()
+    emitStateChanged(CHANGE.repoGit)
   }
 
   const currentBranch = (workspaceId: string) =>
-    fixtureSnapshot.workspaces.find((workspace) => workspace.id === workspaceId)
-      ?.branch ?? 'main'
+    findWorkspace(workspaceId).record?.branch ?? 'main'
 
   const stackFor = (workspaceId: string): WorkspaceStack => {
     const current = currentBranch(workspaceId)
@@ -67,14 +84,17 @@ export function gitHandlers({
       currentBranch: current,
       currentNeedsRebase: stackMode === 'behind' || current === 'feat/oauth-ui',
       message: null,
+      installCommand: null,
       branches: [],
+      addBlock: null,
     }
     if (stackMode === 'unavailable') {
       return {
         ...base,
         status: 'unavailable',
-        message:
-          "The gh-stack extension isn't installed. Run: gh extension install github/gh-stack",
+        message: "The gh-stack extension isn't installed.",
+        installCommand: 'gh extension install github/gh-stack',
+        addBlock: "The gh-stack extension isn't installed.",
       }
     }
     if (stackMode === 'remote' && !stackBranches.includes(current)) {
@@ -106,16 +126,22 @@ export function gitHandlers({
         merged: false,
         queued: false,
         needsRebase: name === 'feat/oauth-ui',
+        hold: null,
         pr: number
           ? {
               number,
               url: `https://github.com/acme/my-app/pull/${number}`,
-              state: 'OPEN',
+              state: 'open' as const,
             }
           : null,
       }
     })
-    return { ...base, status: 'stacked', branches }
+    return {
+      ...base,
+      status: 'stacked',
+      branches,
+      addBlock: STACK_ADD_BLOCKS[current] ?? null,
+    }
   }
 
   return {
@@ -126,6 +152,8 @@ export function gitHandlers({
       return null
     },
     add_stack_branch: ({ input }: Input<'add_stack_branch'>) => {
+      const refused = scenario.refusedBranches?.[input.branch.trim()]
+      if (refused) throw { kind: 'Invalid', message: refused }
       const current = currentBranch(input.workspaceId)
       if (!stackBranches.includes(current) && current !== 'main')
         stackBranches.push(current)
@@ -133,28 +161,40 @@ export function gitHandlers({
       setFixtureBranch(input.workspaceId, input.branch)
       return null
     },
-    push_stack: async () => {
-      await wait(300)
-      return null
-    },
+    push_stack: () => null,
     sync_stack: () => null,
     default_pr_prompt: () => 'Write the description for this pull request.',
-    draft_pr_why: ({ workspaceId }: { workspaceId: string }) => ({
-      workspaceId,
-      text: 'Lets people sign in with their Google account.',
-      fromLlm: false,
-    }),
-    get_repo_git: () => scenario.repoGit ?? [],
-    pull_repo_default_branch: async () => {
-      await wait(300)
-      return null
+    draft_pr_why: ({ workspaceId }: { workspaceId: string }) => {
+      const branch = currentBranch(workspaceId)
+      const stacked = stackBranches.includes(branch)
+      const [added, deleted, , files] = stacked
+        ? (STACK_STATS[branch] ?? [0, 0, 0, 0])
+        : [42, 7, 0, 3]
+      return {
+        workspaceId,
+        text: 'Lets people sign in with their Google account.',
+        fromLlm: false,
+        base: stacked
+          ? (STACK_PR_BASES[branch] ?? 'main')
+          : (findWorkspace(workspaceId).record?.base ?? 'main'),
+        files,
+        added,
+        deleted,
+      }
     },
+    get_repo_git: () => [],
     list_repo_branches: () => ({
-      branches: ['main', 'develop', 'feat/oauth-login'],
+      branches: ['main', 'develop', 'feat/oauth-login'].map((name) => ({
+        name,
+        hold: BRANCH_HOLDS[name] ?? null,
+      })),
     }),
     list_repo_local_branches: () => ({
-      head: 'main',
-      branches: localBranches.map((row) => ({ ...row })),
+      head: REPO_HEAD,
+      branches: localBranches.map((row) => ({
+        ...row,
+        hold: BRANCH_HOLDS[row.name] ?? null,
+      })),
     }),
     delete_local_branch: ({
       branch: name,

@@ -1,0 +1,120 @@
+<script lang="ts">
+  import { tick } from 'svelte'
+  import Pencil from '@lucide/svelte/icons/pencil'
+  import Undo2 from '@lucide/svelte/icons/undo-2'
+  import { Button } from '$lib/components/ui/button'
+  import { commands } from '$lib/ipc'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { workspaces } from '$lib/state'
+
+  let {
+    workspaceId,
+    repoCommand,
+    running = false,
+  }: {
+    workspaceId: string
+    /** The repo's command, which every workspace uses unless it sets its own. */
+    repoCommand: string
+    running?: boolean
+  } = $props()
+
+  let editing = $state(false)
+  let draft = $state('')
+  let inputEl = $state<HTMLInputElement | null>(null)
+
+  const run = $derived(workspaces.getById(workspaceId)?.run ?? null)
+  const command = $derived(run?.command ?? '')
+  const override = $derived(run?.source === 'workspace')
+
+  /** Opens the editor; the empty state uses it when there's no command at all. */
+  export async function startEditing() {
+    draft = command
+    editing = true
+    await tick()
+    inputEl?.focus()
+    inputEl?.select()
+  }
+
+  function save() {
+    if (!editing) return
+    editing = false
+    // The core keeps no override for a blank command or the repo's own one again.
+    const typed = draft.trim()
+    if (typed !== command && (typed || override)) void saveOverride(typed)
+  }
+
+  function reset() {
+    void saveOverride('')
+  }
+
+  async function saveOverride(command: string) {
+    const result = await commands.setWorkspaceRunCommand(workspaceId, command)
+    if (result.status === 'error') toastCoreError(result.error)
+  }
+</script>
+
+{#if editing}
+  <input
+    bind:this={inputEl}
+    bind:value={draft}
+    type="text"
+    spellcheck="false"
+    autocomplete="off"
+    aria-label="Run command for this workspace"
+    placeholder={repoCommand || 'pnpm dev'}
+    class="h-7 w-72 max-w-full rounded-md border border-input bg-background px-2 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+    data-od-id="run-command-input"
+    onkeydown={(event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        save()
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        editing = false
+      }
+    }}
+    onblur={save}
+  />
+{:else if command}
+  <span class="flex min-w-0 items-center gap-1" data-od-id="run-command">
+    <span
+      class="max-w-[16rem] truncate font-mono text-xs text-muted-foreground"
+      title={override
+        ? `This workspace runs ${command} instead of the repo's ${repoCommand || 'command'}${running ? '. Restart to use it.' : '.'}`
+        : command}>{command}</span
+    >
+    {#if override}
+      <span
+        class="shrink-0 rounded border border-border/60 px-1 text-[10px] text-muted-foreground"
+        >this workspace</span
+      >
+    {/if}
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      class="shrink-0 text-muted-foreground"
+      aria-label="Edit the run command for this workspace"
+      title="Edit the run command for this workspace"
+      data-od-id="run-command-edit"
+      onclick={() => void startEditing()}
+    >
+      <Pencil class="size-3" aria-hidden="true" />
+    </Button>
+    {#if override}
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="shrink-0 text-muted-foreground"
+        aria-label="Use the repo's run command"
+        title={repoCommand
+          ? `Use the repo's run command (${repoCommand})`
+          : "Use the repo's run command"}
+        data-od-id="run-command-reset"
+        onclick={reset}
+      >
+        <Undo2 class="size-3" aria-hidden="true" />
+      </Button>
+    {/if}
+  </span>
+{/if}

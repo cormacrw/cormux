@@ -1,29 +1,36 @@
 use std::ops::Deref;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-
-use tokio::sync::{RwLock, broadcast};
+use std::sync::Arc;
 
 use crate::app::WorkspaceAppService;
+use crate::bus::Bus;
 use crate::clickup::ClickupClient;
-use crate::feedback::Output;
-use crate::git::{FetchScheduler, LiveDiffEngine};
-use crate::ipc::subscriptions::Subscriptions;
-use crate::ipc::types::StateChangeKind;
-use crate::orchestration::ReportQueue;
+use crate::engines::{ClaudeEngines, Engines};
+use crate::error::Result;
+use crate::feedback::{Notifier, UserOutput};
+use crate::git::LiveDiffEngine;
+use crate::github::Github;
+use crate::orchestration::Orchestration;
+use crate::paths::DataDir;
+use crate::stack::RemoteStackCache;
+use crate::thread_runtime::{RuntimeParts, ThreadRuntime};
+use crate::transcript::Transcript;
 use crate::{
-    approvals::ApprovalBroker, engines::EngineRegistry, git::Git, github::PrSyncScheduler,
-    llm::LlmClient, mcp::CormuxMcp, metrics::Metrics, process::ProcessSupervisor,
-    shell_env::ShellEnv, store::Store, workspace::WorkspaceManager,
+    approvals::ApprovalBroker, git::Git, github::PrSyncScheduler, llm::LlmClient, metrics::Metrics,
+    process::ProcessSupervisor, shell_env::SharedEnv, store::Store, workspace_git::WorkspaceGit,
+    workspaces::Workspaces,
 };
 
-/// Changes closer together than this reach the webview as one `StateChanged`. The webview
-/// answers every one with a full snapshot fetch, so a burst (an approval resolving, its
-/// counts, its toast, the turn ending) costs one fetch instead of one each. The first change
-/// in a quiet spell goes out at once, so nothing waits on the window.
-const CHANGE_WINDOW: Duration = Duration::from_millis(50);
+/// The migrations a module writes in Rust, beside the SQL ones `store::migrate` lists. Opening
+/// the app's store runs these, so a module's migration runs for users only once it's here.
+pub const RUST_MIGRATIONS: &[crate::store::migrate::RustMigration] = &[
+    crate::transcript::MIGRATION,
+    crate::harness_config::MIGRATION,
+    crate::settings::MIGRATION,
+    crate::transcript::PERMISSION_CARDS,
+];
+
+/// What an owner does to the store when the app opens, for what the last run left mid-way.
+pub type OnRestart = fn(&Store) -> Result<()>;
 
 /// Process-wide core state. The webview never holds this; IPC commands borrow it. A handle to
 /// one shared [`Core`], so a workflow can clone it into the background tasks it spawns.
@@ -39,16 +46,18 @@ impl Deref for AppState {
 }
 
 pub struct Core {
-    pub event_version: AtomicU64,
-    /// The app's data folder, this build's own: see `crate::data_dir`.
-    pub data_dir: PathBuf,
-    changes: Mutex<ChangeCoalescer>,
-    pub shell_env: Arc<RwLock<ShellEnv>>,
+    pub data_dir: DataDir,
+    pub out: Notifier,
+    pub bus: Bus,
+    pub shell_env: SharedEnv,
     pub git: Git,
-    pub workspace: WorkspaceManager,
-    pub engines: EngineRegistry,
+    pub workspaces: Workspaces,
+    pub workspace_git: WorkspaceGit,
+    pub engines: ThreadRuntime,
+    pub transcript: Transcript,
     pub approvals: Arc<ApprovalBroker>,
-    pub mcp: CormuxMcp,
+    pub turns: crate::turn::Turns,
+    pub setup: crate::provisioning::SetupRuns,
     pub process: ProcessSupervisor,
     pub apps: WorkspaceAppService,
     pub clickup: ClickupClient,
@@ -56,52 +65,104 @@ pub struct Core {
     pub store: Store,
     pub metrics: Metrics,
     pub diffs: LiveDiffEngine,
-    pub fetch: FetchScheduler,
+    pub github: Github,
     pub pr_sync: PrSyncScheduler,
-    pub approval_notify: broadcast::Sender<()>,
-    pub turn_end_notify: broadcast::Sender<String>,
-    pub subscriptions: Subscriptions,
-    pub reports: ReportQueue,
+    pub stacks: RemoteStackCache,
+    pub orchestration: Orchestration,
 }
 
 impl AppState {
-    pub fn new(data_dir: PathBuf) -> Self {
-        let shell_env = Arc::new(RwLock::new(ShellEnv::new()));
+    /// Nothing running survives the app closing: each of `on_restart` puts back what its owner
+    /// left mid-way.
+    pub fn new(
+        data_dir: DataDir,
+        output: Arc<dyn UserOutput>,
+        on_restart: &[OnRestart],
+    ) -> Result<Self> {
+        let store = Store::open(&data_dir.db(), RUST_MIGRATIONS)?;
+        for restart in on_restart {
+            restart(&store)?;
+        }
+        let shell_env = SharedEnv::loading();
+        let engines = Arc::new(ClaudeEngines::new(shell_env.without_waiting()));
+        Ok(Self::with_store(
+            data_dir, store, output, shell_env, engines,
+        ))
+    }
+
+    /// Lets go of what the running app keeps for a workspace once it's archived. Each service
+    /// that keeps something per workspace forgets it here.
+    pub async fn forget_workspace(&self, workspace_id: &str) {
+        self.diffs.unwatch(workspace_id);
+        self.process.forget_workspace(workspace_id);
+        self.workspace_git.forget(workspace_id).await;
+        self.stacks.forget(workspace_id);
+        self.apps.forget(workspace_id);
+    }
+
+    fn with_store(
+        data_dir: DataDir,
+        store: Store,
+        output: Arc<dyn UserOutput>,
+        shell_env: SharedEnv,
+        engines: Arc<dyn Engines>,
+    ) -> Self {
         let git = Git::new(shell_env.clone());
         let diffs = LiveDiffEngine::new(git.clone());
-        let fetch = FetchScheduler::new(git.clone());
-        let pr_sync = PrSyncScheduler::new(git.clone(), shell_env.clone());
+        let github = Github::new(shell_env.clone());
         let process = ProcessSupervisor::new(shell_env.clone());
-        let apps = WorkspaceAppService::new();
-        let workspace = WorkspaceManager::new(git.clone(), diffs.clone(), fetch.clone());
-        let store = Store::new();
-        let approvals = Arc::new(ApprovalBroker::new());
-        let (approval_notify, _) = broadcast::channel(32);
-        let (turn_end_notify, _) = broadcast::channel(64);
-        let mcp = CormuxMcp::new(
+        let workspaces = Workspaces::new(store.clone());
+        let bus = Bus::default();
+        let transcript = Transcript::new(store.clone());
+        let approvals = Arc::new(ApprovalBroker::new(
             store.clone(),
+            transcript.clone(),
+            bus.clone(),
+        ));
+        let out = {
+            let approvals = approvals.clone();
+            Notifier::new(output, move || approvals.pending_count())
+        };
+        let apps = WorkspaceAppService::new(
             process.clone(),
-            approvals.clone(),
-            apps.clone(),
-        );
-        let engines = EngineRegistry::new(
-            shell_env.clone(),
-            approvals.clone(),
+            workspaces.clone(),
             store.clone(),
-            mcp.clone(),
-            approval_notify.clone(),
-            turn_end_notify.clone(),
+            out.clone(),
         );
+        let engines = ThreadRuntime::new(RuntimeParts {
+            engines,
+            approvals: approvals.clone(),
+            store: store.clone(),
+            transcript: transcript.clone(),
+            workspaces: workspaces.clone(),
+            host_tools: Arc::new(crate::host_tools::session_config),
+            brief: {
+                let store = store.clone();
+                let transcript = transcript.clone();
+                Arc::new(move |workspace, thread_id, resuming| {
+                    crate::workspace_start::session_brief(
+                        &store,
+                        &transcript,
+                        workspace,
+                        thread_id,
+                        resuming,
+                    )
+                })
+            },
+        });
         Self(Arc::new(Core {
-            event_version: AtomicU64::new(0),
             data_dir,
-            changes: Mutex::new(ChangeCoalescer::default()),
+            out,
+            bus,
             shell_env: shell_env.clone(),
             git,
-            workspace,
+            workspaces,
+            workspace_git: WorkspaceGit::default(),
             engines,
+            transcript,
             approvals,
-            mcp,
+            turns: Default::default(),
+            setup: Default::default(),
             process,
             apps,
             clickup: ClickupClient::new(),
@@ -109,116 +170,50 @@ impl AppState {
             store,
             metrics: Metrics::new(),
             diffs,
-            fetch,
-            pr_sync,
-            approval_notify,
-            turn_end_notify,
-            subscriptions: Subscriptions::new(),
-            reports: ReportQueue::default(),
+            github,
+            pr_sync: PrSyncScheduler::default(),
+            stacks: RemoteStackCache::default(),
+            orchestration: Orchestration::default(),
         }))
     }
 
-    pub fn snapshot_version(&self) -> u64 {
-        self.event_version.load(Ordering::SeqCst)
+    #[cfg(test)]
+    pub fn recorded(data_dir: DataDir) -> (Self, Arc<crate::feedback::RecordingOutput>) {
+        let (state, recording, _) = Self::faked(data_dir);
+        (state, recording)
     }
 
-    pub fn bump_event_version(&self) -> u64 {
-        self.event_version.fetch_add(1, Ordering::SeqCst) + 1
+    #[cfg(test)]
+    pub fn with_engines(data_dir: DataDir, engines: Arc<dyn Engines>) -> Self {
+        Self::with_store(
+            data_dir,
+            Store::in_memory().expect("in-memory store"),
+            Arc::new(crate::feedback::RecordingOutput::default()),
+            SharedEnv::loaded(Default::default()),
+            engines,
+        )
     }
 
-    /// Tells the webview something it mirrors has changed. Emits a `StateChanged`, merging
-    /// changes that land within `CHANGE_WINDOW` of the last one into a single trailing event.
-    /// Prefer this to emitting `StateChanged` by hand.
-    ///
-    /// The version only moves when an event goes out, so consecutive events are numbered
-    /// consecutively: the webview treats a jump as a dropped event and does a full resync,
-    /// which a merged burst must not look like.
-    pub fn notify(&self, out: &Output, kind: StateChangeKind) {
-        let decision = match self.changes.lock() {
-            Ok(mut changes) => changes.record(kind, Instant::now()),
-            Err(_) => Decision::EmitNow(kind),
-        };
-        match decision {
-            Decision::EmitNow(kind) => {
-                out.state_changed(self.bump_event_version(), kind);
-            }
-            Decision::Schedule(delay) => {
-                let (state, out) = (self.clone(), out.clone());
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(delay).await;
-                    let kind = match state.changes.lock() {
-                        Ok(mut changes) => changes.flush(Instant::now()),
-                        Err(_) => Some(StateChangeKind::WorkspaceStatus),
-                    };
-                    if let Some(kind) = kind {
-                        out.state_changed(state.bump_event_version(), kind);
-                    }
-                });
-            }
-            Decision::Merged => {}
-        }
+    #[cfg(test)]
+    pub fn faked(
+        data_dir: DataDir,
+    ) -> (
+        Self,
+        Arc<crate::feedback::RecordingOutput>,
+        crate::thread_runtime::fake::FakeEngines,
+    ) {
+        let recording = Arc::new(crate::feedback::RecordingOutput::default());
+        let store = Store::in_memory().expect("in-memory store");
+        let fake = crate::thread_runtime::fake::FakeEngines::default();
+        let state = Self::with_store(
+            data_dir,
+            store,
+            recording.clone(),
+            SharedEnv::loaded(Default::default()),
+            Arc::new(fake.clone()),
+        );
+        (state, recording, fake)
     }
-}
-
-/// What `notify` should do with a change, given the ones before it.
-#[derive(Debug, PartialEq, Eq)]
-enum Decision {
-    EmitNow(StateChangeKind),
-    /// Wait this long, then `flush`.
-    Schedule(Duration),
-    /// A flush is already scheduled and will carry this change.
-    Merged,
-}
-
-/// Folds a burst of changes into one event. Kinds merge by what the webview does with them:
-/// `BehindCounts` also refreshes the repo rows, so it wins over the plain refetch kinds.
-#[derive(Debug, Default)]
-struct ChangeCoalescer {
-    last_emit: Option<Instant>,
-    pending: Option<StateChangeKind>,
-}
-
-impl ChangeCoalescer {
-    fn record(&mut self, kind: StateChangeKind, now: Instant) -> Decision {
-        if let Some(pending) = self.pending.take() {
-            self.pending = Some(merge_kinds(pending, kind));
-            return Decision::Merged;
-        }
-        match self.last_emit {
-            Some(last) if now.duration_since(last) < CHANGE_WINDOW => {
-                self.pending = Some(kind);
-                Decision::Schedule(CHANGE_WINDOW - now.duration_since(last))
-            }
-            _ => {
-                self.last_emit = Some(now);
-                Decision::EmitNow(kind)
-            }
-        }
-    }
-
-    fn flush(&mut self, now: Instant) -> Option<StateChangeKind> {
-        let kind = self.pending.take()?;
-        self.last_emit = Some(now);
-        Some(kind)
-    }
-}
-
-/// The kind that makes the webview do the most, so a merged event never does less than each
-/// of the changes in it would have. `BehindCounts` also refreshes the repo rows; a workspace
-/// or approval change may have written a step into a thread, which the webview re-reads
-/// for; the rest only need the snapshot (see `KINDS_WITHOUT_THREAD_EVENTS` in the webview).
-fn merge_kinds(a: StateChangeKind, b: StateChangeKind) -> StateChangeKind {
-    fn weight(kind: StateChangeKind) -> u8 {
-        match kind {
-            StateChangeKind::BehindCounts => 3,
-            StateChangeKind::WorkspaceStatus | StateChangeKind::ApprovalCounts => 2,
-            StateChangeKind::Toast => 0,
-            StateChangeKind::PrSync
-            | StateChangeKind::Environment
-            | StateChangeKind::WorkspaceApp => 1,
-        }
-    }
-    if weight(b) > weight(a) { b } else { a }
 }
 
 #[cfg(test)]
@@ -227,73 +222,28 @@ mod tests {
 
     #[test]
     fn constructs_without_async_runtime() {
-        let _state = AppState::new(std::env::temp_dir());
+        let _state = AppState::recorded(DataDir::new(std::env::temp_dir()));
     }
 
-    #[tokio::test]
-    async fn a_burst_reaches_the_output_as_one_trailing_event_numbered_in_sequence() {
-        let state = AppState::new(std::env::temp_dir());
-        let (recording, out) = crate::feedback::RecordingOutput::new();
-        state.notify(&out, StateChangeKind::PrSync);
-        state.notify(&out, StateChangeKind::WorkspaceStatus);
-        state.notify(&out, StateChangeKind::BehindCounts);
-
-        tokio::time::sleep(CHANGE_WINDOW * 3).await;
-        assert_eq!(
-            recording.state_changes(),
-            [StateChangeKind::PrSync, StateChangeKind::BehindCounts]
-        );
-        assert_eq!(recording.versions(), [1, 2]);
-        assert_eq!(state.snapshot_version(), 2);
-    }
-
+    /// Bug: the Rust migrations were listed inline here and the version test kept its own list,
+    /// so it never saw 030, and a module's migration could pass its own test and never run.
     #[test]
-    fn a_lone_change_goes_out_at_once_and_a_burst_becomes_one_trailing_event() {
-        let mut changes = ChangeCoalescer::default();
-        let start = Instant::now();
-        assert_eq!(
-            changes.record(StateChangeKind::WorkspaceStatus, start),
-            Decision::EmitNow(StateChangeKind::WorkspaceStatus)
-        );
-        let later = start + Duration::from_millis(10);
-        assert_eq!(
-            changes.record(StateChangeKind::ApprovalCounts, later),
-            Decision::Schedule(CHANGE_WINDOW - Duration::from_millis(10))
-        );
-        assert_eq!(
-            changes.record(StateChangeKind::BehindCounts, later),
-            Decision::Merged
-        );
-        assert_eq!(
-            changes.record(StateChangeKind::PrSync, later),
-            Decision::Merged
-        );
-        let flushed = start + CHANGE_WINDOW;
-        assert_eq!(
-            changes.flush(flushed),
-            Some(StateChangeKind::BehindCounts),
-            "the kind the webview does the most with wins"
-        );
-        assert_eq!(changes.flush(flushed), None);
-        // The flush counts as the last emit, so the next change waits again.
-        assert!(matches!(
-            changes.record(StateChangeKind::WorkspaceStatus, flushed),
-            Decision::Schedule(_)
-        ));
-        let mut mixed = ChangeCoalescer::default();
-        mixed.record(StateChangeKind::PrSync, start);
-        mixed.record(StateChangeKind::WorkspaceStatus, later);
-        mixed.record(StateChangeKind::WorkspaceApp, later);
-        assert_eq!(
-            mixed.flush(flushed),
-            Some(StateChangeKind::WorkspaceStatus),
-            "a change that may have written thread steps isn't hidden by a later lighter one"
-        );
-        let mut quiet = ChangeCoalescer::default();
-        quiet.record(StateChangeKind::WorkspaceStatus, start);
-        assert_eq!(
-            quiet.record(StateChangeKind::PrSync, start + CHANGE_WINDOW),
-            Decision::EmitNow(StateChangeKind::PrSync)
-        );
+    fn the_app_runs_every_migration_version_once() {
+        let versions = crate::store::migrate::versions(RUST_MIGRATIONS);
+        let expected: Vec<i64> = (1..=versions.len() as i64).collect();
+        assert_eq!(versions, expected);
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("cormux.db"), RUST_MIGRATIONS).unwrap();
+        let applied: Vec<i64> = store
+            .with_read(|conn| {
+                let mut stmt =
+                    conn.prepare("SELECT version FROM schema_migrations ORDER BY version")?;
+                let rows = stmt.query_map([], |row| row.get(0))?;
+                Ok(rows.collect::<rusqlite::Result<Vec<i64>>>()?)
+            })
+            .unwrap();
+        assert_eq!(applied, expected);
+        assert!(applied.contains(&30), "the committed-config migration runs");
     }
 }

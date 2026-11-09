@@ -1,38 +1,8 @@
-import type { AgentEvent, WorkspaceLifecycle } from '$lib/ipc/bindings'
-
 /**
- * Attention: nothing is happening, so the thread needs prompting or closing. Quiet: it's working,
- * or it's a read-only leftover there's nothing to do with.
+ * Attention: the workspace needs you, by the core's rule (`attention.needsYou`). Quiet: it's
+ * working, or it's a read-only leftover there's nothing to do with.
  */
 export type ThreadUrgency = 'attention' | 'quiet'
-
-/**
- * Whether an event moved the thread: a message from you or the end of a turn. Streamed output
- * doesn't count, so a working thread holds its place in the list instead of jumping on every chunk.
- */
-export function isThreadActivity(event: AgentEvent): boolean {
-  return (
-    event.type === 'turnEnd' ||
-    event.type === 'engineExited' ||
-    (event.type === 'messageChunk' && event.role === 'user')
-  )
-}
-
-export function threadUrgency(input: {
-  lifecycle: WorkspaceLifecycle
-  paused: boolean
-  pendingApprovals: number
-  /** The thread itself: sending marks it at once, before the workspace hears. */
-  threadStatus: string | undefined
-}): ThreadUrgency {
-  const working =
-    input.threadStatus === 'running' ||
-    input.threadStatus === 'provisioning' ||
-    input.lifecycle === 'creating' ||
-    input.lifecycle === 'provisioning' ||
-    (input.lifecycle === 'running' && !input.paused)
-  return working && input.pendingApprovals === 0 ? 'quiet' : 'attention'
-}
 
 /**
  * Working threads step out of the way into their own section, except the one you're on: it stays

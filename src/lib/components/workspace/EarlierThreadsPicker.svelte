@@ -1,6 +1,8 @@
 <script lang="ts">
   import * as Select from '$lib/components/ui/select'
-  import { app, threads } from '$lib/state'
+  import { nav } from '$lib/core/nav.svelte'
+  import { threads } from '$lib/state'
+  import { showThread } from '$lib/nav/open'
   import History from '@lucide/svelte/icons/history'
 
   // Threads from before a workspace had just one. They're kept to read; most workspaces have none.
@@ -13,9 +15,9 @@
 {#if earlier.length}
   <Select.Root
     type="single"
-    value={app.threadId ?? ''}
+    value={nav.threadId ?? ''}
     onValueChange={(value) => {
-      if (value) app.threadId = value
+      if (value) showThread(value)
     }}
   >
     <Select.Trigger

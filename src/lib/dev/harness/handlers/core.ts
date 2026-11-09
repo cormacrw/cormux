@@ -1,51 +1,62 @@
+import type { Bang, SettingsPatch } from '$lib/ipc/bindings'
 import {
-  fixtureEngines,
-  fixtureSnapshot,
-  fixtureTimeline,
-} from '../../fixture-snapshot'
-import type { HarnessRuntime } from '../runtime'
-import type { HandlerSlice, Input } from '../types'
+  workspacePendingApprovals,
+  workspacesNeedingAttention,
+} from '../attention'
+import { threadActivity } from '../db'
+import { fixtureEngines } from '../fixtures'
+import { CHANGE, type HarnessRuntime } from '../runtime'
+import type { HandlerSlice } from '../types'
 
-/** Matches `thread_activity` in the core's store. */
-function threadActivityRows() {
-  const latest = new Map<string, string>()
-  for (const row of fixtureTimeline) {
-    if (
-      row.kind === 'turn_end' ||
-      row.kind === 'exit' ||
-      (row.kind === 'message' && row.payload.includes('"role":"user"'))
-    ) {
-      latest.set(row.threadId, row.createdAt)
+export function coreHandlers({
+  db,
+  scenario,
+  emitStateChanged,
+}: HarnessRuntime) {
+  /** The bangs as the scenario says the core saves them, or its refusal. */
+  const savedBangs = (bangs: Bang[]): Bang[] => {
+    const sent = bangs.map((bang) => bang.name)
+    const save = scenario.bangSaves?.find(
+      ({ names }) =>
+        names.length === sent.length &&
+        names.every((name, index) => name === sent[index]),
+    )
+    if (!save) return bangs
+    if ('error' in save.reply) {
+      throw { kind: 'Invalid', message: save.reply.error }
     }
+    const { names } = save.reply
+    return bangs.map((bang, index) => ({ ...bang, name: names[index]! }))
   }
-  return [...latest].map(([threadId, createdAt]) => ({ threadId, createdAt }))
-}
 
-export function coreHandlers({ scenario }: HarnessRuntime) {
   return {
     get_snapshot: () => {
-      fixtureSnapshot.persisted.threadActivity = threadActivityRows()
+      const { snapshot } = db
+      snapshot.persisted.threadActivity = threadActivity(db)
+      snapshot.workspacePendingApprovals = workspacePendingApprovals(snapshot)
+      snapshot.workspacesNeedingAttention = workspacesNeedingAttention(snapshot)
       // A copy, as the real IPC deserialises one: the stores keep rows whose contents didn't
-      // change, so handing them the fixture's own objects would hide the harness's edits.
-      return structuredClone(fixtureSnapshot)
+      // change, so handing them the harness's own objects would hide its edits.
+      return structuredClone(snapshot)
     },
     // There's no shell environment to read again.
     reload_environment: () => null,
-    get_metrics: () => fixtureSnapshot.memory!,
-    detect_engines: () => scenario.engines ?? fixtureEngines,
-    set_setting: ({ input: { key, value } }: Input<'set_setting'>) => {
-      const persisted = fixtureSnapshot.persisted
-      persisted.settings = [
-        ...persisted.settings.filter((row) => row.key !== key),
-        { key, value },
-      ]
-      return null
+    detect_engines: () => fixtureEngines,
+    update_settings: ({ patch }: { patch: SettingsPatch }) => {
+      if (patch.bangs) patch = { ...patch, bangs: savedBangs(patch.bangs) }
+      const changes = Object.fromEntries(
+        Object.entries(patch).filter(([, value]) => value != null),
+      )
+      db.snapshot.settings = { ...db.snapshot.settings, ...changes }
+      emitStateChanged(CHANGE.state)
+      return db.snapshot.settings
     },
     end_scratch: ({ scratchId }: { scratchId: string }) => {
-      const persisted = fixtureSnapshot.persisted
+      const persisted = db.snapshot.persisted
       persisted.scratches = persisted.scratches.filter(
         (row) => row.id !== scratchId,
       )
+      emitStateChanged(CHANGE.state)
       return null
     },
     // Nothing behind a subscription needs stopping: its channel just goes quiet.

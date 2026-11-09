@@ -7,13 +7,19 @@ use std::path::{Path, PathBuf};
 pub const CLICKUP_API_KEY: &str = "clickupApiKey";
 
 fn path() -> io::Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".cormux/credentials.json"))
+    crate::paths::credentials()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))
 }
 
+/// The secret, or `None` when it isn't saved or the file can't be read (which is logged).
 pub fn get(name: &str) -> Option<String> {
-    get_in(&path().ok()?, name)
+    match get_in(&path().ok()?, name) {
+        Ok(value) => value,
+        Err(error) => {
+            log::warn!("reading {name}: {error}");
+            None
+        }
+    }
 }
 
 pub fn set(name: &str, value: &str) -> io::Result<()> {
@@ -28,21 +34,33 @@ pub fn remove(name: &str) -> io::Result<()> {
     })
 }
 
-fn read_all(path: &Path) -> BTreeMap<String, String> {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+/// Every saved secret; none when there's no file yet. A file that's there but isn't a JSON
+/// object of strings is an error, so a write never replaces secrets it couldn't read.
+fn read_all(path: &Path) -> io::Result<BTreeMap<String, String>> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(error) => return Err(error),
+    };
+    serde_json::from_str(&text).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "{} isn't a JSON object of names to values ({error}); fix or remove it first",
+                crate::paths::for_display(path)
+            ),
+        )
+    })
 }
 
-fn get_in(path: &Path, name: &str) -> Option<String> {
-    read_all(path)
+fn get_in(path: &Path, name: &str) -> io::Result<Option<String>> {
+    Ok(read_all(path)?
         .remove(name)
-        .filter(|value| !value.is_empty())
+        .filter(|value| !value.is_empty()))
 }
 
 fn update_in(path: &Path, change: impl FnOnce(&mut BTreeMap<String, String>)) -> io::Result<()> {
-    let mut all = read_all(path);
+    let mut all = read_all(path)?;
     change(&mut all);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -74,7 +92,7 @@ mod tests {
     fn sets_gets_and_removes_without_touching_other_entries() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".cormux/credentials.json");
-        assert_eq!(get_in(&path, "a"), None);
+        assert_eq!(get_in(&path, "a").unwrap(), None);
 
         update_in(&path, |all| {
             all.insert("a".into(), "1".into());
@@ -86,13 +104,30 @@ mod tests {
         })
         .unwrap();
 
-        assert_eq!(get_in(&path, "a"), None);
-        assert_eq!(get_in(&path, "b").as_deref(), Some("2"));
+        assert_eq!(get_in(&path, "a").unwrap(), None);
+        assert_eq!(get_in(&path, "b").unwrap().as_deref(), Some("2"));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600);
         }
+    }
+
+    #[test]
+    fn a_file_it_cant_read_is_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("credentials.json");
+        let broken = "{\"githubToken\": \"keep me\",}";
+        std::fs::write(&path, broken).unwrap();
+
+        let error = update_in(&path, |all| {
+            all.insert("clickupApiKey".into(), "new".into());
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("fix or remove it"), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), broken);
+        assert!(get_in(&path, "githubToken").is_err());
     }
 }

@@ -1,84 +1,65 @@
-import type { ToolCallStatus, ToolKind } from '$lib/ipc/bindings'
-import type { AgentQuestion } from '$lib/approvals/payload'
-import type { RunSummary } from './run-summary'
+import type {
+  AgentQuestion,
+  PlanStepStatus,
+  TimelineStep,
+  ToolCallStatus,
+  ToolRole,
+} from '$lib/ipc/bindings'
+import type { RunSummary } from './reply/blocks/run'
 
-export type ChipTone = 'success' | 'warning' | 'muted'
-
-export type TimelineChip = {
-  label: string
-  tone?: ChipTone
+/** A tool call the agent made, with whatever its later updates filled in. */
+export type ToolStep = {
+  kind: 'tool'
+  id: string
+  role: ToolRole
+  /** The engine's own words for the call; most roles are named by the row instead. */
+  title: string
+  detail: string | null
+  locations: string[]
+  status: ToolCallStatus
+  seq: number
+  atMs: number
+  /** Ran without asking, because the call only reads. */
+  autoApproved?: true
+  /** What a test or build command came to, and the end of what it printed. */
+  run?: RunSummary
+  output?: string
+  /** What a subagent did, when this call spawned one. */
+  children?: ToolStep[]
 }
 
-export type ToolStepIcon =
-  | 'file'
-  | 'tool'
-  | 'branch'
-  | 'check'
-  | 'terminal'
-  | 'database'
-  | 'pr'
-  | 'download'
-  | 'list'
-  | 'search'
-  | 'pencil'
-  | 'trash'
-  | 'pause'
-  | 'play'
-  | 'stop'
-  | 'session'
-  | 'globe'
-  | 'skill'
-  | 'clock'
+/** Something the core did that sits among the agent's tool steps (findings sent or fixed). */
+type CoreStep = {
+  kind: 'step'
+  id: string
+  step: TimelineStep
+  title: string
+  detail: string | null
+  seq: number
+  atMs: number
+  autoApproved?: true
+}
 
-export type ToolRunStep =
-  | {
-      kind: 'tool'
-      id: string
-      icon: ToolStepIcon
-      title: string
-      detail?: string
-      chips?: TimelineChip[]
-      tone?: 'success'
-      /** Reads and searches render as a subtle line instead of a card row. */
-      quiet?: boolean
-      seq: number
-      atMs: number
-      rawDetail?: string
-      /** What a test or build command came to, and the end of what it printed. */
-      run?: RunSummary
-      output?: string
-      /** What a subagent did, when this step spawned one. */
-      children?: ToolRunStep[]
-      status?: ToolCallStatus
-    }
-  | {
-      kind: 'edit'
-      id: string
-      path: string
-      verb: 'Edited' | 'Created' | 'Deleted'
-      seq: number
-      atMs: number
-      status?: ToolCallStatus
-    }
+export type RunStep = ToolStep | CoreStep
 
 export type TimelineItem =
   | { kind: 'user'; id: string; text: string; seq: number; atMs: number }
+  | { kind: 'reply'; id: string; text: string; seq: number; atMs: number }
+  | { kind: 'thought'; id: string; text: string; seq: number; atMs: number }
+  | { kind: 'toolRun'; id: string; steps: RunStep[]; seq: number }
   | {
-      kind: 'thought'
+      /** A turn's end, with when it started. */
+      kind: 'worked'
       id: string
-      text: string
+      startedAtMs: number
       seq: number
       atMs: number
-      role: 'agent' | 'thought'
-      streaming?: boolean
     }
-  | { kind: 'toolRun'; id: string; steps: ToolRunStep[]; seq: number }
   | {
       kind: 'plan'
       id: string
       steps: string[]
-      /** Each step's status, as the engine reports it: `pending`, `in_progress`, `completed`. */
-      statuses: string[]
+      statuses: PlanStepStatus[]
       seq: number
       atMs: number
     }
@@ -94,7 +75,7 @@ export type TimelineItem =
       doneAtMs: number | null
       /** Set when the agent is asking something rather than seeking permission. */
       questions: AgentQuestion[]
-      answers: Record<string, string>
+      answers: Partial<Record<string, string>>
       seq: number
       atMs: number
     }
@@ -102,41 +83,42 @@ export type TimelineItem =
       /** Something the app did in the thread (switched branch, pulled, opened a PR), not the agent. */
       kind: 'event'
       id: string
-      icon: ToolStepIcon
+      step: TimelineStep
       title: string
-      detail?: string
+      detail: string | null
       seq: number
       atMs: number
     }
-  | { kind: 'findings'; id: string; seq: number }
-  | { kind: 'live'; id: string }
+  | {
+      /** The review this thread ran found something to look at. */
+      kind: 'findings'
+      id: string
+      seq: number
+    }
 
-export type TimelineSpeaker = 'user' | 'agent'
+/** A subagent still working, with the last thing it did. */
+export type RunningAgent = {
+  id: string
+  description: string
+  steps: number
+  latest?: string
+}
+
+export function agentIsRunning(step: RunStep): boolean {
+  return (
+    step.kind === 'tool' &&
+    step.role.kind === 'subagent' &&
+    (step.status === 'inProgress' || step.status === 'pending')
+  )
+}
 
 export type TimelineRow =
   | {
       kind: 'speaker'
       id: string
-      speaker: TimelineSpeaker
       role: string
       engine: string
       seq: number
       atMs: number
     }
   | { kind: 'item'; item: TimelineItem }
-
-export function toolKindIsEdit(kind: ToolKind): boolean {
-  return kind === 'edit' || kind === 'delete' || kind === 'move'
-}
-
-export function toolKindIsRunStep(kind: ToolKind): boolean {
-  if (toolKindIsEdit(kind)) return true
-  return (
-    kind === 'read' ||
-    kind === 'search' ||
-    kind === 'execute' ||
-    kind === 'fetch' ||
-    kind === 'other' ||
-    kind === 'think'
-  )
-}

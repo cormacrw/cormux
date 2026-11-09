@@ -4,7 +4,7 @@
   import {
     formatChangeCounts,
     type DiffLineTotals,
-  } from '$lib/workspace/diff-totals'
+  } from '$lib/changes/diff-totals'
   import { untrack } from 'svelte'
 
   let { totals }: { totals: DiffLineTotals } = $props()

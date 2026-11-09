@@ -1,22 +1,43 @@
-import { commands } from '$lib/ipc'
+import type { CoreError } from '$lib/ipc'
+import { coreErrorText } from '$lib/core/core-error'
+import { toastCoreError } from '$lib/feedback/wire-feedback'
 import type { ClickupTask } from '$lib/ipc/bindings'
-import { clickup } from '$lib/state/clickup.svelte'
+import { clickup } from '$lib/clickup/store.svelte'
 import { repos } from '$lib/state/repos.svelte'
-import { settings } from '$lib/state/settings.svelte'
-import { expandBangs } from '$lib/settings/bangs'
+import { settings } from '$lib/settings/store.svelte'
+import { expandBangs } from '$lib/bangs/bangs'
 import { expandRepoAliases } from './repo-aliases'
 import { expandTaskAliases, taskContext } from './task-aliases'
+
+/** The message still goes, without the task's context; the user should know that. */
+function descriptionLeftOut(task: ClickupTask, error: unknown) {
+  toastCoreError(
+    `Sent without the description of “${task.name}”: ${errorText(error)}`,
+  )
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'object' && error !== null && 'kind' in error)
+    return coreErrorText(error as CoreError, 'ClickUp didn’t answer')
+  return String(error)
+}
 
 /** How long sending waits for a task's description before going without it. */
 const DESCRIPTION_WAIT_MS = 3000
 
 async function description(task: ClickupTask): Promise<string> {
-  const known = clickup.details[task.id]?.description
-  if (known !== undefined) return known
-  const fetched = commands
-    .clickupTask(task.id)
-    .then((result) => (result.status === 'ok' ? result.data.description : ''))
-    .catch(() => '')
+  const fetched = clickup
+    .description(task.id)
+    .then((result) => {
+      if (result.status === 'ok') return result.data
+      descriptionLeftOut(task, result.error)
+      return ''
+    })
+    .catch((error: unknown) => {
+      descriptionLeftOut(task, error)
+      return ''
+    })
   const timeout = new Promise<string>((done) =>
     setTimeout(() => done(''), DESCRIPTION_WAIT_MS),
   )
@@ -29,11 +50,11 @@ async function description(task: ClickupTask): Promise<string> {
  * descriptions after it.
  */
 export async function expandMessage(text: string): Promise<string> {
-  const withBangs = expandBangs(text, settings.bangs)
+  const withBangs = expandBangs(text, settings.values.bangs)
   const withRepos = expandRepoAliases(withBangs, repos.items)
   const { text: expanded, mentioned } = expandTaskAliases(
     withRepos,
-    clickup.mine?.tasks ?? [],
+    clickup.sprintTasks,
   )
   if (!mentioned.length) return expanded
   const descriptions = Object.fromEntries(

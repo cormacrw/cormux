@@ -31,12 +31,32 @@ export default ts.config(
   },
   {
     files: [
-      'src/lib/components/workspace/thread/ThoughtMarkdown.svelte',
-      'src/lib/components/workspace/thread/MathBlock.svelte',
-      'src/lib/components/workspace/thread/MermaidBlock.svelte',
+      'src/lib/components/markdown/DocMarkdown.svelte',
+      'src/lib/components/workspace/thread/reply/ReplyMarkdown.svelte',
+      'src/lib/components/workspace/thread/reply/MathBlock.svelte',
+      'src/lib/components/workspace/thread/reply/MermaidBlock.svelte',
     ],
     rules: {
       'svelte/no-at-html-tags': 'off',
+    },
+  },
+  {
+    files: ['src/**'],
+    ignores: ['src/lib/feedback/open-external.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@tauri-apps/plugin-opener',
+              importNames: ['openUrl'],
+              message:
+                'Use openExternal from $lib/feedback/open-external, which toasts a failure.',
+            },
+          ],
+        },
+      ],
     },
   },
   {

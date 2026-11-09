@@ -1,15 +1,13 @@
 import { toast } from 'svelte-sonner'
-import ToastLine from '$lib/components/feedback/ToastLine.svelte'
 import { hasToastTarget, openToastTarget } from './toast-target'
 import type { ToastPayload } from './toast-payload'
 import { formatToastPayload } from './toast-payload'
+import ToastLine from './ToastLine.svelte'
 
 const TOAST_DURATION_MS = 3600
 
-/** Show one Harness toast (spec §03). */
+/** Raised before the toasts region mounts, it shows once the region has. */
 export function showToast(payload: ToastPayload) {
-  const label = formatToastPayload(payload)
-
   toast.custom(ToastLine, {
     componentProps: {
       parts: payload.parts,
@@ -21,6 +19,6 @@ export function showToast(payload: ToastPayload) {
     duration: TOAST_DURATION_MS,
     dismissible: false,
     important: false,
-    description: label,
+    description: formatToastPayload(payload),
   })
 }

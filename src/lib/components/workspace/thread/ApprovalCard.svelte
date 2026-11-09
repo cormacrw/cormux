@@ -1,12 +1,13 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { approvalResolvedChip } from '$lib/approvals/payload'
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import { Textarea } from '$lib/components/ui/textarea'
   import { commands } from '$lib/ipc'
-  import { coreErrorText } from '$lib/feedback/core-error'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { focusPrompt } from '$lib/keyboard/focus-home'
   import { cn } from '$lib/utils'
   import type { TimelineItem } from '$lib/thread/timeline-types'
   import AlertTriangle from '@lucide/svelte/icons/alert-triangle'
@@ -20,13 +21,11 @@
     nowMs,
     timeLabel,
     timeTitle,
-    onFocusComposer,
   }: {
     item: ApprovalItem
     nowMs: number
     timeLabel: string
     timeTitle: string
-    onFocusComposer?: () => void
   } = $props()
 
   let cardEl: HTMLDivElement | undefined = $state()
@@ -38,18 +37,7 @@
   const resolvedChip = $derived(
     item.state === 'pending'
       ? null
-      : approvalResolvedChip(
-          {
-            title: item.title,
-            what: item.what,
-            why: item.why,
-            okLabel: item.okLabel,
-            noLabel: item.noLabel,
-            resolvedAtMs: item.doneAtMs ?? undefined,
-          },
-          item.state,
-          nowMs,
-        ),
+      : approvalResolvedChip({ ...item, state: item.state }, nowMs),
   )
 
   async function decide(approved: boolean, reason?: string) {
@@ -62,24 +50,22 @@
         reason?.trim() ? reason.trim() : null,
       )
       if (result.status === 'error') {
-        toastCoreError(
-          coreErrorText(result.error, 'Could not resolve approval'),
-        )
-      } else if (result.data.focusComposer) {
-        onFocusComposer?.()
+        toastCoreError(result.error, 'Could not resolve approval')
+        return
       }
     } catch (error) {
       toastCoreError(error)
+      return
     } finally {
       resolving = false
-      denying = false
-      denyReason = ''
-      // Back to the prompt once it's answered; the card itself if there's no composer.
-      queueMicrotask(() => {
-        if (onFocusComposer) onFocusComposer()
-        else cardEl?.focus({ preventScroll: true })
-      })
     }
+    // Answered: back to the prompt, or the card itself if there's no composer. A failure keeps
+    // the card as it was, reason and all, to try again.
+    denying = false
+    denyReason = ''
+    void tick().then(() => {
+      if (!focusPrompt()) cardEl?.focus({ preventScroll: true })
+    })
   }
 
   function startDeny() {

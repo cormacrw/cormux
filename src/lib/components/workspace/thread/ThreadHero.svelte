@@ -1,58 +1,74 @@
 <!--
   An empty conversation: a big greeting just above the prompt bar instead of
   the last conversation's messages, with a card to resume an earlier
-  conversation. Under the greeting: the agent, and the
-  branch and workspace it works in. As wide as the prompt bar (760px, or the
-  thread column less the bar's 4px sides), so the two line up. Its box runs
-  down to the bar's top edge (past the bar's 8px top padding), so sending the
-  first prompt drops it out of view right behind the bar.
+  conversation. Under the greeting: the agent, and the branch and workspace it
+  works in. As wide as the prompt bar, so the two line up. Its box runs down to
+  the bar's top edge, so sending the first prompt drops it out of view right
+  behind the bar.
 -->
+<script lang="ts" module>
+  import type { ThreadView } from '$lib/thread/thread-view'
+
+  /** The column a greeting stands in, from the top of the page down to the prompt bar. */
+  export const HERO_COLUMN =
+    'mx-auto flex min-h-full w-full max-w-(--thread-column) flex-col overflow-clip px-4 pt-3 select-text'
+
+  /** A loaded conversation with nothing in it shows the greeting instead. */
+  export function showsHero(view: ThreadView) {
+    return view.loaded && view.items.length === 0
+  }
+</script>
+
 <script lang="ts">
+  import { plural } from '$lib/format/plural'
   import * as Select from '$lib/components/ui/select'
-  import { formatRelativeAge } from '$lib/homebase/relative-time'
-  import { heroLine, type Conversation } from '$lib/thread/conversations'
-  import { resumeConversation } from '$lib/thread/resume-conversation'
-  import type { Thread } from '$lib/state/threads.svelte'
-  import type { Workspace } from '$lib/state/workspaces.svelte'
+  import { formatRelativeAge } from '$lib/format/relative-time'
+  import type { ConversationSummary } from '$lib/ipc/bindings'
+  import { heroLine } from '$lib/thread/conversations'
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import History from '@lucide/svelte/icons/history'
+  import {
+    conversationPart,
+    greetingPart,
+  } from '$lib/thread/conversation-motion'
 
   let {
-    thread,
-    workspace,
-    conversationId,
-    earlier,
-    nowMs,
+    greeting,
+    who,
+    earlier = [],
+    nowMs = 0,
+    onResume,
   }: {
-    thread: Thread
-    /** Null on the new thread page: there's nothing to show until it's sent. */
-    workspace: Workspace | null
-    conversationId: string
-    earlier: Conversation[]
-    nowMs: number
+    /** Picks the greeting; the same one for as long as the conversation stays empty. */
+    greeting: string
+    /** The agent and where it works; none on the new thread page, until it's sent. */
+    who?: { role: string; branch: string; workspace: string }
+    earlier?: ConversationSummary[]
+    nowMs?: number
+    onResume?: (conversation: ConversationSummary) => Promise<void>
   } = $props()
 
-  const threadId = $derived(thread.id)
-  const line = $derived(heroLine(`${threadId}:${conversationId}`))
+  const line = $derived(heroLine(greeting))
+  const part = conversationPart()
 
   let resuming = $state(false)
 
-  function title(conversation: Conversation) {
+  function title(conversation: ConversationSummary) {
     return conversation.firstPrompt ?? 'Untitled conversation'
   }
 
-  function meta(conversation: Conversation) {
-    const count = `${conversation.prompts} ${conversation.prompts === 1 ? 'message' : 'messages'}`
+  function meta(conversation: ConversationSummary) {
+    const count = plural(conversation.prompts, 'message')
     return `${formatRelativeAge(conversation.lastAtMs, nowMs)} · ${count}`
   }
 
   // Picking one resumes it straight away, like picking a task types its prompt.
   async function resume(id: string) {
     const conversation = earlier.find((row) => row.id === id)
-    if (!conversation || resuming) return
+    if (!conversation || resuming || !onResume) return
     resuming = true
     try {
-      await resumeConversation(threadId, conversation)
+      await onResume(conversation)
     } finally {
       resuming = false
     }
@@ -60,8 +76,9 @@
 </script>
 
 <div
-  data-conversation-part
-  class="thread-hero mt-auto -mb-2 flex w-[min(760px,calc(100cqw-8px))] flex-col gap-5 self-center pt-10 pb-10"
+  use:part
+  use:greetingPart
+  class="thread-hero mt-auto -mb-2 flex w-[min(var(--thread-column),calc(100cqw-8px))] flex-col gap-5 self-center pt-10 pb-10"
   data-od-id="thread-hero"
 >
   <h2
@@ -70,20 +87,19 @@
     {line}
   </h2>
 
-  {#if workspace}
-    <!-- Who you're talking to, and where they'll work. -->
+  {#if who}
     <p
       class="hero-who -mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground"
       data-od-id="thread-hero-who"
     >
-      <span class="font-medium text-foreground">{thread.role}</span>
+      <span class="font-medium text-foreground">{who.role}</span>
       <span aria-hidden="true">·</span>
       <span class="flex min-w-0 items-center gap-1 font-mono text-xs">
         <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
-        <span class="truncate">{workspace.branch}</span>
+        <span class="truncate">{who.branch}</span>
       </span>
       <span aria-hidden="true">·</span>
-      <span class="truncate">{workspace.name}</span>
+      <span class="truncate">{who.workspace}</span>
     </p>
   {/if}
 
@@ -139,7 +155,11 @@
 </div>
 
 <style>
-  /* The greeting rises in, then each card just after it. */
+  /* Sending the first prompt: it falls out of view (the transition is in app.css). */
+  .thread-hero {
+    view-transition-name: thread-hero;
+  }
+
   .thread-hero h2,
   .hero-who,
   .thread-hero section {

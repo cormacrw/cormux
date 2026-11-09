@@ -1,51 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import {
-  LARGE_DIFF_LINES,
-  inferFileStatus,
-  isDiffCollapsed,
-  isGeneratedPath,
-  isTestPath,
-} from './file-status'
+import { isDiffCollapsed } from './file-status'
 
-describe('inferFileStatus', () => {
-  it('marks deletions', () => {
-    expect(
-      inferFileStatus({
-        path: 'gone.ts',
-        oldPath: null,
-        added: 0,
-        deleted: 4,
-        hunks: [{ header: '', body: '-x\n' }],
-      }),
-    ).toBe('D')
-  })
+const small = (path: string) => ({ path, added: 1, deleted: 1 })
+const foldedByDefault = (path: string) => isDiffCollapsed({}, small(path))
 
-  it('marks additions', () => {
-    expect(
-      inferFileStatus({
-        path: 'new.ts',
-        oldPath: null,
-        added: 3,
-        deleted: 0,
-        hunks: [{ header: '', body: '+x\n' }],
-      }),
-    ).toBe('A')
-  })
-
-  it('marks renames, even with edits', () => {
-    expect(
-      inferFileStatus({
-        path: 'lib/moved.ts',
-        oldPath: 'moved.ts',
-        added: 1,
-        deleted: 1,
-        hunks: [{ header: '', body: '-x\n+y\n' }],
-      }),
-    ).toBe('R')
-  })
-})
-
-describe('isTestPath', () => {
+describe('isDiffCollapsed', () => {
   it.each([
     'src/lib/foo.test.ts',
     'src/lib/foo.spec.tsx',
@@ -54,8 +13,17 @@ describe('isTestPath', () => {
     'e2e/workspace.spec.ts',
     'pkg/server_test.go',
     'app/test_models.py',
-  ])('treats %s as a test', (path) => {
-    expect(isTestPath(path)).toBe(true)
+  ])('folds the test file %s', (path) => {
+    expect(foldedByDefault(path)).toBe(true)
+  })
+
+  it.each([
+    'src-tauri/Cargo.lock',
+    'pnpm-lock.yaml',
+    'vendor/app.min.js',
+    'src/api.generated.ts',
+  ])('folds the generated file %s', (path) => {
+    expect(foldedByDefault(path)).toBe(true)
   })
 
   it.each([
@@ -63,36 +31,21 @@ describe('isTestPath', () => {
     'src/testing-utils.ts',
     'src/contest.ts',
     'src/lib/latest.svelte',
-  ])('leaves %s alone', (path) => {
-    expect(isTestPath(path)).toBe(false)
+    'src/lockfile.ts',
+  ])('leaves the source file %s open', (path) => {
+    expect(foldedByDefault(path)).toBe(false)
   })
-})
 
-const small = (path: string) => ({ path, added: 1, deleted: 1 })
-
-describe('isGeneratedPath', () => {
-  it('spots lockfiles and build output, not lookalikes', () => {
-    expect(isGeneratedPath('src-tauri/Cargo.lock')).toBe(true)
-    expect(isGeneratedPath('vendor/app.min.js')).toBe(true)
-    expect(isGeneratedPath('src/api.generated.ts')).toBe(true)
-    expect(isGeneratedPath('src/lockfile.ts')).toBe(false)
+  it('folds a huge diff', () => {
+    expect(
+      isDiffCollapsed({}, { path: 'a.ts', added: 1400, deleted: 200 }),
+    ).toBe(true)
   })
-})
 
-describe('isDiffCollapsed', () => {
-  it('folds tests by default and respects an explicit choice', () => {
-    expect(isDiffCollapsed({}, small('a.test.ts'))).toBe(true)
-    expect(isDiffCollapsed({}, small('a.ts'))).toBe(false)
+  it('respects an explicit choice either way', () => {
     expect(isDiffCollapsed({ 'a.test.ts': false }, small('a.test.ts'))).toBe(
       false,
     )
     expect(isDiffCollapsed({ 'a.ts': true }, small('a.ts'))).toBe(true)
-  })
-
-  it('folds generated and huge files until asked', () => {
-    expect(isDiffCollapsed({}, small('pnpm-lock.yaml'))).toBe(true)
-    const huge = { path: 'a.ts', added: LARGE_DIFF_LINES, deleted: 1 }
-    expect(isDiffCollapsed({}, huge)).toBe(true)
-    expect(isDiffCollapsed({ 'a.ts': false }, huge)).toBe(false)
   })
 })

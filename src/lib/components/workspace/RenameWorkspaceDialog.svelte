@@ -1,11 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { Button } from '$lib/components/ui/button'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import * as Dialog from '$lib/components/ui/dialog'
   import { Input } from '$lib/components/ui/input'
   import { commands } from '$lib/ipc'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
   import { workspaces } from '$lib/state'
 
   let {
@@ -44,7 +45,6 @@
       toastCoreError(result.error)
       return
     }
-    workspaces.patchName(workspaceId, trimmed)
     close()
   }
 </script>
@@ -67,12 +67,7 @@
         event.preventDefault()
         void save()
       }}
-      onkeydown={(event) => {
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-          event.preventDefault()
-          void save()
-        }
-      }}
+      onkeydown={onModEnter(() => void save())}
     >
       <Input bind:value={name} aria-label="Workspace name" autofocus />
       <Dialog.Footer>

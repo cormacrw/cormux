@@ -1,0 +1,56 @@
+import type { DiffTarget, StackBranch, WorkspaceStack } from '$lib/ipc/bindings'
+import { plural } from '$lib/format/plural'
+
+/** The branch a diff target's head names; `HEAD` is the checked-out one. */
+export function resolveHead(target: DiffTarget, currentBranch: string) {
+  return target.head === 'HEAD' ? currentBranch : target.head
+}
+
+/** Top of the stack first, the way it reads on screen with the trunk underneath. */
+export function stackCardsTopFirst(
+  stack: WorkspaceStack | undefined,
+): StackBranch[] {
+  return stack ? [...stack.branches].reverse() : []
+}
+
+export function sameDiffTarget(
+  a: DiffTarget | null,
+  b: DiffTarget | null,
+): boolean {
+  return a?.head === b?.head && a?.base === b?.base
+}
+
+/**
+ * Whether the diff is showing `branch` against `base`. Review workspaces diff
+ * `HEAD`, which is the checked-out branch.
+ */
+export function isDiffTargetOf(
+  target: DiffTarget | null,
+  branch: string,
+  base: string,
+  currentBranch: string,
+): boolean {
+  if (!target || target.base !== base) return false
+  return resolveHead(target, currentBranch) === branch
+}
+
+export function diffTargetLabel(target: DiffTarget | null): string {
+  return target ? `${target.head} vs ${target.base}` : 'Uncommitted changes'
+}
+
+export function stackSubtitle(stack: WorkspaceStack): string {
+  if (stack.status === 'unavailable')
+    return 'Stacks need the gh-stack extension for the GitHub CLI.'
+  if (stack.status === 'notStacked') {
+    return stack.currentBranch === stack.trunk
+      ? `Add a branch to start a stack on ${stack.trunk}.`
+      : `${stack.currentBranch} isn't in a stack. Add a branch to start one with it at the bottom.`
+  }
+  const open = stack.branches.filter((branch) => !branch.merged).length
+  return `${plural(open, 'open branch', 'open branches')} stacked on ${stack.trunk}`
+}
+
+export function commitsLabel(count: number): string {
+  if (count === 0) return 'No commits yet'
+  return plural(count, 'commit', 'commits')
+}

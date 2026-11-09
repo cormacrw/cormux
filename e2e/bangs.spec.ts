@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { setScenario } from './harness'
 import { mkdirSync } from 'node:fs'
+import { setScenario } from './harness'
 
 test.describe('bangs', () => {
   test('saved in settings, used in a prompt bar, and started from the palette', async ({
@@ -9,9 +9,23 @@ test.describe('bangs', () => {
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     mkdirSync('e2e/output', { recursive: true })
+    // The core's answers: its name rules are tested in Rust (`settings`).
+    await setScenario(page, {
+      bangSaves: [
+        {
+          names: [''],
+          reply: { error: 'Give the bang a name, like test or review.' },
+        },
+        { names: ['!Fix Tests'], reply: { names: ['fix-tests'] } },
+        {
+          names: ['fix-tests', 'fix-tests'],
+          reply: { error: '!fix-tests already exists.' },
+        },
+      ],
+    })
     await page.goto('/')
 
-    const nav = page.getByRole('navigation', { name: 'Harness' })
+    const nav = page.getByRole('navigation', { name: 'Sidebar' })
     await nav.getByRole('button', { name: /Settings/ }).click()
     const section = page.locator('[data-od-id="settings-bangs"]')
     await expect(section.getByRole('heading', { name: 'Bangs' })).toBeVisible()
@@ -83,25 +97,5 @@ test.describe('bangs', () => {
     ).toBeVisible()
 
     expect(errors).toEqual([])
-  })
-
-  test('scratch macros carry over as bangs', async ({ page }) => {
-    await setScenario(page, {
-      settings: {
-        scratchMacros: JSON.stringify([
-          { id: 'm1', name: 'Morning triage', prompt: 'Check CI' },
-        ]),
-      },
-    })
-    await page.goto('/')
-    await page
-      .getByRole('navigation', { name: 'Harness' })
-      .getByRole('button', { name: /Settings/ })
-      .click()
-    await expect(
-      page
-        .locator('[data-od-id="settings-bangs"]')
-        .getByText('!morning-triage', { exact: true }),
-    ).toBeVisible()
   })
 })

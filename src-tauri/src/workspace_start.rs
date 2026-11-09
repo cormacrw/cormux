@@ -1,18 +1,39 @@
 //! Starting a workspace: naming it, recording it, and provisioning its worktree and Lead.
 
-use std::path::PathBuf;
+use std::path::Path;
 
-use uuid::Uuid;
+use serde::{Deserialize, Serialize};
+use specta::Type;
 
-use crate::composer::persist_user_message;
+use crate::engines::prompt::Prompt;
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::{CreateWorkspaceInput, StateChangeKind};
-use crate::paths::{expand_tilde, worktrees_base};
+use crate::model::WorkspaceKind;
+use crate::provisioning::{ProvisionPlan, WorkspaceSpec};
 use crate::state::AppState;
-use crate::store::types::{ThreadRow, WorkspaceRow};
-use crate::timeline::{TimelineStep, record_step};
-use crate::workspace::ThreadStatus;
+use crate::store::Store;
+use crate::store::types::ThreadPicks;
+use crate::transcript::Transcript;
+use crate::workspace_git::Checkout;
+use crate::workspaces::WorkspaceRecord;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceInput {
+    pub repo_id: String,
+    pub name: String,
+    /// Empty to have one drafted from the goal.
+    pub branch: String,
+    /// `None` or blank starts from the repo's default branch.
+    pub base: Option<String>,
+    pub goal: String,
+    /// The model to start on; `None` leaves the engine's default.
+    pub model: Option<String>,
+    /// The effort level to start on; `None` leaves the engine's default.
+    pub effort: Option<String>,
+    /// Images and files sent with the goal, as the first message's attachments.
+    #[serde(default)]
+    pub attachments: Vec<crate::attachments::PromptAttachment>,
+}
 
 pub struct StartedWorkspace {
     pub workspace_id: String,
@@ -20,53 +41,39 @@ pub struct StartedWorkspace {
     pub base: String,
 }
 
-/// A new worktree and its thread, provisioned in the background. `parent_thread_id` is the
+/// A new worktree and its Lead, provisioned in the background. `parent_thread_id` is the
 /// thread that asked for it, when an agent did.
 pub async fn start_workspace(
-    out: &Output,
     state: &AppState,
     input: CreateWorkspaceInput,
     parent_thread_id: Option<String>,
 ) -> Result<StartedWorkspace> {
-    let repo = state
-        .store
-        .repo_by_id(&input.repo_id)?
-        .ok_or_else(|| Error::Git(format!("unknown repo {}", input.repo_id)))?;
-    repo.ensure_not_default_branch(&input.branch)?;
-    // Before any git call: `base` can come from an agent's `create_thread` call.
-    crate::git::validate_ref_name(&input.branch, "branch")?;
-    crate::git::validate_ref_name(&input.base, "base")?;
-    let repo_path = expand_tilde(&repo.path);
-    if !repo_path.is_dir() {
-        return Err(Error::Git(format!(
-            "repo path does not exist: {}",
-            repo_path.display()
-        )));
-    }
-
     // With no name given, the prompt drafts one and Haiku improves it below, along with the
     // drafted branch. A workspace started without a prompt is numbered.
-    let goal_text = input.goal.trim();
-    let auto_named = input.name.trim().is_empty() && !goal_text.is_empty();
-    let name = match input.name.trim() {
-        "" if goal_text.is_empty() => {
+    let goal = input.goal.trim().to_string();
+    let auto_named = input.name.trim().is_empty() && !goal.is_empty();
+    let name: String = match input.name.trim() {
+        "" if goal.is_empty() => {
             let live = state.store.live_workspaces()?;
             crate::naming::next_workspace_name(live.iter().map(|row| row.name.as_str()))
         }
-        "" => crate::naming::draft_title(goal_text, crate::naming::WORKSPACE_NAME_MAX),
+        "" => crate::naming::draft_title(&goal, crate::naming::WORKSPACE_NAME_MAX),
         given => given
             .chars()
             .take(crate::naming::WORKSPACE_NAME_MAX)
             .collect(),
     };
-    let input = CreateWorkspaceInput { name, ..input };
+
+    let base = match given(input.base.as_deref()) {
+        Some(base) => base.to_string(),
+        None => state.store.repo(&input.repo_id)?.default_branch,
+    };
 
     // Read before anything is recorded, so an attachment that can't be read starts nothing.
-    let goal = input.goal.trim().to_string();
     let (prompt, shown) = if input.attachments.is_empty() {
         (None, goal.clone())
     } else {
-        let folder = state.data_dir.join("attachments");
+        let folder = state.data_dir.attachments();
         let (text, attachments) = (goal.clone(), input.attachments.clone());
         let (prompt, shown) = tokio::task::spawn_blocking(move || {
             crate::attachments::build_prompt(&folder, &text, &attachments)
@@ -76,145 +83,158 @@ pub async fn start_workspace(
         (Some(prompt), shown)
     };
 
-    let workspace_id = new_workspace_id();
-    let thread_id = Uuid::new_v4().to_string();
-    let repo_name = repo_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("repo");
-    let worktrees_base = worktrees_base(&state.store)?;
-    let worktree_path = crate::workspace::WorkspaceManager::worktree_path(
-        &worktrees_base,
-        repo_name,
-        &input.branch,
-    );
+    let branch = match input.branch.trim() {
+        "" => {
+            let repo = state.store.repo(&input.repo_id)?;
+            let repo_path = crate::paths::expand_tilde(&repo.path);
+            let taken =
+                crate::workspace_git::taken_branches(state, &repo.id, &repo_path, None).await?;
+            crate::naming::draft_branch(&goal, &taken)
+        }
+        given => given.to_string(),
+    };
 
-    state
-        .workspace
-        .register_provisioning(
-            &workspace_id,
-            &input.repo_id,
-            &repo_path,
-            &input.name,
-            &input.branch,
-            &input.base,
-            &worktrees_base,
-        )
-        .await?;
+    let created = crate::provisioning::create(
+        state,
+        WorkspaceSpec {
+            kind: WorkspaceKind::Lead,
+            repo_id: input.repo_id.clone(),
+            name: name.clone(),
+            branch: branch.clone(),
+            base: base.clone(),
+            pr: None,
+            parent_thread_id,
+            picks: ThreadPicks {
+                model: input.model.clone(),
+                effort: input.effort.clone(),
+            },
+            setup_message: shown.clone(),
+        },
+        |created| {
+            if shown.is_empty() {
+                return Ok(());
+            }
+            state
+                .transcript
+                .record_user_message(&created.thread_id, &shown)
+                .map(drop)
+        },
+    )
+    .await?;
+    let workspace_id = created.workspace.id.clone();
+    let thread_id = created.thread_id.clone();
 
-    state.store.upsert_workspace(&WorkspaceRow {
-        id: workspace_id.clone(),
-        repo_id: input.repo_id.clone(),
-        name: input.name.clone(),
-        branch: input.branch.clone(),
-        worktree_path: worktree_path.to_string_lossy().to_string(),
-        status: "provisioning".into(),
-        created_at: String::new(),
-        summary: None,
-        summary_at: None,
-        summary_source: "Haiku 4.5".into(),
-        kind: None,
-        pr_number: None,
-        pr_html_url: None,
-        modified_files: 0,
-        archived_at: None,
-    })?;
-    state.store.upsert_thread(&ThreadRow {
-        id: thread_id.clone(),
-        workspace_id: workspace_id.clone(),
-        title: "Lead".into(),
-        engine: input.engine.clone(),
-        session_id: None,
-        status: ThreadStatus::Provisioning.into(),
-        used_tokens: None,
-        context_size: None,
-        cost_usd: None,
-        transcript_readonly: false,
-        retired: false,
-        parent_thread_id,
-    })?;
-    // Stored before provisioning starts, since the engine reads it when it spawns.
-    if let Some(model) = input.model.as_deref() {
-        state.store.set_thread_model(&thread_id, Some(model))?;
-    }
-    if let Some(effort) = input.effort.as_deref() {
-        state.store.set_thread_effort(&thread_id, Some(effort))?;
-    }
-    if !shown.is_empty() {
-        persist_user_message(&state.store, &thread_id, &shown)?;
-    }
-
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    state.out.changed();
 
     if auto_named {
-        spawn_auto_name(
-            out.clone(),
-            state.clone(),
-            workspace_id.clone(),
-            input.name.clone(),
-            goal.clone(),
-        );
+        spawn_auto_name(state.clone(), workspace_id.clone(), name, goal.clone());
     }
 
-    let (out_bg, state_bg) = (out.clone(), state.clone());
-    let workspace_id_bg = workspace_id.clone();
-    let thread_id_bg = thread_id.clone();
-    let engine = input.engine.clone();
-    let repo_name = repo.name.clone();
-    let started = StartedWorkspace {
-        workspace_id: workspace_id.clone(),
-        thread_id: thread_id.clone(),
-        base: input.base.clone(),
-    };
-    let setup_commands = crate::harness_config::effective_setup(&repo.setup_commands, &repo_path);
-
-    let draft_branch = input.branch.clone();
-    let base = input.base.clone();
-
+    let plan = lead_plan(&workspace_id, &thread_id, &goal, prompt);
+    let state_bg = state.clone();
+    let draft_branch = branch;
     tauri::async_runtime::spawn(async move {
-        let (out, state) = (out_bg, state_bg);
-        if auto_named && let Err(error) = name_branch(&out, &state, &workspace_id_bg, &goal).await {
+        let state = state_bg;
+        if auto_named && let Err(error) = name_branch(&state, &plan.workspace_id, &goal).await {
             log::warn!("keeping the drafted branch {draft_branch}: {error}");
         }
-        let branch = match state.workspace.get(&workspace_id_bg).await {
-            Some(record) => record.branch,
-            None => draft_branch,
-        };
-        let worktree_step = TimelineStep::WorktreeCreated {
-            branch,
-            base: base.clone(),
-        };
-        if let Err(error) = record_step(&state.store, &thread_id_bg, worktree_step) {
-            log::warn!("could not record the worktree step: {error}");
-        }
-        crate::provisioning::run_workspace_provisioning(
-            out,
-            state,
-            crate::provisioning::LeadProvisionJob {
-                workspace_id: workspace_id_bg,
-                thread_id: thread_id_bg,
-                repo_name,
-                setup_commands_raw: setup_commands,
-                engine,
-                goal,
-                prompt,
-                review: false,
-            },
-        )
-        .await;
+        crate::provisioning::run(&state, plan).await;
     });
 
-    Ok(started)
+    Ok(StartedWorkspace {
+        workspace_id,
+        thread_id,
+        base,
+    })
+}
+
+fn given(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+/// Told to a Lead whose branch was cut from the repo's default branch: the user may have meant to
+/// start from another branch, and only the first message can say so.
+const BRANCH_INSTRUCTION: &str = "This thread starts on a new branch cut from the repo's default branch, with a worktree of its own. If the user's first message names another branch to start from, or asks to pick up earlier work, run `git reset --hard <branch>` (`origin/<branch>` if it only exists there) before anything else, while this branch has no commits of its own, and say which branch you started from. Ignore this for later messages, and don't do it for a branch the user only mentions.";
+
+/// What an agent is told about its workspace when a session starts. The branch instruction only
+/// holds for a Lead's first session on a branch cut from the repo's default branch: a Reviewer
+/// sits on a pull request's branch, and a workspace started from another base was started there
+/// on purpose. A session that resumes one, or follows New session or a resumed conversation,
+/// isn't the first: by then the worktree can hold work the reset would throw away.
+pub fn session_brief(
+    store: &Store,
+    transcript: &Transcript,
+    workspace: &WorkspaceRecord,
+    thread_id: &str,
+    resuming: bool,
+) -> String {
+    let media = crate::media::instruction();
+    if resuming || workspace.kind != WorkspaceKind::Lead {
+        return media;
+    }
+    match transcript.on_first_conversation(thread_id) {
+        Ok(true) => {}
+        Ok(false) => return media,
+        Err(error) => {
+            log::warn!("reading {thread_id}'s conversations for its brief: {error}");
+            return media;
+        }
+    }
+    let default_branch = match store.repo_by_id(&workspace.repo_id) {
+        Ok(Some(repo)) => repo.default_branch,
+        Ok(None) => return media,
+        Err(error) => {
+            log::warn!("reading {}'s repo for its brief: {error}", workspace.id);
+            return media;
+        }
+    };
+    if workspace.base != default_branch {
+        return media;
+    }
+    format!("{BRANCH_INSTRUCTION}\n\n{media}")
+}
+
+/// `prompt` is the goal with its attachments, when there were any.
+fn lead_plan(
+    workspace_id: &str,
+    thread_id: &str,
+    goal: &str,
+    prompt: Option<Prompt>,
+) -> ProvisionPlan {
+    let goal = goal.trim();
+    let first_prompt = prompt.or_else(|| (!goal.is_empty()).then(|| goal.into()));
+    ProvisionPlan {
+        workspace_id: workspace_id.to_string(),
+        thread_id: thread_id.to_string(),
+        checkout: Checkout::NewBranch,
+        first_prompt,
+        intro: Some(Box::new(|workspace: &WorkspaceRecord| {
+            format!(
+                "Started “{}” on a branch from {}.",
+                workspace.name, workspace.base
+            )
+        })),
+        started_toast: None,
+    }
+}
+
+/// The plan again for a Lead whose setup failed. Attachments sent with the goal are lost: the
+/// goal goes as the thread shows it.
+pub fn resume_plan(state: &AppState, workspace: &WorkspaceRecord) -> Result<ProvisionPlan> {
+    let thread = state
+        .store
+        .own_thread(&workspace.id)?
+        .ok_or_else(|| Error::Workspace(format!("no Lead in workspace {}", workspace.id)))?;
+    let goal = state
+        .store
+        .setup_message(&workspace.id)?
+        .unwrap_or_default();
+    Ok(lead_plan(&workspace.id, &thread.id, &goal, None))
 }
 
 /// Swaps the drafted branch for Haiku's while nothing on disk uses it yet. The draft stands if
 /// Haiku is slow or has nothing usable, since the agent shouldn't wait long for a name.
-async fn name_branch(
-    out: &Output,
-    state: &AppState,
-    workspace_id: &str,
-    prompt: &str,
-) -> Result<()> {
+async fn name_branch(state: &AppState, workspace_id: &str, prompt: &str) -> Result<()> {
     let generated = tokio::time::timeout(
         crate::naming::BRANCH_NAME_TIMEOUT,
         crate::naming::generate_branch(&state.llm, prompt),
@@ -223,44 +243,23 @@ async fn name_branch(
     let Ok(Some(branch)) = generated else {
         return Ok(());
     };
-    let Some(record) = state.workspace.get(workspace_id).await else {
-        return Ok(());
-    };
-    let repo_path = PathBuf::from(&record.repo_path);
-    let (local, remote) = tokio::try_join!(
-        state.git.list_local_branches(&repo_path),
-        state.git.list_remote_branches(&repo_path, "origin"),
-    )?;
-    let mut taken = local;
-    taken.extend(remote);
-    taken.extend(
-        state
-            .store
-            .live_workspaces()?
-            .into_iter()
-            .filter(|row| row.repo_id == record.repo_id && row.id != workspace_id)
-            .map(|row| row.branch),
-    );
+    let workspace = state.workspaces.get(workspace_id).await?;
+    let taken = crate::workspace_git::taken_branches(
+        state,
+        &workspace.repo_id,
+        Path::new(&workspace.repo_path),
+        Some(workspace_id),
+    )
+    .await?;
     let branch = crate::naming::unique_branch(&branch, &taken);
-    let record = state
-        .workspace
-        .retarget_provisioning(workspace_id, &branch)
-        .await?;
-    state
-        .store
-        .set_workspace_checkout(workspace_id, &record.branch, &record.worktree_path)?;
-    state.notify(out, StateChangeKind::WorkspaceStatus);
+    crate::git::validate_ref_name(&branch, "branch")?;
+    state.workspaces.retarget(workspace_id, &branch).await?;
+    state.out.changed();
     Ok(())
 }
 
 /// Swaps the drafted name for Haiku's unless the workspace was renamed or deleted meanwhile.
-fn spawn_auto_name(
-    out: Output,
-    state: AppState,
-    workspace_id: String,
-    draft: String,
-    prompt: String,
-) {
+fn spawn_auto_name(state: AppState, workspace_id: String, draft: String, prompt: String) {
     tauri::async_runtime::spawn(async move {
         let Some(name) = crate::naming::generate_title(
             &state.llm,
@@ -272,33 +271,101 @@ fn spawn_auto_name(
         else {
             return;
         };
-        match state.store.workspace_by_id(&workspace_id) {
-            Ok(Some(row)) if row.name == draft => {}
-            _ => return,
-        }
-        if state
-            .store
-            .set_workspace_name(&workspace_id, &name)
-            .is_err()
-            || state.workspace.rename(&workspace_id, &name).await.is_err()
+        match state
+            .workspaces
+            .rename_from(&workspace_id, &draft, &name)
+            .await
         {
-            return;
+            Ok(true) => state.out.changed(),
+            Ok(false) => {}
+            Err(error) => log::warn!("naming workspace {workspace_id}: {error}"),
         }
-        state.notify(&out, StateChangeKind::WorkspaceStatus);
     });
 }
 
-fn new_workspace_id() -> String {
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
-    format!("ws{ms:x}")
+pub mod commands {
+    use serde::{Deserialize, Serialize};
+    use specta::Type;
+    use tauri::State;
+
+    use crate::error::Result;
+    use crate::model::WorkspaceKind;
+    use crate::provisioning::ProvisionPlan;
+    use crate::state::AppState;
+
+    use super::CreateWorkspaceInput;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RenameWorkspaceInput {
+        pub workspace_id: String,
+        pub name: String,
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn rename_workspace(
+        state: State<'_, AppState>,
+        input: RenameWorkspaceInput,
+    ) -> Result<()> {
+        state
+            .workspaces
+            .rename(&input.workspace_id, &input.name)
+            .await?;
+        state.out.changed();
+        Ok(())
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
+    pub struct CreateWorkspaceResult {
+        pub workspace_id: String,
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn create_workspace(
+        input: CreateWorkspaceInput,
+        state: State<'_, AppState>,
+    ) -> Result<CreateWorkspaceResult> {
+        let started = super::start_workspace(&state, input, None).await?;
+        Ok(CreateWorkspaceResult {
+            workspace_id: started.workspace_id,
+        })
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn retry_workspace_provisioning(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        let plan = resume_plan(&state, &workspace_id).await?;
+        crate::provisioning::retry(&state, plan).await
+    }
+
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn skip_workspace_provisioning_setup(
+        workspace_id: String,
+        state: State<'_, AppState>,
+    ) -> Result<()> {
+        let plan = resume_plan(&state, &workspace_id).await?;
+        crate::provisioning::skip_setup(&state, plan).await
+    }
+
+    async fn resume_plan(state: &AppState, workspace_id: &str) -> Result<ProvisionPlan> {
+        let workspace = state.workspaces.get(workspace_id).await?;
+        match workspace.kind {
+            WorkspaceKind::Lead => super::resume_plan(state, &workspace),
+            WorkspaceKind::PrReview => crate::review::resume_plan(state, &workspace),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -306,8 +373,9 @@ mod tests {
 
     use super::*;
     use crate::feedback::{Emitted, RecordingOutput};
+    use crate::model::{ThreadStatus, WorkspaceLifecycle};
     use crate::shell_env::ShellEnv;
-    use crate::store::types::RepoRecord;
+    use crate::store::types::{RepoRecord, WorkspaceRow};
 
     /// Stands in for the `claude` CLI: answers one-shot naming calls and refuses to be an engine.
     const FAKE_CLAUDE: &str = r#"#!/bin/sh
@@ -326,7 +394,6 @@ esac
     struct Fixture {
         state: AppState,
         recording: Arc<RecordingOutput>,
-        out: Output,
         repo: PathBuf,
         worktrees: PathBuf,
         dir: TempDir,
@@ -352,32 +419,30 @@ esac
         git(&repo, &["config", "user.name", "Cormux"]);
         git(&repo, &["commit", "-q", "--allow-empty", "-m", "init"]);
 
-        let state = AppState::new(dir.path().join("data"));
-        state.store.open_in_memory().unwrap();
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(dir.path().join("data")));
         state
             .store
             .upsert_repo(&RepoRecord {
-                id: "r1".into(),
                 path: repo.to_string_lossy().to_string(),
                 name: "app".into(),
-                default_branch: Some("main".into()),
-                setup_commands: String::new(),
-                run_command: None,
-                single_instance: false,
+                ..crate::store::fixtures::repo("r1")
             })
             .unwrap();
         let worktrees = dir.path().join("worktrees");
-        state
-            .store
-            .set_setting("worktreeRoot", &worktrees.to_string_lossy())
-            .unwrap();
+        crate::settings::Settings::update(
+            &state.store,
+            crate::settings::SettingsPatch {
+                worktree_root: Some(worktrees.to_string_lossy().into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         set_path(&state, "/usr/bin:/bin").await;
 
-        let (recording, out) = RecordingOutput::new();
         Fixture {
             state,
             recording,
-            out,
             repo,
             worktrees,
             dir,
@@ -385,8 +450,13 @@ esac
     }
 
     async fn set_path(state: &AppState, path: &str) {
-        *state.shell_env.write().await =
-            ShellEnv::from_vars([("PATH".to_string(), path.to_string())]);
+        state
+            .shell_env
+            .replace(ShellEnv::from_vars([(
+                "PATH".to_string(),
+                path.to_string(),
+            )]))
+            .await;
     }
 
     async fn install_fake_claude(fixture: &Fixture) {
@@ -405,8 +475,7 @@ esac
             repo_id: "r1".into(),
             name: name.into(),
             branch: branch.into(),
-            base: "main".into(),
-            engine: "claude".into(),
+            base: Some("main".into()),
             goal: goal.into(),
             model: None,
             effort: None,
@@ -452,26 +521,21 @@ esac
         let f = fixture().await;
         f.state
             .store
-            .upsert_workspace(&WorkspaceRow {
-                id: "earlier".into(),
-                repo_id: "r1".into(),
-                name: "Workspace 3".into(),
-                branch: "feat/earlier".into(),
-                worktree_path: "/tmp/earlier".into(),
-                status: "ready".into(),
-                created_at: String::new(),
-                summary: None,
-                summary_at: None,
-                summary_source: "Haiku 4.5".into(),
-                kind: None,
-                pr_number: None,
-                pr_html_url: None,
-                modified_files: 0,
-                archived_at: None,
-            })
+            .insert_workspace(
+                &WorkspaceRow::new(
+                    WorkspaceKind::Lead,
+                    "earlier",
+                    "r1",
+                    "Workspace 3",
+                    "feat/earlier",
+                    "main",
+                    "/tmp/earlier",
+                )
+                .with_status(WorkspaceLifecycle::Ready),
+            )
             .unwrap();
 
-        let started = start_workspace(&f.out, &f.state, input("", "feat/x", ""), None)
+        let started = start_workspace(&f.state, input("", "feat/x", ""), None)
             .await
             .unwrap();
 
@@ -484,7 +548,7 @@ esac
                 .store
                 .thread_by_id(&thread_id)
                 .unwrap()
-                .is_some_and(|thread| thread.has_status(ThreadStatus::Idle))
+                .is_some_and(|thread| thread.status == ThreadStatus::Idle)
         })
         .await;
 
@@ -509,14 +573,14 @@ esac
         assert!(has_step(&f.state, &started.thread_id, "Worktree ready"));
         assert_eq!(
             f.state
-                .store
-                .first_message_text(&started.thread_id)
+                .transcript
+                .first_message(&started.thread_id)
                 .unwrap(),
             None
         );
         assert!(matches!(
             f.recording.emitted().first(),
-            Some(Emitted::State(StateChangeKind::WorkspaceStatus))
+            Some(Emitted::State(_))
         ));
     }
 
@@ -530,7 +594,7 @@ esac
             ..input(&long_name, "feat/x", "  Fix the login page  ")
         };
 
-        let started = start_workspace(&f.out, &f.state, request, Some("parent".into()))
+        let started = start_workspace(&f.state, request, Some("parent".into()))
             .await
             .unwrap();
 
@@ -546,14 +610,57 @@ esac
             Some("high")
         );
         assert_eq!(
-            store
-                .first_message_text(&started.thread_id)
+            f.state
+                .transcript
+                .first_message(&started.thread_id)
                 .unwrap()
                 .as_deref(),
             Some("Fix the login page")
         );
         let thread = store.thread_by_id(&started.thread_id).unwrap().unwrap();
         assert_eq!(thread.parent_thread_id.as_deref(), Some("parent"));
+
+        assert_eq!(
+            store
+                .setup_message(&started.workspace_id)
+                .unwrap()
+                .as_deref(),
+            Some("Fix the login page")
+        );
+        let record = f.state.workspaces.get(&started.workspace_id).await.unwrap();
+        let plan = super::resume_plan(&f.state, &record).unwrap();
+        assert_eq!(
+            plan.first_prompt.map(|prompt| prompt.text).as_deref(),
+            Some("Fix the login page")
+        );
+    }
+
+    #[tokio::test]
+    async fn with_no_base_the_repos_default_branch_and_the_default_engine_are_used() {
+        let f = fixture().await;
+        let request = CreateWorkspaceInput {
+            base: Some("  ".into()),
+            ..input("Work", "feat/y", "")
+        };
+
+        let started = start_workspace(&f.state, request, None).await.unwrap();
+
+        let default_branch = f.state.store.repo("r1").unwrap().default_branch;
+        assert_eq!(started.base, default_branch);
+        assert_eq!(
+            workspace(&f.state, &started.workspace_id).base,
+            default_branch
+        );
+        let thread = f
+            .state
+            .store
+            .thread_by_id(&started.thread_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            thread.engine,
+            crate::settings::Settings::load(&f.state.store).default_engine_name()
+        );
     }
 
     #[tokio::test]
@@ -571,14 +678,12 @@ esac
             ..input("", "feat/x", "Fix this")
         };
 
-        let started = start_workspace(&f.out, &f.state, request, None)
-            .await
-            .unwrap();
+        let started = start_workspace(&f.state, request, None).await.unwrap();
 
         assert_eq!(
             f.state
-                .store
-                .first_message_text(&started.thread_id)
+                .transcript
+                .first_message(&started.thread_id)
                 .unwrap()
                 .as_deref(),
             Some("Fix this\n\nAttached: shot.png")
@@ -593,7 +698,7 @@ esac
             }],
             ..input("", "feat/y", "Look")
         };
-        let error = start_workspace(&f.out, &f.state, missing, None)
+        let error = start_workspace(&f.state, missing, None)
             .await
             .err()
             .unwrap();
@@ -602,11 +707,25 @@ esac
     }
 
     #[tokio::test]
+    async fn without_a_branch_one_is_drafted_from_the_goal_past_taken_names() {
+        let f = fixture().await;
+        git(&f.repo, &["branch", "fix/fix-the-login-page"]);
+
+        let started = start_workspace(&f.state, input("", "", "Fix the login page."), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            workspace(&f.state, &started.workspace_id).branch,
+            "fix/fix-the-login-page-2"
+        );
+    }
+
+    #[tokio::test]
     async fn the_draft_name_and_branch_stand_when_haiku_is_unavailable() {
         let f = fixture().await;
 
         let started = start_workspace(
-            &f.out,
             &f.state,
             input("", "feat/draft", "Fix the login page."),
             None,
@@ -637,7 +756,6 @@ esac
         git(&f.repo, &["branch", "feat/oauth-login"]);
 
         let started = start_workspace(
-            &f.out,
             &f.state,
             input("", "feat/draft", "Let people sign in with OAuth"),
             None,
@@ -662,7 +780,7 @@ esac
             workspace(&f.state, &started.workspace_id).worktree_path,
             worktree.to_string_lossy()
         );
-        let record = f.state.workspace.get(&started.workspace_id).await.unwrap();
+        let record = f.state.workspaces.get(&started.workspace_id).await.unwrap();
         assert_eq!(record.name, "OAuth login");
         assert_eq!(record.branch, "feat/oauth-login-2");
     }
@@ -673,7 +791,7 @@ esac
         install_fake_claude(&f).await;
         let draft = "Workspace named by the user";
 
-        let started = start_workspace(&f.out, &f.state, input(draft, "feat/x", "Do it"), None)
+        let started = start_workspace(&f.state, input(draft, "feat/x", "Do it"), None)
             .await
             .unwrap();
 
@@ -698,7 +816,7 @@ esac
             (input("Work", " main ", ""), "the default branch of app"),
         ];
         for (request, message) in cases {
-            let error = start_workspace(&f.out, &f.state, request, None)
+            let error = start_workspace(&f.state, request, None)
                 .await
                 .err()
                 .unwrap();
@@ -706,7 +824,7 @@ esac
         }
 
         std::fs::remove_dir_all(&f.repo).unwrap();
-        let error = start_workspace(&f.out, &f.state, input("Work", "feat/x", ""), None)
+        let error = start_workspace(&f.state, input("Work", "feat/x", ""), None)
             .await
             .err()
             .unwrap();
@@ -714,5 +832,74 @@ esac
 
         assert!(f.state.store.live_workspaces().unwrap().is_empty());
         assert!(f.recording.emitted().is_empty());
+    }
+
+    #[tokio::test]
+    async fn only_a_leads_first_session_off_the_default_branch_is_told_it_may_reset() {
+        let store = Store::in_memory().unwrap();
+        store.seed_workspace("w1", WorkspaceLifecycle::Ready);
+        store.seed_thread("t1", "w1", crate::model::ThreadStatus::Idle);
+        let transcript = Transcript::new(store.clone());
+        let lead = crate::workspaces::Workspaces::new(store.clone())
+            .get("w1")
+            .await
+            .unwrap();
+        let told = |workspace: &WorkspaceRecord, resuming| {
+            session_brief(&store, &transcript, workspace, "t1", resuming)
+                .contains("git reset --hard")
+        };
+
+        assert!(told(&lead, false));
+        assert!(
+            !told(&lead, true),
+            "a resumed session already had its first message"
+        );
+        let reviewer = WorkspaceRecord {
+            kind: WorkspaceKind::PrReview,
+            ..lead.clone()
+        };
+        assert!(
+            !told(&reviewer, false),
+            "a Reviewer sits on the PR's branch"
+        );
+        let stacked = WorkspaceRecord {
+            base: "feat/base".into(),
+            ..lead.clone()
+        };
+        assert!(
+            !told(&stacked, false),
+            "started from another base on purpose"
+        );
+        for workspace in [&lead, &reviewer, &stacked] {
+            assert!(
+                session_brief(&store, &transcript, workspace, "t1", true)
+                    .contains(&crate::media::instruction())
+            );
+        }
+    }
+
+    /// Bug: New session cleared the saved session id, so the next launch read as a first
+    /// session and told the agent to `git reset --hard` over whatever the worktree held.
+    #[tokio::test]
+    async fn a_session_after_new_session_or_a_resumed_conversation_is_not_told_to_reset() {
+        let store = Store::in_memory().unwrap();
+        store.seed_workspace("w1", WorkspaceLifecycle::Ready);
+        store.seed_thread("t1", "w1", crate::model::ThreadStatus::Idle);
+        let transcript = Transcript::new(store.clone());
+        let lead = crate::workspaces::Workspaces::new(store.clone())
+            .get("w1")
+            .await
+            .unwrap();
+        transcript.record_user_message("t1", "Fix login").unwrap();
+        transcript
+            .record_step(
+                "t1",
+                crate::timeline::TimelineStep::SessionStarted {
+                    ended_session: Some("s1".into()),
+                },
+            )
+            .unwrap();
+
+        assert!(!session_brief(&store, &transcript, &lead, "t1", false).contains("git reset"));
     }
 }

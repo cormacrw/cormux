@@ -1,7 +1,7 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
-import type { ScratchRow } from '$lib/ipc/bindings'
-import { parseTimestampMs } from '$lib/homebase/relative-time'
+import type { ScratchRow, ThreadStatus } from '$lib/ipc/bindings'
+import { onSnapshot } from '$lib/core/sync'
 import { reuseRows } from './reuse-rows'
 
 /** A one-off conversation from before every thread had a worktree, kept to read. */
@@ -11,17 +11,20 @@ export type Scratch = {
   repoId: string
   threadId: string
   engine: string
+  /** Its one thread's status. */
+  status: ThreadStatus
   createdAtMs: number | null
 }
 
-export function scratchFromRow(row: ScratchRow): Scratch {
+function scratchFromRow(row: ScratchRow): Scratch {
   return {
     id: row.id,
     title: row.title,
     repoId: row.repoId,
     threadId: row.threadId,
     engine: row.engine,
-    createdAtMs: parseTimestampMs(row.createdAt),
+    status: row.status,
+    createdAtMs: row.createdAtMs,
   }
 }
 
@@ -43,3 +46,7 @@ export class ScratchesStore {
 }
 
 export const scratches = new ScratchesStore()
+
+onSnapshot((snapshot) =>
+  scratches.hydrate(snapshot.persisted.scratches.map(scratchFromRow)),
+)

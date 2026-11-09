@@ -2,20 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   contextPercent,
   formatCost,
-  formatTokens,
   NO_USAGE,
   totalCost,
-  usageSummary,
+  usageDetail,
 } from './usage'
 
-describe('formatting', () => {
-  it('shortens token counts', () => {
-    expect(formatTokens(950)).toBe('950')
-    expect(formatTokens(22_274)).toBe('22.3k')
-    expect(formatTokens(40_000)).toBe('40k')
-    expect(formatTokens(1_200_000)).toBe('1.2M')
-  })
-
+describe('formatCost', () => {
   it('shows cents, and a tiny cost as under a cent', () => {
     expect(formatCost(0.42)).toBe('$0.42')
     expect(formatCost(12.3)).toBe('$12.30')
@@ -24,27 +16,39 @@ describe('formatting', () => {
   })
 })
 
-describe('usageSummary', () => {
-  it('shows tokens, context fill and cost', () => {
-    const usage = { usedTokens: 22_274, contextSize: 1_000_000, costUsd: 0.42 }
-    expect(contextPercent(usage)).toBe(2)
-    expect(usageSummary(usage)).toEqual({
-      meter: '22.3k · 2% · $0.42',
-      detail: '22.3k tokens in context (2% of 1M) · $0.42 so far',
-    })
+describe('contextPercent', () => {
+  it('is a whole percent of the window, and unknown without one', () => {
+    expect(
+      contextPercent({ usedTokens: 22_274, contextSize: 200_000, costUsd: 0 }),
+    ).toBe(11)
+    expect(
+      contextPercent({ usedTokens: 5000, contextSize: 0, costUsd: null }),
+    ).toBeNull()
+  })
+})
+
+describe('usageDetail', () => {
+  it('says tokens, context fill and cost, with short token counts', () => {
+    expect(
+      usageDetail({
+        usedTokens: 22_274,
+        contextSize: 1_000_000,
+        costUsd: 0.42,
+      }),
+    ).toBe('22.3k tokens in context (2% of 1M) · $0.42 so far')
+    expect(
+      usageDetail({ usedTokens: 950, contextSize: 200_000, costUsd: 12.3 }),
+    ).toBe('950 tokens in context (0% of 200k) · $12.30 so far')
   })
 
   it('says what an engine didn’t report instead of showing zero', () => {
     expect(
-      usageSummary({ usedTokens: 5000, contextSize: 0, costUsd: null }),
-    ).toEqual({
-      meter: '5k',
-      detail: '5k tokens in context · cost not reported',
-    })
-    expect(usageSummary(NO_USAGE)).toEqual({
-      meter: null,
-      detail: 'Usage not reported',
-    })
+      usageDetail({ usedTokens: 5000, contextSize: 0, costUsd: null }),
+    ).toBe('5k tokens in context · cost not reported')
+    expect(usageDetail({ ...NO_USAGE, costUsd: 1 })).toBe(
+      'Tokens not reported · $1.00 so far',
+    )
+    expect(usageDetail(NO_USAGE)).toBe('Usage not reported')
   })
 })
 

@@ -23,8 +23,15 @@ function subscribe<T>(
     if (!stopped) onMessage(message)
   }
   const id = start(channel).then(
-    (result) => (result.status === 'ok' ? result.data : null),
-    () => null,
+    (result) => {
+      if (result.status === 'ok') return result.data
+      console.warn('subscription refused', result.error)
+      return null
+    },
+    (error: unknown) => {
+      console.warn('subscription failed', error)
+      return null
+    },
   )
   return () => {
     if (stopped) return

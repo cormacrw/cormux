@@ -8,11 +8,7 @@ use crate::error::{Error, Result};
 #[serde(tag = "type")]
 pub enum StdinMessage {
     #[serde(rename = "user")]
-    User {
-        message: UserPayload,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        parent_tool_use_id: Option<String>,
-    },
+    User { message: UserPayload },
     #[serde(rename = "control_request")]
     ControlRequest {
         request_id: String,
@@ -89,9 +85,6 @@ pub enum PermissionDecision {
     Allow {
         #[serde(rename = "updatedInput")]
         updated_input: Value,
-        /// Rule or mode changes that come with the allow, such as leaving plan mode.
-        #[serde(rename = "updatedPermissions", skip_serializing_if = "Option::is_none")]
-        updated_permissions: Option<Value>,
     },
     #[serde(rename = "deny")]
     Deny { message: String },
@@ -103,15 +96,12 @@ pub struct CanUseTool {
     pub tool_name: String,
     pub input: Value,
     pub tool_use_id: Option<String>,
-    pub decision_reason: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Init {
         session_id: String,
-        /// The mode the session started in, such as `default`, `auto` or `plan`.
-        permission_mode: Option<String>,
     },
     /// One assistant message, its content blocks in order.
     Assistant {
@@ -121,6 +111,8 @@ pub enum Event {
     },
     /// Tool results, which the CLI echoes back as a `user` message.
     ToolResults(Vec<ToolResult>),
+    /// The CLI took one of the host's prompts, into the turn it runs or a turn of its own.
+    PromptTaken,
     CanUseTool(CanUseTool),
     /// A JSON-RPC message for an MCP server this host answers. Must always get a response,
     /// notifications included.
@@ -139,7 +131,7 @@ pub enum Event {
         /// The model's context window.
         context_size: Option<u64>,
         /// What this CLI process has cost so far; it starts over when a session is resumed.
-        cost_usd: Option<String>,
+        cost_usd: Option<f64>,
     },
     ControlResponse {
         request_id: String,
@@ -189,7 +181,6 @@ pub fn user_message(text: impl Into<String>) -> StdinMessage {
     user_prompt_message(&Prompt::from(text.into()))
 }
 
-/// A user turn: its text, then any images for the model to see.
 pub fn user_prompt_message(prompt: &Prompt) -> StdinMessage {
     let mut content = vec![UserContent::Text {
         text: prompt.text.clone(),
@@ -206,7 +197,6 @@ pub fn user_prompt_message(prompt: &Prompt) -> StdinMessage {
             role: "user",
             content,
         },
-        parent_tool_use_id: None,
     }
 }
 
@@ -290,10 +280,6 @@ pub fn decode_event(line: &str) -> Result<Event> {
                 .ok_or_else(|| Error::Engine("system init missing session_id".into()))?;
             Ok(Event::Init {
                 session_id: session_id.to_string(),
-                permission_mode: value
-                    .get("permissionMode")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
             })
         }
         "system"
@@ -323,6 +309,9 @@ pub fn decode_event(line: &str) -> Result<Event> {
                 .map(str::to_string),
             blocks: assistant_blocks(&value),
         }),
+        "user" if value.get("isReplay").and_then(Value::as_bool) == Some(true) => {
+            Ok(Event::PromptTaken)
+        }
         "user" => Ok(Event::ToolResults(tool_results(&value))),
         "result" => Ok(Event::Result {
             session_id: value
@@ -349,14 +338,8 @@ pub fn decode_event(line: &str) -> Result<Event> {
             context_size: context_window(&value),
             cost_usd: value
                 .pointer("/usage/cost_usd")
-                .and_then(Value::as_f64)
-                .map(|n| n.to_string())
-                .or_else(|| {
-                    value
-                        .pointer("/total_cost_usd")
-                        .and_then(Value::as_f64)
-                        .map(|n| n.to_string())
-                }),
+                .or_else(|| value.pointer("/total_cost_usd"))
+                .and_then(Value::as_f64),
         }),
         "control_request" => decode_control_request(&value),
         "control_response" => {
@@ -418,10 +401,6 @@ fn decode_control_request(value: &Value) -> Result<Event> {
             input: request.get("input").cloned().unwrap_or(Value::Null),
             tool_use_id: request
                 .get("tool_use_id")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            decision_reason: request
-                .get("decision_reason")
                 .and_then(Value::as_str)
                 .map(str::to_string),
         })),
@@ -609,7 +588,6 @@ mod tests {
             "req_1",
             PermissionDecision::Allow {
                 updated_input: json!({"command": "echo ok"}),
-                updated_permissions: None,
             },
         ))
         .unwrap();
@@ -655,7 +633,7 @@ mod tests {
         };
         assert_eq!(used_tokens, Some(22_274));
         assert_eq!(context_size, Some(1_000_000));
-        assert_eq!(cost_usd.as_deref(), Some("0.0045"));
+        assert_eq!(cost_usd, Some(0.0045));
     }
 
     #[test]
@@ -730,7 +708,6 @@ mod tests {
             init,
             Event::Init {
                 session_id: "sess-9".into(),
-                permission_mode: None,
             }
         );
         let result = decode_event(
@@ -805,6 +782,21 @@ mod tests {
                 failed: true,
             }
         );
+    }
+
+    #[test]
+    fn a_replayed_prompt_is_taken_and_a_tool_result_is_not() {
+        let taken = decode_event(
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"also"}]},"isReplay":true}"#,
+        )
+        .unwrap();
+        assert_eq!(taken, Event::PromptTaken);
+
+        let result = decode_event(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}}"#,
+        )
+        .unwrap();
+        assert!(matches!(result, Event::ToolResults(_)));
     }
 
     #[test]

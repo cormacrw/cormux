@@ -7,7 +7,6 @@ import type {
 import {
   assignedToMe,
   daysLeft,
-  parseHiddenStatuses,
   taskRef,
   sprintLanes,
   sprintProgress,
@@ -121,8 +120,9 @@ describe('sprintTotals', () => {
 
 describe('sprint dates', () => {
   it('formats the range and counts days left', () => {
-    const start = Date.UTC(2026, 8, 22, 12)
-    const due = Date.UTC(2026, 9, 5, 12)
+    // Local noon, so the dates hold in every time zone.
+    const start = new Date(2026, 8, 22, 12).getTime()
+    const due = new Date(2026, 9, 5, 12).getTime()
     expect(sprintRange(start, due)).toBe('Sep 22 – Oct 5')
     expect(sprintRange(null, due)).toBeNull()
     expect(daysLeft(due, due - 2.5 * 86_400_000)).toBe(3)
@@ -134,18 +134,5 @@ describe('taskRef', () => {
   it('falls back to the ClickUp ID without a custom one', () => {
     expect(taskRef({ id: '86abc', customId: 'ENG-1' })).toBe('ENG-1')
     expect(taskRef({ id: '86abc', customId: null })).toBe('86abc')
-  })
-})
-
-describe('parseHiddenStatuses', () => {
-  it('reads a JSON array of names and drops anything else', () => {
-    expect(parseHiddenStatuses('["complete","in review"]')).toEqual([
-      'complete',
-      'in review',
-    ])
-    expect(parseHiddenStatuses('["complete",3]')).toEqual(['complete'])
-    expect(parseHiddenStatuses(undefined)).toEqual([])
-    expect(parseHiddenStatuses('{')).toEqual([])
-    expect(parseHiddenStatuses('"complete"')).toEqual([])
   })
 })

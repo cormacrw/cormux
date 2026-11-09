@@ -12,8 +12,9 @@ use specta::Type;
 use crate::engines::prompt::{Prompt, PromptImage};
 use crate::error::{Error, Result};
 
-/// Images the model is shown directly; larger ones are only passed by path.
-const IMAGE_LIMIT_BYTES: u64 = 5 * 1024 * 1024;
+/// What starts the line naming a message's attachments where the thread shows it. The browser
+/// harness gets it as `ATTACHED_LINE_PREFIX`.
+pub const ATTACHED_LINE_PREFIX: &str = "Attached: ";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -23,32 +24,6 @@ pub struct PromptAttachment {
     pub path: Option<String>,
     /// The contents of a pasted file, which has no path.
     pub data_base64: Option<String>,
-}
-
-/// The image type for a file name the model can be shown, if any.
-pub fn image_media_type(name: &str) -> Option<&'static str> {
-    let extension = Path::new(name).extension()?.to_str()?.to_ascii_lowercase();
-    match extension.as_str() {
-        "png" => Some("image/png"),
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "gif" => Some("image/gif"),
-        "webp" => Some("image/webp"),
-        _ => None,
-    }
-}
-
-/// A thumbnail for an image picked or dropped by path, as a data URL; None for anything that
-/// isn't a readable image of a size the model is shown.
-pub fn image_preview(path: &Path) -> Option<String> {
-    let media_type = image_media_type(path.to_str()?)?;
-    if std::fs::metadata(path).ok()?.len() > IMAGE_LIMIT_BYTES {
-        return None;
-    }
-    let bytes = std::fs::read(path).ok()?;
-    Some(format!(
-        "data:{media_type};base64,{}",
-        STANDARD.encode(bytes)
-    ))
 }
 
 /// Keeps a pasted file's name readable but safe as one path segment.
@@ -110,13 +85,14 @@ pub fn build_prompt(
     let mut images = Vec::new();
     for attachment in attachments {
         let path = file_for(dir, attachment)?;
-        if let Some(media_type) = image_media_type(&attachment.name)
-            && std::fs::metadata(&path).is_ok_and(|meta| meta.len() <= IMAGE_LIMIT_BYTES)
+        if let Some(format) = crate::media::sniff_image(&path)
+            && std::fs::metadata(&path)
+                .is_ok_and(|meta| meta.len() <= crate::media::INLINE_IMAGE_LIMIT)
         {
             let bytes =
                 std::fs::read(&path).map_err(|error| Error::Workspace(error.to_string()))?;
             images.push(PromptImage {
-                media_type: media_type.into(),
+                media_type: format.mime.into(),
                 data_base64: STANDARD.encode(bytes),
             });
         }
@@ -129,11 +105,11 @@ pub fn build_prompt(
         .collect::<Vec<_>>()
         .join(", ");
     let (engine_text, shown) = if text.is_empty() {
-        (listing, format!("Attached: {names}"))
+        (listing, format!("{ATTACHED_LINE_PREFIX}{names}"))
     } else {
         (
             format!("{text}\n\n{listing}"),
-            format!("{text}\n\nAttached: {names}"),
+            format!("{text}\n\n{ATTACHED_LINE_PREFIX}{names}"),
         )
     };
     Ok((
@@ -145,33 +121,36 @@ pub fn build_prompt(
     ))
 }
 
+/// A thumbnail for an image attached by path, for the composer: one the model is shown inline.
+#[tauri::command]
+#[specta::specta]
+pub async fn image_preview(path: String) -> crate::error::Result<Option<String>> {
+    Ok(tokio::task::spawn_blocking(move || crate::media::image_data_url(Path::new(&path))).await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn knows_which_files_the_model_can_see() {
-        assert_eq!(image_media_type("Shot.PNG"), Some("image/png"));
-        assert_eq!(image_media_type("a.jpeg"), Some("image/jpeg"));
-        assert_eq!(image_media_type("notes.pdf"), None);
-        assert_eq!(image_media_type("README"), None);
-    }
+    const PNG: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     #[test]
     fn previews_only_images() {
-        let root = std::env::temp_dir().join(format!("cormux-preview-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         let image = root.join("shot.png");
-        std::fs::write(&image, b"png").unwrap();
+        std::fs::write(&image, PNG).unwrap();
         let notes = root.join("notes.txt");
         std::fs::write(&notes, b"hi").unwrap();
         assert_eq!(
-            image_preview(&image).as_deref(),
-            Some("data:image/png;base64,cG5n")
+            crate::media::image_data_url(&image).as_deref(),
+            Some(format!("data:image/png;base64,{}", STANDARD.encode(PNG)).as_str())
         );
-        assert_eq!(image_preview(&notes), None);
-        assert_eq!(image_preview(&root.join("gone.png")), None);
-        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(crate::media::image_data_url(&notes), None);
+        let renamed = root.join("renamed.png");
+        std::fs::write(&renamed, b"png").unwrap();
+        assert_eq!(crate::media::image_data_url(&renamed), None);
+        assert_eq!(crate::media::image_data_url(&root.join("gone.png")), None);
     }
 
     #[test]
@@ -183,15 +162,15 @@ mod tests {
 
     #[test]
     fn builds_a_prompt_with_images_and_file_paths() {
-        let root = std::env::temp_dir().join(format!("cormux-attach-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         let notes = root.join("notes.txt");
         std::fs::write(&notes, "hello").unwrap();
         let attachments = vec![
             PromptAttachment {
                 name: "shot.png".into(),
                 path: None,
-                data_base64: Some(STANDARD.encode(b"png-bytes")),
+                data_base64: Some(STANDARD.encode(PNG)),
             },
             PromptAttachment {
                 name: "notes.txt".into(),
@@ -199,11 +178,11 @@ mod tests {
                 data_base64: None,
             },
         ];
-        let (prompt, shown) = build_prompt(&root, "Fix the layout", &attachments).unwrap();
+        let (prompt, shown) = build_prompt(root, "Fix the layout", &attachments).unwrap();
         assert_eq!(shown, "Fix the layout\n\nAttached: shot.png, notes.txt");
         assert_eq!(prompt.images.len(), 1);
         assert_eq!(prompt.images[0].media_type, "image/png");
-        assert_eq!(prompt.images[0].data_base64, STANDARD.encode(b"png-bytes"));
+        assert_eq!(prompt.images[0].data_base64, STANDARD.encode(PNG));
         assert!(
             prompt
                 .text
@@ -217,7 +196,21 @@ mod tests {
             path: Some(root.join("gone.txt").display().to_string()),
             data_base64: None,
         };
-        assert!(build_prompt(&root, "", &[missing]).is_err());
-        std::fs::remove_dir_all(root).unwrap();
+        assert!(build_prompt(root, "", &[missing]).is_err());
+    }
+
+    /// Bug: attachments went to the model as images by their extension alone, so JPEG data
+    /// saved as `.png` was sent as a PNG and the engine failed the turn.
+    #[test]
+    fn an_image_whose_bytes_are_not_its_type_is_only_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let jpeg_as_png = PromptAttachment {
+            name: "x.png".into(),
+            path: None,
+            data_base64: Some(STANDARD.encode([0xFF, 0xD8, 0xFF, 0xE0])),
+        };
+        let (prompt, _) = build_prompt(dir.path(), "Look", &[jpeg_as_png]).unwrap();
+        assert!(prompt.images.is_empty());
+        assert!(prompt.text.ends_with("/x.png"));
     }
 }

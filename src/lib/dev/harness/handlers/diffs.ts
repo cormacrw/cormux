@@ -1,14 +1,13 @@
-import type { DiffTarget } from '$lib/ipc/bindings'
-import { fixtureDiff } from '../../fixture-snapshot'
+import type { DiffTarget, WorktreeDiff } from '$lib/ipc/bindings'
 import type { HarnessRuntime } from '../runtime'
 import type { HandlerSlice } from '../types'
 
 export function diffHandlers(runtime: HarnessRuntime) {
-  const { scenario } = runtime
+  const { db, scenario } = runtime
 
   const diffFiles = () => {
     const count = scenario.bigDiff ?? 0
-    if (!count) return fixtureDiff.files
+    if (!count) return db.diff.files
     return Array.from({ length: count }, (_, file) => {
       const lines = Array.from(
         { length: 240 },
@@ -18,6 +17,7 @@ export function diffHandlers(runtime: HarnessRuntime) {
       return {
         path: `src/generated/module-${file}.ts`,
         oldPath: null,
+        status: 'added' as const,
         added: lines.length,
         deleted: 0,
         hunks: [
@@ -35,24 +35,36 @@ export function diffHandlers(runtime: HarnessRuntime) {
   const uncommittedFiles = () =>
     diffFiles().filter((file) => discarded && !discarded.has(file.path))
 
-  const sendDiff = (target: DiffTarget | null) => {
-    if (!runtime.diffChannel) return
-    const diff = {
-      ...fixtureDiff,
+  const filesFor = (target: DiffTarget | null) =>
+    target ? diffFiles() : uncommittedFiles()
+
+  /** As the command returns it; the stream leaves `uncommitted` out, so the store counts the files. */
+  const diffFor = (target: DiffTarget | null): WorktreeDiff => {
+    const files = filesFor(target)
+    return {
+      ...db.diff,
       target,
-      files: target ? diffFiles() : uncommittedFiles(),
+      files,
+      uncommitted: {
+        added: files.reduce((sum, file) => sum + file.added, 0),
+        deleted: files.reduce((sum, file) => sum + file.deleted, 0),
+      },
     }
-    runtime.send(runtime.diffChannel, {
-      workspaceId: fixtureDiff.workspaceId,
-      path: '',
-      diff,
-    })
   }
 
-  const holdIfSlow = async () => {
-    if (scenario.slowDiff) {
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-    }
+  const sameTarget = (a: DiffTarget | null, b: DiffTarget | null) =>
+    JSON.stringify(a) === JSON.stringify(b)
+  // What the last diff sent showed, and what the panel last asked for.
+  let sentTarget: DiffTarget | null | undefined
+  let wantedTarget: DiffTarget | null = null
+
+  const sendDiff = (target: DiffTarget | null) => {
+    if (!runtime.diffChannel) return
+    sentTarget = target
+    runtime.send(runtime.diffChannel, {
+      workspaceId: db.diff.workspaceId,
+      diff: { ...db.diff, target, files: filesFor(target) },
+    })
   }
 
   return {
@@ -63,16 +75,13 @@ export function diffHandlers(runtime: HarnessRuntime) {
       workspaceId: string
       channel: { id: number }
     }) => {
-      if (workspaceId === fixtureDiff.workspaceId) {
+      if (workspaceId === db.diff.workspaceId) {
         runtime.diffChannel = { id: channel.id, index: 0 }
         queueMicrotask(() => sendDiff(null))
       }
       return runtime.newId()
     },
-    refresh_workspace_diff: async () => {
-      await holdIfSlow()
-      return null
-    },
+    refresh_workspace_diff: () => null,
     set_workspace_diff_target: async ({
       workspaceId,
       target,
@@ -80,22 +89,38 @@ export function diffHandlers(runtime: HarnessRuntime) {
       workspaceId: string
       target: DiffTarget | null
     }) => {
-      await holdIfSlow()
-      if (workspaceId === fixtureDiff.workspaceId) {
-        setTimeout(() => sendDiff(target ?? null), 100)
+      if (workspaceId !== db.diff.workspaceId) {
+        return {
+          workspaceId,
+          target,
+          files: [],
+          uncommitted: { added: 0, deleted: 0 },
+        }
       }
-      return null
+      const next = target ?? null
+      wantedTarget = next
+      const ms = next ? (scenario.slowBranchDiff ?? 0) : 0
+      if (ms) await new Promise((resolve) => setTimeout(resolve, ms))
+      // As in the core: a compute the panel has moved on from isn't published, and an unchanged
+      // diff isn't sent again. Otherwise it follows on the channel once the command has returned.
+      if (
+        sameTarget(wantedTarget, next) &&
+        !sameTarget(sentTarget ?? null, next)
+      ) {
+        queueMicrotask(() => sendDiff(next))
+      }
+      return diffFor(next)
     },
     discard_workspace_changes: ({
       workspaceId,
-      paths,
+      path,
     }: {
       workspaceId: string
-      paths: string[]
+      path: string | null
     }) => {
-      if (workspaceId === fixtureDiff.workspaceId) {
-        if (!paths.length) discarded = null
-        else for (const path of paths) discarded?.add(path)
+      if (workspaceId === db.diff.workspaceId) {
+        if (path == null) discarded = null
+        else discarded?.add(path)
         sendDiff(null)
       }
       return null

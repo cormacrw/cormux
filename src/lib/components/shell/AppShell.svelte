@@ -1,5 +1,4 @@
 <script lang="ts">
-  import TaskFlyout from '$lib/components/tasks/TaskFlyout.svelte'
   import type { Snippet } from 'svelte'
   import {
     clampSidebarWidth,
@@ -8,7 +7,7 @@
     SIDEBAR_MIN_WIDTH,
     writeSidebarWidth,
   } from '$lib/sidebar/width'
-  import Sidebar from './Sidebar.svelte'
+  import Sidebar from '$lib/sidebar/components/Sidebar.svelte'
 
   let { children }: { children: Snippet } = $props()
 
@@ -108,10 +107,8 @@
       ></span>
     </div>
   </aside>
-  <!-- Clipped: the closed task flyout waits past the right edge, and must not make the shell scrollable. -->
+  <!-- Clipped: a closed slide-out (the task flyout) waits past the right edge, and must not make the shell scrollable. -->
   <main class="main-area relative flex min-h-0 min-w-0 flex-col overflow-clip">
     {@render children()}
-    <!-- A task opened on Sprint slides out over the page. -->
-    <TaskFlyout />
   </main>
 </div>

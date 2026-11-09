@@ -1,0 +1,28 @@
+[
+  {
+    "reply": "Nothing to flag.\n<cormux-findings>[]</cormux-findings>",
+    "body": "[]"
+  },
+  {
+    "reply": "I'll finish with <cormux-findings>[example]</cormux-findings> as asked.\n<cormux-findings>[]</cormux-findings>",
+    "body": "[]"
+  },
+  {
+    "reply": "One thing.\n<cormux-findings>\n```json\n[{\"title\":\"A\"}]\n```\n</cormux-findings>",
+    "body": "[{\"title\":\"A\"}]"
+  },
+  {
+    "reply": "<cormux-findings>```\n[]\n```  </cormux-findings>",
+    "body": "[]"
+  },
+  {
+    "reply": "<cormux-findings>```json</cormux-findings>",
+    "body": ""
+  },
+  { "reply": "Review done.", "body": null },
+  { "reply": "<cormux-findings>[{\"title\":", "body": null },
+  {
+    "reply": "<cormux-findings>[]</cormux-findings> then <cormux-findings>[",
+    "body": null
+  }
+]

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import type { PullRequestPayload } from '../src/lib/ipc/bindings'
 import { mkdirSync } from 'node:fs'
 import { setScenario } from './harness'
 
@@ -16,6 +17,8 @@ test('Changes shows the gh-stack stack beside the diff, checks out, pushes and a
 }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
+  // Long enough to see Push wait for it.
+  await setScenario(page, { slow: { push_stack: 300 } })
   const panel = await openStack(page)
   await expect(page.getByRole('tab', { name: /^Stack/ })).toHaveCount(0)
   const cards = panel.locator('[data-stack-branch]')
@@ -60,6 +63,12 @@ test('Changes shows the gh-stack stack beside the diff, checks out, pushes and a
 })
 
 test('Stack starts from an unstacked branch', async ({ page }) => {
+  await setScenario(page, {
+    refusedBranches: {
+      'bad name':
+        'Use letters, numbers, dashes and slashes only, e.g. feat/oauth-login.',
+    },
+  })
   const panel = await openStack(page, '?stack=none')
   await expect(panel).toContainText("feat/oauth-login isn't in a stack")
   await expect(panel.locator('[data-stack-branch]')).toContainText(
@@ -137,19 +146,15 @@ test('Create PR targets the branch below, and the header links an existing PR', 
 test('the header links a PR opened outside Cormux for the checked-out branch', async ({
   page,
 }) => {
-  const payload = {
+  const payload: PullRequestPayload = {
     num: 57,
     title: 'OAuth login',
     author: 'you',
-    rel: 'author',
     head: 'feat/oauth-login',
     base: 'main',
     updatedAt: '2026-09-29T20:00:00Z',
     checks: 'pass',
-    failing: null,
     review: 'approved',
-    additions: 96,
-    deletions: 12,
     files: 3,
     isDraft: false,
     htmlUrl: 'https://github.com/acme/app/pull/57',
@@ -163,7 +168,7 @@ test('the header links a PR opened outside Cormux for the checked-out branch', a
         repoId: 'my-app',
         number: 57,
         title: payload.title,
-        payload: JSON.stringify(payload),
+        payload,
       },
     ],
   })

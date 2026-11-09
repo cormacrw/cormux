@@ -1,0 +1,248 @@
+<script lang="ts">
+  import { updateSettings } from '$lib/settings/actions'
+  import SettingsPanel from '$lib/settings/components/SettingsPanel.svelte'
+  import SettingsRow from '$lib/settings/components/SettingsRow.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import { Input } from '$lib/components/ui/input'
+  import * as Select from '$lib/components/ui/select'
+  import { coreErrorText } from '$lib/core/core-error'
+  import { commands } from '$lib/ipc'
+  import type { ClickupOption, Error as CoreError } from '$lib/ipc/bindings'
+  import { clickup } from '$lib/clickup/store.svelte'
+  import { settings } from '$lib/settings/store.svelte'
+
+  let keyDraft = $state('')
+  let saving = $state(false)
+  let keyError = $state<string | null>(null)
+
+  let workspaceOptions = $state<ClickupOption[]>([])
+  let spaceOptions = $state<ClickupOption[]>([])
+  let folderOptions = $state<ClickupOption[]>([])
+  let loadError = $state<string | null>(null)
+
+  const workspaceId = $derived(settings.values.clickupWorkspaceId)
+  const spaceId = $derived(settings.values.clickupSpaceId)
+  const folderId = $derived(settings.values.clickupFolderId)
+
+  async function saveKey() {
+    const key = keyDraft.trim()
+    if (!key || saving) return
+    saving = true
+    keyError = null
+    const result = await commands.setClickupApiKey(key)
+    saving = false
+    if (result.status === 'error') {
+      keyError = coreErrorText(result.error, 'Could not save the key')
+      return
+    }
+    keyDraft = ''
+  }
+
+  async function removeKey() {
+    const result = await commands.clearClickupApiKey()
+    if (result.status === 'error') {
+      keyError = coreErrorText(result.error, 'Could not remove the key')
+    }
+  }
+
+  /** Picking a parent clears its children, so the board never points at another space's folder. */
+  async function choose(level: 'workspace' | 'space' | 'folder', id: string) {
+    if (level === 'workspace') {
+      await updateSettings({
+        clickupWorkspaceId: id,
+        clickupSpaceId: '',
+        clickupFolderId: '',
+      })
+    } else if (level === 'space') {
+      await updateSettings({ clickupSpaceId: id, clickupFolderId: '' })
+    } else {
+      await updateSettings({ clickupFolderId: id })
+    }
+  }
+
+  function unwrap(
+    result:
+      | { status: 'ok'; data: ClickupOption[] }
+      | { status: 'error'; error: CoreError },
+  ) {
+    if (result.status === 'ok') return result.data
+    loadError = coreErrorText(result.error, 'Could not reach ClickUp')
+    return []
+  }
+
+  /** With one choice there's nothing to ask, so it's picked for the user. */
+  function autoPick(
+    options: ClickupOption[],
+    current: string,
+    level: 'workspace' | 'space' | 'folder',
+    prefer?: (option: ClickupOption) => boolean,
+  ) {
+    if (current || options.length === 0) return
+    const preferred = prefer ? options.filter(prefer) : []
+    const only =
+      options.length === 1
+        ? options[0]
+        : preferred.length === 1
+          ? preferred[0]
+          : null
+    if (only) void choose(level, only.id)
+  }
+
+  $effect(() => {
+    if (!clickup.configured) return
+    loadError = null
+    void commands.clickupWorkspaces().then((result) => {
+      workspaceOptions = unwrap(result)
+      autoPick(workspaceOptions, workspaceId, 'workspace')
+    })
+  })
+
+  $effect(() => {
+    spaceOptions = []
+    if (!clickup.configured || !workspaceId) return
+    const id = workspaceId
+    void commands.clickupSpaces(id).then((result) => {
+      if (id !== workspaceId) return
+      spaceOptions = unwrap(result)
+      autoPick(spaceOptions, spaceId, 'space')
+    })
+  })
+
+  $effect(() => {
+    folderOptions = []
+    if (!clickup.configured || !spaceId) return
+    const id = spaceId
+    void commands.clickupFolders(id).then((result) => {
+      if (id !== spaceId) return
+      folderOptions = unwrap(result)
+      autoPick(folderOptions, folderId, 'folder', (option) =>
+        /sprint/i.test(option.name),
+      )
+    })
+  })
+
+  function nameOf(options: ClickupOption[], id: string, placeholder: string) {
+    return options.find((option) => option.id === id)?.name ?? placeholder
+  }
+</script>
+
+{#snippet picker(
+  level: 'workspace' | 'space' | 'folder',
+  options: ClickupOption[],
+  value: string,
+  placeholder: string,
+)}
+  <Select.Root
+    type="single"
+    {value}
+    onValueChange={(next) => {
+      if (next && next !== value) void choose(level, next)
+    }}
+  >
+    <Select.Trigger
+      id="settings-clickup-{level}"
+      class="w-[220px]"
+      disabled={options.length === 0}
+      data-od-id="settings-clickup-{level}"
+    >
+      <span class="truncate">{nameOf(options, value, placeholder)}</span>
+    </Select.Trigger>
+    <Select.Content>
+      {#each options as option (option.id)}
+        <Select.Item value={option.id} label={option.name}
+          >{option.name}</Select.Item
+        >
+      {/each}
+    </Select.Content>
+  </Select.Root>
+{/snippet}
+
+<SettingsPanel data-od-id="settings-clickup">
+  <SettingsRow
+    title="API key"
+    controlId={clickup.configured ? undefined : 'settings-clickup-key'}
+    description={clickup.configured
+      ? 'Stored in ~/.cormux/credentials.json. Remove it to hide the Sprint page.'
+      : 'A personal token from ClickUp › Settings › Apps (starts with pk_). Saved to ~/.cormux/credentials.json.'}
+  >
+    {#snippet control()}
+      {#if clickup.configured}
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-medium">Connected</span>
+          <Button variant="outline" size="sm" onclick={removeKey}>Remove</Button
+          >
+        </div>
+      {:else}
+        <form
+          class="flex items-center gap-2"
+          onsubmit={(event) => {
+            event.preventDefault()
+            void saveKey()
+          }}
+        >
+          <Input
+            id="settings-clickup-key"
+            type="password"
+            autocomplete="off"
+            spellcheck={false}
+            placeholder="pk_…"
+            class="w-[220px] font-mono"
+            bind:value={keyDraft}
+            aria-invalid={keyError ? 'true' : undefined}
+            aria-describedby={keyError
+              ? 'settings-clickup-key-error'
+              : undefined}
+          />
+          <Button
+            type="submit"
+            variant="secondary"
+            size="sm"
+            disabled={!keyDraft.trim() || saving}
+          >
+            {saving ? 'Checking…' : 'Save'}
+          </Button>
+        </form>
+      {/if}
+    {/snippet}
+  </SettingsRow>
+
+  {#if clickup.configured}
+    <SettingsRow
+      title="Workspace"
+      controlId="settings-clickup-workspace"
+      description="The ClickUp workspace your team plans in."
+    >
+      {#snippet control()}
+        {@render picker('workspace', workspaceOptions, workspaceId, 'Choose…')}
+      {/snippet}
+    </SettingsRow>
+    <SettingsRow
+      title="Space"
+      controlId="settings-clickup-space"
+      description="The space that holds your sprints."
+    >
+      {#snippet control()}
+        {@render picker('space', spaceOptions, spaceId, 'Choose…')}
+      {/snippet}
+    </SettingsRow>
+    <SettingsRow
+      title="Sprint folder"
+      controlId="settings-clickup-folder"
+      description="The folder whose lists are your sprints. The board shows the one whose dates include today."
+    >
+      {#snippet control()}
+        {@render picker('folder', folderOptions, folderId, 'Choose…')}
+      {/snippet}
+    </SettingsRow>
+  {/if}
+</SettingsPanel>
+
+{#if keyError || loadError}
+  <p
+    id="settings-clickup-key-error"
+    class="mt-2 text-xs text-destructive"
+    role="alert"
+  >
+    {keyError ?? loadError}
+  </p>
+{/if}

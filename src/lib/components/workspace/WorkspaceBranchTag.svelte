@@ -7,67 +7,43 @@
   import GitBranch from '@lucide/svelte/icons/git-branch'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import Plus from '@lucide/svelte/icons/plus'
-  import {
-    branchPickerLocked,
-    runningAgentCount,
-  } from '$lib/workspace/running-agents'
-  import {
-    branchMetaLabel,
-    buildBranchPickerList,
-  } from '$lib/workspace/branch-picker'
+  import { buildBranchPickerList } from '$lib/workspace/branch-picker'
   import {
     switchWorkspaceBranch,
     createWorkspaceBranch,
-  } from '$lib/workspace/wire-git-workspace'
+  } from '$lib/workspace/git-actions'
   import { commands } from '$lib/ipc'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
-  import { Kbd } from '$lib/components/ui/kbd'
-  import CommandIcon from '@lucide/svelte/icons/command'
+  import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
+  import { shortcutAria } from '$lib/keyboard/shortcuts'
+  import ShortcutKbd from '$lib/primitives/ShortcutKbd.svelte'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { repos, workspaceRecords } from '$lib/state'
-  import type { Thread } from '$lib/state/threads.svelte'
+  import { workspaces } from '$lib/state'
+  import type { RepoBranch } from '$lib/ipc/bindings'
 
   let {
     workspaceId,
     repoId,
     branch,
-    threads,
-    provisioning,
   }: {
     workspaceId: string
     repoId: string
     branch: string
-    threads: Thread[]
-    provisioning: boolean
   } = $props()
 
   let open = $state(false)
   let query = $state('')
-  let repoBranches = $state<string[]>([])
+  let repoBranches = $state<RepoBranch[]>([])
   let loadingBranches = $state(false)
   let triggerEl = $state<HTMLButtonElement | null>(null)
   let newBranchName = $state('')
 
-  const locked = $derived(provisioning || branchPickerLocked(threads))
-
-  const otherWorkspaceBranches = $derived(
-    workspaceRecords.records
-      .filter(
-        (record) =>
-          record.repoId === repoId &&
-          record.id !== workspaceId &&
-          record.branch,
-      )
-      .map((record) => record.branch),
+  const lockReason = $derived(
+    workspaces.getById(workspaceId)?.branchLock ?? null,
   )
+  const locked = $derived(lockReason != null)
 
   const pickerItems = $derived(
-    buildBranchPickerList({
-      current: branch,
-      repoBranches,
-      otherWorkspaceBranches,
-      defaultBranch: repos.getById(repoId)?.defaultBranch?.trim() || 'main',
-    }),
+    buildBranchPickerList({ current: branch, branches: repoBranches }),
   )
 
   const filteredItems = $derived.by(() => {
@@ -114,7 +90,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'b')) return
+    if (!shellDialogs.allows(event, 'switchBranch')) return
     event.preventDefault()
     if (!locked) open = !open
   }
@@ -128,16 +104,13 @@
     size="sm"
     disabled
     aria-disabled="true"
-    data-ws-focus="branch"
     data-od-id="ws-branch"
     class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
   >
     <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
     <span class="sr-only">Branch</span>
     <span class="truncate">{branch}</span>
-    {#if runningAgentCount(threads) > 0}
-      <span class="sr-only">, locked while agents are running</span>
-    {/if}
+    <span class="sr-only">, locked. {lockReason}</span>
   </Button>
 {:else}
   <DropdownMenu.Root bind:open>
@@ -151,18 +124,18 @@
           aria-haspopup="true"
           aria-expanded={open}
           aria-controls="ws-branch-menu"
-          aria-keyshortcuts="Meta+B"
-          data-ws-focus="branch"
+          aria-keyshortcuts={shortcutAria('switchBranch')}
           data-od-id="ws-branch"
           class="h-6 max-w-[min(100%,14rem)] shrink-0 gap-1 px-1.5 font-mono text-xs"
         >
           <GitBranch class="size-3.5 shrink-0" aria-hidden="true" />
           <span class="sr-only">Branch</span>
           <span class="truncate">{branch}</span>
-          <Kbd
+          <ShortcutKbd
+            id="switchBranch"
             class="h-4 min-w-4 shrink-0 gap-0.5 px-1 text-[10px]"
-            aria-hidden="true"><CommandIcon class="size-2.5" />B</Kbd
-          >
+            iconClass="size-2.5"
+          />
           <ChevronDown
             class="size-3.5 shrink-0 opacity-70"
             aria-hidden="true"
@@ -194,7 +167,7 @@
           {:else}
             <Command.Group>
               {#each filteredItems as item (item.name)}
-                {@const meta = branchMetaLabel(item.meta)}
+                {@const meta = item.meta}
                 <Command.Item
                   value={item.name}
                   disabled={item.disabled}

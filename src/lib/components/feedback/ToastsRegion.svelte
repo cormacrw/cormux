@@ -12,7 +12,6 @@
 >
   <Toaster
     position="bottom-right"
-    duration={3600}
     closeButton={false}
     expand={true}
     visibleToasts={8}

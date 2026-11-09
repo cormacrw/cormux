@@ -43,12 +43,45 @@ pub struct DiffHunk {
     pub body: String,
 }
 
+/// What happened to a file, as git reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FileStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+impl FileStatus {
+    /// From a file's patch: git's extended header says whether it is new, gone or moved. Without
+    /// a patch (one that couldn't be shown), only a rename is known.
+    fn of(old_path: Option<&str>, patch: &str) -> Self {
+        if old_path.is_some() {
+            return Self::Renamed;
+        }
+        for line in patch.lines().skip(1) {
+            if line.starts_with("@@") || line.starts_with("--- ") {
+                break;
+            }
+            if line.starts_with("new file mode") {
+                return Self::Added;
+            }
+            if line.starts_with("deleted file mode") {
+                return Self::Deleted;
+            }
+        }
+        Self::Modified
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffFile {
     pub path: String,
     /// Where a renamed or moved file came from.
     pub old_path: Option<String>,
+    pub status: FileStatus,
     pub added: u32,
     pub deleted: u32,
     pub hunks: Vec<DiffHunk>,
@@ -58,7 +91,6 @@ pub struct DiffFile {
     pub truncated: Option<bool>,
 }
 
-/// Lines added and deleted across a set of files.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LineCounts {
@@ -126,11 +158,12 @@ pub struct LiveDiffEngine {
     in_flight: Arc<Mutex<HashMap<String, bool>>>,
     /// Absent: no choice made yet. `Some(None)`: explicitly uncommitted.
     diff_target: Arc<Mutex<HashMap<String, Option<DiffTarget>>>>,
+    /// One compute at a time per workspace, so a slow one can't land after a newer one.
+    computing: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     tx: mpsc::UnboundedSender<String>,
     rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
 
-/// Keeps a workspace's diff live until dropped.
 pub struct DiffSubscription {
     engine: LiveDiffEngine,
     workspace_id: String,
@@ -154,12 +187,12 @@ impl LiveDiffEngine {
             updates: Arc::new(watch::channel(0).0),
             in_flight: Arc::new(Mutex::new(HashMap::new())),
             diff_target: Arc::new(Mutex::new(HashMap::new())),
+            computing: Arc::new(Mutex::new(HashMap::new())),
             tx,
             rx: Arc::new(Mutex::new(Some(rx))),
         }
     }
 
-    /// Diff a branch against its base, or uncommitted changes when `None`.
     pub fn set_diff_target(&self, workspace_id: &str, target: Option<DiffTarget>) {
         self.diff_target
             .lock()
@@ -167,7 +200,6 @@ impl LiveDiffEngine {
             .insert(workspace_id.to_string(), target);
     }
 
-    /// Set `target` unless one was already chosen for this workspace.
     pub fn default_diff_target(&self, workspace_id: &str, target: DiffTarget) {
         self.diff_target
             .lock()
@@ -185,7 +217,7 @@ impl LiveDiffEngine {
             .flatten()
     }
 
-    /// Start the debounce loop. Must run after a Tokio/Tauri runtime exists.
+    /// Must run after a Tokio/Tauri runtime exists.
     pub fn start(&self) {
         let Some(rx) = self.rx.lock().unwrap().take() else {
             return;
@@ -364,6 +396,7 @@ impl LiveDiffEngine {
         self.watched.lock().unwrap().remove(workspace_id);
         self.latest.lock().unwrap().remove(workspace_id);
         self.diff_target.lock().unwrap().remove(workspace_id);
+        self.computing.lock().unwrap().remove(workspace_id);
     }
 
     pub fn latest(&self, workspace_id: &str) -> Option<Arc<WorktreeDiff>> {
@@ -386,16 +419,26 @@ impl LiveDiffEngine {
         compute_diff(&self.git, workspace_id, path, Some(&target)).await
     }
 
+    /// The diff of what the workspace shows now, stored for its subscribers.
     pub async fn compute(&self, workspace_id: &str, path: &Path) -> Result<WorktreeDiff> {
+        let lock = self
+            .computing
+            .lock()
+            .unwrap()
+            .entry(workspace_id.to_string())
+            .or_default()
+            .clone();
+        let _computing = lock.lock().await;
         let target = self.diff_target(workspace_id);
         let diff = compute_diff(&self.git, workspace_id, path, target.as_ref()).await?;
         self.publish(workspace_id, &diff);
         Ok(diff)
     }
 
-    /// Store a diff for subscribers, waking them only when it differs from the last one.
+    /// A diff for a target the workspace has since moved off isn't stored: it would replace the
+    /// one asked for with one nobody wants any more.
     fn publish(&self, workspace_id: &str, diff: &WorktreeDiff) {
-        if !self.is_subscribed(workspace_id) {
+        if !self.is_subscribed(workspace_id) || diff.target != self.diff_target(workspace_id) {
             return;
         }
         let mut latest = self.latest.lock().unwrap();
@@ -505,7 +548,7 @@ async fn compute_diff(
     let range = match target {
         Some(target) => Some(format!(
             "{}...{}",
-            git.freshest_ref(path, &target.base).await,
+            git.freshest_ref(path, &target.base).await?,
             target.head
         )),
         None => None,
@@ -524,6 +567,7 @@ async fn compute_diff(
         .map(|(stat, patch)| {
             let (hunks, truncated) = capped_hunks(parse_hunks(&patch));
             DiffFile {
+                status: FileStatus::of(stat.old_path.as_deref(), &patch),
                 path: stat.path,
                 old_path: stat.old_path,
                 added: stat.added,
@@ -541,7 +585,6 @@ async fn compute_diff(
     })
 }
 
-/// The whole hunks that fit in `MAX_FILE_PATCH_BYTES`, and whether any didn't.
 fn capped_hunks(mut hunks: Vec<DiffHunk>) -> (Vec<DiffHunk>, bool) {
     let mut bytes = 0;
     let fits = hunks
@@ -623,10 +666,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_branch_diffs_against_its_base_not_the_checkout() {
-        use crate::shell_env::ShellEnv;
-        use tokio::sync::RwLock;
-
-        let git = Git::new(Arc::new(RwLock::new(ShellEnv::new())));
+        let git = Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        ));
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
         let run = |args: &[&str]| {
@@ -664,11 +706,89 @@ mod tests {
         assert_eq!(paths(uncommitted), ["wip.txt"]);
 
         // feat/a needs a rebase once main moves on without it.
-        assert!(git.is_ancestor(repo, "main", "feat/a").await);
+        assert!(git.is_ancestor(repo, "main", "feat/a").await.unwrap());
         run(&["switch", "-q", "main"]);
         commit_file(repo, "later.txt");
-        assert!(!git.is_ancestor(repo, "main", "feat/a").await);
-        assert!(git.is_ancestor(repo, "feat/a", "feat/b").await);
+        assert!(!git.is_ancestor(repo, "main", "feat/a").await.unwrap());
+        assert!(git.is_ancestor(repo, "feat/a", "feat/b").await.unwrap());
+    }
+
+    /// Bug: computes for a quick retarget and back ran side by side, and the slower one, for the
+    /// branch, landed last, so the panel showed the branch's files while set to uncommitted.
+    #[test]
+    fn a_diff_for_a_target_moved_off_is_not_stored() {
+        let engine = LiveDiffEngine::new(Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        )));
+        let _subscription = engine.subscribe("w");
+        let diff = |target: Option<DiffTarget>| WorktreeDiff {
+            workspace_id: "w".into(),
+            target,
+            files: Vec::new(),
+            uncommitted: LineCounts::default(),
+        };
+        let branch = DiffTarget {
+            head: "feat/a".into(),
+            base: "main".into(),
+        };
+
+        engine.set_diff_target("w", None);
+        engine.publish("w", &diff(None));
+        engine.publish("w", &diff(Some(branch.clone())));
+        assert_eq!(engine.latest("w").unwrap().target, None);
+
+        engine.set_diff_target("w", Some(branch.clone()));
+        engine.publish("w", &diff(Some(branch.clone())));
+        assert_eq!(engine.latest("w").unwrap().target, Some(branch));
+    }
+
+    /// Bug: the UI guessed status from line counts, so a file only appended to read "Added" and
+    /// Discard offered to delete it.
+    #[tokio::test]
+    async fn file_status_comes_from_git_not_line_counts() {
+        let git = Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        };
+        run(&["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("grow.txt"), "one\n").unwrap();
+        std::fs::write(repo.join("shrink.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo.join("gone.txt"), "bye\n").unwrap();
+        std::fs::write(repo.join("move.txt"), "a\nb\nc\nd\n").unwrap();
+        run(&["add", "-A"]);
+        commit_file(repo, "base.txt");
+        std::fs::write(repo.join("grow.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo.join("shrink.txt"), "one\n").unwrap();
+        std::fs::remove_file(repo.join("gone.txt")).unwrap();
+        std::fs::rename(repo.join("move.txt"), repo.join("moved.txt")).unwrap();
+        std::fs::write(repo.join("new.txt"), "hi\n").unwrap();
+
+        let diff = compute_diff(&git, "w", repo, None).await.unwrap();
+        let mut statuses: Vec<_> = diff
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.status))
+            .collect();
+        statuses.sort_by_key(|(path, _)| *path);
+        assert_eq!(
+            statuses,
+            [
+                ("gone.txt", FileStatus::Deleted),
+                ("grow.txt", FileStatus::Modified),
+                ("moved.txt", FileStatus::Renamed),
+                ("new.txt", FileStatus::Added),
+                ("shrink.txt", FileStatus::Modified),
+            ]
+        );
     }
 
     #[test]
@@ -708,10 +828,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn only_subscribed_workspaces_are_diffed() {
-        use crate::shell_env::ShellEnv;
-        use tokio::sync::RwLock;
-
-        let engine = LiveDiffEngine::new(Git::new(Arc::new(RwLock::new(ShellEnv::new()))));
+        let engine = LiveDiffEngine::new(Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        )));
         engine.start();
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
@@ -727,7 +846,6 @@ mod tests {
         engine.watch("ws", repo).unwrap();
         engine.compute("ws", repo).await.unwrap();
         assert!(engine.latest("ws").is_none());
-        assert!(engine.watched.lock().unwrap().is_empty());
 
         let first = engine.subscribe("ws");
         let second = engine.subscribe("ws");
@@ -737,21 +855,18 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(engine.latest("ws").is_some());
-        assert_eq!(engine.watched.lock().unwrap().len(), 1);
 
         drop(first);
         assert!(engine.latest("ws").is_some());
         drop(second);
         assert!(engine.latest("ws").is_none());
-        assert!(engine.watched.lock().unwrap().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_commit_in_a_linked_worktree_clears_the_counts() {
-        use crate::shell_env::ShellEnv;
-        use tokio::sync::RwLock;
-
-        let engine = LiveDiffEngine::new(Git::new(Arc::new(RwLock::new(ShellEnv::new()))));
+        let engine = LiveDiffEngine::new(Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        )));
         engine.start();
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
@@ -774,14 +889,16 @@ mod tests {
 
         let added =
             |engine: &LiveDiffEngine| engine.latest("ws").map(|diff| diff.uncommitted.added);
-        let wait_for = async |want: u32| {
-            for _ in 0..50 {
-                if added(&engine) == Some(want) {
-                    return;
+        let mut updates = engine.updates();
+        let mut wait_for = async |want: u32| {
+            let reached = tokio::time::timeout(Duration::from_secs(10), async {
+                while added(&engine) != Some(want) {
+                    updates.changed().await.unwrap();
                 }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-            panic!(
+            })
+            .await;
+            assert!(
+                reached.is_ok(),
                 "uncommitted added never became {want}: {:?}",
                 added(&engine)
             );

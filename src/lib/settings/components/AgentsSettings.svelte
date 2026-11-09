@@ -1,0 +1,132 @@
+<script lang="ts">
+  import { updateSettings } from '$lib/settings/actions'
+  import { onMount } from 'svelte'
+  import { Switch } from '$lib/components/ui/switch'
+  import SettingsPanel from '$lib/settings/components/SettingsPanel.svelte'
+  import SettingsRow from '$lib/settings/components/SettingsRow.svelte'
+  import { commands } from '$lib/ipc'
+  import type { EngineKind } from '$lib/ipc/bindings'
+  import { coreErrorText } from '$lib/core/core-error'
+  import {
+    ENGINE_OPTIONS,
+    engineInstallLabel,
+    engineStatusLine,
+    type EngineDetection,
+  } from '$lib/engine/engines'
+  import { engineMark } from '$lib/engine/engines'
+  import { settings } from '$lib/settings/store.svelte'
+  import { cn } from '$lib/utils'
+
+  let detection = $state<EngineDetection>({ state: 'checking' })
+
+  const statusByKind = $derived(
+    new Map(
+      detection.state === 'detected'
+        ? detection.statuses.map((row) => [row.kind, row])
+        : [],
+    ),
+  )
+
+  onMount(() => {
+    void commands.detectEngines().then((result) => {
+      detection =
+        result.status === 'ok'
+          ? { state: 'detected', statuses: result.data }
+          : {
+              state: 'failed',
+              error: coreErrorText(result.error, 'Could not check for agents'),
+            }
+    })
+  })
+
+  async function chooseEngine(kind: EngineKind) {
+    await updateSettings({ defaultEngine: kind })
+  }
+</script>
+
+<div
+  class="set-group space-y-3"
+  role="radiogroup"
+  aria-labelledby="settings-engine-label"
+  data-od-id="settings-default-engine"
+>
+  <p id="settings-engine-label" class="sr-only">Default engine</p>
+  <SettingsPanel>
+    {#each ENGINE_OPTIONS as option (option.kind)}
+      {@const status = statusByKind.get(option.kind)}
+      {@const selected = settings.values.defaultEngine === option.kind}
+      {@const install = engineInstallLabel(status)}
+      <label
+        class={cn(
+          'flex cursor-pointer gap-3 border-b border-border px-4 py-3 last:border-b-0 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background',
+          selected && 'bg-muted/40',
+        )}
+      >
+        <input
+          type="radio"
+          name="default-engine"
+          class="sr-only"
+          value={option.kind}
+          checked={selected}
+          onchange={() => void chooseEngine(option.kind)}
+        />
+        <span
+          class="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted font-mono text-[10px] font-semibold"
+          aria-hidden="true"
+        >
+          {engineMark(option.kind)}
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="flex flex-wrap items-center gap-2">
+            <span class="text-sm font-medium">{option.label}</span>
+            {#if selected}
+              <span
+                class="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                >Default</span
+              >
+            {/if}
+            {#if install}
+              <span class="text-[10px] text-destructive">{install}</span>
+            {/if}
+          </span>
+          <span
+            class={cn(
+              'mt-1 block font-mono text-[10px]',
+              detection.state === 'failed'
+                ? 'text-destructive'
+                : 'text-muted-foreground',
+            )}>{engineStatusLine(detection, option.kind)}</span
+          >
+        </span>
+        <span
+          class={cn(
+            'mt-1 size-4 shrink-0 rounded-full border-2',
+            selected
+              ? 'border-primary bg-primary'
+              : 'border-muted-foreground/40',
+          )}
+          aria-hidden="true"
+        ></span>
+      </label>
+    {/each}
+  </SettingsPanel>
+</div>
+
+<div class="mt-3" data-od-id="settings-agent-permissions">
+  <SettingsPanel>
+    <SettingsRow
+      title="Run everything"
+      description="On, the agent uses tools without asking. Off, it asks before every tool."
+    >
+      {#snippet control()}
+        <Switch
+          bind:checked={
+            () => settings.values.runEverything,
+            (next) => void updateSettings({ runEverything: next })
+          }
+          aria-label="Run everything"
+        />
+      {/snippet}
+    </SettingsRow>
+  </SettingsPanel>
+</div>

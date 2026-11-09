@@ -3,6 +3,7 @@ import {
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification'
+import { appName } from '$lib/build-mode'
 import {
   hasToastTarget,
   openToastTarget,
@@ -28,17 +29,14 @@ async function ensurePermission() {
  */
 let pendingTarget: ToastTarget | null = null
 
-export async function notifyHarness(
-  title: string,
-  body: string,
-  target?: ToastTarget,
-) {
+/** A desktop notification titled with the app's name; `target` is what focusing the app opens. */
+export async function notifyOs(body: string, target?: ToastTarget) {
   if (!(await ensurePermission())) return
   try {
-    sendNotification({ title, body })
+    sendNotification({ title: appName, body })
     pendingTarget = target && hasToastTarget(target) ? target : null
   } catch {
-    // Ignore when notifications are unavailable.
+    // A notification that can't be shown isn't worth an error of its own.
   }
 }
 

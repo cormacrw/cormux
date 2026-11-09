@@ -1,4 +1,5 @@
 import type { PromptAttachment } from '$lib/ipc/bindings'
+import { mediaKindOf } from '$lib/media'
 
 /** An image or file waiting in the composer until the message is sent. */
 export type ComposerAttachment = {
@@ -13,33 +14,22 @@ export type ComposerAttachment = {
 }
 
 /** Pasted and dropped files travel to the core whole, so very large ones are refused. */
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
-
-const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp']
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 export function isImageName(name: string): boolean {
-  const extension = name.split('.').pop()?.toLowerCase() ?? ''
-  return name.includes('.') && IMAGE_EXTENSIONS.includes(extension)
+  return mediaKindOf(name) === 'image'
 }
 
-/** The last part of a path, for a file picked or dropped by path. */
-export function fileNameOf(path: string): string {
+function fileNameOf(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }
 
 /** A pasted screenshot arrives as `image.png`; give it a name that says when. */
-export function pastedName(name: string, type: string, now: Date): string {
+function pastedName(name: string, type: string, now: Date): string {
   if (name && name !== 'image.png') return name
   const extension = type.split('/')[1]?.replace('jpeg', 'jpg') || 'png'
   const stamp = now.toISOString().slice(0, 19).replace(/[T:]/g, '-')
   return `pasted-${stamp}.${extension}`
-}
-
-/** The message the conversation shows; the core saves the same text. */
-export function shownMessage(text: string, names: string[]): string {
-  if (!names.length) return text
-  const line = `Attached: ${names.join(', ')}`
-  return text ? `${text}\n\n${line}` : line
 }
 
 /** What the core needs to turn an attachment into a file the agent can open. */
@@ -53,7 +43,6 @@ export function toPromptAttachment(
   }
 }
 
-/** Reads a pasted or dropped file, with a thumbnail for images. */
 export async function attachmentFromFile(
   file: File,
   now = new Date(),

@@ -1,0 +1,107 @@
+// The app's keyboard router, beside `menu.ts` (the menu bar's); keys both have go through
+// `runShellCommand`. Buttons on screen handle their own shortcuts through
+// `shellDialogs.allows`; this handles the ones with no button.
+import { openWorkspace } from '$lib/nav/open'
+import { nav } from '$lib/core/nav.svelte'
+import { switchConversation } from '$lib/thread/actions'
+import { focusPrompt } from '$lib/keyboard/focus-home'
+import { keyboardLayers } from '$lib/keyboard/layers.svelte'
+import { threadFind } from '$lib/thread/find-store.svelte'
+import { handleSwitcherKeydown } from '$lib/switcher/navigate'
+import { threads } from '$lib/state/threads.svelte'
+import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
+import { workspaceUi } from '$lib/state/workspace-ui.svelte'
+import { sidebarWorkspaces } from '$lib/sidebar/thread-list-store.svelte'
+import { isShortcut } from '$lib/keyboard/shortcuts'
+import { runShellCommand } from './shell-commands'
+
+export function handleGlobalKeydown(event: KeyboardEvent) {
+  if (handleSwitcherKeydown(event)) return
+
+  if (isShortcut(event, 'palette')) {
+    event.preventDefault()
+    runShellCommand('palette')
+    return
+  }
+
+  if (isShortcut(event, 'save')) {
+    event.preventDefault()
+    return
+  }
+
+  if (event.key === 'Escape') {
+    onEscape(event)
+    return
+  }
+
+  // While a dialog is open the rest wait; each still keeps its key from the webview.
+  const gated = shellDialogs.anyOpen()
+  const inWorkspace = nav.view === 'workspace'
+  const onThread = inWorkspace && workspaceUi.activeTab === 'thread'
+
+  if (isShortcut(event, 'find')) {
+    if ((onThread || nav.view === 'scratch') && !gated) {
+      event.preventDefault()
+      threadFind.request()
+    }
+    return
+  }
+
+  if (isShortcut(event, 'newThread')) {
+    event.preventDefault()
+    runShellCommand('newThread')
+    return
+  }
+
+  if (isShortcut(event, 'settings')) {
+    event.preventDefault()
+    runShellCommand('settings')
+    return
+  }
+
+  if (isShortcut(event, 'openThread')) {
+    event.preventDefault()
+    const workspace = sidebarWorkspaces.ordered[Number(event.key) - 1]
+    if (workspace && !gated) openWorkspace(workspace.id)
+    return
+  }
+
+  if (isShortcut(event, 'toggleGit') && inWorkspace) {
+    event.preventDefault()
+    if (!gated) workspaceUi.toggleTray('changes')
+    return
+  }
+
+  if (isShortcut(event, 'toggleOutput') && inWorkspace) {
+    event.preventDefault()
+    if (!gated) workspaceUi.toggleTray('output')
+    return
+  }
+
+  if (isShortcut(event, 'newSession') && onThread && nav.threadId && !gated) {
+    event.preventDefault()
+    const threadId = nav.threadId
+    if (threads.getById(threadId)?.hasSession) {
+      void switchConversation(threadId, 'new')
+    }
+    return
+  }
+
+  // Dialogs and the diff comment box send their own ⌘↵ first.
+  if (isShortcut(event, 'composer') && !event.defaultPrevented && !gated) {
+    event.preventDefault()
+    focusPrompt()
+  }
+}
+
+/** Esc closes the innermost thing: a popover, then a slide-out, then stops a working agent. */
+function onEscape(event: KeyboardEvent) {
+  if (keyboardLayers.closePopover()) {
+    event.preventDefault()
+    return
+  }
+  if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
+  // A field, dialog or menu that took Esc has used it.
+  if (event.defaultPrevented || keyboardLayers.held) return
+  if (keyboardLayers.runEscape()) event.preventDefault()
+}

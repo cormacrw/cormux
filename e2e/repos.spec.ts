@@ -12,7 +12,6 @@ test.describe('repos', () => {
     await page.goto('/')
 
     await page.getByRole('button', { name: 'Settings' }).click()
-    await expect(page.getByText('Default base branch')).toHaveCount(0)
     await page.getByRole('button', { name: 'Configure my-app' }).click()
     const field = page.getByRole('button', { name: 'Default branch' })
     await expect(field).toHaveText('main')
@@ -41,25 +40,21 @@ test.describe('repos', () => {
           repoId: 'my-app',
           number: 12,
           title: 'Tune the accent palette',
-          payload: JSON.stringify({
+          payload: {
             num: 12,
             title: 'Tune the accent palette',
             author: 'you',
-            rel: 'author',
             head: 'feat/colors',
             base: 'main',
             updatedAt: '2026-09-29T20:00:00Z',
             checks: 'pass',
-            failing: null,
             review: 'approved',
-            additions: 10,
-            deletions: 2,
             files: 1,
             isDraft: false,
             htmlUrl: 'https://github.com/acme/app/pull/12',
             repoFullName: 'acme/app',
             repoId: 'my-app',
-          }),
+          },
         },
       ],
     })
@@ -118,5 +113,40 @@ test.describe('repos', () => {
       .getByRole('button', { name: /^Delete anyway/ })
       .click()
     await expect(api).toHaveCount(0)
+  })
+
+  test("a repo's page never shows the previous repo's branches", async ({
+    page,
+  }) => {
+    await setScenario(page, {
+      secondRepo: true,
+      slow: { list_repo_local_branches: 1500 },
+    })
+    await page.goto('/')
+    const palette = page.getByRole('dialog')
+    const pageRoot = page.locator('[data-od-id="repo-page"]')
+    const openRepo = async (name: string) => {
+      await page
+        .getByRole('button', { name: /Search or run a command/ })
+        .click()
+      await palette.locator('input').fill(`Open ${name}`)
+      await palette
+        .getByRole('option', { name: new RegExp(`^Open ${name}`) })
+        .first()
+        .click()
+      await expect(pageRoot.getByRole('heading', { name })).toBeVisible()
+    }
+
+    await openRepo('my-app')
+    const colors = pageRoot.locator('[data-od-id="repo-branch-feat/colors"]')
+    await expect(colors).toHaveCount(1)
+
+    // While api's branches load, my-app's Delete buttons must not be on its page.
+    await openRepo('api')
+    await expect(pageRoot.getByText('Reading branches…')).toBeVisible()
+    await expect(pageRoot.locator('[data-od-id^="repo-branch-"]')).toHaveCount(
+      0,
+    )
+    await expect(colors).toHaveCount(1)
   })
 })

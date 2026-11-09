@@ -1,9 +1,11 @@
+import { parseReply, replySearchText } from './reply/parse'
 import type { TimelineRow } from './timeline-types'
+import { stepText, workedForLabel } from './timeline/step-text'
 
 /** One match: the row it's in, and which occurrence in that row's text it is. */
-export type FindMatch = { row: number; occurrence: number }
+type FindMatch = { row: number; occurrence: number }
 
-/** The key a row renders with (`data-row-key`), so a match can be found in the page. */
+/** The key a row is drawn and tracked with (`RowContext.trackRow`). */
 export function rowKey(row: TimelineRow): string {
   return row.kind === 'speaker' ? row.id : row.item.id
 }
@@ -13,20 +15,24 @@ export function rowKey(row: TimelineRow): string {
  * approvals and app events. Searching this rather than the page finds rows a long thread hasn't
  * rendered yet, and text inside collapsed steps.
  */
-export function rowSearchText(row: TimelineRow): string {
+function rowSearchText(row: TimelineRow): string {
   if (row.kind === 'speaker') return ''
   const item = row.item
   switch (item.kind) {
     case 'user':
+      return item.text
     case 'thought':
       return item.text
+    case 'reply':
+      return replySearchText(parseReply(item.text, { streaming: false }))
     case 'toolRun':
       return item.steps
-        .flatMap((step) =>
-          step.kind === 'edit'
-            ? [step.verb, step.path]
-            : [step.title, step.detail ?? '', step.rawDetail ?? ''],
-        )
+        .flatMap((step) => {
+          const { title, detail = '', full = '' } = stepText(step)
+          return step.kind === 'tool' && step.role.kind === 'edit'
+            ? [title, detail]
+            : [title, detail, full]
+        })
         .join('\n')
     case 'plan':
       return item.steps.join('\n')
@@ -34,7 +40,9 @@ export function rowSearchText(row: TimelineRow): string {
       return [item.title, item.what, item.why].join('\n')
     case 'event':
       return [item.title, item.detail ?? ''].join('\n')
-    default:
+    case 'worked':
+      return workedForLabel(item.startedAtMs, item.atMs)
+    case 'findings':
       return ''
   }
 }
@@ -74,13 +82,11 @@ export function findMatches(rows: TimelineRow[], query: string): FindMatch[] {
   )
 }
 
-/** `3 of 12`, or `No matches` once something is typed. */
 export function findCounterText(current: number, total: number): string {
   if (!total) return 'No matches'
   return `${current + 1} of ${total}`
 }
 
-/** The next match index, wrapping around either end. */
 export function stepMatch(current: number, total: number, by: 1 | -1): number {
   if (!total) return 0
   return (current + by + total) % total

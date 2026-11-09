@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
   import { appearance } from '$lib/state/appearance.svelte'
+  import { GLIDE_FALL_MS, GLIDE_RISE_MS, wordmark } from './wordmark.svelte'
 
   /** Rising from bottom left to top right. */
   const TILT_DEG = -20
@@ -56,8 +57,10 @@
   {#if appearance.showWordmark}
     <div
       class="wordmark-area"
-      class:away={appearance.wordmarkAway}
-      class:gliding={appearance.wordmarkGliding}
+      class:away={wordmark.away}
+      class:gliding={wordmark.gliding}
+      style:--glide-rise="{GLIDE_RISE_MS}ms"
+      style:--glide-fall="{GLIDE_FALL_MS}ms"
       bind:this={area}
     >
       <span
@@ -105,15 +108,15 @@
      pages just shows or hides it. Rising back: moving from the first frame. */
   .wordmark-area.gliding {
     transition:
-      transform 1200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      transform var(--glide-rise) cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 900ms ease-out;
   }
 
   /* Falls with the greeting (thread-hero-out in app.css). */
   .wordmark-area.gliding.away {
     transition:
-      transform 420ms cubic-bezier(0.55, 0, 0.75, 0.3),
-      opacity 0s linear 420ms;
+      transform var(--glide-fall) cubic-bezier(0.55, 0, 0.75, 0.3),
+      opacity 0s linear var(--glide-fall);
   }
 
   .wordmark {

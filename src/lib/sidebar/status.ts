@@ -8,59 +8,22 @@ import type { WorkspaceLifecycle } from '$lib/ipc/bindings'
 export type StatusDotVariant =
   'provisioning' | 'running' | 'waiting' | 'ready' | 'paused' | 'idle'
 
-export type WorkspaceSidebarInput = {
-  lifecycle: WorkspaceLifecycle
-  paused: boolean
-  activityText: string
-}
-
-export function statusDotVariantForWorkspace(
-  workspace: WorkspaceSidebarInput,
+/**
+ * A workspace's dot. One that needs you (`needsAttention`) says so first, flashing only while an
+ * agent is on hold for an answer; an approval can land while it still reads as running. Otherwise
+ * the dot follows its lifecycle.
+ */
+export function statusDotFor(
+  workspace: { lifecycle: WorkspaceLifecycle; pendingApprovals: number },
+  attention: boolean,
 ): StatusDotVariant {
-  if (
-    workspace.lifecycle === 'creating' ||
-    workspace.lifecycle === 'provisioning'
-  ) {
-    return 'provisioning'
+  if (attention) return workspace.pendingApprovals > 0 ? 'waiting' : 'ready'
+  switch (workspace.lifecycle) {
+    case 'provisioning':
+    case 'running':
+    case 'paused':
+      return workspace.lifecycle
+    default:
+      return 'idle'
   }
-  if (workspace.lifecycle === 'running') {
-    return workspace.paused ? 'paused' : 'running'
-  }
-  if (workspace.lifecycle === 'waiting') return 'waiting'
-  return 'idle'
-}
-
-/** The dot for a thread that needs you: only an agent on hold for an answer is worth flashing for. */
-export function statusDotVariantForAttention(
-  pendingApprovals: number,
-  lifecycle: WorkspaceLifecycle | undefined,
-): StatusDotVariant {
-  return pendingApprovals > 0 || lifecycle === 'waiting' ? 'waiting' : 'ready'
-}
-
-export function workspaceStatusWord(workspace: WorkspaceSidebarInput): string {
-  if (
-    workspace.lifecycle === 'creating' ||
-    workspace.lifecycle === 'provisioning'
-  ) {
-    return 'Starting'
-  }
-  if (workspace.lifecycle === 'running') {
-    return workspace.paused ? 'Paused' : 'Running'
-  }
-  return workspace.activityText
-}
-
-export function plural(
-  count: number,
-  singular: string,
-  pluralWord = `${singular}s`,
-): string {
-  return count === 1 ? `1 ${singular}` : `${count} ${pluralWord}`
-}
-
-export function formatMemoryGb(bytes: number): string {
-  const gb = bytes / 1024 ** 3
-  if (gb >= 10) return `${Math.round(gb)} GB`
-  return `${gb.toFixed(1)} GB`
 }

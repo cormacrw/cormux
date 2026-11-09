@@ -1,18 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import {
-  findCounterText,
-  findMatches,
-  rowKey,
-  rowSearchText,
-  stepMatch,
-} from './find'
+import { findCounterText, findMatches, rowKey, stepMatch } from './find'
 import type { TimelineRow } from './timeline-types'
 
 const rows: TimelineRow[] = [
   {
     kind: 'speaker',
     id: 'speaker-1',
-    speaker: 'agent',
     role: 'Lead',
     engine: 'Claude Code',
     seq: 1,
@@ -38,18 +31,26 @@ const rows: TimelineRow[] = [
         {
           kind: 'tool',
           id: 't1',
-          icon: 'terminal',
-          title: 'Ran',
-          detail: 'pnpm test login',
-          rawDetail: 'pnpm test login --run',
+          role: {
+            kind: 'command',
+            command: 'pnpm test login --run',
+            description: null,
+          },
+          title: 'Bash',
+          detail: null,
+          locations: [],
+          status: 'completed',
           seq: 3,
           atMs: 0,
         },
         {
-          kind: 'edit',
+          kind: 'tool',
           id: 'e1',
-          path: 'src/login.ts',
-          verb: 'Edited',
+          role: { kind: 'edit', verb: 'Edited' },
+          title: 'Edit',
+          detail: null,
+          locations: ['src/login.ts'],
+          status: 'completed',
           seq: 4,
           atMs: 0,
         },
@@ -59,12 +60,11 @@ const rows: TimelineRow[] = [
   {
     kind: 'item',
     item: {
-      kind: 'thought',
+      kind: 'reply',
       id: 'a1',
       text: 'The login form never awaits the request.',
       seq: 5,
       atMs: 0,
-      role: 'agent',
     },
   },
 ]
@@ -83,8 +83,23 @@ describe('findMatches', () => {
   })
 
   it('skips speaker rows, which only label a turn', () => {
-    expect(rowSearchText(rows[0]!)).toBe('')
     expect(findMatches(rows, 'Lead')).toEqual([])
+  })
+
+  it('searches what a reply shows, not the findings JSON it hides', () => {
+    const reply: TimelineRow = {
+      kind: 'item',
+      item: {
+        kind: 'reply',
+        id: 'a2',
+        text: 'One issue.\n<cormux-findings>[{"title":"Login expiry"}]</cormux-findings>',
+        seq: 6,
+        atMs: 0,
+      },
+    }
+    expect(findMatches([reply], 'issue')).toHaveLength(1)
+    expect(findMatches([reply], 'login')).toEqual([])
+    expect(findMatches([reply], 'cormux-findings')).toEqual([])
   })
 
   it('keys rows the way the timeline renders them', () => {

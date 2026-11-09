@@ -1,14 +1,11 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
-  import { runWorkspaceApp } from '$lib/command-palette/actions'
-  import {
-    claimWorkspacePopover,
-    releaseWorkspacePopover,
-  } from '$lib/keyboard/popover-registry'
-  import { registerPopoverCloser } from '$lib/keyboard/global-shortcuts'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
-  import { shellDialogs, workspaceRecords, workspaceUi } from '$lib/state'
+  import { appControls, controlApp } from '$lib/run-app/actions'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
+  import { shortcutAria, shortcutLabel } from '$lib/keyboard/shortcuts'
+  import { shellDialogs, workspaceUi } from '$lib/state'
+  import type { Workspace } from '$lib/state/workspaces.svelte'
   import {
     openWorkspaceTerminal,
     startBranchReview,
@@ -20,25 +17,18 @@
   import SquareTerminal from '@lucide/svelte/icons/square-terminal'
   import Terminal from '@lucide/svelte/icons/terminal'
   import Trash2 from '@lucide/svelte/icons/trash-2'
-  import { onMount } from 'svelte'
 
-  // The header's actions besides Run: Output, Terminal, Review and Delete.
-  let {
-    workspaceId,
-    runDisabled = false,
-    canReview = false,
-    reviewDisabled = false,
-  }: {
-    workspaceId: string
-    runDisabled?: boolean
-    canReview?: boolean
-    reviewDisabled?: boolean
-  } = $props()
+  let { workspace }: { workspace: Workspace } = $props()
+
+  const workspaceId = $derived(workspace.id)
+  // Whether Review may start is the core's `reviewBlock`; this only hides the item where it
+  // could never apply.
+  const showReview = $derived(workspace.kind !== 'review')
 
   let open = $state(false)
   let triggerEl = $state<HTMLButtonElement | null>(null)
 
-  const appStatus = $derived(workspaceRecords.runtime(workspaceId).appStatus)
+  const controls = $derived(appControls(workspaceId))
   const popoverHandle = {
     close: () => {
       open = false
@@ -48,22 +38,10 @@
     },
   }
 
-  onMount(() => {
-    registerPopoverCloser(() => {
-      if (!open) return false
-      open = false
-      triggerEl?.focus()
-      return true
-    })
-    return () => registerPopoverCloser(null)
-  })
-
   $effect(() => {
-    if (open) {
-      claimWorkspacePopover(popoverHandle)
-    } else {
-      releaseWorkspacePopover(popoverHandle)
-    }
+    if (!open) return
+    keyboardLayers.claimPopover(popoverHandle)
+    return () => keyboardLayers.releasePopover(popoverHandle)
   })
 
   function closeAndRun(action: () => void) {
@@ -72,7 +50,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'j')) return
+    if (!shellDialogs.allows(event, 'moreActions')) return
     event.preventDefault()
     open = !open
   }
@@ -90,11 +68,10 @@
         size="default"
         class="w-8 px-0"
         aria-label="More workspace actions"
-        aria-keyshortcuts="Meta+J"
-        title="More actions (⌘J)"
+        aria-keyshortcuts={shortcutAria('moreActions')}
+        title="More actions ({shortcutLabel('moreActions')})"
         aria-haspopup="menu"
         aria-controls="ws-more"
-        data-ws-focus="more"
         data-od-id="ws-more"
       >
         <Ellipsis class="size-4" aria-hidden="true" />
@@ -104,30 +81,33 @@
   <DropdownMenu.Content align="end" id="ws-more" class="w-60">
     <DropdownMenu.Group>
       <DropdownMenu.Item
-        onclick={() => closeAndRun(() => workspaceUi.toggleOutputTab())}
+        onclick={() => closeAndRun(() => workspaceUi.toggleTray('output'))}
       >
         <Terminal class="size-4" aria-hidden="true" />
         Output
-        <DropdownMenu.Shortcut>⌘O</DropdownMenu.Shortcut>
+        <DropdownMenu.Shortcut
+          >{shortcutLabel('toggleOutput')}</DropdownMenu.Shortcut
+        >
       </DropdownMenu.Item>
-      {#if appStatus === 'stopped' || appStatus === 'crashed'}
+      {#if controls.start}
+        {@const { action, enabled } = controls.start}
         <DropdownMenu.Item
-          disabled={appStatus === 'stopped' && runDisabled}
-          onclick={() =>
-            runWorkspaceApp(
-              workspaceId,
-              appStatus === 'crashed' ? 'restart' : 'run',
-            )}
+          disabled={!enabled}
+          onclick={() => void controlApp(workspaceId, action)}
         >
           <Play class="size-4" aria-hidden="true" />
           Run
-          <DropdownMenu.Shortcut>⌘R</DropdownMenu.Shortcut>
+          <DropdownMenu.Shortcut
+            >{shortcutLabel('runApp')}</DropdownMenu.Shortcut
+          >
         </DropdownMenu.Item>
       {:else}
-        <DropdownMenu.Item onclick={() => runWorkspaceApp(workspaceId, 'stop')}>
+        <DropdownMenu.Item onclick={() => void controlApp(workspaceId, 'stop')}>
           <Square class="size-4" aria-hidden="true" />
           Stop app
-          <DropdownMenu.Shortcut>⌘.</DropdownMenu.Shortcut>
+          <DropdownMenu.Shortcut
+            >{shortcutLabel('stopApp')}</DropdownMenu.Shortcut
+          >
         </DropdownMenu.Item>
       {/if}
     </DropdownMenu.Group>
@@ -137,25 +117,33 @@
     >
       <SquareTerminal class="size-4" aria-hidden="true" />
       Open in Terminal
-      <DropdownMenu.Shortcut>⌘T</DropdownMenu.Shortcut>
+      <DropdownMenu.Shortcut
+        >{shortcutLabel('openTerminal')}</DropdownMenu.Shortcut
+      >
     </DropdownMenu.Item>
-    {#if canReview}
+    {#if showReview}
       <DropdownMenu.Item
-        disabled={reviewDisabled}
+        disabled={workspace.reviewBlock != null}
+        title={workspace.reviewBlock ?? undefined}
         onclick={() => closeAndRun(() => void startBranchReview(workspaceId))}
       >
         <ScanSearch class="size-4" aria-hidden="true" />
         Review changes
-        <DropdownMenu.Shortcut>⌘I</DropdownMenu.Shortcut>
+        <DropdownMenu.Shortcut
+          >{shortcutLabel('reviewBranch')}</DropdownMenu.Shortcut
+        >
       </DropdownMenu.Item>
     {/if}
     <DropdownMenu.Item
       variant="destructive"
-      onclick={() => closeAndRun(() => shellDialogs.openTeardown(workspaceId))}
+      onclick={() =>
+        closeAndRun(() => shellDialogs.open('teardown', { workspaceId }))}
     >
       <Trash2 class="size-4" aria-hidden="true" />
       Delete workspace…
-      <DropdownMenu.Shortcut>⌘D</DropdownMenu.Shortcut>
+      <DropdownMenu.Shortcut
+        >{shortcutLabel('deleteWorkspace')}</DropdownMenu.Shortcut
+      >
     </DropdownMenu.Item>
   </DropdownMenu.Content>
 </DropdownMenu.Root>

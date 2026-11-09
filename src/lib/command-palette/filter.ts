@@ -1,6 +1,5 @@
 import type { PaletteCommand } from './types'
 
-// Lower-cased once per command object, not once per command per keystroke.
 const haystacks = new WeakMap<PaletteCommand, string>()
 
 function haystack(command: PaletteCommand): string {
@@ -14,16 +13,7 @@ function haystack(command: PaletteCommand): string {
   return text
 }
 
-/** Case-insensitive substring match on label and meta (spec §02). */
-export function commandMatchesQuery(
-  command: PaletteCommand,
-  query: string,
-): boolean {
-  const q = query.trim().toLowerCase()
-  if (!q) return true
-  return haystack(command).includes(q)
-}
-
+/** Case-insensitive substring match on label and meta (product/features/02-command-palette-and-shortcuts.md). */
 export function filterCommands(
   commands: PaletteCommand[],
   query: string,
@@ -33,7 +23,7 @@ export function filterCommands(
   return commands.filter((command) => haystack(command).includes(q))
 }
 
-export const GROUP_ORDER = [
+const GROUP_ORDER = [
   'Actions',
   'Bangs',
   'Workspaces',
@@ -43,7 +33,7 @@ export const GROUP_ORDER = [
   'Git',
 ] as const
 
-export type PaletteGroup = (typeof GROUP_ORDER)[number]
+type PaletteGroup = (typeof GROUP_ORDER)[number]
 
 export function groupFilteredCommands(commands: PaletteCommand[]) {
   const buckets = new Map<string, PaletteCommand[]>()

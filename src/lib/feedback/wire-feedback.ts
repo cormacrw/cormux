@@ -1,52 +1,51 @@
 import { events, type CoreError } from '$lib/ipc'
-import { coreErrorText } from './core-error'
-import type { ToastRaised } from '$lib/ipc/bindings'
+import { coreErrorText } from '$lib/core/core-error'
+import type {
+  NotificationPayload,
+  ToastRaised,
+  ToastRaisedPayload,
+} from '$lib/ipc/bindings'
 import { coreErrorToast, environmentReloadToast } from './toast-payload'
 import { showToast } from './show-toast'
+import type { ToastTarget } from './toast-target'
 
-export async function bindFeedbackEvents() {
-  const cleanups: (() => void)[] = []
-
-  cleanups.push(
-    await events.toastRaised.listen((event) => {
-      showCoreToast(event.payload)
-    }),
-  )
-
-  return () => {
-    for (const cleanup of cleanups) cleanup()
-  }
+export function bindFeedbackEvents() {
+  return events.toastRaised.listen((event) => showCoreToast(event.payload))
 }
 
-function mapTone(tone: ToastRaised['payload']['tone']) {
-  if (tone === 'ok') return 'ok' as const
-  if (tone === 'bad') return 'bad' as const
-  return 'default' as const
-}
-
-export function showCoreToast(event: ToastRaised) {
+function showCoreToast(event: ToastRaised) {
   const payload = event.payload
   showToast({
-    tone: mapTone(payload.tone),
-    workspaceId: payload.workspaceId ?? undefined,
-    threadId: payload.threadId ?? undefined,
-    parts: payload.parts.map((part) =>
-      part.type === 'code'
-        ? { type: 'code', value: part.value }
-        : { type: 'text', value: part.value },
-    ),
+    tone: payload.tone,
+    parts: payload.parts,
+    ...coreToastTarget(payload),
   })
 }
 
-export function toastCoreError(error: unknown) {
+/** What clicking a toast the core raised opens, or its notification once the app is in front. */
+export function coreToastTarget(
+  payload: ToastRaisedPayload | NotificationPayload,
+): ToastTarget {
+  return {
+    workspaceId: payload.workspaceId ?? undefined,
+    threadId: payload.threadId ?? undefined,
+    findings: payload.opensFindings || undefined,
+  }
+}
+
+/** A bad toast for a failure: a core error, something thrown, or a message; `fallback` when it says nothing. */
+export function toastCoreError(
+  error: unknown,
+  fallback = 'Something went wrong',
+) {
   const message =
     error instanceof Error
       ? error.message
       : typeof error === 'string'
         ? error
         : isCoreError(error)
-          ? coreErrorText(error)
-          : 'Something went wrong'
+          ? coreErrorText(error, fallback)
+          : fallback
   showToast(coreErrorToast(message))
 }
 

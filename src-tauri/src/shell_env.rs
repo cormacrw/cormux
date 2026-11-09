@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 
 use portable_pty::CommandBuilder;
 use tokio::process::Command;
+use tokio::sync::{RwLock, RwLockReadGuard, watch};
 
 use crate::error::{Error, Result};
 
@@ -15,6 +17,7 @@ pub struct ShellEnv {
 }
 
 impl ShellEnv {
+    #[cfg(test)]
     pub fn new() -> Self {
         Self::default()
     }
@@ -34,24 +37,23 @@ impl ShellEnv {
         &self.vars
     }
 
-    pub fn apply(&self, command: &mut Command) {
+    /// Replaces the command's environment with this one. Until the env has loaded it is
+    /// empty, and the command keeps this process's.
+    pub fn apply(&self, command: &mut impl EnvTarget) {
         if self.vars.is_empty() {
             return;
         }
-        command.env_clear();
+        command.clear_env();
         for (key, value) in &self.vars {
-            command.env(key, value);
+            command.set_env(key, value);
         }
     }
 
-    pub fn apply_pty(&self, command: &mut CommandBuilder) {
-        if self.vars.is_empty() {
-            return;
-        }
-        command.env_clear();
-        for (key, value) in &self.vars {
-            command.env(key, value);
-        }
+    pub fn shell(&self) -> String {
+        self.get("SHELL")
+            .map(str::to_string)
+            .or_else(|| std::env::var("SHELL").ok())
+            .unwrap_or_else(|| "/bin/zsh".into())
     }
 
     pub fn command(&self, program: &str) -> Command {
@@ -61,7 +63,7 @@ impl ShellEnv {
     }
 
     pub async fn load(&mut self) -> Result<()> {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let shell = self.shell();
         let output = Command::new(&shell)
             .args(["-l", "-i", "-c", "env -0"])
             .stdin(Stdio::null())
@@ -81,8 +83,7 @@ impl ShellEnv {
         Ok(())
     }
 
-    /// Prefer the login shell; if it fails, inherit this process's environment
-    /// so the app can still start.
+    /// Falls back to this process's environment so the app can still start.
     pub async fn load_or_inherit(&mut self) -> Result<()> {
         match self.load().await {
             Ok(()) => Ok(()),
@@ -96,14 +97,6 @@ impl ShellEnv {
                 }
             }
         }
-    }
-
-    pub async fn reload(&mut self) -> Result<()> {
-        self.load().await
-    }
-
-    pub async fn run(&self, program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
-        self.run_with_stdin(program, args, cwd, None).await
     }
 
     pub async fn run_with_stdin(
@@ -156,6 +149,103 @@ impl ShellEnv {
     }
 }
 
+/// A command [`ShellEnv::apply`] can set up: a plain child process or a PTY one.
+pub trait EnvTarget {
+    fn clear_env(&mut self);
+    fn set_env(&mut self, key: &str, value: &str);
+}
+
+impl EnvTarget for Command {
+    fn clear_env(&mut self) {
+        self.env_clear();
+    }
+
+    fn set_env(&mut self, key: &str, value: &str) {
+        self.env(key, value);
+    }
+}
+
+impl EnvTarget for CommandBuilder {
+    fn clear_env(&mut self) {
+        self.env_clear();
+    }
+
+    fn set_env(&mut self, key: &str, value: &str) {
+        self.env(key, value);
+    }
+}
+
+/// The one login-shell environment the app shells out with. Until its first load has finished,
+/// reads wait for it, so nothing runs `git` or `gh` without the user's PATH.
+#[derive(Clone)]
+pub struct SharedEnv {
+    env: Arc<RwLock<ShellEnv>>,
+    loaded: Arc<watch::Sender<bool>>,
+}
+
+impl SharedEnv {
+    /// Not loaded yet: reads wait for [`SharedEnv::load_or_inherit`].
+    pub fn loading() -> Self {
+        Self {
+            env: Arc::default(),
+            loaded: Arc::new(watch::channel(false).0),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn loaded(env: ShellEnv) -> Self {
+        Self {
+            env: Arc::new(RwLock::new(env)),
+            loaded: Arc::new(watch::channel(true).0),
+        }
+    }
+
+    async fn ready(&self) {
+        let mut loaded = self.loaded.subscribe();
+        // The sender lives in `self`, so it can't close while this waits.
+        let _ = loaded.wait_for(|loaded| *loaded).await;
+    }
+
+    async fn read(&self) -> RwLockReadGuard<'_, ShellEnv> {
+        self.ready().await;
+        self.env.read().await
+    }
+
+    /// A copy, so a long run doesn't hold the lock: a reload waiting on it would stall every
+    /// read behind it.
+    pub async fn current(&self) -> ShellEnv {
+        self.read().await.clone()
+    }
+
+    /// `program` with the env applied; the lock is let go before it runs.
+    pub async fn command(&self, program: &str) -> Command {
+        self.read().await.command(program)
+    }
+
+    /// The first load, at startup. Whatever it finds, reads go ahead after it: with neither the
+    /// login shell's env nor the app's they'd otherwise wait for good.
+    pub async fn load_or_inherit(&self) -> Result<()> {
+        let loaded = self.env.write().await.load_or_inherit().await;
+        self.loaded.send_replace(true);
+        loaded
+    }
+
+    pub async fn reload(&self) -> Result<()> {
+        self.env.write().await.load().await
+    }
+
+    /// For agents, which launch only on the user's word: they take the env as it is.
+    pub fn without_waiting(&self) -> Arc<RwLock<ShellEnv>> {
+        self.env.clone()
+    }
+
+    #[cfg(test)]
+    pub async fn replace(&self, env: ShellEnv) {
+        *self.env.write().await = env;
+        self.loaded.send_replace(true);
+    }
+}
+
 pub fn parse_env0(bytes: &[u8]) -> Result<HashMap<String, String>> {
     let mut vars = HashMap::new();
     for entry in bytes.split(|b| *b == 0) {
@@ -175,7 +265,6 @@ pub fn parse_env0(bytes: &[u8]) -> Result<HashMap<String, String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn parses_nul_delimited_env() {
@@ -184,41 +273,54 @@ mod tests {
         assert_eq!(vars.get("HOME").unwrap(), "/Users/dev");
     }
 
-    #[tokio::test]
-    async fn login_shell_recovers_tools_hidden_from_gui_path() {
-        let mut env = ShellEnv::new();
-        env.load().await.unwrap();
-        let path = env.get("PATH").expect("PATH");
-        assert!(path.contains('/'), "login PATH should be populated");
-
-        let claude = env.run("claude", &["--version"], None).await;
-        let pnpm = env.run("pnpm", &["--version"], None).await;
-        assert!(
-            claude.is_ok() || pnpm.is_ok(),
-            "login env should resolve claude or pnpm; claude={claude:?} pnpm={pnpm:?}"
-        );
-
-        if pnpm.is_ok() {
-            let dir = std::env::temp_dir().join("cormux-cor-44-worktree");
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(
-                dir.join("package.json"),
-                r#"{"name":"cor-44-spike","private":true}"#,
-            )
-            .unwrap();
-            let _ = env
-                .run("pnpm", &["install", "--ignore-scripts"], Some(&dir))
-                .await;
-            let _ = PathBuf::from(&dir);
-        }
+    /// A login shell that is a script: `body` stands in for `-l -i -c 'env -0'`.
+    fn fake_shell(dir: &Path, body: &str) -> ShellEnv {
+        use std::os::unix::fs::PermissionsExt;
+        let shell = dir.join("login-shell");
+        std::fs::write(&shell, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+        ShellEnv::from_vars([("SHELL".to_string(), shell.display().to_string())])
     }
 
     #[tokio::test]
-    async fn reload_replaces_cached_vars() {
-        let mut env = ShellEnv::new();
+    async fn the_login_shells_env_replaces_the_apps() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut env = fake_shell(dir.path(), r"printf 'PATH=/login/bin\0HOME=/Users/dev\0'");
         env.load().await.unwrap();
-        let first = env.get("PATH").unwrap().to_string();
-        env.reload().await.unwrap();
-        assert_eq!(env.get("PATH").unwrap(), first);
+        assert_eq!(env.get("PATH"), Some("/login/bin"));
+        assert_eq!(env.get("SHELL"), None, "nothing is kept from before");
+
+        let mut command = env.command("/usr/bin/env");
+        let output = command.output().await.unwrap();
+        let seen = String::from_utf8(output.stdout).unwrap();
+        assert!(seen.contains("HOME=/Users/dev"), "{seen}");
+    }
+
+    #[tokio::test]
+    async fn a_broken_login_shell_falls_back_to_the_apps_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut env = fake_shell(dir.path(), "exit 1");
+        assert!(env.clone().load().await.is_err());
+        env.load_or_inherit().await.unwrap();
+        assert_eq!(env.get("PATH"), std::env::var("PATH").ok().as_deref());
+
+        let mut silent = fake_shell(dir.path(), "true");
+        assert!(silent.load().await.is_err(), "an empty env is a failure");
+    }
+
+    #[tokio::test]
+    async fn reads_wait_for_the_first_load_even_a_failed_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = SharedEnv::loading();
+        *shared.without_waiting().write().await = fake_shell(dir.path(), "exit 1");
+        let reading = tokio::spawn({
+            let shared = shared.clone();
+            async move { shared.current().await.get("PATH").map(str::to_string) }
+        });
+        tokio::task::yield_now().await;
+        assert!(!reading.is_finished());
+
+        shared.load_or_inherit().await.unwrap();
+        assert_eq!(reading.await.unwrap(), std::env::var("PATH").ok());
     }
 }

@@ -1,5 +1,5 @@
 mod diff;
-mod fetch;
+mod queue;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -7,14 +7,21 @@ use std::process::Output;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::process::Command;
-use tokio::sync::{Mutex as AsyncMutex, RwLock};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::error::{Error, Result};
-use crate::shell_env::ShellEnv;
+use crate::model::FALLBACK_DEFAULT_BRANCH;
+use crate::shell_env::SharedEnv;
 
 pub use diff::{DiffTarget, LiveDiffEngine, WorktreeDiff};
-pub use fetch::{BehindUpdate, FetchScheduler, RepoFetchTarget, WorkspaceFetchTarget};
+pub use queue::WorktreeQueue;
+
+/// A merge stopped on these paths, waiting for the user to resolve or abort it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GitConflictState {
+    pub paths: Vec<String>,
+}
 
 /// A new thread waits this long at most for its base branch to fetch.
 const BASE_FETCH_TIMEOUT: Duration = Duration::from_secs(20);
@@ -42,8 +49,8 @@ pub struct Git {
 }
 
 struct GitInner {
-    env: Arc<RwLock<ShellEnv>>,
-    queues: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
+    env: SharedEnv,
+    queue: WorktreeQueue,
     /// When each `repo\0base` last fetched, locked for the duration of a fetch.
     base_fetches: Mutex<HashMap<String, Arc<AsyncMutex<Option<Instant>>>>>,
 }
@@ -105,59 +112,27 @@ pub fn parse_local_branch_tips(stdout: &str) -> Vec<LocalBranchTip> {
         .collect()
 }
 
-#[cfg(test)]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct BranchRef {
-    pub name: String,
-    pub refname: String,
-}
-
 impl Git {
-    pub fn new(env: Arc<RwLock<ShellEnv>>) -> Self {
+    pub fn new(env: SharedEnv) -> Self {
         Self {
             inner: Arc::new(GitInner {
                 env,
-                queues: Mutex::new(HashMap::new()),
+                queue: WorktreeQueue::default(),
                 base_fetches: Mutex::new(HashMap::new()),
             }),
         }
     }
 
-    fn queue_key(path: &Path) -> String {
-        path.to_string_lossy().to_string()
+    pub fn queue(&self) -> &WorktreeQueue {
+        &self.inner.queue
     }
 
-    async fn with_queue<T, F, Fut>(&self, worktree: &Path, f: F) -> Result<T>
+    async fn with_queue<T, F, Fut>(&self, worktree: &Path, f: F) -> T
     where
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<T>>,
+        Fut: std::future::Future<Output = T>,
     {
-        let key = Self::queue_key(worktree);
-        let lock = {
-            let mut queues = self
-                .inner
-                .queues
-                .lock()
-                .map_err(|error| Error::Git(error.to_string()))?;
-            queues
-                .entry(key.clone())
-                .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-                .clone()
-        };
-        let result = {
-            let _guard = lock.lock().await;
-            f().await
-        };
-        // Clones are only taken under this lock, so nobody can be about to queue on it.
-        if let Ok(mut queues) = self.inner.queues.lock()
-            && queues
-                .get(&key)
-                .is_some_and(|entry| Arc::ptr_eq(entry, &lock) && Arc::strong_count(entry) == 2)
-        {
-            queues.remove(&key);
-        }
-        result
+        self.inner.queue.run(worktree, f).await
     }
 
     async fn run(&self, cwd: &Path, args: &[&str]) -> Result<Output> {
@@ -165,57 +140,18 @@ impl Git {
             .await
     }
 
-    /// Run another git-driving tool (e.g. `gh stack`) in `worktree`, queued behind and
-    /// ahead of this worktree's own git calls. Spawn failures come back as `Err`.
-    pub async fn run_tool(
-        &self,
-        worktree: &Path,
-        program: &str,
-        args: &[&str],
-        extra_env: &[(&str, &str)],
-    ) -> Result<Output> {
-        self.with_queue(worktree, || {
-            self.run_tool_unqueued(worktree, program, args, extra_env)
-        })
-        .await
-    }
-
-    /// Like `run_tool`, for read-only calls that needn't wait behind the worktree's queue.
-    pub async fn run_tool_unqueued(
-        &self,
-        worktree: &Path,
-        program: &str,
-        args: &[&str],
-        extra_env: &[(&str, &str)],
-    ) -> Result<Output> {
-        let env = self.inner.env.read().await;
-        let mut command = Command::new(program);
-        command.args(args);
-        env.apply(&mut command);
-        command.envs(extra_env.iter().copied());
-        command.current_dir(worktree);
-        command.stdin(std::process::Stdio::null());
-        command
-            .output()
-            .await
-            .map_err(|error| Error::Git(format!("{program}: {error}")))
-    }
-
     async fn run_unlocked(&self, cwd: Option<&Path>, args: &[&str]) -> Result<Output> {
         self.run_with_env(cwd, args, &[]).await
     }
 
-    /// Like `run_unlocked`, with extra environment variables.
     async fn run_with_env(
         &self,
         cwd: Option<&Path>,
         args: &[&str],
         extra_env: &[(&str, &str)],
     ) -> Result<Output> {
-        let env = self.inner.env.read().await;
-        let mut command = Command::new("git");
+        let mut command = self.inner.env.command("git").await;
         command.args(args);
-        env.apply(&mut command);
         command.envs(extra_env.iter().copied());
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
@@ -283,35 +219,11 @@ impl Git {
             let value = Self::stdout(&output).trim().to_string();
             let branch = value
                 .strip_prefix("refs/remotes/origin/")
-                .unwrap_or("main")
+                .unwrap_or(FALLBACK_DEFAULT_BRANCH)
                 .to_string();
             return Ok(branch);
         }
-        Ok("main".into())
-    }
-
-    #[cfg(test)]
-    pub async fn list_branches(&self, repo: &Path) -> Result<Vec<BranchRef>> {
-        let output = self
-            .run(
-                repo,
-                &[
-                    "for-each-ref",
-                    "--format=%(refname)",
-                    "refs/heads",
-                    "refs/remotes",
-                ],
-            )
-            .await?;
-        Self::require_success(&output, "for-each-ref")?;
-        Ok(Self::stdout(&output)
-            .lines()
-            .filter(|line| !line.is_empty())
-            .map(|refname| BranchRef {
-                name: short_ref(refname),
-                refname: refname.to_string(),
-            })
-            .collect())
+        Ok(FALLBACK_DEFAULT_BRANCH.into())
     }
 
     pub async fn worktree_add(
@@ -341,7 +253,7 @@ impl Git {
 
     /// Where a new branch off `base` should start: the freshest of local and origin's, fetched
     /// now. A fetch that fails (offline, no remote) falls back to what's already here.
-    pub async fn latest_base(&self, repo: &Path, base: &str) -> String {
+    pub async fn latest_base(&self, repo: &Path, base: &str) -> Result<String> {
         self.fetch_base(repo, base).await;
         self.freshest_ref(repo, base).await
     }
@@ -349,7 +261,7 @@ impl Git {
     /// Fetch `base` unless that just happened. Threads started together wait on one fetch,
     /// outside the repo's queue, so nothing else on the repo waits for the network.
     async fn fetch_base(&self, repo: &Path, base: &str) {
-        let key = format!("{}\0{base}", Self::queue_key(repo));
+        let key = format!("{}\0{base}", WorktreeQueue::key(repo));
         let slot = {
             let Ok(mut fetches) = self.inner.base_fetches.lock() else {
                 return;
@@ -387,9 +299,15 @@ impl Git {
         Self::require_success(&output, "worktree add")
     }
 
+    /// Outside the repo's queue, like `fetch`: new threads in this repo shouldn't wait on the
+    /// network.
     pub async fn fetch_pull_ref(&self, repo: &Path, number: u64, local_branch: &str) -> Result<()> {
         let refspec = format!("pull/{number}/head:{local_branch}");
-        let output = self.run(repo, &["fetch", "origin", &refspec]).await?;
+        let args = ["fetch", "origin", &refspec];
+        let fetch = self.run_unlocked(Some(repo), &args);
+        let output = tokio::time::timeout(BACKGROUND_FETCH_TIMEOUT, fetch)
+            .await
+            .map_err(|_| Error::Git("fetching the pull request timed out".into()))??;
         Self::require_success(&output, "fetch pull ref")
     }
 
@@ -407,13 +325,9 @@ impl Git {
     }
 
     pub async fn behind_count(&self, worktree: &Path, base: &str) -> Result<u32> {
-        let range = format!("HEAD..origin/{base}");
-        let output = self.run(worktree, &["rev-list", "--count", &range]).await?;
-        Self::require_success(&output, "rev-list --count")?;
-        Self::stdout(&output)
-            .trim()
-            .parse()
-            .map_err(|error| Error::Git(format!("behind count: {error}")))
+        let base = self.freshest_ref(worktree, base).await?;
+        self.rev_list_count(worktree, &format!("HEAD..{base}"))
+            .await
     }
 
     /// Outside the repo's queue, like `fetch_base`: a slow network shouldn't stop new threads
@@ -424,34 +338,6 @@ impl Git {
             .await
             .map_err(|_| Error::Git("fetch timed out".into()))??;
         Self::require_success(&output, "fetch")
-    }
-
-    /// Fast-forward the repo checkout's local `branch` to origin's and return how many
-    /// commits it moved. A checked-out `branch` is pulled in place; otherwise only the
-    /// ref moves, so the checkout's working tree is left alone.
-    pub async fn pull_branch(&self, repo: &Path, branch: &str) -> Result<u32> {
-        let local = format!("refs/heads/{branch}");
-        let before = self.resolve_ref(repo, &local).await?;
-        if self.current_branch(repo).await.ok().as_deref() == Some(branch) {
-            let output = self
-                .run(repo, &["pull", "--ff-only", "origin", branch])
-                .await?;
-            Self::require_success(&output, "pull --ff-only")?;
-        } else {
-            let refspec = format!("{local}:{local}");
-            let output = self.run(repo, &["fetch", "origin", &refspec]).await?;
-            Self::require_success(&output, "fetch")?;
-        }
-        let (Some(before), Some(after)) = (before, self.resolve_ref(repo, &local).await?) else {
-            return Ok(0);
-        };
-        let range = format!("{before}..{after}");
-        let output = self.run(repo, &["rev-list", "--count", &range]).await?;
-        Self::require_success(&output, "rev-list --count")?;
-        Self::stdout(&output)
-            .trim()
-            .parse()
-            .map_err(|error| Error::Git(format!("pulled count: {error}")))
     }
 
     async fn resolve_ref(&self, repo: &Path, reference: &str) -> Result<Option<String>> {
@@ -483,8 +369,6 @@ impl Git {
         Ok(parse_numstat_z(&output.stdout))
     }
 
-    /// Each uncommitted change with its patch when `with_patches` is set.
-    ///
     /// `git diff HEAD` can't see untracked files, so a moved file would show as a
     /// deletion and a separate addition. They are marked intent-to-add in a copy of
     /// the index, which leaves the real one alone and lets git pair renames.
@@ -535,25 +419,16 @@ impl Git {
         args.push("HEAD");
         let whole = self.run_with_env(Some(worktree), &args, &env).await?;
         Self::diff_ok(&whole, "diff")?;
-        let text = Self::stdout(&whole);
-        let mut patches = split_patches(&text);
-        let mut changes = Vec::with_capacity(stats.len());
-        for stat in stats {
-            let patch = match patches.remove(stat.patch_header().as_str()) {
-                Some(patch) => patch.to_string(),
-                None => {
-                    let mut args = vec!["--literal-pathspecs"];
-                    args.extend(PATCH_ARGS);
-                    args.extend(["HEAD", "--"]);
-                    args.extend(stat.paths());
-                    let output = self.run_with_env(Some(worktree), &args, &env).await?;
-                    Self::diff_ok(&output, "diff file")?;
-                    Self::stdout(&output)
-                }
-            };
-            changes.push((stat, patch));
-        }
-        Ok(changes)
+        with_patches_from(stats, &Self::stdout(&whole), |paths| async move {
+            let mut args = vec!["--literal-pathspecs"];
+            args.extend(PATCH_ARGS);
+            args.extend(["HEAD", "--"]);
+            args.extend(paths.iter().map(String::as_str));
+            let output = self.run_with_env(Some(worktree), &args, &env).await?;
+            Self::diff_ok(&output, "diff file")?;
+            Ok(Self::stdout(&output))
+        })
+        .await
     }
 
     /// Throws away uncommitted changes to `paths`, or every uncommitted change when
@@ -628,7 +503,6 @@ impl Git {
         .await
     }
 
-    /// A copy of the worktree's index in the temp dir, for `uncommitted_changes`.
     async fn scratch_index(&self, worktree: &Path) -> Result<PathBuf> {
         let output = self
             .run_unlocked(Some(worktree), &["rev-parse", "--git-path", "index"])
@@ -642,7 +516,6 @@ impl Git {
         Ok(scratch)
     }
 
-    /// Each file changed by `range` with its patch.
     pub async fn range_changes(
         &self,
         worktree: &Path,
@@ -656,28 +529,20 @@ impl Git {
         args.push(range);
         let whole = self.run(worktree, &args).await?;
         Self::diff_ok(&whole, "diff range")?;
-        let text = Self::stdout(&whole);
-        let mut patches = split_patches(&text);
-        let mut changes = Vec::with_capacity(stats.len());
-        for stat in stats {
-            let patch = match patches.remove(stat.patch_header().as_str()) {
-                Some(patch) => patch.to_string(),
-                None => {
-                    let mut args = vec!["--literal-pathspecs"];
-                    args.extend(PATCH_ARGS);
-                    args.extend([range, "--"]);
-                    args.extend(stat.paths());
-                    let output = self.run(worktree, &args).await?;
-                    if Self::diff_ok(&output, "diff file in range").is_ok() {
-                        Self::stdout(&output)
-                    } else {
-                        String::new()
-                    }
-                }
-            };
-            changes.push((stat, patch));
-        }
-        Ok(changes)
+        with_patches_from(stats, &Self::stdout(&whole), |paths| async move {
+            let mut args = vec!["--literal-pathspecs"];
+            args.extend(PATCH_ARGS);
+            args.extend([range, "--"]);
+            args.extend(paths.iter().map(String::as_str));
+            let output = self.run(worktree, &args).await?;
+            // The file still lists, with its counts, when only its patch can't be shown.
+            if let Err(error) = Self::diff_ok(&output, "diff file in range") {
+                log::warn!("{error}");
+                return Ok(String::new());
+            }
+            Ok(Self::stdout(&output))
+        })
+        .await
     }
 
     pub async fn status_porcelain(&self, worktree: &Path) -> Result<String> {
@@ -724,48 +589,40 @@ impl Git {
         Ok(())
     }
 
-    pub async fn merge(&self, worktree: &Path, base: &str) -> Result<()> {
+    /// Merges `base` (as [`Self::freshest_ref`] picks it) into the checked-out branch.
+    /// Stopping on conflicts is `Error::GitConflict`, with the merge left in progress.
+    pub async fn merge_base(&self, worktree: &Path, base: &str) -> Result<()> {
         self.require_clean_worktree(worktree, "merge").await?;
-        let rev = format!("origin/{base}");
+        let rev = self.freshest_ref(worktree, base).await?;
         let output = self.run(worktree, &["merge", &rev]).await?;
         if output.status.success() {
             return Ok(());
         }
         let paths = self.unmerged_paths(worktree).await?;
         if !paths.is_empty() {
-            return Err(Error::GitConflict {
-                operation: "merge".into(),
-                paths,
-            });
+            return Err(Error::GitConflict { paths });
         }
         Err(Self::fail(&output, "merge"))
     }
 
-    pub async fn rebase(&self, worktree: &Path, base: &str) -> Result<()> {
-        self.require_clean_worktree(worktree, "rebase").await?;
-        let rev = format!("origin/{base}");
-        let output = self.run(worktree, &["rebase", &rev]).await?;
-        if output.status.success() {
-            return Ok(());
+    /// The paths a merge in progress is stopped on; `None` once it is committed, aborted, or
+    /// has every path resolved.
+    pub async fn merge_conflict(&self, worktree: &Path) -> Result<Option<GitConflictState>> {
+        if !merging(worktree) {
+            return Ok(None);
         }
         let paths = self.unmerged_paths(worktree).await?;
-        if !paths.is_empty() {
-            return Err(Error::GitConflict {
-                operation: "rebase".into(),
-                paths,
-            });
-        }
-        Err(Self::fail(&output, "rebase"))
+        Ok((!paths.is_empty()).then_some(GitConflictState { paths }))
     }
 
+    /// With no merge in progress, as when it was finished or aborted outside Cormux, there is
+    /// nothing to abort and that is the outcome wanted.
     pub async fn abort_merge(&self, worktree: &Path) -> Result<()> {
+        if !merging(worktree) {
+            return Ok(());
+        }
         let output = self.run(worktree, &["merge", "--abort"]).await?;
         Self::require_success(&output, "merge --abort")
-    }
-
-    pub async fn abort_rebase(&self, worktree: &Path) -> Result<()> {
-        let output = self.run(worktree, &["rebase", "--abort"]).await?;
-        Self::require_success(&output, "rebase --abort")
     }
 
     /// Local branch tips, newest commit first. `committed` is git's relative date.
@@ -785,28 +642,16 @@ impl Git {
         Ok(parse_local_branch_tips(&Self::stdout(&output)))
     }
 
-    /// Deletes a branch that is fully merged. Refuses with git's own error otherwise.
     /// Whether `origin/<branch>` exists and points where the local branch does, as of the
     /// last fetch, so deleting the local branch loses nothing.
     pub async fn in_sync_with_origin(&self, repo: &Path, branch: &str) -> Result<bool> {
         let local = self
-            .rev_parse(repo, &format!("refs/heads/{branch}"))
+            .resolve_ref(repo, &format!("refs/heads/{branch}"))
             .await?;
         let remote = self
-            .rev_parse(repo, &format!("refs/remotes/origin/{branch}"))
+            .resolve_ref(repo, &format!("refs/remotes/origin/{branch}"))
             .await?;
         Ok(local.is_some() && local == remote)
-    }
-
-    /// The commit `reference` points at, or `None` when it doesn't exist.
-    async fn rev_parse(&self, repo: &Path, reference: &str) -> Result<Option<String>> {
-        let output = self
-            .run(repo, &["rev-parse", "--verify", "--quiet", reference])
-            .await?;
-        Ok(output
-            .status
-            .success()
-            .then(|| Self::stdout(&output).trim().to_string()))
     }
 
     pub async fn list_local_branches(&self, repo: &Path) -> Result<Vec<String>> {
@@ -866,62 +711,57 @@ impl Git {
         Self::require_success(&output, "branch -D")
     }
 
+    /// A range git can't resolve is an error, not 0.
     pub async fn rev_list_count(&self, worktree: &Path, range: &str) -> Result<u32> {
-        let output = self.run(worktree, &["rev-list", "--count", range]).await?;
-        if !output.status.success() {
-            return Ok(0);
-        }
+        self.count_commits(worktree, &["rev-list", "--count", range])
+            .await
+    }
+
+    async fn count_commits(&self, worktree: &Path, args: &[&str]) -> Result<u32> {
+        let output = self.run(worktree, args).await?;
+        Self::require_success(&output, "rev-list --count")?;
         Self::stdout(&output)
             .trim()
             .parse()
-            .map_err(|error| Error::Git(format!("rev-list count: {error}")))
+            .map_err(|error| Error::Git(format!("rev-list --count: {error}")))
     }
 
     /// Commits only `left` has and only `right` has, as `(ahead, behind)` from `left`'s point of
-    /// view, in one process. `(0, 0)` when either ref is missing.
+    /// view, in one process. `None` when either ref is missing.
     pub async fn ahead_behind(
         &self,
         worktree: &Path,
         left: &str,
         right: &str,
-    ) -> Result<(u32, u32)> {
+    ) -> Result<Option<(u32, u32)>> {
         let range = format!("{left}...{right}");
         let output = self
             .run(worktree, &["rev-list", "--left-right", "--count", &range])
             .await?;
         if !output.status.success() {
-            return Ok((0, 0));
+            if self.ref_exists(worktree, left).await? && self.ref_exists(worktree, right).await? {
+                return Err(Self::fail(&output, "rev-list --left-right"));
+            }
+            return Ok(None);
         }
         parse_left_right(&Self::stdout(&output))
+            .map(Some)
             .ok_or_else(|| Error::Git("rev-list --left-right: unexpected output".into()))
     }
 
     pub async fn remote_branch_exists(&self, repo: &Path, branch: &str) -> Result<bool> {
-        let reference = format!("refs/remotes/origin/{branch}");
-        let output = self
-            .run(repo, &["show-ref", "--verify", &reference])
-            .await?;
-        Ok(output.status.success())
-    }
-
-    pub async fn unpushed_commit_count(&self, worktree: &Path, branch: &str) -> Result<u32> {
-        let range = format!("origin/{branch}..HEAD");
-        self.rev_list_count(worktree, &range).await
+        self.ref_exists(repo, &format!("refs/remotes/origin/{branch}"))
+            .await
     }
 
     /// Commits on HEAD that neither a remote nor `base` has, so removing the branch loses
-    /// them. Unlike [`Self::unpushed_commit_count`], this sees a branch that was never pushed.
+    /// them, pushed or not.
     pub async fn commits_only_here(&self, worktree: &Path, base: &str) -> Result<u32> {
         let mut args = vec!["rev-list", "--count", "HEAD", "--not", "--remotes"];
         if self.ref_exists(worktree, base).await? {
             args.push(base);
         }
-        let output = self.run(worktree, &args).await?;
-        Self::require_success(&output, "rev-list")?;
-        Self::stdout(&output)
-            .trim()
-            .parse()
-            .map_err(|error| Error::Git(format!("rev-list count: {error}")))
+        self.count_commits(worktree, &args).await
     }
 
     pub async fn current_branch(&self, worktree: &Path) -> Result<String> {
@@ -930,46 +770,117 @@ impl Git {
         Ok(Self::stdout(&output).trim().to_string())
     }
 
+    /// The worktree's own git dir and the repo's common one (the same for the main checkout).
+    pub async fn git_dirs(&self, worktree: &Path) -> Result<(PathBuf, PathBuf)> {
+        let output = self
+            .run(
+                worktree,
+                &[
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-dir",
+                    "--git-common-dir",
+                ],
+            )
+            .await?;
+        Self::require_success(&output, "rev-parse --git-dir")?;
+        let stdout = Self::stdout(&output);
+        let mut lines = stdout.lines().map(|line| PathBuf::from(line.trim()));
+        match (lines.next(), lines.next()) {
+            (Some(own), Some(common)) => Ok((own, common)),
+            _ => Err(Error::Git("rev-parse --git-dir: unexpected output".into())),
+        }
+    }
+
+    pub async fn config_get(&self, worktree: &Path, key: &str) -> Result<Option<String>> {
+        let output = self.run(worktree, &["config", "--get", key]).await?;
+        match output.status.code() {
+            Some(0) => Ok(Some(Self::stdout(&output).trim().to_string())),
+            // git's "key not set".
+            Some(1) => Ok(None),
+            _ => Err(Self::fail(&output, "config --get")),
+        }
+    }
+
     pub async fn ref_exists(&self, worktree: &Path, reference: &str) -> Result<bool> {
         let output = self
             .run(worktree, &["rev-parse", "--verify", "--quiet", reference])
             .await?;
-        Ok(output.status.success())
+        match output.status.code() {
+            Some(0) => Ok(true),
+            // git's "no such ref".
+            Some(1) => Ok(false),
+            _ => Err(Self::fail(&output, "rev-parse --verify")),
+        }
     }
 
-    /// Whether `descendant` already has every commit on `ancestor`.
-    pub async fn is_ancestor(&self, worktree: &Path, ancestor: &str, descendant: &str) -> bool {
-        self.run(
-            worktree,
-            &["merge-base", "--is-ancestor", ancestor, descendant],
-        )
-        .await
-        .is_ok_and(|output| output.status.success())
+    pub async fn is_ancestor(
+        &self,
+        worktree: &Path,
+        ancestor: &str,
+        descendant: &str,
+    ) -> Result<bool> {
+        let output = self
+            .run(
+                worktree,
+                &["merge-base", "--is-ancestor", ancestor, descendant],
+            )
+            .await?;
+        match output.status.code() {
+            Some(0) => Ok(true),
+            // git's "not an ancestor".
+            Some(1) => Ok(false),
+            _ => Err(Self::fail(&output, "merge-base --is-ancestor")),
+        }
     }
 
-    /// `origin/<branch>` when it has everything the local branch has (a stale local
-    /// trunk), else the local branch (a stack branch rebased but not pushed yet).
-    pub async fn freshest_ref(&self, worktree: &Path, branch: &str) -> String {
+    /// The ref that stands for `branch` wherever a workspace is compared with or brought up to
+    /// its base (behind counts, pull, Changes, new branches): `origin/<branch>` when it
+    /// has everything the local branch has (a stale local trunk), else the local branch (a
+    /// stack branch rebased but not pushed yet).
+    pub async fn freshest_ref(&self, worktree: &Path, branch: &str) -> Result<String> {
         let remote = format!("origin/{branch}");
-        if !self.ref_exists(worktree, &remote).await.unwrap_or(false) {
-            return branch.to_string();
+        if !self.ref_exists(worktree, &remote).await? {
+            return Ok(branch.to_string());
         }
-        if !self.ref_exists(worktree, branch).await.unwrap_or(false) {
-            return remote;
+        if !self.ref_exists(worktree, branch).await? {
+            return Ok(remote);
         }
-        if self.is_ancestor(worktree, branch, &remote).await {
+        Ok(if self.is_ancestor(worktree, branch, &remote).await? {
             remote
         } else {
             branch.to_string()
-        }
+        })
     }
 
-    /// Lines added and removed by `range` (e.g. `main...feature`).
     pub async fn shortstat(&self, worktree: &Path, range: &str) -> Result<ShortStat> {
         let output = self.run(worktree, &["diff", "--shortstat", range]).await?;
         Self::require_success(&output, "diff --shortstat")?;
         Ok(parse_shortstat(&Self::stdout(&output)))
     }
+}
+
+/// Pairs each file's stat with its patch, cut from `whole` (one diff of every file). A file
+/// whose patch can't be found there is diffed on its own by `file_patch`.
+async fn with_patches_from<F, Fut>(
+    stats: Vec<FileStat>,
+    whole: &str,
+    file_patch: F,
+) -> Result<Vec<(FileStat, String)>>
+where
+    F: Fn(Vec<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<String>>,
+{
+    let mut patches = split_patches(whole);
+    let mut changes = Vec::with_capacity(stats.len());
+    for stat in stats {
+        let patch = match patches.remove(stat.patch_header().as_str()) {
+            Some(patch) => patch.to_string(),
+            None => file_patch(stat.paths()).await?,
+        };
+        changes.push((stat, patch));
+    }
+    Ok(changes)
 }
 
 /// `git rev-list --left-right --count` prints `left<TAB>right`.
@@ -1007,15 +918,6 @@ fn parse_shortstat(text: &str) -> ShortStat {
     stat
 }
 
-#[cfg(test)]
-fn short_ref(refname: &str) -> String {
-    refname
-        .strip_prefix("refs/heads/")
-        .or_else(|| refname.strip_prefix("refs/remotes/"))
-        .unwrap_or(refname)
-        .to_string()
-}
-
 /// One changed file from `git diff --numstat`. A rename keeps the path it came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileStat {
@@ -1026,13 +928,9 @@ pub struct FileStat {
 }
 
 impl FileStat {
-    /// Pathspecs for this file's diff; a rename needs both sides to be paired.
-    fn paths(&self) -> Vec<&str> {
-        self.old_path
-            .iter()
-            .map(String::as_str)
-            .chain([self.path.as_str()])
-            .collect()
+    /// Pathspecs for this file: a rename needs both sides, to pair them in a diff or to undo it.
+    pub fn paths(&self) -> Vec<String> {
+        self.old_path.iter().chain([&self.path]).cloned().collect()
     }
 
     /// The first line of this file's section in a `PATCH_ARGS` diff. Git quotes the paths it
@@ -1082,6 +980,12 @@ pub fn checked_out_branch(worktree: &Path) -> Option<String> {
     parse_head(&head)
 }
 
+/// Whether a merge is in progress in the worktree, read from its `MERGE_HEAD` without spawning
+/// git.
+pub fn merging(worktree: &Path) -> bool {
+    worktree_git_dir(worktree).is_some_and(|dir| dir.join("MERGE_HEAD").is_file())
+}
+
 fn parse_head(head: &str) -> Option<String> {
     let Some(reference) = head.trim().strip_prefix("ref:") else {
         return Some(String::new());
@@ -1123,7 +1027,6 @@ fn parse_numstat_z(bytes: &[u8]) -> Vec<FileStat> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell_env::ShellEnv;
 
     #[test]
     fn ref_names_that_git_would_read_as_options_are_rejected() {
@@ -1174,10 +1077,11 @@ mod tests {
         );
     }
 
+    /// Git with the test process's own environment, no login shell needed.
     async fn git_with_env() -> Git {
-        let mut env = ShellEnv::new();
-        env.load_or_inherit().await.unwrap();
-        Git::new(Arc::new(RwLock::new(env)))
+        Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        ))
     }
 
     fn init_repo() -> (tempfile::TempDir, PathBuf) {
@@ -1264,7 +1168,8 @@ mod tests {
         for (stat, patch) in &changes {
             let mut args = PATCH_ARGS.to_vec();
             args.extend(["HEAD", "--"]);
-            args.extend(stat.paths());
+            let paths = stat.paths();
+            args.extend(paths.iter().map(String::as_str));
             let alone = git.run_with_env(Some(&repo), &args, &env).await.unwrap();
             assert_eq!(*patch, Git::stdout(&alone), "{}", stat.path);
             assert!(!patch.is_empty(), "{}", stat.path);
@@ -1281,15 +1186,42 @@ mod tests {
         }
     }
 
+    /// Bug: behind counts and pull/rebase used `origin/<base>` while Changes used the freshest
+    /// ref, so a branch stacked on an unpushed local base counted nothing to pull (or failed).
+    #[tokio::test]
+    async fn behind_and_pull_use_the_same_base_as_changes() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        let (_clone_dir, clone) = clone_of(&origin);
+        run_ok(&clone, &["git", "switch", "-qc", "feat/a"]);
+        commit(&clone, "a1.txt");
+        run_ok(&clone, &["git", "switch", "-qc", "feat/b"]);
+        run_ok(&clone, &["git", "switch", "-q", "feat/a"]);
+        commit(&clone, "a2.txt");
+        run_ok(&clone, &["git", "switch", "-q", "feat/b"]);
+
+        assert_eq!(git.freshest_ref(&clone, "feat/a").await.unwrap(), "feat/a");
+        assert_eq!(git.behind_count(&clone, "feat/a").await.unwrap(), 1);
+        git.merge_base(&clone, "feat/a").await.unwrap();
+        assert_eq!(git.behind_count(&clone, "feat/a").await.unwrap(), 0);
+        // A stale local trunk still counts against origin's.
+        commit(&origin, "landed.txt");
+        git.fetch(&clone).await.unwrap();
+        assert_eq!(git.behind_count(&clone, "main").await.unwrap(), 1);
+    }
+
     #[tokio::test]
     async fn base_fetches_are_shared_only_when_they_worked() {
         let git = git_with_env().await;
         let (_origin_dir, origin) = init_repo();
         let (_clone_dir, clone) = clone_of(&origin);
-        assert_eq!(git.latest_base(&clone, "main").await, "origin/main");
+        assert_eq!(
+            git.latest_base(&clone, "main").await.unwrap(),
+            "origin/main"
+        );
         // Inside the window a new commit waits for the next fetch.
         commit(&origin, "landed.txt");
-        git.latest_base(&clone, "main").await;
+        git.latest_base(&clone, "main").await.unwrap();
         assert!(!git.ref_has(&clone, "origin/main", "landed.txt").await);
 
         let (_missing_dir, missing) = clone_of(&origin);
@@ -1297,15 +1229,25 @@ mod tests {
             &missing,
             &["git", "remote", "set-url", "origin", "/nowhere"],
         );
-        git.latest_base(&missing, "main").await;
+        git.latest_base(&missing, "main").await.unwrap();
         let origin_path = origin.to_string_lossy().to_string();
         run_ok(
             &missing,
             &["git", "remote", "set-url", "origin", &origin_path],
         );
         commit(&origin, "later.txt");
-        git.latest_base(&missing, "main").await;
+        git.latest_base(&missing, "main").await.unwrap();
         assert!(git.ref_has(&missing, "origin/main", "later.txt").await);
+    }
+
+    #[tokio::test]
+    async fn a_count_git_cannot_make_is_an_error_not_zero() {
+        let git = git_with_env().await;
+        let (_dir, repo) = init_repo();
+        assert!(git.rev_list_count(&repo, "nope..HEAD").await.is_err());
+        assert_eq!(git.config_get(&repo, "cormux.unset").await.unwrap(), None);
+        let (own, common) = git.git_dirs(&repo).await.unwrap();
+        assert_eq!(own, common);
     }
 
     #[tokio::test]
@@ -1313,7 +1255,7 @@ mod tests {
         let git = git_with_env().await;
         let (_dir, repo) = init_repo();
         git.status_porcelain(&repo).await.unwrap();
-        assert!(git.inner.queues.lock().unwrap().is_empty());
+        assert!(git.inner.queue.is_empty());
     }
 
     #[tokio::test]
@@ -1329,6 +1271,24 @@ mod tests {
         assert!(!git.ref_exists(&repo, "origin/main").await.unwrap());
     }
 
+    /// Bug: every one of these read "no" when git couldn't answer at all, so a PR's base read as
+    /// not pushed and a base branch as missing.
+    #[tokio::test]
+    async fn checks_git_cant_answer_fail_instead_of_saying_no() {
+        let git = git_with_env().await;
+        let outside = tempfile::tempdir().unwrap();
+        let path = outside.path();
+        assert!(git.ref_exists(path, "main").await.is_err());
+        assert!(git.remote_branch_exists(path, "main").await.is_err());
+        assert!(git.is_ancestor(path, "main", "HEAD").await.is_err());
+        assert!(git.freshest_ref(path, "main").await.is_err());
+        assert!(git.ahead_behind(path, "main", "origin/main").await.is_err());
+
+        let (_dir, repo) = init_repo();
+        assert!(git.is_ancestor(&repo, "main", "nope").await.is_err());
+        assert_eq!(git.freshest_ref(&repo, "nope").await.unwrap(), "nope");
+    }
+
     #[tokio::test]
     async fn counts_ahead_and_behind_in_one_call() {
         let git = git_with_env().await;
@@ -1338,7 +1298,7 @@ mod tests {
             git.ahead_behind(&clone, "main", "origin/main")
                 .await
                 .unwrap(),
-            (0, 0)
+            Some((0, 0))
         );
         commit(&clone, "local.txt");
         commit(&origin, "remote-1.txt");
@@ -1348,13 +1308,13 @@ mod tests {
             git.ahead_behind(&clone, "main", "origin/main")
                 .await
                 .unwrap(),
-            (1, 2)
+            Some((1, 2))
         );
         assert_eq!(
             git.ahead_behind(&clone, "main", "origin/nope")
                 .await
                 .unwrap(),
-            (0, 0)
+            None
         );
         assert_eq!(parse_left_right("3\t4\n"), Some((3, 4)));
         assert_eq!(parse_left_right(""), None);
@@ -1500,6 +1460,42 @@ mod tests {
         (dir, clone)
     }
 
+    /// Bug: a PR review's checkout fetched inside the repo's queue with no timeout, so a stalled
+    /// network held up every new worktree in that repo.
+    #[tokio::test]
+    async fn fetching_a_pull_request_does_not_wait_on_the_repos_queue() {
+        let git = git_with_env().await;
+        let (_origin_dir, origin) = init_repo();
+        run_ok(&origin, &["git", "update-ref", "refs/pull/7/head", "HEAD"]);
+        let (_clone_dir, clone) = clone_of(&origin);
+
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let (started, queued) = tokio::sync::oneshot::channel::<()>();
+        let holder = {
+            let git = git.clone();
+            let clone = clone.clone();
+            tokio::spawn(async move {
+                git.queue()
+                    .run(&clone, || async {
+                        let _ = started.send(());
+                        let _ = held.await;
+                    })
+                    .await
+            })
+        };
+        queued.await.unwrap();
+
+        let fetch = git.fetch_pull_ref(&clone, 7, "cormux/review-7");
+        tokio::time::timeout(Duration::from_secs(20), fetch)
+            .await
+            .expect("waited on the queue")
+            .unwrap();
+
+        let _ = release.send(());
+        holder.await.unwrap();
+        assert!(git.ref_exists(&clone, "cormux/review-7").await.unwrap());
+    }
+
     #[tokio::test]
     async fn a_new_branch_starts_from_what_origin_just_got() {
         let git = git_with_env().await;
@@ -1508,7 +1504,7 @@ mod tests {
         // Local main is now behind, and nothing has fetched since.
         commit(&origin, "landed.txt");
 
-        let start = git.latest_base(&clone, "main").await;
+        let start = git.latest_base(&clone, "main").await.unwrap();
         assert_eq!(start, "origin/main");
 
         let worktree = clone.parent().unwrap().join("wt");
@@ -1531,7 +1527,7 @@ mod tests {
         let (_origin_dir, origin) = init_repo();
         let (_clone_dir, clone) = clone_of(&origin);
         commit(&clone, "unpushed.txt");
-        assert_eq!(git.latest_base(&clone, "main").await, "main");
+        assert_eq!(git.latest_base(&clone, "main").await.unwrap(), "main");
     }
 
     #[tokio::test]
@@ -1541,10 +1537,13 @@ mod tests {
         let (_clone_dir, clone) = clone_of(&origin);
         run_ok(&clone, &["git", "remote", "set-url", "origin", "/nowhere"]);
         // Its last fetch is what it knows: origin/main, level with main.
-        assert_eq!(git.latest_base(&clone, "main").await, "origin/main");
+        assert_eq!(
+            git.latest_base(&clone, "main").await.unwrap(),
+            "origin/main"
+        );
 
         let (_dir, alone) = init_repo();
-        assert_eq!(git.latest_base(&alone, "main").await, "main");
+        assert_eq!(git.latest_base(&alone, "main").await.unwrap(), "main");
     }
 
     #[tokio::test]
@@ -1637,38 +1636,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pulls_the_default_branch_checked_out_or_not() {
-        let git = git_with_env().await;
-        let (_origin_dir, origin) = init_repo();
-        let clone_dir = tempfile::tempdir().unwrap();
-        let clone = clone_dir.path().join("clone");
-        run_ok(
-            clone_dir.path(),
-            &["git", "clone", "-q", &origin.to_string_lossy(), "clone"],
-        );
-
-        std::fs::write(origin.join("README.md"), "one\n").unwrap();
-        run_ok(&origin, &["git", "commit", "-qam", "one"]);
-        assert_eq!(git.pull_branch(&clone, "main").await.unwrap(), 1);
-        assert_eq!(git.pull_branch(&clone, "main").await.unwrap(), 0);
-
-        run_ok(&clone, &["git", "switch", "-qc", "feat/elsewhere"]);
-        std::fs::write(origin.join("README.md"), "two\n").unwrap();
-        run_ok(&origin, &["git", "commit", "-qam", "two"]);
-        std::fs::write(origin.join("README.md"), "three\n").unwrap();
-        run_ok(&origin, &["git", "commit", "-qam", "three"]);
-        assert_eq!(git.pull_branch(&clone, "main").await.unwrap(), 2);
-        assert_eq!(git.current_branch(&clone).await.unwrap(), "feat/elsewhere");
-    }
-
-    #[tokio::test]
     async fn validates_and_lists_branches() {
         let git = git_with_env().await;
         let (_dir, repo) = init_repo();
         let top = git.show_toplevel(&repo).await.unwrap();
         assert_eq!(top.canonicalize().unwrap(), repo.canonicalize().unwrap());
-        let branches = git.list_branches(&repo).await.unwrap();
-        assert!(branches.iter().any(|branch| branch.name == "main"));
+        let branches = git.list_local_branches(&repo).await.unwrap();
+        assert!(branches.iter().any(|branch| branch == "main"));
         assert_eq!(git.default_branch(&repo).await.unwrap(), "main");
     }
 
@@ -1711,11 +1685,10 @@ mod tests {
 
         let removal = git.worktree_remove(&repo, &worktree, false);
         let finished = git
-            .with_queue(&repo, || async {
-                Ok(tokio::time::timeout(Duration::from_secs(10), removal).await)
+            .with_queue(&repo, || {
+                tokio::time::timeout(Duration::from_secs(10), removal)
             })
-            .await
-            .unwrap();
+            .await;
 
         finished
             .expect("removal waited for the repo queue")
@@ -1724,18 +1697,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn serialises_calls_on_one_worktree() {
+    async fn a_second_call_on_a_worktree_waits_for_the_first() {
         let git = git_with_env().await;
         let (_dir, repo) = init_repo();
-        let a = git.clone();
-        let b = git.clone();
-        let repo_a = repo.clone();
-        let repo_b = repo.clone();
-        let (left, right) = tokio::join!(
-            async move { a.status_porcelain(&repo_a).await },
-            async move { b.status_porcelain(&repo_b).await }
-        );
-        left.unwrap();
-        right.unwrap();
+        let overlapped = git
+            .with_queue(&repo, || {
+                tokio::time::timeout(Duration::from_millis(200), git.status_porcelain(&repo))
+            })
+            .await;
+        assert!(overlapped.is_err(), "ran while the worktree was busy");
+        git.status_porcelain(&repo).await.unwrap();
     }
 }

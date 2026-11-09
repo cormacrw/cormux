@@ -1,11 +1,11 @@
 use crate::error::Result;
 use crate::git::WorktreeDiff;
 use crate::llm::LlmClient;
-use crate::store::types::WorkspaceRow;
+use crate::workspaces::WorkspaceRecord;
 
 /// A description built from what's known when the model can't be asked: the goal the thread
-/// was started with (or the workspace name) and the first sentence of the card summary.
-pub fn fallback_why(workspace: &WorkspaceRow, goal: &str) -> String {
+/// was started with, or the workspace name.
+fn fallback_why(workspace: &WorkspaceRecord, goal: &str) -> String {
     let goal_trimmed = goal.trim().trim_end_matches('.').trim();
     let goal_source = if goal_trimmed.is_empty() {
         workspace.name.trim().trim_end_matches('.').trim()
@@ -16,22 +16,8 @@ pub fn fallback_why(workspace: &WorkspaceRow, goal: &str) -> String {
     if let Some(first) = goal_lower.chars().next() {
         goal_lower = first.to_lowercase().collect::<String>() + &goal_lower[first.len_utf8()..];
     }
-
-    let summary_sentence = workspace
-        .summary
-        .as_deref()
-        .and_then(|summary| summary.split(". ").next())
-        .map(|sentence| sentence.trim_end_matches('.').to_string())
-        .filter(|sentence| !sentence.is_empty());
-
-    match summary_sentence {
-        Some(summary) => format!("This change is needed to {goal_lower}. {summary}."),
-        None => format!("This change is needed to {goal_lower}."),
-    }
+    format!("This change is needed to {goal_lower}.")
 }
-
-/// Settings key for the instructions the drafting model gets; empty means the default.
-pub const PR_PROMPT_KEY: &str = "prPrompt";
 
 pub const DEFAULT_PR_PROMPT: &str = "Write the description for this pull request in GitHub-flavoured markdown. \
 Open with two or three sentences on why the change is necessary: the problem it solves and why it matters now. \
@@ -39,17 +25,16 @@ Then add a \"## What changed\" section with a short bullet list of the meaningfu
 and a \"## How it was tested\" section if the thread shows any testing. \
 Don't add a title, and don't invent details the thread and diff don't support.";
 
-/// The saved prompt, or the default when it's unset or blank.
-pub fn pr_prompt(saved: Option<String>) -> String {
-    saved
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty())
-        .unwrap_or_else(|| DEFAULT_PR_PROMPT.into())
+pub fn pr_prompt(saved: &str) -> String {
+    match saved.trim() {
+        "" => DEFAULT_PR_PROMPT.into(),
+        text => text.into(),
+    }
 }
 
 pub fn build_draft_prompt(
     instructions: &str,
-    workspace: &WorkspaceRow,
+    workspace: &WorkspaceRecord,
     base: &str,
     goal: &str,
     transcript: &str,
@@ -86,7 +71,7 @@ pub fn build_draft_prompt(
 pub async fn draft_why(
     llm: &LlmClient,
     instructions: &str,
-    workspace: &WorkspaceRow,
+    workspace: &WorkspaceRecord,
     base: &str,
     goal: &str,
     transcript: &str,
@@ -94,7 +79,7 @@ pub async fn draft_why(
 ) -> Result<(String, bool)> {
     let prompt = build_draft_prompt(instructions, workspace, base, goal, transcript, diff);
     match llm.complete(&prompt).await {
-        Ok(result) if !result.text.trim().is_empty() => Ok((result.text.trim().to_string(), true)),
+        Ok(text) if !text.trim().is_empty() => Ok((text.trim().to_string(), true)),
         _ => Ok((fallback_why(workspace, goal), false)),
     }
 }
@@ -103,51 +88,42 @@ pub async fn draft_why(
 mod tests {
     use super::*;
 
-    fn workspace(name: &str) -> WorkspaceRow {
-        WorkspaceRow {
+    fn workspace(name: &str) -> WorkspaceRecord {
+        WorkspaceRecord {
             id: "w1".into(),
             repo_id: "r1".into(),
+            repo_path: "/tmp/r1".into(),
             name: name.into(),
             branch: "feat/x".into(),
+            base: "main".into(),
             worktree_path: "/tmp/wt".into(),
-            status: "running".into(),
-            created_at: String::new(),
-            summary: Some("Adds idle timeout. Sessions are rejected after 30 minutes.".into()),
-            summary_at: None,
-            summary_source: "Haiku 4.5".into(),
-            kind: None,
-            pr_number: None,
-            pr_html_url: None,
-            modified_files: 2,
-            archived_at: None,
+            status: crate::model::WorkspaceLifecycle::Running,
+            kind: crate::model::WorkspaceKind::Lead,
+            activity: Default::default(),
         }
     }
 
     #[test]
     fn blank_prompt_falls_back_to_default() {
-        assert_eq!(pr_prompt(None), DEFAULT_PR_PROMPT);
-        assert_eq!(pr_prompt(Some("  \n".into())), DEFAULT_PR_PROMPT);
-        assert_eq!(pr_prompt(Some(" Be brief. ".into())), "Be brief.");
+        assert_eq!(pr_prompt(""), DEFAULT_PR_PROMPT);
+        assert_eq!(pr_prompt("  \n"), DEFAULT_PR_PROMPT);
+        assert_eq!(pr_prompt(" Be brief. "), "Be brief.");
     }
 
-    /// The fallback only ever says what the thread and summary say; a workspace that happens
-    /// to be named after a common topic gets no invented story about it.
+    /// The fallback only says what the goal says, never the intro Cormux wrote; a workspace
+    /// named after a common topic gets no invented story about it.
     #[test]
-    fn fallback_never_invents_details() {
-        let text = fallback_why(&workspace("Auth session timeout"), "");
+    fn fallback_says_only_the_goal_or_the_name() {
         assert_eq!(
-            text,
-            "This change is needed to auth session timeout. Adds idle timeout."
+            fallback_why(&workspace("Auth session timeout"), ""),
+            "This change is needed to auth session timeout."
         );
-    }
-
-    #[test]
-    fn fallback_builds_from_goal_and_summary() {
-        let text = fallback_why(
-            &workspace("Widget polish"),
-            "Fix the broken checkout button",
+        assert_eq!(
+            fallback_why(
+                &workspace("Widget polish"),
+                "Fix the broken checkout button."
+            ),
+            "This change is needed to fix the broken checkout button."
         );
-        assert!(text.contains("fix the broken checkout button"));
-        assert!(text.contains("Adds idle timeout"));
     }
 }

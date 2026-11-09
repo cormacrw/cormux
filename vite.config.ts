@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, type Plugin } from 'vite'
+import { bootAppearance } from './src/lib/state/appearance-tokens.ts'
 
 const host = process.env.TAURI_DEV_HOST
 
@@ -19,14 +20,29 @@ const commonDiffGrammars = (): Plugin => ({
   },
 })
 
+// index.html applies the saved appearance before the app loads, from the app's own values.
+const appearanceTokens = (): Plugin => ({
+  name: 'appearance-tokens',
+  transformIndexHtml(html) {
+    return html.replace(
+      '__APPEARANCE_TOKENS__',
+      JSON.stringify(bootAppearance()),
+    )
+  },
+})
+
 // https://v2.tauri.app/start/frontend/vite/
 export default defineConfig({
-  plugins: [commonDiffGrammars(), tailwindcss(), svelte()],
+  plugins: [appearanceTokens(), commonDiffGrammars(), tailwindcss(), svelte()],
   resolve: {
     alias: {
       $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
     },
   },
+  // Vite's dependency scan misses this one: it's only reached through the lazy diff view. Found
+  // on first use instead, it makes Vite re-bundle and reload every open page, which in e2e
+  // reloads every test in flight.
+  optimizeDeps: { include: ['@git-diff-view/svelte'] },
   clearScreen: false,
   server: {
     port: 1420,

@@ -22,21 +22,21 @@ async reloadEnvironment() : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async getMetrics() : Promise<Result<MemorySample, Error>> {
+/**
+ * A window of a thread's transcript: its newest rows by default, those after `after_seq` to
+ * catch up, or those before `before_seq` to scroll back.
+ */
+async getThreadEvents(threadId: string, afterSeq: number | null, beforeSeq: number | null, limit: number | null) : Promise<Result<TranscriptPage, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_metrics") };
+    return { status: "ok", data: await TAURI_INVOKE("get_thread_events", { threadId, afterSeq, beforeSeq, limit }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * A window of a thread's transcript: its newest rows by default, those after `after_seq` to
- * catch up, or those before `before_seq` to scroll back.
- */
-async getThreadEvents(threadId: string, afterSeq: number | null, beforeSeq: number | null, limit: number | null) : Promise<Result<ThreadEventPage, Error>> {
+async getThreadConversations(threadId: string) : Promise<Result<ThreadConversations, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_thread_events", { threadId, afterSeq, beforeSeq, limit }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_thread_conversations", { threadId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -61,7 +61,7 @@ async detectEngines() : Promise<Result<EngineStatus[], Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async sendThreadPrompt(threadId: string, text: string, attachments: PromptAttachment[]) : Promise<Result<null, Error>> {
+async sendThreadPrompt(threadId: string, text: string, attachments: PromptAttachment[]) : Promise<Result<SentMessage | null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("send_thread_prompt", { threadId, text, attachments }) };
 } catch (e) {
@@ -94,9 +94,7 @@ async resumeThread(threadId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Like `/clear`: the agent forgets the conversation and the thread starts a
- * fresh one. The step records the session it ended, so the conversation can
- * be resumed later (`resume_thread_session`).
+ * Like `/clear`: the agent forgets the conversation and the thread starts a fresh one.
  */
 async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
     try {
@@ -107,9 +105,8 @@ async newThreadSession(threadId: string) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Picks an earlier conversation in the thread back up: the agent resumes its
- * session, and the thread shows that conversation again. `conversation_id`
- * is the UI's id for it, echoed back in the step so the timeline can follow.
+ * Picks an earlier conversation in the thread back up: the thread shows it again, and the next
+ * prompt's engine resumes the session it ended with.
  */
 async resumeThreadSession(input: ResumeThreadSessionInput) : Promise<Result<null, Error>> {
     try {
@@ -119,9 +116,6 @@ async resumeThreadSession(input: ResumeThreadSessionInput) : Promise<Result<null
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * The models the thread's composer can pick from, and the current pick.
- */
 async threadModels(threadId: string) : Promise<Result<ThreadModels, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("thread_models", { threadId }) };
@@ -131,17 +125,19 @@ async threadModels(threadId: string) : Promise<Result<ThreadModels, Error>> {
 }
 },
 /**
- * `None` goes back to the engine's default. A live engine switches before its next turn.
- * The models an engine offers, for a thread that doesn't exist yet.
+ * The models a new thread can start on.
  */
-async engineModels(engine: string) : Promise<Result<ModelOption[], Error>> {
+async engineModels() : Promise<Result<ModelOption[], Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("engine_models", { engine }) };
+    return { status: "ok", data: await TAURI_INVOKE("engine_models") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * `None` goes back to the engine's default. A live engine switches before its next turn.
+ */
 async setThreadModel(threadId: string, model: string | null) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_thread_model", { threadId, model }) };
@@ -150,9 +146,6 @@ async setThreadModel(threadId: string, model: string | null) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * The effort levels the thread's composer can pick from, and the current pick.
- */
 async threadEfforts(threadId: string) : Promise<Result<ThreadModels, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("thread_efforts", { threadId }) };
@@ -162,11 +155,11 @@ async threadEfforts(threadId: string) : Promise<Result<ThreadModels, Error>> {
 }
 },
 /**
- * The effort levels an engine offers, for a thread that doesn't exist yet.
+ * The effort levels a new thread can start on.
  */
-async engineEfforts(engine: string) : Promise<Result<ModelOption[], Error>> {
+async engineEfforts() : Promise<Result<ModelOption[], Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("engine_efforts", { engine }) };
+    return { status: "ok", data: await TAURI_INVOKE("engine_efforts") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -183,7 +176,7 @@ async setThreadEffort(threadId: string, effort: string | null) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
-async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
+async resolveApproval(id: string, approved: boolean, denyReason: string | null) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("resolve_approval", { id, approved, denyReason }) };
 } catch (e) {
@@ -194,14 +187,6 @@ async resolveApproval(id: string, approved: boolean, denyReason: string | null) 
 async answerQuestion(id: string, answers: Partial<{ [key in string]: string }>) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("answer_question", { id, answers }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async resolveAllApprovals(threadId: string, approved: boolean, denyReason: string | null) : Promise<Result<ResolveApprovalResult, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("resolve_all_approvals", { threadId, approved, denyReason }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -241,7 +226,7 @@ async unsubscribe(id: number) : Promise<Result<null, Error>> {
 }
 },
 /**
- * Force-refresh the live diff snapshot for one workspace (branch switch, pull, etc.).
+ * Re-reads the workspace's changes now, after something outside the watcher moved them.
  */
 async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
     try {
@@ -251,10 +236,7 @@ async refreshWorkspaceDiff(workspaceId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Point the Changes panel at uncommitted work (`None`) or a branch against its base.
- */
-async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : Promise<Result<null, Error>> {
+async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : Promise<Result<WorktreeDiff, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_workspace_diff_target", { workspaceId, target }) };
 } catch (e) {
@@ -262,31 +244,9 @@ async setWorkspaceDiffTarget(workspaceId: string, target: DiffTarget | null) : P
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Throw away uncommitted changes to `paths` (all of them when empty), then refresh Changes.
- */
-async discardWorkspaceChanges(workspaceId: string, paths: string[]) : Promise<Result<null, Error>> {
+async discardWorkspaceChanges(workspaceId: string, path: string | null) : Promise<Result<null, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("discard_workspace_changes", { workspaceId, paths }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Generate or return a cached workspace card summary (debounced LLM + local fallback).
- */
-async summariseWorkspace(workspaceId: string) : Promise<Result<WorkspaceSummaryResult, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("summarise_workspace", { workspaceId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async syncPullRequests() : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("sync_pull_requests") };
+    return { status: "ok", data: await TAURI_INVOKE("discard_workspace_changes", { workspaceId, path }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -335,9 +295,6 @@ async clickupFolders(spaceId: string) : Promise<Result<ClickupOption[], Error>> 
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * The current sprint in the sprint folder chosen in Settings.
- */
 async clickupBoard() : Promise<Result<ClickupBoard, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("clickup_board") };
@@ -491,22 +448,6 @@ async pullWorkspace(workspaceId: string) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-async rebaseWorkspace(workspaceId: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("rebase_workspace", { workspaceId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async pushWorkspaceBranch(workspaceId: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("push_workspace_branch", { workspaceId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 /**
  * The PR prompt Settings shows until the user writes their own.
  */
@@ -593,9 +534,6 @@ async teardownWorkspace(input: TeardownInput) : Promise<Result<null, Error>> {
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Open the worktree in the terminal app picked in Settings (Terminal by default).
- */
 async openWorkspaceTerminal(workspaceId: string) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_workspace_terminal", { workspaceId }) };
@@ -607,6 +545,17 @@ async openWorkspaceTerminal(workspaceId: string) : Promise<Result<null, Error>> 
 async controlWorkspaceApp(input: ControlWorkspaceAppInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("control_workspace_app", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The workspace's own run command, set in its Output tab; blank runs the repo's.
+ */
+async setWorkspaceRunCommand(workspaceId: string, command: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_workspace_run_command", { workspaceId, command }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -644,21 +593,6 @@ async setRepoDefaultBranch(input: SetRepoDefaultBranchInput) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Fast-forward the repo checkout's default branch from origin.
- */
-async pullRepoDefaultBranch(repoId: string) : Promise<Result<null, Error>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("pull_repo_default_branch", { repoId }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Commits each repo's default branch is behind and ahead of `origin`, against the last
- * fetch. A repo with no `origin` copy of the branch reads as 0 and 0.
- */
 async getRepoGit() : Promise<Result<RepoGitRuntime[], Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_repo_git") };
@@ -691,9 +625,12 @@ async testRepoSetup(input: TestRepoSetupInput) : Promise<Result<TestRepoSetupRes
     else return { status: "error", error: e  as any };
 }
 },
-async setSetting(input: SetSettingInput) : Promise<Result<null, Error>> {
+/**
+ * Saves the fields `patch` sets and returns every setting as now stored.
+ */
+async updateSettings(patch: SettingsPatch) : Promise<Result<Settings, Error>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("set_setting", { input }) };
+    return { status: "ok", data: await TAURI_INVOKE("update_settings", { patch }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -719,7 +656,7 @@ async dismissWorkspaceFindings(input: DismissWorkspaceFindingsInput) : Promise<R
 }
 },
 /**
- * A thumbnail for an image attached by path, for the composer.
+ * A thumbnail for an image attached by path, for the composer: one the model is shown inline.
  */
 async imagePreview(path: string) : Promise<Result<string | null, Error>> {
     try {
@@ -759,40 +696,76 @@ async endScratch(scratchId: string) : Promise<Result<null, Error>> {
 
 export const events = __makeEvents__<{
 memorySampled: MemorySampled,
+menuChosen: MenuChosen,
+notificationRaised: NotificationRaised,
 stateChanged: StateChanged,
 toastRaised: ToastRaised
 }>({
 memorySampled: "memory-sampled",
+menuChosen: "menu-chosen",
+notificationRaised: "notification-raised",
 stateChanged: "state-changed",
 toastRaised: "toast-raised"
 })
 
 /** user-defined constants **/
 
-
+export const ATTACHED_LINE_PREFIX = "Attached: " as const;
+export const CONVERSATION_STEP_KINDS = ["sessionStarted","sessionResumed"] as const;
+export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
+export const ENGINE_EFFORTS = [{"id":"low","label":"Low"},{"id":"medium","label":"Medium"},{"id":"high","label":"High"},{"id":"xhigh","label":"Extra high"},{"id":"max","label":"Max"}] as const;
+export const ENGINE_MODELS = [{"id":"fable","label":"Fable"},{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"},{"id":"haiku","label":"Haiku"}] as const;
+export const FINDINGS_BLOCK_TAG = "cormux-findings" as const;
+export const FIRST_CONVERSATION = "first" as const;
+export const MEDIA_EXTENSIONS = {"gif":"image","jpeg":"image","jpg":"image","m4v":"video","mov":"video","mp4":"video","png":"image","webm":"video","webp":"image"} as const;
+export const MID_TURN_THREAD_STATUSES = ["running","paused"] as const;
+export const OUTPUT_LINE_CAP = 500 as const;
+export const TRANSCRIPT_KINDS = {"briefing":"message","currentTool":"current_tool","engineExited":"exit","messageChunk":"message","permission":"permission","plan":"plan","sessionStarted":"session","step":"tool","toolCall":"tool","toolCallUpdate":"tool_update","turnEnd":"turn_end","usage":"usage"} as const;
+export const TURN_ENDING_EVENTS = ["turnEnd","engineExited"] as const;
+export const WORKING_THREAD_STATUSES = ["running","provisioning"] as const;
 
 /** user-defined types **/
 
 export type AddRepoInput = { path: string }
 /**
- * One internal event every adapter translates into (COR-56).
+ * What an engine said, as every adapter translates it; see `EngineOutput` for the rest of what
+ * it reports.
  */
-export type AgentEvent = 
-/**
- * Never saved: the UI fell behind the stream and dropped `missed` events, which it can
- * read back from the store.
- */
-{ type: "streamLagged"; missed: number } | { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; name: string | null; kind: ToolKind; status: ToolCallStatus; locations: string[]; detail: string | null; parent_id?: string | null } | 
-/**
- * Something the core did in the thread rather than the agent; see [`TimelineStep`].
- */
-{ type: "step"; id: string; title: string; detail: string | null; step: TimelineStep } | { type: "plan"; entries: PlanStep[] } | { type: "permission"; id: string; tool_call_id: string | null; title: string; tool_name: string; kind: ToolKind; detail: string | null; auto_approved: boolean } | 
+export type AgentEvent = { type: "sessionStarted"; session_id: string } | { type: "messageChunk"; role: MessageRole; text: string } | { type: "toolCall"; id: string; title: string; role: ToolRole; status: ToolCallStatus; locations: string[]; detail: string | null; hidden?: boolean; parent_id?: string | null } | { type: "plan"; entries: PlanStep[] } | 
 /**
  * Fields an engine fills in after the first `ToolCall`, such as an edit's path.
  */
-{ type: "toolCallUpdate"; id: string; title: string | null; kind: ToolKind | null; status: ToolCallStatus | null; locations: string[]; output?: string | null } | { type: "currentTool"; id: string | null; title: string } | { type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited"; code: number | null }
-export type AppView = "homebase" | { workspace: { id: string } } | "settings"
-export type ApprovalRow = { id: string; threadId: string; status: string; tool: string; payload: string }
+{ type: "toolCallUpdate"; id: string; title: string | null; status: ToolCallStatus | null; locations: string[]; output?: string | null }
+/**
+ * One question an agent asks the user, in the shape Claude's question tool takes it.
+ */
+export type AgentQuestion = { question: string; header?: string; options?: QuestionOption[]; multiSelect?: boolean }
+/**
+ * What an approval card shows, and how it was answered. Stored as JSON in the approval's row.
+ */
+export type ApprovalPayload = { title: string; what?: string; why?: string; okLabel: string; noLabel: string; resolvedAtMs?: number | null; denyReason?: string | null; 
+/**
+ * What the agent asked; empty for an ordinary permission request.
+ */
+questions?: AgentQuestion[]; 
+/**
+ * The user's answers, keyed by question text.
+ */
+answers?: Partial<{ [key in string]: string }> }
+export type ApprovalRow = { id: string; threadId: string; status: ApprovalStatus; tool: string; 
+/**
+ * None when the stored card can't be read; the timeline falls back to the permission event.
+ */
+payload: ApprovalPayload | null }
+export type ApprovalStatus = "pending" | "approved" | "denied"
+/**
+ * A short name like `!test` that stands for a saved prompt.
+ */
+export type Bang = { id: string; 
+/**
+ * Without the `!`: lowercase letters, digits, `-` and `_`.
+ */
+name: string; prompt: string }
 /**
  * How a workspace came to be on another branch.
  */
@@ -801,21 +774,41 @@ export type BranchChange = { kind: "checkedOut"; previous: string } | { kind: "c
  * Noticed on disk: something other than Cormux moved the worktree.
  */
 { kind: "checkedOutOutside"; previous: string } | { kind: "addedToStack"; on_top_of: string } | { kind: "stackPushed" } | { kind: "stackSynced" }
-/**
- * What happened to a local branch the user asked to delete.
- */
 export type BranchDeletion = "deleted" | 
 /**
  * Not deleted: origin doesn't have the branch as it is locally, so deleting it
  * (with `force`) can lose commits.
  */
 "unpushed"
+export type BranchHold = { kind: "defaultBranch" } | 
+/**
+ * Live workspaces have it checked out, by name.
+ */
+{ kind: "checkedOutBy"; workspaces: string[] } | 
+/**
+ * The repo's own checkout is on it.
+ */
+{ kind: "repoHead" }
+/**
+ * A prompt the thread was started with that the timeline doesn't show: a review's instructions,
+ * which its checked-out-PR step stands for. Readers of what the user asked still see it.
+ */
+export type Briefing = { type: "briefing"; role: UserRole; text: string }
+/**
+ * What the webview has to re-read for a change, besides its snapshot, which it always
+ * refetches.
+ */
+export type Change = { 
+/**
+ * `origin` moved, so the repo rows' behind and ahead counts are stale.
+ */
+repoGit: boolean }
 /**
  * Everything the sprint board renders: the current sprint, its lanes and its tasks.
  */
 export type ClickupBoard = { sprint: ClickupSprint; statuses: ClickupStatus[]; tasks: ClickupTask[]; 
 /**
- * The API key's owner, so Homebase can pick out their in-progress tasks.
+ * The API key's owner, so the board's "mine" filter can pick out their tasks.
  */
 userId: number }
 /**
@@ -833,10 +826,26 @@ export type ClickupTask = { id: string; customId: string | null; name: string; s
 export type ClickupTaskDetail = { task: ClickupTask; description: string; tags: ClickupTag[]; creator: ClickupUser | null; listName: string | null; dueMs: number | null; createdMs: number | null; updatedMs: number | null }
 export type ClickupUser = { id: number; username: string; initials: string; color: string | null }
 export type ControlWorkspaceAppInput = { workspaceId: string; action: WorkspaceAppControlAction }
-export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number; title: string; head: string; base: string; author: string; authorIsYou: boolean; filesChanged: number; prHtmlUrl: string | null }
+/**
+ * A conversation the thread can go back to.
+ */
+export type ConversationSummary = { id: string; 
+/**
+ * The first thing you asked, to name it by.
+ */
+firstPrompt: string | null; prompts: number; lastAtMs: number }
+export type CreateReviewWorkspaceInput = { repoId: string; prNumber: number }
 export type CreateReviewWorkspaceResult = { workspaceId: string; created: boolean }
 export type CreateWorkspaceBranchInput = { workspaceId: string; branch: string }
-export type CreateWorkspaceInput = { repoId: string; name: string; branch: string; base: string; engine: string; goal: string; 
+export type CreateWorkspaceInput = { repoId: string; name: string; 
+/**
+ * Empty to have one drafted from the goal.
+ */
+branch: string; 
+/**
+ * `None` or blank starts from the repo's default branch.
+ */
+base: string | null; goal: string; 
 /**
  * The model to start on; `None` leaves the engine's default.
  */
@@ -856,7 +865,7 @@ export type DiffFile = { path: string;
 /**
  * Where a renamed or moved file came from.
  */
-oldPath: string | null; added: number; deleted: number; hunks: DiffHunk[]; 
+oldPath: string | null; status: FileStatus; added: number; deleted: number; hunks: DiffHunk[]; 
 /**
  * Set when the patch was too big to send whole; `hunks` is the part that fit.
  */
@@ -870,44 +879,140 @@ export type DiffTarget = {
  * A branch, or `HEAD` for whatever the worktree has checked out.
  */
 head: string; base: string }
-export type DiffUpdate = { workspaceId: string; path: string; diff: WorktreeDiff | null }
+export type DiffUpdate = { workspaceId: string; diff: WorktreeDiff | null }
 /**
  * Findings to dismiss, or (with `dismissed: false`) to restore.
  */
 export type DismissWorkspaceFindingsInput = { workspaceId: string; findingIds: string[]; dismissed: boolean }
-export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean }
+export type DraftPrWhyResult = { workspaceId: string; text: string; fromLlm: boolean; 
 /**
- * Engines Harness can spawn.
+ * The branch the PR will target: the base, or the branch below in a stack.
+ */
+base: string; 
+/**
+ * What the PR will show, against `base`.
+ */
+files: number; added: number; deleted: number }
+export type EditVerb = "Edited" | "Created" | "Deleted"
+/**
+ * The engine a thread runs on. Claude is the only one; the name is kept on threads and in
+ * settings so a second engine has somewhere to go.
  */
 export type EngineKind = "claude"
 export type EngineStatus = { kind: EngineKind; installed: boolean; binary: string | null; version: string | null; signedIn: boolean | null }
+export type EntityRow = { id: number; threadId: string; name: string; url: string; 
+/**
+ * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+ */
+createdAt: string }
 /**
  * Shared error type for the Rust core. Serialised as a tagged union so the
  * generated TypeScript bindings stay in lockstep with Rust.
  */
-export type Error = { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { operation: string; paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
-export type FindingRow = { id: string; workspaceId: string; severity: string; title: string; file: string | null; line: number | null; explanation: string; status: string; commitSha: string | null; sentToThreadId: string | null }
-export type GitConflictOperation = "merge" | "rebase"
-export type GitConflictState = { operation: GitConflictOperation; paths: string[] }
+export type Error = 
 /**
- * Lines added and deleted across a set of files.
+ * The request itself was wrong: a missing value, an unknown id, a finding in the wrong state.
  */
+{ kind: "Invalid"; message: string } | { kind: "Io"; message: string } | { kind: "ShellEnv"; message: string } | { kind: "Git"; message: string } | { kind: "GitConflict"; message: { paths: string[] } } | { kind: "Workspace"; message: string } | { kind: "Engine"; message: string } | { kind: "Approval"; message: string } | { kind: "Mcp"; message: string } | { kind: "Process"; message: string } | { kind: "Github"; message: string } | { kind: "Clickup"; message: string } | { kind: "Llm"; message: string } | { kind: "Store"; message: string } | { kind: "Metrics"; message: string }
+/**
+ * What happened to a file, as git reports it.
+ */
+export type FileStatus = "added" | "modified" | "deleted" | "renamed"
+export type FindingRow = { id: string; workspaceId: string; severity: FindingSeverity; title: string; file: string | null; line: number | null; explanation: string; status: FindingStatus; commitSha: string | null; sentToThreadId: string | null }
+export type FindingSeverity = 
+/**
+ * Must be fixed before merging.
+ */
+"blocking" | 
+/**
+ * Worth doing in this change.
+ */
+"suggestion" | 
+/**
+ * Optional polish.
+ */
+"nit"
+export type FindingStatus = "open" | 
+/**
+ * Sent to a thread to fix.
+ */
+"sent" | "fixed" | 
+/**
+ * Kept in the list, but not sent or posted.
+ */
+"dismissed"
+/**
+ * A merge stopped on these paths, waiting for the user to resolve or abort it.
+ */
+export type GitConflictState = { paths: string[] }
+/**
+ * What the host records about a thread's engine, as opposed to what the engine said: its turn
+ * ending or the engine exiting, a permission card it asked for, the thread's running usage, and
+ * the tool it waits on.
+ */
+export type HostEvent = { type: "permission"; id: string; tool_call_id: string | null; card: ApprovalPayload; tool: string; role: ToolRole; detail: string | null; auto_approved: boolean } | 
+/**
+ * What the agent is waiting on right now, for the thread's live row.
+ */
+{ type: "currentTool"; id: string | null; title: string } | 
+/**
+ * The tokens the last turn left in context, and the thread's cost so far.
+ */
+{ type: "usage"; used_tokens: number; context_size: number; cost_usd: number | null } | { type: "turnEnd"; stop_reason: string; error: string | null } | { type: "engineExited" }
 export type LineCounts = { added: number; deleted: number }
 /**
  * A local branch tip. `committed` is git's relative date ("2 hours ago").
  */
-export type LocalBranchRow = { name: string; committed: string; subject: string }
+export type LocalBranchRow = { name: string; committed: string; subject: string; hold: BranchHold | null }
 export type LocalBranchesResult = { 
 /**
- * Branch checked out in the repo itself. Empty when detached.
+ * Branch checked out in the repo itself; none when detached.
  */
-head: string; branches: LocalBranchRow[] }
-export type MemorySample = { totalBytes: number; perWorkspace: WorkspaceMemory[] }
+head: string | null; branches: LocalBranchRow[] }
+/**
+ * One line of a workspace's log: what a command printed, or what Cormux says about the run.
+ */
+export type LogEntry = { kind: LogKind; text: string }
+export type LogKind = 
+/**
+ * What a command printed.
+ */
+"output" | 
+/**
+ * A command Cormux started.
+ */
+"command" | 
+/**
+ * A point in the run: setup done, the app restarted, stopped or crashed.
+ */
+"marker" | 
+/**
+ * Cormux interrupted the app.
+ */
+"interrupt" | 
+/**
+ * Cormux telling you something about the run.
+ */
+"note" | 
+/**
+ * Cormux telling you something went differently than asked, like a port being taken.
+ */
+"warning"
+export type MediaKind = "image" | "video"
+export type MemorySample = { totalBytes: number }
 /**
  * A fresh memory reading. Carries its own data, so it needs no version or refetch.
  */
 export type MemorySampled = { sample: MemorySample }
-export type MessageRole = "user" | "agent" | "thought"
+/**
+ * The user picked `command` from the app's menu.
+ */
+export type MenuChosen = { command: MenuCommand }
+/**
+ * A menu item the webview acts on.
+ */
+export type MenuCommand = "commandPalette" | "newWorkspace" | "openSettings" | "reloadEnvironment"
+export type MessageRole = "agent" | "thought"
 /**
  * One entry in the composer's model or effort picker.
  */
@@ -916,7 +1021,21 @@ export type ModelOption = {
  * What the engine is told: a `--model` alias or `--effort` level for Claude.
  */
 id: string; label: string }
-export type PersistedSnapshot = { settings: SettingRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
+/**
+ * Something the user asked to hear about even while away: the webview shows it as a desktop
+ * notification when the window isn't in front, and focusing the app then opens its target.
+ */
+export type NotificationPayload = { body: string; workspaceId: string | null; 
+/**
+ * With `workspace_id`, opens this thread's tab.
+ */
+threadId: string | null; 
+/**
+ * With `workspace_id`, opens its Findings tab.
+ */
+opensFindings: boolean }
+export type NotificationRaised = { payload: NotificationPayload }
+export type PersistedSnapshot = { reviews: ReviewRow[]; repos: RepoRecord[]; workspaces: WorkspaceRow[]; threads: ThreadRow[]; 
 /**
  * Newest first.
  */
@@ -924,9 +1043,24 @@ scratches: ScratchRow[];
 /**
  * When each thread last moved; threads that never have are left out.
  */
-threadActivity: ThreadActivityRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; pullRequests: PrRow[] }
-export type PlanStep = { content: string; status: string }
-export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: string }
+threadActivity: ThreadActivityRow[]; approvals: ApprovalRow[]; findings: FindingRow[]; 
+/**
+ * The open threads' attached entities, oldest first.
+ */
+entities: EntityRow[]; pullRequests: PrRow[] }
+export type PlanStep = { content: string; status: PlanStepStatus }
+/**
+ * Where a plan step stands. Rows saved before this was typed hold `in_progress`; a word this
+ * build doesn't know reads as not started.
+ */
+export type PlanStepStatus = "inProgress" | "completed" | "pending"
+export type PrChecksState = "pass" | "fail" | "running" | 
+/**
+ * The PR has no status checks or check runs at all.
+ */
+"none"
+export type PrReviewState = "required" | "changes" | "approved" | "draft"
+export type PrRow = { id: string; repoId: string | null; number: number; title: string; payload: PullRequestPayload }
 export type PromptAttachment = { name: string; 
 /**
  * A file on disk, from the file picker or a drop.
@@ -936,80 +1070,283 @@ path: string | null;
  * The contents of a pasted file, which has no path.
  */
 dataBase64: string | null }
-export type PtyChunk = { workspaceId: string; line: string }
+export type PtyChunk = { workspaceId: string; entry: LogEntry }
+export type PullRequestPayload = { num: number; title: string; 
+/**
+ * GitHub login, or [`VIEWER_AUTHOR`] when the viewer authored the PR.
+ */
+author: string; head: string; base: string; updatedAt: string; checks: PrChecksState; review: PrReviewState; files: number; isDraft: boolean; htmlUrl: string; repoFullName: string; repoId: string | null }
+export type QuestionOption = { label: string; description?: string }
 export type RemoveRepoInput = { repoId: string }
 export type RenameWorkspaceInput = { workspaceId: string; name: string }
-export type RepoBranchesResult = { branches: string[] }
+/**
+ * A branch a workspace can check out, local or only on `origin`.
+ */
+export type RepoBranch = { name: string; 
+/**
+ * Why no workspace can take it now.
+ */
+hold: BranchHold | null }
+export type RepoBranchesResult = { branches: RepoBranch[] }
+/**
+ * A repo's committed setup, shown in Settings where its own is blank.
+ */
+export type RepoCommittedSetup = { repoId: string; setupCommands: string }
 /**
  * How far a repo's local default branch is from `origin`, as of the last fetch.
  */
 export type RepoGitRuntime = { repoId: string; behind: number; ahead: number }
-export type RepoRecord = { id: string; path: string; name: string; defaultBranch: string | null; setupCommands: string; runCommand: string | null; 
+export type RepoRecord = { id: string; path: string; name: string; 
+/**
+ * The branch workspaces start from and the checkout keeps: the one recorded, else
+ * [`crate::model::FALLBACK_DEFAULT_BRANCH`].
+ */
+defaultBranch: string; setupCommands: string; runCommand: string | null; 
 /**
  * Running the app in one workspace stops it in the repo's other workspaces.
  */
 singleInstance: boolean }
-export type ResolveApprovalResult = { focusComposer: boolean }
 /**
- * An earlier conversation to resume in a thread.
+ * A repo the webview should offer no Remove for, and why.
  */
+export type RepoRemovalBlock = { repoId: string; reason: string }
+/**
+ * A repo's run command, for the webview: what Run starts in its workspaces unless they set
+ * their own.
+ */
+export type RepoRunCommand = { repoId: string; command: string; source: RunCommandSource }
 export type ResumeThreadSessionInput = { threadId: string; 
 /**
- * The UI's id for the conversation, echoed back in the timeline.
+ * One of the thread's conversations; see [`crate::transcript::ThreadConversations`].
  */
-conversationId: string; 
+conversationId: string }
+export type ReviewRow = { workspaceId: string; 
 /**
- * The agent session it ended with; none starts the agent fresh.
+ * None before a branch review starts.
  */
-sessionId: string | null }
+status: ReviewStatus | null; 
+/**
+ * The review was posted to GitHub.
+ */
+submitted: boolean }
+export type ReviewStatus = 
+/**
+ * The Reviewer is reading the changes.
+ */
+"running" | 
+/**
+ * The findings are in.
+ */
+"ready"
+export type ReviewVerdict = "approve" | "requestChanges" | "comment"
+export type RunCommandSource = 
+/**
+ * The workspace's own, set in its Output tab.
+ */
+"workspace" | 
+/**
+ * The repo's, saved in Settings.
+ */
+"repo" | 
+/**
+ * The repo's committed `.cormux/config.json`.
+ */
+"config"
+/**
+ * A saved event as the timeline reads it.
+ */
+export type SavedEvent = { seq: number; 
+/**
+ * When it was saved, in Unix milliseconds.
+ */
+atMs: number; conversation: string; event: TranscriptEvent }
 /**
  * A titled one-off conversation against a repo checkout. Its thread's owner id is the scratch id.
  */
-export type ScratchRow = { id: string; repoId: string; title: string; threadId: string; engine: string; status: string; 
+export type ScratchRow = { id: string; repoId: string; title: string; threadId: string; engine: string; status: ThreadStatus; 
 /**
- * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+ * Unix milliseconds.
  */
-createdAt: string }
+createdAtMs: number }
 export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
+/**
+ * A message as the thread shows it, where the transcript saved it.
+ */
+export type SentMessage = { seq: number; 
+/**
+ * The text with any attachments named after it.
+ */
+text: string }
 export type SetRepoDefaultBranchInput = { repoId: string; defaultBranch: string }
 export type SetRepoRunCommandInput = { repoId: string; runCommand: string | null }
 export type SetRepoSetupCommandsInput = { repoId: string; setupCommands: string }
 export type SetRepoSingleInstanceInput = { repoId: string; singleInstance: boolean }
-export type SetSettingInput = { key: string; value: string }
-export type SettingRow = { key: string; value: string }
-export type Skill = { name: string; description: string; 
+export type Settings = { reduceMotion: boolean; 
 /**
- * `project` for the repo's own skills, `user` for `~/.claude/skills`, `plugin` for
- * those from Claude Code plugins, `builtin` for those that ship with Claude Code.
+ * Approve every tool request without asking. Questions still wait for the user.
  */
-source: string }
-export type Snapshot = { version: number; view: AppView; persisted: PersistedSnapshot; workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
+runEverything: boolean; 
 /**
- * In-memory broker queue (may exceed persisted pending rows).
+ * The experimental References panel, and the tool that pins links to it.
  */
-pendingLiveApprovals: number; 
+experimentalReferences: boolean; notifyApprovals: boolean; notifyReviewFinished: boolean; defaultEngine: EngineKind; 
 /**
- * True when a PAT is stored or `gh auth token` succeeds.
+ * Preferred repo id for new threads; it may have been removed since.
+ */
+defaultRepo: string; 
+/**
+ * The folder new worktrees go in, as the user typed it (`~` allowed). Blank saves the
+ * default folder.
+ */
+worktreeRoot: string; 
+/**
+ * The app Open in Terminal launches; empty means Terminal.
+ */
+terminalApp: string; 
+/**
+ * Instructions for drafting a PR description; empty means the built-in default.
+ */
+prPrompt: string; 
+/**
+ * `!name` prompts, for any prompt bar and the command palette.
+ */
+bangs: Bang[]; clickupWorkspaceId: string; clickupSpaceId: string; 
+/**
+ * The sprint folder the ClickUp board shows.
+ */
+clickupFolderId: string; 
+/**
+ * Board lanes the user folded away, by status name.
+ */
+clickupHiddenStatuses: string[] }
+export type SettingsPatch = { reduceMotion?: boolean | null; 
+/**
+ * Approve every tool request without asking. Questions still wait for the user.
+ */
+runEverything?: boolean | null; 
+/**
+ * The experimental References panel, and the tool that pins links to it.
+ */
+experimentalReferences?: boolean | null; notifyApprovals?: boolean | null; notifyReviewFinished?: boolean | null; defaultEngine?: EngineKind | null; 
+/**
+ * Preferred repo id for new threads; it may have been removed since.
+ */
+defaultRepo?: string | null; 
+/**
+ * The folder new worktrees go in, as the user typed it (`~` allowed). Blank saves the
+ * default folder.
+ */
+worktreeRoot?: string | null; 
+/**
+ * The app Open in Terminal launches; empty means Terminal.
+ */
+terminalApp?: string | null; 
+/**
+ * Instructions for drafting a PR description; empty means the built-in default.
+ */
+prPrompt?: string | null; 
+/**
+ * `!name` prompts, for any prompt bar and the command palette.
+ */
+bangs?: Bang[] | null; clickupWorkspaceId?: string | null; clickupSpaceId?: string | null; 
+/**
+ * The sprint folder the ClickUp board shows.
+ */
+clickupFolderId?: string | null; 
+/**
+ * Board lanes the user folded away, by status name.
+ */
+clickupHiddenStatuses?: string[] | null }
+export type Skill = { name: string; description: string; source: SkillSource }
+/**
+ * Where a skill comes from.
+ */
+export type SkillSource = 
+/**
+ * The repo's own, in `.claude/skills`.
+ */
+"project" | 
+/**
+ * `~/.claude/skills`.
+ */
+"user" | 
+/**
+ * From a Claude Code plugin, or synced from claude.ai.
+ */
+"plugin" | 
+/**
+ * Ships with Claude Code.
+ */
+"builtin"
+export type Snapshot = { version: number; settings: Settings; persisted: PersistedSnapshot; 
+/**
+ * Every live workspace, in the order they were created.
+ */
+workspaces: WorkspaceRecord[]; workspaceGit: WorkspaceGitRuntime[]; memory: MemorySample | null; 
+/**
+ * True when the last PR sync was signed in to `gh`, or, before one has run, when an earlier
+ * sync's time is stored.
  */
 githubAuthConfigured: boolean; 
 /**
- * Unix seconds string from the last successful PR sync, if any.
- */
-prSyncedAt: string | null; 
-/**
  * True when a ClickUp API key is saved. Every ClickUp surface hides without one.
  */
-clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[] }
+clickupConfigured: boolean; workspaceApps: WorkspaceAppRuntime[]; 
+/**
+ * Each repo's run command (its own, else its committed config's), for repos with one.
+ */
+repoRunCommands: RepoRunCommand[]; 
+/**
+ * Each repo's committed setup, which runs where Settings leaves its own blank.
+ */
+repoCommittedSetups: RepoCommittedSetup[]; 
+/**
+ * What Run starts in each live workspace (its own, else its repo's), for those with one.
+ */
+workspaceRunCommands: WorkspaceRunCommand[]; 
+/**
+ * Repos Remove would refuse now, and why.
+ */
+repoRemovalBlocks: RepoRemovalBlock[]; 
+/**
+ * Workspaces whose branch can't be switched now, and why.
+ */
+workspaceBranchLocks: WorkspaceBranchLock[]; 
+/**
+ * Workspaces whose branch can't be reviewed now, and why.
+ */
+workspaceReviewBlocks: WorkspaceReviewBlock[]; 
+/**
+ * Workspaces whose app Run can't start now, and why.
+ */
+workspaceRunBlocks: WorkspaceRunBlock[]; 
+/**
+ * Workspaces whose branch can't open a pull request now, and why.
+ */
+workspaceCreatePrBlocks: WorkspaceCreatePrBlock[]; 
+/**
+ * Each live workspace's own thread, for those with one.
+ */
+workspaceOwnThreads: WorkspaceOwnThread[]; 
+/**
+ * The live workspaces that need the user, by `workspaces::needs_attention`.
+ */
+workspacesNeedingAttention: string[]; 
+/**
+ * How many approvals wait on the user in each live workspace, for those with any.
+ */
+workspacePendingApprovals: WorkspacePendingApprovals[] }
 export type StackBranch = { name: string; 
 /**
  * The branch this one's pull request targets: the nearest unmerged branch below, or the trunk.
  */
-parent: string; files: number; additions: number; deletions: number; commits: number; current: boolean; merged: boolean; queued: boolean; needsRebase: boolean; pr: StackPullRequest | null }
-export type StackPullRequest = { number: number; url: string | null; 
+parent: string; files: number; additions: number; deletions: number; commits: number; current: boolean; merged: boolean; queued: boolean; needsRebase: boolean; pr: StackPullRequest | null; 
 /**
- * `OPEN`, `MERGED` or `QUEUED`, as gh-stack reports it.
+ * Why this workspace can't check it out (another has it, or the repo's checkout).
  */
-state: string }
+hold: BranchHold | null }
+export type StackPrState = "open" | "merged" | "queued"
+export type StackPullRequest = { number: number; url: string | null; state: StackPrState }
 export type StackStatus = 
 /**
  * The checked-out branch is in a gh-stack stack.
@@ -1024,51 +1361,67 @@ export type StackStatus =
  */
 "unavailable"
 /**
- * What changed. The webview refetches its snapshot for every kind but `Toast`, and also
- * refreshes the repo rows for `BehindCounts`; the rest only name the change for logs.
- */
-export type StateChangeKind = "workspaceStatus" | "approvalCounts" | "prSync" | "toast" | "behindCounts" | "environment" | "workspaceApp"
-/**
  * Low-volume core → UI notification. `version` is monotonic; a gap means the
  * webview should call `get_snapshot` and replace local state.
  */
-export type StateChanged = { version: number; kind: StateChangeKind }
+export type StateChanged = { version: number; change: Change }
 /**
- * An event on its way to the UI, with where the store saved it. `seq` is `None` for an event that
- * isn't saved, or failed to save, so the UI can tell it from rows it has already read back.
+ * Something the core did in the thread rather than the agent; see [`TimelineStep`].
  */
-export type StreamedEvent = { seq: number | null; event: AgentEvent }
-export type SubmitReviewVerdict = "approve" | "requestChanges" | "comment"
-export type SubmitWorkspaceReviewInput = { workspaceId: string; verdict: SubmitReviewVerdict }
+export type StepEvent = { type: "step"; id: string; title: string; detail: string | null; step: TimelineStep }
+/**
+ * The icons older builds drew their untyped steps with.
+ */
+export type StepIcon = "pause" | "play" | "stop" | "session" | "download" | "branch" | "pr" | "file" | "trash" | "database" | "check" | "list" | "tool"
+/**
+ * Never saved: the subscriber fell behind the stream and dropped `missed` events, which it can
+ * read back from the store.
+ */
+export type StreamLagged = { type: "streamLagged"; missed: number }
+/**
+ * An event on its way to a subscriber, with where the store saved it: `None` for a signal, or an
+ * event that failed to save.
+ */
+export type StreamedEvent = { seq: number | null; 
+/**
+ * The conversation it is in; see [`conversations`].
+ */
+conversation: string; event: TranscriptEvent }
+export type SubmitWorkspaceReviewInput = { workspaceId: string; verdict: ReviewVerdict }
 export type SwitchWorkspaceBranchInput = { workspaceId: string; branch: string }
-export type TeardownDataLoss = { uncommittedFiles: number; unpushedCommits: number; hasDataLoss: boolean; warning: string | null }
+export type TeardownDataLoss = { 
+/**
+ * The worktree teardown deletes has uncommitted changes, or git couldn't say, so the user
+ * confirms first. Unpushed commits alone don't ask: the branch is then kept by default.
+ */
+askFirst: boolean; warning: string | null }
 export type TeardownInput = { workspaceId: string; deleteBranch: boolean }
-export type TeardownPreview = { workspaceId: string; workspaceName: string; engineLabel: string; branch: string; worktreePath: string; appRunning: boolean; deleteBranchDefault: boolean; dataLoss: TeardownDataLoss }
+export type TeardownPreview = { workspaceId: string; workspaceName: string; branch: string; worktreePath: string; appRunning: boolean; deleteBranchDefault: boolean; dataLoss: TeardownDataLoss }
 export type TestRepoSetupInput = { repoId: string }
 export type TestRepoSetupResult = { ok: boolean; message: string }
 /**
  * The last message from the user or end of a turn. Streamed output doesn't count, so a working
  * thread holds its place in the sidebar.
  */
-export type ThreadActivityRow = { threadId: string; createdAt: string }
+export type ThreadActivityRow = { threadId: string; 
 /**
- * A window of a thread's transcript, oldest first.
+ * Unix milliseconds.
  */
-export type ThreadEventPage = { events: ThreadEventRow[]; 
+atMs: number }
 /**
- * Whether rows older than this window exist.
+ * The conversation showing now, and the earlier ones that can be resumed.
  */
-hasOlder: boolean }
-export type ThreadEventRow = { id: number; threadId: string; seq: number; kind: string; payload: string; 
+export type ThreadConversations = { current: string; 
 /**
- * SQLite `datetime('now')`, UTC, `YYYY-MM-DD HH:MM:SS`.
+ * The current conversation's oldest saved row, if it has one; a resumed conversation's
+ * start can be far older than the newest page.
  */
-createdAt: string }
-export type ThreadMedia = { 
+currentStartsAt: number | null; 
 /**
- * `image` or `video`.
+ * Those with something you asked, newest first.
  */
-kind: string; name: string; 
+earlier: ConversationSummary[] }
+export type ThreadMedia = { kind: MediaKind; name: string; 
 /**
  * The copy inside the media folder, loaded through the asset protocol.
  */
@@ -1082,7 +1435,20 @@ previewUrl: string | null }
  * engine's default).
  */
 export type ThreadModels = { current: string | null; options: ModelOption[] }
-export type ThreadRow = { id: string; workspaceId: string; title: string; engine: string; sessionId: string | null; status: string; usedTokens: number | null; contextSize: number | null; costUsd: number | null; transcriptReadonly: boolean; 
+/**
+ * What a workspace's own thread does there. Threads without one (a scratch's, or helpers from
+ * older builds) are stored with no role.
+ */
+export type ThreadRole = "lead" | "reviewer"
+export type ThreadRow = { id: string; workspaceId: string; 
+/**
+ * Display text. What the thread does is its `role`.
+ */
+title: string; 
+/**
+ * The workspace's own Lead or Reviewer; none for any other thread.
+ */
+role: ThreadRole | null; engine: string; sessionId: string | null; status: ThreadStatus; usedTokens: number | null; contextSize: number | null; costUsd: number | null; 
 /**
  * Kept to read but can't be continued: a workspace's older thread, or a scratch's.
  */
@@ -1091,32 +1457,105 @@ retired: boolean;
  * The thread that started this one through `create_thread`.
  */
 parentThreadId: string | null }
+export type ThreadStatus = "provisioning" | "running" | "paused" | "idle"
 /**
- * Something the core did in a thread. New kinds need a row in the UI's `STEP_PRESENTATION`.
+ * Something the core did in a thread. A new kind fails `pnpm check` until the UI's `STEP_ROW`
+ * (`src/lib/thread/timeline/fold.ts`) and `rows/step-icons.ts` give it a row.
  * Fields stay snake_case, like `AgentEvent`'s: specta exports them as written.
  */
 export type TimelineStep = { kind: "agentStopped" } | { kind: "agentPaused" } | { kind: "agentResumed" } | 
 /**
  * `ended_session` is what the conversation before it can be resumed from.
  */
-{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | 
+{ kind: "sessionStarted"; ended_session: string | null } | { kind: "sessionResumed"; conversation: string; ended_session: string | null } | { kind: "startedByThread"; workspace: string } | { kind: "messageFromThread"; workspace: string } | { kind: "reportFromThread"; title: string } | { kind: "fileDeleted"; path: string } | { kind: "migrationApplied" } | { kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | 
 /**
- * On the Reviewer's thread, when approving suggestions hands them over.
+ * No longer recorded: older builds could rebase a workspace onto its base.
  */
-{ kind: "suggestionsForwarded" } | { kind: "suggestionsSent"; approval_id: string; what: string } | { kind: "branchSwitched"; branch: string; change: BranchChange } | { kind: "commitsPulled"; count: number; base: string; branch: string } | { kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] }
+{ kind: "branchRebased"; branch: string; base: string; replayed_onto: number } | { kind: "worktreeCreated"; branch: string; base: string } | { kind: "worktreeReady"; repo: string; setup_commands: number } | { kind: "prOpened"; number: number; branch: string; base: string } | { kind: "prCheckedOut"; number: number; head: string; base: string; files_changed: number } | { kind: "reviewSubmitted"; number: number } | { kind: "reviewFindingsUnreadable"; reason: string } | 
+/**
+ * The review this thread ran found something; its card opens the Findings panel.
+ */
+{ kind: "reviewFindingsReady"; count: number } | { kind: "findingsReceived"; count: number; titles: string[] } | { kind: "findingsFixed"; count: number; files: string[] } | 
+/**
+ * A step an older build saved with only its English title, which drew it the way `icon`
+ * and `run` say: between turns, or among the agent's steps.
+ */
+{ kind: "legacy"; title: string; icon: StepIcon; run: boolean }
 export type ToastPart = { type: "text"; value: string } | { type: "code"; value: string }
 export type ToastRaised = { payload: ToastRaisedPayload }
 export type ToastRaisedPayload = { tone: ToastTone; parts: ToastPart[]; workspaceId: string | null; 
 /**
  * With `workspace_id`, clicking the toast opens this thread's tab.
  */
-threadId: string | null }
+threadId: string | null; 
+/**
+ * With `workspace_id`, clicking the toast opens its Findings tab.
+ */
+opensFindings: boolean }
 export type ToastTone = "ok" | "bad" | "default"
 export type ToolCallStatus = "pending" | "inProgress" | "completed" | "failed"
 /**
- * What a tool call does, whichever tool made it.
+ * What a tool call does, as an engine understands it, so nothing past the adapter reads meaning
+ * from a tool's name or title.
  */
-export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other"
+export type ToolRole = { kind: "read" } | { kind: "search" } | { kind: "edit"; verb: EditVerb } | 
+/**
+ * A shell command; `command` is empty when the engine didn't say which.
+ */
+{ kind: "command"; command: string; description: string | null } | { kind: "fetch"; url: string } | { kind: "webSearch"; query: string } | { kind: "skill"; name: string } | 
+/**
+ * A tool from an MCP server, both named as words.
+ */
+{ kind: "mcp"; server: string; action: string } | 
+/**
+ * Starts a subagent, whose own calls name this one as their parent.
+ */
+{ kind: "subagent"; description: string | null } | 
+/**
+ * The engine loading the schemas of tools it hasn't used yet.
+ */
+{ kind: "toolLookup" } | 
+/**
+ * Switching the session into plan mode, which only older threads did.
+ */
+{ kind: "planMode" } | { kind: "other"; name: string }
+/**
+ * One row of a thread's transcript. The wire form is the stored payload: each variant carries its
+ * own `type`, so they share one union in the UI.
+ */
+export type TranscriptEvent = StepEvent | UserMessage | Briefing | StreamLagged | AgentEvent | HostEvent
+/**
+ * A window of a thread's transcript, oldest first. Rows this build can't read are left out (and
+ * logged); the seqs bound every row read, so paging carries on past them.
+ */
+export type TranscriptPage = { events: SavedEvent[]; oldestSeq: number | null; newestSeq: number | null; hasOlder: boolean; hasNewer: boolean }
+export type UserMessage = { type: "messageChunk"; role: UserRole; text: string }
+export type UserRole = "user"
+/**
+ * What a workspace is doing that only the running app knows: how far its setup got. The webview
+ * words it, by the workspace's kind; what a review came to is the stored `review_state`.
+ */
+export type WorkspaceActivity = 
+/**
+ * Nothing beyond its lifecycle.
+ */
+{ kind: "none" } | 
+/**
+ * Making the worktree and running the repo's setup (a review: checking out the PR).
+ */
+{ kind: "settingUp" } | 
+/**
+ * Setup is done and the agent is launching with its first prompt.
+ */
+{ kind: "startingAgent" } | 
+/**
+ * The agent has its first prompt.
+ */
+{ kind: "agentStarted" } | 
+/**
+ * `command` and its exit code when a setup command failed, else setup failed before one ran.
+ */
+{ kind: "setupFailed"; command: string | null; exitCode: number | null }
 export type WorkspaceAppControlAction = "run" | "restart" | "stop" | "clear"
 export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppStatus; port: number | null; 
 /**
@@ -1124,20 +1563,73 @@ export type WorkspaceAppRuntime = { workspaceId: string; status: WorkspaceAppSta
  */
 https: boolean; exitCode: number | null }
 export type WorkspaceAppStatus = "stopped" | "starting" | "running" | "crashed"
-export type WorkspaceGitRuntime = { workspaceId: string; behind: number; ahead: number; conflict: GitConflictState | null }
 /**
- * Workspace lifecycle. `ready` is idle with no threads; running/idle/waiting
- * describe activity after provisioning.
+ * A workspace whose branch can't move now, and why, for the snapshot.
  */
-export type WorkspaceLifecycle = "creating" | "provisioning" | "ready" | "running" | "idle" | "waiting" | "tearingDown" | "gone" | "provisioningFailed"
-export type WorkspaceMemory = { workspaceId: string; bytes: number }
-export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; version: number; activity: string; provStep: number; setupFailedCommand: string | null; setupFailedExitCode: number | null }
-export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; worktreePath: string; status: string; createdAt: string; summary: string | null; summaryAt: string | null; summarySource: string; kind: string | null; prNumber: number | null; prHtmlUrl: string | null; modifiedFiles: number; archivedAt: string | null }
+export type WorkspaceBranchLock = { workspaceId: string; reason: string }
+/**
+ * A workspace that can't open a pull request now, and why, for the snapshot.
+ */
+export type WorkspaceCreatePrBlock = { workspaceId: string; reason: string }
+export type WorkspaceGitRuntime = { workspaceId: string; behind: number; conflict: GitConflictState | null }
+/**
+ * What a workspace is for. Stored as `lead` or `review`.
+ */
+export type WorkspaceKind = 
+/**
+ * A Lead works on its own branch.
+ */
+"lead" | 
+/**
+ * A Reviewer reads somebody's pull request.
+ */
+"review"
+/**
+ * A workspace's lifecycle. `ready` is set up with nothing run yet (or no threads); running,
+ * paused and idle then follow its threads (see `status_from_threads`).
+ */
+export type WorkspaceLifecycle = "provisioning" | "ready" | "running" | "paused" | "idle" | "tearingDown" | "provisioningFailed"
+export type WorkspaceOwnThread = { workspaceId: string; threadId: string }
+export type WorkspacePendingApprovals = { workspaceId: string; count: number }
+/**
+ * A workspace as the webview shows it: its row, plus what only the running app knows.
+ */
+export type WorkspaceRecord = { id: string; repoId: string; repoPath: string; name: string; branch: string; base: string; worktreePath: string; status: WorkspaceLifecycle; kind: WorkspaceKind; activity: WorkspaceActivity }
+/**
+ * A workspace whose branch can't be reviewed now, and why, for the snapshot.
+ */
+export type WorkspaceReviewBlock = { workspaceId: string; reason: string }
+export type WorkspaceRow = { id: string; repoId: string; name: string; branch: string; 
+/**
+ * The branch the workspace is compared with and pulls from.
+ */
+base: string; worktreePath: string; status: WorkspaceLifecycle; 
+/**
+ * Unix milliseconds.
+ */
+createdAtMs: number; 
+/**
+ * What the workspace's Lead shows above its thread, written by Cormux when setup is done.
+ */
+summary: string | null; summaryAt: string | null; kind: WorkspaceKind; prNumber: number | null; prHtmlUrl: string | null; archivedAt: string | null; 
+/**
+ * The workspace's own run command, which Run starts instead of the repo's.
+ */
+runCommand: string | null }
+/**
+ * A workspace whose app Run can't start now, and why, for the snapshot.
+ */
+export type WorkspaceRunBlock = { workspaceId: string; reason: string }
+export type WorkspaceRunCommand = { workspaceId: string; command: string; source: RunCommandSource }
 export type WorkspaceStack = { workspaceId: string; status: StackStatus; 
 /**
  * Why the stack is unavailable, for the panel to show.
  */
-message: string | null; trunk: string; currentBranch: string; 
+message: string | null; 
+/**
+ * What to run to make stacks available, when installing something would.
+ */
+installCommand: string | null; trunk: string; currentBranch: string; 
 /**
  * The checked-out branch is missing commits from the branch it's based on: the
  * one below it in the stack, or the trunk when it isn't stacked.
@@ -1146,8 +1638,11 @@ currentNeedsRebase: boolean;
 /**
  * Bottom of the stack (closest to the trunk) first.
  */
-branches: StackBranch[] }
-export type WorkspaceSummaryResult = { workspaceId: string; summary: string; summaryAt: string; summarySource: string; fromLlm: boolean }
+branches: StackBranch[]; 
+/**
+ * Why Add branch can't add here now, by the stack's shape; `None` when it can.
+ */
+addBlock: string | null }
 export type WorktreeDiff = { workspaceId: string; 
 /**
  * What the diff shows; `None` means uncommitted changes vs `HEAD`.

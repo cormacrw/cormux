@@ -41,3 +41,17 @@ test('the header keeps actions in ⋯ at any width, beside an icon Run button', 
   await expect(page.getByRole('button', { name: 'Run app' })).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('Run pressed from the keyboard leaves focus on the button, now Stop', async ({
+  page,
+}) => {
+  await setScenario(page, { runCommand: 'pnpm dev' })
+  await page.goto('/')
+  await page.getByRole('button', { name: /^OAuth login,/ }).click()
+  await page.getByRole('button', { name: 'Run app' }).focus()
+  await page.keyboard.press('Enter')
+
+  await expect(page.getByRole('button', { name: 'Stop app' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Run app' })).toBeFocused()
+})

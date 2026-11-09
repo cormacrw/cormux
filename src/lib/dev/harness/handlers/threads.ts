@@ -1,62 +1,37 @@
-import type { AgentEvent, PromptAttachment } from '$lib/ipc/bindings'
-import { fixtureSnapshot, fixtureTimeline } from '../../fixture-snapshot'
-import type { HarnessRuntime } from '../runtime'
-import { nextSeq } from '../seed'
-import type { HandlerSlice, Input } from '../types'
+import {
+  ENGINE_EFFORTS,
+  ENGINE_MODELS,
+  type PromptAttachment,
+} from '$lib/ipc/bindings'
+import {
+  eventPage,
+  sessionToResume,
+  shownMessage,
+  threadConversations,
+} from '../db'
+import { CHANGE, type HarnessRuntime } from '../runtime'
+import type { HandlerSlice, Input, Unsupported } from '../types'
 
-const MODELS = [
-  { id: 'fable', label: 'Fable' },
-  { id: 'opus', label: 'Opus' },
-  { id: 'sonnet', label: 'Sonnet' },
-  { id: 'haiku', label: 'Haiku' },
-]
+export const threadUnsupported = [
+  'pause_thread',
+  'resume_thread',
+] as const satisfies Unsupported
 
-const EFFORTS = [
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' },
-  { id: 'xhigh', label: 'Extra high' },
-  { id: 'max', label: 'Max' },
-]
+const MODELS = [...ENGINE_MODELS]
+const EFFORTS = [...ENGINE_EFFORTS]
 
 const PIXEL_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII='
 
-function findThread(threadId: string) {
-  return fixtureSnapshot.persisted.threads.find((row) => row.id === threadId)
-}
-
-/** Matches `thread_event_page` in the core's store. */
-function threadEventPage(args: {
-  threadId: string
-  afterSeq: number | null
-  beforeSeq: number | null
-  limit: number | null
-}) {
-  const rows = fixtureTimeline
-    .filter((row) => row.threadId === args.threadId)
-    .sort((a, b) => a.seq - b.seq)
-  const limit = args.limit ?? 2000
-  const after = args.afterSeq
-  const before = args.beforeSeq
-  const events =
-    after != null
-      ? rows.filter((row) => row.seq > after).slice(0, limit)
-      : rows.filter((row) => before == null || row.seq < before).slice(-limit)
-  const first = events[0]
-  return {
-    events,
-    hasOlder: first ? rows.some((row) => row.seq < first.seq) : false,
-  }
-}
-
 export function threadHandlers(runtime: HarnessRuntime) {
   const {
+    db,
     scenario,
     controls,
-    agentChannels,
     threadModels,
     threadEfforts,
+    append,
+    findThread,
     emitStateChanged,
   } = runtime
   // Stops the reply running in a thread, as interrupting the engine would.
@@ -66,49 +41,21 @@ export function threadHandlers(runtime: HarnessRuntime) {
   // the backend follows with a state-changed refetch.
   const streamReply = (threadId: string, text: string) => {
     let stopped = false
-    let seq = 0
-    const persist = (kind: string, event: object) => {
-      // Numbered at write time like the store: a stopped reply's timers keep writing here.
-      seq = nextSeq(threadId)
-      fixtureTimeline.push({
-        id: 900_000 + seq,
-        threadId,
-        seq,
-        kind,
-        payload: JSON.stringify(event),
-        createdAt: new Date().toISOString().replace('T', ' ').replace('Z', ''),
-      })
-    }
-    const send = (event: object) => {
-      const channel = agentChannels.get(threadId)
-      if (channel) runtime.send(channel, { seq, event })
-    }
     stopReply.set(threadId, () => {
       stopped = true
-      persist('turn_end', {
-        type: 'turnEnd',
-        stop_reason: 'cancelled',
-        error: null,
-      })
-      const row = findThread(threadId)
-      if (row) row.status = 'idle'
     })
-    persist('message', { type: 'messageChunk', role: 'user', text })
     // One tool call first, the way agents read before they answer.
     setTimeout(() => {
       if (stopped) return
-      const read = {
+      append(threadId, {
         type: 'toolCall',
-        id: `harness-read-${seq}`,
+        id: `harness-read-${runtime.newId()}`,
         title: 'Read',
-        name: null,
-        kind: 'read',
+        role: { kind: 'read' },
         status: 'completed',
         locations: ['src/lib/auth.ts'],
         detail: 'src/lib/auth.ts',
-      }
-      persist('tool', read)
-      send(read)
+      })
     }, 40)
     const slow = scenario.slowReply === true
     const wordMs = slow ? 40 : 10
@@ -123,13 +70,11 @@ export function threadHandlers(runtime: HarnessRuntime) {
       setTimeout(
         () => {
           if (stopped) return
-          const event = {
+          append(threadId, {
             type: 'messageChunk',
             role: 'agent',
             text: `${i ? ' ' : ''}${word}`,
-          }
-          persist('message', event)
-          send(event)
+          })
         },
         50 + i * wordMs,
       )
@@ -138,12 +83,14 @@ export function threadHandlers(runtime: HarnessRuntime) {
       () => {
         if (stopped) return
         stopReply.delete(threadId)
-        const end = { type: 'turnEnd', stop_reason: 'end_turn', error: null }
-        persist('turn_end', end)
-        send(end)
-        const lead = findThread(threadId)
-        if (lead) lead.status = 'idle'
-        emitStateChanged()
+        append(threadId, {
+          type: 'turnEnd',
+          stop_reason: 'end_turn',
+          error: null,
+        })
+        const thread = findThread(threadId)
+        if (thread) thread.status = 'idle'
+        emitStateChanged(CHANGE.state)
       },
       80 + words.length * wordMs,
     )
@@ -155,11 +102,19 @@ export function threadHandlers(runtime: HarnessRuntime) {
     resume: Input<'resume_thread_session'>['input'] | null,
   ) => {
     const thread = findThread(threadId)
+    const resumes = resume
+      ? sessionToResume(db, threadId, resume.conversationId)
+      : null
+    if (resumes === undefined) {
+      throw {
+        kind: 'Invalid',
+        message: `unknown conversation ${resume?.conversationId}`,
+      }
+    }
     const ended = thread?.sessionId ?? null
-    const seq = nextSeq(threadId)
-    const event = {
+    append(threadId, {
       type: 'step',
-      id: `step-${seq}`,
+      id: `step-${runtime.newId()}`,
       title: resume
         ? 'Resumed an earlier conversation'
         : 'Started a new session',
@@ -171,25 +126,20 @@ export function threadHandlers(runtime: HarnessRuntime) {
             ended_session: ended,
           }
         : { kind: 'sessionStarted', ended_session: ended },
-    } satisfies AgentEvent
-    fixtureTimeline.push({
-      id: 800_000 + seq,
-      threadId,
-      seq,
-      kind: 'tool',
-      payload: JSON.stringify(event),
-      createdAt: '2026-09-28 12:00:00',
     })
     if (thread) {
       thread.status = 'idle'
-      thread.sessionId = resume ? resume.sessionId : null
+      thread.sessionId = resumes
     }
-    emitStateChanged()
+    emitStateChanged(CHANGE.state)
     return null
   }
 
   return {
-    get_thread_events: threadEventPage,
+    get_thread_events: (args: Parameters<typeof eventPage>[1]) =>
+      eventPage(db, args),
+    get_thread_conversations: ({ threadId }: { threadId: string }) =>
+      threadConversations(db, threadId),
     subscribe_agent_events: ({
       threadId,
       channel,
@@ -197,7 +147,7 @@ export function threadHandlers(runtime: HarnessRuntime) {
       threadId: string
       channel: { id: number }
     }) => {
-      agentChannels.set(threadId, { id: channel.id, index: 0 })
+      runtime.agentChannels.set(threadId, { id: channel.id, index: 0 })
       return runtime.newId()
     },
     send_thread_prompt: (args: {
@@ -206,16 +156,43 @@ export function threadHandlers(runtime: HarnessRuntime) {
       attachments: PromptAttachment[]
     }) => {
       controls.prompts.push(args)
-      if (args.threadId === 'th-lead') {
-        const lead = findThread('th-lead')
-        if (lead) lead.status = 'running'
-        streamReply('th-lead', args.text)
+      const text = shownMessage(
+        args.text.trim(),
+        args.attachments.map((attachment) => attachment.name),
+      )
+      if (!text) return null
+      const seq = append(args.threadId, {
+        type: 'messageChunk',
+        role: 'user',
+        text,
+      })
+      const thread = findThread(args.threadId)
+      if (thread) {
+        thread.status = 'running'
+        thread.sessionId ??= `session-${runtime.newId()}`
       }
-      return null
+      emitStateChanged(CHANGE.state)
+      streamReply(args.threadId, args.text)
+      return { seq, text }
     },
     cancel_thread_turn: ({ threadId }: { threadId: string }) => {
       stopReply.get(threadId)?.()
       stopReply.delete(threadId)
+      append(threadId, {
+        type: 'turnEnd',
+        stop_reason: 'cancelled',
+        error: null,
+      })
+      append(threadId, {
+        type: 'step',
+        id: `step-${runtime.newId()}`,
+        title: 'You stopped the agent',
+        detail: null,
+        step: { kind: 'agentStopped' },
+      })
+      const thread = findThread(threadId)
+      if (thread) thread.status = 'idle'
+      emitStateChanged(CHANGE.state)
       return null
     },
     new_thread_session: ({ threadId }: { threadId: string }) =>
@@ -279,18 +256,14 @@ export function threadHandlers(runtime: HarnessRuntime) {
       answers: Record<string, string>
     }) => {
       controls.answered.push({ id, answers })
-      const row = fixtureSnapshot.persisted.approvals.find(
+      const row = db.snapshot.persisted.approvals.find(
         (entry) => entry.id === id,
       )
-      if (row) {
+      if (row?.payload) {
         row.status = 'approved'
-        row.payload = JSON.stringify({
-          ...JSON.parse(row.payload),
-          resolvedAtMs: Date.now(),
-          answers,
-        })
+        row.payload = { ...row.payload, resolvedAtMs: Date.now(), answers }
       }
-      emitStateChanged()
+      emitStateChanged(CHANGE.state)
       return null
     },
     resolve_approval: ({
@@ -302,23 +275,21 @@ export function threadHandlers(runtime: HarnessRuntime) {
       approved: boolean
       denyReason: string | null
     }) => {
-      const reason = denyReason ?? null
-      controls.resolved.push({ id, approved, denyReason: reason })
-      const row = fixtureSnapshot.persisted.approvals.find(
+      const row = db.snapshot.persisted.approvals.find(
         (entry) => entry.id === id,
       )
       if (row) {
-        const thread = findThread(row.threadId)
-        if (thread?.status === 'waiting') thread.status = 'running'
         row.status = approved ? 'approved' : 'denied'
-        row.payload = JSON.stringify({
-          ...JSON.parse(row.payload),
-          resolvedAtMs: Date.now(),
-          ...(reason ? { denyReason: reason } : {}),
-        })
+        if (row.payload) {
+          row.payload = {
+            ...row.payload,
+            resolvedAtMs: Date.now(),
+            ...(denyReason ? { denyReason } : {}),
+          }
+        }
       }
-      emitStateChanged()
-      return { focusComposer: false }
+      emitStateChanged(CHANGE.state)
+      return null
     },
     resolve_thread_media: ({ source }: { source: string }) => {
       const name = source.split('/').filter(Boolean).pop() ?? source

@@ -1,35 +1,41 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick, untrack } from 'svelte'
-  import { Button } from '$lib/components/ui/button'
   import {
-    app,
-    findings,
-    threadTimeline,
-    threads,
-    workspaceUi,
-  } from '$lib/state'
-  import { appearance } from '$lib/state/appearance.svelte'
+    sendToThread,
+    stopThread,
+    switchConversation,
+  } from '$lib/thread/actions'
+  import { commands } from '$lib/ipc'
+  import { plural, pluralWord } from '$lib/format/plural'
+  import { onDestroy } from 'svelte'
+  import { startsOver } from '$lib/core/owner-scoped'
+  import { Button } from '$lib/components/ui/button'
+  import { entities, prs, workspaceUi } from '$lib/state'
+  import { workspaceDiff } from '$lib/changes/diff-store.svelte'
+  import { threadTimeline } from '$lib/thread/timeline-store.svelte'
+  import { settings } from '$lib/settings/store.svelte'
+  import {
+    openWorkspace,
+    openWorkspaceFindings,
+    revealFileInWorkspace,
+  } from '$lib/nav/open'
+  import { wordmark } from '$lib/background/wordmark.svelte'
   import type { Thread } from '$lib/state/threads.svelte'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import { engineDisplayName } from '$lib/sidebar/engine'
-  import { newestAgentAnnouncement } from '$lib/thread/announce'
-  import { enterConversation } from '$lib/thread/conversation-motion'
-  import {
-    createEntryScope,
-    liveReplyId,
-    liveRunId,
-    liveThoughtId,
-  } from '$lib/thread/entering'
-  import { liveSubtitle, liveTitle } from '$lib/thread/map-events-to-timeline'
-  import { buildTimelineRows } from '$lib/thread/timeline-rows'
-  import { createVirtualizer } from '@tanstack/svelte-virtual'
+  import { engineDisplayName } from '$lib/engine/engines'
   import Pause from '@lucide/svelte/icons/pause'
+  import Bot from '@lucide/svelte/icons/bot'
   import AgentSpinner from './AgentSpinner.svelte'
-  import ThreadComposer from './ThreadComposer.svelte'
-  import ThreadFind from './ThreadFind.svelte'
-  import ThreadHero from './ThreadHero.svelte'
+  import ThreadComposer, { type ComposerTarget } from './ThreadComposer.svelte'
+  import ThreadComposerTools from './ThreadComposerTools.svelte'
+  import ThreadOptionPicker, {
+    threadOptions,
+  } from './ThreadOptionPicker.svelte'
+  import ThreadConversation from './ThreadConversation.svelte'
+  import ThreadHero, { showsHero } from './ThreadHero.svelte'
   import ThreadIntro from './ThreadIntro.svelte'
-  import TimelineMessages from './TimelineMessages.svelte'
+  import ThreadReferences from './ThreadReferences.svelte'
+  import type { ConversationSource } from './rows/context'
+  import type { ConversationSummary } from '$lib/ipc/bindings'
 
   let {
     workspace,
@@ -40,488 +46,214 @@
   } = $props()
 
   const threadId = $derived(thread.id)
-  let scrollEl: HTMLElement | undefined = $state()
-  let contentEl: HTMLElement | undefined = $state()
-  // Whether the reader is at the bottom; streamed replies grow a row without adding one,
-  // so follow height changes while pinned instead of only on new rows.
-  let pinnedToBottom = true
-  // The last scrollTop we saw or set, and when the reader last touched the thread. Only the
-  // reader moving up unpins: the virtual list also moves scrollTop up when rows re-measure.
-  let lastScrollTop = 0
-  let readerInputAt = 0
-  const READER_INPUT_MS = 500
-  let announceText = $state('')
-  let nowMs = $state(Date.now())
-  let prevItemCount = $state(0)
-  let prevThreadId = $state<string | null>(null)
-  let scrollToEndNext = $state(true)
-  let focusComposer = $state<(() => void) | null>(null)
 
-  const workspaceFindings = $derived(findings.forWorkspace(workspace.id))
-
-  const items = $derived(
-    threadTimeline.itemsForThread(
-      thread.id,
-      {
-        status: thread.status,
-        paused: thread.paused,
-        role: thread.role,
-        workspaceId: thread.workspaceId,
+  const diffFileByPath = $derived(
+    new Map(
+      (workspaceDiff.filesByWorkspace[workspace.id] ?? []).map((file) => [
+        file.path,
+        file,
+      ]),
+    ),
+  )
+  const source: ConversationSource = {
+    findPr: (repoFullName, num) => prs.find(repoFullName, num),
+    workspace: {
+      get id() {
+        return workspace.id
       },
-      workspaceFindings.length,
-    ),
-  )
-
-  // The live row floats above the prompt bar instead (see the composer's status).
-  const live = $derived(items.at(-1)?.kind === 'live')
-  const rows = $derived(
-    buildTimelineRows(
-      live ? items.slice(0, -1) : items,
-      thread.role,
-      engineDisplayName(thread.engine),
-    ),
-  )
-
-  const useVirtual = $derived(rows.length > 150)
-  const typingReplyId = $derived(liveReplyId(items))
-  const activeThoughtId = $derived(liveThoughtId(items))
-  const activeRunId = $derived(liveRunId(items))
-
-  // Earlier conversations in this thread (since new sessions), to resume.
-  const conversations = $derived(threadTimeline.conversations(thread.id))
-  const conversationId = $derived(conversations.current.id)
-  // Until its history is read a thread is blank, not empty.
-  const loaded = $derived(threadTimeline.isLoaded(thread.id))
-  const hasOlder = $derived(threadTimeline.olderByThread[thread.id] ?? false)
-  // An empty conversation shows a greeting instead of the last one's messages.
-  const showHero = $derived(loaded && items.length === 0)
-
-  // The backdrop's wordmark is away while a conversation's going (it only
-  // animates when one starts or is cleared; see glideWordmark).
-  $effect(() => {
-    if (loaded) appearance.wordmarkAway = !showHero
-  })
-
-  // The greeting offers earlier conversations to resume, however far back they are.
-  $effect(() => {
-    if (showHero && hasOlder) void threadTimeline.loadOlder(threadId)
-  })
-
-  let loadingOlder = $state(false)
-
-  async function showEarlier() {
-    const scroller = scrollEl
-    if (!scroller || loadingOlder) return
-    loadingOlder = true
-    pinnedToBottom = false
-    const height = scroller.scrollHeight
-    const top = scroller.scrollTop
-    await threadTimeline.loadOlder(threadId)
-    await tick()
-    // Stays on the same message as the rows above it appear.
-    scroller.scrollTop = top + scroller.scrollHeight - height
-    loadingOlder = false
+      get workdir() {
+        return workspace.worktreePath
+      },
+      diffFile: (path) => diffFileByPath.get(path),
+      revealFile: (path, line = null) =>
+        revealFileInWorkspace(workspace.id, threadId, path, line),
+      openFindings: () => openWorkspaceFindings(workspace.id, threadId),
+    },
   }
-  onDestroy(() => appearance.resetWordmark())
+  const view = $derived(threadTimeline.threadView(threadId))
+  const shown = $derived(workspaceUi.activeTab === 'thread')
+  const live = $derived(view.live)
+  const showHero = $derived(showsHero(view))
+  let conversation: ThreadConversation | undefined = $state()
 
-  // Snapshot what the thread already shows when it opens, or switches to another
-  // conversation; only rows after that animate. The thread object is replaced on
-  // every status change, so depend on the ids alone.
-  // Switching conversation within a thread (new session, resume) rises the new one in.
-  let shownConversation = ''
-  $effect(() => {
-    const key = `${threadId}:${conversationId}`
-    const previous = shownConversation
-    shownConversation = key
-    if (previous && previous !== key && previous.startsWith(`${threadId}:`)) {
-      void tick().then(enterConversation)
-    }
-  })
-  const entries = $derived.by(() => {
-    void threadId
-    void conversationId
-    // Rows read from the store were already there; older pages also renumber what's on screen.
-    void loaded
-    void threadTimeline.historyGeneration[threadId]
-    return untrack(() => createEntryScope(rows))
-  })
-
-  const liveRowTitle = $derived(
-    liveTitle({
-      status: thread.status,
-      paused: thread.paused,
-      activity: thread.activity,
-    }),
+  const threadEntities = $derived(
+    settings.values.experimentalReferences ? entities.forThread(thread.id) : [],
   )
 
-  const liveRowSubtitle = $derived(
-    liveSubtitle({
-      status: thread.status,
-      paused: thread.paused,
-      isLead: thread.role === 'Lead',
-      currentToolTitle: threadTimeline.currentToolByThread[thread.id] ?? null,
-      activity: thread.activity,
-    }),
-  )
-
-  const virtualizer = createVirtualizer<HTMLElement, Element>({
-    count: 0,
-    getScrollElement: () => scrollEl ?? null,
-    estimateSize: () => 96,
-    overscan: 8,
-  })
-
-  // When a row above the fold re-measures, the list shifts scrollTop from the offset it last
-  // saw, which lags our own writes, so following the end got yanked back up for a frame.
-  // While pinned the follow loop owns the scroll; scrolled up, the list keeps the reader's place.
-  Object.defineProperty(
-    $virtualizer,
-    'shouldAdjustScrollPositionOnItemSizeChange',
-    { get: () => (pinnedToBottom ? () => false : undefined) },
-  )
-
-  $effect(() => {
-    const count = rows.length
-    const element = scrollEl
-    untrack(() => {
-      $virtualizer.setOptions({
-        count,
-        getScrollElement: () => element ?? null,
-      })
-    })
-  })
-
-  $effect(() => {
-    if (threadId !== prevThreadId) {
-      prevThreadId = threadId
-      pinnedToBottom = true
-      scrollToEndNext = true
-      prevItemCount = 0
-    }
-  })
-
-  // Every chunk changes the items; resize notifications alone can be dropped.
-  $effect(() => {
-    void items
-    untrack(() => {
-      if (pinnedToBottom) keepFollowing()
-    })
-  })
-
-  $effect(() => {
-    const count = items.length
-    if (count > prevItemCount && prevItemCount > 0) {
-      const text = newestAgentAnnouncement(items, thread.role)
-      if (text) announceText = text
-      if (stillFollowing()) scrollToEndNext = true
-    }
-    prevItemCount = count
-  })
-
-  $effect(() => {
-    void app.threadId
-    void workspaceUi.activeTab
-    pinnedToBottom = true
-    scrollToEndNext = true
-  })
-
-  $effect(() => {
-    if (!scrollToEndNext || !scrollEl) return
-    queueMicrotask(() => {
-      followToEnd(scrollEl!)
-      scrollToEndNext = false
-      keepFollowing()
-    })
-  })
-
-  $effect(() => {
+  const listSkills = $derived.by(() => {
     const id = threadId
-    if (!id) return
-    return threadTimeline.watch(id)
+    return () => commands.listThreadSkills(id)
   })
+  const composer: ComposerTarget = $derived({
+    draftKey: threadId,
+    inputLabel: 'Message the agent',
+    sendLabel: 'Send to agent',
+    placeholder: `Message ${thread.role}…`,
+    disabled: false,
+    send: (text, _stay, attachments) =>
+      sendToThread(threadId, text, attachments),
+    listSkills,
+    promptHistory: view.promptHistory,
+    stop: thread.status === 'running' ? () => void stopThread(threadId) : null,
+    pickers: composerPickers,
+    tools: composerTools,
+  })
+
+  const AGENTS_SHOWN = 4
+  // The live status floats over the end of the timeline, which leaves room for all of it.
+  let liveStatusHeight = $state(0)
 
   $effect(() => {
-    const scroller = scrollEl
-    const content = contentEl
-    if (!scroller || !content) return
-    const onScroll = () => {
-      pinnedToBottom = !readerScrolledUp(scroller)
-      lastScrollTop = scroller.scrollTop
-    }
-    const onReaderInput = () => {
-      readerInputAt = performance.now()
-    }
-    // WebKit scrolls off the main thread, so the follow loop can land before scrollTop
-    // moves; an upward wheel unpins straight away instead of waiting for the scroll.
-    const onWheel = (event: WheelEvent) => {
-      onReaderInput()
-      if (event.deltaY < 0 && scroller.scrollTop > 0) pinnedToBottom = false
-    }
-    const inputs = ['touchmove', 'keydown', 'pointerdown'] as const
-    scroller.addEventListener('scroll', onScroll, { passive: true })
-    scroller.addEventListener('wheel', onWheel, { passive: true })
-    for (const name of inputs) {
-      scroller.addEventListener(name, onReaderInput, { passive: true })
-    }
-    followObserver.observe(content)
+    if (view.loaded) wordmark.showConversation(!showHero)
+  })
+
+  // The greeting offers the earlier conversations the core lists. A resumed conversation can
+  // start further back than what's loaded, so it reads back to where it starts.
+  let earlier = $derived<ConversationSummary[]>(startsOver(threadId, []))
+  $effect(() => {
+    if (!showHero) return
+    // Read again for each conversation the greeting stands in for.
+    void view.conversation.id
+    let stale = false
+    void threadTimeline.earlierConversations(threadId).then((found) => {
+      if (!stale) earlier = found
+    })
     return () => {
-      scroller.removeEventListener('scroll', onScroll)
-      scroller.removeEventListener('wheel', onWheel)
-      for (const name of inputs)
-        scroller.removeEventListener(name, onReaderInput)
-      followObserver.unobserve(content)
+      stale = true
     }
   })
 
-  // Follows the end as content grows. Virtual rows are positioned absolutely, so a row that
-  // grows (a reply typing out) can outrun the list's measured height; they're observed too.
-  // Observers fire after layout but before paint, so catching up here means the frame never
-  // shows the old offset; waiting for the next frame painted a jump on every re-measure.
-  const followObserver = new ResizeObserver(() => {
-    if (scrollEl && stillFollowing()) followToEnd(scrollEl)
-    keepFollowing()
-  })
-
-  // WebKit drops resize notifications when rows re-measure in the same frame, so once
-  // something grows, re-check every frame until the end has held still for a moment.
-  const SETTLE_FRAMES = 8
-  let followFrame = 0
-  let stillFrames = 0
-
-  function keepFollowing() {
-    stillFrames = 0
-    if (!followFrame) followFrame = requestAnimationFrame(followStep)
-  }
-
-  function followStep() {
-    followFrame = 0
-    const scroller = scrollEl
-    if (!scroller || !stillFollowing()) return
-    const behind =
-      scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
-    if (behind > 1) {
-      followToEnd(scroller)
-      stillFrames = 0
-    } else {
-      stillFrames += 1
-    }
-    if (stillFrames < SETTLE_FRAMES)
-      followFrame = requestAnimationFrame(followStep)
-  }
-
-  onDestroy(() => {
-    followObserver.disconnect()
-    cancelAnimationFrame(followFrame)
-  })
-
-  onMount(() => {
-    const timer = setInterval(() => {
-      nowMs = Date.now()
-    }, 60_000)
-    return () => clearInterval(timer)
-  })
-
-  function followToEnd(scroller: HTMLElement) {
-    scroller.scrollTop = scroller.scrollHeight
-    lastScrollTop = scroller.scrollTop
-  }
-
-  // Any upward move by the reader unpins, however small: trackpads scroll a few pixels per
-  // event, and following would snap each one back before it added up to a real distance.
-  function readerScrolledUp(scroller: HTMLElement) {
-    const byReader = performance.now() - readerInputAt < READER_INPUT_MS
-    if (byReader && scroller.scrollTop < lastScrollTop - 1) return true
-    const gap =
-      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
-    if (gap < 80) return false
-    return !pinnedToBottom
-  }
-
-  // Checked before the scroll event lands, so a row arriving right after the reader
-  // scrolls up doesn't pull them back down.
-  function stillFollowing() {
-    return pinnedToBottom && (!scrollEl || !readerScrolledUp(scrollEl))
-  }
-
-  // Measure real row heights (and re-measure on resize) instead of the 96px estimate.
-  function measureRow(node: HTMLElement) {
-    $virtualizer.measureElement(node)
-    followObserver.observe(node)
-    return { destroy: () => followObserver.unobserve(node) }
-  }
-
-  function openFindingsTab() {
-    workspaceUi.findingsFocusPending = true
-    workspaceUi.openTab('findings')
-  }
+  onDestroy(() => wordmark.reset())
 </script>
 
 <div
   id="thread-panel"
   data-od-id="thread-panel"
   class="relative flex min-h-0 flex-1 flex-col"
+  data-references={threadEntities.length > 0}
 >
-  <ThreadFind
-    {rows}
-    {contentEl}
-    scrollToRow={useVirtual
-      ? (index) => $virtualizer.scrollToIndex(index, { align: 'center' })
+  <ThreadConversation
+    bind:this={conversation}
+    {threadId}
+    role={thread.role}
+    engine={engineDisplayName(thread.engine)}
+    {source}
+    {shown}
+    contentClass={['pt-3', live ? 'pb-14' : 'pb-4']}
+    padBottom={live && liveStatusHeight
+      ? `calc(${liveStatusHeight}px + 1.75rem)`
       : undefined}
-    onScrollAway={() => {
-      pinnedToBottom = false
-    }}
-  />
-  <div
-    id="thread-scroll"
-    bind:this={scrollEl}
-    class="@container min-h-0 flex-1 overflow-y-auto"
   >
-    <div
-      bind:this={contentEl}
-      class={[
-        'mx-auto w-full max-w-[760px] px-4 pt-3 select-text',
-        // The greeting sits at the bottom, its box reaching down to the prompt
-        // bar so it can fall away behind it (see ThreadHero).
-        showHero
-          ? 'flex min-h-full flex-col overflow-clip'
-          : live
-            ? 'pb-14'
-            : 'pb-4',
-      ]}
-    >
-      {#if !loaded}
-        <!-- Reads in a moment; a greeting here would flash before the conversation. -->
-      {:else if showHero}
-        <ThreadHero
-          {thread}
-          {workspace}
-          {conversationId}
-          earlier={conversations.earlier}
-          {nowMs}
-        />
-      {:else}
-        <div data-conversation-part>
-          <ThreadIntro {thread} {workspace} {nowMs} />
+    {#snippet aside()}
+      {#if threadEntities.length}
+        <!-- Docks in the gutter beside the conversation, above the prompt bar. -->
+        <div class="references-dock">
+          <ThreadReferences entities={threadEntities} />
         </div>
       {/if}
-
-      {#if hasOlder && !showHero}
-        <div class="mt-3 flex justify-center">
-          <Button
-            variant="ghost"
-            size="sm"
-            data-od-id="thread-show-earlier"
-            disabled={loadingOlder}
-            onclick={showEarlier}
-          >
-            Show earlier messages
-          </Button>
-        </div>
-      {/if}
-
-      <ol
-        class={['mt-4 space-y-2', showHero && 'hidden']}
-        aria-label="Conversation"
-        id="timeline"
-        data-conversation-part
-      >
-        {#if useVirtual}
-          <div
-            style={`height: ${$virtualizer.getTotalSize()}px; position: relative;`}
-          >
-            {#each $virtualizer.getVirtualItems() as virtualRow (virtualRow.key)}
-              {@const row = rows[virtualRow.index]}
-              <div
-                data-index={virtualRow.index}
-                use:measureRow
-                class="pb-2"
-                style={`position: absolute; top: 0; left: 0; width: 100%; transform: translateY(${virtualRow.start}px);`}
-              >
-                {#if row}
-                  <TimelineMessages
-                    rows={[row]}
-                    engine={engineDisplayName(thread.engine)}
-                    workspaceId={workspace.id}
-                    findings={workspaceFindings}
-                    {nowMs}
-                    liveTitle={liveRowTitle}
-                    liveSubtitle={liveRowSubtitle}
-                    paused={thread.paused}
-                    {entries}
-                    liveReplyId={typingReplyId}
-                    {activeThoughtId}
-                    {activeRunId}
-                    onOpenFindings={openFindingsTab}
-                    onFocusComposer={() => focusComposer?.()}
-                  />
-                {/if}
-              </div>
-            {/each}
-          </div>
-        {:else}
-          <TimelineMessages
-            {rows}
-            engine={engineDisplayName(thread.engine)}
-            workspaceId={workspace.id}
-            findings={workspaceFindings}
-            {nowMs}
-            liveTitle={liveRowTitle}
-            liveSubtitle={liveRowSubtitle}
-            paused={thread.paused}
-            {entries}
-            liveReplyId={typingReplyId}
-            {activeThoughtId}
-            {activeRunId}
-            onOpenFindings={openFindingsTab}
-            onFocusComposer={() => focusComposer?.()}
-          />
-        {/if}
-      </ol>
-    </div>
-  </div>
+    {/snippet}
+    {#snippet hero(nowMs: number)}
+      <ThreadHero
+        greeting="{threadId}:{view.conversation.id}"
+        who={{
+          role: thread.role,
+          branch: workspace.branch,
+          workspace: workspace.name,
+        }}
+        {earlier}
+        {nowMs}
+        onResume={(to) => switchConversation(threadId, to)}
+      />
+    {/snippet}
+    {#snippet intro()}
+      <ThreadIntro {thread} {workspace} />
+    {/snippet}
+  </ThreadConversation>
 
   {#snippet liveStatus()}
+    {@const agents = live?.agents ?? []}
     <div
-      class="live-status glass-pane flex max-w-full min-w-0 items-center gap-2 rounded-full py-1.5 pr-3.5 pl-3 text-xs shadow-none"
-      data-od-id="live-status"
+      class="flex max-w-full min-w-0 flex-col items-start gap-1"
+      bind:clientHeight={liveStatusHeight}
     >
-      {#if thread.paused}
-        <Pause
-          class="size-3 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-      {:else}
-        <AgentSpinner class="mr-1" />
+      {#if agents.length}
+        <ul
+          class="live-status glass-pane max-w-full min-w-0 space-y-1 rounded-[14px] py-1.5 pr-3.5 pl-3 text-xs shadow-none"
+          data-od-id="running-agents"
+          aria-label="Running agents"
+        >
+          {#each agents.slice(0, AGENTS_SHOWN) as agent (agent.id)}
+            <li class="flex min-w-0 items-center gap-1.5">
+              <Bot
+                class="size-3 shrink-0 animate-pulse text-primary"
+                aria-hidden="true"
+              />
+              <span class="shrink-0 font-medium text-foreground/85"
+                >{agent.description}</span
+              >
+              {#if agent.latest}
+                <span
+                  class="truncate text-muted-foreground"
+                  title={agent.latest}>· {agent.latest}</span
+                >
+              {/if}
+              {#if agent.steps}
+                <span class="shrink-0 text-muted-foreground/70"
+                  >· {plural(agent.steps, 'step')}</span
+                >
+              {/if}
+            </li>
+          {/each}
+          {#if agents.length > AGENTS_SHOWN}
+            <li class="pl-[1.125rem] text-muted-foreground">
+              +{agents.length - AGENTS_SHOWN} more
+            </li>
+          {/if}
+        </ul>
       {/if}
-      <span
-        class={[
-          'shrink-0 font-medium text-foreground/85',
-          // Re-added on resume as the spinner remounts, so both restart the beat together.
-          !thread.paused && 'agent-working-text',
-        ]}>{liveRowTitle}</span
+      <div
+        class="live-status glass-pane flex max-w-full min-w-0 items-center gap-2 rounded-full py-1.5 pr-3.5 pl-3 text-xs shadow-none"
+        data-od-id="live-status"
       >
-      {#if liveRowSubtitle && liveRowSubtitle !== liveRowTitle}
-        <span class="truncate text-muted-foreground">· {liveRowSubtitle}</span>
-      {/if}
+        {#if live?.paused}
+          <Pause
+            class="size-3 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+        {:else}
+          <AgentSpinner class="mr-1" />
+        {/if}
+        <span
+          class={[
+            'shrink-0 font-medium text-foreground/85',
+            // Re-added on resume as the spinner remounts, so both restart the beat together.
+            !live?.paused && 'agent-working-text',
+          ]}>{live?.title}</span
+        >
+        {#if live?.subtitle && live.subtitle !== live.title}
+          <span class="truncate text-muted-foreground">· {live.subtitle}</span>
+        {/if}
+        {#if agents.length}
+          <span class="shrink-0 text-muted-foreground"
+            >· {agents.length}
+            {pluralWord(agents.length, 'agent')} running</span
+          >
+        {/if}
+      </div>
     </div>
   {/snippet}
-
-  <div id="thread-announce" class="sr-only" aria-live="polite">
-    {announceText}
-  </div>
 
   {#if thread.retired}
     <div class="px-1 pt-2 pb-4">
       <p
-        class="glass-pane mx-auto flex max-w-[760px] items-center justify-between gap-3 rounded-[18px] px-4 py-3 text-sm text-muted-foreground"
+        class="glass-pane mx-auto flex max-w-(--thread-column) items-center justify-between gap-3 rounded-[18px] px-4 py-3 text-sm text-muted-foreground"
         data-od-id="thread-read-only"
       >
         This earlier thread is read-only.
         <Button
           variant="secondary"
           size="sm"
-          onclick={() =>
-            (app.threadId = threads.liveFor(workspace.id)?.id ?? null)}
+          onclick={() => openWorkspace(workspace.id)}
         >
           Go to the current thread
         </Button>
@@ -529,19 +261,60 @@
     </div>
   {:else}
     <ThreadComposer
-      {thread}
-      newSession
+      target={composer}
+      {shown}
       status={live ? liveStatus : undefined}
-      bind:focusComposer
-      onSent={() => {
-        pinnedToBottom = true
-        scrollToEndNext = true
-      }}
+      onSent={() => conversation?.followEnd()}
     />
   {/if}
 </div>
 
+{#snippet composerPickers()}
+  <ThreadOptionPicker kind="model" source={threadOptions('model', threadId)} />
+  <ThreadOptionPicker
+    kind="effort"
+    source={threadOptions('effort', threadId)}
+  />
+{/snippet}
+{#snippet composerTools()}
+  <ThreadComposerTools {thread} />
+{/snippet}
+
 <style>
+  #thread-panel {
+    container: thread / inline-size;
+  }
+
+  /* Hidden until the pane is wide enough to hold it beside a readable conversation. */
+  .references-dock {
+    display: none;
+    position: absolute;
+    top: 0.75rem;
+    right: 1.25rem;
+    bottom: 0.75rem;
+    z-index: 5;
+    width: 248px;
+    flex-direction: column;
+    pointer-events: none;
+  }
+
+  .references-dock > :global(*) {
+    pointer-events: auto;
+  }
+
+  @container thread (min-width: 900px) {
+    .references-dock {
+      display: flex;
+    }
+  }
+
+  /* Short of a gutter that fits it, the conversation and prompt bar move over to make room. */
+  @container thread (min-width: 900px) and (max-width: 1319px) {
+    [data-references='true'] > :global(*) {
+      --references-gutter: 280px;
+    }
+  }
+
   /* Floats in a beat after a send, once a first prompt's greeting has fallen away. */
   .live-status {
     animation: live-status-in var(--dur-med) var(--ease-out-snappy) 400ms

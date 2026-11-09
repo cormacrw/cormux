@@ -1,44 +1,76 @@
+import type { Change, TranscriptEvent } from '$lib/ipc/bindings'
 import {
-  fixtureDiff,
-  fixtureSnapshot,
-  fixtureTimeline,
-} from '../fixture-snapshot'
+  appendEvent,
+  currentConversation,
+  findThread,
+  findWorkspace,
+  type HarnessDb,
+} from './db'
+import { createFixtures, LEAD_THREAD_ID } from './fixtures'
 import type { HarnessControls, HarnessScenario } from './scenario'
-import { nextSeq } from './seed'
+import { seedFixtures } from './seed'
 
 type Callback = (...args: unknown[]) => void
 
 export type HarnessChannel = { id: number; index: number }
 
-/** What the handlers share: the scenario, and Tauri's callback, channel and event plumbing. */
+/** The `Change` flags the core sends, by what moved. */
+export const CHANGE = {
+  /** Anything the snapshot carries. */
+  state: { repoGit: false },
+  /** `origin` moved too, so the repos' behind and ahead counts are stale. */
+  repoGit: { repoGit: true },
+} satisfies Record<string, Change>
+
+/**
+ * One browser session's core: its data, the scenario it started from, and Tauri's callback,
+ * channel and event plumbing.
+ */
 export type HarnessRuntime = ReturnType<typeof createRuntime>
 
 export function createRuntime(scenario: HarnessScenario) {
+  const db: HarnessDb = createFixtures()
+  seedFixtures(db, scenario)
   const callbacks = new Map<number, Callback>()
-  const eventListeners = new Map<string, number[]>()
+  /** Per event, each listener's id and the callback it calls. */
+  const eventListeners = new Map<string, Map<number, number>>()
   const agentChannels = new Map<string, HarnessChannel>()
   let nextCallbackId = 1
-  let nextEventId = 1
+  let nextId = 1
 
-  const newId = () => nextEventId++
+  const newId = () => nextId++
 
   const send = (channel: HarnessChannel, message: unknown) => {
     callbacks.get(channel.id)?.({ index: channel.index++, message })
   }
 
-  const emitStateChanged = () => {
-    for (const handler of eventListeners.get('state-changed') ?? []) {
-      callbacks.get(handler)?.({
-        event: 'state-changed',
-        id: newId(),
-        payload: { version: nextEventId, kind: 'workspaceStatus' },
+  const append = (threadId: string, event: TranscriptEvent) => {
+    const { seq } = appendEvent(db, threadId, event)
+    const channel = agentChannels.get(threadId)
+    if (channel) {
+      send(channel, {
+        seq,
+        conversation: currentConversation(db, threadId),
+        event,
       })
     }
+    return seq
+  }
+
+  const emit = (event: string, payload: unknown) => {
+    for (const handler of eventListeners.get(event)?.values() ?? []) {
+      callbacks.get(handler)?.({ event, id: newId(), payload })
+    }
+  }
+
+  /** Like the core's notifier: numbered one after the snapshot's version, which it moves. */
+  const emitStateChanged = (change: Change) => {
+    db.snapshot.version += 1
+    emit('state-changed', { version: db.snapshot.version, change })
   }
 
   const controls: HarnessControls = {
     prompts: [],
-    resolved: [],
     answered: [],
     opened: [],
     openedTerminal: null,
@@ -46,38 +78,66 @@ export function createRuntime(scenario: HarnessScenario) {
     clickupCalls: [],
     stackRemoteUp: false,
     setStatus(name, status) {
-      for (const row of fixtureSnapshot.workspaces) {
-        if (row.name === name) row.status = status as typeof row.status
+      for (const record of db.snapshot.workspaces) {
+        if (record.name === name) record.status = status
       }
-      emitStateChanged()
+      emitStateChanged(CHANGE.state)
+    },
+    setThreadStatus(threadId, status) {
+      const thread = findThread(db, threadId)
+      if (thread) thread.status = status
+      emitStateChanged(CHANGE.state)
+    },
+    requestApproval(threadId) {
+      const approvals = db.snapshot.persisted.approvals
+      approvals.push({
+        id: `approval-${approvals.length + 1}`,
+        threadId,
+        status: 'pending',
+        tool: 'execute',
+        payload: {
+          title: 'Run a command',
+          what: 'pnpm test',
+          why: 'Bash',
+          okLabel: 'Approve',
+          noLabel: 'Deny',
+        },
+      })
+      emitStateChanged(CHANGE.state)
     },
     agentEvents(events) {
       for (const event of events) {
-        const seq = nextSeq('th-lead')
-        const { type } = event as { type: string }
-        const kind = type === 'toolCall' || type === 'step' ? 'tool' : 'message'
-        fixtureTimeline.push({
-          id: 950_000 + seq,
-          threadId: 'th-lead',
-          seq,
-          kind,
-          payload: JSON.stringify(event),
-          createdAt: new Date()
-            .toISOString()
-            .replace('T', ' ')
-            .replace('Z', ''),
-        })
-        const channel = agentChannels.get('th-lead')
-        if (channel) send(channel, { seq, event })
+        append(LEAD_THREAD_ID, event as TranscriptEvent)
       }
+    },
+    appRunning(workspaceId, lines) {
+      const apps = db.snapshot.workspaceApps.filter(
+        (row) => row.workspaceId !== workspaceId,
+      )
+      apps.push({
+        workspaceId,
+        status: 'running',
+        port: 5173,
+        https: false,
+        exitCode: null,
+      })
+      db.snapshot.workspaceApps = apps
+      emitStateChanged(CHANGE.state)
+      const channel = runtime.ptyChannels.get(workspaceId)
+      if (!channel) return
+      for (const text of lines) {
+        send(channel, { workspaceId, entry: { kind: 'output', text } })
+      }
+    },
+    chooseMenu(command) {
+      emit('menu-chosen', { command })
     },
     commit() {
       if (!runtime.diffChannel) return
       send(runtime.diffChannel, {
-        workspaceId: fixtureDiff.workspaceId,
-        path: '',
+        workspaceId: db.diff.workspaceId,
         diff: {
-          ...fixtureDiff,
+          ...db.diff,
           files: [],
           uncommitted: { added: 0, deleted: 0 },
         },
@@ -86,11 +146,17 @@ export function createRuntime(scenario: HarnessScenario) {
   }
 
   const runtime = {
+    db,
     scenario,
     newId,
     send,
+    append,
     emitStateChanged,
+    findThread: (threadId: string) => findThread(db, threadId),
+    findWorkspace: (workspaceId: string) => findWorkspace(db, workspaceId),
     agentChannels,
+    /** Output's subscriptions, by workspace. */
+    ptyChannels: new Map<string, HarnessChannel>(),
     /** Changes' subscription to the fixture workspace, once it has one. */
     diffChannel: null as HarnessChannel | null,
     controls,
@@ -98,7 +164,13 @@ export function createRuntime(scenario: HarnessScenario) {
     threadModels: new Map<string, string | null>(),
     threadEfforts: new Map<string, string | null>(),
     listen(event: string, handler: number) {
-      eventListeners.set(event, [...(eventListeners.get(event) ?? []), handler])
+      const id = newId()
+      const listeners = eventListeners.get(event) ?? new Map<number, number>()
+      eventListeners.set(event, listeners.set(id, handler))
+      return id
+    },
+    unlisten(event: string, id: number) {
+      eventListeners.get(event)?.delete(id)
     },
     transformCallback(callback?: Callback, once = false) {
       const id = nextCallbackId++

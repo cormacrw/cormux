@@ -1,52 +1,36 @@
-import type { AgentEvent } from '$lib/ipc/bindings'
-import { fixtureSnapshot, fixtureTimeline } from '../fixture-snapshot'
+import type { TranscriptEvent } from '$lib/ipc/bindings'
+import { appendEvent, findThread, findWorkspace, type HarnessDb } from './db'
+import {
+  LEAD_THREAD_ID,
+  leadThreadFixture,
+  NO_RUN_COMMAND,
+  REPO_ID,
+  WORKSPACE_ID,
+  workspaceFixture,
+} from './fixtures'
 import type { HarnessScenario } from './scenario'
 
-/** The next `seq` in a thread: the store numbers rows at write time. */
-export function nextSeq(threadId: string) {
-  return (
-    Math.max(
-      0,
-      ...fixtureTimeline
-        .filter((row) => row.threadId === threadId)
-        .map((row) => row.seq),
-    ) + 1
-  )
+const SEEDED_AT = '2026-09-28 12:00:00'
+
+/** As the engine does when it starts talking: the thread now has a session to resume or clear. */
+function startLeadSession(db: HarnessDb) {
+  findThread(db, LEAD_THREAD_ID)!.sessionId ??= 'session-seeded'
 }
 
-function seedLongThread(turns: number) {
-  let id = 100_000
-  let seq = 0
-  const push = (kind: string, event: object) => {
-    seq += 1
-    id += 1
-    fixtureTimeline.push({
-      id,
-      threadId: 'th-lead',
-      seq,
-      kind,
-      payload: JSON.stringify(event),
-      createdAt: '2026-09-28 12:00:00',
-    })
-  }
+function seedLongThread(db: HarnessDb, turns: number) {
+  const push = (event: TranscriptEvent) =>
+    appendEvent(db, LEAD_THREAD_ID, event, SEEDED_AT)
+  startLeadSession(db)
   for (let turn = 1; turn <= turns; turn += 1) {
-    push('message', {
-      type: 'messageChunk',
-      role: 'user',
-      text: `Question ${turn}`,
-    })
-    push('message', {
-      type: 'messageChunk',
-      role: 'agent',
-      text: `Answer ${turn}`,
-    })
-    push('turn_end', { type: 'turnEnd', stop_reason: 'end_turn', error: null })
+    push({ type: 'messageChunk', role: 'user', text: `Question ${turn}` })
+    push({ type: 'messageChunk', role: 'agent', text: `Answer ${turn}` })
+    push({ type: 'turnEnd', stop_reason: 'end_turn', error: null })
   }
   // Switching away from a branch and back writes two notes with the same title.
   const switches = ['feat/test', 'feat/colors', 'feat/test']
   switches.forEach((branch, index) => {
     const previous = switches[index - 1] ?? 'main'
-    push('tool', {
+    push({
       type: 'step',
       id: `step-switch-${index}`,
       title: `Switched to \`${branch}\``,
@@ -56,87 +40,165 @@ function seedLongThread(turns: number) {
         branch,
         change: { kind: 'checkedOut', previous },
       },
-    } satisfies AgentEvent)
+    })
   })
 }
 
-function seedReviewFindings(findings: HarnessScenario['reviewFindings']) {
-  const persisted = fixtureSnapshot.persisted
-  const row = persisted.workspaces.find(
-    (workspace) => workspace.id === 'ws-auth',
-  )!
-  row.kind = 'review'
-  row.prNumber = 2
-  persisted.threads.find((thread) => thread.id === 'th-lead')!.title =
-    'Reviewer'
-  persisted.findings = findings!
-  persisted.settings = [
-    ...persisted.settings,
-    { key: 'review:ws-auth/status', value: 'ready' },
+function seedReviewFindings(
+  db: HarnessDb,
+  findings: NonNullable<HarnessScenario['reviewFindings']>,
+) {
+  const persisted = db.snapshot.persisted
+  const { row, record } = findWorkspace(db, WORKSPACE_ID)
+  row!.kind = 'review'
+  row!.prNumber = 2
+  record!.kind = 'review'
+  Object.assign(findThread(db, LEAD_THREAD_ID)!, {
+    title: 'Reviewer',
+    role: 'reviewer',
+  })
+  persisted.findings = findings
+  db.snapshot.workspaceReviewBlocks = [
+    {
+      workspaceId: WORKSPACE_ID,
+      reason:
+        'This is a review workspace; its Reviewer already reviews the PR.',
+    },
   ]
+  db.snapshot.workspaceCreatePrBlocks = [
+    {
+      workspaceId: WORKSPACE_ID,
+      reason:
+        'A review workspace submits a review rather than opening a pull request.',
+    },
+  ]
+  persisted.reviews = [
+    { workspaceId: WORKSPACE_ID, status: 'ready', submitted: false },
+  ]
+  // The core records the card in the thread that ran the review.
+  appendEvent(
+    db,
+    LEAD_THREAD_ID,
+    {
+      type: 'step',
+      id: 'step-findings-ready',
+      title: `Review found ${findings.length} findings`,
+      detail: null,
+      step: { kind: 'reviewFindingsReady', count: findings.length },
+    },
+    SEEDED_AT,
+  )
 }
 
-function seedLeadUsage(usage: NonNullable<HarnessScenario['leadUsage']>) {
-  Object.assign(
-    fixtureSnapshot.persisted.threads.find(
-      (thread) => thread.id === 'th-lead',
-    )!,
-    usage,
-  )
+function seedLeadUsage(
+  db: HarnessDb,
+  usage: NonNullable<HarnessScenario['leadUsage']>,
+) {
+  Object.assign(findThread(db, LEAD_THREAD_ID)!, usage)
+  startLeadSession(db)
   // As a real turn does, log the usage it reported, stamped now.
-  fixtureTimeline.push({
-    id: Math.max(0, ...fixtureTimeline.map((row) => row.id)) + 1,
-    threadId: 'th-lead',
-    seq: nextSeq('th-lead'),
-    kind: 'usage',
-    payload: JSON.stringify({
-      type: 'usage',
-      used_tokens: usage.usedTokens ?? 0,
-      context_size: usage.contextSize ?? 0,
-      cost_usd: usage.costUsd,
-    }),
-    createdAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+  appendEvent(db, LEAD_THREAD_ID, {
+    type: 'usage',
+    used_tokens: usage.usedTokens ?? 0,
+    context_size: usage.contextSize ?? 0,
+    cost_usd: usage.costUsd,
   })
 }
 
-/** Shapes the fixtures to the scenario, before the app first reads them. */
-export function seedFixtures(scenario: HarnessScenario) {
-  const persisted = fixtureSnapshot.persisted
+/** The repo's run command, and what the core resolves Run to in each of its workspaces. */
+function seedRunCommand(db: HarnessDb, command: string) {
+  const { snapshot } = db
+  const repo = snapshot.persisted.repos.find((row) => row.id === REPO_ID)!
+  repo.runCommand = command
+  snapshot.repoRunCommands = [{ repoId: REPO_ID, command, source: 'repo' }]
+  const ids = snapshot.persisted.workspaces
+    .filter((row) => row.repoId === REPO_ID)
+    .map((row) => row.id)
+  snapshot.workspaceRunCommands = ids.map((workspaceId) => ({
+    workspaceId,
+    command,
+    source: 'repo' as const,
+  }))
+  snapshot.workspaceRunBlocks = snapshot.workspaceRunBlocks.filter(
+    (block) => !ids.includes(block.workspaceId),
+  )
+}
+
+/** Shapes a session's fresh fixtures to the scenario, before the app first reads them. */
+export function seedFixtures(db: HarnessDb, scenario: HarnessScenario) {
+  const { snapshot } = db
+  const persisted = snapshot.persisted
+  const repo = persisted.repos.find((row) => row.id === REPO_ID)!
   if (scenario.longThread && scenario.longThread > 0)
-    seedLongThread(scenario.longThread)
+    seedLongThread(db, scenario.longThread)
   if (scenario.secondRepo) {
     persisted.repos.push({
-      ...persisted.repos[0]!,
+      ...repo,
       id: 'api',
       name: 'api',
       path: '/tmp/cormux-fixture/api',
     })
   }
   if (scenario.timeline) {
-    const others = fixtureTimeline.filter((row) => row.threadId !== 'th-lead')
-    fixtureTimeline.length = 0
-    fixtureTimeline.push(...others, ...scenario.timeline)
+    db.timeline = [
+      ...db.timeline.filter((row) => row.threadId !== LEAD_THREAD_ID),
+      ...scenario.timeline,
+    ]
+    if (scenario.timeline.length > 0) startLeadSession(db)
   }
   if (scenario.approvals) persisted.approvals = scenario.approvals
-  if (scenario.reviewFindings) seedReviewFindings(scenario.reviewFindings)
-  for (const [key, value] of Object.entries(scenario.settings ?? {})) {
-    const row = persisted.settings.find((entry) => entry.key === key)
-    if (row) row.value = value
-    else persisted.settings.push({ key, value })
-  }
-  if (scenario.runCommand) persisted.repos[0]!.runCommand = scenario.runCommand
-  if (scenario.leadUsage) seedLeadUsage(scenario.leadUsage)
+  if (scenario.reviewFindings) seedReviewFindings(db, scenario.reviewFindings)
+  Object.assign(snapshot.settings, scenario.settings)
+  if (scenario.leadUsage) seedLeadUsage(db, scenario.leadUsage)
+  if (scenario.entities) persisted.entities = scenario.entities
   if (scenario.pullRequests) {
     persisted.pullRequests = scenario.pullRequests
-    fixtureSnapshot.githubAuthConfigured = true
-    fixtureSnapshot.prSyncedAt = String(Math.floor(Date.now() / 1000))
+    snapshot.githubAuthConfigured = true
+  }
+  if (scenario.secondWorkspace) {
+    const { row, record } = workspaceFixture({
+      id: 'ws-billing',
+      repoId: REPO_ID,
+      name: 'Billing fix',
+      branch: 'fix/billing',
+      base: 'main',
+      worktreePath: '/tmp/cormux-fixture/billing',
+      createdAtMs: 1,
+    })
+    persisted.workspaces.push(row)
+    snapshot.workspaces.push(record)
+    persisted.threads.push(leadThreadFixture('th-billing', 'ws-billing'))
+    snapshot.workspaceOwnThreads.push({
+      workspaceId: 'ws-billing',
+      threadId: 'th-billing',
+    })
+    snapshot.workspaceRunBlocks.push({
+      workspaceId: 'ws-billing',
+      reason: NO_RUN_COMMAND,
+    })
+    snapshot.repoRemovalBlocks = [
+      {
+        repoId: REPO_ID,
+        reason: 'my-app has 2 workspaces. Tear them down first.',
+      },
+    ]
+  }
+  if (scenario.runCommand) seedRunCommand(db, scenario.runCommand)
+  if (scenario.retiredThread) {
+    persisted.threads.unshift({
+      ...leadThreadFixture('th-retired-reviewer', WORKSPACE_ID),
+      title: 'Reviewer',
+      role: 'reviewer',
+      retired: true,
+    })
   }
   if (scenario.clickup) {
-    fixtureSnapshot.clickupConfigured = true
-    persisted.settings.push(
-      { key: 'clickupWorkspaceId', value: 'team-1' },
-      { key: 'clickupSpaceId', value: 'space-1' },
-      { key: 'clickupFolderId', value: 'folder-sprints' },
-    )
+    snapshot.clickupConfigured = true
+    Object.assign(snapshot.settings, {
+      clickupWorkspaceId: 'team-1',
+      clickupSpaceId: 'space-1',
+      clickupFolderId: 'folder-sprints',
+    })
   }
+  Object.assign(snapshot, scenario.decisions)
 }

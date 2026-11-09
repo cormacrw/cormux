@@ -80,7 +80,7 @@
     }
     50%,
     100% {
-      /* Out to the old 20-unit box-shadow spread around the 24-unit dot. */
+      /* A ring reaching 20 units beyond the 24-unit dot. */
       transform: scale(2.67);
       opacity: 0;
     }

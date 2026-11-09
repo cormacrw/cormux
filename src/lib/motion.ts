@@ -1,10 +1,13 @@
-import { settings } from '$lib/state/settings.svelte'
-
-/** True under the in-app reduce-motion switch or the OS setting. */
+/**
+ * True under the in-app reduce-motion switch or the OS setting. The switch is read from the
+ * `reduce-motion` class App keeps on <html> from Settings, which app.css's rules follow too.
+ */
 export function prefersReducedMotion(): boolean {
+  const doc = globalThis.document
+  if (!doc) return false
   return (
-    settings.reduceMotion ||
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    doc.documentElement.classList.contains('reduce-motion') ||
+    globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   )
 }
 

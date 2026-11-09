@@ -1,22 +1,12 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button'
-  import { Kbd } from '$lib/components/ui/kbd'
-  import CommandIcon from '@lucide/svelte/icons/command'
-  import { isHeaderShortcut } from '$lib/keyboard/header-shortcuts'
+  import ShortcutKbd from '$lib/primitives/ShortcutKbd.svelte'
+  import { shortcutAria } from '$lib/keyboard/shortcuts'
   import type { Workspace } from '$lib/state/workspaces.svelte'
-  import {
-    branchPullRequest,
-    primaryPrActionLabel,
-  } from '$lib/create-pr/pr-header'
-  import { reviewSubmitted as isReviewSubmitted } from '$lib/review/workspace-settings'
-  import {
-    prs,
-    settings,
-    shellDialogs,
-    stacks,
-    workspaceRecords,
-  } from '$lib/state'
-  import { openUrl } from '@tauri-apps/plugin-opener'
+  import { primaryPrActionLabel } from '$lib/changes/branch-pr'
+  import { workspacePr } from '$lib/changes/workspace-pr'
+  import { shellDialogs } from '$lib/state'
+  import { openExternal } from '$lib/feedback/open-external'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
 
   let {
@@ -26,32 +16,12 @@
   } = $props()
 
   const reviewSubmitted = $derived(
-    workspace.kind === 'review' &&
-      (workspace.activityText.toLowerCase().includes('review submitted') ||
-        isReviewSubmitted(settings.rows, workspace.id)),
+    workspace.kind === 'review' && workspace.reviewSubmitted,
   )
 
-  const record = $derived(workspaceRecords.getRecord(workspace.id))
-  const stackPr = $derived(
-    stacks
-      .get(workspace.id)
-      ?.branches.find((branch) => branch.name === workspace.branch)?.pr,
-  )
-  // Any PR for the checked-out branch, not just one this workspace opened.
-  const branchPr = $derived(
-    branchPullRequest({
-      items: prs.items,
-      repoId: record?.repoId ?? '',
-      branch: workspace.branch,
-      prNumber: workspace.prNumber,
-      prHtmlUrl: workspace.prHtmlUrl,
-      stackPr,
-    }),
-  )
+  const branchPr = $derived(workspacePr(workspace))
   const prLabel = $derived(
-    branchPr
-      ? primaryPrActionLabel(branchPr.synced, branchPr.number)
-      : 'Create PR',
+    branchPr ? primaryPrActionLabel(branchPr.synced, branchPr.number) : '',
   )
   const prUrl = $derived(branchPr?.url ?? null)
 
@@ -60,25 +30,23 @@
   )
 
   function onKeydown(event: KeyboardEvent) {
-    if (!isHeaderShortcut(event, 'p')) return
+    if (!shellDialogs.allows(event, 'primaryAction')) return
     event.preventDefault()
     if (!primaryDisabled) onPrimaryClick()
   }
 
   function onPrimaryClick() {
     if (workspace.kind === 'review') {
-      shellDialogs.openSubmitReview(workspace.id)
+      shellDialogs.open('submitReview', { workspaceId: workspace.id })
       return
     }
     if (branchPr && prUrl) {
-      void openUrl(prUrl)
+      void openExternal(prUrl)
       return
     }
-    window.dispatchEvent(
-      new CustomEvent('cormux:create-pr', {
-        detail: { workspaceId: workspace.id },
-      }),
-    )
+    if (workspace.createPrBlock == null) {
+      shellDialogs.open('createPr', { workspaceId: workspace.id })
+    }
   }
 </script>
 
@@ -90,14 +58,13 @@
     size="default"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={reviewSubmitted}
-    aria-keyshortcuts="Meta+P"
-    data-ws-focus="primary"
+    aria-keyshortcuts={shortcutAria('primaryAction')}
     data-od-id="ws-submit-review"
     onclick={onPrimaryClick}
   >
     <GitPullRequest class="size-4" aria-hidden="true" />
     Submit review
-    <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />P</Kbd>
+    <ShortcutKbd id="primaryAction" />
   </Button>
 {:else if branchPr}
   <Button
@@ -105,13 +72,12 @@
     size="default"
     class="gap-2 shrink-0 max-md:flex-1"
     disabled={!prUrl}
-    aria-keyshortcuts="Meta+P"
-    data-ws-focus="primary"
+    aria-keyshortcuts={shortcutAria('primaryAction')}
     data-od-id="ws-create-pr"
     onclick={onPrimaryClick}
   >
     <GitPullRequest class="size-4" aria-hidden="true" />
     {prLabel}
-    <Kbd class="gap-0.5" aria-hidden="true"><CommandIcon />P</Kbd>
+    <ShortcutKbd id="primaryAction" />
   </Button>
 {/if}

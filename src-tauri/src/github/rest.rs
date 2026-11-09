@@ -36,13 +36,26 @@ impl RestGithubClient {
         }
     }
 
-    /// POSTs `body` as JSON and returns the response text, or GitHub's own message on failure.
     pub(super) async fn post(
         &self,
         token: &str,
         url: &str,
         body: &serde_json::Value,
     ) -> Result<String> {
+        let (status, text) = self.post_for_status(token, url, body).await?;
+        if !status.is_success() {
+            return Err(Error::Github(format!("({status}): {text}")));
+        }
+        Ok(text)
+    }
+
+    /// Like `post`, leaving an unsuccessful status to the caller.
+    pub(super) async fn post_for_status(
+        &self,
+        token: &str,
+        url: &str,
+        body: &serde_json::Value,
+    ) -> Result<(reqwest::StatusCode, String)> {
         let response = self
             .http
             .post(url)
@@ -56,10 +69,7 @@ impl RestGithubClient {
             .text()
             .await
             .map_err(|error| Error::Github(error.to_string()))?;
-        if !status.is_success() {
-            return Err(Error::Github(format!("({status}): {text}")));
-        }
-        Ok(text)
+        Ok((status, text))
     }
 }
 

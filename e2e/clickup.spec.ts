@@ -13,14 +13,14 @@ function calls(page: Page) {
 test.describe('clickup', () => {
   test('stays hidden without an API key', async ({ page }) => {
     await page.goto('/')
-    const nav = page.getByRole('navigation', { name: 'Harness' })
+    const nav = page.getByRole('navigation', { name: 'Sidebar' })
     await expect(nav.getByRole('button', { name: /New thread/ })).toBeVisible()
     await expect(nav.getByRole('button', { name: /Sprint/ })).toHaveCount(0)
   })
 
   test('saving a key in Settings reveals the Sprint page', async ({ page }) => {
     await page.goto('/')
-    const nav = page.getByRole('navigation', { name: 'Harness' })
+    const nav = page.getByRole('navigation', { name: 'Sidebar' })
     await nav.getByRole('button', { name: /Settings/ }).click()
     await page
       .getByRole('navigation', { name: 'Settings sections' })
@@ -54,7 +54,7 @@ test.describe('clickup', () => {
 
     // Opening a card shows its details in the pane.
     await page
-      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('navigation', { name: 'Sidebar' })
       .getByRole('button', { name: /Sprint/ })
       .click()
     await expect(
@@ -145,7 +145,7 @@ test.describe('clickup', () => {
     // The sidebar counts every task not yet done; moving between open lanes keeps it.
     await expect(
       page
-        .getByRole('navigation', { name: 'Harness' })
+        .getByRole('navigation', { name: 'Sidebar' })
         .getByRole('button', { name: /Sprint/ }),
     ).toContainText('4')
 
@@ -166,8 +166,18 @@ test.describe('clickup', () => {
         name: 'Session expires mid checkout on Safari',
       }),
     ).toBeVisible()
+    const flyout = page.locator('[data-od-id="task-flyout"]')
     await page.keyboard.press('Escape')
-    await expect(panel).toHaveCount(0)
+    await expect(flyout).toHaveAttribute('data-open', 'false')
+    await expect(page.locator('[data-task-id="t2"]')).toBeFocused()
+    // It slides away still showing the task, rather than blank.
+    await expect(panel).toContainText('Session expires mid checkout on Safari')
+
+    // × closes it the same way.
+    await page.locator('[data-task-id="t2"]').click()
+    await expect(flyout).toHaveAttribute('data-open', 'true')
+    await panel.getByRole('button', { name: 'Close task' }).click()
+    await expect(flyout).toHaveAttribute('data-open', 'false')
     await expect(page.locator('[data-task-id="t2"]')).toBeFocused()
 
     expect(errors).toEqual([])
@@ -177,7 +187,7 @@ test.describe('clickup', () => {
     await enableClickup(page)
     await page.goto('/')
     await page
-      .getByRole('navigation', { name: 'Harness' })
+      .getByRole('navigation', { name: 'Sidebar' })
       .getByRole('button', { name: /Sprint/ })
       .click()
     const lanes = page.locator('[data-lane]')
@@ -201,5 +211,34 @@ test.describe('clickup', () => {
     await page.getByRole('menuitem', { name: 'Show all lanes' }).click()
     await expect(lanes).toHaveCount(4)
     await expect(menu).not.toContainText('hidden')
+  })
+
+  test('a drag called off with Escape doesn’t open the card on release', async ({
+    page,
+  }) => {
+    await enableClickup(page)
+    await page.goto('/')
+    await page
+      .getByRole('navigation', { name: 'Sidebar' })
+      .getByRole('button', { name: /Sprint/ })
+      .click()
+    const card = page.locator('[data-task-id="t1"]')
+    const from = (await card.boundingBox())!
+    await page.mouse.move(from.x + 20, from.y + 20)
+    await page.mouse.down()
+    await page.mouse.move(from.x + 40, from.y + 30, { steps: 4 })
+    await page.keyboard.press('Escape')
+    await page.mouse.move(from.x + 20, from.y + 20, { steps: 4 })
+    await page.mouse.up()
+    await expect(
+      page.locator('[data-od-id="task-flyout"]'),
+    ).not.toHaveAttribute('data-open', 'true')
+
+    // The next click opens it as usual.
+    await card.click()
+    await expect(page.locator('[data-od-id="task-flyout"]')).toHaveAttribute(
+      'data-open',
+      'true',
+    )
   })
 })

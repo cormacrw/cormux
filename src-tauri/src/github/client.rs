@@ -1,13 +1,12 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use serde::Deserialize;
-use tokio::sync::RwLock;
 
 use crate::error::Error;
-use crate::shell_env::ShellEnv;
 
-use super::types::{PrChecksState, PrRelationship, PrReviewState, PullRequestPayload};
+use super::Gh;
+
+use super::types::{PrChecksState, PrReviewState, PullRequestPayload, VIEWER_AUTHOR};
 
 const SEARCH_QUERY: &str = r#"
 query($q: String!, $after: String) {
@@ -21,8 +20,6 @@ query($q: String!, $after: String) {
         isDraft
         url
         updatedAt
-        additions
-        deletions
         changedFiles
         reviewDecision
         author { login }
@@ -30,12 +27,6 @@ query($q: String!, $after: String) {
         baseRefName
         repository { nameWithOwner }
         statusCheckRollup { state }
-        reviewRequests(first: 20) {
-          nodes { requestedReviewer { ... on User { login } } }
-        }
-        assignees(first: 20) {
-          nodes { login }
-        }
       }
     }
   }
@@ -75,7 +66,7 @@ fn is_signed_out(message: &str) -> bool {
 }
 
 pub async fn fetch_open_prs(
-    env: &Arc<RwLock<ShellEnv>>,
+    gh: &Gh,
     repo_origins: &HashMap<String, String>,
 ) -> std::result::Result<Vec<PullRequestPayload>, FetchError> {
     let query_arg = format!("query={SEARCH_QUERY}");
@@ -90,40 +81,11 @@ pub async fn fetch_open_prs(
         if let Some(after_arg) = &after_arg {
             args.extend(["-f", after_arg]);
         }
-        let output = {
-            let shell = env.read().await;
-            shell.run("gh", &args, None).await
-        };
-        let output = output.map_err(|error| {
-            let message = error.to_string();
-            if is_signed_out(&message) {
-                FetchError::SignedOut(message)
-            } else {
-                FetchError::Other(Error::Github(message))
-            }
-        })?;
-
-        let payload: GraphQlResponse = serde_json::from_str(&output).map_err(|error| {
-            FetchError::Other(Error::Github(format!("gh api graphql: {error}")))
-        })?;
-
-        if let Some(errors) = payload.errors {
-            let message = errors
-                .into_iter()
-                .map(|error| error.message)
-                .collect::<Vec<_>>()
-                .join("; ");
-            // GitHub returns partial data plus errors (e.g. SAML-protected orgs the
-            // token can't see); keep what came back rather than dropping the sync.
-            if payload.data.is_none() {
-                return Err(FetchError::Other(Error::Github(message)));
-            }
-            log::warn!("gh api graphql returned partial results: {message}");
-        }
-
-        let data = payload
-            .data
-            .ok_or_else(|| FetchError::Other(Error::Github("empty GraphQL response".into())))?;
+        let output = gh
+            .output(None, &args, &[])
+            .await
+            .map_err(|failure| FetchError::Other(failure.into()))?;
+        let data = read_page(output.status.success(), &output.stdout, &output.stderr)?;
         viewer = data.viewer.login;
         nodes.extend(data.search.nodes.into_iter().flatten());
         match data.search.page_info {
@@ -135,84 +97,77 @@ pub async fn fetch_open_prs(
         }
     }
 
-    let mut items: Vec<PullRequestPayload> = Vec::new();
-    let mut seen: HashMap<String, (usize, PrRelationship)> = HashMap::new();
-    for pr in nodes {
-        let rel = infer_relationship(&pr, &viewer);
-        let entry = map_pr(pr, &viewer, rel, repo_origins);
-        let id = entry.cache_id();
-        match seen.get(&id) {
-            Some((_, existing)) if rel_priority(*existing) >= rel_priority(rel) => {}
-            Some((index, _)) => {
-                let index = *index;
-                items[index] = entry;
-                seen.insert(id, (index, rel));
-            }
-            None => {
-                seen.insert(id, (items.len(), rel));
-                items.push(entry);
-            }
-        }
-    }
+    // A PR that matched the search more than once (authored and mentioned) is listed once.
+    let mut seen = std::collections::HashSet::new();
+    let mut items: Vec<PullRequestPayload> = nodes
+        .into_iter()
+        .map(|pr| map_pr(pr, &viewer, repo_origins))
+        .filter(|pr| seen.insert(pr.cache_id()))
+        .collect();
 
     items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(items)
 }
 
-fn rel_priority(rel: PrRelationship) -> u8 {
-    match rel {
-        PrRelationship::Review => 4,
-        PrRelationship::Author => 3,
-        PrRelationship::Assigned => 2,
-        PrRelationship::Mention => 1,
-    }
-}
+/// One page of the search from `gh api graphql`'s output. GitHub returns partial data plus
+/// errors (e.g. SAML-protected orgs the token can't see), and `gh` exits non-zero for it, so
+/// the body is read whatever the exit status: what came back is kept rather than dropping the
+/// sync.
+fn read_page(
+    succeeded: bool,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> std::result::Result<GraphQlData, FetchError> {
+    let parsed = serde_json::from_slice::<GraphQlResponse>(stdout);
+    let payload = match parsed {
+        Ok(payload) if succeeded || payload.data.is_some() => payload,
+        Err(error) if succeeded => {
+            return Err(FetchError::Other(Error::Github(format!(
+                "gh api graphql: {error}"
+            ))));
+        }
+        _ => {
+            let message = format!("gh api failed: {}", String::from_utf8_lossy(stderr).trim());
+            return Err(if is_signed_out(&message) {
+                FetchError::SignedOut(message)
+            } else {
+                FetchError::Other(Error::Github(message))
+            });
+        }
+    };
 
-fn infer_relationship(pr: &PullRequestNode, viewer: &str) -> PrRelationship {
-    let author = pr
-        .author
-        .as_ref()
-        .map_or("", |author| author.login.as_str());
-    if author.eq_ignore_ascii_case(viewer) {
-        return PrRelationship::Author;
+    if let Some(errors) = payload.errors {
+        let message = errors
+            .into_iter()
+            .map(|error| error.message)
+            .collect::<Vec<_>>()
+            .join("; ");
+        if payload.data.is_none() {
+            return Err(FetchError::Other(Error::Github(message)));
+        }
+        log::warn!("gh api graphql returned partial results: {message}");
     }
-    if pr.review_requests.nodes.iter().flatten().any(|request| {
-        request
-            .requested_reviewer
-            .as_ref()
-            .and_then(|reviewer| reviewer.login.as_deref())
-            .is_some_and(|login| login.eq_ignore_ascii_case(viewer))
-    }) {
-        return PrRelationship::Review;
-    }
-    if pr
-        .assignees
-        .nodes
-        .iter()
-        .flatten()
-        .any(|user| user.login.eq_ignore_ascii_case(viewer))
-    {
-        return PrRelationship::Assigned;
-    }
-    PrRelationship::Mention
+
+    payload
+        .data
+        .ok_or_else(|| FetchError::Other(Error::Github("empty GraphQL response".into())))
 }
 
 fn map_pr(
     pr: PullRequestNode,
     viewer: &str,
-    rel: PrRelationship,
     repo_origins: &HashMap<String, String>,
 ) -> PullRequestPayload {
     let repo_full_name = pr.repository.name_with_owner;
     let repo_id = super::r#match::match_repo_id(repo_origins, &repo_full_name);
     // Deleted accounts come back as a null author; GitHub shows them as "ghost".
     let author = match pr.author {
-        Some(author) if author.login.eq_ignore_ascii_case(viewer) => "you".into(),
+        Some(author) if author.login.eq_ignore_ascii_case(viewer) => VIEWER_AUTHOR.into(),
         Some(author) => author.login,
         None => "ghost".into(),
     };
 
-    let (checks, failing) = map_checks(
+    let checks = map_checks(
         pr.status_check_rollup
             .as_ref()
             .and_then(|rollup| rollup.state.as_deref())
@@ -224,15 +179,11 @@ fn map_pr(
         num: pr.number,
         title: pr.title,
         author,
-        rel,
         head: pr.head_ref_name,
         base: pr.base_ref_name,
         updated_at: pr.updated_at,
         checks,
-        failing,
         review,
-        additions: pr.additions,
-        deletions: pr.deletions,
         files: pr.changed_files,
         is_draft: pr.is_draft,
         html_url: pr.url,
@@ -241,13 +192,13 @@ fn map_pr(
     }
 }
 
-fn map_checks(state: &str) -> (PrChecksState, Option<u32>) {
+fn map_checks(state: &str) -> PrChecksState {
     match state {
-        "SUCCESS" => (PrChecksState::Pass, None),
-        "FAILURE" | "ERROR" => (PrChecksState::Fail, Some(1)),
+        "SUCCESS" => PrChecksState::Pass,
+        "FAILURE" | "ERROR" => PrChecksState::Fail,
         // A null rollup means no CI is configured, not that it's still running.
-        "" => (PrChecksState::None, None),
-        _ => (PrChecksState::Running, None),
+        "" => PrChecksState::None,
+        _ => PrChecksState::Running,
     }
 }
 
@@ -306,8 +257,6 @@ struct PullRequestNode {
     is_draft: bool,
     url: String,
     updated_at: String,
-    additions: i64,
-    deletions: i64,
     changed_files: i64,
     review_decision: Option<String>,
     author: Option<LoginNode>,
@@ -315,8 +264,6 @@ struct PullRequestNode {
     base_ref_name: String,
     repository: RepositoryNode,
     status_check_rollup: Option<StatusCheckRollup>,
-    review_requests: ReviewRequestConnection,
-    assignees: UserConnection,
 }
 
 #[derive(Debug, Deserialize)]
@@ -335,28 +282,6 @@ struct StatusCheckRollup {
     state: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ReviewRequestConnection {
-    nodes: Vec<Option<ReviewRequestNode>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReviewRequestNode {
-    requested_reviewer: Option<ReviewerNode>,
-}
-
-/// Teams, bots and mannequins can be requested too; only users carry a login here.
-#[derive(Debug, Deserialize)]
-struct ReviewerNode {
-    login: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct UserConnection {
-    nodes: Vec<Option<LoginNode>>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,30 +296,23 @@ mod tests {
               "number": 2, "title": "Test Feature", "isDraft": false,
               "url": "https://github.com/cormacrw/todo-example/pull/2",
               "updatedAt": "2026-09-30T00:52:31Z",
-              "additions": 56, "deletions": 7, "changedFiles": 6,
+              "changedFiles": 6,
               "reviewDecision": null,
               "author": { "login": "cormacrw" },
               "headRefName": "feat/test", "baseRefName": "main",
               "repository": { "nameWithOwner": "cormacrw/todo-example" },
-              "statusCheckRollup": null,
-              "reviewRequests": { "nodes": [] },
-              "assignees": { "nodes": [] }
+              "statusCheckRollup": null
             },
             {
               "number": 9, "title": "From a deleted account", "isDraft": true,
               "url": "https://github.com/acme/app/pull/9",
               "updatedAt": "2026-09-29T00:00:00Z",
-              "additions": 1, "deletions": 0, "changedFiles": 1,
+              "changedFiles": 1,
               "reviewDecision": "APPROVED",
               "author": null,
               "headRefName": "x", "baseRefName": "main",
               "repository": { "nameWithOwner": "acme/app" },
-              "statusCheckRollup": { "state": "SUCCESS" },
-              "reviewRequests": { "nodes": [
-                { "requestedReviewer": {} },
-                { "requestedReviewer": { "login": "cormacrw" } }
-              ] },
-              "assignees": { "nodes": [] }
+              "statusCheckRollup": { "state": "SUCCESS" }
             },
             null
           ]
@@ -413,18 +331,45 @@ mod tests {
             .nodes
             .into_iter()
             .flatten()
-            .map(|pr| {
-                let rel = infer_relationship(&pr, &viewer);
-                map_pr(pr, &viewer, rel, &HashMap::new())
-            })
+            .map(|pr| map_pr(pr, &viewer, &HashMap::new()))
             .collect();
         assert_eq!(prs[0].repo_full_name, "cormacrw/todo-example");
         assert_eq!(prs[0].author, "you");
-        assert!(matches!(prs[0].rel, PrRelationship::Author));
         assert!(matches!(prs[0].checks, PrChecksState::None));
         assert!(matches!(prs[1].checks, PrChecksState::Pass));
         assert_eq!(prs[1].author, "ghost");
-        assert!(matches!(prs[1].rel, PrRelationship::Review));
+    }
+
+    /// Bug: `gh` exits 1 when the response has errors beside data, and that exit was treated
+    /// as a failed sync, so one SAML-protected org stopped every PR from syncing.
+    #[test]
+    fn partial_results_are_kept_whatever_gh_exits_with() {
+        let partial = RESPONSE.replacen(
+            "{",
+            r#"{ "errors": [{ "message": "Resource protected by organization SAML enforcement" }],"#,
+            1,
+        );
+        let data = read_page(
+            false,
+            partial.as_bytes(),
+            b"gh: GraphQL: Resource protected",
+        )
+        .unwrap();
+        assert_eq!(data.search.nodes.len(), 3);
+
+        let only_errors = r#"{ "errors": [{ "message": "Something went wrong" }] }"#;
+        assert!(matches!(
+            read_page(
+                false,
+                only_errors.as_bytes(),
+                b"gh: GraphQL: Something went wrong"
+            ),
+            Err(FetchError::Other(_))
+        ));
+        assert!(matches!(
+            read_page(false, b"", b"HTTP 401: Bad credentials"),
+            Err(FetchError::SignedOut(_))
+        ));
     }
 
     #[test]

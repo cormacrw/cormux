@@ -1,151 +1,63 @@
 import type { PullRequest } from '$lib/state/prs.svelte'
 import { describe, expect, it } from 'vitest'
-import { NO_USAGE } from '$lib/usage/usage'
-import { buildPaletteCommandsFromState } from './build-registry'
+import { threadFixture, workspaceFixture } from '$lib/state/fixtures'
+import { IDLE_RUNTIME } from '$lib/state/workspace-model'
+import { appControlsFor } from '$lib/run-app/controls'
+import type { Thread } from '$lib/state/threads.svelte'
+import { buildPaletteCommands } from './registry'
 
-const noop = () => {}
+function threadsOf(rows: Thread[]) {
+  return (workspaceId: string) =>
+    rows.filter((thread) => thread.workspaceId === workspaceId)
+}
 
-describe('buildPaletteCommandsFromState', () => {
+describe('buildPaletteCommands', () => {
   it('includes core action and workspace commands', () => {
-    const labels = buildPaletteCommandsFromState(
-      {
-        reduceMotion: false,
-        clickupConfigured: false,
-        workspaces: [
-          {
-            id: 'ws-1',
-            name: 'Auth',
-            branch: 'feat/auth',
-            lifecycle: 'idle',
-            paused: false,
-            activityText: 'Idle',
-            pendingApprovals: 0,
-            cardStatus: 'idle',
-            createdAtMs: null,
-            summary: null,
-            summaryAtMs: null,
-            summarySource: 'Haiku 4.5',
-            kind: null,
-            prNumber: null,
-            prHtmlUrl: null,
-            modifiedFiles: 0,
-            provStep: 0,
-            setupFailedCommand: null,
-            setupFailedExitCode: null,
-          },
-        ],
-        scratches: [
-          {
-            id: 'scratch-1',
-            title: 'Why the webhook signature fails',
-            repoId: 'repo-1',
-            threadId: 'th-s',
-            engine: 'claude',
-            createdAtMs: null,
-          },
-        ],
-        bangs: [
-          { id: 'bang-1', name: 'triage', prompt: 'Check CI' },
-          { id: 'bang-2', name: 'empty', prompt: '' },
-        ],
-        threads: [
-          {
-            id: 'th-1',
-            workspaceId: 'ws-1',
-            role: 'Lead',
-            engine: 'claude',
-            status: 'idle',
-            paused: false,
-            activity: 'Idle',
-            pendingApprovals: 0,
-            retired: false,
-            usage: NO_USAGE,
-          },
-        ],
-        repos: [
-          {
-            id: 'repo-1',
-            path: '/tmp',
-            name: 'app',
-            defaultBranch: 'main',
-            setupCommands: '',
-            runCommand: 'pnpm dev',
-            singleInstance: false,
-          },
-        ],
-        pullRequests: [
-          { id: 'acme/app#482', num: 482, title: 'Fix login' } as PullRequest,
-        ],
-        records: [
-          {
-            id: 'ws-1',
-            repoId: 'repo-1',
-            repoPath: '/tmp',
-            name: 'Auth',
-            branch: 'feat',
-            base: 'main',
-            worktreePath: '/tmp/wt',
-            status: 'idle',
-            version: 1,
-            activity: 'Idle',
-            provStep: 0,
-            setupFailedCommand: null,
-            setupFailedExitCode: null,
-          },
-        ],
-        runtimeFor: () => ({
+    const labels = buildPaletteCommands({
+      reduceMotion: false,
+      clickupConfigured: false,
+      workspaces: [
+        workspaceFixture({ runtime: { ...IDLE_RUNTIME, behind: 2 } }),
+      ],
+      scratches: [
+        {
+          id: 'scratch-1',
+          title: 'Why the webhook signature fails',
+          repoId: 'repo-1',
+          threadId: 'th-s',
+          engine: 'claude',
+          status: 'idle',
+          createdAtMs: null,
+        },
+      ],
+      bangs: [
+        { id: 'bang-1', name: 'triage', prompt: 'Check CI' },
+        { id: 'bang-2', name: 'empty', prompt: '' },
+      ],
+      threadsOf: threadsOf([threadFixture()]),
+      repos: [
+        {
+          id: 'repo-1',
+          path: '/tmp',
+          name: 'app',
+          defaultBranch: 'main',
+          setupCommands: '',
+          runCommand: 'pnpm dev',
+          singleInstance: false,
+        },
+      ],
+      pullRequests: [
+        { id: 'acme/app#482', num: 482, title: 'Fix login' } as PullRequest,
+      ],
+      appControlsFor: () =>
+        appControlsFor({
           appStatus: 'stopped',
-          port: null,
-          behind: 2,
+          runBlock: null,
+          runCommand: 'pnpm dev',
         }),
-        repoFor: (id) =>
-          id === 'repo-1'
-            ? {
-                id: 'repo-1',
-                path: '/tmp',
-                name: 'app',
-                defaultBranch: 'main',
-                setupCommands: '',
-                runCommand: 'pnpm dev',
-                singleInstance: false,
-              }
-            : undefined,
-        recordFor: (id) =>
-          id === 'ws-1'
-            ? {
-                id: 'ws-1',
-                repoId: 'repo-1',
-                repoPath: '/tmp',
-                name: 'Auth',
-                branch: 'feat',
-                base: 'main',
-                worktreePath: '/tmp/wt',
-                status: 'idle',
-                version: 1,
-                activity: 'Idle',
-                provStep: 0,
-                setupFailedCommand: null,
-                setupFailedExitCode: null,
-              }
-            : undefined,
-      },
-      {
-        openNewThread: noop,
-        openScratch: noop,
-        runBang: noop,
-        openRepo: noop,
-        reviewPullRequest: noop,
-        openSprint: noop,
-        openSettings: noop,
-        openWorkspace: noop,
-        toggleReduceMotion: noop,
-        openSettingsSection: noop,
-        openWorkspaceThread: noop,
-        openWorkspaceFindings: noop,
-        runWorkspaceApp: noop,
-        pullWorkspace: noop,
-      },
-    ).map((c) => c.label)
+      findingsAvailable: () => true,
+      needsYou: () => false,
+    }).map((c) => c.label)
 
     expect(labels).toContain('New thread')
     expect(labels).toContain('Review PR #482 Fix login')
@@ -159,5 +71,59 @@ describe('buildPaletteCommandsFromState', () => {
     expect(labels).toContain('Run app in Auth')
     expect(labels).toContain('Pull 2 commits from main into Auth')
     expect(labels).toContain('Open Findings in Auth')
+  })
+
+  it("offers a workspace's retired threads, not its live one", () => {
+    const labels = buildPaletteCommands({
+      reduceMotion: false,
+      clickupConfigured: false,
+      workspaces: [workspaceFixture()],
+      scratches: [],
+      bangs: [],
+      threadsOf: threadsOf([
+        threadFixture({ id: 'th-old', role: 'Reviewer', retired: true }),
+        threadFixture(),
+      ]),
+      repos: [],
+      pullRequests: [],
+      appControlsFor: () =>
+        appControlsFor({
+          appStatus: 'stopped',
+          runBlock: 'No run command for this workspace.',
+          runCommand: '',
+        }),
+      findingsAvailable: () => false,
+      needsYou: () => false,
+    }).map((c) => c.label)
+
+    expect(labels).toContain('Open Reviewer in Auth')
+    expect(labels).not.toContain('Open Lead in Auth')
+  })
+
+  it('offers Findings only where the Findings tab is on offer', () => {
+    const labels = buildPaletteCommands({
+      reduceMotion: false,
+      clickupConfigured: false,
+      workspaces: [
+        workspaceFixture(),
+        workspaceFixture({ id: 'ws-2', name: 'Billing' }),
+      ],
+      scratches: [],
+      bangs: [],
+      threadsOf: () => [],
+      repos: [],
+      pullRequests: [],
+      appControlsFor: () =>
+        appControlsFor({
+          appStatus: 'stopped',
+          runBlock: 'No run command for this workspace.',
+          runCommand: '',
+        }),
+      findingsAvailable: (workspace) => workspace.id === 'ws-2',
+      needsYou: () => false,
+    }).map((c) => c.label)
+
+    expect(labels).toContain('Open Findings in Billing')
+    expect(labels).not.toContain('Open Findings in Auth')
   })
 })

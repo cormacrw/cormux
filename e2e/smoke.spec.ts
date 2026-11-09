@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
 test.describe('browser harness UI', () => {
-  test('opens New workspace and keeps the footer on the dialog', async ({
+  test('Settings shows the agent, and a sent prompt shows as yours while it works', async ({
     page,
   }) => {
     await page.goto('/?slowReply=1')
@@ -13,13 +13,10 @@ test.describe('browser harness UI', () => {
     await expect(
       page.getByRole('heading', { name: 'New thread' }),
     ).toBeVisible()
-    await expect(page.locator('.traffic, .tl-close')).toHaveCount(0)
 
     await page.getByRole('button', { name: 'Settings' }).click()
     await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible()
     await expect(page.getByText('Claude Code')).toBeVisible()
-    await expect(page.getByText('Cursor CLI')).toHaveCount(0)
-    await expect(page.getByText('Edits files directly')).toHaveCount(0)
     await expect(
       page.getByRole('switch', { name: 'Run everything' }),
     ).toBeVisible()

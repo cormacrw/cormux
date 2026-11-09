@@ -1,0 +1,419 @@
+<script lang="ts">
+  import ArrowRight from '@lucide/svelte/icons/arrow-right'
+  import Check from '@lucide/svelte/icons/check'
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
+  import RotateCcw from '@lucide/svelte/icons/rotate-ccw'
+  import X from '@lucide/svelte/icons/x'
+  import { Button } from '$lib/components/ui/button'
+  import { Checkbox } from '$lib/components/ui/checkbox'
+  import { threads, workspaceUi, workspaces } from '$lib/state'
+  import { findings } from '$lib/findings/store.svelte'
+  import { openWorkspaceThread, revealFileInWorkspace } from '$lib/nav/open'
+  import { engineDisplayName } from '$lib/engine/engines'
+  import { selectionSummaryText } from '$lib/findings/format'
+  import {
+    groupCheckboxState,
+    rowCheckboxState,
+    selectedSummary,
+  } from '$lib/findings/selection'
+  import {
+    FINDING_GROUPS,
+    findingLocation,
+    openFindings,
+  } from '$lib/findings/types'
+  import type { FindingRow } from '$lib/ipc/bindings'
+  import { cn } from '$lib/utils'
+  import { coreErrorText } from '$lib/core/core-error'
+  import { startsOver } from '$lib/core/owner-scoped'
+
+  let {
+    workspaceId,
+    threadId,
+    headingRef = $bindable(),
+  }: {
+    workspaceId: string
+    /** The thread shown under the panel, which a finding's file opens beside. */
+    threadId: string
+    headingRef?: HTMLHeadingElement | undefined
+  } = $props()
+
+  let bodyEl: HTMLDivElement | undefined = $state()
+  let sending = $derived(startsOver(workspaceId, false))
+  let sendError = $derived<string | null>(startsOver(workspaceId, null))
+
+  const workspace = $derived(workspaces.getById(workspaceId))
+  const rows = $derived(findings.forWorkspace(workspaceId))
+  const openRows = $derived(openFindings(rows))
+  // The workspace's one live thread both ran the review and takes the fixes.
+  const liveThread = $derived(threads.liveFor(workspaceId))
+  const selected = $derived(findings.selectedIds(workspaceId))
+  const summary = $derived(selectedSummary(rows, selected))
+  const barSummary = $derived(selectionSummaryText(summary))
+
+  const engineName = $derived(engineDisplayName(liveThread?.engine ?? 'claude'))
+  const prLabel = $derived(
+    workspace?.prNumber != null ? `#${workspace.prNumber}` : 'This PR',
+  )
+
+  function threadRoleForFinding(row: FindingRow) {
+    if (!row.sentToThreadId) return liveThread?.role ?? 'agent'
+    return threads.getById(row.sentToThreadId)?.role ?? 'agent'
+  }
+
+  function severityDotClass(severity: string) {
+    if (severity === 'blocking') return 'bg-red-500'
+    if (severity === 'suggestion') return 'bg-amber-400'
+    return 'bg-muted-foreground/60'
+  }
+
+  function openLocation(row: FindingRow) {
+    if (!row.file) return
+    revealFileInWorkspace(workspaceId, threadId, row.file, row.line)
+  }
+
+  async function setDismissed(ids: string[], dismissed: boolean) {
+    const id = workspaceId
+    sendError = null
+    const error = await findings.setDismissed(id, ids, dismissed)
+    if (error && id === workspaceId)
+      sendError = coreErrorText(error, 'Could not update the findings')
+  }
+
+  const dismissedCount = $derived(
+    rows.filter((row) => row.status === 'dismissed').length,
+  )
+
+  async function sendFindings() {
+    if (!liveThread || sending) return
+    const id = workspaceId
+    sending = true
+    sendError = null
+    const error = await findings.sendSelected(id)
+    if (id !== workspaceId) return
+    sending = false
+    if (error) sendError = coreErrorText(error, 'Could not send findings')
+  }
+
+  function goToTargetThread() {
+    if (!liveThread) return
+    openWorkspaceThread(workspaceId, liveThread.id)
+  }
+
+  $effect(() => {
+    void workspaceUi.activeTab
+    if (bodyEl) bodyEl.scrollTop = 0
+  })
+</script>
+
+{#snippet failure()}
+  {#if sendError}
+    <p class="text-xs text-destructive">{sendError}</p>
+  {/if}
+{/snippet}
+
+<div
+  id="findings-panel"
+  role="region"
+  aria-label="Findings"
+  data-od-id="findings"
+  class="flex min-h-0 flex-1 flex-col"
+>
+  <div bind:this={bodyEl} class="min-h-0 flex-1 overflow-y-auto">
+    <div class="mx-auto w-full max-w-3xl px-8 pt-8 pb-12 select-text">
+      <header class="space-y-5" data-od-id="findings-intro">
+        <div class="space-y-1">
+          <h2
+            bind:this={headingRef}
+            tabindex="-1"
+            class="text-xl font-semibold tracking-tight outline-none"
+          >
+            Review findings
+          </h2>
+          <p class="text-sm text-muted-foreground">
+            {prLabel} · reviewed by {liveThread ? liveThread.role : 'Reviewer'} with
+            {engineName}
+          </p>
+        </div>
+
+        {#if rows.length}
+          <div
+            class="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-border/60 pb-5 text-sm"
+          >
+            {#each FINDING_GROUPS as group (group.severity)}
+              {@const count = rows.filter(
+                (row) => row.severity === group.severity,
+              ).length}
+              {#if count}
+                <span
+                  class="inline-flex items-center gap-2 text-muted-foreground"
+                >
+                  <span
+                    class="size-2 rounded-full {severityDotClass(
+                      group.severity,
+                    )}"
+                    aria-hidden="true"
+                  ></span>
+                  <span
+                    ><strong class="font-semibold text-foreground"
+                      >{count}</strong
+                    >
+                    {group.label.toLowerCase()}</span
+                  >
+                </span>
+              {/if}
+            {/each}
+            <span class="grow"></span>
+            <div
+              class="flex items-center gap-1 select-none"
+              role="group"
+              aria-label="Quick select"
+            >
+              <span class="mr-1 text-xs text-muted-foreground">Select</span>
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={!openRows.length}
+                onclick={() => findings.quickSelect(workspaceId, 'blocking')}
+              >
+                Blocking
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={!openRows.length}
+                onclick={() => findings.quickSelect(workspaceId, 'all')}
+              >
+                All
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={!summary.total}
+                onclick={() => findings.quickSelect(workspaceId, 'none')}
+              >
+                None
+              </Button>
+            </div>
+          </div>
+        {/if}
+      </header>
+
+      {#if !rows.length}
+        <div class="py-16 text-center" data-od-id="findings-empty">
+          <h3 class="text-base font-medium">Nothing to fix</h3>
+          <p class="mt-1 text-sm text-muted-foreground">
+            {liveThread?.role ?? 'Reviewer'} didn’t flag anything in this pull request.
+          </p>
+        </div>
+      {:else}
+        <div class="mt-8 space-y-10">
+          {#each FINDING_GROUPS as group (group.severity)}
+            {@const groupRows = rows.filter(
+              (row) => row.severity === group.severity,
+            )}
+            {#if groupRows.length}
+              {@const box = groupCheckboxState(rows, selected, group.severity)}
+              <section
+                class="space-y-3"
+                aria-labelledby="fnd-h-{group.severity}"
+                data-od-id="findings-{group.severity}"
+              >
+                <div class="flex items-center gap-3 select-none">
+                  <Checkbox
+                    checked={box.checked}
+                    indeterminate={box.indeterminate}
+                    disabled={box.disabled}
+                    aria-label="Select all open {group.label.toLowerCase()}"
+                    onCheckedChange={(value) =>
+                      findings.setGroup(
+                        workspaceId,
+                        group.severity,
+                        value === true,
+                      )}
+                  />
+                  <span
+                    class="size-2 rounded-full {severityDotClass(
+                      group.severity,
+                    )}"
+                    aria-hidden="true"
+                  ></span>
+                  <h3 id="fnd-h-{group.severity}" class="text-sm font-semibold">
+                    {group.label}
+                    <span class="ml-1 font-normal text-muted-foreground"
+                      >{groupRows.length}</span
+                    >
+                  </h3>
+                  <span class="text-xs text-muted-foreground">{group.note}</span
+                  >
+                </div>
+
+                <ul class="space-y-3">
+                  {#each groupRows as row (row.id)}
+                    {@const boxState = rowCheckboxState(row, selected)}
+                    {@const done = row.status !== 'open'}
+                    <li
+                      data-od-id="finding-{row.id}"
+                      class={cn(
+                        'grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 rounded-lg border border-border/70 px-5 py-4 transition-colors',
+                        boxState.checked &&
+                          !done &&
+                          'border-primary/40 bg-primary/5',
+                        done && 'opacity-60',
+                      )}
+                    >
+                      <Checkbox
+                        class="mt-0.5"
+                        checked={boxState.checked}
+                        disabled={boxState.disabled}
+                        aria-label="Select “{row.title}”"
+                        aria-describedby="fnd-b-{row.id}"
+                        onCheckedChange={(value) =>
+                          findings.toggle(workspaceId, row.id, value === true)}
+                      />
+                      <div class="min-w-0">
+                        <div class="flex items-start justify-between gap-3">
+                          <h4 class="text-sm leading-snug font-medium">
+                            {row.title}
+                          </h4>
+                          {#if row.status === 'fixed'}
+                            <span
+                              class="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 select-none dark:text-emerald-300"
+                            >
+                              <Check class="size-3" aria-hidden="true" />
+                              Fixed by {threadRoleForFinding(row)}
+                            </span>
+                          {:else if row.status === 'sent'}
+                            <span
+                              class="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary select-none"
+                            >
+                              <LoaderCircle
+                                class="size-3 animate-spin"
+                                aria-hidden="true"
+                              />
+                              Sent to {threadRoleForFinding(row)}
+                            </span>
+                          {:else if row.status === 'dismissed'}
+                            <span class="flex shrink-0 items-center gap-1">
+                              <span
+                                class="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground select-none"
+                                >Dismissed</span
+                              >
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                data-od-id="finding-restore"
+                                aria-label="Restore “{row.title}”"
+                                onclick={() =>
+                                  void setDismissed([row.id], false)}
+                              >
+                                <RotateCcw class="size-3" aria-hidden="true" />
+                                Restore
+                              </Button>
+                            </span>
+                          {:else}
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              class="shrink-0 text-muted-foreground"
+                              data-od-id="finding-dismiss"
+                              aria-label="Dismiss “{row.title}”"
+                              title="Dismiss: don't fix it or post it with the review"
+                              onclick={() => void setDismissed([row.id], true)}
+                            >
+                              <X class="size-3" aria-hidden="true" />
+                              Dismiss
+                            </Button>
+                          {/if}
+                        </div>
+                        {#if row.file}
+                          <button
+                            type="button"
+                            class="mt-1 max-w-full truncate rounded-sm text-left font-mono text-xs text-muted-foreground underline decoration-dotted underline-offset-4 hover:text-foreground hover:decoration-solid"
+                            title="Open in Changes"
+                            data-od-id="finding-location"
+                            onclick={() => openLocation(row)}
+                          >
+                            {findingLocation(row)}
+                          </button>
+                        {/if}
+                        {#if row.explanation}
+                          <p
+                            id="fnd-b-{row.id}"
+                            class="mt-2 text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground"
+                          >
+                            {row.explanation}
+                          </p>
+                        {/if}
+                      </div>
+                    </li>
+                  {/each}
+                </ul>
+              </section>
+            {/if}
+          {/each}
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <div
+    data-od-id="findings-send-bar"
+    class="border-t border-border/50 bg-popover"
+  >
+    <div
+      class="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-3 px-8 py-3"
+    >
+      {#if !openRows.length}
+        <p class="text-sm text-muted-foreground">
+          {#if rows.length && dismissedCount === rows.length}
+            Every finding was dismissed.
+          {:else if rows.length}
+            Every finding has been {dismissedCount
+              ? 'sent or dismissed'
+              : 'sent'}.
+            <span class="text-foreground/80"
+              >Follow the fixes in the {liveThread?.role ?? 'agent'} thread.</span
+            >
+          {:else}
+            No findings to send.
+          {/if}
+        </p>
+        {@render failure()}
+        {#if rows.length && dismissedCount < rows.length && liveThread}
+          <span class="grow"></span>
+          <Button variant="secondary" onclick={goToTargetThread}>
+            Go to {liveThread.role}
+            <ArrowRight class="size-4" aria-hidden="true" />
+          </Button>
+        {/if}
+      {:else}
+        <p class="text-sm text-muted-foreground" aria-live="polite">
+          {barSummary}
+        </p>
+        <span class="grow"></span>
+        {@render failure()}
+        <Button
+          variant="outline"
+          data-od-id="findings-dismiss-selected"
+          disabled={!summary.total || sending}
+          onclick={() => void setDismissed([...selected], true)}
+        >
+          <X class="size-4" aria-hidden="true" />
+          {summary.total ? `Dismiss ${summary.total}` : 'Dismiss'}
+        </Button>
+        <Button
+          data-od-id="findings-send"
+          disabled={!summary.total || sending || !liveThread}
+          onclick={sendFindings}
+        >
+          <ArrowRight class="size-4" aria-hidden="true" />
+          {#if summary.total && liveThread}
+            Send {summary.total} to {liveThread.role}
+          {:else}
+            Send to agent
+          {/if}
+        </Button>
+      {/if}
+    </div>
+  </div>
+</div>

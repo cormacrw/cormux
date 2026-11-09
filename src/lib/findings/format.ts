@@ -1,21 +1,17 @@
 import type { FindingRow } from '$lib/ipc/bindings'
 import { FINDING_GROUPS } from './types'
+import { plural } from '$lib/format/plural'
 
-export function severitySummary(rows: FindingRow[]): string {
-  return FINDING_GROUPS.map(({ severity, label }) => {
-    const count = rows.filter((row) => row.severity === severity).length
-    const word =
-      count === 1 ? label.toLowerCase().replace(/s$/, '') : label.toLowerCase()
-    return `${count} ${word}`
-  })
+export function severitySummary(rows: Pick<FindingRow, 'severity'>[]): string {
+  return FINDING_GROUPS.map(({ severity, label, one }) =>
+    plural(
+      rows.filter((row) => row.severity === severity).length,
+      one,
+      label.toLowerCase(),
+    ),
+  )
     .filter((line) => !line.startsWith('0 '))
-    .join(' · ')
-}
-
-export function pluralFindings(count: number, adjective?: string): string {
-  const word = count === 1 ? 'finding' : 'findings'
-  if (!adjective) return `${count} ${word}`
-  return `${count} ${adjective} ${word}`
+    .join(', ')
 }
 
 export function selectionSummaryText(input: {
@@ -23,6 +19,6 @@ export function selectionSummaryText(input: {
   blocking: number
 }): string {
   if (!input.total) return 'Select the findings you want fixed'
-  if (!input.blocking) return `${pluralFindings(input.total)} selected`
-  return `${pluralFindings(input.total)} selected · ${input.blocking} blocking`
+  if (!input.blocking) return `${plural(input.total, 'finding')} selected`
+  return `${plural(input.total, 'finding')} selected · ${input.blocking} blocking`
 }

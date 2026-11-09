@@ -1,55 +1,48 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
-  import {
-    app,
-    findings,
-    stacks,
-    threads,
-    workspaceRecords,
-    workspaceUi,
-    workspaces,
-  } from '$lib/state'
-  import { bindWorkspaceDiffSubscription } from '$lib/state/workspace-diff.svelte'
+  import { threads, workspaceUi, workspaces } from '$lib/state'
+  import { findings } from '$lib/findings/store.svelte'
+  import { nav } from '$lib/core/nav.svelte'
+  import { loadStack } from '$lib/changes/actions'
+  import { bindWorkspaceDiffSubscription } from '$lib/changes/diff-store.svelte'
   import RenameWorkspaceDialog from './RenameWorkspaceDialog.svelte'
-  import { isWorkspaceProvisioning } from '$lib/workspace/provisioning'
   import ProvisioningFailureBanner from './ProvisioningFailureBanner.svelte'
   import WorkspaceHeader from './WorkspaceHeader.svelte'
-  import WorkspaceOutputPanel from './WorkspaceOutputPanel.svelte'
-  import WorkspaceFindingsPanel from './WorkspaceFindingsPanel.svelte'
+  import WorkspaceOutputPanel from '$lib/run-app/components/WorkspaceOutputPanel.svelte'
+  import WorkspaceFindingsPanel from '$lib/findings/components/WorkspaceFindingsPanel.svelte'
   import ThreadPanel from './thread/ThreadPanel.svelte'
-  import ChangesPanel from './changes/ChangesPanel.svelte'
+  import { provideMediaHost } from './thread/reply/media-host'
+  import ChangesPanel from '$lib/changes/components/ChangesPanel.svelte'
+  import { resizeEdge } from '$lib/primitives/slide-out'
+  import { slideIn } from '$lib/primitives/slide-in.svelte'
+  import { focusPrompt } from '$lib/keyboard/focus-home'
+  import { keyboardLayers } from '$lib/keyboard/layers.svelte'
 
   const workspace = $derived(
-    app.workspaceId ? workspaces.getById(app.workspaceId) : undefined,
-  )
-  const workspaceThreads = $derived(
-    app.workspaceId ? threads.forWorkspace(app.workspaceId) : [],
+    nav.workspaceId ? workspaces.getById(nav.workspaceId) : undefined,
   )
   const activeThread = $derived(
-    workspaceThreads.find((thread) => thread.id === app.threadId) ??
-      workspaceThreads.find((thread) => !thread.retired) ??
-      workspaceThreads[0],
+    nav.workspaceId
+      ? threads.shownIn(nav.workspaceId, nav.threadId)
+      : undefined,
   )
 
   let workspaceTitle: HTMLHeadingElement | undefined = $state()
+  let sectionEl: HTMLElement | undefined = $state()
+  provideMediaHost(() => sectionEl)
   let renameWorkspaceId = $state<string | null>(null)
   let findingsHeading: HTMLHeadingElement | undefined = $state()
 
   // Opening a workspace on a thread leaves focus to its composer, ready to type; other
   // panels focus the title.
-  $effect(() => {
-    if (app.focusTarget !== 'workspace') return
-    void app.focusGeneration
-    if (untrack(() => workspaceUi.activeTab) !== 'thread')
-      workspaceTitle?.focus()
-  })
+  $effect(() =>
+    nav.onArrival(() => {
+      if (nav.view !== 'workspace') return
+      if (untrack(() => workspaceUi.activeTab) !== 'thread')
+        workspaceTitle?.focus()
+    }),
+  )
 
-  const provisioning = $derived(
-    workspace ? isWorkspaceProvisioning(workspace.lifecycle) : false,
-  )
-  const workspaceRepoId = $derived(
-    workspace ? (workspaceRecords.getRecord(workspace.id)?.repoId ?? '') : '',
-  )
   const findingsTabActive = $derived(workspaceUi.activeTab === 'findings')
   // A pinned tray sits beside the conversation as a pane, and both stay usable.
   const pinnedTray = $derived(workspaceUi.pinnedTray)
@@ -58,48 +51,18 @@
   // Everything else slides over the conversation, which stays mounted so
   // closing it is instant and the conversation keeps its scroll.
   const slideOut = $derived(workspaceUi.slideOut)
-  // Mounted on first open, then kept so reopening doesn't rebuild the diff or log.
-  let changesMounted = $state(false)
-  let outputMounted = $state(false)
-  // A first open mounts the panel closed and opens it a frame later, so it
-  // slides in like every later open instead of appearing in place.
-  let changesArmed = $state(false)
-  let outputArmed = $state(false)
-  function nextFrame(run: () => void) {
-    requestAnimationFrame(() => requestAnimationFrame(run))
-  }
-  $effect(() => {
-    if (gitVisible && !untrack(() => changesMounted)) {
-      changesMounted = true
-      nextFrame(() => (changesArmed = true))
-    }
-    if (outputVisible && !untrack(() => outputMounted)) {
-      outputMounted = true
-      nextFrame(() => (outputArmed = true))
-    }
-  })
-  // Switching workspaces shows whatever was open straight away.
-  $effect(() => {
-    void workspaceId
-    untrack(() => {
-      changesMounted = changesArmed = gitVisible
-      outputMounted = outputArmed = outputVisible
-      findingsShown = false
-    })
-  })
-  // Holds its panel while it slides away.
-  let findingsShown = $state(false)
-  let findingsArmed = $state(false)
-  $effect(() => {
-    if (!findingsTabActive) {
-      findingsArmed = false
-      return
-    }
-    findingsShown = true
-    nextFrame(() => (findingsArmed = true))
-  })
-  const changesOpen = $derived(gitVisible && changesArmed)
-  const outputOpen = $derived(outputVisible && outputArmed)
+  const changes = slideIn(
+    () => gitVisible,
+    () => workspaceId,
+  )
+  const output = slideIn(
+    () => outputVisible,
+    () => workspaceId,
+  )
+  const findingsTray = slideIn(
+    () => findingsTabActive,
+    () => workspaceId,
+  )
   const PANE_CLASS =
     'tray-pane glass-pane relative my-3 mr-3 flex max-w-[calc(100%-372px)] min-w-[320px] shrink-0 flex-col overflow-hidden rounded-[18px]'
   const SLIDE_CLASS =
@@ -108,53 +71,28 @@
   // Esc is a keyboard move, so the composer won't reclaim focus by itself; send it back.
   function dismissSlideOut() {
     workspaceUi.closeSlideOut()
-    void tick().then(() => document.getElementById('composer-input')?.focus())
-  }
-
-  // Esc slides Git or Output away from anywhere in the workspace, unless a dialog,
-  // menu or popover is open and wants the key for itself.
-  function onWindowKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || event.defaultPrevented || !slideOut) return
-    if (
-      document.querySelector(
-        '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"][data-state="open"]',
-      )
-    )
-      return
-    event.preventDefault()
-    dismissSlideOut()
+    void tick().then(focusPrompt)
   }
 
   let paneRow: HTMLDivElement | undefined = $state()
+  let changesTray: HTMLDivElement | undefined = $state()
+  let outputTray: HTMLDivElement | undefined = $state()
 
-  // Dragging the pinned pane's left edge resizes it, leaving the conversation at least 360px.
-  function onPaneEdgeDown(event: PointerEvent) {
-    if (event.button !== 0 || !paneRow) return
-    event.preventDefault()
-    const handle = event.currentTarget as HTMLElement
-    handle.setPointerCapture(event.pointerId)
-    const row = paneRow.getBoundingClientRect()
-    const move = (next: PointerEvent) => {
-      const width = row.right - 12 - next.clientX
-      workspaceUi.setTrayWidth(
-        Math.min(Math.max(width, 320), Math.max(320, row.width - 372)),
-      )
-    }
-    const up = () => {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', up)
-      handle.removeEventListener('pointercancel', up)
-    }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', up)
-    handle.addEventListener('pointercancel', up)
+  /** Focus is in the tray pinned beside the conversation. */
+  function inPinnedTray() {
+    const tray = pinnedTray === 'changes' ? changesTray : outputTray
+    return !!pinnedTray && !!tray?.contains(document.activeElement)
   }
 
-  function onSlideOutKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || event.defaultPrevented) return
-    event.preventDefault()
-    dismissSlideOut()
-  }
+  // Esc slides Git, Output or Findings away from anywhere in the workspace; in the pinned
+  // tray it goes back to the prompt rather than on to stop the agent.
+  $effect(() =>
+    keyboardLayers.onEscape('slideOut', () => {
+      if (!slideOut && !inPinnedTray()) return false
+      dismissSlideOut()
+      return true
+    }),
+  )
 
   // Snapshots rebuild the workspace object; resubscribing on each one would clear the diff.
   const workspaceId = $derived(workspace?.id)
@@ -171,38 +109,27 @@
     if (!workspaceId) return
     void workspaceBranch
     void gitVisible
-    untrack(() => void stacks.load(workspaceId))
+    untrack(() => void loadStack(workspaceId))
   })
 
+  // Opened on Findings (a toast, the palette, the card in the thread): focus their heading.
   $effect(() => {
-    void workspaceUi.activeTab
-    void workspaceUi.findingsFocusPending
-    queueMicrotask(() => {
-      if (
-        findingsTabActive &&
-        findingsHeading &&
-        workspaceUi.findingsFocusPending
-      ) {
-        findingsHeading.focus({ preventScroll: true })
-        workspaceUi.findingsFocusPending = false
-      }
-    })
+    const route = nav.route
+    if (route.view !== 'workspace' || route.panel !== 'findings') return
+    if (!findingsTabActive || !findingsHeading) return
+    const heading = findingsHeading
+    untrack(() => nav.take('workspace', 'panel'))
+    void tick().then(() => heading.focus({ preventScroll: true }))
   })
 
+  // A workspace whose Findings tab went away (or never had one) leaves it for the thread.
   $effect(() => {
-    if (!workspace?.id || !findingsTabActive) return
-    if (
-      workspaceUi.activeTab === 'findings' &&
-      !findings.hasReviewFindings(workspace.id)
-    ) {
-      workspaceUi.openTab('thread')
-    }
+    if (!workspace || !findingsTabActive) return
+    if (!findings.tabAvailable(workspace)) workspaceUi.openTab('thread')
   })
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} />
-
-<section class="relative flex min-h-0 flex-1 flex-col" data-media-lightbox-host>
+<section bind:this={sectionEl} class="relative flex min-h-0 flex-1 flex-col">
   {#if workspace}
     <RenameWorkspaceDialog bind:workspaceId={renameWorkspaceId} />
     <WorkspaceHeader
@@ -229,7 +156,7 @@
           <ThreadPanel {workspace} thread={activeThread} />
         </div>
 
-        <!-- Clicking the dimmed conversation slides Git or Output away. -->
+        <!-- Clicking the dimmed conversation slides Git, Output or Findings away. -->
         <button
           type="button"
           tabindex="-1"
@@ -239,42 +166,41 @@
           onclick={() => workspaceUi.closeSlideOut()}
         ></button>
 
-        {#snippet resizeEdge()}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- Dragging the pinned pane's left edge resizes it, leaving the conversation at least 360px. -->
+        {#snippet paneEdge()}
           <div
             class="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize"
             title="Drag to resize"
-            onpointerdown={onPaneEdgeDown}
+            use:resizeEdge={{
+              bounds: () => paneRow?.getBoundingClientRect(),
+              min: 320,
+              reserve: 372,
+              onResize: (width) => workspaceUi.setTrayWidth(width),
+            }}
           ></div>
         {/snippet}
 
-        {#if changesMounted}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
+        {#if changes.mounted}
           <div
+            bind:this={changesTray}
             class={pinnedTray === 'changes' ? PANE_CLASS : SLIDE_CLASS}
             style:--tray-w="960px"
             style:width={pinnedTray === 'changes'
               ? `${workspaceUi.trayWidth}px`
               : null}
-            data-open={changesOpen}
+            data-open={changes.open}
             data-pinned={pinnedTray === 'changes'}
             data-od-id="git-slide-out"
             data-tray="git"
             inert={!gitVisible}
-            onkeydown={onSlideOutKeydown}
           >
-            {#if pinnedTray === 'changes'}{@render resizeEdge()}{/if}
-            <ChangesPanel
-              {workspace}
-              thread={activeThread}
-              repoId={workspaceRepoId}
-              {provisioning}
-            />
+            {#if pinnedTray === 'changes'}{@render paneEdge()}{/if}
+            <ChangesPanel {workspace} />
           </div>
         {/if}
-        {#if outputMounted}
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        {#if output.mounted}
           <div
+            bind:this={outputTray}
             id="output-panel"
             role="region"
             aria-label="Output"
@@ -284,34 +210,28 @@
             style:width={pinnedTray === 'output'
               ? `${workspaceUi.trayWidth}px`
               : null}
-            data-open={outputOpen}
+            data-open={output.open}
             data-pinned={pinnedTray === 'output'}
             data-od-id="output-slide-out"
             data-tray="output"
             inert={!outputVisible}
-            onkeydown={onSlideOutKeydown}
           >
-            {#if pinnedTray === 'output'}{@render resizeEdge()}{/if}
-            <WorkspaceOutputPanel
-              workspaceId={workspace.id}
-              repoId={workspaceRepoId}
-              {provisioning}
-            />
+            {#if pinnedTray === 'output'}{@render paneEdge()}{/if}
+            <WorkspaceOutputPanel {workspace} />
           </div>
         {/if}
-        {#if findingsShown}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
+        {#if findingsTray.mounted}
           <div
             class={SLIDE_CLASS}
             style:--tray-w="760px"
-            data-open={findingsTabActive && findingsArmed}
+            data-open={findingsTray.open}
             data-od-id="findings-slide-out"
             data-tray="findings"
             inert={!findingsTabActive}
-            onkeydown={onSlideOutKeydown}
           >
             <WorkspaceFindingsPanel
               workspaceId={workspace.id}
+              threadId={activeThread.id}
               bind:headingRef={findingsHeading}
             />
           </div>

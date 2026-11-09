@@ -4,12 +4,75 @@ use std::sync::{Arc, Mutex};
 
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use tauri::State;
 use tauri::ipc::Channel;
 use tokio::sync::{broadcast, watch};
 
-use super::types::{AgentEvent, DiffUpdate, PtyChunk};
-use crate::engines::{EngineRegistry, StreamedEvent};
+use crate::error::Result;
+use crate::git::WorktreeDiff;
+use crate::process::LogEntry;
 use crate::state::AppState;
+use crate::transcript::StreamedEvent;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyChunk {
+    pub workspace_id: String,
+    pub entry: LogEntry,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffUpdate {
+    pub workspace_id: String,
+    pub diff: Option<WorktreeDiff>,
+}
+
+/// High-volume ordered stream of normalised agent events for one thread.
+#[tauri::command]
+#[specta::specta]
+pub fn subscribe_agent_events(
+    thread_id: String,
+    channel: Channel<StreamedEvent>,
+    state: State<'_, AppState>,
+    subs: State<'_, Subscriptions>,
+) -> Result<u32> {
+    Ok(stream_agent_events(&state, &subs, thread_id, channel))
+}
+
+/// High-volume ordered stream of PTY output for a workspace's run/setup log.
+#[tauri::command]
+#[specta::specta]
+pub fn subscribe_pty(
+    workspace_id: String,
+    channel: Channel<PtyChunk>,
+    state: State<'_, AppState>,
+    subs: State<'_, Subscriptions>,
+) -> Result<u32> {
+    Ok(stream_pty(&state, &subs, workspace_id, channel))
+}
+
+/// High-volume ordered stream of live diff updates for a worktree.
+#[tauri::command]
+#[specta::specta]
+pub async fn subscribe_diffs(
+    workspace_id: String,
+    channel: Channel<DiffUpdate>,
+    state: State<'_, AppState>,
+    subs: State<'_, Subscriptions>,
+) -> Result<u32> {
+    Ok(stream_diffs(&state, &subs, workspace_id, channel).await)
+}
+
+/// Stop the background task behind a `subscribe_*` channel.
+#[tauri::command]
+#[specta::specta]
+pub fn unsubscribe(id: u32, subs: State<'_, Subscriptions>) -> Result<()> {
+    subs.cancel(id);
+    Ok(())
+}
 
 /// Live channel subscriptions, so the webview can stop the task feeding a channel.
 #[derive(Clone, Default)]
@@ -41,6 +104,14 @@ impl Subscriptions {
         }
     }
 
+    /// For a webview (re)loading: its old page can't unsubscribe, and sending to its channels
+    /// still succeeds, so nothing else would stop their tasks.
+    pub fn cancel_all(&self) {
+        for (_, tx) in self.live.lock().unwrap().drain() {
+            let _ = tx.send(true);
+        }
+    }
+
     #[cfg(test)]
     fn live_count(&self) -> usize {
         self.live.lock().unwrap().len()
@@ -59,7 +130,6 @@ impl SubscriptionHandle {
         *self.rx.borrow() || self.rx.has_changed().is_err()
     }
 
-    /// Resolves once the subscription is cancelled.
     pub async fn stopped(&mut self) {
         let _ = self.rx.wait_for(|stopped| *stopped).await;
     }
@@ -71,84 +141,66 @@ impl Drop for SubscriptionHandle {
     }
 }
 
-/// Feeds `channel` a thread's normalised agent events until cancelled. Returns the id to cancel by.
-pub fn stream_agent_events(
+fn stream_agent_events(
     state: &AppState,
+    subs: &Subscriptions,
     thread_id: String,
     channel: Channel<StreamedEvent>,
 ) -> u32 {
-    let engines = state.engines.clone();
-    let mut sub = state.subscriptions.register();
+    let transcript = state.transcript.clone();
+    let mut rx = transcript.subscribe(&thread_id);
+    let mut sub = subs.register();
     let id = sub.id;
     tauri::async_runtime::spawn(async move {
-        // A new session replaces the engine, so when one closes wait for the next.
-        while let Some(mut rx) = subscribe_thread(&engines, &thread_id, &mut sub).await {
-            loop {
-                let event = tokio::select! {
-                    _ = sub.stopped() => return,
-                    event = rx.recv() => event,
-                };
-                match event {
-                    Ok(event) => {
-                        let _ = channel.send(event);
-                    }
-                    // Every event is saved before it's sent, so the UI can read back what it missed.
-                    Err(broadcast::error::RecvError::Lagged(missed)) => {
-                        let _ = channel.send(AgentEvent::StreamLagged { missed }.into());
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
+        loop {
+            let event = tokio::select! {
+                _ = sub.stopped() => return,
+                event = rx.recv() => event,
+            };
+            let sent = match event {
+                Ok(event) => channel.send(event),
+                // What was saved can be read back; the signals in between are gone.
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    channel.send(transcript.lagged(&thread_id, missed))
                 }
+                Err(broadcast::error::RecvError::Closed) => return,
+            };
+            if sent.is_err() {
+                return;
             }
         }
     });
     id
 }
 
-/// Wait for the thread's engine session to exist, giving up if the subscription is cancelled
-/// first. An idle thread on screen has no engine until its next prompt, so this waits on the
-/// registry's spawn signal rather than polling.
-async fn subscribe_thread(
-    engines: &EngineRegistry,
-    thread_id: &str,
-    sub: &mut SubscriptionHandle,
-) -> Option<broadcast::Receiver<StreamedEvent>> {
-    loop {
-        // Armed before the check, so a spawn landing between the two still wakes this.
-        let spawned = engines.spawned().notified();
-        tokio::pin!(spawned);
-        spawned.as_mut().enable();
-        if let Ok(rx) = engines.subscribe(thread_id) {
-            return Some(rx);
-        }
-        tokio::select! {
-            _ = sub.stopped() => return None,
-            () = spawned => {}
-        }
-    }
-}
-
-/// Feeds `channel` a workspace's run/setup log, from the start, until cancelled.
-pub fn stream_pty(state: &AppState, workspace_id: String, channel: Channel<PtyChunk>) -> u32 {
+fn stream_pty(
+    state: &AppState,
+    subs: &Subscriptions,
+    workspace_id: String,
+    channel: Channel<PtyChunk>,
+) -> u32 {
     let process = state.process.clone();
-    let sub = state.subscriptions.register();
+    let sub = subs.register();
     let id = sub.id;
     tauri::async_runtime::spawn(async move {
-        // Replay the log so reopening the Output tab shows what already ran.
-        let mut lines = process.take_log_snapshot(&workspace_id);
+        // From the start, so reopening the Output tab shows what already ran.
+        let mut cursor = 0;
         let activity = process.activity();
         let mut sub = sub;
-        while !sub.is_stopped() {
-            // Armed first, so a line landing just after the drain still wakes this loop.
+        'feed: while !sub.is_stopped() {
+            // Armed first, so a line landing just after the read still wakes this loop.
             let woken = activity.notified();
             tokio::pin!(woken);
             woken.as_mut().enable();
             // Run and setup sessions are forwarded into the workspace log by their monitors.
-            lines.extend(process.drain_pending(&workspace_id));
-            for line in lines.drain(..) {
-                let _ = channel.send(PtyChunk {
+            for line in process.log_since(&workspace_id, &mut cursor) {
+                let chunk = PtyChunk {
                     workspace_id: workspace_id.clone(),
-                    line,
-                });
+                    entry: line,
+                };
+                if channel.send(chunk).is_err() {
+                    break 'feed;
+                }
             }
             tokio::select! {
                 () = woken => {}
@@ -161,17 +213,17 @@ pub fn stream_pty(state: &AppState, workspace_id: String, channel: Channel<PtyCh
     id
 }
 
-/// Feeds `channel` a worktree's live diffs until cancelled.
-pub async fn stream_diffs(
+async fn stream_diffs(
     state: &AppState,
+    subs: &Subscriptions,
     workspace_id: String,
     channel: Channel<DiffUpdate>,
 ) -> u32 {
-    if let Err(error) = crate::git_workspace::load_workspace(state, &workspace_id).await {
+    if let Err(error) = crate::changes::load(state, &workspace_id).await {
         log::warn!("diff watch for {workspace_id} failed: {error}");
     }
     let diffs = state.diffs.clone();
-    let mut sub = state.subscriptions.register();
+    let mut sub = subs.register();
     let id = sub.id;
     let subscription = diffs.subscribe(&workspace_id);
     let mut updates = diffs.updates();
@@ -182,11 +234,13 @@ pub async fn stream_diffs(
             if let Some(diff) = diffs.latest(&workspace_id)
                 && !last.as_ref().is_some_and(|sent| Arc::ptr_eq(sent, &diff))
             {
-                let _ = channel.send(DiffUpdate {
+                let update = DiffUpdate {
                     workspace_id: workspace_id.clone(),
-                    path: String::new(),
                     diff: Some((*diff).clone()),
-                });
+                };
+                if channel.send(update).is_err() {
+                    break;
+                }
                 last = Some(diff);
             }
             tokio::select! {
@@ -213,6 +267,21 @@ mod tests {
         handle.stopped().await;
         drop(handle);
         assert_eq!(subs.live_count(), 0);
+    }
+
+    /// Bug: a webview reload left every stream task running, since sending to the old page's
+    /// channels still succeeds.
+    #[tokio::test]
+    async fn a_page_load_stops_every_subscription() {
+        let subs = Subscriptions::new();
+        let mut handles = [subs.register(), subs.register()];
+        subs.cancel_all();
+        assert_eq!(subs.live_count(), 0);
+        for handle in &mut handles {
+            assert!(handle.is_stopped());
+            handle.stopped().await;
+        }
+        assert!(!subs.register().is_stopped());
     }
 
     #[test]

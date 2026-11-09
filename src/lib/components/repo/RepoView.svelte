@@ -1,108 +1,89 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
+  import { openWorkspace } from '$lib/nav/open'
+  import { nav, navigate } from '$lib/core/nav.svelte'
+  import { windowDrag } from '$lib/primitives/window-drag'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import { Badge } from '$lib/components/ui/badge'
-  import DialogShortcut from '$lib/components/shell/DialogShortcut.svelte'
+  import DialogShortcut from '$lib/primitives/DialogShortcut.svelte'
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
   import type { LocalBranchRow } from '$lib/ipc/bindings'
-  import { coreErrorText } from '$lib/feedback/core-error'
+  import { coreErrorText } from '$lib/core/core-error'
+  import { startsOver } from '$lib/core/owner-scoped'
   import { toastCoreError } from '$lib/feedback/wire-feedback'
-  import { branchHoldReason, pullRequestForBranch } from '$lib/repo/branch-hold'
-  import { workspaceStatusWord } from '$lib/sidebar/status'
-  import {
-    app,
-    prs,
-    repos,
-    scratches,
-    workspaceRecords,
-    workspaces,
-  } from '$lib/state'
+  import { openExternal } from '$lib/feedback/open-external'
+  import { onModEnter } from '$lib/keyboard/mod-enter'
+  import { branchHoldLabel } from '$lib/repo/branch-hold'
+  import { prs, repos, scratches, workspaces } from '$lib/state'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import Trash2 from '@lucide/svelte/icons/trash-2'
-  import { openUrl } from '@tauri-apps/plugin-opener'
-  import { getCurrentWindow } from '@tauri-apps/api/window'
 
   let titleEl = $state<HTMLHeadingElement | null>(null)
-  let branches = $state<LocalBranchRow[]>([])
-  let head = $state('')
-  let loading = $state(true)
-  let loadError = $state<string | null>(null)
-  let deleting = $state<string | null>(null)
+  // Each repo's list starts over, so a Delete never names another repo's branch.
+  let branches = $derived<LocalBranchRow[]>(startsOver(nav.repoId, []))
+  let loading = $derived(startsOver(nav.repoId, true))
+  let loadError = $derived<string | null>(startsOver(nav.repoId, null))
+  let deleting = $derived<string | null>(startsOver(nav.repoId, null))
   /** A branch origin doesn't have as it is locally, awaiting a confirmed delete. */
-  let unpushed = $state<string | null>(null)
+  let unpushed = $derived<string | null>(startsOver(nav.repoId, null))
   // Held after close so the copy doesn't change while the dialog animates out.
   let unpushedShown = $state('')
   $effect(() => {
     if (unpushed) unpushedShown = unpushed
   })
 
-  const repo = $derived(app.repoId ? repos.getById(app.repoId) : undefined)
-  const defaultBranch = $derived(repo?.defaultBranch?.trim() || 'main')
+  const repo = $derived(nav.repoId ? repos.getById(nav.repoId) : undefined)
+  const defaultBranch = $derived(repo ? repos.defaultBranch(repo.id) : '')
   const git = $derived(repo ? repos.gitById[repo.id] : undefined)
 
   const repoWorkspaces = $derived(
-    workspaceRecords.records.filter((row) => row.repoId === repo?.id),
+    workspaces.items.filter((row) => row.repoId === repo?.id),
   )
   const repoScratches = $derived(
     scratches.items.filter((row) => row.repoId === repo?.id),
   )
 
-  $effect(() => {
-    if (app.focusTarget !== 'repo') return
-    void app.focusGeneration
-    titleEl?.focus()
-  })
+  $effect(() =>
+    nav.onArrival(() => {
+      if (nav.view === 'repo') titleEl?.focus()
+    }),
+  )
+
+  // Read again when the repo's workspaces move branches: the core says which it holds.
+  const workspaceBranches = $derived(
+    repoWorkspaces.map((row) => row.branch).join('\n'),
+  )
 
   $effect(() => {
-    if (app.view !== 'repo' || !app.repoId) return
-    if (!repos.getById(app.repoId)) app.openNewThread()
-  })
-
-  $effect(() => {
-    const id = app.repoId
-    if (!id || app.view !== 'repo') return
+    const id = nav.repoId
+    if (!id || nav.view !== 'repo') return
+    void workspaceBranches
     let cancelled = false
-    loading = true
+    loading = untrack(() => branches.length === 0)
     loadError = null
     void commands.listRepoLocalBranches(id).then((result) => {
       if (cancelled) return
       loading = false
       if (result.status === 'error') {
         branches = []
-        head = ''
         loadError = coreErrorText(result.error, 'Could not read branches')
         return
       }
       branches = result.data.branches
-      head = result.data.head
     })
     return () => {
       cancelled = true
     }
   })
 
-  function checkedOutBy(branch: string) {
-    return repoWorkspaces
-      .filter((row) => row.branch === branch)
-      .map((row) => row.name)
-  }
-
-  function statusWord(workspaceId: string) {
-    const workspace = workspaces.getById(workspaceId)
-    if (!workspace) return ''
-    return workspaceStatusWord({
-      lifecycle: workspace.lifecycle,
-      paused: workspace.paused,
-      activityText: workspace.activityText,
-    })
-  }
-
   async function removeBranch(name: string, force = false) {
-    const id = app.repoId
+    const id = nav.repoId
     if (!id || deleting) return
     deleting = name
     const result = await commands.deleteLocalBranch(id, name, force)
+    if (id !== nav.repoId) return
     deleting = null
     unpushed = null
     if (result.status === 'error') {
@@ -117,20 +98,9 @@
     branches = branches.filter((row) => row.name !== name)
   }
 
-  function startHeaderDrag(event: MouseEvent) {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof Element)) return
-    if (target.closest('button, a, input, textarea')) return
-    void getCurrentWindow().startDragging()
-  }
-
-  function onUnpushedKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && unpushed) {
-      event.preventDefault()
-      void removeBranch(unpushed, true)
-    }
-  }
+  const onUnpushedKeydown = onModEnter(() => {
+    if (unpushed) void removeBranch(unpushed, true)
+  })
 </script>
 
 <div
@@ -140,12 +110,7 @@
   {#if repo}
     <div class="mx-auto flex w-full max-w-[760px] flex-col gap-10 p-6">
       <!-- The title block is the page's title bar: empty space in it drags the window. -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <header
-        class="grid gap-3"
-        data-tauri-drag-region
-        onmousedown={startHeaderDrag}
-      >
+      <header class="grid gap-3" data-tauri-drag-region use:windowDrag>
         <h1
           bind:this={titleEl}
           tabindex="-1"
@@ -178,9 +143,9 @@
               of origin/{defaultBranch}
             </span>
           {/if}
-          {#if repo.runCommand}
+          {#if repos.runCommand(repo.id)}
             <Badge variant="outline" class="max-w-full font-mono">
-              <span class="truncate">Run {repo.runCommand}</span>
+              <span class="truncate">Run {repos.runCommand(repo.id)}</span>
             </Badge>
           {/if}
         </div>
@@ -205,12 +170,12 @@
             class="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
           >
             {#each repoWorkspaces as row (row.id)}
-              {@const status = statusWord(row.id)}
+              {@const status = row.activityText}
               <li>
                 <button
                   type="button"
                   class="flex w-full items-start justify-between gap-4 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
-                  onclick={() => app.openWorkspace(row.id)}
+                  onclick={() => openWorkspace(row.id)}
                 >
                   <span class="min-w-0">
                     <span class="block truncate text-sm font-medium"
@@ -263,17 +228,8 @@
             class="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
           >
             {#each branches as branch (branch.name)}
-              {@const reason = branchHoldReason({
-                name: branch.name,
-                defaultBranch,
-                head,
-                checkedOutBy: checkedOutBy(branch.name),
-              })}
-              {@const pr = pullRequestForBranch(
-                prs.items,
-                repo.id,
-                branch.name,
-              )}
+              {@const reason = branch.hold && branchHoldLabel(branch.hold)}
+              {@const pr = prs.forBranch(repo.id, branch.name)}
               <li
                 class="flex items-start justify-between gap-4 px-4 py-3.5"
                 data-od-id="repo-branch-{branch.name}"
@@ -301,7 +257,7 @@
                       type="button"
                       class="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-left text-xs transition-colors hover:bg-muted"
                       aria-label="Open pull request #{pr.num} on GitHub, {pr.title}"
-                      onclick={() => void openUrl(pr.htmlUrl)}
+                      onclick={() => void openExternal(pr.htmlUrl)}
                     >
                       <GitPullRequest
                         class="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
@@ -356,7 +312,8 @@
                 <button
                   type="button"
                   class="w-full px-4 py-3.5 text-left text-sm font-medium transition-colors hover:bg-muted/40"
-                  onclick={() => app.openScratch(scratch.id)}
+                  onclick={() =>
+                    navigate({ view: 'scratch', scratchId: scratch.id })}
                 >
                   {scratch.title}
                 </button>

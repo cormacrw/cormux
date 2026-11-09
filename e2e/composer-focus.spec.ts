@@ -29,7 +29,7 @@ test('the composer gets focus back after the usual actions', async ({
 
   // Ctrl+Tab back into the workspace lands in the prompt too.
   await page
-    .getByRole('navigation', { name: 'Harness' })
+    .getByRole('navigation', { name: 'Sidebar' })
     .getByRole('button', { name: /^New thread/ })
     .click()
   await page.keyboard.press('Control+Tab')

@@ -1,29 +1,20 @@
-import {
-  filterPullRequests,
-  prFilterCounts,
-  type PrFilter,
-  type PrRelationship,
-} from '$lib/homebase/pr-filter'
+import type { PrChecksState, PrReviewState } from '$lib/ipc/bindings'
+import type { PrRow } from '$lib/ipc/bindings'
+import { onSnapshot } from '$lib/core/sync'
+import { prForBranch } from './pr-lookup'
 import { reuseRows } from './reuse-rows'
 
-export type PrChecksState = 'pass' | 'fail' | 'running' | 'none'
-
-export type PrReviewState = 'required' | 'changes' | 'approved' | 'draft'
+export type { PrChecksState, PrReviewState }
 
 export type PullRequest = {
   id: string
   num: number
   title: string
   author: string
-  rel: PrRelationship
   head: string
   base: string
-  updatedAtMs: number
   checks: PrChecksState
-  failing: number | null
   review: PrReviewState
-  additions: number
-  deletions: number
   files: number
   isDraft: boolean
   htmlUrl: string
@@ -34,31 +25,48 @@ export type PullRequest = {
 export class PrsStore {
   // Raw and reused: a PR sync that changed nothing leaves every reader alone.
   items = $state.raw<PullRequest[]>([])
-  filter = $state<PrFilter>('all')
-  syncedAtMs = $state<number | null>(null)
   authConfigured = $state(false)
 
-  readonly filtered = $derived(filterPullRequests(this.items, this.filter))
-
-  readonly filterCounts = $derived(prFilterCounts(this.items))
-
-  readonly filterEmpty = $derived(
-    this.items.length > 0 && this.filtered.length === 0,
-  )
-
-  hydrate(input: {
-    items: PullRequest[]
-    syncedAtMs: number | null
-    authConfigured: boolean
-  }) {
+  hydrate(input: { items: PullRequest[]; authConfigured: boolean }) {
     this.items = reuseRows(this.items, input.items)
-    this.syncedAtMs = input.syncedAtMs
     this.authConfigured = input.authConfigured
   }
 
-  setFilter(filter: PrFilter) {
-    this.filter = filter
+  forBranch(repoId: string, branch: string) {
+    return prForBranch(this.items, repoId, branch)
+  }
+
+  find(repoFullName: string, num: number) {
+    return this.items.find(
+      (pr) => pr.repoFullName === repoFullName && pr.num === num,
+    )
+  }
+}
+
+function pullRequestFromRow(row: PrRow): PullRequest {
+  const { payload } = row
+  return {
+    id: row.id,
+    num: payload.num,
+    title: payload.title,
+    author: payload.author,
+    head: payload.head,
+    base: payload.base,
+    checks: payload.checks,
+    review: payload.review,
+    files: payload.files,
+    isDraft: payload.isDraft,
+    htmlUrl: payload.htmlUrl,
+    repoFullName: payload.repoFullName,
+    repoId: payload.repoId ?? row.repoId,
   }
 }
 
 export const prs = new PrsStore()
+
+onSnapshot((snapshot) =>
+  prs.hydrate({
+    items: snapshot.persisted.pullRequests.map(pullRequestFromRow),
+    authConfigured: snapshot.githubAuthConfigured,
+  }),
+)

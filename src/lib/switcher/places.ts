@@ -1,8 +1,19 @@
+import type { Route } from '$lib/core/route'
+
 /** Somewhere Ctrl+Tab can take you: a workspace or one of the main pages. */
 export type Place =
   { kind: 'workspace'; id: string } | { kind: 'newThread' } | { kind: 'sprint' }
 
-export const MAIN_PAGES: Place[] = [{ kind: 'newThread' }, { kind: 'sprint' }]
+/** The route as a place the switcher knows, or null (Settings, a scratch, a repo). */
+export function placeOf(route: Route): Place | null {
+  if (route.view === 'workspace')
+    return { kind: 'workspace', id: route.workspaceId }
+  if (route.view === 'newThread' || route.view === 'sprint')
+    return { kind: route.view }
+  return null
+}
+
+const MAIN_PAGES: Place[] = [{ kind: 'newThread' }, { kind: 'sprint' }]
 
 const HISTORY_LIMIT = 40
 
@@ -10,7 +21,6 @@ export function placeKey(place: Place): string {
   return place.kind === 'workspace' ? `workspace:${place.id}` : place.kind
 }
 
-/** The history with `place` moved to the front: the most recent visit comes first. */
 export function visit(history: Place[], place: Place): Place[] {
   const key = placeKey(place)
   return [place, ...history.filter((entry) => placeKey(entry) !== key)].slice(
@@ -47,13 +57,11 @@ export function switcherPlaces(
   return list
 }
 
-/** Where the selection starts: the previous place when you're on the newest one, else the newest. */
 export function startIndex(list: Place[], current: Place | null): number {
   if (list.length < 2) return 0
   return current && placeKey(list[0]!) === placeKey(current) ? 1 : 0
 }
 
-/** The next selection, wrapping around either end. */
 export function stepIndex(index: number, length: number, by: 1 | -1): number {
   if (!length) return 0
   return (index + by + length) % length

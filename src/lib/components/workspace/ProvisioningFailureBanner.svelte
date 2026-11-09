@@ -2,7 +2,8 @@
   import * as Alert from '$lib/components/ui/alert'
   import { Button } from '$lib/components/ui/button'
   import { commands } from '$lib/ipc'
-  import { openSettingsSection } from '$lib/command-palette/actions'
+  import { toastCoreError } from '$lib/feedback/wire-feedback'
+  import { openSettings } from '$lib/settings/open'
   import type { Workspace } from '$lib/state/workspaces.svelte'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
 
@@ -12,23 +13,28 @@
 
   async function retry() {
     busy = true
-    await commands.retryWorkspaceProvisioning(workspace.id)
+    const result = await commands.retryWorkspaceProvisioning(workspace.id)
     busy = false
+    if (result.status === 'error')
+      toastCoreError(result.error, 'Could not retry setup')
   }
 
   async function skip() {
     busy = true
-    await commands.skipWorkspaceProvisioningSetup(workspace.id)
+    const result = await commands.skipWorkspaceProvisioningSetup(workspace.id)
     busy = false
+    if (result.status === 'error')
+      toastCoreError(result.error, 'Could not skip setup')
   }
 
   function editSetup() {
-    openSettingsSection('repos')
+    openSettings({ section: 'repos' })
   }
 
   const detail = $derived.by(() => {
-    if (workspace.setupFailedCommand && workspace.setupFailedExitCode != null) {
-      return `“${workspace.setupFailedCommand}” exited with code ${workspace.setupFailedExitCode}. Fix the command or skip setup to start the agent anyway.`
+    const failure = workspace.setupFailure
+    if (failure) {
+      return `“${failure.command}” exited with code ${failure.exitCode}. Fix the command or skip setup to start the agent anyway.`
     }
     return 'Worktree setup did not finish. Retry, skip remaining setup, or edit the repo’s setup commands.'
   })

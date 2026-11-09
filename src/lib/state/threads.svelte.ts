@@ -1,25 +1,63 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
+import type { Snapshot, ThreadRole, ThreadStatus } from '$lib/ipc/bindings'
 import type { ThreadUsage } from '$lib/usage/usage'
+import { onSnapshot } from '$lib/core/sync'
+import { threadActivity } from './activity'
 import { reuseRows } from './reuse-rows'
-import { workspaces } from './workspaces.svelte'
 
 export type Thread = {
   id: string
   workspaceId: string
+  /** Display text: `Lead`, `Reviewer`, or what an agent named it. */
   role: string
+  /** Set on the workspace's own Lead or Reviewer. */
+  ownRole?: ThreadRole | null
+  /** The workspace's own thread, as the core picks it: the one it still talks to. */
+  own: boolean
   engine: string
-  status: string
-  paused: boolean
+  status: ThreadStatus
   activity: string
-  pendingApprovals: number
+  /** The engine has a session the thread would resume, so New session has something to forget. */
+  hasSession: boolean
   usage: ThreadUsage
-  /** Readable but can't be continued: a workspace's older thread, or a scratch's. */
+  /** Readable but can't be continued: a workspace's older thread. */
   retired: boolean
   /** The thread that started this one, when an agent did. */
-  parentThreadId?: string | null
-  /** Set on a scratch's thread, which lives outside any workspace. */
-  scratchId?: string
+  parentThreadId: string | null
+}
+
+/** The snapshot's workspace threads, grouped in workspace order and created order within one. */
+export function threadsFromSnapshot(snapshot: Snapshot): Thread[] {
+  const { persisted } = snapshot
+  const records = new Map(
+    snapshot.workspaces.map((ws, index) => [ws.id, { ws, index }]),
+  )
+  const own = new Set(snapshot.workspaceOwnThreads.map((row) => row.threadId))
+  const items = persisted.threads.map((thread): Thread => {
+    const ws = records.get(thread.workspaceId)?.ws
+    return {
+      id: thread.id,
+      workspaceId: thread.workspaceId,
+      role: thread.title,
+      ownRole: thread.role,
+      own: own.has(thread.id),
+      engine: thread.engine,
+      status: thread.status,
+      activity: threadActivity(thread.status, ws?.activity),
+      hasSession: thread.sessionId != null,
+      retired: thread.retired,
+      parentThreadId: thread.parentThreadId,
+      usage: {
+        usedTokens: thread.usedTokens,
+        contextSize: thread.contextSize,
+        costUsd: thread.costUsd,
+      },
+    }
+  })
+  // The first tab is the workspace's own thread; ids are random, so sorting by id would shuffle.
+  const order = (thread: Thread) => records.get(thread.workspaceId)?.index ?? 0
+  return items.sort((a, b) => order(a) - order(b))
 }
 
 const NO_THREADS: Thread[] = []
@@ -54,22 +92,6 @@ export class ThreadsStore {
     return map
   })
 
-  /**
-   * Live workspace threads only. Scratches and retired threads stay out of agent counts, and
-   * so do the agents of a workspace being deleted, like the workspace itself.
-   */
-  readonly agents = $derived(
-    this.items.filter((thread) => {
-      if (thread.scratchId || thread.retired) return false
-      const workspace = workspaces.getById(thread.workspaceId)
-      return !workspace || !workspaces.isDeleting(workspace)
-    }),
-  )
-
-  readonly runningCount = $derived(
-    this.agents.filter((thread) => thread.status === 'running').length,
-  )
-
   hydrate(items: Thread[]) {
     this.items = reuseRows(this.items, items)
   }
@@ -79,17 +101,25 @@ export class ThreadsStore {
     return this.byWorkspace.get(workspaceId) ?? NO_THREADS
   }
 
-  /** The workspace's one thread that can still be messaged. */
+  /** The workspace's own thread. */
   liveFor(workspaceId: string) {
-    return this.forWorkspace(workspaceId).find((thread) => !thread.retired)
+    return this.forWorkspace(workspaceId).find((thread) => thread.own)
   }
 
-  /** The threads this one started. */
+  /** The thread a workspace shows: the one asked for, else its own, else its first. */
+  shownIn(workspaceId: string, threadId?: string | null): Thread | undefined {
+    const list = this.forWorkspace(workspaceId)
+    return (
+      list.find((thread) => thread.id === threadId) ??
+      this.liveFor(workspaceId) ??
+      list[0]
+    )
+  }
+
   childrenOf(threadId: string): Thread[] {
     return this.byParent.get(threadId) ?? NO_THREADS
   }
 
-  /** The workspace's older threads, kept to read. */
   retiredFor(workspaceId: string) {
     return this.forWorkspace(workspaceId).filter((thread) => thread.retired)
   }
@@ -97,19 +127,8 @@ export class ThreadsStore {
   getById(id: string) {
     return this.byId.get(id)
   }
-
-  setStatus(id: string, status: string) {
-    const thread = this.byId.get(id)
-    if (!thread) return
-    const activity =
-      status === 'running'
-        ? 'Working'
-        : status === 'idle'
-          ? 'Idle'
-          : thread.activity
-    const next = { ...thread, status, paused: status === 'paused', activity }
-    this.items = this.items.map((row) => (row === thread ? next : row))
-  }
 }
 
 export const threads = new ThreadsStore()
+
+onSnapshot((snapshot) => threads.hydrate(threadsFromSnapshot(snapshot)))

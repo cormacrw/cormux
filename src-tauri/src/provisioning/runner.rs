@@ -1,247 +1,339 @@
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
+use uuid::Uuid;
+
+use crate::bus::DomainEvent;
 use crate::engines::prompt::Prompt;
-use crate::engines::{EngineKind, SpawnSpec};
 use crate::error::{Error, Result};
-use crate::feedback::Output;
-use crate::ipc::types::StateChangeKind;
-use crate::process::ProcessSupervisor;
-use crate::provisioning::{SETUP_COMMAND_TIMEOUT, parse_setup_commands};
+use crate::feedback::{ToastPart, ToastRaisedPayload, ToastTone};
+use crate::harness_config::{SetupEnd, SetupWatch, run_setup};
+use crate::model::{ThreadStatus, WorkspaceKind, WorkspaceLifecycle};
+use crate::paths::{expand_tilde, worktrees_root};
+use crate::process::{Exit, LogKind, SessionId};
+use crate::provisioning::SetupRun;
 use crate::state::AppState;
-use crate::store::types::{ThreadRow, WorkspaceRow};
-use crate::timeline::{TimelineStep, record_step};
-use crate::workspace::{ThreadStatus, WorkspaceLifecycle, WorkspaceManager, WorkspaceRecord};
+use crate::store::types::{ThreadPicks, ThreadRow, WorkspaceRow};
+use crate::timeline::TimelineStep;
+use crate::workspace_git::Checkout;
+use crate::workspaces::{WorkspaceActivity, WorkspaceRecord};
 
+/// A workspace to record: its row and its own thread.
 #[derive(Debug, Clone)]
-pub struct LeadProvisionJob {
+pub struct WorkspaceSpec {
+    pub kind: WorkspaceKind,
+    pub repo_id: String,
+    pub name: String,
+    pub branch: String,
+    pub base: String,
+    /// The pull request it's for, with its page.
+    pub pr: Option<(i64, Option<String>)>,
+    /// The thread that asked for the workspace, when an agent did.
+    pub parent_thread_id: Option<String>,
+    /// What its thread starts on, stored with it, since the engine reads it when it launches.
+    pub picks: ThreadPicks,
+    /// The message its first turn starts from, kept so a retried setup starts from it again.
+    pub setup_message: String,
+}
+
+pub struct Created {
+    pub workspace: WorkspaceRecord,
+    pub thread_id: String,
+}
+
+type Intro = Box<dyn Fn(&WorkspaceRecord) -> String + Send + Sync>;
+
+/// How a recorded workspace is brought up. Built by whoever knows what the workspace is for.
+pub struct ProvisionPlan {
     pub workspace_id: String,
     pub thread_id: String,
-    pub repo_name: String,
-    pub setup_commands_raw: String,
-    pub engine: String,
-    pub goal: String,
-    /// What the engine is sent first, when it isn't just the goal: the goal with its
-    /// attachments. Lost on a retry, which sends the goal as the thread shows it.
-    pub prompt: Option<Prompt>,
-    pub review: bool,
+    pub checkout: Checkout,
+    /// The engine's first prompt. Without one the thread waits idle for the user.
+    pub first_prompt: Option<Prompt>,
+    /// What the workspace's intro says, from the workspace as setup leaves it.
+    pub intro: Option<Intro>,
+    /// Raised once the agent has its prompt.
+    pub started_toast: Option<Vec<ToastPart>>,
 }
 
-pub async fn run_workspace_provisioning(out: Output, state: AppState, job: LeadProvisionJob) {
-    if let Err(error) = run_lead(&out, &state, job).await {
-        log::warn!("provisioning failed: {error}");
+/// Records the workspace and its thread, having checked everything that can be checked before
+/// anything is written: the repo, the refs and the worktree folder. Then `first_records`, the
+/// caller's own first writes for it; once the workspace is recorded, a step that fails fails its
+/// setup, leaving it to retry or tear down. Nothing else is notified.
+pub async fn create(
+    state: &AppState,
+    spec: WorkspaceSpec,
+    first_records: impl FnOnce(&Created) -> Result<()>,
+) -> Result<Created> {
+    let repo = state.store.repo(&spec.repo_id)?;
+    // Before any git call: `base` can come from an agent's `create_thread` call.
+    crate::workspace_git::check_branch_name(&repo, &spec.branch)?;
+    crate::git::validate_ref_name(&spec.base, "base")?;
+    let repo_path = expand_tilde(&repo.path);
+    if !repo_path.is_dir() {
+        return Err(Error::Git(format!(
+            "repo path does not exist: {}",
+            repo_path.display()
+        )));
     }
-}
 
-pub async fn retry_provisioning(out: Output, state: AppState, workspace_id: String) {
-    let Some((workspace, thread, repo)) = provisioning_rows(&state, &workspace_id) else {
-        return;
-    };
-    let goal = state
-        .store
-        .first_message_text(&thread.id)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-
-    let _ = state
-        .workspace
-        .set_status(&workspace_id, WorkspaceLifecycle::Provisioning)
-        .await;
-    clear_failure(&state, &workspace_id).await;
-
-    let repo_path = crate::paths::expand_tilde(&repo.path);
-    let job = LeadProvisionJob {
-        workspace_id,
-        thread_id: thread.id,
-        repo_name: repo.name,
-        setup_commands_raw: crate::harness_config::effective_setup(
-            &repo.setup_commands,
-            &repo_path,
-        ),
-        engine: thread.engine,
-        goal,
-        prompt: None,
-        review: workspace.kind.as_deref() == Some("review"),
-    };
-    if let Err(error) = run_lead(&out, &state, job).await {
-        log::warn!("retry provisioning failed: {error}");
-    }
-}
-
-pub async fn skip_provisioning_setup(out: Output, state: AppState, workspace_id: String) {
-    let Some((workspace, thread, repo)) = provisioning_rows(&state, &workspace_id) else {
-        return;
-    };
-    let goal = state
-        .store
-        .first_message_text(&thread.id)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-
-    let _ = state
-        .workspace
-        .set_status(&workspace_id, WorkspaceLifecycle::Provisioning)
-        .await;
-    clear_failure(&state, &workspace_id).await;
-    state.process.append_log_line(
+    let workspace_id = format!("ws-{}", Uuid::new_v4().simple());
+    let thread_id = Uuid::new_v4().to_string();
+    let root = worktrees_root(&crate::settings::Settings::read(&state.store)?.worktree_root);
+    let worktree = crate::paths::worktree_path(&root, &repo_path, &spec.branch);
+    let mut row = WorkspaceRow::new(
+        spec.kind,
         &workspace_id,
-        "──── Skipped remaining setup — continuing ────",
+        &spec.repo_id,
+        &spec.name,
+        &spec.branch,
+        &spec.base,
+        worktree.to_string_lossy(),
     );
-
-    let job = LeadProvisionJob {
-        workspace_id: workspace_id.clone(),
-        thread_id: thread.id,
-        repo_name: repo.name,
-        setup_commands_raw: String::new(),
-        engine: thread.engine,
-        goal,
-        prompt: None,
-        review: workspace.kind.as_deref() == Some("review"),
+    if let Some((number, html_url)) = spec.pr {
+        row = row.with_pr(number, html_url);
+    }
+    let thread = ThreadRow {
+        parent_thread_id: spec.parent_thread_id,
+        ..ThreadRow::new(
+            &thread_id,
+            &workspace_id,
+            spec.kind.own_role(),
+            crate::settings::Settings::load(&state.store).default_engine_name(),
+        )
     };
-    if let Err(error) = finish_after_setup(&out, &state, &job, 0).await {
-        mark_failed(&out, &state, &workspace_id, None, None, &error.to_string()).await;
+    state
+        .workspaces
+        .register(row, &thread, &spec.picks, &spec.setup_message, &repo)
+        .await?;
+    let created = state
+        .workspaces
+        .set_activity(&workspace_id, WorkspaceActivity::SettingUp)
+        .await
+        .map(|workspace| Created {
+            workspace,
+            thread_id,
+        })
+        .and_then(|created| first_records(&created).map(|()| created));
+    if let Err(error) = &created {
+        mark_failed(state, &workspace_id, None, None, &error.to_string()).await;
+    }
+    created
+}
+
+pub fn start(state: &AppState, plan: ProvisionPlan) {
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move { run(&state, plan).await });
+}
+
+pub async fn run(state: &AppState, plan: ProvisionPlan) {
+    let run = state.setup.begin(&plan.workspace_id).await;
+    let ran = run_plan(state, &plan, &run).await;
+    fail_on_error(state, &run, ran).await;
+}
+
+async fn fail_on_error(state: &AppState, run: &SetupRun, ran: Result<()>) {
+    if let Err(error) = ran {
+        log::warn!("provisioning {} failed: {error}", run.workspace_id);
+        mark_failed(
+            state,
+            &run.workspace_id,
+            Some(run),
+            None,
+            &error.to_string(),
+        )
+        .await;
     }
 }
 
-async fn run_lead(out: &Output, state: &AppState, job: LeadProvisionJob) -> Result<()> {
-    if !workspace_alive(state, &job.workspace_id).await {
+/// Runs a failed setup again in the background. Refused unless setup failed.
+pub async fn retry(state: &AppState, plan: ProvisionPlan) -> Result<()> {
+    state
+        .workspaces
+        .restart_provisioning(&plan.workspace_id)
+        .await?;
+    state.out.changed();
+    start(state, plan);
+    Ok(())
+}
+
+/// Carries on past failed setup as if it had finished, in the background. Refused unless
+/// setup failed after making the worktree, which the agent needs to start in.
+pub async fn skip_setup(state: &AppState, plan: ProvisionPlan) -> Result<()> {
+    let workspace = state.workspaces.get(&plan.workspace_id).await?;
+    if !workspace.worktree().exists() {
+        return Err(Error::Workspace(
+            "The worktree was never made, so setup can't be skipped. Retry it instead.".into(),
+        ));
+    }
+    state
+        .workspaces
+        .restart_provisioning(&plan.workspace_id)
+        .await?;
+    state.out.changed();
+    state.process.log(
+        &plan.workspace_id,
+        LogKind::Marker,
+        "Skipped remaining setup — continuing",
+    );
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        let run = state.setup.begin(&plan.workspace_id).await;
+        let finished = finish_after_setup(&state, &plan, &run, 0).await;
+        fail_on_error(&state, &run, finished).await;
+    });
+    Ok(())
+}
+
+async fn run_plan(state: &AppState, plan: &ProvisionPlan, run: &SetupRun) -> Result<()> {
+    if !alive(state, run).await {
         return Ok(());
     }
-
-    let record = state
-        .workspace
-        .get(&job.workspace_id)
-        .await
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", job.workspace_id)))?;
-
-    let setup = parse_setup_commands(&job.setup_commands_raw);
-    let setup_activity = if job.review {
-        "Checking out the PR…"
-    } else {
-        "Running worktree setup…"
-    };
-    set_activity(state, &job.workspace_id, setup_activity, 1, None, None).await;
-    emit_snapshot(out, state);
-
-    if !worktree_exists(&record) {
-        if let Err(error) = state.workspace.add_worktree(&job.workspace_id).await {
+    let workspace = state.workspaces.get(&plan.workspace_id).await?;
+    let repo = state.store.repo(&workspace.repo_id)?;
+    let setup = match crate::harness_config::setup_commands(&repo) {
+        Ok(setup) => setup,
+        Err(error) => {
+            log::warn!("setup for {}: {error}", plan.workspace_id);
             mark_failed(
-                out,
                 state,
-                &job.workspace_id,
-                None,
+                &run.workspace_id,
+                Some(run),
                 None,
                 &error.to_string(),
             )
             .await;
             return Ok(());
         }
-        if !workspace_alive(state, &job.workspace_id).await {
-            return Ok(());
-        }
+    };
+
+    let workspace = state
+        .workspaces
+        .set_activity(&plan.workspace_id, WorkspaceActivity::SettingUp)
+        .await?;
+    state.out.changed();
+
+    if let Err(error) = make_worktree(state, plan, run, &workspace).await {
+        mark_failed(
+            state,
+            &run.workspace_id,
+            Some(run),
+            None,
+            &error.to_string(),
+        )
+        .await;
+        return Ok(());
+    }
+    if !alive(state, run).await {
+        return Ok(());
     }
 
-    if !setup.is_empty() {
-        if !run_setup_commands(out, state, &job, &record, &setup).await? {
-            return Ok(());
-        }
-    } else {
-        state.process.append_log_line(
-            &job.workspace_id,
+    if setup.is_empty() {
+        state.process.log(
+            &plan.workspace_id,
+            LogKind::Note,
             "No setup commands configured for this repo",
         );
+    } else if !run_setup_commands(state, run, &workspace, &repo.name, &setup).await? {
+        return Ok(());
     }
 
-    finish_after_setup(out, state, &job, setup.len()).await
+    finish_after_setup(state, plan, run, setup.len()).await
+}
+
+/// One step teardown waits for: the worktree is there and watched once it's done, unless the
+/// run was over before it began. A new branch's thread says so once git has made it; a PR's
+/// review says what it checked out itself.
+async fn make_worktree(
+    state: &AppState,
+    plan: &ProvisionPlan,
+    run: &SetupRun,
+    workspace: &WorkspaceRecord,
+) -> Result<()> {
+    let Some(_step) = state.setup.step(run).await else {
+        return Ok(());
+    };
+    if !workspace.worktree().exists() {
+        crate::workspace_git::add_worktree(state, workspace, plan.checkout).await?;
+        if let Checkout::NewBranch = plan.checkout {
+            let step = TimelineStep::WorktreeCreated {
+                branch: workspace.branch.clone(),
+                base: workspace.base.clone(),
+            };
+            if let Err(error) = state.transcript.record_step(&plan.thread_id, step) {
+                log::warn!("could not record the worktree step: {error}");
+            }
+        }
+    }
+    crate::changes::watch(state, workspace)
 }
 
 async fn run_setup_commands(
-    out: &Output,
     state: &AppState,
-    job: &LeadProvisionJob,
-    record: &WorkspaceRecord,
+    run: &SetupRun,
+    workspace: &WorkspaceRecord,
+    repo_name: &str,
     setup: &[String],
 ) -> Result<bool> {
-    let log_id = &job.workspace_id;
-    state.process.append_log_line(
+    let log_id = &workspace.id;
+    state.process.log(
         log_id,
+        LogKind::Note,
         format!(
-            "Running {} setup command{} from {} settings",
+            "Running {} setup command{} from {repo_name} settings",
             setup.len(),
             if setup.len() == 1 { "" } else { "s" },
-            job.repo_name,
         ),
     );
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let worktree = PathBuf::from(&record.worktree_path);
-    let harness_env = WorkspaceManager::harness_env(record);
-
-    for (index, command) in setup.iter().enumerate() {
-        if !workspace_alive(state, &job.workspace_id).await {
+    let env = workspace.harness_env().vars();
+    let mut watch = SetupLog {
+        state,
+        run,
+        workspace_id: log_id,
+        count: setup.len(),
+        started: Instant::now(),
+    };
+    let ended = run_setup(
+        &state.process,
+        setup,
+        &workspace.worktree(),
+        &env,
+        Some(log_id),
+        &mut watch,
+    )
+    .await?;
+    match ended {
+        SetupEnd::Done => {}
+        SetupEnd::Stopped => return Ok(false),
+        SetupEnd::Failed {
+            command,
+            exit: Exit::TimedOut,
+        } => {
+            let error = Error::Process("timed out waiting for setup command".into());
+            mark_failed(
+                state,
+                &run.workspace_id,
+                Some(run),
+                Some((command, None)),
+                &error.to_string(),
+            )
+            .await;
             return Ok(false);
         }
-
-        let started = Instant::now();
-        state
-            .process
-            .append_log_line(log_id, format!("cmd: {command}"));
-        state.process.append_log_line(
-            log_id,
-            format!("── Command {} of {} ──", index + 1, setup.len()),
-        );
-
-        let session_id = format!("{}-setup-{index}", job.workspace_id);
-        state.process.spawn_session(
-            &session_id,
-            &shell,
-            &["-l", "-c", command],
-            Some(&worktree),
-            &harness_env,
-        )?;
-
-        let code =
-            match poll_session(&state.process, &session_id, log_id, SETUP_COMMAND_TIMEOUT).await {
-                Ok(code) => code,
-                Err(error) => {
-                    mark_failed(
-                        out,
-                        state,
-                        &job.workspace_id,
-                        Some(command.clone()),
-                        Some(-1),
-                        &error.to_string(),
-                    )
-                    .await;
-                    return Ok(false);
-                }
-            };
-
-        forward_session_lines(&state.process, &session_id, log_id);
-        let _ = state.process.stop_session(&session_id);
-
-        state.process.append_log_line(
-            log_id,
-            format!(
-                "Finished command {} of {} in {:.1}s",
-                index + 1,
-                setup.len(),
-                started.elapsed().as_secs_f32(),
-            ),
-        );
-
-        if code != 0 {
-            state
-                .process
-                .append_log_line(log_id, format!("Setup failed: exit code {code}"));
+        SetupEnd::Failed {
+            command,
+            exit: Exit::Code(code),
+        } => {
+            state.process.log(
+                log_id,
+                LogKind::Note,
+                format!("Setup failed: exit code {code}"),
+            );
             mark_failed(
-                out,
                 state,
-                &job.workspace_id,
-                Some(command.clone()),
-                Some(code),
+                &workspace.id,
+                Some(run),
+                Some((command, Some(code))),
                 &format!("Setup command failed with exit code {code}"),
             )
             .await;
@@ -249,516 +341,582 @@ async fn run_setup_commands(
         }
     }
 
-    state
-        .process
-        .append_log_line(log_id, "──── Worktree ready ────");
+    state.process.log(log_id, LogKind::Marker, "Worktree ready");
     Ok(true)
 }
 
+/// Setup's own log around each command, and its run's liveness.
+struct SetupLog<'a> {
+    state: &'a AppState,
+    run: &'a SetupRun,
+    workspace_id: &'a str,
+    count: usize,
+    started: Instant,
+}
+
+impl SetupWatch for SetupLog<'_> {
+    fn session(&self, index: usize) -> SessionId {
+        SessionId::of_workspace(self.workspace_id, format!("setup-{index}"))
+    }
+
+    async fn before(&mut self, index: usize, command: &str) -> bool {
+        if !alive(self.state, self.run).await {
+            return false;
+        }
+        self.started = Instant::now();
+        let process = &self.state.process;
+        process.log(self.workspace_id, LogKind::Command, command);
+        process.log(
+            self.workspace_id,
+            LogKind::Note,
+            format!("── Command {} of {} ──", index + 1, self.count),
+        );
+        true
+    }
+
+    fn exited(&mut self, index: usize, exit: &Exit) {
+        if let Exit::Code(_) = exit {
+            self.state.process.log(
+                self.workspace_id,
+                LogKind::Note,
+                format!(
+                    "Finished command {} of {} in {:.1}s",
+                    index + 1,
+                    self.count,
+                    self.started.elapsed().as_secs_f32(),
+                ),
+            );
+        }
+    }
+}
+
 async fn finish_after_setup(
-    out: &Output,
     state: &AppState,
-    job: &LeadProvisionJob,
+    plan: &ProvisionPlan,
+    run: &SetupRun,
     setup_count: usize,
 ) -> Result<()> {
-    if !workspace_alive(state, &job.workspace_id).await {
+    if !alive(state, run).await {
         return Ok(());
     }
+    let id = &plan.workspace_id;
 
-    let start_agent = job.review || job.prompt.is_some() || !job.goal.trim().is_empty();
-    if start_agent {
-        set_activity(state, &job.workspace_id, "Starting agent…", 2, None, None).await;
-        emit_snapshot(out, state);
-
-        let prompt: Prompt = if job.review {
-            crate::review::reviewer_engine_prompt(&job.goal).into()
-        } else if let Some(prompt) = &job.prompt {
-            prompt.clone()
-        } else {
-            job.goal.trim().into()
-        };
-        spawn_engine(
-            state,
-            &job.thread_id,
-            &job.engine,
-            &job.workspace_id,
-            Some(prompt),
-        )
-        .await?;
+    if let Some(prompt) = &plan.first_prompt {
+        state
+            .workspaces
+            .set_activity(id, WorkspaceActivity::StartingAgent)
+            .await?;
+        state.out.changed();
+        crate::turn::begin(state, &plan.thread_id, id, prompt.clone()).await?;
+        // At once, so a turn that ends quickly isn't marked running after it settled.
+        state
+            .workspaces
+            .finish_provisioning(
+                id,
+                &plan.thread_id,
+                ThreadStatus::Running,
+                WorkspaceLifecycle::Running,
+                WorkspaceActivity::AgentStarted,
+            )
+            .await?;
+        state.out.changed();
     }
 
-    let _ = record_step(
-        &state.store,
-        &job.thread_id,
+    let workspace = state.workspaces.get(id).await?;
+    let repo_name = state
+        .store
+        .repo_by_id(&workspace.repo_id)?
+        .map(|repo| repo.name)
+        .unwrap_or_default();
+    if let Err(error) = state.transcript.record_step(
+        &plan.thread_id,
         TimelineStep::WorktreeReady {
-            repo: job.repo_name.clone(),
+            repo: repo_name,
             setup_commands: setup_count as u32,
         },
-    );
-
-    if start_agent {
-        seed_summary_if_needed(state, job).await?;
+    ) {
+        log::warn!("recording the worktree step: {error}");
     }
 
-    let thread_title = if job.review { "Reviewer" } else { "Lead" };
-    let thread_status = if start_agent {
-        ThreadStatus::Running
-    } else {
-        ThreadStatus::Idle
-    };
-    let _ = state.store.upsert_thread(&ThreadRow {
-        id: job.thread_id.clone(),
-        workspace_id: job.workspace_id.clone(),
-        title: thread_title.into(),
-        engine: job.engine.clone(),
-        session_id: state.engines.session_id(&job.thread_id).ok().flatten(),
-        status: thread_status.into(),
-        used_tokens: None,
-        context_size: None,
-        cost_usd: None,
-        transcript_readonly: false,
-        retired: false,
-        parent_thread_id: None,
-    });
-
-    if start_agent {
-        state
-            .workspace
-            .set_thread(&job.thread_id, &job.workspace_id, ThreadStatus::Running)
-            .await;
-        let record = state
-            .workspace
-            .set_status(&job.workspace_id, WorkspaceLifecycle::Running)
-            .await?;
-        set_activity(
-            state,
-            &job.workspace_id,
-            initial_running_activity(job.review),
-            0,
-            None,
-            None,
-        )
-        .await;
-        persist_workspace_row(state, &job.workspace_id, "running", &record)?;
-        state.notify(out, StateChangeKind::WorkspaceStatus);
-        if job.review {
-            emit_review_started_toast(out, state, &job.workspace_id, &job.thread_id);
+    if plan.first_prompt.is_some() {
+        if let Some(intro) = &plan.intro {
+            write_intro(state, &workspace, intro)?;
+        }
+        if let Some(parts) = &plan.started_toast {
+            state.out.toast(ToastRaisedPayload {
+                tone: ToastTone::Ok,
+                parts: parts.clone(),
+                workspace_id: Some(id.clone()),
+                thread_id: Some(plan.thread_id.clone()),
+                ..Default::default()
+            });
         }
     } else {
-        let record = state
-            .workspace
-            .set_status(&job.workspace_id, WorkspaceLifecycle::Ready)
-            .await?;
         state
-            .workspace
-            .set_thread(&job.thread_id, &job.workspace_id, ThreadStatus::Idle)
-            .await;
-        let record = state
-            .workspace
-            .get(&job.workspace_id)
-            .await
-            .unwrap_or(record);
-        set_activity(state, &job.workspace_id, "", 0, None, None).await;
-        persist_workspace_row(state, &job.workspace_id, "idle", &record)?;
+            .workspaces
+            .finish_provisioning(
+                id,
+                &plan.thread_id,
+                ThreadStatus::Idle,
+                WorkspaceLifecycle::Ready,
+                WorkspaceActivity::None,
+            )
+            .await?;
     }
-    emit_snapshot(out, state);
+    state.out.changed();
     Ok(())
 }
 
-pub async fn ensure_thread_engine(
-    state: &AppState,
-    thread_id: &str,
-    engine: &str,
-    workspace_id: &str,
-) -> Result<()> {
-    if state.engines.has_thread(thread_id) {
-        return Ok(());
-    }
-    // Two prompts can race here (a user message and a child's report); only one spawns.
-    let _spawning = state.engines.lock_spawn(thread_id).await;
-    if state.engines.has_thread(thread_id) {
-        return Ok(());
-    }
-    spawn_engine(state, thread_id, engine, workspace_id, None).await
-}
-
-fn worktree_exists(record: &WorkspaceRecord) -> bool {
-    Path::new(&record.worktree_path).exists()
-}
-
-async fn spawn_engine(
-    state: &AppState,
-    thread_id: &str,
-    engine: &str,
-    workspace_id: &str,
-    prompt: Option<Prompt>,
-) -> Result<()> {
-    if state.workspace.get(workspace_id).await.is_none() {
-        let row = state
-            .store
-            .workspace_by_id(workspace_id)?
-            .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-        if row.archived_at.is_some() {
-            return Err(Error::Workspace(format!(
-                "workspace {workspace_id} is archived"
-            )));
-        }
-        let record = crate::git_workspace::resolve_record(state, workspace_id, &row).await?;
-        state.workspace.remember(record).await;
-    }
-    let workspace = state
-        .workspace
-        .get(workspace_id)
-        .await
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {workspace_id}")))?;
-    if workspace.status == WorkspaceLifecycle::TearingDown {
-        return Err(Error::Workspace(format!(
-            "workspace {workspace_id} is being torn down"
-        )));
-    }
-    let kind = EngineKind::from_name(engine);
-    let run_everything = crate::approvals::run_everything_from_store(&state.store);
-    state
-        .engines
-        .spawn(SpawnSpec {
-            thread_id: thread_id.to_string(),
-            kind,
-            cwd: PathBuf::from(&workspace.worktree_path),
-            resume: None,
-            override_argv: None,
-            auto_approve_readonly: false,
-            auto_approve_all: run_everything,
-            read_only: false,
-        })
-        .await?;
-    if let Some(prompt) =
-        prompt.filter(|prompt| !prompt.text.is_empty() || !prompt.images.is_empty())
-    {
-        state.engines.prompt(thread_id, prompt)?;
-    }
-    Ok(())
-}
-
-fn initial_running_activity(review: bool) -> &'static str {
-    if review {
-        "Reading the diff…"
-    } else {
-        "Reading repo…"
-    }
-}
-
-async fn seed_summary_if_needed(state: &AppState, job: &LeadProvisionJob) -> Result<()> {
-    let workspace = state
+/// Written once: a retried setup keeps the first.
+fn write_intro(state: &AppState, workspace: &WorkspaceRecord, intro: &Intro) -> Result<()> {
+    let written = state
         .store
-        .workspace_by_id(&job.workspace_id)?
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", job.workspace_id)))?;
-    if workspace
-        .summary
-        .as_ref()
-        .is_some_and(|text| !text.is_empty())
-    {
-        return Ok(());
+        .workspace_by_id(&workspace.id)?
+        .and_then(|row| row.summary)
+        .is_some_and(|text| !text.is_empty());
+    if !written {
+        state
+            .workspaces
+            .set_summary(&workspace.id, &intro(workspace))?;
     }
-
-    let record = state
-        .workspace
-        .get(&job.workspace_id)
-        .await
-        .ok_or_else(|| Error::Workspace(format!("unknown workspace {}", job.workspace_id)))?;
-    let summary = if job.review {
-        let author = state
-            .store
-            .get_setting(&crate::review::review_author_key(&job.workspace_id))
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "the author".into());
-        let pr_label = workspace
-            .pr_number
-            .map(|num| format!("#{num}"))
-            .unwrap_or_else(|| "the PR".into());
-        format!(
-            "Reviewing {pr_label} from {author} against {}. Claude Code is reading the diff and will draft comments for your approval; nothing has been posted to GitHub yet.",
-            record.base
-        )
-    } else {
-        format!(
-            "Just started on “{}”, branched from {}. Claude Code is reading the repo to find where the change belongs; no files have been touched yet.",
-            workspace.name, record.base
-        )
-    };
-    let now = chrono_timestamp();
-    let _ = state.store.upsert_workspace(&WorkspaceRow {
-        id: workspace.id,
-        repo_id: workspace.repo_id,
-        name: workspace.name,
-        branch: workspace.branch,
-        worktree_path: workspace.worktree_path,
-        status: workspace.status,
-        created_at: workspace.created_at,
-        summary: Some(summary),
-        summary_at: Some(now),
-        summary_source: workspace.summary_source,
-        kind: workspace.kind,
-        pr_number: workspace.pr_number,
-        pr_html_url: workspace.pr_html_url.clone(),
-        modified_files: workspace.modified_files,
-        archived_at: workspace.archived_at,
-    });
     Ok(())
 }
 
+/// Only a workspace still setting up fails: one being torn down stopped its own setup, and a run
+/// that teardown cancelled or a newer run replaced is left alone.
 async fn mark_failed(
-    out: &Output,
     state: &AppState,
     workspace_id: &str,
-    failed_command: Option<String>,
-    exit_code: Option<i32>,
+    run: Option<&SetupRun>,
+    failure: Option<(String, Option<i32>)>,
     message: &str,
 ) {
-    set_activity(
-        state,
-        workspace_id,
-        "Setup failed",
-        0,
-        failed_command,
-        exit_code,
-    )
-    .await;
-    let _ = state
-        .workspace
-        .set_status(workspace_id, WorkspaceLifecycle::ProvisioningFailed)
+    if let Some(run) = run
+        && state.setup.step(run).await.is_none()
+    {
+        return;
+    }
+    let failed = state
+        .workspaces
+        .fail_provisioning(
+            workspace_id,
+            WorkspaceActivity::SetupFailed {
+                exit_code: failure.as_ref().and_then(|(_, code)| *code),
+                command: failure.map(|(command, _)| command),
+            },
+        )
         .await;
-    persist_workspace_status(state, workspace_id, "provisioningFailed");
-    state.notify(out, StateChangeKind::WorkspaceStatus);
-    emit_snapshot(out, state);
-    out.toast(crate::ipc::types::ToastRaisedPayload {
-        tone: crate::ipc::types::ToastTone::Bad,
-        parts: vec![crate::ipc::types::ToastPart::Text {
+    match failed {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => log::warn!("marking {workspace_id} failed: {error}"),
+    }
+    state.out.changed();
+    state.out.toast(ToastRaisedPayload {
+        tone: ToastTone::Bad,
+        parts: vec![ToastPart::Text {
             value: message.to_string(),
         }],
         workspace_id: Some(workspace_id.to_string()),
         thread_id: None,
+        ..Default::default()
     });
-    // Spawned: reporting can start an engine, and starting one can end up back here.
-    let (out, state) = (out.clone(), state.clone());
-    let workspace_id = workspace_id.to_string();
-    let message = message.to_string();
-    tauri::async_runtime::spawn(async move {
-        if let Err(error) =
-            crate::orchestration::on_provisioning_failed(&out, &state, &workspace_id, &message)
-                .await
-        {
-            log::warn!("reporting failed setup: {error}");
-        }
+    state.bus.publish(DomainEvent::ProvisioningFailed {
+        workspace_id: workspace_id.to_string(),
+        message: message.to_string(),
     });
 }
 
-/// The worktree is checked out, setup has run, and the Reviewer has its prompt.
-fn emit_review_started_toast(out: &Output, state: &AppState, workspace_id: &str, thread_id: &str) {
-    let pr_label = state
-        .store
-        .snapshot()
-        .ok()
-        .and_then(|snapshot| {
-            snapshot
-                .workspaces
-                .into_iter()
-                .find(|row| row.id == workspace_id)
-                .and_then(|row| row.pr_number)
-        })
-        .map(|num| format!("#{num}"))
-        .unwrap_or_else(|| "the PR".into());
-    out.toast(crate::ipc::types::ToastRaisedPayload {
-        tone: crate::ipc::types::ToastTone::Ok,
-        parts: vec![
-            crate::ipc::types::ToastPart::Text {
-                value: "Reviewer started on ".into(),
-            },
-            crate::ipc::types::ToastPart::Code { value: pr_label },
-        ],
-        workspace_id: Some(workspace_id.to_string()),
-        thread_id: Some(thread_id.to_string()),
-    });
-}
-
-async fn clear_failure(state: &AppState, workspace_id: &str) {
-    set_activity(
-        state,
-        workspace_id,
-        "Running worktree setup…",
-        1,
-        None,
-        None,
-    )
-    .await;
-}
-
-async fn set_activity(
-    state: &AppState,
-    workspace_id: &str,
-    activity: &str,
-    prov_step: u8,
-    failed_command: Option<String>,
-    exit_code: Option<i32>,
-) {
-    let _ = state
-        .workspace
-        .set_provisioning_detail(workspace_id, activity, prov_step, failed_command, exit_code)
-        .await;
-}
-
-async fn workspace_alive(state: &AppState, workspace_id: &str) -> bool {
-    match state.workspace.get(workspace_id).await {
-        Some(record) => !matches!(
-            record.status,
-            WorkspaceLifecycle::TearingDown | WorkspaceLifecycle::Gone
-        ),
-        None => false,
-    }
-}
-
-fn forward_session_lines(process: &ProcessSupervisor, from: &str, to: &str) {
-    for line in process.drain_pending(from) {
-        process.append_log_line(to, line);
-    }
-}
-
-async fn poll_session(
-    process: &ProcessSupervisor,
-    session_id: &str,
-    log_id: &str,
-    timeout: Duration,
-) -> Result<i32> {
-    let started = Instant::now();
-    loop {
-        forward_session_lines(process, session_id, log_id);
-        if let Some(code) = process.exit_code(session_id) {
-            return Ok(code);
-        }
-        if started.elapsed() > timeout {
-            return Err(Error::Process("timed out waiting for setup command".into()));
-        }
-        tokio::time::sleep(Duration::from_millis(30)).await;
-    }
-}
-
-#[cfg(test)]
-async fn wait_session(
-    process: &ProcessSupervisor,
-    session_id: &str,
-    timeout: Duration,
-) -> Result<i32> {
-    poll_session(process, session_id, session_id, timeout).await
-}
-
-fn persist_workspace_status(state: &AppState, workspace_id: &str, status: &str) {
-    if let Err(error) = state.store.set_workspace_status(workspace_id, status) {
-        log::warn!("saving workspace status: {error}");
-    }
-}
-
-/// The rows a retry or skip needs: the workspace, its Lead or Reviewer thread, and its repo.
-fn provisioning_rows(
-    state: &AppState,
-    workspace_id: &str,
-) -> Option<(WorkspaceRow, ThreadRow, crate::store::types::RepoRecord)> {
-    let workspace = state
-        .store
-        .workspace_by_id(workspace_id)
-        .map_err(|error| log::warn!("reading workspace {workspace_id}: {error}"))
-        .ok()??;
-    let thread = state
-        .store
-        .threads_for_workspace(workspace_id)
-        .ok()?
-        .into_iter()
-        .find(|row| row.title == "Lead" || row.title == "Reviewer")?;
-    let repo = state.store.repo_by_id(&workspace.repo_id).ok()??;
-    Some((workspace, thread, repo))
-}
-
-fn persist_workspace_row(
-    state: &AppState,
-    workspace_id: &str,
-    status: &str,
-    record: &WorkspaceRecord,
-) -> Result<()> {
-    if state.store.workspace_by_id(workspace_id)?.is_none() {
-        return Ok(());
-    }
-    state
-        .store
-        .set_workspace_checkout(workspace_id, &record.branch, &record.worktree_path)?;
-    state.store.set_workspace_status(workspace_id, status)
-}
-
-fn emit_snapshot(out: &Output, state: &AppState) {
-    state.notify(out, StateChangeKind::WorkspaceStatus);
-}
-
-fn chrono_timestamp() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
-        .unwrap_or_default()
+/// The run is the workspace's newest and teardown hasn't cancelled it, and the workspace is
+/// still setting up: not failed, not being torn down.
+async fn alive(state: &AppState, run: &SetupRun) -> bool {
+    state.setup.step(run).await.is_some()
+        && state
+            .workspaces
+            .get(&run.workspace_id)
+            .await
+            .is_ok_and(|record| record.status == WorkspaceLifecycle::Provisioning)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::feedback::{Emitted, RecordingOutput};
-    use crate::process::ProcessSupervisor;
-    use crate::shell_env::ShellEnv;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
+    use crate::feedback::Emitted;
+    use crate::store::types::RepoRecord;
 
-    #[tokio::test]
-    async fn setup_command_mock_true_then_false() {
-        let process = ProcessSupervisor::new(Arc::new(RwLock::new(ShellEnv::new())));
-        let log_id = "test-ws";
-        let shell = "/bin/sh";
-        process
-            .spawn_session(log_id, shell, &["-c", "echo ok"], None, &[])
-            .unwrap();
-        let code = wait_session(&process, log_id, Duration::from_secs(5))
-            .await
-            .unwrap();
-        assert_eq!(code, 0);
-        forward_session_lines(&process, log_id, log_id);
-        assert!(
-            process
-                .drain_pending(log_id)
-                .iter()
-                .any(|l| l.contains("ok"))
-        );
+    async fn provisioning_workspace() -> (
+        AppState,
+        std::sync::Arc<crate::feedback::RecordingOutput>,
+        tempfile::TempDir,
+        String,
+    ) {
+        let (state, recording, _fake, dir, id) = provisioning_workspace_faked().await;
+        (state, recording, dir, id)
+    }
 
-        let fail_id = "test-ws-fail";
-        process
-            .spawn_session(fail_id, shell, &["-c", "exit 7"], None, &[])
+    async fn provisioning_workspace_faked() -> (
+        AppState,
+        std::sync::Arc<crate::feedback::RecordingOutput>,
+        crate::thread_runtime::fake::FakeEngines,
+        tempfile::TempDir,
+        String,
+    ) {
+        let (state, recording, fake, dir, created) = creating("", |_| Ok(())).await;
+        (state, recording, fake, dir, created.unwrap().workspace.id)
+    }
+
+    async fn creating(
+        setup_message: &str,
+        first_records: impl FnOnce(&Created) -> Result<()>,
+    ) -> (
+        AppState,
+        std::sync::Arc<crate::feedback::RecordingOutput>,
+        crate::thread_runtime::fake::FakeEngines,
+        tempfile::TempDir,
+        Result<Created>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("app");
+        std::fs::create_dir(&repo).unwrap();
+        let (state, recording, fake) =
+            AppState::faked(crate::paths::DataDir::new(dir.path().join("data")));
+        state
+            .store
+            .upsert_repo(&RepoRecord {
+                path: repo.to_string_lossy().to_string(),
+                name: "app".into(),
+                ..crate::store::fixtures::repo("r1")
+            })
             .unwrap();
-        let code = wait_session(&process, fail_id, Duration::from_secs(5))
-            .await
-            .unwrap();
-        assert_eq!(code, 7);
+        crate::settings::Settings::update(
+            &state.store,
+            crate::settings::SettingsPatch {
+                worktree_root: Some(dir.path().join("worktrees").to_string_lossy().into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let created = create(
+            &state,
+            WorkspaceSpec {
+                kind: WorkspaceKind::Lead,
+                repo_id: "r1".into(),
+                name: "Work".into(),
+                branch: "feat/x".into(),
+                base: "develop".into(),
+                pr: None,
+                parent_thread_id: None,
+                picks: Default::default(),
+                setup_message: setup_message.into(),
+            },
+            first_records,
+        )
+        .await;
+        (state, recording, fake, dir, created)
     }
 
     #[tokio::test]
-    async fn failed_setup_refreshes_toasts_and_then_merges_the_second_refresh() {
-        let state = AppState::new(std::env::temp_dir());
-        state.store.open_in_memory().unwrap();
-        let (recording, out) = RecordingOutput::new();
+    async fn a_workspace_is_recorded_with_the_message_it_starts_from() {
+        let (state, _recording, _fake, _dir, created) = creating("Fix it", |_| Ok(())).await;
+        let id = created.unwrap().workspace.id;
+        assert_eq!(
+            state.store.setup_message(&id).unwrap().as_deref(),
+            Some("Fix it")
+        );
+    }
 
-        mark_failed(&out, &state, "w1", None, Some(1), "Setup broke").await;
+    /// Bug: a review whose first records failed to write was left provisioning with no setup
+    /// run, so neither Retry nor Skip took it.
+    #[tokio::test]
+    async fn a_first_record_that_fails_fails_the_setup() {
+        let (state, recording, _fake, _dir, created) =
+            creating("Review it", |_| Err(Error::Workspace("disk full".into()))).await;
 
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(created.is_err());
+        let row = state.store.live_workspaces().unwrap().pop().unwrap();
+        assert_eq!(row.status, WorkspaceLifecycle::ProvisioningFailed);
+        assert_eq!(
+            state.store.setup_message(&row.id).unwrap().as_deref(),
+            Some("Review it")
+        );
+        assert_eq!(recording.toasts(), ["workspace: disk full"]);
+    }
+
+    #[tokio::test]
+    async fn a_created_workspace_keeps_its_base_and_gets_an_uncollidable_id() {
+        let (state, _recording, _dir, id) = provisioning_workspace().await;
+        assert!(id.starts_with("ws-") && id.len() > 30, "{id}");
+        let row = state.store.workspace_by_id(&id).unwrap().unwrap();
+        assert_eq!(row.base, "develop");
+        assert_eq!(row.status, WorkspaceLifecycle::Provisioning);
+        let thread = state.store.own_thread(&id).unwrap().unwrap();
+        assert_eq!(thread.role, Some(crate::model::ThreadRole::Lead));
+        assert_eq!(thread.title, "Lead");
+    }
+
+    #[tokio::test]
+    async fn failed_setup_refreshes_then_toasts() {
+        let (state, recording, _dir, id) = provisioning_workspace().await;
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().activity,
+            WorkspaceActivity::SettingUp
+        );
+
+        mark_failed(
+            &state,
+            &id,
+            None,
+            Some(("pnpm i".into(), Some(1))),
+            "Setup broke",
+        )
+        .await;
+
         assert_eq!(recording.toasts(), ["Setup broke"]);
         assert!(matches!(
             recording.emitted().as_slice(),
-            [
-                Emitted::State(StateChangeKind::WorkspaceStatus),
-                Emitted::Toast(_),
-                Emitted::State(StateChangeKind::WorkspaceStatus),
-            ]
+            [Emitted::State(_), Emitted::Toast(_)]
         ));
+        let failed = state.workspaces.get(&id).await.unwrap();
+        assert_eq!(failed.status, WorkspaceLifecycle::ProvisioningFailed);
+        assert_eq!(
+            failed.activity,
+            WorkspaceActivity::SetupFailed {
+                command: Some("pnpm i".into()),
+                exit_code: Some(1),
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&failed.activity).unwrap(),
+            serde_json::json!({ "kind": "setupFailed", "command": "pnpm i", "exitCode": 1 })
+        );
+    }
+
+    #[tokio::test]
+    async fn setup_killed_by_teardown_is_not_a_failure() {
+        let (state, recording, _dir, id) = provisioning_workspace().await;
+        state
+            .workspaces
+            .set_status(&id, WorkspaceLifecycle::TearingDown)
+            .await
+            .unwrap();
+
+        mark_failed(
+            &state,
+            &id,
+            None,
+            Some(("pnpm install".into(), Some(143))),
+            "killed",
+        )
+        .await;
+
+        assert!(recording.emitted().is_empty());
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().status,
+            WorkspaceLifecycle::TearingDown
+        );
+    }
+
+    #[tokio::test]
+    async fn a_first_turn_that_cant_start_fails_the_setup() {
+        let (state, recording, fake, _dir, id) = provisioning_workspace_faked().await;
+        let workspace = state.workspaces.get(&id).await.unwrap();
+        std::fs::create_dir_all(workspace.worktree()).unwrap();
+        let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
+        fake.refuse_sends(&thread_id);
+
+        run(
+            &state,
+            ProvisionPlan {
+                workspace_id: id.clone(),
+                thread_id,
+                checkout: Checkout::NewBranch,
+                first_prompt: Some("Go".into()),
+                intro: None,
+                started_toast: None,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().status,
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+        assert_eq!(recording.toasts().len(), 1);
+    }
+
+    fn plan(id: &str, thread_id: &str, prompt: Option<&str>) -> ProvisionPlan {
+        ProvisionPlan {
+            workspace_id: id.into(),
+            thread_id: thread_id.into(),
+            checkout: Checkout::NewBranch,
+            first_prompt: prompt.map(Into::into),
+            intro: None,
+            started_toast: None,
+        }
+    }
+
+    async fn with_worktree() -> (AppState, tempfile::TempDir, String, String) {
+        let (state, _recording, _fake, dir, id) = provisioning_workspace_faked().await;
+        let workspace = state.workspaces.get(&id).await.unwrap();
+        std::fs::create_dir_all(workspace.worktree()).unwrap();
+        let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
+        (state, dir, id, thread_id)
+    }
+
+    /// Bug: the step was recorded before setup ran, so a worktree git couldn't make still read
+    /// as created (and one a retry made was never recorded).
+    #[tokio::test]
+    async fn a_worktree_git_cannot_make_is_not_recorded_as_created() {
+        let (state, _recording, _dir, id) = provisioning_workspace().await;
+        let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
+
+        run(&state, plan(&id, &thread_id, None)).await;
+
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().status,
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+        let steps = state
+            .store
+            .thread_event_page(&thread_id, None, None, None)
+            .unwrap()
+            .events;
+        assert!(
+            !steps
+                .iter()
+                .any(|event| event.payload.contains("worktreeCreated")),
+            "{steps:?}"
+        );
+    }
+
+    /// Bug: setting the thread idle after the workspace re-derived its status, so a workspace
+    /// set up with no prompt read as idle rather than ready.
+    #[tokio::test]
+    async fn setup_ends_ready_with_no_prompt_and_running_with_one() {
+        for (prompt, thread, lifecycle) in [
+            (None, ThreadStatus::Idle, WorkspaceLifecycle::Ready),
+            (
+                Some("Go"),
+                ThreadStatus::Running,
+                WorkspaceLifecycle::Running,
+            ),
+        ] {
+            let (state, _dir, id, thread_id) = with_worktree().await;
+
+            run(&state, plan(&id, &thread_id, prompt)).await;
+
+            let record = state.workspaces.get(&id).await.unwrap();
+            assert_eq!(record.status, lifecycle, "{prompt:?}");
+            let row = state.store.workspace_by_id(&id).unwrap().unwrap();
+            assert_eq!(row.status, lifecycle, "{prompt:?}");
+            let own = state.store.own_thread(&id).unwrap().unwrap();
+            assert_eq!(own.status, thread, "{prompt:?}");
+        }
+    }
+
+    /// Bug: Retry and Skip ran whatever the status, so a second click started a second run
+    /// over the first, and Skip started an agent in a worktree that was never made.
+    #[tokio::test]
+    async fn retry_and_skip_only_take_a_failed_setup() {
+        let (state, _dir, id, thread_id) = with_worktree().await;
+        let refused = retry(&state, plan(&id, &thread_id, None))
+            .await
+            .unwrap_err();
+        assert!(refused.to_string().contains("isn't failed"), "{refused}");
+
+        mark_failed(&state, &id, None, None, "broke").await;
+        retry(&state, plan(&id, &thread_id, None)).await.unwrap();
+        assert!(retry(&state, plan(&id, &thread_id, None)).await.is_err());
+        assert!(
+            skip_setup(&state, plan(&id, &thread_id, None))
+                .await
+                .is_err()
+        );
+
+        let (state, _recording, _dir, id) = provisioning_workspace().await;
+        let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
+        mark_failed(&state, &id, None, None, "no worktree").await;
+        let refused = skip_setup(&state, plan(&id, &thread_id, None))
+            .await
+            .unwrap_err();
+        assert!(refused.to_string().contains("never made"), "{refused}");
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().status,
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+    }
+
+    /// Bug: teardown didn't wait for setup to finish adding the worktree, so it archived the
+    /// workspace and left the worktree and branch behind once `worktree add` returned.
+    #[tokio::test]
+    async fn teardown_waits_for_the_worktree_step_and_the_run_ends_there() {
+        let (state, _dir, id, _thread_id) = with_worktree().await;
+        let run = state.setup.begin(&id).await;
+        let step = state.setup.step(&run).await.unwrap();
+
+        let cancelling = {
+            let state = state.clone();
+            let id = id.clone();
+            tokio::spawn(async move {
+                drop(state.setup.cancel(&id).await);
+            })
+        };
+        // One thread runs the test, so this lets the cancel run until it waits on the step.
+        tokio::task::yield_now().await;
+        assert!(!cancelling.is_finished(), "the step is still going");
+
+        drop(step);
+        cancelling.await.unwrap();
+        assert!(state.setup.step(&run).await.is_none());
+    }
+
+    /// Bug: a teardown that failed handed the workspace back as failed setup, which setup read
+    /// as alive, so it ran its commands and started the agent in a workspace the user deleted.
+    #[tokio::test]
+    async fn a_run_teardown_cancelled_stays_stopped_after_the_teardown_fails() {
+        let (state, _dir, id, thread_id) = with_worktree().await;
+        let run = state.setup.begin(&id).await;
+        drop(state.setup.cancel(&id).await);
+        mark_failed(&state, &id, None, None, "teardown failed").await;
+
+        finish_after_setup(&state, &plan(&id, &thread_id, Some("Go")), &run, 0)
+            .await
+            .unwrap();
+
+        assert!(!state.engines.has_thread(&thread_id));
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().status,
+            WorkspaceLifecycle::ProvisioningFailed
+        );
+    }
+
+    #[tokio::test]
+    async fn setup_finishing_during_teardown_neither_fails_nor_revives_it() {
+        let (state, recording, _dir, id) = provisioning_workspace().await;
+        let thread_id = state.store.own_thread(&id).unwrap().unwrap().id;
+        state
+            .workspaces
+            .set_status(&id, WorkspaceLifecycle::TearingDown)
+            .await
+            .unwrap();
+
+        let finished = state
+            .workspaces
+            .finish_provisioning(
+                &id,
+                &thread_id,
+                ThreadStatus::Idle,
+                WorkspaceLifecycle::Ready,
+                WorkspaceActivity::None,
+            )
+            .await;
+        mark_failed(&state, &id, None, None, "late").await;
+
+        assert!(finished.is_err());
+        assert_eq!(
+            state.workspaces.get(&id).await.unwrap().status,
+            WorkspaceLifecycle::TearingDown
+        );
+        assert!(recording.toasts().is_empty());
     }
 }
