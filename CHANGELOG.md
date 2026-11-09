@@ -2,6 +2,18 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.22
+
+- Messages sent to a running thread go to the agent straight away, and the thread stays running while the agent has one queued.
+- Threads recover better from a quit or crash: an agent that exits mid-turn ends its turn on reload, and reviews and findings left half-done are put back.
+- Reviews: checking out a reviewed PR uses a branch of Cormux's own, a retargeted review's Changes panel follows the new base, and the PR draft shows as soon as it's ready.
+- Diff comments go to the workspace's live thread, and revealing a file in Changes scrolls only the diff.
+- Git checks that can't get an answer now say so instead of reading as "no", and Settings › Agents tells checking apart from a failed check.
+- Command palette: retired threads are offered again, and Findings appears only where the Findings tab exists. New session is offered only when a thread has one.
+- The menu bar's New Thread, Settings and palette items follow the same rules as their shortcuts, Esc closes slide-outs consistently, and every external link opens in your browser.
+- Sub-threads are no longer offered the tool to create threads, and approvals survive internal errors instead of getting stuck.
+- Lots of internal restructuring for steadier behaviour across the core and the UI.
+
 ## 0.1.21
 
 - New effort picker in the composer: effort is saved per thread, passed to Claude, and can be switched on a running session. ⌘⇧R, ⌘⇧M and ⌘⇧E open the repo, model and effort pickers from the keyboard.
