@@ -164,7 +164,7 @@ impl Git {
         let output = command
             .output()
             .await
-            .map_err(|error| Error::Git(error.to_string()))?;
+            .map_err(|error| spawn_failure(cwd, args, &error))?;
         Ok(output)
     }
 
@@ -309,6 +309,28 @@ impl Git {
             .await
             .map_err(|_| Error::Git("fetching the pull request timed out".into()))??;
         Self::require_success(&output, "fetch pull ref")
+    }
+
+    /// The folders git has registered as `repo`'s worktrees, the main checkout included.
+    pub async fn worktree_paths(&self, repo: &Path) -> Result<Vec<PathBuf>> {
+        let output = self
+            .run_unlocked(Some(repo), &["worktree", "list", "--porcelain"])
+            .await?;
+        Self::require_success(&output, "worktree list")?;
+        Ok(Self::stdout(&output)
+            .lines()
+            .filter_map(|line| line.strip_prefix("worktree "))
+            .map(PathBuf::from)
+            .collect())
+    }
+
+    /// Forgets worktrees whose folders are gone, so their branches can be deleted or checked out
+    /// again. Outside the repo's queue, like `worktree_remove`.
+    pub async fn worktree_prune(&self, repo: &Path) -> Result<()> {
+        let output = self
+            .run_unlocked(Some(repo), &["worktree", "prune"])
+            .await?;
+        Self::require_success(&output, "worktree prune")
     }
 
     /// Outside the repo's queue: deleting a worktree can take many seconds, and new threads
@@ -963,6 +985,22 @@ fn split_patches(diff: &str) -> HashMap<&str, &str> {
 }
 
 /// `.git` of a worktree: the folder itself, or where a linked worktree's `.git` file points.
+/// Git that couldn't start says why: a bare "No such file or directory" doesn't say whether the
+/// folder it was to run in is gone or git itself is missing.
+fn spawn_failure(cwd: Option<&Path>, args: &[&str], error: &std::io::Error) -> Error {
+    let action = args.first().copied().unwrap_or("git");
+    match cwd {
+        Some(cwd) if !cwd.is_dir() => Error::Git(format!(
+            "couldn't run git {action}: {} doesn't exist",
+            cwd.display()
+        )),
+        _ if error.kind() == std::io::ErrorKind::NotFound => Error::Git(format!(
+            "couldn't run git {action}: git wasn't found on your PATH"
+        )),
+        _ => Error::Git(format!("couldn't run git {action}: {error}")),
+    }
+}
+
 pub fn worktree_git_dir(worktree: &Path) -> Option<PathBuf> {
     let dot_git = worktree.join(".git");
     if dot_git.is_dir() {
@@ -1126,6 +1164,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(checked_out_branch(&worktree).as_deref(), Some("feat/x"));
+    }
+
+    /// Bug: git run in a folder that was gone failed with a bare "No such file or directory".
+    #[tokio::test]
+    async fn git_in_a_missing_folder_names_the_folder() {
+        let git = git_with_env().await;
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("gone");
+        let error = git.status_porcelain(&gone).await.unwrap_err().to_string();
+        assert!(error.contains(&gone.display().to_string()), "{error}");
+        assert!(error.contains("doesn't exist"), "{error}");
     }
 
     /// Every kind of change git treats specially, each compared with diffing that file alone.

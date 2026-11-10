@@ -371,7 +371,7 @@ impl LiveDiffEngine {
         .map_err(|error| Error::Git(error.to_string()))?;
         watcher
             .watch(path, RecursiveMode::Recursive)
-            .map_err(|error| Error::Git(error.to_string()))?;
+            .map_err(|error| Error::Git(format!("watching {}: {error}", path.display())))?;
         for dir in git_dirs
             .iter()
             .filter(|dir| !dir.starts_with(&canonical_root))

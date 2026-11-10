@@ -86,16 +86,19 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
         .collect();
 
     if let Err(error) = run_teardown_steps(state, &record, input.delete_branch, &thread_ids).await {
-        let restored = crate::turn::settle_stopped(state, &thread_ids).await;
-        let restored = match restored {
-            Ok(()) => state
-                .workspaces
-                .hand_back(&input.workspace_id, record.status)
-                .await
-                .map(drop),
-            Err(error) => Err(error),
-        };
-        if let Err(restore) = restored {
+        // Handed back even if a thread couldn't be settled: a workspace left marked as tearing
+        // down is hidden, and can't be torn down again until the app restarts.
+        if let Err(restore) = crate::turn::settle_stopped(state, &thread_ids).await {
+            log::warn!(
+                "settling {}'s threads after teardown: {restore}",
+                input.workspace_id
+            );
+        }
+        if let Err(restore) = state
+            .workspaces
+            .hand_back(&input.workspace_id, record.status)
+            .await
+        {
             log::warn!("restoring {} after teardown: {restore}", input.workspace_id);
         }
         state.out.changed();
@@ -110,39 +113,131 @@ pub async fn execute(state: &AppState, input: &TeardownInput) -> Result<()> {
     Ok(())
 }
 
+/// Deleting a thread must not leave it behind because its folder, its repo or git's records of
+/// them went missing or broke outside Cormux. Only a refusal that protects work stops it: git
+/// declining to remove a worktree it can read.
 async fn run_teardown_steps(
     state: &AppState,
     record: &WorkspaceRecord,
     delete_branch: bool,
     thread_ids: &[String],
 ) -> Result<()> {
-    crate::turn::stop_engines(state, thread_ids).await?;
+    // An agent that won't stop goes with its process group when the app lets go of it; it
+    // mustn't keep the thread from being deleted.
+    if let Err(error) = crate::turn::stop_engines(state, thread_ids).await {
+        log::warn!("stopping {}'s agents for teardown: {error}", record.id);
+    }
     state.process.stop_workspace_sessions(&record.id).await;
     let _setup = state.setup.cancel(&record.id).await;
 
     let repo = PathBuf::from(&record.repo_path);
+    let repo_found = repo.is_dir();
+    remove_worktree(state, record, &repo, repo_found).await?;
+    if !repo_found {
+        log::warn!(
+            "{}'s repo {} is gone; nothing to clean up in git",
+            record.id,
+            repo.display()
+        );
+        return Ok(());
+    }
+    // A worktree deleted outside Cormux is still registered, and git won't delete a branch it
+    // thinks is checked out there.
+    if let Err(error) = state.git.worktree_prune(&repo).await {
+        log::warn!("pruning {}'s worktrees: {error}", repo.display());
+    }
+    if delete_branch && let Err(error) = delete_branch_of(state, &repo, &record.branch).await {
+        // The worktree is gone by now; keeping the branch is no reason to keep the thread.
+        log::warn!("keeping {} after teardown: {error}", record.branch);
+        state.out.toast(crate::feedback::ToastRaisedPayload {
+            tone: crate::feedback::ToastTone::Bad,
+            parts: vec![crate::feedback::ToastPart::Text {
+                value: format!("Kept the branch {}: {error}", record.branch),
+            }],
+            workspace_id: None,
+            thread_id: None,
+            ..Default::default()
+        });
+    }
+    Ok(())
+}
+
+async fn remove_worktree(
+    state: &AppState,
+    record: &WorkspaceRecord,
+    repo: &Path,
+    repo_found: bool,
+) -> Result<()> {
+    if record.worktree_path.trim().is_empty() {
+        return Ok(());
+    }
     let worktree = PathBuf::from(&record.worktree_path);
-    if worktree.exists() {
-        // A worktree git can't read is removed without --force, so git refuses it if it's dirty.
-        let force = match state.git.status_porcelain(&worktree).await {
-            Ok(status) => !status.trim().is_empty(),
+    if !worktree.exists() {
+        return Ok(());
+    }
+    // A worktree git can read goes through git, with --force only for changes the dialog
+    // already warned about. One it can't read (its repo moved, its `.git` link broke, or it's
+    // no longer a worktree at all) was warned about as unreadable, and is deleted from disk.
+    if repo_found && let Ok(status) = state.git.status_porcelain(&worktree).await {
+        let force = !status.trim().is_empty();
+        match state.git.worktree_remove(repo, &worktree, force).await {
+            Ok(()) => return Ok(()),
+            Err(error) if git_owns(state, repo, &worktree).await => return Err(error),
             Err(error) => {
                 log::warn!(
-                    "reading {}'s changes before removing it: {error}",
-                    record.id
+                    "{} isn't one of {}'s worktrees ({error}); deleting the folder",
+                    worktree.display(),
+                    repo.display()
                 );
-                false
             }
-        };
-        state.git.worktree_remove(&repo, &worktree, force).await?;
+        }
     }
+    delete_folder(&worktree, repo)
+}
 
+/// Whether git still lists `worktree` as one of `repo`'s.
+async fn git_owns(state: &AppState, repo: &Path, worktree: &Path) -> bool {
+    let Ok(listed) = state.git.worktree_paths(repo).await else {
+        return false;
+    };
+    let wanted = worktree
+        .canonicalize()
+        .unwrap_or_else(|_| worktree.to_path_buf());
+    listed
+        .iter()
+        .any(|path| path.canonicalize().unwrap_or_else(|_| path.clone()) == wanted)
+}
+
+/// Deletes what's left of a worktree folder, refusing anything that could be more than that:
+/// the repo itself or a folder holding it, a filesystem root or home, or a standalone repo.
+fn delete_folder(worktree: &Path, repo: &Path) -> Result<()> {
+    let folder = worktree
+        .canonicalize()
+        .unwrap_or_else(|_| worktree.to_path_buf());
+    let repo = repo.canonicalize().unwrap_or_else(|_| repo.to_path_buf());
+    let home = crate::paths::home().and_then(|home| home.canonicalize().ok());
+    let refused = folder.parent().is_none()
+        || home.as_deref() == Some(folder.as_path())
+        || repo.starts_with(&folder)
+        || folder.join(".git").is_dir();
+    if refused {
+        return Err(crate::error::Error::Workspace(format!(
+            "{} doesn't look like a worktree Cormux made, so it wasn't deleted. Delete it \
+             yourself, then delete the thread again.",
+            worktree.display()
+        )));
+    }
+    std::fs::remove_dir_all(&folder).map_err(|error| {
+        crate::error::Error::Workspace(format!("couldn't delete {}: {error}", folder.display()))
+    })
+}
+
+async fn delete_branch_of(state: &AppState, repo: &Path, branch: &str) -> Result<()> {
     // Setup that failed early never made the branch, and there's nothing to delete.
-    let branch_ref = format!("refs/heads/{}", record.branch);
-    if delete_branch && state.git.ref_exists(&repo, &branch_ref).await? {
-        state.git.branch_delete(&repo, &record.branch).await?;
+    let branch_ref = format!("refs/heads/{branch}");
+    if state.git.ref_exists(repo, &branch_ref).await? {
+        state.git.branch_delete(repo, branch).await?;
     }
-
     Ok(())
 }
 
@@ -388,12 +483,13 @@ mod tests {
         assert!(!preview(&state, "w").await.unwrap().app_running);
     }
 
+    /// A folder holding a repo of its own is never deleted as a worktree; the teardown fails.
     #[tokio::test]
     async fn a_failed_teardown_idles_the_threads_whose_engines_it_stopped() {
         let folder = tempfile::tempdir().unwrap();
-        let worktree = folder.path().join("not-a-repo");
+        let worktree = folder.path().join("own-repo");
         let state = registered(worktree.to_str().unwrap()).await;
-        std::fs::create_dir(&worktree).unwrap();
+        std::fs::create_dir_all(worktree.join(".git")).unwrap();
         state
             .workspaces
             .set_thread_status("t", "w", ThreadStatus::Running)
@@ -409,9 +505,190 @@ mod tests {
         )
         .await;
 
-        assert!(torn.is_err(), "not a git worktree, so it can't be removed");
+        assert!(torn.is_err(), "a standalone repo isn't deleted");
+        assert!(worktree.join(".git").is_dir());
+        assert_ne!(
+            state.workspaces.get("w").await.unwrap().status,
+            WorkspaceLifecycle::TearingDown,
+            "handed back, so it can be torn down again"
+        );
         let thread = state.store.thread_by_id("t").unwrap().unwrap();
         assert_eq!(thread.status, ThreadStatus::Idle);
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// A repo with one commit on `main`, and a workspace for `feat/x` checked out in a worktree
+    /// beside it.
+    async fn workspace_with_worktree(root: &Path) -> (AppState, PathBuf, PathBuf) {
+        let repo = root.join("app");
+        std::fs::create_dir(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "first",
+            ],
+        );
+        let worktree = root.join("trees").join("feat-x");
+        let state = registered_in(repo.to_str().unwrap(), worktree.to_str().unwrap()).await;
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feat/x",
+                worktree.to_str().unwrap(),
+            ],
+        );
+        (state, repo, worktree)
+    }
+
+    fn branch_exists(repo: &Path, branch: &str) -> bool {
+        std::process::Command::new("git")
+            .args([
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("refs/heads/{branch}"),
+            ])
+            .current_dir(repo)
+            .status()
+            .unwrap()
+            .success()
+    }
+
+    async fn tear_down(state: &AppState, delete_branch: bool) -> Result<()> {
+        execute(
+            state,
+            &TeardownInput {
+                workspace_id: "w".into(),
+                delete_branch,
+            },
+        )
+        .await
+    }
+
+    fn archived(state: &AppState) -> bool {
+        state
+            .store
+            .workspace_by_id("w")
+            .unwrap()
+            .unwrap()
+            .archived_at
+            .is_some()
+    }
+
+    #[tokio::test]
+    async fn a_worktree_removes_with_its_branch() {
+        let root = tempfile::tempdir().unwrap();
+        let (state, repo, worktree) = workspace_with_worktree(root.path()).await;
+
+        tear_down(&state, true).await.unwrap();
+
+        assert!(archived(&state));
+        assert!(!worktree.exists());
+        assert!(!branch_exists(&repo, "feat/x"));
+    }
+
+    /// Bug: a worktree deleted outside Cormux stayed registered with git, so `branch -D` refused
+    /// a branch git thought was still checked out, and the thread could never be deleted.
+    #[tokio::test]
+    async fn a_worktree_deleted_outside_cormux_tears_down_with_its_branch() {
+        let root = tempfile::tempdir().unwrap();
+        let (state, repo, worktree) = workspace_with_worktree(root.path()).await;
+        std::fs::remove_dir_all(&worktree).unwrap();
+
+        tear_down(&state, true).await.unwrap();
+
+        assert!(archived(&state));
+        assert!(!branch_exists(&repo, "feat/x"));
+    }
+
+    /// Bug: a folder left where the worktree was, that git no longer knows as one (emptied, or
+    /// its `.git` link deleted), failed `git worktree remove` on every try.
+    #[tokio::test]
+    async fn a_folder_that_is_no_longer_a_worktree_is_deleted() {
+        let root = tempfile::tempdir().unwrap();
+        let (state, repo, worktree) = workspace_with_worktree(root.path()).await;
+        std::fs::remove_file(worktree.join(".git")).unwrap();
+        std::fs::write(worktree.join("left-behind.txt"), "x").unwrap();
+
+        let preview = preview(&state, "w").await.unwrap();
+        assert!(
+            preview.data_loss.ask_first,
+            "unreadable, so the dialog asks"
+        );
+        tear_down(&state, true).await.unwrap();
+
+        assert!(archived(&state));
+        assert!(!worktree.exists());
+        assert!(!branch_exists(&repo, "feat/x"));
+    }
+
+    /// Bug: a repo moved or deleted failed every git call teardown made.
+    #[tokio::test]
+    async fn a_workspace_whose_repo_is_gone_tears_down() {
+        let root = tempfile::tempdir().unwrap();
+        let (state, repo, worktree) = workspace_with_worktree(root.path()).await;
+        std::fs::remove_dir_all(&repo).unwrap();
+
+        let preview = preview(&state, "w").await.unwrap();
+        assert!(!preview.delete_branch_default);
+        tear_down(&state, true).await.unwrap();
+
+        assert!(archived(&state));
+        assert!(!worktree.exists());
+    }
+
+    /// A branch git won't delete is kept and said so; the thread still goes.
+    #[tokio::test]
+    async fn a_branch_git_refuses_to_delete_does_not_keep_the_thread() {
+        let root = tempfile::tempdir().unwrap();
+        let (state, repo, worktree) = workspace_with_worktree(root.path()).await;
+        // `main` is checked out in the repo itself, so `branch -D main` fails.
+        state.workspaces.set_branch("w", "main").await.unwrap();
+
+        tear_down(&state, true).await.unwrap();
+
+        assert!(archived(&state));
+        assert!(branch_exists(&repo, "main"));
+        assert!(!worktree.exists());
+    }
+
+    #[test]
+    fn a_folder_that_could_be_more_than_a_worktree_is_never_deleted() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("app");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        assert!(delete_folder(root.path(), &repo).is_err(), "holds the repo");
+        assert!(
+            delete_folder(&repo, &root.path().join("other")).is_err(),
+            "a repo"
+        );
+        assert!(delete_folder(Path::new("/"), &repo).is_err(), "the root");
+        assert!(repo.is_dir());
     }
 
     #[test]

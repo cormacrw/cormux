@@ -285,6 +285,11 @@ pub async fn add_worktree(
 ) -> Result<()> {
     let repo = PathBuf::from(&workspace.repo_path);
     let worktree = workspace.worktree();
+    // A worktree deleted outside Cormux stays registered with git, which then refuses to add one
+    // at its path or check its branch out again.
+    if let Err(error) = state.git.worktree_prune(&repo).await {
+        log::warn!("pruning {}'s worktrees: {error}", repo.display());
+    }
     match checkout {
         Checkout::PullRef(number) => {
             state

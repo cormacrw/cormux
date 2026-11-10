@@ -82,11 +82,17 @@ impl ClaudeSession {
             command.current_dir(cwd);
         }
 
-        let mut child = command.spawn().map_err(|error| {
-            Error::Engine(format!(
+        let mut child = command.spawn().map_err(|error| match &options.cwd {
+            // The folder it starts in being gone fails the same way as the CLI missing.
+            Some(cwd) if !cwd.is_dir() => Error::Engine(format!(
+                "failed to start {}: its folder {} doesn't exist",
+                options.binary.display(),
+                cwd.display()
+            )),
+            _ => Error::Engine(format!(
                 "failed to spawn {}: {error}",
                 options.binary.display()
-            ))
+            )),
         })?;
         let stdin = child
             .stdin

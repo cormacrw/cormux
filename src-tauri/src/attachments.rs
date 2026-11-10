@@ -65,9 +65,11 @@ fn file_for(dir: &Path, attachment: &PromptAttachment) -> Result<PathBuf> {
         .decode(data)
         .map_err(|error| Error::Workspace(format!("{}: {error}", attachment.name)))?;
     let folder = dir.join(uuid::Uuid::new_v4().to_string());
-    std::fs::create_dir_all(&folder).map_err(|error| Error::Workspace(error.to_string()))?;
+    std::fs::create_dir_all(&folder)
+        .map_err(|error| Error::Workspace(format!("couldn't save {}: {error}", attachment.name)))?;
     let path = folder.join(safe_file_name(&attachment.name));
-    std::fs::write(&path, bytes).map_err(|error| Error::Workspace(error.to_string()))?;
+    std::fs::write(&path, bytes)
+        .map_err(|error| Error::Workspace(format!("couldn't save {}: {error}", attachment.name)))?;
     Ok(path)
 }
 
@@ -89,8 +91,9 @@ pub fn build_prompt(
             && std::fs::metadata(&path)
                 .is_ok_and(|meta| meta.len() <= crate::media::INLINE_IMAGE_LIMIT)
         {
-            let bytes =
-                std::fs::read(&path).map_err(|error| Error::Workspace(error.to_string()))?;
+            let bytes = std::fs::read(&path).map_err(|error| {
+                Error::Workspace(format!("couldn't read {}: {error}", attachment.name))
+            })?;
             images.push(PromptImage {
                 media_type: format.mime.into(),
                 data_base64: STANDARD.encode(bytes),

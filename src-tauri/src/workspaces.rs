@@ -171,7 +171,9 @@ impl Workspaces {
         let worktree = PathBuf::from(&row.worktree_path);
         ensure_worktree_free(&inner.records, &row.id, &worktree)?;
         if let Some(parent) = worktree.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent).map_err(|error| {
+                Error::Workspace(format!("couldn't create {}: {error}", parent.display()))
+            })?;
         }
         self.store
             .insert_workspace_with_thread(&row, thread, picks, setup_message)?;

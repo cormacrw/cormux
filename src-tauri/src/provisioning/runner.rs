@@ -264,7 +264,12 @@ async fn make_worktree(
             }
         }
     }
-    crate::changes::watch(state, workspace)
+    // The Changes panel catches up on its next refresh; a watcher that can't start isn't a
+    // reason to fail the thread's setup.
+    if let Err(error) = crate::changes::watch(state, workspace) {
+        log::warn!("watching {}'s changes: {error}", workspace.id);
+    }
+    Ok(())
 }
 
 async fn run_setup_commands(

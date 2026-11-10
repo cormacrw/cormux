@@ -251,6 +251,13 @@ impl ProcessSupervisor {
         command: &ShellCommand,
         forward_to: Option<&str>,
     ) -> Result<SessionEvents> {
+        if !command.cwd.is_dir() {
+            return Err(Error::Process(format!(
+                "couldn't run {}: {} doesn't exist",
+                command.cmd,
+                command.cwd.display()
+            )));
+        }
         let env = self.env.current().await;
         let mut builder = CommandBuilder::new(env.shell());
         builder.args(["-l", "-c", command.cmd.as_str()]);

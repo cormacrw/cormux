@@ -54,7 +54,13 @@ impl Gh {
         command.stdin(Stdio::null());
         command.kill_on_drop(true);
         command.output().await.map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
+            // A folder that's gone fails the same way as gh missing; say which it was.
+            if let Some(cwd) = cwd.filter(|cwd| !cwd.is_dir()) {
+                GhFailure::Spawn(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("{} doesn't exist", cwd.display()),
+                ))
+            } else if error.kind() == std::io::ErrorKind::NotFound {
                 GhFailure::NotInstalled
             } else {
                 GhFailure::Spawn(error)
