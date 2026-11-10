@@ -2,6 +2,14 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.23
+
+- Threads can always be deleted now, even if their worktree was deleted or broken outside Cormux, their repo was moved, or git won't delete their branch. A branch git refuses to delete is kept, and a toast says why.
+- A worktree deleted outside Cormux no longer blocks starting a new thread on the same branch.
+- A failed delete hands the thread straight back to retry, instead of hiding it until the app restarts.
+- Errors about a missing file or folder now name it, instead of a bare "No such file or directory".
+- A new thread's setup no longer fails when the Changes panel can't watch its folder.
+
 ## 0.1.22
 
 - Messages sent to a running thread go to the agent straight away, and the thread stays running while the agent has one queued.
