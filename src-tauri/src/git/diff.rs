@@ -545,6 +545,15 @@ async fn compute_diff(
     path: &Path,
     target: Option<&DiffTarget>,
 ) -> Result<WorktreeDiff> {
+    // A new thread's worktree isn't there until setup makes it, and its panel asks before then.
+    if !path.is_dir() {
+        return Ok(WorktreeDiff {
+            workspace_id: workspace_id.to_string(),
+            target: target.cloned(),
+            files: Vec::new(),
+            uncommitted: LineCounts::default(),
+        });
+    }
     let range = match target {
         Some(target) => Some(format!(
             "{}...{}",
@@ -662,6 +671,21 @@ mod tests {
                 .unwrap();
             assert!(status.success(), "git {args:?}");
         }
+    }
+
+    /// A new thread's Changes panel asks before setup has made the worktree.
+    #[tokio::test]
+    async fn a_worktree_not_made_yet_has_no_changes() {
+        let git = Git::new(crate::shell_env::SharedEnv::loaded(
+            crate::shell_env::ShellEnv::new(),
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let target = DiffTarget::head_against("main".to_string());
+        let diff = compute_diff(&git, "w", &dir.path().join("not-yet"), Some(&target))
+            .await
+            .unwrap();
+        assert!(diff.files.is_empty());
+        assert_eq!(diff.target, Some(target));
     }
 
     #[tokio::test]

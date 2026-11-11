@@ -359,6 +359,20 @@ pub async fn workspace_stack(state: &AppState, workspace_id: &str) -> Result<Wor
 async fn read_stack(state: &AppState, workspace_id: &str) -> Result<WorkspaceStack> {
     let record = workspace_record(state, workspace_id).await?;
     let worktree = PathBuf::from(&record.worktree_path);
+    // A new thread's view asks before setup has made its worktree: nothing is stacked yet.
+    if !worktree.is_dir() {
+        return Ok(WorkspaceStack {
+            workspace_id: workspace_id.to_string(),
+            status: StackStatus::NotStacked,
+            message: None,
+            install_command: None,
+            trunk: record.base.clone(),
+            current_branch: record.branch.clone(),
+            current_needs_rebase: false,
+            branches: Vec::new(),
+            add_block: None,
+        });
+    }
     let solo_needs_rebase = record.branch != record.base && {
         let trunk = state.git.freshest_ref(&worktree, &record.base).await?;
         needs_rebase(state, &worktree, &trunk, "HEAD").await
@@ -1145,6 +1159,49 @@ mod tests {
             .output()
             .unwrap();
         assert!(output.status.success(), "git {args:?}: {output:?}");
+    }
+
+    /// Bug: a new thread's view read its stack before setup had made the worktree, and git
+    /// failing to start there toasted "couldn't run git rev-parse".
+    #[tokio::test]
+    async fn a_worktree_setup_has_not_made_yet_reads_as_not_stacked() {
+        use crate::model::{ThreadRole, WorkspaceKind};
+        use crate::store::types::{RepoRecord, ThreadRow, WorkspaceRow};
+        let (state, recording) =
+            AppState::recorded(crate::paths::DataDir::new(std::env::temp_dir()));
+        let dir = tempfile::tempdir().unwrap();
+        let repo = RepoRecord {
+            path: dir.path().display().to_string(),
+            ..crate::store::fixtures::repo("r1")
+        };
+        state.store.upsert_repo(&repo).unwrap();
+        let worktree = dir.path().join("not-yet");
+        let row = WorkspaceRow::new(
+            WorkspaceKind::Lead,
+            "w",
+            "r1",
+            "Work",
+            "feat/x",
+            "main",
+            worktree.to_string_lossy(),
+        );
+        state
+            .workspaces
+            .register(
+                row,
+                &ThreadRow::new("t", "w", ThreadRole::Lead, "claude"),
+                &Default::default(),
+                "",
+                &repo,
+            )
+            .await
+            .unwrap();
+
+        let stack = workspace_stack(&state, "w").await.unwrap();
+
+        assert!(matches!(stack.status, StackStatus::NotStacked));
+        assert!(stack.branches.is_empty());
+        assert!(recording.toasts().is_empty());
     }
 
     /// A repo on `main` with branches `feat/a` and `feat/b`, and a worktree `wt` on `feat/a`.

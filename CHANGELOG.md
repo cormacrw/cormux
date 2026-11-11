@@ -2,6 +2,10 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.24
+
+- Opening a new thread no longer shows a "couldn't run git rev-parse" error while its worktree is still being set up. The stack and Changes panels stay empty until the worktree is ready.
+
 ## 0.1.23
 
 - Threads can always be deleted now, even if their worktree was deleted or broken outside Cormux, their repo was moved, or git won't delete their branch. A branch git refuses to delete is kept, and a toast says why.
