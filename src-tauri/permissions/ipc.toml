@@ -61,6 +61,7 @@ commands.allow = [
   "get_teardown_preview",
   "teardown_workspace",
   "open_workspace_terminal",
+  "open_workspace_editor",
   "control_workspace_app",
   "set_workspace_run_command",
   "set_repo_run_command",

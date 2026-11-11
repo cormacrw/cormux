@@ -17,6 +17,7 @@
   // Follows the saved setting, and holds edits until they're committed.
   let worktreeDraft = $derived(settings.values.worktreeRoot)
   let terminalDraft = $derived(settings.values.terminalApp)
+  let editorDraft = $derived(settings.values.editorApp)
 
   const defaultRepoId = $derived(
     resolveDefaultRepoId(repos.items, settings.values.defaultRepo),
@@ -116,6 +117,26 @@
         onchange={() => {
           if (terminalDraft.trim() !== settings.values.terminalApp)
             void updateSettings({ terminalApp: terminalDraft })
+        }}
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    title="Editor app"
+    description="What Open in Editor launches, by its name in Applications (e.g. Zed, Cursor, Visual Studio Code)"
+    controlId="settings-editor-app"
+  >
+    {#snippet control()}
+      <Input
+        id="settings-editor-app"
+        class="w-[180px]"
+        placeholder="Zed"
+        bind:value={editorDraft}
+        spellcheck={false}
+        onchange={() => {
+          if (editorDraft.trim() !== settings.values.editorApp)
+            void updateSettings({ editorApp: editorDraft })
         }}
       />
     {/snippet}

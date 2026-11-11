@@ -74,6 +74,7 @@ export function createRuntime(scenario: HarnessScenario) {
     answered: [],
     opened: [],
     openedTerminal: null,
+    openedEditor: null,
     resumed: null,
     clickupCalls: [],
     stackRemoteUp: false,

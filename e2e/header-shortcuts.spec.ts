@@ -22,6 +22,17 @@ test('workspace header actions have keyboard shortcuts', async ({ page }) => {
     .poll(() => page.evaluate(() => window.__HARNESS__!.openedTerminal))
     .toBe('ws-auth')
 
+  // Open in editor has its own button, top right, and ⌘⇧O.
+  await page.keyboard.press('ControlOrMeta+Shift+o')
+  await expect
+    .poll(() => page.evaluate(() => window.__HARNESS__!.openedEditor))
+    .toBe('ws-auth')
+  await page.evaluate(() => (window.__HARNESS__!.openedEditor = null))
+  await page.getByRole('button', { name: 'Open in Zed' }).click()
+  await expect
+    .poll(() => page.evaluate(() => window.__HARNESS__!.openedEditor))
+    .toBe('ws-auth')
+
   await page.keyboard.press('ControlOrMeta+d')
   const teardown = page.getByRole('alertdialog')
   await expect(teardown.getByText('Teardown & delete worktree?')).toBeVisible()

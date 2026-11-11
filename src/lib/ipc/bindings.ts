@@ -542,6 +542,14 @@ async openWorkspaceTerminal(workspaceId: string) : Promise<Result<null, Error>> 
     else return { status: "error", error: e  as any };
 }
 },
+async openWorkspaceEditor(workspaceId: string) : Promise<Result<null, Error>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_workspace_editor", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async controlWorkspaceApp(input: ControlWorkspaceAppInput) : Promise<Result<null, Error>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("control_workspace_app", { input }) };
@@ -712,7 +720,7 @@ toastRaised: "toast-raised"
 
 export const ATTACHED_LINE_PREFIX = "Attached: " as const;
 export const CONVERSATION_STEP_KINDS = ["sessionStarted","sessionResumed"] as const;
-export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
+export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","editorApp":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
 export const ENGINE_EFFORTS = [{"id":"low","label":"Low"},{"id":"medium","label":"Medium"},{"id":"high","label":"High"},{"id":"xhigh","label":"Extra high"},{"id":"max","label":"Max"}] as const;
 export const ENGINE_MODELS = [{"id":"fable","label":"Fable"},{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"},{"id":"haiku","label":"Haiku"}] as const;
 export const FINDINGS_BLOCK_TAG = "cormux-findings" as const;
@@ -1204,6 +1212,10 @@ worktreeRoot: string;
  */
 terminalApp: string; 
 /**
+ * The app Open in Editor launches; empty means Zed.
+ */
+editorApp: string; 
+/**
  * Instructions for drafting a PR description; empty means the built-in default.
  */
 prPrompt: string; 
@@ -1241,6 +1253,10 @@ worktreeRoot?: string | null;
  * The app Open in Terminal launches; empty means Terminal.
  */
 terminalApp?: string | null; 
+/**
+ * The app Open in Editor launches; empty means Zed.
+ */
+editorApp?: string | null; 
 /**
  * Instructions for drafting a PR description; empty means the built-in default.
  */

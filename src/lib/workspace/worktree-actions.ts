@@ -7,6 +7,12 @@ export async function openWorkspaceTerminal(workspaceId: string) {
   if (result.status === 'error') toastCoreError(result.error)
 }
 
+/** Opens the worktree in the editor picked in Settings (Zed by default). */
+export async function openWorkspaceEditor(workspaceId: string) {
+  const result = await commands.openWorkspaceEditor(workspaceId)
+  if (result.status === 'error') toastCoreError(result.error)
+}
+
 /** Starts a Reviewer on the workspace's own branch and opens its thread. */
 export async function startBranchReview(workspaceId: string) {
   const result = await commands.startBranchReview(workspaceId)

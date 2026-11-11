@@ -119,6 +119,7 @@ export type HarnessControls = {
   /** URLs handed to the system browser. */
   opened: string[]
   openedTerminal: string | null
+  openedEditor: string | null
   resumed: ResumeThreadSessionInput | null
   clickupCalls: { cmd: string; args: unknown }[]
   /** `HarnessScenario.stack` of `remote`: whether GitHub answers yet. */

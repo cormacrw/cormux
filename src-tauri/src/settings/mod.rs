@@ -57,6 +57,8 @@ settings! {
     worktree_root: String,
     /// The app Open in Terminal launches; empty means Terminal.
     terminal_app: String,
+    /// The app Open in Editor launches; empty means Zed.
+    editor_app: String,
     /// Instructions for drafting a PR description; empty means the built-in default.
     pr_prompt: String,
     /// `!name` prompts, for any prompt bar and the command palette.
@@ -91,6 +93,7 @@ impl Default for Settings {
             default_repo: String::new(),
             worktree_root: DEFAULT_WORKTREE_ROOT.into(),
             terminal_app: String::new(),
+            editor_app: String::new(),
             pr_prompt: String::new(),
             bangs: Vec::new(),
             clickup_workspace_id: String::new(),
@@ -145,9 +148,13 @@ impl Settings {
     /// Saves what `patch` changes, all or nothing. Bang names are tidied into bang shape and
     /// must be there and unique.
     pub fn update(store: &Store, mut patch: SettingsPatch) -> Result<()> {
-        for path in [&mut patch.worktree_root, &mut patch.terminal_app]
-            .into_iter()
-            .flatten()
+        for path in [
+            &mut patch.worktree_root,
+            &mut patch.terminal_app,
+            &mut patch.editor_app,
+        ]
+        .into_iter()
+        .flatten()
         {
             *path = path.trim().to_string();
         }
@@ -425,6 +432,7 @@ mod tests {
             default_repo: "r1".into(),
             worktree_root: "~/trees".into(),
             terminal_app: "iTerm".into(),
+            editor_app: "Cursor".into(),
             pr_prompt: "Keep it short".into(),
             bangs: vec![Bang {
                 id: "b1".into(),

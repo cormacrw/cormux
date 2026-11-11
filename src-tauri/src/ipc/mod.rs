@@ -87,6 +87,7 @@ commands![
     teardown::commands::get_teardown_preview,
     teardown::commands::teardown_workspace,
     terminal::open_workspace_terminal,
+    terminal::open_workspace_editor,
     app::commands::control_workspace_app,
     app::commands::set_workspace_run_command,
     repos::commands::set_repo_run_command,

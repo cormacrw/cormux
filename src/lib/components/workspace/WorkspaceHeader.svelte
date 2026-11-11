@@ -13,10 +13,12 @@
   import WorkspaceRunControls from '../../run-app/components/WorkspaceRunControls.svelte'
   import { formatCost, totalCost } from '$lib/usage/usage'
   import {
+    openWorkspaceEditor,
     openWorkspaceTerminal,
     startBranchReview,
   } from '$lib/workspace/worktree-actions'
   import Pencil from '@lucide/svelte/icons/pencil'
+  import OpenInEditorButton from './OpenInEditorButton.svelte'
 
   let {
     workspace,
@@ -58,6 +60,9 @@
     } else if (shellDialogs.allows(event, 'openTerminal')) {
       event.preventDefault()
       void openWorkspaceTerminal(workspace.id)
+    } else if (shellDialogs.allows(event, 'openEditor')) {
+      event.preventDefault()
+      void openWorkspaceEditor(workspace.id)
     } else if (shellDialogs.allows(event, 'deleteWorkspace')) {
       event.preventDefault()
       shellDialogs.open('teardown', { workspaceId: workspace.id })
@@ -117,6 +122,7 @@
     >
       <WorkspaceTrayButtons {workspace} />
       <WorkspaceRunControls workspaceId={workspace.id} />
+      <OpenInEditorButton workspaceId={workspace.id} />
       <WorkspaceMoreMenu {workspace} />
       <WorkspacePrimaryAction {workspace} />
     </div>

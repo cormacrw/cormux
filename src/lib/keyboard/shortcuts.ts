@@ -80,6 +80,12 @@ export const SHORTCUTS = {
     key: 't',
     description: 'Open the worktree in Terminal (workspace)',
   },
+  openEditor: {
+    label: '⌘⇧O',
+    key: 'o',
+    shift: true,
+    description: 'Open the worktree in your editor (workspace)',
+  },
   deleteWorkspace: {
     label: '⌘D',
     key: 'd',

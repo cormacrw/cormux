@@ -144,6 +144,10 @@ export function workspaceHandlers(runtime: HarnessRuntime) {
       controls.openedTerminal = workspaceId
       return null
     },
+    open_workspace_editor: ({ workspaceId }: { workspaceId: string }) => {
+      controls.openedEditor = workspaceId
+      return null
+    },
     // Run and Stop move the app's status as the core does; no app is really started.
     control_workspace_app: ({ input }: Input<'control_workspace_app'>) => {
       if (input.action === 'clear') return null
