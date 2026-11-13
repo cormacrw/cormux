@@ -1,4 +1,3 @@
-import type { PullRequest } from '$lib/state/prs.svelte'
 import { describe, expect, it } from 'vitest'
 import { threadFixture, workspaceFixture } from '$lib/state/fixtures'
 import { IDLE_RUNTIME } from '$lib/state/workspace-model'
@@ -46,9 +45,7 @@ describe('buildPaletteCommands', () => {
           singleInstance: false,
         },
       ],
-      pullRequests: [
-        { id: 'acme/app#482', num: 482, title: 'Fix login' } as PullRequest,
-      ],
+      prNumberOf: () => null,
       appControlsFor: () =>
         appControlsFor({
           appStatus: 'stopped',
@@ -60,7 +57,6 @@ describe('buildPaletteCommands', () => {
     }).map((c) => c.label)
 
     expect(labels).toContain('New thread')
-    expect(labels).toContain('Review PR #482 Fix login')
     // No ClickUp key, no sprint page.
     expect(labels).not.toContain('Go to sprint')
     expect(labels).toContain('!triage')
@@ -85,7 +81,7 @@ describe('buildPaletteCommands', () => {
         threadFixture(),
       ]),
       repos: [],
-      pullRequests: [],
+      prNumberOf: () => null,
       appControlsFor: () =>
         appControlsFor({
           appStatus: 'stopped',
@@ -112,7 +108,7 @@ describe('buildPaletteCommands', () => {
       bangs: [],
       threadsOf: () => [],
       repos: [],
-      pullRequests: [],
+      prNumberOf: () => null,
       appControlsFor: () =>
         appControlsFor({
           appStatus: 'stopped',
@@ -125,5 +121,36 @@ describe('buildPaletteCommands', () => {
 
     expect(labels).toContain('Open Findings in Billing')
     expect(labels).not.toContain('Open Findings in Auth')
+  })
+
+  it("puts a workspace's PR in its meta, and offers no PR review commands", () => {
+    const commands = buildPaletteCommands({
+      reduceMotion: false,
+      clickupConfigured: false,
+      workspaces: [
+        workspaceFixture(),
+        workspaceFixture({ id: 'ws-2', name: 'Billing' }),
+      ],
+      scratches: [],
+      bangs: [],
+      threadsOf: () => [],
+      repos: [],
+      prNumberOf: (workspace) => (workspace.id === 'ws-2' ? 482 : null),
+      appControlsFor: () =>
+        appControlsFor({
+          appStatus: 'stopped',
+          runBlock: 'No run command for this workspace.',
+          runCommand: '',
+        }),
+      findingsAvailable: () => false,
+      needsYou: () => true,
+    })
+
+    const billing = commands.find((c) => c.label === 'Open Billing')
+    expect(billing?.meta).toBe('PR #482 · Needs Attention')
+    expect(commands.find((c) => c.label === 'Open Auth')?.meta).toBe(
+      'Needs Attention',
+    )
+    expect(commands.some((c) => c.label.startsWith('Review PR'))).toBe(false)
   })
 })

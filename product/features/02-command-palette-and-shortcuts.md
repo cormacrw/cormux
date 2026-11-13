@@ -35,7 +35,7 @@ Commands are rebuilt every time the palette renders, so they always reflect curr
 ### Workspaces (one per workspace)
 
 - Label: `Open <workspace name>`.
-- Meta: the same status text as the Homebase card: `2 agents working`, `Idle` or `Needs Attention`.
+- Meta: the same status text as the Homebase card: `2 agents working`, `Idle` or `Needs Attention`. When the workspace's branch has a pull request (the one its sidebar row shows), its number comes first: `PR #482 · Needs Attention`.
 - Effect: opens the workspace on its first thread.
 
 ### App (one or two per workspace that has finished provisioning)
@@ -61,7 +61,7 @@ Run and Restart first open the workspace, then perform the action. Stop acts wit
 - **Opening** clears the input, selects the first item and focuses the input. Any open popover is closed first.
 - **Toggle:** pressing `⌘K` while the palette is open closes it.
 - **Blocked:** the palette will not open while the New workspace dialog or a confirmation dialog is open.
-- **Filtering:** case-insensitive substring match against the label *and* the meta text, so typing `idle` finds idle workspaces and `pnpm` finds Run commands. Group headings are shown only for groups with matches. The selection resets to the first match on every keystroke.
+- **Filtering:** case-insensitive substring match against the label *and* the meta text, so typing `idle` finds idle workspaces and `pnpm` finds Run commands. `#` is ignored on both sides, so `482`, `#482` and `pr 482` all find the workspace whose PR is #482. Group headings are shown only for groups with matches. The selection resets to the first match on every keystroke.
 - **No results:** a single line reads `No commands match “<query>”`.
 - **Running a command** closes the palette first, then runs the command on the next tick so focus handling in the destination view works.
 - **Mouse:** hovering an item selects it; clicking runs it. Clicking the backdrop closes the palette.

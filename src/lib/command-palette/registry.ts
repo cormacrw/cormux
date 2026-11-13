@@ -11,13 +11,12 @@ import {
   openWorkspaceFindings,
   openWorkspaceThread,
 } from '$lib/nav/open'
-import { reviewPullRequest } from '$lib/review/start-review'
 import { updateSettings } from '$lib/settings/actions'
 import { openSettings } from '$lib/settings/open'
 import { settings } from '$lib/settings/store.svelte'
 import { clickup } from '$lib/clickup/store.svelte'
 import { findings } from '$lib/findings/store.svelte'
-import { prs, type PullRequest } from '$lib/state/prs.svelte'
+import { workspacePr } from '$lib/changes/workspace-pr'
 import { attention } from '$lib/state/attention.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches, type Scratch } from '$lib/state/scratches.svelte'
@@ -38,7 +37,8 @@ export type PaletteState = {
   /** Retired threads too: the palette is one of the two ways back into them. */
   threadsOf: (workspaceId: string) => Thread[]
   repos: RepoRecord[]
-  pullRequests: PullRequest[]
+  /** The number of the PR on the workspace's branch, the one its sidebar row shows. */
+  prNumberOf: (workspace: Workspace) => number | null
   appControlsFor: (workspaceId: string) => AppControls
   findingsAvailable: (workspace: Workspace) => boolean
   needsYou: (workspaceId: string) => boolean
@@ -53,11 +53,16 @@ function storeState(): PaletteState {
     bangs: settings.values.bangs,
     threadsOf: (workspaceId) => threads.forWorkspace(workspaceId),
     repos: repos.items,
-    pullRequests: prs.items,
+    prNumberOf: (workspace) => workspacePr(workspace)?.number ?? null,
     appControlsFor: appControls,
     findingsAvailable: (workspace) => findings.tabAvailable(workspace),
     needsYou: (workspaceId) => attention.needsYou(workspaceId),
   }
+}
+
+/** A PR goes first in the meta, so its number finds the thread (see `filterCommands`). */
+function withPr(prNumber: number | null, meta: string): string {
+  return prNumber == null ? meta : `PR #${prNumber} · ${meta}`
 }
 
 export function buildPaletteCommands(
@@ -136,9 +141,12 @@ export function buildPaletteCommands(
       id: `ws-open-${workspace.id}`,
       group: 'Workspaces',
       label: `Open ${workspace.name}`,
-      meta: workspaceCardMetaText(
-        state.needsYou(workspace.id),
-        wsThreads.filter((thread) => !thread.retired),
+      meta: withPr(
+        state.prNumberOf(workspace),
+        workspaceCardMetaText(
+          state.needsYou(workspace.id),
+          wsThreads.filter((thread) => !thread.retired),
+        ),
       ),
       icon: 'workspace',
       run: () => openWorkspace(workspace.id),
@@ -152,16 +160,6 @@ export function buildPaletteCommands(
       label: `Open ${repo.name}`,
       meta: 'repo',
       run: () => navigate({ view: 'repo', repoId: repo.id }),
-    })
-  }
-
-  for (const pr of state.pullRequests) {
-    cmds.push({
-      id: `pr-review-${pr.id}`,
-      group: 'Actions',
-      label: `Review PR #${pr.num} ${pr.title}`,
-      meta: 'pull request',
-      run: () => reviewPullRequest(pr),
     })
   }
 

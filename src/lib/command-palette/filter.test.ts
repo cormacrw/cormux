@@ -34,6 +34,22 @@ describe('filterCommands', () => {
     expect(ids('pnpm')).toEqual(['c'])
   })
 
+  it('finds a PR by its number, with or without the #', () => {
+    const pr: PaletteCommand[] = [
+      ...sample,
+      {
+        id: 'd',
+        group: 'Workspaces',
+        label: 'Open Billing',
+        meta: 'PR #482 · Idle',
+        run: () => {},
+      },
+    ]
+    for (const query of ['482', '#482', 'pr 482', 'PR #482']) {
+      expect(filterCommands(pr, query).map((c) => c.id)).toEqual(['d'])
+    }
+  })
+
   it('keeps everything for a blank query', () => {
     expect(ids('   ')).toEqual(['a', 'b', 'c'])
   })

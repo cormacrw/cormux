@@ -5,12 +5,17 @@ const haystacks = new WeakMap<PaletteCommand, string>()
 function haystack(command: PaletteCommand): string {
   let text = haystacks.get(command)
   if (text === undefined) {
-    text = command.meta
-      ? `${command.label}\n${command.meta}`.toLowerCase()
-      : command.label.toLowerCase()
+    text = normalize(
+      command.meta ? `${command.label}\n${command.meta}` : command.label,
+    )
     haystacks.set(command, text)
   }
   return text
+}
+
+/** `#` is dropped from both sides, so `482`, `#482`, `pr 482` and `PR #482` all find PR #482. */
+function normalize(text: string): string {
+  return text.toLowerCase().replaceAll('#', '')
 }
 
 /** Case-insensitive substring match on label and meta (product/features/02-command-palette-and-shortcuts.md). */
@@ -18,7 +23,7 @@ export function filterCommands(
   commands: PaletteCommand[],
   query: string,
 ): PaletteCommand[] {
-  const q = query.trim().toLowerCase()
+  const q = normalize(query.trim())
   if (!q) return commands
   return commands.filter((command) => haystack(command).includes(q))
 }
