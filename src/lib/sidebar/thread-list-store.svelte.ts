@@ -5,6 +5,8 @@ import {
   splitThreadList,
   type ThreadUrgency,
 } from '$lib/sidebar/thread-list'
+import { splitSnoozed } from '$lib/sidebar/snooze'
+import { snoozes } from '$lib/sidebar/snooze-store.svelte'
 import { attention } from '$lib/state/attention.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches } from '$lib/state/scratches.svelte'
@@ -28,11 +30,15 @@ type ThreadListItem = {
 }
 
 /** A row in the list, which `nested` draws under its parent. */
-export type ThreadListRowItem = ThreadListItem & { nested: boolean }
+export type ThreadListRowItem = ThreadListItem & {
+  nested: boolean
+  /** When a snoozed thread comes back; null when it isn't snoozed. */
+  snoozedUntilMs?: number | null
+}
 
 /**
- * The sidebar's list: every thread, what needs you first, with working threads in a section of
- * their own. ⌘1–⌘9 and the Ctrl+Tab list follow the workspaces in it, collapsed or not.
+ * The sidebar's list: every thread, what needs you first, with working threads and snoozed ones
+ * in sections of their own. ⌘1–⌘9 and the Ctrl+Tab list follow the workspaces in it, collapsed or not.
  */
 class ThreadList {
   readonly items = $derived.by((): ThreadListItem[] => {
@@ -74,20 +80,37 @@ class ThreadList {
   })
 
   readonly sections = $derived.by(() => {
-    const { threads, working } = splitThreadList(
+    // A snooze moves the thread at once, even the one you're on: you asked it to go.
+    const { awake, snoozed } = splitSnoozed(
       this.items,
+      snoozes.until,
+      snoozes.nowMs,
+    )
+    const { threads, working } = splitThreadList(
+      awake,
       nav.view === 'workspace' ? nav.workspaceId : null,
     )
     return {
       threads: nestThreadList(threads),
       working: nestThreadList(working),
+      // Soonest back first.
+      snoozed: nestThreadList(
+        [...snoozed].sort(
+          (a, b) => (snoozes.until[a.id] ?? 0) - (snoozes.until[b.id] ?? 0),
+        ),
+      ).map((item) => ({
+        ...item,
+        snoozedUntilMs: snoozes.until[item.id] ?? null,
+      })),
     }
   })
 
   readonly ordered = $derived(
-    [...this.sections.threads, ...this.sections.working].flatMap((item) =>
-      item.workspace ? [item.workspace] : [],
-    ),
+    [
+      ...this.sections.threads,
+      ...this.sections.working,
+      ...this.sections.snoozed,
+    ].flatMap((item) => (item.workspace ? [item.workspace] : [])),
   )
 }
 

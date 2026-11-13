@@ -32,6 +32,7 @@
   import { cn } from '$lib/utils'
 
   const WORKING_OPEN_KEY = 'cormux-sidebar-working-open'
+  const SNOOZED_OPEN_KEY = 'cormux-sidebar-snoozed-open'
 
   // Full screen hides the traffic lights, so their row collapses and the sidebar moves up.
   let fullscreen = $state(false)
@@ -44,8 +45,17 @@
     writePref(WORKING_OPEN_KEY, String(workingOpen))
   }
 
+  // Snoozed threads are out of sight, like working ones.
+  let snoozedOpen = $state(readPref(SNOOZED_OPEN_KEY) === 'true')
+
+  function toggleSnoozed() {
+    snoozedOpen = !snoozedOpen
+    writePref(SNOOZED_OPEN_KEY, String(snoozedOpen))
+  }
+
   const threadRows = $derived(sidebarWorkspaces.sections.threads)
   const workingRows = $derived(sidebarWorkspaces.sections.working)
+  const snoozedRows = $derived(sidebarWorkspaces.sections.snoozed)
 
   // Keeps the rows' ages current.
   let nowMs = $state(Date.now())
@@ -205,6 +215,38 @@
             transition:slide={{ duration: motionMs(200), easing: cubicOut }}
           >
             {@render rows(workingRows)}
+          </ul>
+        {/if}
+      {/if}
+      {#if snoozedRows.length > 0}
+        <button
+          type="button"
+          class="mt-3 flex items-center gap-1 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+          id="side-snoozed-label"
+          aria-expanded={snoozedOpen}
+          data-od-id="snoozed-toggle"
+          onclick={toggleSnoozed}
+        >
+          <ChevronRight
+            class={cn(
+              'size-3 shrink-0 transition-transform duration-(--dur-fast)',
+              snoozedOpen && 'rotate-90',
+            )}
+            aria-hidden="true"
+          />
+          <span class="flex-1">Snoozed</span>
+          <span class="font-mono tracking-normal normal-case"
+            >{snoozedRows.length}</span
+          >
+        </button>
+        {#if snoozedOpen}
+          <ul
+            class="grid list-none gap-1 p-0"
+            aria-labelledby="side-snoozed-label"
+            data-od-id="snoozed-list"
+            transition:slide={{ duration: motionMs(200), easing: cubicOut }}
+          >
+            {@render rows(snoozedRows)}
           </ul>
         {/if}
       {/if}
