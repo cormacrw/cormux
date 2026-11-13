@@ -3,12 +3,15 @@ import type { ComposerAttachment } from '$lib/composer/attachments'
 import { toastFailure } from '$lib/feedback/action-failure'
 import { wordmark } from '$lib/background/wordmark.svelte'
 import { threadTimeline } from '$lib/thread/timeline-store.svelte'
+import { snoozes } from '$lib/sidebar/snooze-store.svelte'
+import { threads } from '$lib/state/threads.svelte'
 import type { ConversationSummary } from '$lib/ipc/bindings'
 import { firstPromptTransition, leaveConversation } from './conversation-motion'
 
 /**
  * Sends a message to the thread's agent; resolves false (after toasting) if it didn't send.
- * A first message takes the greeting away as it lands.
+ * A first message takes the greeting away as it lands. Writing to a snoozed thread means you're
+ * on it again, so it comes back to the list.
  */
 export async function sendToThread(
   threadId: string,
@@ -21,7 +24,15 @@ export async function sendToThread(
     () => shown,
     () => wordmark.glide(),
   )
-  return toastFailure(await sending)
+  const sent = toastFailure(await sending)
+  if (sent) wakeThread(threadId)
+  return sent
+}
+
+/** Ends the snooze on the thread's row in the sidebar, which is its workspace's. */
+export function wakeThread(threadId: string) {
+  const workspaceId = threads.getById(threadId)?.workspaceId
+  if (workspaceId) snoozes.unsnooze(workspaceId)
 }
 
 export async function stopThread(threadId: string) {

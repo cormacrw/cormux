@@ -1,6 +1,7 @@
 // Indexes built inside $derived are replaced whole, never mutated, so plain Map and Set are right.
 /* eslint-disable svelte/prefer-svelte-reactivity */
 import type { FindingRow, FindingSeverity } from '$lib/ipc/bindings'
+import { snoozes } from '$lib/sidebar/snooze-store.svelte'
 import { commands, type CoreError } from '$lib/ipc'
 import {
   applyQuickSelect,
@@ -109,6 +110,8 @@ export class FindingsStore {
       findingIds: ids,
     })
     if (result.status === 'error') return result.error
+    // Sending the agent findings is writing to it, so a snoozed thread comes back.
+    snoozes.unsnooze(workspaceId)
     this.quickSelect(workspaceId, 'none')
     return null
   }

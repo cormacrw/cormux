@@ -69,6 +69,27 @@ test('a snooze ends on its own when its time is up', async ({ page }) => {
   await expect(page.locator('[data-od-id="snoozed-toggle"]')).toHaveCount(0)
 })
 
+test('sending a snoozed thread a message brings it back', async ({ page }) => {
+  await page.goto('/')
+  const threads = page.locator('[data-od-id="thread-list"]')
+  const row = page.getByRole('button', { name: /^OAuth login,/ })
+  await row.click({ button: 'right' })
+  await page
+    .locator('[data-od-id="thread-row-menu"]')
+    .getByRole('menuitem', { name: /^Next week/ })
+    .click()
+  await expect(threads.locator(row)).toHaveCount(0)
+
+  await page.locator('[data-od-id="snoozed-toggle"]').click()
+  await page.locator('[data-od-id="snoozed-list"]').locator(row).click()
+  const composer = page.locator('#composer-input')
+  await composer.fill('Back to this one')
+  await composer.press('Enter')
+
+  await expect(threads.locator(row)).toBeVisible()
+  await expect(page.locator('[data-od-id="snoozed-toggle"]')).toHaveCount(0)
+})
+
 test('right-click Delete asks first, then removes the thread', async ({
   page,
 }) => {
