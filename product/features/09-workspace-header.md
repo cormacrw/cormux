@@ -2,7 +2,7 @@
 
 ## Summary
 
-The workspace header is a single, clean bar across the top of a workspace. On the left: the workspace name and its branch. On the right: the workspace's actions, in a fixed order: app run controls, a ⋯ menu for less frequent actions, and, in review workspaces, one primary action (**Submit review**). Build workspaces have no Create PR button; `⌘P` still opens the Create PR dialog.
+The workspace header is a single, clean bar across the top of a workspace. On the left: the workspace name and its branch. On the right: the workspace's actions, in a fixed order: app run controls, a ⋯ menu for less frequent actions, and, in review workspaces, one primary action (**Submit review**). Build workspaces have no PR button at all, neither Create PR nor a link to an open PR; `⌘P` opens the Create PR dialog, or the branch's PR once there is one, which also shows in the sidebar row and in Stack.
 
 ## Why it exists
 
@@ -11,7 +11,7 @@ The header was deliberately stripped back. It previously held a back button, a s
 ## Where it lives
 
 - `<header class="ws-top" id="ws-top" data-od-id="ws-header">` at the top of the workspace view.
-- Hooks: `ws-branch`, `ws-actions`, `ws-run-controls`, `ws-run`, `ws-restart`, `ws-stop`, `ws-changes-toggle`, `ws-more`, `ws-rebase`, `ws-create-pr`, `ws-submit-review`.
+- Hooks: `ws-branch`, `ws-actions`, `ws-run-controls`, `ws-run`, `ws-restart`, `ws-stop`, `ws-changes-toggle`, `ws-more`, `ws-rebase`, `ws-submit-review`.
 
 ## Anatomy
 
@@ -36,7 +36,7 @@ The header was deliberately stripped back. It previously held a back button, a s
    | separator | | | |
    | `Teardown worktree…` | trash, red | Always | See [08](08-teardown.md) |
 3. **Primary action** (solid, the only primary in the header):
-   - Build workspace: nothing until the branch has a PR, then a secondary `PR #<N> opened` link. `⌘P` opens Create PR ([18](18-create-pr.md)).
+   - Build workspace: nothing, even once the branch has a PR. `⌘P` opens Create PR ([18](18-create-pr.md)), or the PR once there is one.
    - Review workspace: **Submit review** with a PR icon. Disabled after submitting. See [19](19-review-workspaces.md).
 
 ## Behaviour
@@ -58,7 +58,7 @@ The header is rebuilt on every state change so labels, counts and enabled states
 | Agents running | Branch picker locked, no chevron. |
 | Branch behind base | Pull and Rebase enabled in ⋯. |
 | Up to date | Pull reads `Up to date with main` and is disabled; Rebase disabled. |
-| PR created | Primary reads `PR #N opened`, disabled. |
+| PR created | No header button; the sidebar row shows a PR icon and `⌘P` opens the PR. |
 | Review workspace | Primary is **Submit review**. |
 | Review submitted | **Submit review** disabled. |
 

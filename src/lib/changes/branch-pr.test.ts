@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { branchPullRequest, primaryPrActionLabel } from './branch-pr'
+import { branchPullRequest } from './branch-pr'
 import type { PullRequest } from '$lib/state/prs.svelte'
 
 const basePr: PullRequest = {
@@ -17,16 +17,6 @@ const basePr: PullRequest = {
   repoFullName: 'acme/app',
   repoId: 'my-app',
 }
-
-describe('primaryPrActionLabel', () => {
-  it('reflects check state when PR is known', () => {
-    expect(primaryPrActionLabel(basePr, 1)).toBe('PR #1 · Checks running')
-  })
-
-  it('falls back when PR is not synced yet', () => {
-    expect(primaryPrActionLabel(undefined, 42)).toBe('PR #42 opened')
-  })
-})
 
 describe('branchPullRequest', () => {
   const input = {

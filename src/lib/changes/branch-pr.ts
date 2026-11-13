@@ -2,19 +2,6 @@ import type { StackPrState, StackPullRequest } from '$lib/ipc/bindings'
 import type { PullRequest } from '$lib/state/prs.svelte'
 import { prByNumber, prForBranch } from '$lib/state/pr-lookup'
 
-export function primaryPrActionLabel(
-  pr: PullRequest | undefined,
-  prNumber: number,
-): string {
-  if (!pr) return `PR #${prNumber} opened`
-  if (pr.review === 'approved') return `PR #${prNumber} · Approved`
-  if (pr.checks === 'fail') return `PR #${prNumber} · Checks failed`
-  if (pr.checks === 'running') return `PR #${prNumber} · Checks running`
-  if (pr.review === 'changes') return `PR #${prNumber} · Changes requested`
-  if (pr.isDraft) return `Draft PR #${prNumber}`
-  return `View PR #${prNumber}`
-}
-
 export type BranchPr = {
   number: number
   url: string | null

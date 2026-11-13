@@ -121,7 +121,7 @@ test('Stack explains how to install gh-stack and still shows the branch', async 
   await page.screenshot({ path: 'e2e/output/stack-unavailable.png' })
 })
 
-test('Create PR targets the branch below, and the header links an existing PR', async ({
+test('Create PR targets the branch below, and ⌘P opens an existing PR', async ({
   page,
 }) => {
   const panel = await openStack(page)
@@ -138,12 +138,17 @@ test('Create PR targets the branch below, and the header links an existing PR', 
   // feat/oauth-api already has #101 (from gh-stack), so there's nothing to create.
   await panel.getByRole('button', { name: 'Check out feat/oauth-api' }).click()
   await expect(
-    page.getByRole('button', { name: 'PR #101 opened' }),
-  ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Create PR' })).toHaveCount(0)
+    panel.locator('[data-stack-branch="feat/oauth-api"]'),
+  ).toContainText('#101')
+  await expect(page.locator('[data-od-id="ws-create-pr"]')).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+p')
+  await expect(dialog).toHaveCount(0)
+  await expect
+    .poll(() => page.evaluate(() => window.__HARNESS__!.opened))
+    .toHaveLength(1)
 })
 
-test('the header links a PR opened outside Cormux for the checked-out branch', async ({
+test('⌘P opens a PR opened outside Cormux for the checked-out branch', async ({
   page,
 }) => {
   const payload: PullRequestPayload = {
@@ -174,11 +179,12 @@ test('the header links a PR opened outside Cormux for the checked-out branch', a
   })
   await page.goto('/?stack=none')
   await page.getByRole('button', { name: /^OAuth login,/ }).click()
-  const button = page.getByRole('button', { name: 'PR #57 · Approved' })
-  await expect(button).toBeVisible()
-  await button.click()
-  const opened = await page.evaluate(() => window.__HARNESS__!.opened)
-  expect(opened).toEqual(['https://github.com/acme/app/pull/57'])
+  // No PR button in the header any more; ⌘P still opens it.
+  await expect(page.locator('[data-od-id="ws-create-pr"]')).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+p')
+  await expect
+    .poll(() => page.evaluate(() => window.__HARNESS__!.opened))
+    .toEqual(['https://github.com/acme/app/pull/57'])
 })
 
 test('Stack shows when a branch needs rebasing, stacked or not', async ({
