@@ -185,7 +185,7 @@ test('a working thread only moves to Working once you leave it', async ({
   await expect(toggle).toHaveCount(0)
 })
 
-test('a thread flashes only while waiting on you, and carries no status text', async ({
+test('a thread row carries no status dot and no status text', async ({
   page,
 }) => {
   await page.goto('/')
@@ -197,7 +197,7 @@ test('a thread flashes only while waiting on you, and carries no status text', a
   const row = page.getByRole('button', { name: /^OAuth login,/ })
   await expect(row).toHaveAttribute('data-urgency', 'attention')
   await expect(row).not.toContainText('Idle')
-  // Finished threads hold still, so a quiet sidebar lets the app go idle.
+  // No dot: what needs you is said by the order, and working by a spinner.
   await expect(row.locator('.status-flash')).toHaveCount(0)
 
   const rows = page.locator('[data-od-id="thread-list"] button')
@@ -222,22 +222,7 @@ test('a thread flashes only while waiting on you, and carries no status text', a
 
   await page.evaluate(() => window.__HARNESS__!.requestApproval('th-lead'))
   await expect(row).toHaveAttribute('data-urgency', 'attention')
-  // The dot really blinks: sampled across a cycle, it's seen both full and dimmed.
-  const opacities = await row.locator('.status-flash').evaluate(
-    (dot) =>
-      new Promise<number[]>((resolve) => {
-        const seen: number[] = []
-        const timer = setInterval(() => {
-          seen.push(Number(getComputedStyle(dot).opacity))
-          if (seen.length === 30) {
-            clearInterval(timer)
-            resolve(seen)
-          }
-        }, 100)
-      }),
-  )
-  expect(Math.max(...opacities)).toBeGreaterThan(0.9)
-  expect(Math.min(...opacities)).toBeLessThan(0.7)
+  await expect(row.locator('.status-flash')).toHaveCount(0)
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/thread-attention.png' })
 })

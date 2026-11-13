@@ -4,7 +4,7 @@
   import { formatRelativeAge } from '$lib/format/relative-time'
   import { workspaceStatusLine } from '$lib/state/activity'
   import { appStatusView } from '$lib/run-app/status'
-  import { statusDotFor } from '$lib/sidebar/status'
+  import { workspacePr } from '$lib/changes/workspace-pr'
   import { nav } from '$lib/core/nav.svelte'
   import type { ThreadListRowItem } from '$lib/sidebar/thread-list-store.svelte'
   import { cn } from '$lib/utils'
@@ -16,13 +16,15 @@
   import { snoozes } from '$lib/sidebar/snooze-store.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import Trash2 from '@lucide/svelte/icons/trash-2'
-  import StatusDot from './StatusDot.svelte'
+  import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
+  import GitPullRequestDraft from '@lucide/svelte/icons/git-pull-request-draft'
+  import GitMerge from '@lucide/svelte/icons/git-merge'
 
   let { item, nowMs }: { item: ThreadListRowItem; nowMs: number } = $props()
 
   const workspace = $derived(item.workspace)
   const attention = $derived(item.urgency === 'attention')
-  // In progress isn't your problem: a spinner, and everything else steps back.
+  // In progress isn't your problem: a spinner where the age goes, and everything else steps back.
   const working = $derived(workspace != null && !attention)
 
   const isCurrent = $derived(
@@ -38,11 +40,18 @@
   )
   const statusLine = $derived(status.text)
 
-  const dotVariant = $derived(
-    workspace ? statusDotFor(workspace, attention) : 'idle',
-  )
+  // The branch's pull request, the same one the header shows.
+  const pr = $derived(workspace ? workspacePr(workspace) : null)
+  const prLabel = $derived.by(() => {
+    if (!pr) return null
+    if (pr.state === 'merged') return `PR #${pr.number} merged`
+    if (pr.state === 'queued') return `PR #${pr.number} in the merge queue`
+    if (pr.synced?.isDraft) return `Draft PR #${pr.number}`
+    return `PR #${pr.number} open`
+  })
 
-  // Only what the dot can't say: a setup that failed, or a leftover that can't be prompted.
+  // Only what the row can't otherwise say: a setup that failed, or a leftover that can't be
+  // prompted.
   const showStatus = $derived(!workspace || status.failed)
 
   // The workspace's dev app, shown so a running server is findable without opening it.
@@ -64,6 +73,7 @@
       item.branch,
       attention ? `needs attention, ${statusLine}` : statusLine,
       appPort ? `app running on port ${appPort}` : null,
+      prLabel,
       item.parentTitle ? `started by ${item.parentTitle}` : null,
       snoozedUntil
         ? `snoozed until ${formatSnoozeUntil(snoozedUntil, nowMs)}`
@@ -94,7 +104,7 @@
     <button
       type="button"
       class={cn(
-        'thread-row relative grid w-full grid-cols-[16px_minmax(0,1fr)] gap-x-2 overflow-hidden rounded-lg px-2.5 py-2 text-left transition-[background-color,transform,box-shadow] duration-(--dur-fast) ease-(--ease-out-snappy) outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.98] aria-[current=page]:bg-sidebar-accent dark:hover:bg-muted/50',
+        'thread-row relative grid w-full grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg px-2.5 py-2 text-left transition-[background-color,transform,box-shadow] duration-(--dur-fast) ease-(--ease-out-snappy) outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.98] aria-[current=page]:bg-sidebar-accent dark:hover:bg-muted/50',
         item.nested && 'pl-6',
       )}
       aria-current={isCurrent ? 'page' : undefined}
@@ -104,16 +114,6 @@
       data-urgency={item.urgency}
       onclick={open}
     >
-      <span class="flex items-center">
-        {#if working}
-          <LoaderCircle
-            class="size-3.5 animate-spin text-muted-foreground"
-            data-od-id="thread-row-spinner"
-          />
-        {:else}
-          <StatusDot variant={dotVariant} />
-        {/if}
-      </span>
       <span
         class={cn(
           'grid min-w-0 gap-0.5 transition-opacity duration-(--dur-med)',
@@ -128,7 +128,12 @@
               working ? 'text-muted-foreground' : 'text-sidebar-foreground',
             )}>{item.title}</span
           >
-          {#if snoozedUntil}
+          {#if working}
+            <LoaderCircle
+              class="size-3 shrink-0 self-center animate-spin text-muted-foreground"
+              data-od-id="thread-row-spinner"
+            />
+          {:else if snoozedUntil}
             <span
               class="flex shrink-0 items-center gap-1 font-mono text-[10px] text-muted-foreground/80 tabular-nums"
               data-od-id="thread-row-snoozed-until"
@@ -167,6 +172,34 @@
               >
                 <span class="size-1.5 rounded-full bg-emerald-500"
                 ></span>:{appPort}
+              </span>
+            {/if}
+            {#if pr}
+              <span
+                class={cn(
+                  'flex shrink-0 items-center',
+                  !appPort && 'ml-auto',
+                  pr.state === 'merged'
+                    ? 'text-violet-500'
+                    : pr.state === 'queued'
+                      ? 'text-amber-500'
+                      : pr.synced?.isDraft
+                        ? 'text-muted-foreground'
+                        : 'text-emerald-500',
+                )}
+                title={prLabel}
+                data-od-id="thread-row-pr"
+                data-pr-state={pr.synced?.isDraft && pr.state === 'open'
+                  ? 'draft'
+                  : pr.state}
+              >
+                {#if pr.state === 'merged'}
+                  <GitMerge class="size-3.5" aria-hidden="true" />
+                {:else if pr.synced?.isDraft && pr.state === 'open'}
+                  <GitPullRequestDraft class="size-3.5" aria-hidden="true" />
+                {:else}
+                  <GitPullRequest class="size-3.5" aria-hidden="true" />
+                {/if}
               </span>
             {/if}
           </span>

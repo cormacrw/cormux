@@ -95,6 +95,8 @@ export type HarnessScenario = {
   }
   /** Links agents pinned with `attach_entity`. */
   entities?: Snapshot['persisted']['entities']
+  /** The fixture workspace's branch, for how a long one fits in the sidebar. */
+  workspaceBranch?: string
   /** Synced PRs; this also flips GitHub to connected. */
   pullRequests?: Snapshot['persisted']['pullRequests']
   /** A stored ClickUp key and a picked sprint folder. */

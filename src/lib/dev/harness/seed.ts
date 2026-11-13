@@ -151,6 +151,11 @@ export function seedFixtures(db: HarnessDb, scenario: HarnessScenario) {
   Object.assign(snapshot.settings, scenario.settings)
   if (scenario.leadUsage) seedLeadUsage(db, scenario.leadUsage)
   if (scenario.entities) persisted.entities = scenario.entities
+  if (scenario.workspaceBranch) {
+    const { row, record } = findWorkspace(db, WORKSPACE_ID)
+    row!.branch = scenario.workspaceBranch
+    record!.branch = scenario.workspaceBranch
+  }
   if (scenario.pullRequests) {
     persisted.pullRequests = scenario.pullRequests
     snapshot.githubAuthConfigured = true
