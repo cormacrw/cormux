@@ -2,6 +2,14 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.25
+
+- Right-click a thread in the sidebar to snooze it for 1 hour, 3 hours, until tomorrow morning or until next Monday. Snoozed threads wait in a collapsible Snoozed section and come back on their own, or straight away with Unsnooze.
+- The same menu can delete a thread, after the usual confirmation.
+- Sidebar rows drop the status dot. A PR icon in the corner shows when the branch has a pull request (open, draft, merged or queued), and long branch names truncate to make room for it.
+- The PR button is gone from the workspace header; ⌘P still opens the PR, or Create PR when there isn't one.
+- New Open in Editor button in the workspace header (⌘⇧O), opening the worktree in Zed by default. Pick another editor in Settings › General.
+
 ## 0.1.24
 
 - Opening a new thread no longer shows a "couldn't run git rev-parse" error while its worktree is still being set up. The stack and Changes panels stay empty until the worktree is ready.
