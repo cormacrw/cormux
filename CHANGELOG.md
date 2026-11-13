@@ -2,6 +2,15 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.26
+
+- Threads stay in Working while their agent waits on any background task (a test run, build, monitor, workflow or subagent), instead of jumping to the needs-you list as soon as a turn ends.
+- Deleting a thread stops everything its agent started, including dev servers and background shells that used to keep running.
+- Find a thread from the command palette by its PR number: `482`, `#482` and `pr 482` all work, and the PR shows next to the thread.
+- The palette also searches each thread's references (the PRs, tickets and docs its agent pinned), so a ticket id finds the thread that worked on it.
+- The palette no longer lists Review PR commands.
+- Sending a message to a snoozed thread brings it back to the list.
+
 ## 0.1.25
 
 - Right-click a thread in the sidebar to snooze it for 1 hour, 3 hours, until tomorrow morning or until next Monday. Snoozed threads wait in a collapsible Snoozed section and come back on their own, or straight away with Unsnooze.
