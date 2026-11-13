@@ -14,9 +14,9 @@
 //! - An `sdk` server in `--mcp-config`, also named as `sdkMcpServers` in `initialize`, is
 //!   answered by the host: each JSON-RPC message arrives as a `control_request` with
 //!   `subtype: mcp_message`, and every one needs a `control_response`.
-//! - A turn's `result` lands while background subagents run. `system`/`background_tasks_changed`
-//!   lists what is live, and each agent that finishes starts a turn of its own with a new
-//!   `system`/`init`. One stopped with `stop_task` starts none. Interrupt doesn't reach them.
+//! - A turn's `result` lands while background tasks (subagents, shells, monitors, workflows) run.
+//!   `system`/`background_tasks_changed` lists what is live, and each task that finishes starts a
+//!   turn of its own with a new `system`/`init`. One stopped with `stop_task` starts none. Interrupt doesn't reach them.
 //! - A prompt sent mid-turn is taken into that turn at its next tool call (one `result` answers
 //!   both), or, if none comes, starts a turn of its own after the `result`, with a new
 //!   `system`/`init`. `--replay-user-messages` echoes each prompt as a `user` message with
@@ -167,7 +167,7 @@ async fn run(
                         log::warn!("claude interrupt: {error}");
                     }
                     gate.interrupted();
-                    for task_id in gate.running_agents() {
+                    for task_id in gate.running_tasks() {
                         if let Err(error) = session.stop_task(task_id).await {
                             log::warn!("claude stop task: {error}");
                         }

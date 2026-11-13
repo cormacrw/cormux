@@ -379,12 +379,15 @@ impl ThreadRuntime {
         })
     }
 
-    /// Signals every live engine's process group. For app quit, which can't wait on the
-    /// pumps' graceful shutdown; without it the CLIs' shells and servers outlive the app.
+    /// Signals every live engine's process group, and everything the engines started. For app
+    /// quit, which can't wait on the pumps' graceful shutdown; without it the CLIs' shells and
+    /// servers outlive the app. Those run in sessions of their own, out of the groups' reach.
     pub fn kill_all(&self) {
         let Ok(threads) = self.threads.lock() else {
             return;
         };
+        let roots: Vec<u32> = threads.values().filter_map(|slot| slot.pgid).collect();
+        crate::process_tree::Family::of(&roots).signal(libc::SIGTERM);
         for slot in threads.values() {
             let Some(pgid) = slot.pgid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                 continue;
@@ -452,7 +455,7 @@ impl ThreadRuntime {
 
     /// Shuts down engines nothing has touched for `idle_for`, returning their threads. Only one
     /// with a saved session goes, since that's what the next prompt resumes. A turn the engine is
-    /// holding for background agents keeps its thread running, and a paused one is paused, so
+    /// holding for background tasks keeps its thread running, and a paused one is paused, so
     /// neither reads as idle. A thread in the middle of an operation waits for the next tick.
     fn reap_idle(&self, idle_for: Duration) -> Vec<String> {
         let Ok(mut threads) = self.threads.lock() else {

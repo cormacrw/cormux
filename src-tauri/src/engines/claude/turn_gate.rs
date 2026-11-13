@@ -6,12 +6,12 @@ use super::map::TurnEnd;
 use super::protocol::Event;
 use crate::model::StopReason;
 
-/// A finished agent starts its follow-up turn at once, but a stopped one starts none, so its
+/// A finished task starts its follow-up turn at once, but a stopped one starts none, so its
 /// thread can't wait for another `result`.
 const FOLLOW_UP_GRACE: Duration = Duration::from_secs(5);
 
-/// Claude reports a turn's `result` while background subagents are still running, and each one
-/// that finishes starts a turn of its own. This keeps a turn's end back until they are done, so
+/// Claude reports a turn's `result` while background tasks (subagents, shells, monitors,
+/// workflows) are still running, and each one that finishes starts a turn of its own. This keeps a turn's end back until they are done, so
 /// the thread doesn't read as idle while it is still working.
 ///
 /// It also counts the prompts the CLI hasn't taken. One sent mid-turn is taken into that turn
@@ -19,7 +19,7 @@ const FOLLOW_UP_GRACE: Duration = Duration::from_secs(5);
 /// echoes each as it takes it, so a turn that ends with one untaken has another coming.
 #[derive(Default)]
 pub struct TurnGate {
-    agents: Vec<String>,
+    tasks: Vec<String>,
     held: Option<TurnEnd>,
     release_at: Option<Instant>,
     untaken: usize,
@@ -28,9 +28,9 @@ pub struct TurnGate {
 impl TurnGate {
     pub fn observe(&mut self, event: &Event) {
         match event {
-            Event::BackgroundAgents { task_ids } => {
-                self.agents = task_ids.clone();
-                self.release_at = (self.agents.is_empty() && self.held.is_some())
+            Event::BackgroundTasks { task_ids } => {
+                self.tasks = task_ids.clone();
+                self.release_at = (self.tasks.is_empty() && self.held.is_some())
                     .then(|| Instant::now() + FOLLOW_UP_GRACE);
             }
             // A new turn has its own end, so the one held back no longer matters.
@@ -61,18 +61,18 @@ impl TurnGate {
     /// The turn end to report, or nothing if it has to wait. A failed turn never waits.
     pub fn pass(&mut self, event: TurnEnd) -> Option<TurnEnd> {
         let finished = event.stop_reason == StopReason::EndTurn;
-        if finished && !self.agents.is_empty() {
+        if finished && !self.tasks.is_empty() {
             self.held = Some(event);
             return None;
         }
         Some(event)
     }
 
-    pub fn running_agents(&self) -> Vec<String> {
-        self.agents.clone()
+    pub fn running_tasks(&self) -> Vec<String> {
+        self.tasks.clone()
     }
 
-    /// When to give up on a follow-up turn, if the agents have all gone.
+    /// When to give up on a follow-up turn, if the tasks have all gone.
     pub fn release_at(&self) -> Option<Instant> {
         self.release_at
     }
@@ -95,7 +95,7 @@ mod tests {
     }
 
     fn agents(ids: &[&str]) -> Event {
-        Event::BackgroundAgents {
+        Event::BackgroundTasks {
             task_ids: ids.iter().map(|id| id.to_string()).collect(),
         }
     }

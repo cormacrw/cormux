@@ -48,7 +48,7 @@ pub fn map_claude_event(event: &Event) -> Vec<AgentEvent> {
         | Event::CanUseTool(_)
         | Event::McpMessage { .. }
         | Event::ControlResponse { .. }
-        | Event::BackgroundAgents { .. }
+        | Event::BackgroundTasks { .. }
         | Event::PromptTaken
         | Event::Other { .. } => Vec::new(),
     }

@@ -22,6 +22,7 @@ use super::protocol::{
 use crate::engines::prompt::Prompt;
 use crate::engines::{EngineOutput, HostToolCall};
 use crate::error::{Error, Result};
+use crate::process_tree::Family;
 
 /// How long the CLI gets to answer the initialize handshake. Once a session is up there is
 /// no read timeout: Claude is silent between turns and while a long tool runs.
@@ -266,20 +267,27 @@ impl ClaudeSession {
     /// The longest `shutdown` takes: the CLI's grace after SIGTERM, then a moment to kill it.
     pub const STOPS_WITHIN: Duration = Duration::from_secs(SIGTERM_GRACE.as_secs() + 1);
 
-    /// Stops the CLI's whole process group. The group is the CLI's own (`process_group(0)`), so
-    /// the shells and servers it started go with it rather than outliving the thread.
+    /// Stops the CLI and everything it started. Its own group (`process_group(0)`) isn't
+    /// enough: the CLI runs each shell command in a session of its own, so the servers and test
+    /// runs an agent started are found as the CLI's descendants and stopped with it.
     pub async fn shutdown(&mut self) {
         let _ = self.stdin.shutdown().await;
         let pgid = self.child.id().map(|pid| pid as i32);
+        let roots: Vec<u32> = self.child.id().into_iter().collect();
+        let mut family = tokio::task::spawn_blocking(move || Family::of(&roots))
+            .await
+            .unwrap_or_default();
         if let Some(pgid) = pgid {
             let _ = unsafe { libc::killpg(pgid, libc::SIGTERM) };
         }
+        family = signal_family(family, libc::SIGTERM).await;
         let _ = timeout(SIGTERM_GRACE, self.child.wait()).await;
         // The CLI exiting on SIGTERM doesn't mean its children did; `kill_on_drop` only
         // reaches the CLI itself.
         if let Some(pgid) = pgid {
             let _ = unsafe { libc::killpg(pgid, libc::SIGKILL) };
         }
+        signal_family(family, libc::SIGKILL).await;
         let _ = self.child.kill().await;
     }
 
@@ -305,6 +313,19 @@ impl ClaudeSession {
 
 /// Hands one MCP message to the host and waits for its reply. A host that has gone away gets the
 /// CLI an error rather than a hang.
+/// Walking the process table blocks, so it's kept off the runtime.
+async fn signal_family(mut family: Family, signal: i32) -> Family {
+    if family.is_empty() {
+        return family;
+    }
+    tokio::task::spawn_blocking(move || {
+        family.signal(signal);
+        family
+    })
+    .await
+    .unwrap_or_default()
+}
+
 pub async fn ask_host(
     host: &mpsc::UnboundedSender<EngineOutput>,
     server: String,
@@ -400,6 +421,64 @@ sys.stdin.readline()
             })
         ));
         session.shutdown().await;
+    }
+
+    /// Starts a command in a session of its own, as the real CLI runs every shell command, and
+    /// writes its pid to the file named in its first argument.
+    const DETACHING_CLI: &str = r#"
+import json, subprocess, sys
+init = json.loads(sys.stdin.readline())
+print(json.dumps({"type": "control_response", "response": {"subtype": "success", "request_id": init["request_id"]}}), flush=True)
+server = subprocess.Popen(["sleep", "60"], start_new_session=True)
+open(sys.argv[1], "w").write(str(server.pid))
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False}), flush=True)
+sys.stdin.readline()
+"#;
+
+    /// Bug: deleting a thread left the dev server its agent started running.
+    #[tokio::test]
+    async fn shutdown_stops_a_command_started_in_its_own_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("pid");
+        let options = SpawnOptions {
+            label: "detaching".into(),
+            binary: PathBuf::from("python3"),
+            args: vec![
+                "-c".into(),
+                DETACHING_CLI.into(),
+                pid_file.to_string_lossy().into_owned(),
+            ],
+            cwd: None,
+            env: None,
+            sdk_servers: Vec::new(),
+        };
+        let mut session = ClaudeSession::spawn(options, &host()).await.unwrap();
+        assert!(matches!(
+            session.next_event().await.unwrap(),
+            Some(Event::Result { .. })
+        ));
+        let server: i32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+
+        session.shutdown().await;
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        // Once killed, it's a zombie until init reaps it; `ps` tells the two apart.
+        let running = || {
+            let out = std::process::Command::new("ps")
+                .args(["-o", "stat=", "-p", &server.to_string()])
+                .output()
+                .unwrap();
+            let stat = String::from_utf8_lossy(&out.stdout);
+            !stat.trim().is_empty() && !stat.trim().starts_with('Z')
+        };
+        while running() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(!running(), "the detached command outlived the session");
     }
 
     fn mock_python() -> SpawnOptions {

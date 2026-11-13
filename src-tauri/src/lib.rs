@@ -27,6 +27,7 @@ mod orchestration;
 mod paths;
 mod pr_draft;
 mod process;
+mod process_tree;
 mod provisioning;
 mod repos;
 mod review;

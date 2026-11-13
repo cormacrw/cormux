@@ -137,8 +137,8 @@ pub enum Event {
         request_id: String,
         ok: bool,
     },
-    /// The background subagents still running, re-sent whole each time the set changes.
-    BackgroundAgents {
+    /// The background tasks still running, re-sent whole each time the set changes.
+    BackgroundTasks {
         task_ids: Vec<String>,
     },
     /// A background task finished, naming the tool call that started it.
@@ -285,8 +285,8 @@ pub fn decode_event(line: &str) -> Result<Event> {
         "system"
             if value.get("subtype").and_then(Value::as_str) == Some("background_tasks_changed") =>
         {
-            Ok(Event::BackgroundAgents {
-                task_ids: background_agent_ids(&value),
+            Ok(Event::BackgroundTasks {
+                task_ids: background_task_ids(&value),
             })
         }
         "system"
@@ -450,17 +450,16 @@ fn assistant_blocks(value: &Value) -> Vec<AssistantBlock> {
         .collect()
 }
 
-/// Only agents count: a background shell can be a dev server that never exits.
-fn background_agent_ids(value: &Value) -> Vec<String> {
+/// Whatever the agent is waiting on counts: subagents, shell commands, monitors and workflows.
+/// Each that finishes starts a turn of its own. The CLI marks what isn't work (watchers it
+/// started itself) `ambient`. A shell left running, such as a dev server, holds the thread until
+/// the CLI's background timeout, Stop, or deleting the thread ends it.
+fn background_task_ids(value: &Value) -> Vec<String> {
     let tasks = value.get("tasks").and_then(Value::as_array);
     tasks
         .into_iter()
         .flatten()
-        .filter(|task| {
-            task.get("task_type")
-                .and_then(Value::as_str)
-                .is_some_and(|kind| kind.ends_with("_agent"))
-        })
+        .filter(|task| task.get("ambient").and_then(Value::as_bool) != Some(true))
         .filter_map(|task| Some(task.get("task_id")?.as_str()?.to_string()))
         .collect()
 }
@@ -747,18 +746,22 @@ mod tests {
         assert_eq!(tool_output(Some(&json!(""))), None);
     }
 
+    /// Bug: a thread whose agent waited on a background test run, monitor or workflow read as
+    /// needing you, since only subagents counted.
     #[test]
-    fn only_background_agents_count_as_running() {
+    fn every_background_task_but_an_ambient_one_counts_as_running() {
         let event = decode_event(
             r#"{"type":"system","subtype":"background_tasks_changed","tasks":[
                 {"task_id":"a1","task_type":"local_agent"},
-                {"task_id":"b1","task_type":"local_bash"}]}"#,
+                {"task_id":"b1","task_type":"local_bash"},
+                {"task_id":"w1","task_type":"local_workflow"},
+                {"task_id":"m1","task_type":"monitor_mcp","ambient":true}]}"#,
         )
         .unwrap();
         assert_eq!(
             event,
-            Event::BackgroundAgents {
-                task_ids: vec!["a1".into()],
+            Event::BackgroundTasks {
+                task_ids: vec!["a1".into(), "b1".into(), "w1".into()],
             }
         );
     }
