@@ -1,4 +1,4 @@
-import type { RepoRecord } from '$lib/ipc/bindings'
+import type { EntityRow, RepoRecord } from '$lib/ipc/bindings'
 import { workspaceCardMetaText } from './workspace-meta'
 import { plural } from '$lib/format/plural'
 import { shortcutLabel } from '$lib/keyboard/shortcuts'
@@ -18,6 +18,7 @@ import { clickup } from '$lib/clickup/store.svelte'
 import { findings } from '$lib/findings/store.svelte'
 import { workspacePr } from '$lib/changes/workspace-pr'
 import { attention } from '$lib/state/attention.svelte'
+import { entities } from '$lib/state/entities.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches, type Scratch } from '$lib/state/scratches.svelte'
 import { threads, type Thread } from '$lib/state/threads.svelte'
@@ -39,6 +40,8 @@ export type PaletteState = {
   repos: RepoRecord[]
   /** The number of the PR on the workspace's branch, the one its sidebar row shows. */
   prNumberOf: (workspace: Workspace) => number | null
+  /** What a thread's agent pinned with `attach_entity`: the PRs, tickets and docs it worked on. */
+  referencesOf: (threadId: string) => EntityRow[]
   appControlsFor: (workspaceId: string) => AppControls
   findingsAvailable: (workspace: Workspace) => boolean
   needsYou: (workspaceId: string) => boolean
@@ -54,6 +57,7 @@ function storeState(): PaletteState {
     threadsOf: (workspaceId) => threads.forWorkspace(workspaceId),
     repos: repos.items,
     prNumberOf: (workspace) => workspacePr(workspace)?.number ?? null,
+    referencesOf: (threadId) => entities.forThread(threadId),
     appControlsFor: appControls,
     findingsAvailable: (workspace) => findings.tabAvailable(workspace),
     needsYou: (workspaceId) => attention.needsYou(workspaceId),
@@ -149,6 +153,9 @@ export function buildPaletteCommands(
         ),
       ),
       icon: 'workspace',
+      references: wsThreads
+        .filter((thread) => !thread.retired)
+        .flatMap((thread) => state.referencesOf(thread.id)),
       run: () => openWorkspace(workspace.id),
     })
   }
@@ -184,6 +191,7 @@ export function buildPaletteCommands(
         label: `Open ${thread.role} in ${workspace.name}`,
         meta: thread.activity,
         icon: 'thread',
+        references: state.referencesOf(thread.id),
         run: () => openWorkspaceThread(workspace.id, thread.id),
       })
     }

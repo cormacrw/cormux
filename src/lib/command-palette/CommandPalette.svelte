@@ -5,6 +5,7 @@
   import {
     filterCommands,
     groupFilteredCommands,
+    matchedReference,
   } from '$lib/command-palette/filter'
   import { buildPaletteCommands } from '$lib/command-palette/registry'
   import { runBang } from '$lib/command-palette/actions'
@@ -147,6 +148,8 @@
         <Command.Group heading={group}>
           {#each items as command (command.id)}
             {@const Icon = command.icon && ICONS[command.icon]}
+            {@const subtitle =
+              matchedReference(command, query) ?? command.subtitle}
             <Command.Item value={command.id} onSelect={() => onSelect(command)}>
               {#if Icon}
                 <Icon class="text-muted-foreground" aria-hidden="true" />
@@ -154,11 +157,11 @@
                 <!-- Holds the icon's place, so labels line up down the list. -->
                 <span class="size-4 shrink-0" aria-hidden="true"></span>
               {/if}
-              {#if command.subtitle}
+              {#if subtitle}
                 <span class="flex min-w-0 flex-1 flex-col">
                   <span class="truncate">{command.label}</span>
                   <span class="truncate text-xs text-muted-foreground/80">
-                    {command.subtitle}
+                    {subtitle}
                   </span>
                 </span>
               {:else}

@@ -61,7 +61,7 @@ Run and Restart first open the workspace, then perform the action. Stop acts wit
 - **Opening** clears the input, selects the first item and focuses the input. Any open popover is closed first.
 - **Toggle:** pressing `⌘K` while the palette is open closes it.
 - **Blocked:** the palette will not open while the New workspace dialog or a confirmation dialog is open.
-- **Filtering:** case-insensitive substring match against the label *and* the meta text, so typing `idle` finds idle workspaces and `pnpm` finds Run commands. `#` is ignored on both sides, so `482`, `#482` and `pr 482` all find the workspace whose PR is #482. Group headings are shown only for groups with matches. The selection resets to the first match on every keystroke.
+- **Filtering:** case-insensitive substring match against the label *and* the meta text, so typing `idle` finds idle workspaces and `pnpm` finds Run commands. `#` is ignored on both sides, so `482`, `#482` and `pr 482` all find the workspace whose PR is #482. A thread's references (the PRs, tickets and docs its agent pinned, see the References panel) are searched too, by name and URL, so a ticket id like `CU-86b2` or `ENG-118` finds the thread that worked on it; when a reference is what matched, its name shows under the label. Group headings are shown only for groups with matches. The selection resets to the first match on every keystroke.
 - **No results:** a single line reads `No commands match “<query>”`.
 - **Running a command** closes the palette first, then runs the command on the next tick so focus handling in the destination view works.
 - **Mouse:** hovering an item selects it; clicking runs it. Clicking the backdrop closes the palette.

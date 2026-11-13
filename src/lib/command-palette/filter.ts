@@ -1,4 +1,4 @@
-import type { PaletteCommand } from './types'
+import type { PaletteCommand, PaletteReference } from './types'
 
 const haystacks = new WeakMap<PaletteCommand, string>()
 
@@ -18,14 +18,46 @@ function normalize(text: string): string {
   return text.toLowerCase().replaceAll('#', '')
 }
 
-/** Case-insensitive substring match on label and meta (product/features/02-command-palette-and-shortcuts.md). */
+/** Case-insensitive substring match on label, meta and references (product/features/02-command-palette-and-shortcuts.md). */
 export function filterCommands(
   commands: PaletteCommand[],
   query: string,
 ): PaletteCommand[] {
   const q = normalize(query.trim())
   if (!q) return commands
-  return commands.filter((command) => haystack(command).includes(q))
+  return commands.filter(
+    (command) =>
+      haystack(command).includes(q) || referenceMatching(command, q) != null,
+  )
+}
+
+const referenceHaystacks = new WeakMap<PaletteReference, string>()
+
+function referenceMatching(
+  command: PaletteCommand,
+  q: string,
+): PaletteReference | undefined {
+  return command.references?.find((reference) => {
+    let text = referenceHaystacks.get(reference)
+    if (text === undefined) {
+      text = normalize(`${reference.name}\n${reference.url}`)
+      referenceHaystacks.set(reference, text)
+    }
+    return text.includes(q)
+  })
+}
+
+/**
+ * The reference that put a command in the results, by its name, so it's clear why a thread
+ * matched. Nothing when the label or meta matched on their own.
+ */
+export function matchedReference(
+  command: PaletteCommand,
+  query: string,
+): string | undefined {
+  const q = normalize(query.trim())
+  if (!q || haystack(command).includes(q)) return undefined
+  return referenceMatching(command, q)?.name
 }
 
 const GROUP_ORDER = [

@@ -54,3 +54,28 @@ test('the palette finds a thread by its PR number', async ({ page }) => {
   await dialog.getByText('Open OAuth login').click()
   await expect(page.getByRole('heading', { name: 'OAuth login' })).toBeVisible()
 })
+
+test('the palette finds a thread by a ticket it references', async ({
+  page,
+}) => {
+  await setScenario(page, {
+    entities: [
+      {
+        id: 1,
+        threadId: 'th-lead',
+        name: 'CU-86b2 Session timeout',
+        url: 'https://app.clickup.com/t/86b2abc',
+        createdAt: '2026-11-01 10:00:00',
+      },
+    ],
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: /Search or run a command/ }).click()
+  const dialog = page.getByRole('dialog')
+  await page.keyboard.type('86b2abc')
+  await expect(dialog.getByText('Open OAuth login')).toBeVisible()
+  // Why it matched shows under the label.
+  await expect(dialog.getByText('CU-86b2 Session timeout')).toBeVisible()
+  await dialog.getByText('Open OAuth login').click()
+  await expect(page.getByRole('heading', { name: 'OAuth login' })).toBeVisible()
+})
