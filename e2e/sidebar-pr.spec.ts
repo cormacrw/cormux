@@ -5,7 +5,11 @@ import { setScenario } from './harness'
 const LONG_BRANCH =
   'feature/very-long-branch-name-for-the-oauth-login-refactor-with-pkce'
 
-function pullRequest(head: string, isDraft = false) {
+function pullRequest(
+  head: string,
+  isDraft = false,
+  review: 'required' | 'approved' = 'required',
+) {
   return {
     id: 'acme/app#57',
     repoId: 'my-app',
@@ -19,7 +23,7 @@ function pullRequest(head: string, isDraft = false) {
       base: 'main',
       updatedAt: '2026-09-29T20:00:00Z',
       checks: 'pass' as const,
-      review: 'required' as const,
+      review,
       files: 3,
       isDraft,
       htmlUrl: 'https://github.com/acme/app/pull/57',
@@ -88,4 +92,18 @@ test('a draft PR has its own icon, and a row without a PR has none', async ({
       .locator('[data-od-id="thread-row-pr"]'),
   ).toHaveCount(0)
   await shootSidebar(page, 'sidebar-pr-short-branch')
+})
+
+test('an approved PR shows the approved icon', async ({ page }) => {
+  await setScenario(page, {
+    pullRequests: [pullRequest('feat/oauth-login', false, 'approved')],
+  })
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  const row = page.getByRole('button', { name: /^OAuth login,/ })
+  await expect(row).toHaveAccessibleName(/PR #57 approved/)
+  const icon = row.locator('[data-od-id="thread-row-pr"]')
+  await expect(icon).toHaveAttribute('data-pr-state', 'approved')
+  await expect(icon.locator('.lucide-git-pull-request-approved')).toHaveCount(1)
+  await shootSidebar(page, 'sidebar-pr-approved')
 })

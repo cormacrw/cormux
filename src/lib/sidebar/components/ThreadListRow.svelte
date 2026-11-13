@@ -19,6 +19,7 @@
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
   import GitPullRequestDraft from '@lucide/svelte/icons/git-pull-request-draft'
   import GitMerge from '@lucide/svelte/icons/git-merge'
+  import GitPullRequestApproved from '$lib/components/icons/GitPullRequestApproved.svelte'
 
   let { item, nowMs }: { item: ThreadListRowItem; nowMs: number } = $props()
 
@@ -42,11 +43,20 @@
 
   // The branch's pull request, the same one the header shows.
   const pr = $derived(workspace ? workspacePr(workspace) : null)
+  // Open PRs split by what they're waiting on: a draft isn't ready, an approved one can merge.
+  const prState = $derived.by(() => {
+    if (!pr) return null
+    if (pr.state !== 'open') return pr.state
+    if (pr.synced?.isDraft) return 'draft'
+    if (pr.synced?.review === 'approved') return 'approved'
+    return 'open'
+  })
   const prLabel = $derived.by(() => {
     if (!pr) return null
-    if (pr.state === 'merged') return `PR #${pr.number} merged`
-    if (pr.state === 'queued') return `PR #${pr.number} in the merge queue`
-    if (pr.synced?.isDraft) return `Draft PR #${pr.number}`
+    if (prState === 'merged') return `PR #${pr.number} merged`
+    if (prState === 'queued') return `PR #${pr.number} in the merge queue`
+    if (prState === 'draft') return `Draft PR #${pr.number}`
+    if (prState === 'approved') return `PR #${pr.number} approved`
     return `PR #${pr.number} open`
   })
 
@@ -179,24 +189,24 @@
                 class={cn(
                   'flex shrink-0 items-center',
                   !appPort && 'ml-auto',
-                  pr.state === 'merged'
+                  prState === 'merged'
                     ? 'text-violet-500'
-                    : pr.state === 'queued'
+                    : prState === 'queued'
                       ? 'text-amber-500'
-                      : pr.synced?.isDraft
+                      : prState === 'draft'
                         ? 'text-muted-foreground'
                         : 'text-emerald-500',
                 )}
                 title={prLabel}
                 data-od-id="thread-row-pr"
-                data-pr-state={pr.synced?.isDraft && pr.state === 'open'
-                  ? 'draft'
-                  : pr.state}
+                data-pr-state={prState}
               >
-                {#if pr.state === 'merged'}
+                {#if prState === 'merged'}
                   <GitMerge class="size-3.5" aria-hidden="true" />
-                {:else if pr.synced?.isDraft && pr.state === 'open'}
+                {:else if prState === 'draft'}
                   <GitPullRequestDraft class="size-3.5" aria-hidden="true" />
+                {:else if prState === 'approved'}
+                  <GitPullRequestApproved class="size-3.5" aria-hidden="true" />
                 {:else}
                   <GitPullRequest class="size-3.5" aria-hidden="true" />
                 {/if}
