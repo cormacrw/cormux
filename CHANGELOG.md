@@ -2,6 +2,11 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.27
+
+- Approved pull requests get their own icon in the sidebar: the PR icon with a check, so you can see which branches are ready to merge.
+- Snoozed threads come back on time even if your laptop was asleep when the snooze ended, instead of staying hidden for hours afterwards.
+
 ## 0.1.26
 
 - Threads stay in Working while their agent waits on any background task (a test run, build, monitor, workflow or subagent), instead of jumping to the needs-you list as soon as a turn ends.
