@@ -14,8 +14,12 @@ test('a thread that moved since you last opened it is unread until you open it',
   })
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
-  const row = page.getByRole('button', { name: /^Why the webhook signature fails,/ })
-  await expect(row).toHaveAccessibleName(/^Why the webhook signature fails, unread,/)
+  const row = page.getByRole('button', {
+    name: /^Why the webhook signature fails,/,
+  })
+  await expect(row).toHaveAccessibleName(
+    /^Why the webhook signature fails, unread,/,
+  )
   await expect(row).toHaveAttribute('data-unread', 'true')
   mkdirSync('e2e/output', { recursive: true })
   await page.screenshot({ path: 'e2e/output/unread-threads.png' })
