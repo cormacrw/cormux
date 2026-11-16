@@ -59,3 +59,46 @@ export function sortThreadList<
       : b.activityAtMs - a.activityAtMs
   })
 }
+
+export type SendAndNextMode = 'newestUnread' | 'oldest'
+
+/**
+ * Where ⌘↵ goes after sending: another thread that needs you, never the one you're on. `items`
+ * are the sidebar's Threads section, already sorted, so snoozed and working threads aren't in
+ * it. Oldest is the one that has waited longest (the top of the list); newest unread is the
+ * unread one that moved last. Null when there's nowhere to go.
+ */
+export function nextThreadAfterSend<
+  T extends {
+    id: string
+    urgency: ThreadUrgency
+    activityAtMs: number
+    workspace: unknown
+  },
+>(
+  items: T[],
+  currentId: string,
+  mode: SendAndNextMode,
+  isUnread: (item: T) => boolean,
+): T | null {
+  const waiting = items.filter(
+    (item) =>
+      item.id !== currentId &&
+      item.workspace != null &&
+      item.urgency === 'attention',
+  )
+  if (mode === 'oldest') {
+    return waiting.reduce<T | null>(
+      (best, item) =>
+        best == null || item.activityAtMs < best.activityAtMs ? item : best,
+      null,
+    )
+  }
+  return waiting
+    .filter(isUnread)
+    .reduce<T | null>(
+      (best, item) =>
+        best == null || item.activityAtMs > best.activityAtMs ? item : best,
+      null,
+    )
+}

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { nestThreadList, sortThreadList, splitThreadList } from './thread-list'
+import {
+  nestThreadList,
+  nextThreadAfterSend,
+  sortThreadList,
+  splitThreadList,
+} from './thread-list'
 
 describe('thread order', () => {
   it('puts what needs you first, longest wait on top, then recent activity', () => {
@@ -61,5 +66,45 @@ describe('nestThreadList', () => {
       ['kid', false],
       ['other', false],
     ])
+  })
+})
+
+describe('nextThreadAfterSend', () => {
+  const row = (
+    id: string,
+    activityAtMs: number,
+    urgency: 'attention' | 'quiet' = 'attention',
+    workspace: object | null = {},
+  ) => ({ id, activityAtMs, urgency, workspace })
+  const items = [
+    row('current', 1),
+    row('old', 2),
+    row('mid', 5),
+    row('new', 8),
+    row('scratch', 0, 'quiet', null),
+    row('mine', 9, 'quiet'),
+  ]
+  const unread = new Set(['old', 'mid'])
+  const isUnread = (item: { id: string }) => unread.has(item.id)
+
+  it('goes to whatever has waited longest, never the thread you are on', () => {
+    expect(nextThreadAfterSend(items, 'current', 'oldest', isUnread)?.id).toBe(
+      'old',
+    )
+  })
+
+  it('goes to the unread thread that moved last', () => {
+    expect(
+      nextThreadAfterSend(items, 'current', 'newestUnread', isUnread)?.id,
+    ).toBe('mid')
+  })
+
+  it('stays put when nothing else needs you', () => {
+    expect(
+      nextThreadAfterSend(items, 'current', 'newestUnread', () => false),
+    ).toBeNull()
+    expect(
+      nextThreadAfterSend([row('current', 1)], 'current', 'oldest', isUnread),
+    ).toBeNull()
   })
 })

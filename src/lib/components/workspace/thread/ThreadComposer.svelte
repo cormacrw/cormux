@@ -14,10 +14,13 @@
     placeholder: string
     /** Nowhere to send yet. */
     disabled: boolean
-    /** Sends the message; resolves false to put the draft back. `stay` is ⌘↵. */
+    /**
+     * Sends the message; resolves false to put the draft back. `modEnter` is ⌘↵: a new thread
+     * stays on the greeting, a thread moves on to the next one that needs you.
+     */
     send: (
       text: string,
-      stay: boolean,
+      modEnter: boolean,
       attachments: ComposerAttachment[],
     ) => Promise<boolean>
     /** The `/` picker's skills; a new function reads them again. */
@@ -310,7 +313,7 @@
     fitHeight()
   }
 
-  async function sendMessage(stay = false) {
+  async function sendMessage(modEnter = false) {
     const text = draft.trim()
     if (!canSend) return
     // The composer is reused across thread tabs, so pin the id before awaiting.
@@ -329,7 +332,7 @@
     sendingDrafts.add(threadId)
     const outgoing = await expandMessage(text)
     const sent = await target
-      .send(outgoing, stay, attached)
+      .send(outgoing, modEnter, attached)
       .finally(() => sendingDrafts.delete(threadId))
     if (!sent) {
       composerDrafts.setFor(threadId, text)

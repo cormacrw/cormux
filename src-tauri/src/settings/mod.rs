@@ -50,6 +50,8 @@ settings! {
     notify_approvals: bool,
     notify_review_finished: bool,
     default_engine: EngineKind,
+    /// Where ⌘↵ in a thread's prompt goes once the message is sent.
+    send_and_next: SendAndNext,
     /// Preferred repo id for new threads; it may have been removed since.
     default_repo: String,
     /// The folder new worktrees go in, as the user typed it (`~` allowed). Blank saves the
@@ -71,6 +73,16 @@ settings! {
     clickup_hidden_statuses: Vec<String>,
 }
 
+/// The thread ⌘↵ moves on to after sending. Snoozed threads are never picked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SendAndNext {
+    /// The unread thread that moved most recently.
+    NewestUnread,
+    /// The thread that has waited on you longest, the top of the sidebar.
+    Oldest,
+}
+
 /// A short name like `!test` that stands for a saved prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +102,7 @@ impl Default for Settings {
             notify_approvals: true,
             notify_review_finished: true,
             default_engine: EngineKind::Claude,
+            send_and_next: SendAndNext::NewestUnread,
             default_repo: String::new(),
             worktree_root: DEFAULT_WORKTREE_ROOT.into(),
             terminal_app: String::new(),
@@ -429,6 +442,7 @@ mod tests {
             notify_approvals: false,
             notify_review_finished: false,
             default_engine: EngineKind::Claude,
+            send_and_next: SendAndNext::Oldest,
             default_repo: "r1".into(),
             worktree_root: "~/trees".into(),
             terminal_app: "iTerm".into(),

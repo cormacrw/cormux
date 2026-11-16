@@ -720,7 +720,7 @@ toastRaised: "toast-raised"
 
 export const ATTACHED_LINE_PREFIX = "Attached: " as const;
 export const CONVERSATION_STEP_KINDS = ["sessionStarted","sessionResumed"] as const;
-export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","editorApp":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
+export const DEFAULT_SETTINGS = {"bangs":[],"clickupFolderId":"","clickupHiddenStatuses":[],"clickupSpaceId":"","clickupWorkspaceId":"","defaultEngine":"claude","defaultRepo":"","editorApp":"","experimentalReferences":false,"notifyApprovals":true,"notifyReviewFinished":true,"prPrompt":"","reduceMotion":false,"runEverything":false,"sendAndNext":"newestUnread","terminalApp":"","worktreeRoot":"~/.harness/worktrees"} as const;
 export const ENGINE_EFFORTS = [{"id":"low","label":"Low"},{"id":"medium","label":"Medium"},{"id":"high","label":"High"},{"id":"xhigh","label":"Extra high"},{"id":"max","label":"Max"}] as const;
 export const ENGINE_MODELS = [{"id":"fable","label":"Fable"},{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"},{"id":"haiku","label":"Haiku"}] as const;
 export const FINDINGS_BLOCK_TAG = "cormux-findings" as const;
@@ -1176,6 +1176,18 @@ export type ScratchRow = { id: string; repoId: string; title: string; threadId: 
  * Unix milliseconds.
  */
 createdAtMs: number }
+/**
+ * The thread ⌘↵ moves on to after sending. Snoozed threads are never picked.
+ */
+export type SendAndNext = 
+/**
+ * The unread thread that moved most recently.
+ */
+"newestUnread" | 
+/**
+ * The thread that has waited on you longest, the top of the sidebar.
+ */
+"oldest"
 export type SendWorkspaceFindingsInput = { workspaceId: string; threadId: string; findingIds: string[] }
 /**
  * A message as the thread shows it, where the transcript saved it.
@@ -1198,6 +1210,10 @@ runEverything: boolean;
  * The experimental References panel, and the tool that pins links to it.
  */
 experimentalReferences: boolean; notifyApprovals: boolean; notifyReviewFinished: boolean; defaultEngine: EngineKind; 
+/**
+ * Where ⌘↵ in a thread's prompt goes once the message is sent.
+ */
+sendAndNext: SendAndNext; 
 /**
  * Preferred repo id for new threads; it may have been removed since.
  */
@@ -1240,6 +1256,10 @@ runEverything?: boolean | null;
  * The experimental References panel, and the tool that pins links to it.
  */
 experimentalReferences?: boolean | null; notifyApprovals?: boolean | null; notifyReviewFinished?: boolean | null; defaultEngine?: EngineKind | null; 
+/**
+ * Where ⌘↵ in a thread's prompt goes once the message is sent.
+ */
+sendAndNext?: SendAndNext | null; 
 /**
  * Preferred repo id for new threads; it may have been removed since.
  */

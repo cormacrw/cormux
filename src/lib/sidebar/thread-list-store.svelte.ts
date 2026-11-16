@@ -1,12 +1,15 @@
 import { nav } from '$lib/core/nav.svelte'
 import {
   nestThreadList,
+  nextThreadAfterSend,
   sortThreadList,
   splitThreadList,
   type ThreadUrgency,
 } from '$lib/sidebar/thread-list'
 import { splitSnoozed } from '$lib/sidebar/snooze'
 import { snoozes } from '$lib/sidebar/snooze-store.svelte'
+import { seen } from '$lib/sidebar/seen-store.svelte'
+import { settings } from '$lib/settings/store.svelte'
 import { attention } from '$lib/state/attention.svelte'
 import { repos } from '$lib/state/repos.svelte'
 import { scratches } from '$lib/state/scratches.svelte'
@@ -104,6 +107,17 @@ class ThreadList {
       })),
     }
   })
+
+  /** The workspace ⌘↵ moves on to from `currentId`, by the setting; null to stay. */
+  nextAfterSend(currentId: string): Workspace | null {
+    const next = nextThreadAfterSend(
+      this.sections.threads,
+      currentId,
+      settings.values.sendAndNext,
+      (item) => seen.isUnread(item.id, item.activityAtMs),
+    )
+    return next?.workspace ?? null
+  }
 
   readonly ordered = $derived(
     [

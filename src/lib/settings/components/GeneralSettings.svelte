@@ -12,6 +12,7 @@
   import { settings } from '$lib/settings/store.svelte'
   import { workspaces } from '$lib/state/workspaces.svelte'
   import { Alert, AlertDescription } from '$lib/components/ui/alert'
+  import type { SendAndNext } from '$lib/ipc/bindings'
 
   let reloadingEnv = $state(false)
   // Follows the saved setting, and holds edits until they're committed.
@@ -27,6 +28,15 @@
   )
 
   const hasWorkspaces = $derived(workspaces.items.length > 0)
+
+  const SEND_AND_NEXT = [
+    { value: 'newestUnread', label: 'Newest unread' },
+    { value: 'oldest', label: 'Oldest waiting' },
+  ] as const satisfies readonly { value: SendAndNext; label: string }[]
+  const sendAndNextLabel = $derived(
+    SEND_AND_NEXT.find((option) => option.value === settings.values.sendAndNext)
+      ?.label ?? '',
+  )
 
   async function reload() {
     reloadingEnv = true
@@ -73,6 +83,37 @@
           </Select.Content>
         </Select.Root>
       {/if}
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    title="Send and go to next"
+    description="Which thread ⌘↵ in a thread's prompt moves you to after sending. Snoozed threads are skipped."
+    controlId="settings-send-and-next"
+  >
+    {#snippet control()}
+      <Select.Root
+        type="single"
+        value={settings.values.sendAndNext}
+        onValueChange={(value) => {
+          if (value) void updateSettings({ sendAndNext: value as SendAndNext })
+        }}
+      >
+        <Select.Trigger
+          id="settings-send-and-next"
+          class="w-[180px]"
+          data-od-id="settings-send-and-next"
+        >
+          <span class="truncate">{sendAndNextLabel}</span>
+        </Select.Trigger>
+        <Select.Content>
+          {#each SEND_AND_NEXT as option (option.value)}
+            <Select.Item value={option.value} label={option.label}
+              >{option.label}</Select.Item
+            >
+          {/each}
+        </Select.Content>
+      </Select.Root>
     {/snippet}
   </SettingsRow>
 

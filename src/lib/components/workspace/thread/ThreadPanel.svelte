@@ -13,6 +13,7 @@
   import { workspaceDiff } from '$lib/changes/diff-store.svelte'
   import { threadTimeline } from '$lib/thread/timeline-store.svelte'
   import { settings } from '$lib/settings/store.svelte'
+  import { sidebarWorkspaces } from '$lib/sidebar/thread-list-store.svelte'
   import {
     openWorkspace,
     openWorkspaceFindings,
@@ -90,8 +91,14 @@
     sendLabel: 'Send to agent',
     placeholder: `Message ${thread.role}…`,
     disabled: false,
-    send: (text, _stay, attachments) =>
-      sendToThread(threadId, text, attachments),
+    send: async (text, modEnter, attachments) => {
+      const sent = await sendToThread(threadId, text, attachments)
+      // ⌘↵: on to the next thread that needs you, if there is one.
+      const next =
+        sent && modEnter && sidebarWorkspaces.nextAfterSend(workspace.id)
+      if (next) openWorkspace(next.id)
+      return sent
+    },
     listSkills,
     promptHistory: view.promptHistory,
     stop: thread.status === 'running' ? () => void stopThread(threadId) : null,
