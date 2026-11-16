@@ -14,6 +14,7 @@
   import * as ContextMenu from '$lib/components/ui/context-menu'
   import { SNOOZE_OPTIONS, formatSnoozeUntil } from '$lib/sidebar/snooze'
   import { snoozes } from '$lib/sidebar/snooze-store.svelte'
+  import { seen } from '$lib/sidebar/seen-store.svelte'
   import { shellDialogs } from '$lib/state/shell-dialogs.svelte'
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import GitPullRequest from '@lucide/svelte/icons/git-pull-request'
@@ -33,6 +34,14 @@
       ? nav.view === 'workspace' && nav.workspaceId === item.id
       : nav.view === 'scratch' && nav.scratchId === item.id,
   )
+
+  // Moved since you last had it open. The one you're on is caught up as it moves.
+  const unread = $derived(
+    !isCurrent && seen.isUnread(item.id, item.activityAtMs),
+  )
+  $effect(() => {
+    if (isCurrent) seen.markSeen(item.id, item.activityAtMs)
+  })
 
   const status = $derived(
     workspace
@@ -79,6 +88,7 @@
   const ariaLabel = $derived(
     [
       item.title,
+      unread ? 'unread' : null,
       item.repoName,
       item.branch,
       attention ? `needs attention, ${statusLine}` : statusLine,
@@ -116,12 +126,14 @@
       class={cn(
         'thread-row relative grid w-full grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg px-2.5 py-2 text-left transition-[background-color,transform,box-shadow] duration-(--dur-fast) ease-(--ease-out-snappy) outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.98] aria-[current=page]:bg-sidebar-accent dark:hover:bg-muted/50',
         item.nested && 'pl-6',
+        unread && 'font-bold',
       )}
       aria-current={isCurrent ? 'page' : undefined}
       aria-label={ariaLabel}
       title={item.title}
       data-od-id="thread-row-{item.id}"
       data-urgency={item.urgency}
+      data-unread={unread || undefined}
       onclick={open}
     >
       <span
