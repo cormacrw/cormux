@@ -2,6 +2,14 @@
 
 Each GitHub release shows the bullets under its version's heading, such as `## 0.1.10`, newest first. Add a section when you bump the version; the release workflow fails before building if the section is missing or empty.
 
+## 0.1.28
+
+- Threads with new activity since you last opened them show as unread, in bold, until you open them.
+- ⌘↵ in a thread's prompt sends the message and takes you to the next thread that needs you. Choose newest unread or oldest waiting in Settings → General; snoozed threads are always skipped.
+- Switching a thread's branch no longer shows a toast.
+- Toasts about a thread only show while you're on it, instead of popping up for threads in the background.
+- The sidebar's PR icons stay up to date on their own, checking every couple of minutes and when you come back to the app, instead of only after you open the thread.
+
 ## 0.1.27
 
 - Approved pull requests get their own icon in the sidebar: the PR icon with a check, so you can see which branches are ready to merge.
