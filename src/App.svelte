@@ -36,6 +36,7 @@
   import { bindFeedbackEvents } from '$lib/feedback/wire-feedback'
   import { installSupervision } from '$lib/feedback/supervision'
   import { installClickupSync } from '$lib/clickup/sync'
+  import { installPrRefresh } from '$lib/changes/pr-refresh'
   import * as Tooltip from '$lib/components/ui/tooltip'
   import type { ShellDialogId } from '$lib/state/shell-dialogs.svelte'
 
@@ -89,6 +90,7 @@
       keep(await bindFeedbackEvents())
       keep(await installSupervision(win))
       keep(await installClickupSync(win))
+      keep(await installPrRefresh(win))
       keep(await listenForStateChanges())
     })()
 

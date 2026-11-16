@@ -18,13 +18,19 @@ class StacksStore {
 
   private readonly loads = latestRequests()
 
-  /** Reads the stack again; a reply that a newer read overtook is dropped. */
-  async load(workspaceId: string): Promise<CoreError | null> {
+  /**
+   * Reads the stack again; a reply that a newer read overtook is dropped. A `quiet` read (the
+   * background refresh) doesn't show as checking.
+   */
+  async load(
+    workspaceId: string,
+    { quiet = false } = {},
+  ): Promise<CoreError | null> {
     const isLatest = this.loads(workspaceId)
-    this.loading[workspaceId] = true
+    if (!quiet) this.loading[workspaceId] = true
     const result = await commands.getWorkspaceStack(workspaceId)
     if (!isLatest()) return null
-    this.loading[workspaceId] = false
+    if (!quiet) this.loading[workspaceId] = false
     if (result.status === 'error') return result.error
     this.byWorkspace[workspaceId] = result.data
     return null
