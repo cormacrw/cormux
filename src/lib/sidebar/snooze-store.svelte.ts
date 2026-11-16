@@ -17,10 +17,18 @@ function readSnoozes(): Record<string, number> {
   }
 }
 
+/** Longest a timer waits before checking again. */
+const MAX_TIMER_MS = 60 * 1000
+
 /**
  * Threads you've put away until later, by id, with when each comes back. Kept per machine, like
  * the sidebar's other choices. A snooze that has run out is forgotten, and `nowMs` ticks at that
  * moment so the thread comes back on time rather than on the next minute.
+ *
+ * Timers don't count time while the machine sleeps, and a hidden window's are throttled, so one
+ * set for the snooze's end can fire hours late. Coming back to the window checks again, and the
+ * timer never waits more than a minute, so a snooze that ran out while you were away is over by
+ * the time you look.
  */
 class Snoozes {
   until = $state<Record<string, number>>(readSnoozes())
@@ -30,6 +38,13 @@ class Snoozes {
 
   constructor() {
     this.#wake()
+    if (typeof window !== 'undefined') {
+      const recheck = () => this.#wake()
+      window.addEventListener('focus', recheck)
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') recheck()
+      })
+    }
   }
 
   snooze(id: string, untilMs: number) {
@@ -64,8 +79,7 @@ class Snoozes {
     }
     if (live.length === 0) return
     const next = Math.min(...live.map(([, untilMs]) => untilMs))
-    // Timers past ~24.8 days overflow; checking in once a day is plenty that far out.
-    const delay = Math.min(next - this.nowMs, 24 * 60 * 60 * 1000)
+    const delay = Math.min(next - this.nowMs, MAX_TIMER_MS)
     this.#timer = setTimeout(() => this.#wake(), delay + 50)
   }
 }
