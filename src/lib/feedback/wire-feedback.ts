@@ -1,11 +1,16 @@
 import { events, type CoreError } from '$lib/ipc'
 import { coreErrorText } from '$lib/core/core-error'
+import { nav } from '$lib/core/nav.svelte'
 import type {
   NotificationPayload,
   ToastRaised,
   ToastRaisedPayload,
 } from '$lib/ipc/bindings'
-import { coreErrorToast, environmentReloadToast } from './toast-payload'
+import {
+  coreErrorToast,
+  environmentReloadToast,
+  toastShowsHere,
+} from './toast-payload'
 import { showToast } from './show-toast'
 import type { ToastTarget } from './toast-target'
 
@@ -15,6 +20,7 @@ export function bindFeedbackEvents() {
 
 function showCoreToast(event: ToastRaised) {
   const payload = event.payload
+  if (!toastShowsHere(payload.workspaceId, nav.workspaceId)) return
   showToast({
     tone: payload.tone,
     parts: payload.parts,

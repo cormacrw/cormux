@@ -14,6 +14,17 @@ export type ToastPayload = {
   findings?: boolean
 }
 
+/**
+ * A toast about a workspace only shows while you're on it: what happens in background threads
+ * shows in the sidebar instead. Toasts about no workspace always show.
+ */
+export function toastShowsHere(
+  workspaceId: string | null | undefined,
+  currentWorkspaceId: string | null,
+): boolean {
+  return !workspaceId || workspaceId === currentWorkspaceId
+}
+
 export function formatToastPayload(payload: ToastPayload): string {
   return payload.parts.map((part) => part.value).join('')
 }

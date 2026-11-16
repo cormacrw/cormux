@@ -376,7 +376,8 @@ async fn sync_conflict(state: &AppState, workspace: &WorkspaceRecord) {
     }
 }
 
-/// The PR on record was the old branch's, so it is cleared.
+/// The PR on record was the old branch's, so it is cleared. The switch shows in the thread and
+/// the branch tag, so it raises no toast.
 async fn on_branch_changed(
     state: &AppState,
     workspace: &WorkspaceRecord,
@@ -393,16 +394,6 @@ async fn on_branch_changed(
             branch: branch.to_string(),
             change,
         },
-    );
-    toast(
-        state,
-        &workspace.id,
-        vec![
-            ToastPart::text("Switched "),
-            ToastPart::code(&workspace.name),
-            ToastPart::text(" to "),
-            ToastPart::code(branch),
-        ],
     );
     Ok(())
 }
